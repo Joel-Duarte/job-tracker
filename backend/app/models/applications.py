@@ -87,3 +87,32 @@ class ApplicationStatusHistoryModel(Base):
     changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     application: Mapped["ApplicationModel"] = relationship(back_populates="status_history")
+
+from datetime import datetime
+from typing import Optional
+from sqlalchemy import BigInteger, Boolean, DateTime, Text, func
+from sqlalchemy.orm import Mapped, mapped_column
+from app.models.applications import Base
+
+
+class OtherEventModel(Base):
+    __tablename__ = "email_other_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    email_message_id: Mapped[Optional[str]] = mapped_column(Text, unique=True)
+    email_internet_message_id: Mapped[Optional[str]] = mapped_column(Text, unique=True)
+    email_conversation_id: Mapped[Optional[str]] = mapped_column(Text)
+    email_sender: Mapped[Optional[str]] = mapped_column(Text)
+    email_sender_name: Mapped[Optional[str]] = mapped_column(Text)
+    email_subject: Mapped[Optional[str]] = mapped_column(Text)
+    email_received_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    email_type: Mapped[str] = mapped_column(Text, nullable=False)
+    company: Mapped[Optional[str]] = mapped_column(Text)
+    event_type: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[Optional[str]] = mapped_column(Text)
+    action_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    action: Mapped[Optional[str]] = mapped_column(Text)
+    summary: Mapped[Optional[str]] = mapped_column(Text)
+    raw_body: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

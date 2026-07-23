@@ -78,3 +78,22 @@ class ApplicationFilterParams(BaseModel):
     order: str = Field("desc", description="Sort order: asc or desc")
     limit: int = Field(20, ge=1, le=100, description="Pagination limit")
     offset: int = Field(0, ge=0, description="Pagination offset")
+
+class ApplicationEventDetail(BaseModel):
+    id: int
+    email_message_id: Optional[str] = None
+    email_conversation_id: Optional[str] = None
+    email_sender: Optional[str] = None
+    email_sender_name: Optional[str] = None
+    email_subject: Optional[str] = None
+    email_received_at: Optional[datetime] = None
+    email_event_type: str
+    email_status_after_event: Optional[str] = None
+    email_summary: Optional[str] = None
+    email_action_required: bool = False
+    email_action: Optional[str] = None
+    email_raw_body: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
