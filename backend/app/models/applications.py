@@ -1,0 +1,89 @@
+from datetime import datetime
+from typing import List, Optional
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Text, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class CompanyModel(Base):
+    __tablename__ = "email_companies"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    name_normalized: Mapped[str] = mapped_column(Text, nullable=False)
+    domain: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    applications: Mapped[List["ApplicationModel"]] = relationship(back_populates="company")
+
+
+class ApplicationModel(Base):
+    __tablename__ = "email_applications"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    company_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("email_companies.id"), nullable=False)
+    position: Mapped[Optional[str]] = mapped_column(Text)
+    position_normalized: Mapped[Optional[str]] = mapped_column(Text)
+    external_job_id: Mapped[Optional[str]] = mapped_column(Text)
+    job_url: Mapped[Optional[str]] = mapped_column(Text)
+    application_key: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="APPLIED")
+    application_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_activity_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    company: Mapped["CompanyModel"] = relationship(back_populates="applications")
+    events: Mapped[List["ApplicationEventModel"]] = relationship(
+        back_populates="application",
+        cascade="all, delete-orphan",
+        order_by="desc(ApplicationEventModel.email_received_at)",
+    )
+    status_history: Mapped[List["ApplicationStatusHistoryModel"]] = relationship(
+        back_populates="application",
+        cascade="all, delete-orphan",
+        order_by="desc(ApplicationStatusHistoryModel.changed_at)",
+    )
+
+
+class ApplicationEventModel(Base):
+    __tablename__ = "email_application_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    email_application_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("email_applications.id", ondelete="CASCADE"), nullable=False
+    )
+    email_message_id: Mapped[Optional[str]] = mapped_column(Text, unique=True)
+    email_internet_message_id: Mapped[Optional[str]] = mapped_column(Text, unique=True)
+    email_conversation_id: Mapped[Optional[str]] = mapped_column(Text)
+    email_sender: Mapped[Optional[str]] = mapped_column(Text)
+    email_sender_name: Mapped[Optional[str]] = mapped_column(Text)
+    email_subject: Mapped[Optional[str]] = mapped_column(Text)
+    email_received_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    email_event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    email_status_after_event: Mapped[Optional[str]] = mapped_column(Text)
+    email_summary: Mapped[Optional[str]] = mapped_column(Text)
+    email_action_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    email_action: Mapped[Optional[str]] = mapped_column(Text)
+    email_raw_body: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    application: Mapped["ApplicationModel"] = relationship(back_populates="events")
+
+
+class ApplicationStatusHistoryModel(Base):
+    __tablename__ = "email_application_status_history"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    email_application_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("email_applications.id", ondelete="CASCADE"), nullable=False
+    )
+    old_status: Mapped[Optional[str]] = mapped_column(Text)
+    new_status: Mapped[Optional[str]] = mapped_column(Text)
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    application: Mapped["ApplicationModel"] = relationship(back_populates="status_history")
