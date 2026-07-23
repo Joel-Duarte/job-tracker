@@ -1,0 +1,13 @@
+# PostgreSQL Container Settings
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=postgres
+
+# Built Connection URI (Async Driver for FastAPI)
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/postgres
+
+# Application Environment
+ENVIRONMENT=development
+LOG_LEVEL=DEBUG
