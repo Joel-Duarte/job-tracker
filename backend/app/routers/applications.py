@@ -164,28 +164,3 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
         created_at=app.created_at,
         updated_at=app.updated_at,
     )
-
-
-@router.get(
-    "/{application_id}/history",
-    response_model=List[StatusHistoryItem],
-    summary="Get application status progression history",
-)
-async def get_application_history(application_id: int, db: AsyncSession = Depends(get_db)):
-    stmt = (
-        select(ApplicationStatusHistoryModel)
-        .where(ApplicationStatusHistoryModel.email_application_id == application_id)
-        .order_by(ApplicationStatusHistoryModel.changed_at.desc())
-    )
-    result = await db.execute(stmt)
-    history = result.scalars().all()
-
-    return [
-        StatusHistoryItem(
-            id=h.id,
-            old_status=h.old_status,
-            new_status=h.new_status,
-            changed_at=h.changed_at,
-        )
-        for h in history
-    ]
