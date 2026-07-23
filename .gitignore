@@ -1,0 +1,119 @@
+# ==========================================
+# Operating System & IDE Files
+# ==========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.sublime-workspace
+*.sublime-project
+
+# ==========================================
+# Environment Variables & Secrets
+# ==========================================
+# Avoid committing sensitive keys and Docker environment files
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.cert
+
+# ==========================================
+# Docker
+# ==========================================
+# Docker compose override files often contain local paths or dev configs
+docker-compose.override.yml
+
+# ==========================================
+# Python (Backend)
+# ==========================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments (not needed inside Docker containers)
+venv/
+.venv/
+env/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing and Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.nox/
+.hypothesis/
+.ruff_cache/
+
+# Mypy / Type Checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Jupyter / IPython
+.ipynb_checkpoints
+
+# ==========================================
+# Vue.js / Node.js (Frontend)
+# ==========================================
+# Dependencies (installed via Docker build or npm/yarn locally)
+node_modules/
+jspm_packages/
+
+# Production Build Output
+dist/
+out/
+
+# Package Manager Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Framework / Tool Caches
+.eslintcache
+.stylelintcache
+.vite/
+.nuxt/
+.output/
+
+# Vue / Vite / Webpack test artifacts
+coverage/
