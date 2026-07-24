@@ -71,10 +71,6 @@ class ApplicationEventModel(Base):
     email_action_required: Mapped[bool] = mapped_column(Boolean, default=False)
     email_action: Mapped[Optional[str]] = mapped_column(Text)
     email_raw_body: Mapped[Optional[str]] = mapped_column(Text)
-    
-    # Declare the vector column (adjust 1536 to match your model's dimensions)
-    embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(1536), nullable=True)
-    
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     application: Mapped["ApplicationModel"] = relationship(back_populates="events")

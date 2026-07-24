@@ -56,17 +56,6 @@ class ApplicationDetailResponse(ApplicationListItem):
     created_at: datetime
     updated_at: datetime
 
-
-class StatusHistoryItem(BaseModel):
-    id: int
-    old_status: Optional[str] = None
-    new_status: Optional[str] = None
-    changed_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
 # --- Query Filter Schema ---
 
 class ApplicationFilterParams(BaseModel):
