@@ -3,7 +3,7 @@ from typing import Any, Dict
 from openai import AsyncOpenAI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from sqlalchemy.orm import selectinload
 from app.core.config import settings
 from app.core.prompts import get_prompt_template
 from app.models.applications import ApplicationEmbeddingModel, ApplicationModel
@@ -60,7 +60,7 @@ async def generate_embedding(text_input: str) -> list[float]:
     """Generates vector embeddings using the configured LLM client."""
     # Uses the standard OpenAI-compatible embeddings endpoint
     response = await llm_client.embeddings.create(
-        model=getattr(settings, "LLM_EMBEDDING_MODEL_NAME", settings.LLM_MODEL_NAME),
+        model=getattr(settings, "LLM_EMBEDDING_MODEL_NAME", settings.EMBEDDING_MODEL_NAME),
         input=text_input,
     )
     return response.data[0].embedding
@@ -73,8 +73,15 @@ async def generate_and_save_application_embedding(
     Summarizes application history, generates vector representation, 
     and updates/inserts record in email_application_embeddings.
     """
-    # 1. Retrieve application along with related events
-    stmt = select(ApplicationModel).where(ApplicationModel.id == application_id)
+    # 1. Retrieve application along with eagerly loaded events and company
+    stmt = (
+        select(ApplicationModel)
+        .options(
+            selectinload(ApplicationModel.events),
+            selectinload(ApplicationModel.company),
+        )
+        .where(ApplicationModel.id == application_id)
+    )
     res = await db.execute(stmt)
     application = res.scalar_one_or_none()
 
@@ -94,14 +101,18 @@ async def generate_and_save_application_embedding(
 
     # 3. Summarize timeline using LLM
     summary_result = await summarize_application_status(db, events_timeline)
-    content_to_embed = getattr(summary_result, "summary", None)
+    
+    # Access snapshot directly or check schema fields
+    content_to_embed = getattr(summary_result, "snapshot", None)
+    
     if content_to_embed is None:
-        for alt_field in ("summary_text", "application_summary", "result", "text"):
+        for alt_field in ("summary", "overview", "summary_text", "application_summary", "result", "text"):
             content_to_embed = getattr(summary_result, alt_field, None)
             if content_to_embed is not None:
                 break
+                
     if content_to_embed is None:
-        raise ValueError("Unable to extract summary text from ApplicationSummaryResult.")
+        raise ValueError("Unable to extract snapshot or summary text from ApplicationSummaryResult.")
 
     # 4. Generate float vector
     vector = await generate_embedding(content_to_embed)

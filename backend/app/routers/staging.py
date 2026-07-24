@@ -169,18 +169,12 @@ async def resolve_staging_item(
         )
         db.add(event)
 
-        # Mark item as PROCESSED
+        # Save app_id to a variable before committing so we don't access expired ORM attributes
+        target_app_id = application.id
+
+        # Mark item as PROCESSED and save records to DB
         staged_item.status = "PROCESSED"
         await db.commit()
-
-        await generate_and_save_application_embedding(db, application.id)
-
-        return {
-            "status": "success",
-            "message": "Staged item resolved and committed to database.",
-            "application_id": application.id,
-            "event_id": event.id,
-        }
 
     except Exception as e:
         await db.rollback()
@@ -188,6 +182,20 @@ async def resolve_staging_item(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to resolve staging item: {str(e)}",
         )
+
+    # Isolated embedding block after successful commit
+    try:
+        await generate_and_save_application_embedding(db, target_app_id)
+    except Exception as e:
+        # Log embedding generation issues without crashing the HTTP response
+        print(f"[Warning] Failed to generate embedding for Application ID {target_app_id}: {e}")
+
+    return {
+        "status": "success",
+        "message": "Staged item resolved and committed to database.",
+        "application_id": target_app_id,
+        "event_id": event.id,
+    }
 
 
 @router.delete("/{item_id}", response_model=dict)
