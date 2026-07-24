@@ -11,10 +11,14 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "DEBUG"
 
     # Embedding Service Configuration
-    EMBEDDING_API_URL: str = "http://localhost:1234/v1/embeddings"  # hardcoded for now
+    EMBEDDING_API_URL: str = "http://localhost:1234/v1/embeddings"
     EMBEDDING_API_KEY: str = ""
     EMBEDDING_MODEL_NAME: str = "nomic-embed-text-v2-moe"
     EMBEDDING_DIMENSION: int = 768
+
+    LLM_API_BASE: str = "http://localhost:1234/v1"
+    LLM_API_KEY: str = "lm-1234"  # LM Studio ignores key value, but client requires non-empty string
+    LLM_MODEL_NAME: str = "qwen/qwen3.5-9b"
 
     model_config = SettingsConfigDict(
         env_file=".env",

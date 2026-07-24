@@ -5,6 +5,17 @@ POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=postgres
 
+# Embedding Settings
+EMBEDDING_API_URL=http://localhost:1234/v1/embeddings
+EMBEDDING_API_KEY=""
+EMBEDDING_MODEL_NAME=nomic-embed-text-v2-moe
+EMBEDDING_DIMENSION=768
+
+# LLM API Settings
+LLM_API_BASE=http://localhost:1234/v1
+LLM_API_KEY=lm-1234  # LM Studio ignores key value, but client requires non-empty string
+LLM_MODEL_NAME=qwen/qwen3.5-9b
+
 # Application Environment
 ENVIRONMENT=development
 LOG_LEVEL=DEBUG
