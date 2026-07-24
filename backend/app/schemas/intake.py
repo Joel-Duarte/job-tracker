@@ -10,7 +10,7 @@ class EmailPayload(BaseModel):
 
 
 class EmailBatchIntakeRequest(BaseModel):
-    emails: List[EmailPayload] = Field(..., min_items=1, description="List of emails to parse and process")
+    emails: List[EmailPayload] = Field(..., min_length=1, description="List of emails to parse and process")
 
 
 class EmailProcessingSummary(BaseModel):

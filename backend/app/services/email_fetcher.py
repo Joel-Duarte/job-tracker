@@ -60,14 +60,22 @@ def _fetch_imap_emails_sync(
                 date_header = msg.get("Date", datetime.now().isoformat())
 
                 # Extract plain text body
-                body = ""
+                body: str = ""
                 if msg.is_multipart():
                     for part in msg.walk():
                         if part.get_content_type() == "text/plain":
-                            body = part.get_payload(decode=True).decode(errors="ignore")
+                            payload = part.get_payload(decode=True)
+                            if isinstance(payload, bytes):
+                                body = payload.decode(errors="ignore")
+                            else:
+                                body = str(payload)
                             break
                 else:
-                    body = msg.get_payload(decode=True).decode(errors="ignore")
+                    payload = msg.get_payload(decode=True)
+                    if isinstance(payload, bytes):
+                        body = payload.decode(errors="ignore")
+                    else:
+                        body = str(payload)
 
                 results.append(
                     EmailPayload(
