@@ -6,6 +6,7 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.database import get_db
 from app.models.applications import (
+    ApplicationEmbeddingModel,
     ApplicationEventModel,
     ApplicationModel,
     CompanyModel,
@@ -16,8 +17,9 @@ from app.schemas.applications import (
     ApplicationListResponse,
     CompanySummary,
     EventSummary,
-    StatusHistoryItem,
 )
+
+from app.schemas.applications import AllowedApplicationStatus, ApplicationByStatusResult
 
 router = APIRouter(prefix="/applications", tags=["Applications"])
 
@@ -115,6 +117,67 @@ async def list_applications(
 
     return ApplicationListResponse(items=items, total=total, limit=limit, offset=offset)
 
+@router.get(
+    "/by-status",
+    response_model=List[ApplicationByStatusResult],
+    summary="Get applications matching a specific status with event metrics",
+)
+async def get_applications_by_status(
+    status: AllowedApplicationStatus = Query(
+        ...,
+        description="Must be APPLIED, REJECTED, ONLINE_ASSESSMENT, or TECHNICAL_INTERVIEW",
+    ),
+    limit: int = Query(20, ge=1, le=100, description="Max records to return"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Replicates the status search CTE query to fetch applications, event counts, and latest email dates."""
+    stmt = (
+        select(
+            ApplicationModel.id.label("application_id"),
+            CompanyModel.name.label("company"),
+            ApplicationModel.position,
+            ApplicationModel.status,
+            ApplicationModel.updated_at.label("application_updated"),
+            func.count(func.distinct(ApplicationEventModel.id)).label("event_count"),
+            func.max(ApplicationEventModel.email_received_at).label("latest_email"),
+        )
+        .join(CompanyModel, CompanyModel.id == ApplicationModel.company_id)
+        .outerjoin(
+            ApplicationEventModel,
+            ApplicationEventModel.email_application_id == ApplicationModel.id,
+        )
+        .outerjoin(
+            ApplicationEmbeddingModel,
+            ApplicationEmbeddingModel.email_application_id == ApplicationModel.id,
+        )
+        .where(ApplicationModel.status == status.value)
+        .group_by(
+            ApplicationModel.id,
+            CompanyModel.name,
+            ApplicationModel.position,
+            ApplicationModel.status,
+            ApplicationModel.updated_at,
+            ApplicationEmbeddingModel.email_application_id,
+        )
+        .order_by(ApplicationModel.updated_at.desc())
+        .limit(limit)
+    )
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    return [
+        ApplicationByStatusResult(
+            application_id=row.application_id,
+            company=row.company,
+            position=row.position,
+            status=row.status,
+            application_updated=row.application_updated,
+            event_count=row.event_count,
+            latest_email=row.latest_email,
+        )
+        for row in rows
+    ]
 
 @router.get(
     "/{application_id}",
@@ -163,3 +226,4 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
         created_at=app.created_at,
         updated_at=app.updated_at,
     )
+

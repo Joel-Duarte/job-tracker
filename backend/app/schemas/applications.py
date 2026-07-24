@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel, Field
-
+from enum import Enum
 
 # --- Nested Response Schemas ---
 
@@ -94,6 +94,24 @@ class ApplicationEventDetail(BaseModel):
     email_action: Optional[str] = None
     email_raw_body: Optional[str] = None
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class AllowedApplicationStatus(str, Enum):
+    APPLIED = "APPLIED"
+    REJECTED = "REJECTED"
+    ONLINE_ASSESSMENT = "ONLINE_ASSESSMENT"
+    TECHNICAL_INTERVIEW = "TECHNICAL_INTERVIEW"
+
+class ApplicationByStatusResult(BaseModel):
+    application_id: int
+    company: str
+    position: Optional[str] = None
+    status: str
+    application_updated: datetime
+    event_count: int
+    latest_email: Optional[datetime] = None
 
     class Config:
         from_attributes = True
