@@ -17,7 +17,7 @@ async def lifespan(app: FastAPI):
     is_connected = await check_db_connection()
     if is_connected:
         print("\n==================================================")
-        print(" SUCCESS: Database connection established! (pgvector)")
+        print(" SUCCESS: Database connection established!")
         print("==================================================\n")
     else:
         print("\n==================================================")

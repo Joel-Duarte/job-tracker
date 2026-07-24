@@ -30,10 +30,12 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def check_db_connection() -> bool:
-    """Tests the connection to PostgreSQL by executing a simple query."""
+    """Tests the connection to PostgreSQL and logs the connected database name."""
     try:
         async with AsyncSessionLocal() as session:
-            await session.execute(text("SELECT 1"))
+            result = await session.execute(text("SELECT current_database()"))
+            db_name = result.scalar()
+            logger.info(f"Successfully connected to database: '{db_name}'")
         return True
     except Exception as e:
         logger.error(f"Database connection check failed: {e}")
