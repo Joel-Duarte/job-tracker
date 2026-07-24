@@ -3,7 +3,7 @@ import logging
 from fastapi import Depends, FastAPI, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import check_db_connection, get_db
+from app.core.database import check_db_connection, ensure_db_schema, get_db
 from app.routers import applications, emails, events, search
 
 logging.basicConfig(level=logging.INFO)
@@ -15,10 +15,14 @@ async def lifespan(app: FastAPI):
     # Executed on startup
     logger.info("Checking database connection...")
     is_connected = await check_db_connection()
+    
     if is_connected:
         print("\n==================================================")
         print(" SUCCESS: Database connection established!")
         print("==================================================\n")
+        
+        # Verify schema exists or create tables and indexes
+        await ensure_db_schema()
     else:
         print("\n==================================================")
         print(" ERROR: Could not connect to the database!")
