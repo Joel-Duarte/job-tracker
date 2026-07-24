@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional, Dict
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import JSONB
@@ -89,7 +89,7 @@ class ApplicationEmbeddingModel(Base):
         primary_key=True,
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    metadata_: Mapped[dict[str, any]] = mapped_column("metadata", JSONB, default={})
+    metadata_: Mapped[Dict[str, Any]] = mapped_column("metadata", JSONB, default={})
     
     # Matching your schema dimension: VECTOR(768)
     embedding: Mapped[List[float]] = mapped_column(Vector(768), nullable=False)
