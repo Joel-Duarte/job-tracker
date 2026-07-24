@@ -19,3 +19,4 @@ LLM_MODEL_NAME=qwen/qwen3.5-9b
 # Application Environment
 ENVIRONMENT=development
 LOG_LEVEL=DEBUG
+STAGING_MATCH_THRESHOLD=0.75

@@ -3,7 +3,7 @@ from datetime import datetime
 from rapidfuzz import fuzz
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from app.core.config import settings
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
@@ -17,7 +17,7 @@ from app.services.task_tracker import task_tracker
 
 logger = logging.getLogger(__name__)
 
-MATCH_CONFIDENCE_THRESHOLD = 0.75  # Normalized 0.0 - 1.0
+MATCH_CONFIDENCE_THRESHOLD = settings.STAGING_MATCH_THRESHOLD
 
 
 def parse_email_date(date_val: str | datetime | None) -> datetime | None:
