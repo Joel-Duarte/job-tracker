@@ -11,7 +11,7 @@ from app.schemas.email_accounts import (
     EmailAccountUpdate,
 )
 
-router = APIRouter(prefix="/api/v1/accounts", tags=["Email Accounts"])
+router = APIRouter(tags=["Email Accounts"])
 
 
 @router.get("", response_model=List[EmailAccountResponse])

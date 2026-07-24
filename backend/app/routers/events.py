@@ -13,7 +13,7 @@ from app.models.applications import (
 from app.schemas.applications import ApplicationEventDetail
 from app.schemas.events import ActionItemSummary, OtherEventDetail, ResolveActionRequest
 
-router = APIRouter(prefix="/events", tags=["Events"])
+router = APIRouter(tags=["Events"])
 
 
 @router.get(
