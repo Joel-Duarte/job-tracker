@@ -1,10 +1,52 @@
 from typing import List, Optional
 from pydantic import BaseModel, Field
-
+from datetime import datetime
+class ExtractedEmailInfo(BaseModel):
+    """Structured extraction format returned by the LLM service."""
+    company: Optional[str] = Field(
+        default=None, 
+        description="Name of the company (e.g., 'Stripe', 'Google'). None if not a job email."
+    )
+    position: Optional[str] = Field(
+        default=None, 
+        description="Job title/role (e.g., 'Senior Backend Engineer'). None if not present."
+    )
+    status: Optional[str] = Field(
+        default=None, 
+        description="Normalized application status: 'APPLIED', 'INTERVIEW', 'OFFER', 'REJECTED'."
+    )
+    event_type: Optional[str] = Field(
+        default=None, 
+        description="Specific email event: 'APPLICATION_CONFIRMATION', 'INTERVIEW_INVITE', 'REJECTION', 'OFFER_LETTER'."
+    )
+    email_type: Optional[str] = Field(
+        default="OTHER", 
+        description="Category if not a specific job update (e.g., 'NEWSLETTER', 'JOB_ALERT', 'OTHER')."
+    )
+    external_job_id: Optional[str] = Field(
+        default=None, 
+        description="Job posting reference ID or req number if mentioned in email."
+    )
+    job_url: Optional[str] = Field(
+        default=None, 
+        description="Link to job description or application portal if found."
+    )
+    summary: str = Field(
+        default="", 
+        description="1-2 sentence summary of what the email is about."
+    )
+    action_required: bool = Field(
+        default=False, 
+        description="True if user needs to take action (e.g., schedule interview, fill out form)."
+    )
+    action: Optional[str] = Field(
+        default=None, 
+        description="Description of required action if action_required is True."
+    )
 
 class EmailPayload(BaseModel):
     conversation_id: str = Field(description="Unique email thread or conversation ID")
-    received_at: str = Field(description="ISO timestamp of email receipt")
+    received_at: datetime = Field(description="ISO timestamp of email receipt")
     subject: str = Field(description="Email subject line")
     body: str = Field(description="Full text body of the email")
 
