@@ -62,3 +62,21 @@ class EmailProcessingSummary(BaseModel):
     other_events_logged: int
     failed_count: int
     errors: List[str] = Field(default_factory=list)
+
+class DirectEmailIntakeRequest(BaseModel):
+    subject: str = Field(..., description="Subject line of the email")
+    body: str = Field(..., description="Raw text or HTML body of the email")
+    sender: Optional[str] = Field(default=None, description="Sender email address")
+    sender_name: Optional[str] = Field(default=None, description="Sender display name")
+    conversation_id: Optional[str] = Field(
+        default=None, 
+        description="Optional conversation ID; if omitted, a mock UUID will be generated."
+    )
+    message_id: Optional[str] = Field(
+        default=None, 
+        description="Optional unique message ID; if omitted, a mock UUID will be generated."
+    )
+    received_at: Optional[datetime] = Field(
+        default=None, 
+        description="Timestamp of receipt; defaults to current time if omitted."
+    )

@@ -12,7 +12,7 @@ from app.models.applications import (
 )
 from app.schemas.search import SemanticSearchResult, CompanySearchResult
 
-router = APIRouter(tags=["Search"])
+router = APIRouter(prefix="/search", tags=["Search"])
 
 
 @router.get(

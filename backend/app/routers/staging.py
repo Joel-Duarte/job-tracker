@@ -18,7 +18,7 @@ from app.schemas.staging import (
 )
 from app.services.llm import generate_and_save_application_embedding
 
-router = APIRouter(prefix="/api/v1/staging", tags=["staging"])
+router = APIRouter(prefix="/staging", tags=["staging"])
 
 
 @router.get("", response_model=StagingPaginationResponse)

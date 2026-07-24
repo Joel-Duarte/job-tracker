@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import uuid
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
 from pydantic import BaseModel, Field
@@ -7,12 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal, get_db
 from app.models.email_accounts import EmailAccountModel
-from app.schemas.intake import EmailBatchIntakeRequest
+from app.schemas.intake import EmailBatchIntakeRequest, DirectEmailIntakeRequest, EmailPayload
 from app.services.email_fetcher import fetch_emails_from_account
 from app.services.intake import process_email_batch_sequential
 from app.services.task_tracker import task_tracker
 
-router = APIRouter(prefix="/api/v1/intake", tags=["Intake"])
+router = APIRouter(prefix="/intake", tags=["Intake"])
 
 
 class SyncFolderRequest(BaseModel):
@@ -107,3 +108,47 @@ async def get_task_status(task_id: str):
             detail=f"Task with ID {task_id} not found.",
         )
     return task_info
+
+@router.post("/test-direct", status_code=status.HTTP_200_OK)
+async def intake_direct_raw_email(
+    payload: DirectEmailIntakeRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Directly ingests a raw email payload for immediate testing.
+    Runs extraction, deduplication, fuzzy matching, and staging/embedding logic synchronously.
+    """
+    # Fallback default values for test payloads
+    now = datetime.now(timezone.utc)
+    conv_id = payload.conversation_id or f"test-conv-{uuid.uuid4().hex[:8]}"
+    msg_id = payload.message_id or f"test-msg-{uuid.uuid4().hex[:8]}"
+    received_at = payload.received_at or now
+
+    # Construct standard EmailPayload
+    email_item = EmailPayload(
+        conversation_id=conv_id,
+        message_id=msg_id,
+        received_at=received_at,
+        subject=payload.subject,
+        body=payload.body,
+    )
+
+    # Initialize a temporary tracking task
+    task_id = task_tracker.create_task(total_emails=1)
+
+    # Execute processing pipeline directly
+    await process_email_batch_sequential(
+        db=db,
+        emails=[email_item],
+        task_id=task_id,
+    )
+
+    # Fetch processing status details
+    task_summary = task_tracker.get_task(task_id)
+
+    return {
+        "status": "success",
+        "message": "Direct email processed successfully.",
+        "task_id": task_id,
+        "details": task_summary,
+    }

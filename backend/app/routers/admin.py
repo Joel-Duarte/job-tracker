@@ -14,10 +14,10 @@ from app.models.applications import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["Deletion Operations"])
+router = APIRouter(prefix="/admin", tags=["Deletion Operations"])
 
 @router.delete(
-    "/admin/reset-database",
+    "/reset-database",
     status_code=status.HTTP_200_OK,
     summary="Wipe all data from the database",
 )

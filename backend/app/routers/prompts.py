@@ -9,7 +9,7 @@ from app.core.prompts import DEFAULT_PROMPTS
 from app.models.prompts import PromptModel
 from app.schemas.prompts import PromptResponse, PromptUpdateRequest
 
-router = APIRouter(tags=["Prompts"])
+router = APIRouter(prefix="/prompts", tags=["Prompts"])
 
 
 @router.get("", response_model=List[PromptResponse])

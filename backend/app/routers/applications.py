@@ -21,7 +21,7 @@ from app.schemas.applications import (
 
 from app.schemas.applications import AllowedApplicationStatus, ApplicationByStatusResult
 
-router = APIRouter(tags=["Applications"])
+router = APIRouter(prefix="/applications", tags=["Applications"])
 
 
 @router.get(
