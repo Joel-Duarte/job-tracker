@@ -3,8 +3,6 @@ from typing import AsyncGenerator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from app.core.config import settings
-
-from app.core.config import settings
 from app.models.applications import Base
 
 logger = logging.getLogger(__name__)
@@ -45,30 +43,21 @@ async def check_db_connection() -> bool:
         return False
 
 async def ensure_db_schema() -> None:
-    """Checks if database tables exist. If missing, installs extensions and creates schema from models."""
+    """Ensures required extensions exist, provisions any missing database tables 
+    from metadata, and seeds default prompt entries into the database.
+    """
     async with engine.begin() as conn:
-        # 1. Check if the core table exists
-        result = await conn.execute(
-            text(
-                "SELECT EXISTS ("
-                "  SELECT 1 FROM information_schema.tables "
-                "  WHERE table_schema = 'public' AND table_name = 'email_applications'"
-                ");"
-            )
-        )
-        schema_exists = result.scalar()
+        logger.info("Verifying database extensions and schema tables...")
 
-        if schema_exists:
-            logger.info("Database schema check passed. Core tables found.")
-            return
-
-        logger.warning("Database schema incomplete or missing. Initializing database schema...")
-
-        # 2. Required extensions must be created explicitly before table creation
+        # 1. Ensure required PostgreSQL extensions exist
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
 
-        # 3. Create tables and custom indexes defined in models
+        # 2. Create any missing tables defined in ORM metadata (idempotent)
         await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database schema check completed.")
 
-        logger.info("Database schema successfully initialized.")
+    # 3. Seed default prompts into email_prompts table if missing
+    async with AsyncSessionLocal() as session:
+        from app.core.prompts import seed_default_prompts
+        await seed_default_prompts(session)

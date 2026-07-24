@@ -1,30 +1,25 @@
 import json
 from typing import Any, Dict
 from openai import AsyncOpenAI
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.prompts import get_prompt_template
 from app.schemas.llm import EmailExtractionResult, ApplicationSummaryResult
 
-# Initialize AsyncOpenAI pointing directly to LM Studio server configuration
 llm_client = AsyncOpenAI(
     base_url=settings.LLM_API_BASE,
     api_key=settings.LLM_API_KEY,
 )
 
 
-async def extract_email_info(email_content: str) -> EmailExtractionResult:
-    """Extracts structured job application information from email content."""
-    
-    prompt = (
-        "Extract key information from the following email body regarding a job application. "
-        "Provide accurate values for all fields according to the requested output structure.\n\n"
-        f"Email Content:\n{email_content}"
-    )
+async def extract_email_info(db: AsyncSession, email_content: str) -> EmailExtractionResult:
+    """Fetches prompt from DB and parses email content using LM Studio."""
+    template = await get_prompt_template(db, "extraction")
+    prompt = template.format(email_content=email_content)
 
     response = await llm_client.beta.chat.completions.parse(
         model=settings.LLM_MODEL_NAME,
-        temperature=0.2,
-        top_p=1.0,
         messages=[
             {"role": "system", "content": "You parse job application emails into structured data."},
             {"role": "user", "content": prompt},
@@ -37,20 +32,16 @@ async def extract_email_info(email_content: str) -> EmailExtractionResult:
     return parsed
 
 
-async def summarize_application_status(events_timeline: list[Dict[str, Any]]) -> ApplicationSummaryResult:
-    """Summarizes current application timeline state to feed semantic vector embeddings."""
-    
+async def summarize_application_status(
+    db: AsyncSession, events_timeline: list[Dict[str, Any]]
+) -> ApplicationSummaryResult:
+    """Fetches prompt from DB and summarizes timeline events for embeddings."""
     events_str = json.dumps(events_timeline, indent=2)
-    prompt = (
-        "Summarize the current progress and status of a job application based on its historical timeline events. "
-        "Keep the snapshot clear and direct.\n\n"
-        f"Timeline Events:\n{events_str}"
-    )
+    template = await get_prompt_template(db, "summarization")
+    prompt = template.format(events_str=events_str)
 
     response = await llm_client.beta.chat.completions.parse(
         model=settings.LLM_MODEL_NAME,
-        temperature=0.1,
-        top_p=1.0,
         messages=[
             {"role": "system", "content": "You summarize job application timelines for embeddings."},
             {"role": "user", "content": prompt},
@@ -61,3 +52,5 @@ async def summarize_application_status(events_timeline: list[Dict[str, Any]]) ->
     parsed = response.choices[0].message.parsed
     assert parsed is not None
     return parsed
+
+    

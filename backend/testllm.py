@@ -1,5 +1,6 @@
 import asyncio
 from app.services.llm import extract_email_info, summarize_application_status
+from app.core.database import AsyncSessionLocal
 
 
 async def test_extraction():
@@ -11,8 +12,9 @@ async def test_extraction():
     """
 
     print("--- Testing Email Extraction ---")
-    result = await extract_email_info(sample_email)
-    print(result.model_dump_json(indent=2))
+    async with AsyncSessionLocal() as db:
+        result = await extract_email_info(db, sample_email)
+        print(result.model_dump_json(indent=2))
 
 
 async def test_summarization():
@@ -23,8 +25,9 @@ async def test_summarization():
     ]
 
     print("\n--- Testing Application Summarization ---")
-    result = await summarize_application_status(sample_timeline)
-    print(result.model_dump_json(indent=2))
+    async with AsyncSessionLocal() as db:
+        result = await summarize_application_status(db, sample_timeline)
+        print(result.model_dump_json(indent=2))
 
 
 async def main():
