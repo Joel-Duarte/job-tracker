@@ -59,6 +59,7 @@ class ApplicationModel(Base):
     )
 
     embedding_record: Mapped[Optional["ApplicationEmbeddingModel"]] = relationship(
+        cascade="all, delete-orphan",
         back_populates="application",
         uselist=False,
     )
