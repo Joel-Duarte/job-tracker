@@ -28,7 +28,6 @@ async def list_staging_items(
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
-    """Retrieves a paginated list of items from the staging queue."""
     query = select(StagingItemModel)
     count_query = select(func.count()).select_from(StagingItemModel)
 
@@ -45,7 +44,10 @@ async def list_staging_items(
         .limit(limit)
     )
     result = await db.execute(query)
-    items = result.scalars().all()
+    db_items = result.scalars().all()
+
+    # Convert ORM models explicitly to StagingItemRead Pydantic instances
+    items = [StagingItemRead.model_validate(item) for item in db_items]
 
     return StagingPaginationResponse(total=total, items=items)
 

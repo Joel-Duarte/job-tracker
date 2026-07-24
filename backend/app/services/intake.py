@@ -50,10 +50,14 @@ async def calculate_best_match(
     company_norm = company_name.strip().lower()
     position_norm = position_name.strip().lower()
 
-    # Search for matching company
     stmt = select(CompanyModel)
     result = await db.execute(stmt)
     companies = result.scalars().all()
+
+    # If DB is empty, this is a new company/application.
+    # Return 1.0 to allow direct creation of new company & application.
+    if not companies:
+        return None, None, 1.0
 
     best_company = None
     best_company_score = 0.0
@@ -64,11 +68,13 @@ async def calculate_best_match(
             best_company_score = score
             best_company = company
 
-    # If no confident company match, score defaults low
+    # If no existing company matched closely, treat as 1.0 (new company) if company_name is explicit,
+    # or return lower score if fuzzy match failed against known list.
     if not best_company or best_company_score < MATCH_CONFIDENCE_THRESHOLD:
+        # Returning best_company_score allows staging logic to decide
         return None, None, best_company_score
 
-    # Search for matching application within the found company
+    # Company matched; find matching application
     app_stmt = select(ApplicationModel).where(
         ApplicationModel.company_id == best_company.id
     )
@@ -85,8 +91,7 @@ async def calculate_best_match(
                 best_app_score = score
                 best_app = app
 
-    # Combined confidence score calculation
-    overall_score = (best_company_score + best_app_score) / 2.0 if best_app else best_company_score
+    overall_score = best_app_score if best_app else 1.0
     return best_company, best_app, overall_score
 
 

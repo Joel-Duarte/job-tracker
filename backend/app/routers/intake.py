@@ -9,7 +9,7 @@ from app.core.database import AsyncSessionLocal, get_db
 from app.models.email_accounts import EmailAccountModel
 from app.schemas.intake import EmailBatchIntakeRequest
 from app.services.email_fetcher import fetch_emails_from_account
-from app.services.intake import process_email_batch_background
+from app.services.intake import process_email_batch_sequential
 from app.services.task_tracker import task_tracker
 
 router = APIRouter(prefix="/api/v1/intake", tags=["Intake"])
@@ -51,7 +51,7 @@ async def _run_background_intake(account_id: int, folder: Optional[str], since_d
             return
 
         # Execute processing queue
-        await process_email_batch_background(db, raw_emails, task_id)
+        await process_email_batch_sequential(db, raw_emails, task_id)
 
         # Update last_synced_at
         account.last_synced_at = datetime.now(timezone.utc)
@@ -85,7 +85,7 @@ async def sync_email_account(
 
     # Hand off long-running processing to background execution
     background_tasks.add_task(
-        process_email_batch_background,
+        process_email_batch_sequential,
         db=db,
         emails=raw_emails,
         task_id=task_id,

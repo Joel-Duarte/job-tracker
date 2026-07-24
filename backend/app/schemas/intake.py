@@ -46,6 +46,7 @@ class ExtractedEmailInfo(BaseModel):
 
 class EmailPayload(BaseModel):
     conversation_id: str = Field(description="Unique email thread or conversation ID")
+    message_id: Optional[str] = Field(default=None, description="Unique email message ID")
     received_at: datetime = Field(description="ISO timestamp of email receipt")
     subject: str = Field(description="Email subject line")
     body: str = Field(description="Full text body of the email")
