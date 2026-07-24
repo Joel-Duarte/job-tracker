@@ -2,7 +2,8 @@ from datetime import datetime
 from typing import List, Optional
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-
+from sqlalchemy.dialects.postgresql import JSONB
+from pgvector.sqlalchemy import Vector
 
 class Base(DeclarativeBase):
     pass
@@ -43,10 +44,10 @@ class ApplicationModel(Base):
         cascade="all, delete-orphan",
         order_by="desc(ApplicationEventModel.email_received_at)",
     )
-    status_history: Mapped[List["ApplicationStatusHistoryModel"]] = relationship(
+
+    embedding_record: Mapped[Optional["ApplicationEmbeddingModel"]] = relationship(
         back_populates="application",
-        cascade="all, delete-orphan",
-        order_by="desc(ApplicationStatusHistoryModel.changed_at)",
+        uselist=False,
     )
 
 
@@ -70,30 +71,32 @@ class ApplicationEventModel(Base):
     email_action_required: Mapped[bool] = mapped_column(Boolean, default=False)
     email_action: Mapped[Optional[str]] = mapped_column(Text)
     email_raw_body: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Declare the vector column (adjust 1536 to match your model's dimensions)
+    embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(1536), nullable=True)
+    
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     application: Mapped["ApplicationModel"] = relationship(back_populates="events")
 
 
-class ApplicationStatusHistoryModel(Base):
-    __tablename__ = "email_application_status_history"
+class ApplicationEmbeddingModel(Base):
+    __tablename__ = "email_application_embeddings"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     email_application_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("email_applications.id", ondelete="CASCADE"), nullable=False
+        BigInteger,
+        ForeignKey("email_applications.id", ondelete="CASCADE"),
+        primary_key=True,
     )
-    old_status: Mapped[Optional[str]] = mapped_column(Text)
-    new_status: Mapped[Optional[str]] = mapped_column(Text)
-    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_: Mapped[dict[str, any]] = mapped_column("metadata", JSONB, default={})
+    
+    # Matching your schema dimension: VECTOR(768)
+    embedding: Mapped[List[float]] = mapped_column(Vector(768), nullable=False)
+    
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    application: Mapped["ApplicationModel"] = relationship(back_populates="status_history")
-
-from datetime import datetime
-from typing import Optional
-from sqlalchemy import BigInteger, Boolean, DateTime, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
-from app.models.applications import Base
-
+    application: Mapped["ApplicationModel"] = relationship(back_populates="embedding_record")
 
 class OtherEventModel(Base):
     __tablename__ = "email_other_events"

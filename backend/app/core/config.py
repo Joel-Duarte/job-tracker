@@ -10,6 +10,12 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "DEBUG"
 
+    # Embedding Service Configuration
+    EMBEDDING_API_URL: str = "http://localhost:1234/v1/embeddings"  # hardcoded for now
+    EMBEDDING_API_KEY: str = ""
+    EMBEDDING_MODEL_NAME: str = "nomic-embed-text-v2-moe"
+    EMBEDDING_DIMENSION: int = 768
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

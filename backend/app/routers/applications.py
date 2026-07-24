@@ -8,7 +8,6 @@ from app.core.database import get_db
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
-    ApplicationStatusHistoryModel,
     CompanyModel,
 )
 from app.schemas.applications import (
