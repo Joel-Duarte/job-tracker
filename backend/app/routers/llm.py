@@ -53,7 +53,7 @@ async def get_current_llm_config(db: AsyncSession = Depends(get_db)) -> Any:
         )
 
     return LLMConfigRead(
-        provider_name="env_default",
+        provider_name=settings.LLM_PROVIDER_NAME,
         api_base=settings.LLM_API_BASE,
         api_key=settings.LLM_API_KEY,
         model_name=settings.LLM_MODEL_NAME,
@@ -130,7 +130,7 @@ async def test_llm_connection(db: AsyncSession = Depends(get_db)) -> Dict[str, A
         api_key = db_config.api_key
         source = "database"
     else:
-        provider_name = "env_default"
+        provider_name = settings.LLM_PROVIDER_NAME
         model_name = settings.LLM_MODEL_NAME
         api_base = settings.LLM_API_BASE
         api_key = settings.LLM_API_KEY

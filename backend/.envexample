@@ -12,9 +12,10 @@ EMBEDDING_MODEL_NAME=nomic-embed-text-v2-moe
 EMBEDDING_DIMENSION=768
 
 # LLM API Settings
+LLM_PROVIDER_NAME=openai
 LLM_API_BASE=http://localhost:1234/v1
 LLM_API_KEY=lm-1234  # LM Studio ignores key value, but client requires non-empty string
-LLM_MODEL_NAME=qwen/qwen3.5-9b
+LLM_MODEL_NAME=openai/qwen/qwen3.5-9b
 
 # Application Environment
 ENVIRONMENT=development

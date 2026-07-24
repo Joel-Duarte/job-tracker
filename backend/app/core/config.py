@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL_NAME: str = "nomic-embed-text-v2-moe"
     EMBEDDING_DIMENSION: int = 768
 
+    LLM_PROVIDER_NAME: str = "openai"  # Options: "custom", "openai", "anthropic", etc.
     LLM_API_BASE: str = "http://localhost:1234/v1"
     LLM_API_KEY: str = "lm-1234"  # LM Studio ignores key value, but client requires non-empty string
     LLM_MODEL_NAME: str = "qwen/qwen3.5-9b"
