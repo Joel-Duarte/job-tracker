@@ -4,7 +4,7 @@ from fastapi import Depends, FastAPI, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import check_db_connection, ensure_db_schema, get_db
-from app.routers import applications, events, search, admin, prompts, intake, email_accounts
+from app.routers import applications, events, search, admin, prompts, intake, email_accounts, staging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -48,6 +48,7 @@ app.include_router(search.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(prompts.router, prefix="/api/v1")
 app.include_router(email_accounts.router, prefix="/api/v1")
+app.include_router(staging.router, prefix="/api/v1")
 
 @app.get("/health", tags=["Health"])
 async def health_check(response: Response):
