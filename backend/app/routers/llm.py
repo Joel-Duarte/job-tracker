@@ -81,7 +81,7 @@ async def update_llm_config(
     if not db_config:
         # Auto-create if it doesn't exist yet, falling back to defaults for missing fields
         db_config = LLMConfigModel(
-            provider_name=update_data.get("provider_name", "custom"),
+            provider_name=update_data.get("provider_name", settings.LLM_PROVIDER_NAME),
             api_base=update_data.get("api_base", settings.LLM_API_BASE),
             api_key=update_data.get("api_key", settings.LLM_API_KEY),
             model_name=update_data.get("model_name", settings.LLM_MODEL_NAME),
@@ -125,20 +125,24 @@ async def test_llm_connection(db: AsyncSession = Depends(get_db)) -> Dict[str, A
 
     if db_config:
         provider_name = db_config.provider_name
-        model_name = db_config.model_name
+        raw_model_name = db_config.model_name
         api_base = db_config.api_base
         api_key = db_config.api_key
         source = "database"
     else:
-        provider_name = settings.LLM_PROVIDER_NAME
-        model_name = settings.LLM_MODEL_NAME
+        provider_name = getattr(settings, "LLM_PROVIDER_NAME", "env_default")
+        raw_model_name = settings.LLM_MODEL_NAME
         api_base = settings.LLM_API_BASE
         api_key = settings.LLM_API_KEY
         source = ".env"
 
+    formatted_model_name = raw_model_name
+    if provider_name and provider_name != "env_default" and "/" not in raw_model_name:
+        formatted_model_name = f"{provider_name}/{raw_model_name}"
+
     try:
         kwargs: Dict[str, Any] = {
-            "model": model_name,
+            "model": formatted_model_name,
             "api_base": api_base,
             "api_key": api_key,
             "messages": [{"role": "user", "content": "Respond with 'OK' to verify connectivity."}],
@@ -151,7 +155,7 @@ async def test_llm_connection(db: AsyncSession = Depends(get_db)) -> Dict[str, A
             "status": "success",
             "source": source,
             "provider_used": provider_name,
-            "model_used": model_name,
+            "model_used": formatted_model_name,
             "api_base_used": api_base,
             "response": content,
         }
@@ -159,5 +163,5 @@ async def test_llm_connection(db: AsyncSession = Depends(get_db)) -> Dict[str, A
         logger.error(f"LLM Connection Test Failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to connect to provider '{provider_name}' using model '{model_name}' at '{api_base}': {str(e)}",
+            detail=f"Failed to connect to provider '{provider_name}' using model '{formatted_model_name}' at '{api_base}': {str(e)}",
         )
