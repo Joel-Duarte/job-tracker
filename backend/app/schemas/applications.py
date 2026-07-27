@@ -104,3 +104,10 @@ class ApplicationByStatusResult(BaseModel):
 
     class Config:
         from_attributes = True
+
+class ApplicationUpdate(BaseModel):
+    position: Optional[str] = Field(None, description="Updated job title/position name")
+    status: Optional[str] = Field(None, description="Updated status, e.g., APPLIED, INTERVIEW, REJECTED")
+    job_url: Optional[str] = Field(None, description="URL to the job posting")
+    external_job_id: Optional[str] = Field(None, description="External reference ID for the listing")
+    company_id: Optional[int] = Field(None, description="Reassign to another company ID if needed")

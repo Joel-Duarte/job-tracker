@@ -15,11 +15,13 @@ from app.schemas.applications import (
     ApplicationDetailResponse,
     ApplicationListItem,
     ApplicationListResponse,
+    ApplicationUpdate,
     CompanySummary,
     EventSummary,
 )
 
 from app.schemas.applications import AllowedApplicationStatus, ApplicationByStatusResult
+from app.services.llm import generate_and_save_application_embedding
 
 router = APIRouter(prefix="/applications", tags=["Applications"])
 
@@ -227,3 +229,86 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
         updated_at=app.updated_at,
     )
 
+@router.patch(
+    "/{application_id}",
+    response_model=ApplicationDetailResponse,
+    summary="Partially update a job application",
+)
+async def update_application(
+    application_id: int,
+    payload: ApplicationUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Partially updates a job application and refreshes its semantic vector embedding."""
+    stmt = (
+        select(ApplicationModel)
+        .where(ApplicationModel.id == application_id)
+        .options(
+            joinedload(ApplicationModel.company),
+            selectinload(ApplicationModel.events),
+        )
+    )
+    result = await db.execute(stmt)
+    app = result.scalars().first()
+
+    if not app:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Application not found",
+        )
+
+    update_data = payload.model_dump(exclude_unset=True)
+
+    if not update_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No valid fields provided for update.",
+        )
+
+    if "position" in update_data and update_data["position"] is not None:
+        app.position_normalized = update_data["position"].strip().lower()
+
+    for key, value in update_data.items():
+        setattr(app, key, value)
+
+    await db.commit()
+
+    result = await db.execute(stmt)
+    app = result.scalars().first()
+
+    try:
+        await generate_and_save_application_embedding(db, app.id)
+    except Exception as e:
+        print(f"[Warning] Failed to refresh embedding for Application ID {app.id}: {e}")
+
+    latest_evt = app.events[0] if app.events else None
+    has_action = any(e.email_action_required for e in app.events)
+
+    return ApplicationDetailResponse(
+        id=app.id,
+        company=CompanySummary(
+            id=app.company.id,
+            name=app.company.name,
+            domain=app.company.domain,
+        ),
+        position=app.position,
+        status=app.status,
+        application_date=app.application_date,
+        last_activity_at=app.last_activity_at,
+        has_action_required=has_action,
+        latest_event=EventSummary(
+            id=latest_evt.id,
+            email_event_type=latest_evt.email_event_type,
+            email_subject=latest_evt.email_subject,
+            email_action_required=latest_evt.email_action_required,
+            email_action=latest_evt.email_action,
+            email_received_at=latest_evt.email_received_at,
+        )
+        if latest_evt
+        else None,
+        external_job_id=app.external_job_id,
+        job_url=app.job_url,
+        application_key=app.application_key,
+        created_at=app.created_at,
+        updated_at=app.updated_at,
+    )
