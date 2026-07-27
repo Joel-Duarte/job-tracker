@@ -1,5 +1,6 @@
-import logging
+from datetime import datetime
 from typing import Any, Dict, Optional
+import logging
 import litellm
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -22,16 +23,36 @@ class LLMConfigRead(BaseModel):
     api_key: Optional[str] = None
     model_name: str
     embedding_model_name: Optional[str] = None
+    temperature: float
+    top_k: Optional[int] = None
+    top_p: Optional[float] = None
+    max_tokens: Optional[int] = None
+    agent_model_name: Optional[str] = None
+    agent_temperature: float
+    agent_top_k: Optional[int] = None
+    agent_top_p: Optional[float] = None
+    agent_max_tokens: Optional[int] = None
+    agent_max_recursions: int
     is_active: bool = True
     source: str = Field(description="Indicates whether config comes from 'database' or '.env'")
 
 
 class LLMConfigUpdate(BaseModel):
-    provider_name: Optional[str] = Field(default="custom", description="Name of the provider")
+    provider_name: Optional[str] = Field(default=None, description="Name of the provider")
     api_base: Optional[str] = Field(default=None, description="Custom base URL for the LLM API")
     api_key: Optional[str] = Field(default=None, description="API key if required by provider")
     model_name: Optional[str] = Field(default=None, description="Primary model identifier")
     embedding_model_name: Optional[str] = Field(default=None, description="Embedding model identifier")
+    temperature: Optional[float] = Field(default=None, description="Primary model temperature")
+    top_k: Optional[int] = Field(default=None, description="Primary model top_k")
+    top_p: Optional[float] = Field(default=None, description="Primary model top_p")
+    max_tokens: Optional[int] = Field(default=None, description="Primary model max tokens")
+    agent_model_name: Optional[str] = Field(default=None, description="Agent specific model identifier")
+    agent_temperature: Optional[float] = Field(default=None, description="Agent temperature")
+    agent_top_k: Optional[int] = Field(default=None, description="Agent top_k")
+    agent_top_p: Optional[float] = Field(default=None, description="Agent top_p")
+    agent_max_tokens: Optional[int] = Field(default=None, description="Agent max tokens")
+    agent_max_recursions: Optional[int] = Field(default=None, description="Agent max recursions")
 
 
 @router.get("", response_model=LLMConfigRead)
@@ -48,16 +69,36 @@ async def get_current_llm_config(db: AsyncSession = Depends(get_db)) -> Any:
             api_key=db_config.api_key,
             model_name=db_config.model_name,
             embedding_model_name=db_config.embedding_model_name,
+            temperature=db_config.temperature,
+            top_k=db_config.top_k,
+            top_p=db_config.top_p,
+            max_tokens=db_config.max_tokens,
+            agent_model_name=db_config.agent_model_name,
+            agent_temperature=db_config.agent_temperature,
+            agent_top_k=db_config.agent_top_k,
+            agent_top_p=db_config.agent_top_p,
+            agent_max_tokens=db_config.agent_max_tokens,
+            agent_max_recursions=db_config.agent_max_recursions,
             is_active=db_config.is_active,
             source="database",
         )
 
     return LLMConfigRead(
-        provider_name=settings.LLM_PROVIDER_NAME,
+        provider_name=getattr(settings, "LLM_PROVIDER_NAME", "custom"),
         api_base=settings.LLM_API_BASE,
         api_key=settings.LLM_API_KEY,
         model_name=settings.LLM_MODEL_NAME,
-        embedding_model_name=getattr(settings, "LLM_EMBEDDING_MODEL_NAME", settings.EMBEDDING_MODEL_NAME),
+        embedding_model_name=getattr(settings, "LLM_EMBEDDING_MODEL_NAME", getattr(settings, "EMBEDDING_MODEL_NAME", None)),
+        temperature=0.7,
+        top_k=50,
+        top_p=1.0,
+        max_tokens=None,
+        agent_model_name=None,
+        agent_temperature=0.2,
+        agent_top_k=50,
+        agent_top_p=1.0,
+        agent_max_tokens=None,
+        agent_max_recursions=15,
         is_active=True,
         source=".env",
     )
@@ -68,10 +109,6 @@ async def update_llm_config(
     payload: LLMConfigUpdate,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """
-    Updates the active database LLM configuration. 
-    If no active configuration exists yet, it creates one automatically.
-    """
     stmt = select(LLMConfigModel).where(LLMConfigModel.is_active == True)
     res = await db.execute(stmt)
     db_config = res.scalar_one_or_none()
@@ -79,18 +116,26 @@ async def update_llm_config(
     update_data = payload.model_dump(exclude_unset=True)
 
     if not db_config:
-        # Auto-create if it doesn't exist yet, falling back to defaults for missing fields
         db_config = LLMConfigModel(
-            provider_name=update_data.get("provider_name", settings.LLM_PROVIDER_NAME),
+            provider_name=update_data.get("provider_name", getattr(settings, "LLM_PROVIDER_NAME", "custom")),
             api_base=update_data.get("api_base", settings.LLM_API_BASE),
             api_key=update_data.get("api_key", settings.LLM_API_KEY),
             model_name=update_data.get("model_name", settings.LLM_MODEL_NAME),
-            embedding_model_name=update_data.get("embedding_model_name", settings.EMBEDDING_MODEL_NAME),
+            embedding_model_name=update_data.get("embedding_model_name", getattr(settings, "LLM_EMBEDDING_MODEL_NAME", getattr(settings, "EMBEDDING_MODEL_NAME", None))),
+            temperature=update_data.get("temperature", 0.7),
+            top_k=update_data.get("top_k", 50),
+            top_p=update_data.get("top_p", 1.0),
+            max_tokens=update_data.get("max_tokens", None),
+            agent_model_name=update_data.get("agent_model_name", None),
+            agent_temperature=update_data.get("agent_temperature", 0.2),
+            agent_top_k=update_data.get("agent_top_k", 50),
+            agent_top_p=update_data.get("agent_top_p", 1.0),
+            agent_max_tokens=update_data.get("agent_max_tokens", None),
+            agent_max_recursions=update_data.get("agent_max_recursions", 15),
             is_active=True,
         )
         db.add(db_config)
     else:
-        # Update existing fields
         for field, value in update_data.items():
             setattr(db_config, field, value)
 
@@ -104,6 +149,16 @@ async def update_llm_config(
         api_key=db_config.api_key,
         model_name=db_config.model_name,
         embedding_model_name=db_config.embedding_model_name,
+        temperature=db_config.temperature,
+        top_k=db_config.top_k,
+        top_p=db_config.top_p,
+        max_tokens=db_config.max_tokens,
+        agent_model_name=db_config.agent_model_name,
+        agent_temperature=db_config.agent_temperature,
+        agent_top_k=db_config.agent_top_k,
+        agent_top_p=db_config.agent_top_p,
+        agent_max_tokens=db_config.agent_max_tokens,
+        agent_max_recursions=db_config.agent_max_recursions,
         is_active=db_config.is_active,
         source="database",
     )
@@ -128,12 +183,20 @@ async def test_llm_connection(db: AsyncSession = Depends(get_db)) -> Dict[str, A
         raw_model_name = db_config.model_name
         api_base = db_config.api_base
         api_key = db_config.api_key
+        temperature = db_config.temperature
+        top_k = db_config.top_k
+        top_p = db_config.top_p
+        max_tokens = db_config.max_tokens
         source = "database"
     else:
-        provider_name = getattr(settings, "LLM_PROVIDER_NAME", "env_default")
+        provider_name = getattr(settings, "LLM_PROVIDER_NAME", "custom")
         raw_model_name = settings.LLM_MODEL_NAME
         api_base = settings.LLM_API_BASE
         api_key = settings.LLM_API_KEY
+        temperature = 0.7
+        top_k = 50
+        top_p = 1.0
+        max_tokens = None
         source = ".env"
 
     formatted_model_name = raw_model_name
@@ -146,8 +209,12 @@ async def test_llm_connection(db: AsyncSession = Depends(get_db)) -> Dict[str, A
             "api_base": api_base,
             "api_key": api_key,
             "messages": [{"role": "user", "content": "Respond with 'OK' to verify connectivity."}],
-            "max_tokens": 10,
+            "temperature": temperature,
+            "top_p": top_p,
+            "max_tokens": max_tokens or 10,
         }
+        if top_k is not None:
+            kwargs["top_k"] = top_k
 
         response = await litellm.acompletion(**kwargs)
         content = response.choices[0].message.content.strip() # type: ignore[attr-defined]

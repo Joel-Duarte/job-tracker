@@ -276,6 +276,9 @@ async def update_application(
     result = await db.execute(stmt)
     app = result.scalars().first()
 
+    if app is None:
+        raise HTTPException(status_code=404, detail="Application not found")
+
     try:
         await generate_and_save_application_embedding(db, app.id)
     except Exception as e:
