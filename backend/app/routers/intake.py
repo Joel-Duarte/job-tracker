@@ -1,17 +1,28 @@
 from datetime import datetime, timezone
+import hashlib
+import logging
+from typing import Any, Optional
 import uuid
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal, get_db
 from app.models.email_accounts import EmailAccountModel
-from app.schemas.intake import EmailBatchIntakeRequest, DirectEmailIntakeRequest, EmailPayload
+from app.schemas.intake import (
+    DirectEmailIntakeRequest,
+    EmailBatchIntakeRequest,
+    EmailPayload,
+    IntakeResultResponse,
+    PasteIntakeRequest,
+)
 from app.services.email_fetcher import fetch_emails_from_account
-from app.services.intake import process_email_batch_sequential
+from app.services.file_parser import parse_uploaded_file
+from app.services.intake import process_email_batch_sequential, process_single_email_graph
 from app.services.task_tracker import task_tracker
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/intake", tags=["Intake"])
 
@@ -27,36 +38,118 @@ class TaskResponse(BaseModel):
     message: str
 
 
-async def _run_background_intake(account_id: int, folder: Optional[str], since_date: Optional[datetime], task_id: str):
-    """Background runner worker that handles its own DB session."""
-    async with AsyncSessionLocal() as db:
-        stmt = select(EmailAccountModel).where(EmailAccountModel.id == account_id)
-        result = await db.execute(stmt)
-        account = result.scalar_one_or_none()
+def _format_graph_result(result: dict[str, Any]) -> IntakeResultResponse:
+    if result.get("is_duplicate"):
+        return IntakeResultResponse(
+            status="skipped",
+            route="skip",
+            is_duplicate=True,
+            message="Email was already ingested previously (duplicate skipped).",
+        )
+    if result.get("staging_item_id"):
+        return IntakeResultResponse(
+            status="staged",
+            route="staging",
+            is_application=False,
+            company=result.get("company_name"),
+            position=result.get("position_name"),
+            staging_item_id=result.get("staging_item_id"),
+            extracted_data=result.get("extracted_data"),
+            message="Email routed to human-in-the-loop staging queue for review.",
+        )
+    if result.get("is_application"):
+        return IntakeResultResponse(
+            status="success",
+            route="commit",
+            is_application=True,
+            company=result.get("company_name"),
+            position=result.get("position_name"),
+            application_id=result.get("application_id"),
+            event_id=result.get("event_id"),
+            extracted_data=result.get("extracted_data"),
+            message="Job application and timeline event committed successfully.",
+        )
+    return IntakeResultResponse(
+        status="success",
+        route="other_event",
+        is_application=False,
+        event_id=result.get("event_id"),
+        extracted_data=result.get("extracted_data"),
+        message="Non-application email event logged successfully.",
+    )
 
-        if not account or not account.is_active:
-            task_tracker.fail_task(task_id, "Account not found or inactive.")
-            return
 
-        if folder:
-            account.folder = folder
+@router.post("/paste", response_model=IntakeResultResponse, status_code=status.HTTP_200_OK)
+async def intake_pasted_text(
+    payload: PasteIntakeRequest,
+    db: AsyncSession = Depends(get_db),
+) -> IntakeResultResponse:
+    """Ingests raw pasted email text, thread, or job communication directly."""
+    raw_text = payload.text.strip()
+    if not raw_text:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pasted text content cannot be empty.",
+        )
 
+    # Derive subject from first non-empty line if not provided
+    subject = payload.subject
+    if not subject:
+        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        subject = lines[0][:100] if lines else "Pasted Job Update"
+
+    content_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:16]
+    msg_id = payload.message_id or f"paste-{content_hash}"
+    conv_id = payload.conversation_id or f"conv-{content_hash}"
+    received_at = payload.received_at or datetime.now(timezone.utc)
+
+    email_payload = EmailPayload(
+        conversation_id=conv_id,
+        message_id=msg_id,
+        received_at=received_at,
+        subject=subject,
+        body=raw_text,
+    )
+
+    result = await process_single_email_graph(db, email_payload)
+    return _format_graph_result(result)
+
+
+@router.post("/upload", response_model=list[IntakeResultResponse], status_code=status.HTTP_200_OK)
+async def intake_uploaded_files(
+    files: list[UploadFile] = File(..., description="Uploaded .eml, .msg, or .txt files"),
+    db: AsyncSession = Depends(get_db),
+) -> list[IntakeResultResponse]:
+    """Ingests drag-and-drop uploaded email files (.eml, .msg, .txt)."""
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No files provided for upload.",
+        )
+
+    results: list[IntakeResultResponse] = []
+
+    for file in files:
+        filename = file.filename or "uploaded_file.txt"
         try:
-            raw_emails = await fetch_emails_from_account(account, since_date=since_date)
-        except Exception as e:
-            task_tracker.fail_task(task_id, f"IMAP connection error: {str(e)}")
-            return
+            content = await file.read()
+            if not content:
+                continue
 
-        if not raw_emails:
-            task_tracker.complete_task(task_id)
-            return
+            email_payload = parse_uploaded_file(filename, content)
+            graph_res = await process_single_email_graph(db, email_payload)
+            results.append(_format_graph_result(graph_res))
+        except Exception as err:
+            logger.error("Failed processing uploaded file '%s': %s", filename, err, exc_info=True)
+            results.append(
+                IntakeResultResponse(
+                    status="error",
+                    route="error",
+                    message=f"Failed to parse file '{filename}': {str(err)}",
+                )
+            )
 
-        # Execute processing queue
-        await process_email_batch_sequential(db, raw_emails, task_id)
-
-        # Update last_synced_at
-        account.last_synced_at = datetime.now(timezone.utc)
-        await db.commit()
+    return results
 
 
 @router.post("/sync-account", response_model=TaskResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -109,6 +202,7 @@ async def get_task_status(task_id: str):
         )
     return task_info
 
+
 @router.post("/test-direct", status_code=status.HTTP_200_OK)
 async def intake_direct_raw_email(
     payload: DirectEmailIntakeRequest,
@@ -118,13 +212,11 @@ async def intake_direct_raw_email(
     Directly ingests a raw email payload for immediate testing.
     Runs extraction, deduplication, fuzzy matching, and staging/embedding logic synchronously.
     """
-    # Fallback default values for test payloads
     now = datetime.now(timezone.utc)
     conv_id = payload.conversation_id or f"test-conv-{uuid.uuid4().hex[:8]}"
     msg_id = payload.message_id or f"test-msg-{uuid.uuid4().hex[:8]}"
     received_at = payload.received_at or now
 
-    # Construct standard EmailPayload
     email_item = EmailPayload(
         conversation_id=conv_id,
         message_id=msg_id,
@@ -133,17 +225,14 @@ async def intake_direct_raw_email(
         body=payload.body,
     )
 
-    # Initialize a temporary tracking task
     task_id = task_tracker.create_task(total_emails=1)
 
-    # Execute processing pipeline directly
     await process_email_batch_sequential(
         db=db,
         emails=[email_item],
         task_id=task_id,
     )
 
-    # Fetch processing status details
     task_summary = task_tracker.get_task(task_id)
 
     return {
