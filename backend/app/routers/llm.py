@@ -1,14 +1,14 @@
-from datetime import datetime
-from typing import Any, Dict, Optional
 import logging
-import litellm
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
+from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.llm_factory import get_active_llm_config_dict, get_chat_model
 from app.models.llm import LLMConfigModel
 
 logger = logging.getLogger(__name__)
@@ -17,42 +17,42 @@ router = APIRouter(prefix="/llm-config", tags=["LLM Configuration"])
 
 
 class LLMConfigRead(BaseModel):
-    id: Optional[int] = None
+    id: int | None = None
     provider_name: str
-    api_base: Optional[str] = None
-    api_key: Optional[str] = None
+    api_base: str | None = None
+    api_key: str | None = None
     model_name: str
-    embedding_model_name: Optional[str] = None
+    embedding_model_name: str | None = None
     temperature: float
-    top_k: Optional[int] = None
-    top_p: Optional[float] = None
-    max_tokens: Optional[int] = None
-    agent_model_name: Optional[str] = None
+    top_k: int | None = None
+    top_p: float | None = None
+    max_tokens: int | None = None
+    agent_model_name: str | None = None
     agent_temperature: float
-    agent_top_k: Optional[int] = None
-    agent_top_p: Optional[float] = None
-    agent_max_tokens: Optional[int] = None
+    agent_top_k: int | None = None
+    agent_top_p: float | None = None
+    agent_max_tokens: int | None = None
     agent_max_recursions: int
     is_active: bool = True
     source: str = Field(description="Indicates whether config comes from 'database' or '.env'")
 
 
 class LLMConfigUpdate(BaseModel):
-    provider_name: Optional[str] = Field(default=None, description="Name of the provider")
-    api_base: Optional[str] = Field(default=None, description="Custom base URL for the LLM API")
-    api_key: Optional[str] = Field(default=None, description="API key if required by provider")
-    model_name: Optional[str] = Field(default=None, description="Primary model identifier")
-    embedding_model_name: Optional[str] = Field(default=None, description="Embedding model identifier")
-    temperature: Optional[float] = Field(default=None, description="Primary model temperature")
-    top_k: Optional[int] = Field(default=None, description="Primary model top_k")
-    top_p: Optional[float] = Field(default=None, description="Primary model top_p")
-    max_tokens: Optional[int] = Field(default=None, description="Primary model max tokens")
-    agent_model_name: Optional[str] = Field(default=None, description="Agent specific model identifier")
-    agent_temperature: Optional[float] = Field(default=None, description="Agent temperature")
-    agent_top_k: Optional[int] = Field(default=None, description="Agent top_k")
-    agent_top_p: Optional[float] = Field(default=None, description="Agent top_p")
-    agent_max_tokens: Optional[int] = Field(default=None, description="Agent max tokens")
-    agent_max_recursions: Optional[int] = Field(default=None, description="Agent max recursions")
+    provider_name: str | None = Field(default=None, description="Name of the provider")
+    api_base: str | None = Field(default=None, description="Custom base URL for the LLM API")
+    api_key: str | None = Field(default=None, description="API key if required by provider")
+    model_name: str | None = Field(default=None, description="Primary model identifier")
+    embedding_model_name: str | None = Field(default=None, description="Embedding model identifier")
+    temperature: float | None = Field(default=None, description="Primary model temperature")
+    top_k: int | None = Field(default=None, description="Primary model top_k")
+    top_p: float | None = Field(default=None, description="Primary model top_p")
+    max_tokens: int | None = Field(default=None, description="Primary model max tokens")
+    agent_model_name: str | None = Field(default=None, description="Agent specific model identifier")
+    agent_temperature: float | None = Field(default=None, description="Agent temperature")
+    agent_top_k: int | None = Field(default=None, description="Agent top_k")
+    agent_top_p: float | None = Field(default=None, description="Agent top_p")
+    agent_max_tokens: int | None = Field(default=None, description="Agent max tokens")
+    agent_max_recursions: int | None = Field(default=None, description="Agent max recursions")
 
 
 @router.get("", response_model=LLMConfigRead)
@@ -84,11 +84,11 @@ async def get_current_llm_config(db: AsyncSession = Depends(get_db)) -> Any:
         )
 
     return LLMConfigRead(
-        provider_name=getattr(settings, "LLM_PROVIDER_NAME", "custom"),
+        provider_name=settings.LLM_PROVIDER_NAME,
         api_base=settings.LLM_API_BASE,
         api_key=settings.LLM_API_KEY,
         model_name=settings.LLM_MODEL_NAME,
-        embedding_model_name=getattr(settings, "LLM_EMBEDDING_MODEL_NAME", getattr(settings, "EMBEDDING_MODEL_NAME", None)),
+        embedding_model_name=settings.EMBEDDING_MODEL_NAME,
         temperature=0.7,
         top_k=50,
         top_p=1.0,
@@ -117,11 +117,11 @@ async def update_llm_config(
 
     if not db_config:
         db_config = LLMConfigModel(
-            provider_name=update_data.get("provider_name", getattr(settings, "LLM_PROVIDER_NAME", "custom")),
+            provider_name=update_data.get("provider_name", settings.LLM_PROVIDER_NAME),
             api_base=update_data.get("api_base", settings.LLM_API_BASE),
             api_key=update_data.get("api_key", settings.LLM_API_KEY),
             model_name=update_data.get("model_name", settings.LLM_MODEL_NAME),
-            embedding_model_name=update_data.get("embedding_model_name", getattr(settings, "LLM_EMBEDDING_MODEL_NAME", getattr(settings, "EMBEDDING_MODEL_NAME", None))),
+            embedding_model_name=update_data.get("embedding_model_name", settings.EMBEDDING_MODEL_NAME),
             temperature=update_data.get("temperature", 0.7),
             top_k=update_data.get("top_k", 50),
             top_p=update_data.get("top_p", 1.0),
@@ -165,7 +165,7 @@ async def update_llm_config(
 
 
 @router.delete("", status_code=status.HTTP_200_OK)
-async def reset_llm_config_to_env(db: AsyncSession = Depends(get_db)) -> Dict[str, str]:
+async def reset_llm_config_to_env(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
     stmt = delete(LLMConfigModel)
     await db.execute(stmt)
     await db.commit()
@@ -173,62 +173,25 @@ async def reset_llm_config_to_env(db: AsyncSession = Depends(get_db)) -> Dict[st
 
 
 @router.post("/test")
-async def test_llm_connection(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
-    stmt = select(LLMConfigModel).where(LLMConfigModel.is_active == True)
-    res = await db.execute(stmt)
-    db_config = res.scalar_one_or_none()
-
-    if db_config:
-        provider_name = db_config.provider_name
-        raw_model_name = db_config.model_name
-        api_base = db_config.api_base
-        api_key = db_config.api_key
-        temperature = db_config.temperature
-        top_k = db_config.top_k
-        top_p = db_config.top_p
-        max_tokens = db_config.max_tokens
-        source = "database"
-    else:
-        provider_name = getattr(settings, "LLM_PROVIDER_NAME", "custom")
-        raw_model_name = settings.LLM_MODEL_NAME
-        api_base = settings.LLM_API_BASE
-        api_key = settings.LLM_API_KEY
-        temperature = 0.7
-        top_k = 50
-        top_p = 1.0
-        max_tokens = None
-        source = ".env"
-
-    formatted_model_name = raw_model_name
-    if provider_name and provider_name != "env_default" and "/" not in raw_model_name:
-        formatted_model_name = f"{provider_name}/{raw_model_name}"
+async def test_llm_connection(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    cfg = await get_active_llm_config_dict(db)
 
     try:
-        kwargs: Dict[str, Any] = {
-            "model": formatted_model_name,
-            "api_base": api_base,
-            "api_key": api_key,
-            "messages": [{"role": "user", "content": "Respond with 'OK' to verify connectivity."}],
-            "temperature": temperature,
-            "top_p": top_p,
-            "max_tokens": max_tokens or 10,
-        }
-        if top_k is not None:
-            kwargs["top_k"] = top_k
+        chat_model = await get_chat_model(db, max_tokens=10)
+        response = await chat_model.ainvoke([HumanMessage(content="Respond with 'OK' to verify connectivity.")])
+        content = response.content if isinstance(response.content, str) else str(response.content)
 
-        response = await litellm.acompletion(**kwargs)
-        content = response.choices[0].message.content.strip() # type: ignore[attr-defined]
         return {
             "status": "success",
-            "source": source,
-            "provider_used": provider_name,
-            "model_used": formatted_model_name,
-            "api_base_used": api_base,
-            "response": content,
+            "source": cfg.get("source", "unknown"),
+            "provider_used": cfg.get("provider_name"),
+            "model_used": cfg.get("model_name"),
+            "api_base_used": cfg.get("api_base"),
+            "response": content.strip(),
         }
-    except Exception as e:
-        logger.error(f"LLM Connection Test Failed: {e}")
+    except Exception as err:
+        logger.error("LLM Connection Test Failed: %s", err, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to connect to provider '{provider_name}' using model '{formatted_model_name}' at '{api_base}': {str(e)}",
+            detail=f"Failed to connect to provider '{cfg.get('provider_name')}' using model '{cfg.get('model_name')}' at '{cfg.get('api_base')}': {str(err)}",
         )
