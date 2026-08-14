@@ -83,7 +83,7 @@ async def test_extract_email_info_runnable(db_session: AsyncSession):
         summary="Application received for Python Engineer.",
     )
 
-    with patch("app.services.llm.get_chat_model") as mock_get_chat:
+    with patch("app.services.llm.get_task_chat_model") as mock_get_chat:
         mock_llm = MagicMock()
         mock_llm.with_structured_output.return_value = RunnableLambda(AsyncMock(return_value=mock_result))
         mock_get_chat.return_value = mock_llm
@@ -104,7 +104,7 @@ async def test_summarize_application_status_runnable(db_session: AsyncSession):
         next_action="Prepare for interview",
     )
 
-    with patch("app.services.llm.get_chat_model") as mock_get_chat:
+    with patch("app.services.llm.get_task_chat_model") as mock_get_chat:
         mock_llm = MagicMock()
         mock_llm.with_structured_output.return_value = RunnableLambda(AsyncMock(return_value=mock_summary))
         mock_get_chat.return_value = mock_llm

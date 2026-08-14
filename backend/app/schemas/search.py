@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import List, Optional
-from pydantic import BaseModel
+from typing import Optional
+from pydantic import BaseModel, ConfigDict
 
 
 class CompanySearchResult(BaseModel):
@@ -9,8 +9,7 @@ class CompanySearchResult(BaseModel):
     domain: Optional[str] = None
     applications_count: int = 0
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SemanticSearchResult(BaseModel):
@@ -23,5 +22,4 @@ class SemanticSearchResult(BaseModel):
     similarity_score: float  # e.g., 78.50
     received_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

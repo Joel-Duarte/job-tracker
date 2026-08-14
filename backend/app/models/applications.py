@@ -1,9 +1,10 @@
 from datetime import datetime
-from typing import Any, List, Optional, Dict
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Text, func, text
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import JSONB
+from typing import Any, Dict, List, Optional
 from pgvector.sqlalchemy import Vector
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Text, func, text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
 
 class Base(DeclarativeBase):
     pass
@@ -64,6 +65,17 @@ class ApplicationModel(Base):
         uselist=False,
     )
 
+    job_posting: Mapped[Optional["JobPostingModel"]] = relationship(
+        back_populates="application",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+    action_items: Mapped[List["ActionItemModel"]] = relationship(
+        back_populates="application",
+        cascade="all, delete-orphan",
+    )
+
     __table_args__ = (
         Index("idx_email_applications_company_id", "company_id"),
         Index("idx_email_applications_position_normalized", "position_normalized"),
@@ -93,15 +105,76 @@ class ApplicationEventModel(Base):
     email_action_required: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     email_action: Mapped[Optional[str]] = mapped_column(Text)
     email_raw_body: Mapped[Optional[str]] = mapped_column(Text)
+
+    source_channel: Mapped[str] = mapped_column(Text, nullable=False, server_default="EMAIL")
+    raw_payload: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     application: Mapped["ApplicationModel"] = relationship(back_populates="events")
+    action_items: Mapped[List["ActionItemModel"]] = relationship(
+        back_populates="event",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         Index("idx_email_application_events_application_id", "email_application_id"),
         Index("idx_email_application_events_conversation_id", "email_conversation_id"),
         Index("idx_email_application_events_received_at", "email_received_at"),
         Index("idx_email_application_events_type", "email_event_type"),
+    )
+
+
+class JobPostingModel(Base):
+    __tablename__ = "job_postings"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    application_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("email_applications.id", ondelete="CASCADE"), nullable=True
+    )
+    job_url: Mapped[str] = mapped_column(Text, nullable=False)
+    description_markdown: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    salary_min: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    salary_max: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    currency: Mapped[Optional[str]] = mapped_column(Text, server_default="USD")
+    location: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    work_model: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Remote, Hybrid, Onsite
+    required_skills: Mapped[List[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    application: Mapped[Optional["ApplicationModel"]] = relationship(back_populates="job_posting")
+
+    __table_args__ = (
+        Index("idx_job_postings_application_id", "application_id"),
+        Index("idx_job_postings_job_url", "job_url"),
+    )
+
+
+class ActionItemModel(Base):
+    __tablename__ = "action_items"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    application_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("email_applications.id", ondelete="CASCADE"), nullable=True
+    )
+    event_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("email_application_events.id", ondelete="SET NULL"), nullable=True
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    due_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="PENDING")  # PENDING, COMPLETED, DISMISSED
+    action_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    urgency: Mapped[Optional[str]] = mapped_column(Text, server_default="MEDIUM")  # HIGH, MEDIUM, LOW
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    application: Mapped[Optional["ApplicationModel"]] = relationship(back_populates="action_items")
+    event: Mapped[Optional["ApplicationEventModel"]] = relationship(back_populates="action_items")
+
+    __table_args__ = (
+        Index("idx_action_items_application_id", "application_id"),
+        Index("idx_action_items_event_id", "event_id"),
+        Index("idx_action_items_status", "status"),
     )
 
 

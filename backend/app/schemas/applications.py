@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import List, Optional
-from pydantic import BaseModel, Field
 from enum import Enum
+from typing import List, Optional
+from pydantic import BaseModel, ConfigDict, Field
 
 # --- Nested Response Schemas ---
 
@@ -10,8 +10,7 @@ class CompanySummary(BaseModel):
     name: str
     domain: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EventSummary(BaseModel):
@@ -22,8 +21,7 @@ class EventSummary(BaseModel):
     email_action: Optional[str] = None
     email_received_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Main Application Response Schemas ---
@@ -38,8 +36,7 @@ class ApplicationListItem(BaseModel):
     has_action_required: bool = False
     latest_event: Optional[EventSummary] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ApplicationListResponse(BaseModel):
@@ -56,6 +53,7 @@ class ApplicationDetailResponse(ApplicationListItem):
     created_at: datetime
     updated_at: datetime
 
+
 # --- Query Filter Schema ---
 
 class ApplicationFilterParams(BaseModel):
@@ -67,6 +65,7 @@ class ApplicationFilterParams(BaseModel):
     order: str = Field("desc", description="Sort order: asc or desc")
     limit: int = Field(20, ge=1, le=100, description="Pagination limit")
     offset: int = Field(0, ge=0, description="Pagination offset")
+
 
 class ApplicationEventDetail(BaseModel):
     id: int
@@ -84,14 +83,15 @@ class ApplicationEventDetail(BaseModel):
     email_raw_body: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
 
 class AllowedApplicationStatus(str, Enum):
     APPLIED = "APPLIED"
     REJECTED = "REJECTED"
     ONLINE_ASSESSMENT = "ONLINE_ASSESSMENT"
     TECHNICAL_INTERVIEW = "TECHNICAL_INTERVIEW"
+
 
 class ApplicationByStatusResult(BaseModel):
     application_id: int
@@ -102,8 +102,8 @@ class ApplicationByStatusResult(BaseModel):
     event_count: int
     latest_email: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
 
 class ApplicationUpdate(BaseModel):
     position: Optional[str] = Field(None, description="Updated job title/position name")

@@ -2,10 +2,11 @@ import logging
 from typing import Any
 from langchain.chat_models import init_chat_model
 from langchain.embeddings import init_embeddings
-from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.embeddings import Embeddings
+from langchain_core.language_models.chat_models import BaseChatModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.core.config import settings
 
@@ -23,6 +24,7 @@ PROVIDER_MAP = {
     "google": "google_genai",
     "gemini": "google_genai",
     "google_genai": "google_genai",
+    "openrouter": "openai",
 }
 
 
@@ -43,7 +45,7 @@ def _clean_base_url(url: str | None) -> str | None:
 
 
 async def get_active_llm_config_dict(db: AsyncSession | None = None) -> dict[str, Any]:
-    """Retrieves active LLM configuration from DB with fallback to settings (.env)."""
+    """Retrieves legacy LLM configuration from DB with fallback to settings (.env)."""
     if db is not None:
         try:
             from app.models.llm import LLMConfigModel
@@ -72,7 +74,7 @@ async def get_active_llm_config_dict(db: AsyncSession | None = None) -> dict[str
                     "agent_max_recursions": db_config.agent_max_recursions,
                 }
         except Exception as err:
-            logger.warning("Failed to fetch LLM config from DB, falling back to .env: %s", err)
+            logger.warning("Failed to fetch legacy LLM config from DB: %s", err)
 
     return {
         "source": ".env",
@@ -99,7 +101,7 @@ async def get_chat_model(
     is_agent: bool = False,
     **override_kwargs: Any,
 ) -> BaseChatModel:
-    """Initializes and returns a LangChain BaseChatModel from active configuration."""
+    """Fallback initialization of LangChain BaseChatModel from legacy/env config."""
     cfg = await get_active_llm_config_dict(db)
 
     provider = _resolve_provider(cfg.get("provider_name"))
@@ -133,7 +135,7 @@ async def get_embeddings_model(
     db: AsyncSession | None = None,
     **override_kwargs: Any,
 ) -> Embeddings:
-    """Initializes and returns a LangChain Embeddings model from active configuration."""
+    """Fallback initialization of LangChain Embeddings from legacy/env config."""
     cfg = await get_active_llm_config_dict(db)
 
     provider = _resolve_provider(cfg.get("provider_name"))
@@ -153,3 +155,106 @@ async def get_embeddings_model(
 
     init_kwargs.update(override_kwargs)
     return init_embeddings(**init_kwargs)
+
+
+async def get_task_chat_model(
+    db: AsyncSession | None = None,
+    task_type: str = "EXTRACTION",
+    **override_kwargs: Any,
+) -> BaseChatModel:
+    """
+    Dynamically loads and initializes a LangChain BaseChatModel based on task binding
+    (e.g., 'EXTRACTION', 'AGENT_REASONING', 'SUMMARIZATION', 'SCRAPER_PARSER').
+    Cascades gracefully to legacy/env config if task binding is not configured.
+    """
+    if db is not None:
+        try:
+            from app.models.ai_providers import AITaskBindingModel
+
+            stmt = (
+                select(AITaskBindingModel)
+                .options(joinedload(AITaskBindingModel.provider))
+                .where(
+                    AITaskBindingModel.task_type == task_type,
+                    AITaskBindingModel.is_active == True,
+                )
+            )
+            res = await db.execute(stmt)
+            binding = res.scalar_one_or_none()
+
+            if binding and binding.provider and binding.provider.is_active:
+                provider_type = _resolve_provider(binding.provider.provider_type)
+                base_url = _clean_base_url(binding.provider.base_url)
+                api_key = binding.provider.api_key or "dummy-key"
+
+                init_kwargs: dict[str, Any] = {
+                    "model": binding.model_name,
+                    "model_provider": provider_type,
+                    "temperature": binding.temperature,
+                }
+
+                if base_url:
+                    init_kwargs["base_url"] = base_url
+                if api_key:
+                    init_kwargs["api_key"] = api_key
+                if binding.top_p is not None:
+                    init_kwargs["top_p"] = binding.top_p
+                if binding.max_tokens is not None:
+                    init_kwargs["max_tokens"] = binding.max_tokens
+
+                if binding.extra_kwargs and isinstance(binding.extra_kwargs, dict):
+                    init_kwargs.update(binding.extra_kwargs)
+
+                init_kwargs.update(override_kwargs)
+                return init_chat_model(**init_kwargs)
+        except Exception as err:
+            logger.warning("Failed loading task binding '%s', falling back: %s", task_type, err)
+
+    is_agent_flag = task_type in ("AGENT_REASONING", "SCRAPER_PARSER")
+    return await get_chat_model(db, is_agent=is_agent_flag, **override_kwargs)
+
+
+async def get_task_embeddings_model(
+    db: AsyncSession | None = None,
+    **override_kwargs: Any,
+) -> Embeddings:
+    """
+    Dynamically loads and initializes a LangChain Embeddings model from 'EMBEDDING' task binding.
+    Cascades gracefully to legacy/env config if task binding is not configured.
+    """
+    if db is not None:
+        try:
+            from app.models.ai_providers import AITaskBindingModel
+
+            stmt = (
+                select(AITaskBindingModel)
+                .options(joinedload(AITaskBindingModel.provider))
+                .where(
+                    AITaskBindingModel.task_type == "EMBEDDING",
+                    AITaskBindingModel.is_active == True,
+                )
+            )
+            res = await db.execute(stmt)
+            binding = res.scalar_one_or_none()
+
+            if binding and binding.provider and binding.provider.is_active:
+                provider_type = _resolve_provider(binding.provider.provider_type)
+                base_url = _clean_base_url(binding.provider.base_url)
+                api_key = binding.provider.api_key or "dummy-key"
+
+                init_kwargs: dict[str, Any] = {
+                    "model": binding.model_name,
+                    "provider": provider_type,
+                }
+
+                if base_url:
+                    init_kwargs["base_url"] = base_url
+                if api_key:
+                    init_kwargs["api_key"] = api_key
+
+                init_kwargs.update(override_kwargs)
+                return init_embeddings(**init_kwargs)
+        except Exception as err:
+            logger.warning("Failed loading EMBEDDING task binding, falling back: %s", err)
+
+    return await get_embeddings_model(db, **override_kwargs)

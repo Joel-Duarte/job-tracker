@@ -6,7 +6,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.llm_factory import get_active_llm_config_dict, get_chat_model, get_embeddings_model
+from app.core.llm_factory import (
+    get_active_llm_config_dict,
+    get_chat_model,
+    get_embeddings_model,
+    get_task_chat_model,
+    get_task_embeddings_model,
+)
 from app.core.prompts import get_prompt_template
 from app.models.applications import ApplicationEmbeddingModel, ApplicationModel
 from app.schemas.llm import ApplicationSummaryResult, EmailExtractionResult
@@ -20,8 +26,8 @@ async def get_active_llm_config(db: AsyncSession) -> dict[str, Any]:
 
 
 async def extract_email_info(db: AsyncSession, email_content: str) -> EmailExtractionResult:
-    """Extracts structured job application metadata from email body using LangChain."""
-    llm = await get_chat_model(db)
+    """Extracts structured job application metadata from email body using LangChain EXTRACTION model."""
+    llm = await get_task_chat_model(db, task_type="EXTRACTION")
     structured_llm = llm.with_structured_output(EmailExtractionResult)
     template_str = await get_prompt_template(db, "extraction")
 
@@ -40,8 +46,8 @@ async def extract_email_info(db: AsyncSession, email_content: str) -> EmailExtra
 async def summarize_application_status(
     db: AsyncSession, events_timeline: list[dict[str, Any]]
 ) -> ApplicationSummaryResult:
-    """Synthesizes a narrative status snapshot from application timeline events using LangChain."""
-    llm = await get_chat_model(db)
+    """Synthesizes a narrative status snapshot from timeline events using LangChain SUMMARIZATION model."""
+    llm = await get_task_chat_model(db, task_type="SUMMARIZATION")
     structured_llm = llm.with_structured_output(ApplicationSummaryResult)
     events_str = json.dumps(events_timeline, indent=2)
     template_str = await get_prompt_template(db, "summarization")
@@ -59,8 +65,8 @@ async def summarize_application_status(
 
 
 async def generate_embedding(db: AsyncSession, text_input: str) -> list[float]:
-    """Generates vector embedding for input text using configured LangChain Embeddings model."""
-    embeddings = await get_embeddings_model(db)
+    """Generates vector embedding for input text using configured LangChain EMBEDDING model."""
+    embeddings = await get_task_embeddings_model(db)
     return await embeddings.aembed_query(text_input)
 
 

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import check_db_connection, ensure_db_schema, get_db
 from app.routers import (
     admin,
+    ai_config,
     applications,
     email_accounts,
     events,
@@ -54,6 +55,7 @@ app = FastAPI(
 # Register routers
 app.include_router(intake.router, prefix="/api/v1")
 app.include_router(extension.router, prefix="/api/v1")
+app.include_router(ai_config.router, prefix="/api/v1")
 app.include_router(applications.router, prefix="/api/v1")
 app.include_router(events.router, prefix="/api/v1")
 app.include_router(search.router, prefix="/api/v1")
