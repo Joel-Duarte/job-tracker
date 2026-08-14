@@ -170,8 +170,13 @@ async def sync_email_account(
         )
 
     # Initial quick fetch to initialize total_emails in tracker
-    raw_emails = await fetch_emails_from_account(account, since_date=payload.since_date)
+    raw_emails, next_cursor = await fetch_emails_from_account(account, since_date=payload.since_date)
     task_id = task_tracker.create_task(total_emails=len(raw_emails), account_id=payload.account_id)
+
+    if next_cursor:
+        account.sync_cursor = next_cursor
+        account.last_synced_at = datetime.now(timezone.utc)
+        await db.commit()
 
     if len(raw_emails) == 0:
         task_tracker.complete_task(task_id)

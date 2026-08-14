@@ -142,7 +142,7 @@ async def test_mock_imap_email_fetching(sample_email_account):
             )
         ]
 
-        emails = await fetch_emails_from_account(sample_email_account)
+        emails, _ = await fetch_emails_from_account(sample_email_account)
         assert len(emails) == 1
         assert emails[0].subject == "Test Subject"
         mock_sync_fetch.assert_called_once()
