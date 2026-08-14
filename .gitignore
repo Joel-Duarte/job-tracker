@@ -117,3 +117,6 @@ pnpm-debug.log*
 
 # Vue / Vite / Webpack test artifacts
 coverage/
+
+AGENTS.md
+TODO.md
