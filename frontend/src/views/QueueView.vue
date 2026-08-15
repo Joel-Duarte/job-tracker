@@ -132,76 +132,29 @@ onUnmounted(() => {
 
 <template>
   <div class="page-container queue-page-layout">
-    <!-- Header Area -->
-    <div class="queue-header-section">
-      <div class="header-titles">
+    <!-- Header Area (Centered, themed to match Settings and Staging) -->
+    <div class="page-header">
+      <div class="header-text-center">
         <h1 class="page-title">AI Processing Queue</h1>
         <p class="page-subtitle">
           Real-time background execution queue for automated Job Lead evaluations and Candidate CV extractions.
         </p>
       </div>
 
-      <!-- Quick Metrics Grid -->
-      <div class="metrics-grid">
-        <div class="metric-card">
-          <div class="metric-icon-box active-box">
-            <Cpu :size="18" class="text-primary" />
-          </div>
-          <div class="metric-data">
-            <span class="metric-val">{{ activeCount }}</span>
-            <span class="metric-lbl">Actively Processing</span>
-          </div>
-        </div>
-
-        <div class="metric-card">
-          <div class="metric-icon-box complete-box">
-            <CheckCircle :size="18" class="text-success" />
-          </div>
-          <div class="metric-data">
-            <span class="metric-val">{{ completedCount }}</span>
-            <span class="metric-lbl">Completed</span>
-          </div>
-        </div>
-
-        <div class="metric-card">
-          <div class="metric-icon-box failed-box">
-            <AlertCircle :size="18" class="text-danger" />
-          </div>
-          <div class="metric-data">
-            <span class="metric-val">{{ failedCount }}</span>
-            <span class="metric-lbl">Failed / Cancelled</span>
-          </div>
-        </div>
-
-        <div class="metric-card action-card">
-          <button
-            class="btn btn-secondary btn-sm btn-clear-all"
-            :disabled="isClearing || (completedCount === 0 && failedCount === 0)"
-            @click="clearCompleted"
-          >
-            <Loader2 v-if="isClearing" class="animate-spin" :size="14" />
-            <Trash2 v-else :size="14" />
-            <span>Clear Completed</span>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Filter & Search Toolbar -->
-    <div class="queue-toolbar">
-      <div class="toolbar-left">
+      <!-- Centered Filters & Controls Bar -->
+      <div class="header-controls-centered">
         <!-- Status Filter Pills -->
-        <div class="filter-pills-group">
+        <div class="tab-bar">
           <button
-            class="filter-pill"
+            class="tab-pill"
             :class="{ active: statusFilter === 'ALL' }"
             @click="statusFilter = 'ALL'"
           >
-            <span>All Status</span>
+            <span>All Tasks</span>
             <span class="pill-badge">{{ tasks.length }}</span>
           </button>
           <button
-            class="filter-pill"
+            class="tab-pill"
             :class="{ active: statusFilter === 'ACTIVE' }"
             @click="statusFilter = 'ACTIVE'"
           >
@@ -210,7 +163,7 @@ onUnmounted(() => {
             <span class="pill-badge">{{ activeCount }}</span>
           </button>
           <button
-            class="filter-pill"
+            class="tab-pill"
             :class="{ active: statusFilter === 'COMPLETED' }"
             @click="statusFilter = 'COMPLETED'"
           >
@@ -219,7 +172,7 @@ onUnmounted(() => {
           </button>
           <button
             v-if="failedCount > 0"
-            class="filter-pill"
+            class="tab-pill"
             :class="{ active: statusFilter === 'FAILED' }"
             @click="statusFilter = 'FAILED'"
           >
@@ -228,7 +181,7 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <!-- Task Type Selector -->
+        <!-- Task Type Switcher -->
         <div class="type-filter-group">
           <button
             class="type-pill"
@@ -254,27 +207,39 @@ onUnmounted(() => {
             <span>CV Extractions</span>
           </button>
         </div>
-      </div>
 
-      <div class="toolbar-right">
-        <div class="search-input-box">
-          <Search :size="14" class="search-icon text-muted" />
-          <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="Search by title or URL..."
-            class="search-input"
-          />
+        <!-- Actions: Search, Refresh, Clear Completed -->
+        <div class="header-actions-row">
+          <div class="search-input-box">
+            <Search :size="13" class="search-icon text-muted" />
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="Search queue..."
+              class="search-input"
+            />
+          </div>
+
+          <button
+            class="btn btn-secondary btn-sm"
+            :disabled="loading"
+            @click="fetchTasks()"
+            title="Refresh Queue"
+          >
+            <RefreshCw :size="13" :class="{ 'animate-spin': loading }" />
+          </button>
+
+          <button
+            class="btn btn-secondary btn-sm btn-clear"
+            :disabled="isClearing || (completedCount === 0 && failedCount === 0)"
+            @click="clearCompleted"
+            title="Clear completed & failed tasks"
+          >
+            <Loader2 v-if="isClearing" class="animate-spin" :size="13" />
+            <Trash2 v-else :size="13" />
+            <span>Clear Completed</span>
+          </button>
         </div>
-        <button
-          class="btn btn-secondary btn-sm"
-          :disabled="loading"
-          @click="fetchTasks()"
-          title="Refresh Queue"
-        >
-          <RefreshCw :size="13" :class="{ 'animate-spin': loading }" />
-          <span>Refresh</span>
-        </button>
       </div>
     </div>
 
@@ -516,25 +481,30 @@ onUnmounted(() => {
   background-color: var(--bg-app);
 }
 
-/* Header Section */
-.queue-header-section {
-  padding: 20px 24px 16px 24px;
-  background-color: var(--bg-surface);
-  border-bottom: 1px solid var(--border-color);
+/* Header Section (Centered to match Settings & Staging) */
+.page-header {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  align-items: center;
+  text-align: center;
+  padding: 22px 24px 16px;
+  background-color: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
+  gap: 14px;
 }
 
-.header-titles {
+.header-text-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   text-align: center;
 }
 
 .page-title {
   font-family: var(--font-heading);
   font-weight: var(--font-heading-weight);
-  font-size: 22px;
+  font-size: 24px;
   color: var(--text-main);
   margin: 0;
 }
@@ -543,171 +513,95 @@ onUnmounted(() => {
   font-size: 13px;
   color: var(--text-secondary);
   margin: 4px 0 0 0;
+  max-width: 620px;
 }
 
-/* Metrics Grid */
-.metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  max-width: 900px;
-  margin: 0 auto;
-  width: 100%;
-}
-
-.metric-card {
+.header-controls-centered {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 12px;
-  padding: 12px 14px;
-  background-color: var(--bg-card);
+  flex-wrap: wrap;
+  width: 100%;
+  max-width: 1100px;
+}
+
+/* Status Tab Bar Pills */
+.tab-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-sm);
+  border-radius: var(--radius-full);
+  padding: 3px 4px;
 }
 
-.metric-card.action-card {
-  justify-content: center;
-}
-
-.btn-clear-all {
-  width: 100%;
-  justify-content: center;
-}
-
-.metric-icon-box {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.active-box {
-  background-color: var(--primary-subtle);
-  border: 1px solid var(--primary-glow);
-}
-
-.complete-box {
-  background-color: var(--status-offer-bg);
-  border: 1px solid var(--status-offer-border);
-}
-
-.failed-box {
-  background-color: var(--status-rejected-bg);
-  border: 1px solid var(--status-rejected-border);
-}
-
-.metric-data {
-  display: flex;
-  flex-direction: column;
-}
-
-.metric-val {
-  font-family: var(--font-mono);
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-main);
-  line-height: 1.2;
-}
-
-.metric-lbl {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-/* Toolbar */
-.queue-toolbar {
-  padding: 12px 24px;
-  background-color: var(--bg-card);
-  border-bottom: 1px solid var(--border-color);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-shrink: 0;
-  flex-wrap: wrap;
-}
-
-.toolbar-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.filter-pills-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.filter-pill {
+.tab-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
+  padding: 5px 12px;
   border-radius: var(--radius-full);
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-surface);
-  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
-.filter-pill:hover {
-  border-color: var(--border-focus);
+.tab-pill:hover {
   color: var(--text-main);
 }
 
-.filter-pill.active {
+.tab-pill.active {
   background-color: var(--primary);
-  border-color: var(--primary);
   color: #ffffff;
+  font-weight: 600;
 }
 
 .pill-badge {
   font-size: 10px;
   font-weight: 700;
-  background-color: rgba(255, 255, 255, 0.2);
   padding: 1px 5px;
   border-radius: var(--radius-full);
+  background-color: var(--bg-elevated);
+  color: var(--text-secondary);
 }
 
-.filter-pill:not(.active) .pill-badge {
-  background-color: var(--bg-elevated);
-  color: var(--text-muted);
+.tab-pill.active .pill-badge {
+  background-color: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
 }
 
 .live-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background-color: var(--primary);
-  box-shadow: 0 0 6px var(--primary-glow);
+  background-color: #ffffff;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
   animation: pulse-ring 1.5s infinite;
 }
 
+/* Task Type Switcher */
 .type-filter-group {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 2px;
+  border-radius: var(--radius-full);
+  padding: 3px;
 }
 
 .type-pill {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 8px;
-  border-radius: 4px;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: var(--radius-full);
   border: none;
   background: transparent;
   color: var(--text-secondary);
@@ -728,10 +622,11 @@ onUnmounted(() => {
   box-shadow: var(--shadow-sm);
 }
 
-.toolbar-right {
-  display: flex;
+/* Header Actions Row */
+.header-actions-row {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .search-input-box {
@@ -742,22 +637,32 @@ onUnmounted(() => {
 
 .search-icon {
   position: absolute;
-  left: 10px;
+  left: 9px;
+  pointer-events: none;
 }
 
 .search-input {
-  padding: 6px 12px 6px 30px;
+  padding: 5px 10px 5px 28px;
   font-size: 12px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-full);
   border: 1px solid var(--border-color);
   background-color: var(--bg-surface);
   color: var(--text-main);
-  width: 220px;
+  width: 170px;
+  transition: all var(--transition-fast);
 }
 
 .search-input:focus {
+  width: 210px;
   border-color: var(--primary);
   outline: none;
+}
+
+.btn-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
 }
 
 /* Content Area */
@@ -1056,15 +961,12 @@ onUnmounted(() => {
 }
 
 @keyframes pulse-ring {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 var(--primary-glow); }
-  70% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(0, 0, 0, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.8); }
+  70% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(255, 255, 255, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
 }
 
 @media (max-width: 768px) {
-  .metrics-grid {
-    grid-template-columns: 1fr 1fr;
-  }
   .pipeline-stepper {
     overflow-x: auto;
   }
