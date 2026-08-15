@@ -1,13 +1,14 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import logging
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.database import get_db
 from app.models.applications import (
+    ActionItemModel,
     ApplicationEmbeddingModel,
     ApplicationEventModel,
     ApplicationModel,
@@ -25,7 +26,7 @@ from app.schemas.applications import (
     CompanySummary,
     EventSummary,
 )
-from app.services.llm import generate_and_save_application_embedding
+from app.services.llm import async_enqueue_application_embedding, generate_and_save_application_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -243,9 +244,10 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
 async def update_application(
     application_id: int,
     payload: ApplicationUpdate,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    """Partially updates a job application and refreshes its semantic vector embedding."""
+    """Partially updates a job application and enqueues background vector embedding refresh."""
     stmt = (
         select(ApplicationModel)
         .where(ApplicationModel.id == application_id)
@@ -275,7 +277,8 @@ async def update_application(
         app.position_normalized = update_data["position"].strip().lower()
 
     for key, value in update_data.items():
-        setattr(app, key, value)
+        if hasattr(app, key):
+            setattr(app, key, value)
 
     await db.commit()
 
@@ -285,11 +288,8 @@ async def update_application(
     if app is None:
         raise HTTPException(status_code=404, detail="Application not found")
 
-    # Fast programmatic embedding refresh on manual update
-    try:
-        await generate_and_save_application_embedding(db, app.id, skip_llm_summary=True)
-    except Exception as e:
-        logger.warning("Failed to refresh embedding for Application ID %d: %s", app.id, e)
+    # Enqueue non-blocking background embedding generation
+    background_tasks.add_task(async_enqueue_application_embedding, app.id, skip_llm_summary=True)
 
     latest_evt = app.events[0] if app.events else None
     has_action = any(e.email_action_required for e in app.events)
@@ -332,11 +332,12 @@ async def update_application(
 async def transition_application(
     application_id: int,
     payload: ApplicationTransitionRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Transitions application to a new column/stage (e.g. TECHNICAL_INTERVIEW, OFFER, REJECTED)
-    and atomically creates a structured ApplicationEventModel and updates programmatic embeddings.
+    Transitions application to a new column/stage (e.g. TECHNICAL_INTERVIEW, OFFER, REJECTED),
+    records a structured ApplicationEventModel, sets ActionItemModel for deadlines, and enqueues embedding in background.
     """
     stmt = (
         select(ApplicationModel)
@@ -359,6 +360,8 @@ async def transition_application(
     now = datetime.now(timezone.utc)
     app.last_activity_at = now
 
+    event_time = now
+
     # Update JobPosting if offered salary provided
     if payload.offered_salary is not None:
         if app.job_posting:
@@ -380,9 +383,37 @@ async def transition_application(
     summary_parts = [f"Status changed from {old_status} to {new_status}."]
     if payload.interview_stage:
         summary_parts.append(f"Interview Phase: {payload.interview_stage}.")
+    if payload.scheduled_at:
+        summary_parts.append(f"Scheduled: {payload.scheduled_at.strftime('%b %d, %Y %I:%M %p')}.")
+        # Create reminder Action Item
+        action_item = ActionItemModel(
+            application_id=app.id,
+            title=f"Interview: {payload.interview_stage or 'Technical Round'} ({app.company.name})",
+            due_date=payload.scheduled_at,
+            urgency="HIGH",
+        )
+        db.add(action_item)
+
     if payload.offered_salary:
         curr = payload.currency or "USD"
         summary_parts.append(f"Offered Compensation: {payload.offered_salary:,.0f} {curr}.")
+    if payload.offer_received_date:
+        summary_parts.append(f"Offer Received: {payload.offer_received_date.strftime('%b %d, %Y')}.")
+    if payload.decision_deadline:
+        summary_parts.append(f"Decision Deadline: {payload.decision_deadline.strftime('%b %d, %Y')}.")
+        # Create decision deadline Action Item
+        deadline_dt = datetime.combine(payload.decision_deadline, datetime.min.time(), tzinfo=timezone.utc)
+        action_item = ActionItemModel(
+            application_id=app.id,
+            title=f"Respond to Offer: {app.company.name}",
+            due_date=deadline_dt,
+            urgency="HIGH",
+        )
+        db.add(action_item)
+
+    if payload.rejection_date:
+        summary_parts.append(f"Rejection Date: {payload.rejection_date.strftime('%b %d, %Y')}.")
+        event_time = datetime.combine(payload.rejection_date, datetime.min.time(), tzinfo=timezone.utc)
     if payload.rejection_reason:
         summary_parts.append(f"Rejection Reason: {payload.rejection_reason}.")
     if payload.notes:
@@ -397,18 +428,15 @@ async def transition_application(
         email_event_type="STATUS_CHANGE",
         email_status_after_event=new_status,
         email_summary=summary_str,
-        email_received_at=now,
+        email_received_at=event_time,
         source_channel="MANUAL",
-        raw_payload=payload.model_dump(),
+        raw_payload=payload.model_dump(mode="json"),
     )
     db.add(event)
     await db.commit()
 
-    # Fast programmatic embedding update (no LLM call)
-    try:
-        await generate_and_save_application_embedding(db, app.id, skip_llm_summary=True)
-    except Exception as e:
-        logger.warning("Failed to refresh programmatic embedding for Application ID %d: %s", app.id, e)
+    # Enqueue non-blocking background embedding generation
+    background_tasks.add_task(async_enqueue_application_embedding, app.id, skip_llm_summary=True)
 
     # Reload application with updated relations
     stmt_reload = (

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
@@ -110,8 +110,12 @@ class ApplicationByStatusResult(BaseModel):
 class ApplicationTransitionRequest(BaseModel):
     status: AllowedApplicationStatus = Field(..., description="Target pipeline status")
     interview_stage: Optional[str] = Field(None, description="Specific interview phase e.g. Screening, Take-Home, System Design, Final Round")
+    scheduled_at: Optional[datetime] = Field(None, description="Interview scheduled date & time")
     offered_salary: Optional[float] = Field(None, description="Offered compensation")
     currency: Optional[str] = Field("USD", description="Currency code for offered compensation")
+    offer_received_date: Optional[date] = Field(None, description="Date offer package was received")
+    decision_deadline: Optional[date] = Field(None, description="Decision deadline date to respond/accept offer")
+    rejection_date: Optional[date] = Field(None, description="Date rejection notice was received")
     rejection_reason: Optional[str] = Field(None, description="Reason for rejection")
     notes: Optional[str] = Field(None, description="Additional notes or context for transition")
 
@@ -123,7 +127,11 @@ class ApplicationUpdate(BaseModel):
     external_job_id: Optional[str] = Field(None, description="External reference ID for the listing")
     company_id: Optional[int] = Field(None, description="Reassign to another company ID if needed")
     interview_stage: Optional[str] = Field(None, description="Interview sub-stage")
+    scheduled_at: Optional[datetime] = Field(None, description="Scheduled interview time")
     offered_salary: Optional[float] = Field(None, description="Offered compensation")
     currency: Optional[str] = Field("USD", description="Currency code")
+    offer_received_date: Optional[date] = Field(None, description="Date offer received")
+    decision_deadline: Optional[date] = Field(None, description="Decision deadline")
+    rejection_date: Optional[date] = Field(None, description="Rejection date")
     rejection_reason: Optional[str] = Field(None, description="Rejection reason")
     notes: Optional[str] = Field(None, description="Transition notes")

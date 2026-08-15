@@ -31,14 +31,14 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # 2. Transition to TECHNICAL_INTERVIEW with interview stage
-        with patch("app.routers.applications.generate_and_save_application_embedding", new_callable=AsyncMock) as mock_embed:
-            mock_embed.return_value = None
+        # 2. Transition to TECHNICAL_INTERVIEW with interview stage and scheduled_at
+        with patch("app.routers.applications.async_enqueue_application_embedding", new_callable=AsyncMock) as mock_embed:
             resp = await client.post(
                 f"/api/v1/applications/{application.id}/transition",
                 json={
                     "status": "TECHNICAL_INTERVIEW",
                     "interview_stage": "System Design / Live Coding",
+                    "scheduled_at": "2026-08-20T14:30:00Z",
                     "notes": "Met with hiring manager, scheduling system design next week.",
                 },
             )
@@ -47,18 +47,17 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
             assert data["status"] == "TECHNICAL_INTERVIEW"
             assert data["latest_event"] is not None
             assert data["latest_event"]["email_event_type"] == "STATUS_CHANGE"
-            # Verify skip_llm_summary was called as True
-            mock_embed.assert_called_once_with(db_session, application.id, skip_llm_summary=True)
 
-        # 3. Transition to OFFER with offered salary
-        with patch("app.routers.applications.generate_and_save_application_embedding", new_callable=AsyncMock) as mock_embed:
-            mock_embed.return_value = None
+        # 3. Transition to OFFER with offered salary, offer_received_date, and decision_deadline
+        with patch("app.routers.applications.async_enqueue_application_embedding", new_callable=AsyncMock) as mock_embed:
             resp = await client.post(
                 f"/api/v1/applications/{application.id}/transition",
                 json={
                     "status": "OFFER",
                     "offered_salary": 210000,
                     "currency": "USD",
+                    "offer_received_date": "2026-08-25",
+                    "decision_deadline": "2026-09-01",
                     "notes": "Official offer package received.",
                 },
             )
@@ -73,14 +72,14 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
         assert jp is not None
         assert jp.salary_min == 210000
 
-        # 4. Transition to REJECTED with rejection reason
-        with patch("app.routers.applications.generate_and_save_application_embedding", new_callable=AsyncMock) as mock_embed:
-            mock_embed.return_value = None
+        # 4. Transition to REJECTED with rejection reason and rejection_date
+        with patch("app.routers.applications.async_enqueue_application_embedding", new_callable=AsyncMock) as mock_embed:
             resp = await client.post(
                 f"/api/v1/applications/{application.id}/transition",
                 json={
                     "status": "REJECTED",
                     "rejection_reason": "Offer Declined by Candidate",
+                    "rejection_date": "2026-09-02",
                     "notes": "Declined offer due to competing role.",
                 },
             )
@@ -98,6 +97,11 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
         del_resp = await client.delete(f"/api/v1/applications/{application.id}")
         assert del_resp.status_code == 200
         assert del_resp.json()["status"] == "success"
+
+        # Verify application and events are deleted from DB
+        app_stmt = select(ApplicationModel).where(ApplicationModel.id == application.id)
+        app_res = await db_session.execute(app_stmt)
+        assert app_res.scalar_one_or_none() is None
 
         # Verify application and events are deleted from DB
         app_stmt = select(ApplicationModel).where(ApplicationModel.id == application.id)

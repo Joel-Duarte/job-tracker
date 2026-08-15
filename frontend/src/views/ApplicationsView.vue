@@ -35,8 +35,12 @@ const targetStatus = ref('')
 const isSubmittingTransition = ref(false)
 const transitionForm = ref({
   interview_stage: 'Technical Round 1',
+  scheduled_at: '',
   offered_salary: null,
   currency: 'USD',
+  offer_received_date: '',
+  decision_deadline: '',
+  rejection_date: '',
   rejection_reason: 'Resume / Initial Screen',
   notes: '',
 })
@@ -143,10 +147,15 @@ function onDrop(colKey, event) {
 function openTransitionModal(app, colKey) {
   transitionApp.value = app
   targetStatus.value = colKey
+  const today = new Date().toISOString().substring(0, 10)
   transitionForm.value = {
     interview_stage: 'Technical Round 1',
+    scheduled_at: '',
     offered_salary: app.job_posting?.salary_max || null,
     currency: app.job_posting?.currency || 'USD',
+    offer_received_date: today,
+    decision_deadline: '',
+    rejection_date: today,
     rejection_reason: 'Resume / Initial Screen',
     notes: '',
   }
@@ -172,11 +181,17 @@ async function submitTransitionModal() {
     }
     if (targetStatus.value === 'TECHNICAL_INTERVIEW') {
       payload.interview_stage = transitionForm.value.interview_stage
+      payload.scheduled_at = transitionForm.value.scheduled_at
+        ? new Date(transitionForm.value.scheduled_at).toISOString()
+        : undefined
     } else if (targetStatus.value === 'OFFER') {
       payload.offered_salary = transitionForm.value.offered_salary ? Number(transitionForm.value.offered_salary) : undefined
       payload.currency = transitionForm.value.currency
+      payload.offer_received_date = transitionForm.value.offer_received_date || undefined
+      payload.decision_deadline = transitionForm.value.decision_deadline || undefined
     } else if (targetStatus.value === 'REJECTED') {
       payload.rejection_reason = transitionForm.value.rejection_reason
+      payload.rejection_date = transitionForm.value.rejection_date || undefined
     }
 
     await appStore.transitionApplication(transitionApp.value.id, payload)
@@ -454,44 +469,88 @@ async function confirmDelete() {
           </div>
 
           <div class="inner-modal-body">
-            <!-- Interview Stage Selection -->
-            <div v-if="targetStatus === 'TECHNICAL_INTERVIEW'" class="form-group">
-              <label class="form-label">Interview Phase / Sub-Stage</label>
-              <select v-model="transitionForm.interview_stage" class="form-select">
-                <option v-for="stage in INTERVIEW_STAGES" :key="stage" :value="stage">
-                  {{ stage }}
-                </option>
-              </select>
-            </div>
+            <!-- Interview Stage & Schedule -->
+            <div v-if="targetStatus === 'TECHNICAL_INTERVIEW'" class="form-group-stack">
+              <div class="form-group">
+                <label class="form-label">Interview Phase / Sub-Stage</label>
+                <select v-model="transitionForm.interview_stage" class="form-select">
+                  <option v-for="stage in INTERVIEW_STAGES" :key="stage" :value="stage">
+                    {{ stage }}
+                  </option>
+                </select>
+              </div>
 
-            <!-- Offer Compensation Input -->
-            <div v-if="targetStatus === 'OFFER'" class="form-group">
-              <label class="form-label">Offered Compensation / Salary</label>
-              <div class="salary-input-row">
+              <div class="form-group">
+                <label class="form-label">Scheduled Date & Time (Optional)</label>
                 <input
-                  v-model="transitionForm.offered_salary"
-                  type="number"
-                  placeholder="e.g. 185000"
+                  v-model="transitionForm.scheduled_at"
+                  type="datetime-local"
                   class="form-input"
                 />
-                <select v-model="transitionForm.currency" class="form-select currency-select">
-                  <option value="USD">USD ($)</option>
-                  <option value="EUR">EUR (€)</option>
-                  <option value="GBP">GBP (£)</option>
-                  <option value="CAD">CAD ($)</option>
-                  <option value="CHF">CHF</option>
-                </select>
               </div>
             </div>
 
-            <!-- Rejection Reason Selection -->
-            <div v-if="targetStatus === 'REJECTED'" class="form-group">
-              <label class="form-label">Rejection Reason</label>
-              <select v-model="transitionForm.rejection_reason" class="form-select">
-                <option v-for="reason in REJECTION_REASONS" :key="reason" :value="reason">
-                  {{ reason }}
-                </option>
-              </select>
+            <!-- Offer Compensation & Deadlines -->
+            <div v-if="targetStatus === 'OFFER'" class="form-group-stack">
+              <div class="form-group">
+                <label class="form-label">Offered Compensation / Salary</label>
+                <div class="salary-input-row">
+                  <input
+                    v-model="transitionForm.offered_salary"
+                    type="number"
+                    placeholder="e.g. 185000"
+                    class="form-input"
+                  />
+                  <select v-model="transitionForm.currency" class="form-select currency-select">
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="GBP">GBP (£)</option>
+                    <option value="CAD">CAD ($)</option>
+                    <option value="CHF">CHF</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-row-2">
+                <div class="form-group">
+                  <label class="form-label">Offer Received Date</label>
+                  <input
+                    v-model="transitionForm.offer_received_date"
+                    type="date"
+                    class="form-input"
+                  />
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label">Decision Deadline (Limit Date)</label>
+                  <input
+                    v-model="transitionForm.decision_deadline"
+                    type="date"
+                    class="form-input"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <!-- Rejection Reason & Date -->
+            <div v-if="targetStatus === 'REJECTED'" class="form-group-stack">
+              <div class="form-group">
+                <label class="form-label">Rejection Notice Date</label>
+                <input
+                  v-model="transitionForm.rejection_date"
+                  type="date"
+                  class="form-input"
+                />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Rejection Reason</label>
+                <select v-model="transitionForm.rejection_reason" class="form-select">
+                  <option v-for="reason in REJECTION_REASONS" :key="reason" :value="reason">
+                    {{ reason }}
+                  </option>
+                </select>
+              </div>
             </div>
 
             <!-- Optional Notes -->
@@ -1082,6 +1141,18 @@ async function confirmDelete() {
   line-height: 1.5;
   color: var(--text-main);
   margin-bottom: 8px;
+}
+
+.form-group-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.form-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
 .fade-enter-active,

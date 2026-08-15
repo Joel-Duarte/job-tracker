@@ -45,7 +45,9 @@ async def lifespan(app: FastAPI):
 
     yield
     # Executed on shutdown
-    logger.info("Shutting down application...")
+    logger.info("Shutting down application and disposing connection pools...")
+    from app.core.database import engine
+    await engine.dispose()
 
 
 app = FastAPI(

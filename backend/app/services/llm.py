@@ -245,3 +245,25 @@ async def generate_and_save_application_embedding(
 
     await db.commit()
     return embedding_record
+
+
+async def async_enqueue_application_embedding(
+    application_id: int,
+    skip_llm_summary: bool = True,
+) -> None:
+    """
+    Non-blocking background worker task to generate and save application vector embeddings.
+    Uses an isolated AsyncSessionLocal so that it can run safely in BackgroundTasks without blocking HTTP response.
+    """
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as session:
+        try:
+            await generate_and_save_application_embedding(
+                session,
+                application_id=application_id,
+                skip_llm_summary=skip_llm_summary,
+            )
+            logger.info("Background vector embedding updated for Application ID %d", application_id)
+        except Exception as err:
+            logger.warning("Background vector embedding failed for Application ID %d: %s", application_id, err)

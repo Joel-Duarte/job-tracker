@@ -148,6 +148,10 @@ async def get_embeddings_model(
         "provider": provider,
     }
 
+    if provider == "openai":
+        init_kwargs["check_embedding_ctx_length"] = False
+        init_kwargs["tiktoken_enabled"] = False
+
     if api_base:
         init_kwargs["base_url"] = api_base
     if api_key:
@@ -246,6 +250,10 @@ async def get_task_embeddings_model(
                     "model": binding.model_name,
                     "provider": provider_type,
                 }
+
+                if provider_type == "openai":
+                    init_kwargs["check_embedding_ctx_length"] = False
+                    init_kwargs["tiktoken_enabled"] = False
 
                 if base_url:
                     init_kwargs["base_url"] = base_url
