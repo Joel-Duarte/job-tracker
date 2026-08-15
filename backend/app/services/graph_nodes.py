@@ -106,15 +106,31 @@ async def extraction_node(
     import app.services.intake as intake_mod
     extract_fn = getattr(intake_mod, "extract_email_info", llm_service.extract_email_info)
 
-    extracted = await extract_fn(db, body)
+    try:
+        extracted = await extract_fn(
+            db,
+            body,
+            sender=state.get("sender"),
+            subject=state.get("subject"),
+            date=str(state.get("received_at")) if state.get("received_at") else None,
+        )
+    except TypeError:
+        # Fallback for mock callables that only accept (db, body)
+        extracted = await extract_fn(db, body)
+
     extracted_dict = extracted.model_dump() if hasattr(extracted, "model_dump") else extracted.__dict__
 
-    is_app = bool(extracted_dict.get("company") and extracted_dict.get("position"))
+    email_type = str(extracted_dict.get("email_type") or "").upper()
+    pos = extracted_dict.get("position")
+    pos_clean = None if (not pos or pos == "unknownPosition") else pos
+    comp = extracted_dict.get("company")
+
+    is_app = (email_type == "JOB_APPLICATION") or bool(comp and pos_clean)
     return {
         "extracted_data": extracted_dict,
         "is_application": is_app,
-        "company_name": extracted_dict.get("company"),
-        "position_name": extracted_dict.get("position"),
+        "company_name": comp,
+        "position_name": pos_clean,
         "job_url": extracted_dict.get("job_url"),
         "route": "match" if is_app else "other_event",
     }
@@ -312,8 +328,28 @@ async def db_commit_node(
         company_id = company.id
 
     application_id = state.get("application_id")
-    position = state.get("position_name") or extracted.get("position", "Unknown")
-    status_val = extracted.get("status") or "APPLIED"
+    pos_raw = state.get("position_name") or extracted.get("position")
+    position = "Applicant / Open Role" if (not pos_raw or pos_raw == "unknownPosition") else pos_raw
+
+    raw_status = str(extracted.get("status") or "APPLIED").upper()
+    stage_mapping = {
+        "APPLIED": "APPLIED",
+        "RECRUITER_CONTACT": "TECHNICAL_INTERVIEW",
+        "PHONE_SCREEN": "TECHNICAL_INTERVIEW",
+        "ONLINE_ASSESSMENT": "TECHNICAL_INTERVIEW",
+        "TECHNICAL_INTERVIEW": "TECHNICAL_INTERVIEW",
+        "BEHAVIORAL_INTERVIEW": "TECHNICAL_INTERVIEW",
+        "ONSITE_INTERVIEW": "TECHNICAL_INTERVIEW",
+        "FINAL_INTERVIEW": "TECHNICAL_INTERVIEW",
+        "INTERVIEW": "TECHNICAL_INTERVIEW",
+        "OFFER": "OFFER",
+        "OFFER_RECEIVED": "OFFER",
+        "REJECTED": "REJECTED",
+        "REJECTION_RECEIVED": "REJECTED",
+        "WITHDRAWN": "REJECTED",
+        "ASSESSMENT": "ASSESSMENT",
+    }
+    status_val = stage_mapping.get(raw_status, "APPLIED")
 
     if not application_id:
         application = ApplicationModel(
