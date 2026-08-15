@@ -1,23 +1,35 @@
-# PostgreSQL Container Settings
+# ==============================================================================
+# Job Tracker Backend - Environment Configuration
+# ==============================================================================
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=postgres
 
-# Embedding Settings
+ENVIRONMENT=development
+LOG_LEVEL=DEBUG
+
+# Public exposed API base URL (for Docker port forwarding or reverse proxy)
+PUBLIC_API_URL=
+
+# Stealth Scraper WebSocket Endpoint
+CAMOUFOX_WS_ENDPOINT=ws://localhost:9222
+
+# Embedding Service Configuration (LM Studio / Ollama / OpenAI)
 EMBEDDING_API_URL=http://localhost:1234/v1/embeddings
-EMBEDDING_API_KEY=""
+EMBEDDING_API_KEY=
 EMBEDDING_MODEL_NAME=nomic-embed-text-v2-moe
 EMBEDDING_DIMENSION=768
 
-# LLM API Settings
+# Task Orchestration LLM
 LLM_PROVIDER_NAME=openai
 LLM_API_BASE=http://localhost:1234/v1
-LLM_API_KEY=lm-1234  # LM Studio ignores key value, but client requires non-empty string
+LLM_API_KEY=lm-1234
 LLM_MODEL_NAME=qwen/qwen3.5-9b
 
-# Application Environment
-ENVIRONMENT=development
-LOG_LEVEL=DEBUG
 STAGING_MATCH_THRESHOLD=0.75
+
+# OAuth Credentials
+GOOGLE_OAUTH_CLIENT_ID=
+MS_OAUTH_CLIENT_ID=
