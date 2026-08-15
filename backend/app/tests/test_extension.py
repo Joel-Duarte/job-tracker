@@ -100,7 +100,9 @@ async def test_extension_clip_url_pipeline(db_session: AsyncSession):
 
 
 @pytest.mark.asyncio
-async def test_extension_intake_url_and_jd_routes():
+async def test_extension_intake_url_and_jd_routes(db_session: AsyncSession):
+    app.dependency_overrides[get_db] = lambda: db_session
+
     mock_assessment = JobAssessmentResult(
         company="Datadog",
         position="Senior Systems Engineer",
@@ -152,3 +154,5 @@ async def test_extension_intake_url_and_jd_routes():
             assert jd_res.status_code == 200
             assert jd_res.json()["company"] == "Datadog"
             assert jd_res.json()["recommendation"] == "APPLY_STRONGLY"
+
+    app.dependency_overrides.clear()
