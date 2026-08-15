@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
 import { useApplicationsStore } from '../stores/applicationsStore'
@@ -23,6 +23,8 @@ import {
   Puzzle,
   Globe,
   Layers,
+  ArrowDownCircle,
+  Clock,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -34,6 +36,17 @@ const jobText = ref('')
 const isAnalyzing = ref(false)
 const isSaving = ref(false)
 const assessmentResult = ref(null)
+const scrapeDegraded = ref(false)
+const scrapeErrorMessage = ref('')
+const jdTextareaRef = ref(null)
+
+const currentStageIndex = ref(0)
+const pipelineStages = [
+  { id: 1, name: 'Fetch & Scrape', desc: 'Fetching URL with anti-bot scraper' },
+  { id: 2, name: 'Extract Specs', desc: 'Parsing role, company & compensation' },
+  { id: 3, name: 'CV Keyword Overlap', desc: 'Computing skill match via RapidFuzz' },
+  { id: 4, name: 'Qualitative AI Fit', desc: 'Evaluating pros/cons & fit score' },
+]
 
 const copiedUrl = ref(false)
 const copiedJd = ref(false)
@@ -76,6 +89,40 @@ async function runAssessment() {
 
   isAnalyzing.value = true
   assessmentResult.value = null
+  scrapeDegraded.value = false
+  scrapeErrorMessage.value = ''
+  currentStageIndex.value = 1
+
+  const taskId = `intake-${Date.now()}`
+  uiStore.addIntakeTask({
+    id: taskId,
+    title: jobUrl.value.trim() ? `Lead: ${jobUrl.value.trim().slice(0, 45)}...` : 'Pasted Job Lead',
+    url: jobUrl.value.trim() || null,
+    stage: 'SCRAPING',
+    status: 'running',
+    message: 'Scraping and analyzing job specifications...',
+  })
+
+  const stepTimer1 = setTimeout(() => {
+    if (isAnalyzing.value) {
+      currentStageIndex.value = 2
+      uiStore.updateIntakeTask(taskId, { stage: 'EXTRACTING' })
+    }
+  }, 1200)
+
+  const stepTimer2 = setTimeout(() => {
+    if (isAnalyzing.value) {
+      currentStageIndex.value = 3
+      uiStore.updateIntakeTask(taskId, { stage: 'MATCHING' })
+    }
+  }, 2600)
+
+  const stepTimer3 = setTimeout(() => {
+    if (isAnalyzing.value) {
+      currentStageIndex.value = 4
+      uiStore.updateIntakeTask(taskId, { stage: 'ASSESSING' })
+    }
+  }, 4000)
 
   try {
     const res = await IntakeAPI.assessJob({
@@ -83,12 +130,52 @@ async function runAssessment() {
       text: jobText.value.trim() || null,
     })
     assessmentResult.value = res.data
+    currentStageIndex.value = 4
+    uiStore.updateIntakeTask(taskId, {
+      stage: 'COMPLETE',
+      status: 'success',
+      title: `${res.data.company} - ${res.data.position}`,
+      message: `Fit Score: ${res.data.fit_score}%`,
+    })
     uiStore.showToast('AI Pre-Application assessment completed!', 'success')
   } catch (err) {
-    uiStore.showToast(err.message, 'error')
+    clearTimeout(stepTimer1)
+    clearTimeout(stepTimer2)
+    clearTimeout(stepTimer3)
+
+    const errDetail = err.response?.data?.detail || err.message || ''
+    if (
+      typeof errDetail === 'string' &&
+      (errDetail.includes('SCRAPE_FAILED') || errDetail.includes('422') || errDetail.includes('valid job description'))
+    ) {
+      scrapeDegraded.value = true
+      scrapeErrorMessage.value =
+        'Scraper Protection / Empty Response: Automated scraping was blocked or unavailable for this job URL. Please paste the job description text below to continue.'
+      uiStore.updateIntakeTask(taskId, {
+        stage: 'FAILED',
+        status: 'error',
+        message: 'Scrape blocked. Paste JD required.',
+      })
+      await nextTick()
+      jdTextareaRef.value?.focus()
+    } else {
+      uiStore.updateIntakeTask(taskId, {
+        stage: 'FAILED',
+        status: 'error',
+        message: err.message,
+      })
+      uiStore.showToast(err.message, 'error')
+    }
   } finally {
+    clearTimeout(stepTimer1)
+    clearTimeout(stepTimer2)
+    clearTimeout(stepTimer3)
     isAnalyzing.value = false
   }
+}
+
+function focusJdTextarea() {
+  jdTextareaRef.value?.focus()
 }
 
 async function confirmAndProcess(targetStatus = 'ASSESSMENT') {
@@ -147,6 +234,21 @@ onMounted(() => {
       <span>
         <strong>LinkedIn & Protected Portals:</strong> LinkedIn actively blocks automated scrapers. If your posting is from LinkedIn, please copy and paste the job description text below directly for best results.
       </span>
+    </div>
+
+    <!-- Scraper Fallback Advisory Card -->
+    <div v-if="scrapeDegraded" class="scrape-fallback-banner animate-fade-in">
+      <div class="fallback-icon-box">
+        <AlertTriangle :size="20" class="text-warning" />
+      </div>
+      <div class="fallback-content">
+        <div class="fallback-title">Scraper Fallback Triggered</div>
+        <p class="fallback-desc">{{ scrapeErrorMessage }}</p>
+        <button class="btn btn-secondary btn-xs mt-2" @click="focusJdTextarea">
+          <ArrowDownCircle :size="13" />
+          <span>Jump to Job Description Textarea</span>
+        </button>
+      </div>
     </div>
 
     <!-- Browser Extension Endpoints Configuration Bar -->
@@ -216,14 +318,16 @@ onMounted(() => {
             <span>Job Description & Requirements Text</span>
           </label>
           <span class="text-xs text-primary font-semibold">
-            * Please include Company Name and Job Title in the text
+            * Include Company Name and Role in text if URL is not provided
           </span>
         </div>
         <textarea
+          ref="jdTextareaRef"
           v-model="jobText"
           rows="7"
           placeholder="e.g. Stripe - Senior Backend Engineer&#10;&#10;About the Role...&#10;Responsibilities...&#10;Requirements: Python, PostgreSQL, Distributed Systems..."
           class="form-textarea font-mono text-xs"
+          :class="{ 'border-highlight': scrapeDegraded }"
         ></textarea>
       </div>
 
@@ -235,10 +339,46 @@ onMounted(() => {
         >
           <Loader2 v-if="isAnalyzing" class="animate-spin" :size="16" />
           <Sparkles v-else :size="16" />
-          <span>{{ isAnalyzing ? 'Running Hybrid Match & AI Assessment...' : 'Evaluate Job Fit' }}</span>
+          <span>{{ isAnalyzing ? 'Evaluating Pipeline...' : 'Evaluate Job Fit' }}</span>
         </button>
       </div>
     </div>
+
+    <!-- REAL-TIME 4-STAGE PIPELINE VISUALIZER -->
+    <div v-if="isAnalyzing" class="visualizer-card animate-fade-in">
+      <div class="visualizer-header">
+        <div class="visualizer-title">
+          <Loader2 class="animate-spin text-primary" :size="18" />
+          <span>Intake Assessment in Progress</span>
+        </div>
+        <span class="stage-counter font-mono text-xs">Stage {{ currentStageIndex }} of 4</span>
+      </div>
+
+      <div class="stages-timeline">
+        <div
+          v-for="(stage, idx) in pipelineStages"
+          :key="stage.id"
+          class="stage-node"
+          :class="{
+            active: currentStageIndex === stage.id,
+            completed: currentStageIndex > stage.id,
+            pending: currentStageIndex < stage.id,
+          }"
+        >
+          <div class="node-indicator">
+            <Check v-if="currentStageIndex > stage.id" :size="12" />
+            <Loader2 v-else-if="currentStageIndex === stage.id" class="animate-spin" :size="12" />
+            <span v-else class="font-mono text-xs">{{ stage.id }}</span>
+          </div>
+          <div class="node-content">
+            <div class="node-name">{{ stage.name }}</div>
+            <div class="node-desc">{{ stage.desc }}</div>
+          </div>
+          <div v-if="idx < pipelineStages.length - 1" class="node-connector"></div>
+        </div>
+      </div>
+    </div>
+
 
     <!-- Real-Time AI Pre-Assessment Result -->
     <div v-if="assessmentResult" class="assessment-dashboard animate-fade-in">
@@ -818,4 +958,157 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
 }
+
+/* SCRAPER FALLBACK BANNER */
+.scrape-fallback-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px;
+  background-color: var(--status-interview-bg);
+  border: 1px solid var(--status-interview-border);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+}
+
+.fallback-icon-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+}
+
+.fallback-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fallback-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--status-interview-text);
+}
+
+.fallback-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-main);
+}
+
+.border-highlight {
+  border-color: var(--status-interview-border) !important;
+  box-shadow: 0 0 0 2px var(--status-interview-bg);
+}
+
+/* 4-STAGE PIPELINE VISUALIZER */
+.visualizer-card {
+  margin-top: 20px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 20px 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+.visualizer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+.visualizer-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.stage-counter {
+  color: var(--primary);
+  font-weight: 600;
+  background-color: var(--primary-subtle);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+.stages-timeline {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  position: relative;
+}
+
+@media (max-width: 768px) {
+  .stages-timeline {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
+.stage-node {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  position: relative;
+}
+
+.node-indicator {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.stage-node.active .node-indicator {
+  background-color: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-subtle);
+}
+
+.stage-node.completed .node-indicator {
+  background-color: var(--status-offer-bg);
+  color: var(--status-offer-text);
+  border-color: var(--status-offer-border);
+}
+
+.stage-node.pending .node-indicator {
+  opacity: 0.6;
+}
+
+.node-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.node-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.stage-node.active .node-name {
+  color: var(--primary);
+}
+
+.node-desc {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
 </style>
+

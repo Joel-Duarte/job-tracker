@@ -63,14 +63,36 @@ class ExtensionUrlDirectPayload(BaseModel):
     timestamp: Optional[str] = None
 
 
-@router.post("/url", response_model=JobAssessmentResult, status_code=status.HTTP_200_OK)
+@router.post("/url", status_code=status.HTTP_200_OK)
 async def intake_extension_url(
     payload: ExtensionUrlDirectPayload,
     db: AsyncSession = Depends(get_db),
-) -> JobAssessmentResult:
-    """Receives URL directly from browser extension send-url button and triggers AI assessment."""
-    assess_req = AssessJobRequest(url=payload.url, text=payload.title)
-    return await assess_job_lead(assess_req, db=db)
+) -> Any:
+    """Receives URL directly from browser extension send-url button and triggers AI assessment with fallback to Staging."""
+    try:
+        assess_req = AssessJobRequest(url=payload.url, text=payload.title)
+        return await assess_job_lead(assess_req, db=db)
+    except Exception as err:
+        logger.warning("Direct extension URL scrape failed for %s: %s. Routing to staging queue.", payload.url, err)
+        from app.models.staging import StagingItemModel
+        staging_item = StagingItemModel(
+            email_subject=payload.title or f"Extension URL Lead: {payload.url[:60]}",
+            email_raw_body=f"URL: {payload.url}\nTitle: {payload.title or 'N/A'}",
+            extracted_data={"job_url": payload.url, "title": payload.title},
+            match_score=0.0,
+            match_reason="SCRAPE_FAILED",
+            status="PENDING",
+        )
+        db.add(staging_item)
+        await db.commit()
+        await db.refresh(staging_item)
+        return {
+            "status": "staged",
+            "staging_item_id": staging_item.id,
+            "message": f"Automated scrape was protected or unavailable for '{payload.url}'. Saved to Staging Queue for review.",
+            "url": payload.url,
+        }
+
 
 
 @router.post("/jd", response_model=JobAssessmentResult, status_code=status.HTTP_200_OK)
@@ -268,10 +290,16 @@ async def assess_job_lead(
             logger.warning("Failed direct HTTP fetch of %s: %s", payload.url, err)
 
     if not content or not content.strip():
+        if payload.url:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="SCRAPE_FAILED: Unable to automatically extract job details from this URL (protected or dynamic portal). Please paste the job description text.",
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Please provide a valid job description text, raw HTML DOM, or reachable URL.",
         )
+
 
     # 1. Fetch candidate's active CV skills if available
     from app.models.candidate_profile import CandidateCVModel

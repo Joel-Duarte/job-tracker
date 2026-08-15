@@ -55,6 +55,33 @@ export const useUIStore = defineStore('ui', () => {
     activeDetailId.value = null
   }
 
+  // Background Intake Tasks Queue
+  const intakeQueue = ref([])
+  const isQueueDrawerOpen = ref(false)
+
+  function addIntakeTask(task) {
+    intakeQueue.value.unshift(task)
+    isQueueDrawerOpen.value = true
+  }
+
+  function updateIntakeTask(id, patch) {
+    const item = intakeQueue.value.find(t => t.id === id)
+    if (item) {
+      Object.assign(item, patch)
+    }
+  }
+
+  function removeIntakeTask(id) {
+    intakeQueue.value = intakeQueue.value.filter(t => t.id !== id)
+    if (intakeQueue.value.length === 0) {
+      isQueueDrawerOpen.value = false
+    }
+  }
+
+  function clearCompletedIntakeTasks() {
+    intakeQueue.value = intakeQueue.value.filter(t => t.status === 'running')
+  }
+
   // Initialize root class
   document.documentElement.className = theme.value
 
@@ -64,6 +91,8 @@ export const useUIStore = defineStore('ui', () => {
     isIngestModalOpen,
     isCommandPaletteOpen,
     activeDetailId,
+    intakeQueue,
+    isQueueDrawerOpen,
     toast,
     showToast,
     hideToast,
@@ -73,5 +102,10 @@ export const useUIStore = defineStore('ui', () => {
     closeIngestModal,
     openDetail,
     closeDetail,
+    addIntakeTask,
+    updateIntakeTask,
+    removeIntakeTask,
+    clearCompletedIntakeTasks,
   }
 })
+
