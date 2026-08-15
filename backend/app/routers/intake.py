@@ -451,11 +451,12 @@ async def confirm_job_assessment(
     await db.refresh(app_record)
     await db.refresh(event)
 
-    # 5. Generate Vector Embedding
-    try:
-        await generate_and_save_application_embedding(db, app_record.id)
-    except Exception as err:
-        logger.warning("Vector embedding generation deferred: %s", err)
+    # 5. Generate Vector Embedding (Deferred if still in ASSESSMENT stage)
+    if app_record.status != "ASSESSMENT":
+        try:
+            await generate_and_save_application_embedding(db, app_record.id, skip_llm_summary=True)
+        except Exception as err:
+            logger.warning("Vector embedding generation deferred: %s", err)
 
     return IntakeResultResponse(
         status="success",

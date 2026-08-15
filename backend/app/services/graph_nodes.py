@@ -409,10 +409,18 @@ async def summarize_embed_node(
     application_id = state.get("application_id")
 
     if application_id:
-        try:
-            await generate_and_save_application_embedding(db, application_id)
-            return {"embedding_created": True}
-        except Exception as err:
-            logger.warning("Embedding synthesis deferred for application %s: %s", application_id, err)
+        # Only synthesize and save embeddings if the application has moved beyond ASSESSMENT
+        app_stmt = select(ApplicationModel.status).where(ApplicationModel.id == application_id)
+        app_res = await db.execute(app_stmt)
+        app_status = app_res.scalar_one_or_none()
+
+        if app_status and app_status != "ASSESSMENT":
+            try:
+                await generate_and_save_application_embedding(db, application_id)
+                return {"embedding_created": True}
+            except Exception as err:
+                logger.warning("Embedding synthesis deferred for application %s: %s", application_id, err)
+        else:
+            return {"embedding_created": False, "reason": "assessment_status"}
 
     return {"embedding_created": False}

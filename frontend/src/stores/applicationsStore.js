@@ -10,6 +10,7 @@ export const useApplicationsStore = defineStore('applications', () => {
   const searchQuery = ref('')
   const selectedStatus = ref('')
   const actionRequiredOnly = ref(false)
+  const minMatchScore = ref(null)
   const selectedApplication = ref(null)
   const loadingDetail = ref(false)
 
@@ -32,6 +33,17 @@ export const useApplicationsStore = defineStore('applications', () => {
     }
 
     applications.value.forEach((app) => {
+      // Filter by min match score if active
+      if (minMatchScore.value !== null && minMatchScore.value !== undefined && minMatchScore.value !== '') {
+        const targetMin = Number(minMatchScore.value)
+        if (targetMin > 0) {
+          const score = app.match_score ?? app.latest_event?.raw_payload?.match_score ?? app.latest_event?.raw_payload?.fit_score ?? null
+          if (score === null || Number(score) < targetMin) {
+            return
+          }
+        }
+      }
+
       let statusKey = app.status ? app.status.toUpperCase() : 'APPLIED'
       if (statusKey === 'ONLINE_ASSESSMENT' || statusKey === 'INTERVIEW') {
         statusKey = 'TECHNICAL_INTERVIEW'

@@ -137,6 +137,22 @@ async def list_applications(
 
         nearest_due = min(due_dates) if due_dates else None
 
+        # Compute match score from assessment event payload
+        match_score = None
+        for evt in (app.events or []):
+            if evt.raw_payload and isinstance(evt.raw_payload, dict):
+                score_val = (
+                    evt.raw_payload.get("match_score")
+                    or evt.raw_payload.get("fit_score")
+                    or evt.raw_payload.get("overall_fit_score")
+                )
+                if score_val is not None:
+                    try:
+                        match_score = int(score_val)
+                        break
+                    except (ValueError, TypeError):
+                        pass
+
         items.append(
             ApplicationListItem(
                 id=app.id,
@@ -146,6 +162,7 @@ async def list_applications(
                 application_date=app.application_date,
                 last_activity_at=app.last_activity_at,
                 has_action_required=has_action,
+                match_score=match_score,
                 nearest_due_date=nearest_due,
                 latest_event=EventSummary(
                     id=latest_evt.id,
@@ -335,8 +352,9 @@ async def update_application(
     if app is None:
         raise HTTPException(status_code=404, detail="Application not found")
 
-    # Enqueue non-blocking background embedding generation
-    background_tasks.add_task(async_enqueue_application_embedding, app.id, skip_llm_summary=True)
+    # Enqueue non-blocking background embedding generation (only if active stage, not ASSESSMENT)
+    if app.status != "ASSESSMENT":
+        background_tasks.add_task(async_enqueue_application_embedding, app.id, skip_llm_summary=True)
 
     latest_evt = app.events[0] if app.events else None
     has_action = any(e.email_action_required for e in app.events)
@@ -490,8 +508,9 @@ async def transition_application(
     db.add(event)
     await db.commit()
 
-    # Enqueue non-blocking background embedding generation
-    background_tasks.add_task(async_enqueue_application_embedding, app.id, skip_llm_summary=True)
+    # Enqueue non-blocking background embedding generation (only if active stage, not ASSESSMENT)
+    if new_status != "ASSESSMENT":
+        background_tasks.add_task(async_enqueue_application_embedding, app.id, skip_llm_summary=True)
 
     # Reload application with updated relations
     stmt_reload = (

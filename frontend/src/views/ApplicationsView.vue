@@ -113,6 +113,28 @@ function formatDate(isoStr) {
   }
 }
 
+function getAppMatchScore(app) {
+  if (!app) return null
+  if (app.match_score !== undefined && app.match_score !== null) {
+    return Number(app.match_score)
+  }
+  const payload = app.latest_event?.raw_payload || {}
+  const score = payload.match_score ?? payload.fit_score ?? payload.overall_fit_score
+  if (score !== undefined && score !== null) {
+    return Number(score)
+  }
+  return null
+}
+
+function getMatchScoreTierClass(score) {
+  if (score === null || score === undefined) return ''
+  const num = Number(score)
+  if (num > 80) return 'match-tier-elite'
+  if (num >= 60) return 'match-tier-high'
+  if (num >= 40) return 'match-tier-medium'
+  return 'match-tier-low'
+}
+
 function hasDetailedPhase(app) {
   return ['TECHNICAL_INTERVIEW', 'OFFER', 'REJECTED'].includes(app?.status)
 }
@@ -357,6 +379,46 @@ async function confirmDelete() {
           <AlertCircle :size="14" />
           <span>Needs Action</span>
         </button>
+
+        <!-- Match Fit % Filter with Quick Preset Chips -->
+        <div class="match-filter-container">
+          <div class="match-input-box" :class="{ active: appStore.minMatchScore }">
+            <Sparkles :size="13" class="match-sparkle-icon" />
+            <span class="match-prefix">Min Fit:</span>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="5"
+              placeholder="All"
+              :value="appStore.minMatchScore ?? ''"
+              @input="appStore.minMatchScore = $event.target.value !== '' ? Number($event.target.value) : null"
+              class="match-number-input"
+            />
+            <span v-if="appStore.minMatchScore !== null" class="match-suffix">%</span>
+            <button
+              v-if="appStore.minMatchScore !== null"
+              class="clear-match-btn"
+              @click="appStore.minMatchScore = null"
+              title="Clear match filter"
+            >
+              <X :size="11" />
+            </button>
+          </div>
+
+          <div class="match-presets">
+            <button
+              v-for="preset in [40, 60, 80]"
+              :key="preset"
+              class="preset-chip"
+              :class="{ active: appStore.minMatchScore === preset }"
+              @click="appStore.minMatchScore = appStore.minMatchScore === preset ? null : preset"
+              :title="`Filter jobs with >= ${preset}% match fit`"
+            >
+              {{ preset }}%+
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- View Switcher & Total Count -->
@@ -427,6 +489,15 @@ async function confirmDelete() {
                   <span>{{ app.company?.name || 'Company' }}</span>
                 </div>
                 <div class="card-header-actions" @click.stop>
+                  <div
+                    v-if="getAppMatchScore(app) !== null"
+                    class="match-score-pill"
+                    :class="getMatchScoreTierClass(getAppMatchScore(app))"
+                    :title="`Role Match Fit: ${getAppMatchScore(app)}%`"
+                  >
+                    <Sparkles :size="10" class="match-pill-icon" />
+                    <span>{{ getAppMatchScore(app) }}%</span>
+                  </div>
                   <span class="card-date">{{ formatDate(app.last_activity_at || app.application_date) }}</span>
                   <button
                     class="card-action-btn"
@@ -547,7 +618,18 @@ async function confirmDelete() {
               </td>
 
               <td class="cell-position">
-                {{ app.position || '—' }}
+                <div class="position-cell-wrapper">
+                  <span class="position-title">{{ app.position || '—' }}</span>
+                  <div
+                    v-if="getAppMatchScore(app) !== null"
+                    class="match-score-pill table-match-pill"
+                    :class="getMatchScoreTierClass(getAppMatchScore(app))"
+                    :title="`Role Match Fit: ${getAppMatchScore(app)}%`"
+                  >
+                    <Sparkles :size="10" class="match-pill-icon" />
+                    <span>{{ getAppMatchScore(app) }}%</span>
+                  </div>
+                </div>
               </td>
 
               <td class="cell-status" @click.stop>
@@ -911,6 +993,164 @@ async function confirmDelete() {
   background-color: var(--status-interview-bg);
   color: var(--status-interview-text);
   border-color: var(--status-interview-border);
+}
+
+/* Match Score Filter in Toolbar */
+.match-filter-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  height: 34px;
+}
+
+.match-input-box {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.match-sparkle-icon {
+  color: var(--primary);
+}
+
+.match-prefix {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.match-number-input {
+  width: 42px;
+  height: 24px;
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-main);
+}
+
+.match-number-input:focus {
+  border-color: var(--primary);
+  outline: none;
+}
+
+.match-suffix {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.clear-match-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-hover);
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  transition: all var(--transition-fast);
+}
+
+.clear-match-btn:hover {
+  background: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+}
+
+.match-presets {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-left: 1px solid var(--border-color);
+  padding-left: 6px;
+}
+
+.preset-chip {
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-app);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.preset-chip:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.preset-chip.active {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+}
+
+/* Match Score Pill in Cards & Tables */
+.match-score-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.position-cell-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.table-match-pill {
+  font-size: 10px;
+}
+
+/* Tier 1: > 80% (Special Elite Emerald Glow) */
+.match-score-pill.match-tier-elite {
+  background-color: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.25);
+}
+
+/* Tier 2: 60% - 80% (Indigo / Cyan High) */
+.match-score-pill.match-tier-high {
+  background-color: rgba(99, 102, 241, 0.12);
+  color: #818cf8;
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+/* Tier 3: 40% - 60% (Amber Medium) */
+.match-score-pill.match-tier-medium {
+  background-color: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+/* Tier 4: <= 40% (Slate Muted) */
+.match-score-pill.match-tier-low {
+  background-color: rgba(100, 116, 139, 0.12);
+  color: #94a3b8;
+  border-color: rgba(100, 116, 139, 0.25);
 }
 
 .view-switch-group {

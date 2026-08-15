@@ -35,6 +35,7 @@ class ApplicationListItem(BaseModel):
     application_date: Optional[datetime] = None
     last_activity_at: Optional[datetime] = None
     has_action_required: bool = False
+    match_score: Optional[int] = None
     latest_event: Optional[EventSummary] = None
     nearest_due_date: Optional[datetime] = None
 
