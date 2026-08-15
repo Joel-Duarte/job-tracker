@@ -13,6 +13,7 @@ from app.models.applications import (
     CompanyModel,
     OtherEventModel,
 )
+from app.models.processed_email import ProcessedEmailModel
 from app.models.staging import StagingItemModel
 from app.schemas.graph_state import JobTrackerState
 from app.services.llm import generate_and_save_application_embedding
@@ -40,9 +41,36 @@ def _get_db(config: RunnableConfig) -> AsyncSession:
     return db
 
 
+async def _upsert_processed_email(
+    db: AsyncSession,
+    message_id: str | None,
+    status: str,
+    subject: str | None = None,
+) -> None:
+    """Write a record to processed_email_ids. Silently ignores duplicate inserts."""
+    if not message_id:
+        return
+    try:
+        db.add(ProcessedEmailModel(
+            message_id=message_id,
+            status=status,
+            subject=(subject or "")[:500] if subject else None,
+        ))
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        logger.debug("processed_email_ids: insert skipped (likely duplicate) for message_id=%s", message_id)
+
+
 async def is_email_already_processed(db: AsyncSession, message_id: str | None) -> bool:
+    """Checks whether an email has already been processed using the unified ProcessedEmailModel table,
+    with fallback to legacy event tables for existing/historical records."""
     if not message_id:
         return False
+    stmt = select(ProcessedEmailModel.id).where(ProcessedEmailModel.message_id == message_id)
+    if (await db.execute(stmt)).scalar_one_or_none() is not None:
+        return True
+
     for model in (ApplicationEventModel, OtherEventModel, StagingItemModel):
         stmt = select(model.id).where(model.email_message_id == message_id)
         if (await db.execute(stmt)).scalar_one_or_none():
@@ -53,6 +81,7 @@ async def is_email_already_processed(db: AsyncSession, message_id: str | None) -
 async def normalize_and_dedupe_node(
     state: JobTrackerState, config: RunnableConfig
 ) -> dict[str, Any]:
+    """Pre-LLM dedup: checks the unified processed_email_ids table."""
     db = _get_db(config)
     message_id = state.get("message_id")
 
@@ -159,9 +188,10 @@ async def staging_node(
 ) -> dict[str, Any]:
     db = _get_db(config)
     received_at_dt = _parse_email_date(state.get("received_at"))
+    message_id = state.get("message_id")
 
     staging_item = StagingItemModel(
-        email_message_id=state.get("message_id"),
+        email_message_id=message_id,
         email_conversation_id=state.get("conversation_id"),
         email_sender=state.get("sender"),
         email_subject=state.get("subject", ""),
@@ -175,6 +205,9 @@ async def staging_node(
     db.add(staging_item)
     await db.commit()
     await db.refresh(staging_item)
+
+    # Mark as staged in unified dedup table
+    await _upsert_processed_email(db, message_id, "staged", state.get("subject"))
 
     return {"staging_item_id": staging_item.id, "route": "staging_done"}
 
@@ -263,6 +296,15 @@ async def db_commit_node(
     db.add(event)
     await db.commit()
     await db.refresh(event)
+
+    # Mark as ingested (or not_a_job) in unified dedup table
+    status_label = "ingested" if state.get("is_application") else "not_a_job"
+    await _upsert_processed_email(
+        db,
+        state.get("message_id"),
+        status_label,
+        state.get("subject"),
+    )
 
     return {
         "company_id": company_id,

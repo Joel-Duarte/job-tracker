@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.models.applications import ApplicationEventModel, ApplicationModel, CompanyModel, JobPostingModel
 from app.models.email_accounts import EmailAccountModel
+from app.models.processed_email import ProcessedEmailModel
 from app.schemas.intake import (
     AssessJobRequest,
     ConfirmAssessmentRequest,
@@ -140,15 +141,34 @@ async def intake_extension_jd_elements(
     return await assess_job_lead(assess_req, db=db)
 
 
+# Built-in job-signal keywords always applied as a subject/body pre-filter before any LLM call.
+# User-supplied keywords in SyncFolderRequest.keyword_filter are merged on top of these.
+BUILT_IN_JOB_KEYWORDS: list[str] = [
+    "application", "interview", "offer", "position", "role",
+    "recruiter", "hiring", "rejected", "opportunity", "assessment",
+    "screening", "shortlisted", "candidate", "apply", "applied",
+    "job", "vacancy", "invitation", "congratulations",
+]
+
+
 class SyncFolderRequest(BaseModel):
     account_id: int = Field(description="ID of the configured EmailAccountModel to sync")
     folder: Optional[str] = Field(default=None)
     since_date: Optional[datetime] = Field(default=None)
+    keyword_filter: list[str] = Field(
+        default_factory=list,
+        description="Extra keywords merged with built-in job keywords for subject/body pre-filter. "
+                    "An email must match at least one keyword to be sent to the AI pipeline.",
+    )
 
 
 class TaskResponse(BaseModel):
     task_id: str
     message: str
+    scanned_count: int = 0
+    matched_count: int = 0
+    skipped_duplicates: int = 0
+    filtered_out_count: int = 0
 
 
 def _format_graph_result(result: dict[str, Any]) -> IntakeResultResponse:
@@ -461,7 +481,15 @@ async def sync_email_account(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    """Triggers asynchronous email sync in the background and returns a task tracking ID immediately."""
+    """Triggers asynchronous email sync for a date window with keyword pre-filtering.
+
+    Pipeline (all pre-LLM):
+    1. Fetch emails from provider filtered by folder + since_date.
+    2. Skip any message_id already in processed_email_ids (unified dedup table).
+    3. Keyword pre-filter: reject emails whose subject+body[0:500] contain none of
+       BUILT_IN_JOB_KEYWORDS + payload.keyword_filter.  Write filtered_out record.
+    4. Dispatch the surviving emails to process_email_batch_sequential (background).
+    """
     stmt = select(EmailAccountModel).where(EmailAccountModel.id == payload.account_id)
     result = await db.execute(stmt)
     account = result.scalar_one_or_none()
@@ -472,30 +500,110 @@ async def sync_email_account(
             detail=f"Email account ID {payload.account_id} not found.",
         )
 
-    # Initial quick fetch to initialize total_emails in tracker
+    # --- Step 1: Fetch from provider ---
     raw_emails, next_cursor = await fetch_emails_from_account(account, since_date=payload.since_date)
-    task_id = task_tracker.create_task(total_emails=len(raw_emails), account_id=payload.account_id)
+    scanned_count = len(raw_emails)
+    logger.info(
+        "sync_email_account: account_id=%s fetched %d emails from provider",
+        payload.account_id, scanned_count,
+    )
 
     if next_cursor:
         account.sync_cursor = next_cursor
         account.last_synced_at = datetime.now(timezone.utc)
         await db.commit()
 
-    if len(raw_emails) == 0:
+    if scanned_count == 0:
+        task_id = task_tracker.create_task(total_emails=0, account_id=payload.account_id)
         task_tracker.complete_task(task_id)
-        return TaskResponse(task_id=task_id, message="No new emails found to process.")
+        return TaskResponse(
+            task_id=task_id,
+            message="No new emails found to process.",
+            scanned_count=0,
+        )
 
-    # Hand off long-running processing to background execution
+    # --- Step 2 + 3: Unified dedup + keyword pre-filter ---
+    all_keywords = BUILT_IN_JOB_KEYWORDS + [kw.strip().lower() for kw in payload.keyword_filter if kw.strip()]
+    skipped_duplicates = 0
+    filtered_out_count = 0
+    to_process: list = []
+
+    for email in raw_emails:
+        mid = email.message_id
+
+        # Dedup: skip any message_id already seen (any status)
+        if mid:
+            existing = (await db.execute(
+                select(ProcessedEmailModel.id).where(ProcessedEmailModel.message_id == mid)
+            )).scalar_one_or_none()
+            if existing is not None:
+                skipped_duplicates += 1
+                logger.debug("sync dedup skip: message_id=%s", mid)
+                continue
+
+        # Keyword pre-filter: check subject + first 500 chars of body
+        haystack = f"{email.subject or ''} {(email.body or '')[:500]}".lower()
+        if not any(kw in haystack for kw in all_keywords):
+            filtered_out_count += 1
+            logger.debug(
+                "sync keyword filter: message_id=%s subject=%r skipped (no job keyword match)",
+                mid, email.subject,
+            )
+            # Persist filtered_out so this ID is never re-evaluated
+            if mid:
+                try:
+                    db.add(ProcessedEmailModel(
+                        message_id=mid,
+                        account_id=payload.account_id,
+                        status="filtered_out",
+                        subject=(email.subject or "")[:500],
+                    ))
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+                    logger.warning("Failed to persist filtered_out record for message_id=%s", mid)
+            continue
+
+        to_process.append(email)
+
+    matched_count = len(to_process)
+    logger.info(
+        "sync_email_account: account_id=%s scanned=%d duplicates=%d filtered_out=%d to_process=%d",
+        payload.account_id, scanned_count, skipped_duplicates, filtered_out_count, matched_count,
+    )
+
+    task_id = task_tracker.create_task(total_emails=matched_count, account_id=payload.account_id)
+
+    if matched_count == 0:
+        task_tracker.complete_task(task_id)
+        return TaskResponse(
+            task_id=task_id,
+            message="All emails were already processed or did not match job keywords.",
+            scanned_count=scanned_count,
+            matched_count=0,
+            skipped_duplicates=skipped_duplicates,
+            filtered_out_count=filtered_out_count,
+        )
+
+    # --- Step 4: Background processing ---
     background_tasks.add_task(
         process_email_batch_sequential,
         db=db,
-        emails=raw_emails,
+        emails=to_process,
         task_id=task_id,
     )
 
     return TaskResponse(
         task_id=task_id,
-        message=f"Sync started in background for {len(raw_emails)} emails. Track status using GET /api/v1/intake/tasks/{task_id}",
+        message=(
+            f"Sync started: {matched_count} email(s) queued for AI extraction. "
+            f"{skipped_duplicates} duplicate(s) skipped, {filtered_out_count} filtered out. "
+            f"Track progress: GET /api/v1/intake/tasks/{task_id}"
+        ),
+        scanned_count=scanned_count,
+        matched_count=matched_count,
+        skipped_duplicates=skipped_duplicates,
+        filtered_out_count=filtered_out_count,
     )
 
 
