@@ -88,6 +88,7 @@ async def assess_job_posting(
     candidate_skills: Optional[List[str]] = None,
     candidate_cv: Optional[str] = None,
     programmatic_baseline: int = 0,
+    candidate_domain_breakdown: Optional[str] = None,
 ) -> JobAssessmentResult:
     """
     Evaluates a job posting / JD against candidate CV for pre-application qualification,
@@ -101,6 +102,8 @@ async def assess_job_posting(
     if not cv_text:
         skills_str = ", ".join(candidate_skills) if candidate_skills else "General Full-Stack / Software Engineering Profile"
         cv_text = f"Candidate Technical Skills:\n{skills_str}"
+
+    domain_breakdown_str = candidate_domain_breakdown or "Not Specified / Overall Profile"
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", (
@@ -116,6 +119,7 @@ async def assess_job_posting(
         "job_description": job_description,
         "candidate_cv": cv_text,
         "candidate_skills": ", ".join(candidate_skills) if candidate_skills else "Not Specified",
+        "candidate_domain_breakdown": domain_breakdown_str,
         "programmatic_baseline": str(programmatic_baseline),
     })
 

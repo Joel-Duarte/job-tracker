@@ -136,7 +136,17 @@ async def update_cv_profile(
         profile.extracted_skills = payload.extracted_skills
     if payload.years_of_experience is not None:
         profile.years_of_experience = payload.years_of_experience
-    if payload.domain_expertise is not None:
+    if payload.domain_experience is not None:
+        profile.domain_experience = [
+            item.model_dump() if hasattr(item, "model_dump") else item
+            for item in payload.domain_experience
+        ]
+        # Keep domain_expertise tag list synchronized
+        profile.domain_expertise = [
+            item["domain"] if isinstance(item, dict) else item.domain
+            for item in payload.domain_experience
+        ]
+    elif payload.domain_expertise is not None:
         profile.domain_expertise = payload.domain_expertise
     if payload.core_competencies is not None:
         profile.core_competencies = payload.core_competencies

@@ -35,11 +35,13 @@ DEFAULT_PROMPTS = {
         "- Your recommendations must be strictly limited to translating existing vocabulary and re-ordering existing facts. If a bullet point is vague, you may only suggest adding metrics (numbers/percentages), not new technologies.\n\n"
         "ANALYSIS METHODOLOGY:\n"
         "- Keyword Mapping: Extract top mandatory technical requirements and core skills from the JD. Verify presence in the resume.\n"
+        "- Experience Verification: Compare JD seniority/domain requirements against the candidate's active domain experience breakdown.\n"
         "- Quantification: Calculate qualitative fit score (0-100) taking into account programmatic baseline overlap: {programmatic_baseline}%.\n"
         "- ATS Perspective: Identify specific terms or phrasing triggering ATS rejection or low rank due to terminology mismatches.\n\n"
         "INPUT DATA:\n"
         "[JOB POSTING]:\n{job_description}\n\n"
         "[CANDIDATE RESUME]:\n{candidate_cv}\n\n"
+        "[ACTIVE DOMAIN EXPERIENCE]:\n{candidate_domain_breakdown}\n\n"
         "Generate a complete evaluation with match_summary, hard_matches, optimization_gaps, tailoring_strategy (vocabulary translations, impact reframing, structural adjustments), and a rich markdown_report."
     ),
     "cv_anonymization": (
@@ -53,6 +55,7 @@ DEFAULT_PROMPTS = {
         "- Extract all canonical technical skills, frameworks, languages, databases, tools, and methodologies.\n"
         "- Extract industry domain expertise tags.\n"
         "- Calculate total cumulative years of professional experience.\n"
+        "- Extract granular domain_breakdown with realistic estimated years per specialization (e.g. [{'domain': 'Backend Systems', 'years': 5.0, 'is_active': true}, {'domain': 'Fintech', 'years': 3.0, 'is_active': true}]).\n"
         "- Extract 4-6 standout core competencies.\n"
         "- Provide a concise executive candidate summary.\n\n"
         "Resume Content:\n{resume_text}"

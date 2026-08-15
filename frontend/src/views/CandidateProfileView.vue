@@ -23,6 +23,11 @@ import {
   Shield,
   Info,
   Trash2,
+  ChevronDown,
+  ChevronUp,
+  Sliders,
+  Check,
+  Power,
   RotateCcw,
 } from 'lucide-vue-next'
 
@@ -31,18 +36,24 @@ const uiStore = useUIStore()
 const profile = ref(null)
 const rawCVInput = ref('')
 const activeInputTab = ref('raw') // 'raw' | 'preview'
-
-// Programmatic local scrub calculation
-const localScrubResult = computed(() => scrubCVText(rawCVInput.value))
-
-// State for editing sanitized CV text
 const isEditingCV = ref(false)
 const editedCVText = ref('')
+const isEditingSummary = ref(false)
+const editedSummaryText = ref('')
+const showUpdateDrawer = ref(false)
+const isDocExpanded = ref(true)
 
-// Add item inputs
+// Local scrubber preview
+const localScrubResult = computed(() => {
+  if (!rawCVInput.value) return { scrubbedText: '', stats: { total: 0 } }
+  return scrubCVText(rawCVInput.value)
+})
+
+// Chips and inputs
 const newSkillInput = ref('')
 const newCompetencyInput = ref('')
-const newDomainInput = ref('')
+const newDomainName = ref('')
+const newDomainYears = ref(2.0)
 
 const isProcessing = ref(false)
 const currentTaskId = ref(null)
@@ -57,6 +68,14 @@ async function loadProfile() {
     if (res.data) {
       profile.value = res.data
       rawCVInput.value = res.data.raw_text || ''
+      // Normalize domain_experience if missing
+      if (!profile.value.domain_experience || !profile.value.domain_experience.length) {
+        profile.value.domain_experience = (profile.value.domain_expertise || []).map((d) => ({
+          domain: d,
+          years: Math.max(1.0, Math.round(((profile.value.years_of_experience || 3.0) / Math.max(1, profile.value.domain_expertise.length)) * 10) / 10),
+          is_active: true,
+        }))
+      }
     } else {
       profile.value = null
     }
@@ -84,6 +103,7 @@ async function pollTaskUntilComplete(taskId) {
         uiStore.showToast('Resume de-identified and canonical profile activated!', 'success')
         isProcessing.value = false
         currentTaskId.value = null
+        showUpdateDrawer.value = false
         return
       }
 
@@ -123,44 +143,64 @@ async function processCV() {
   }
 }
 
-function startEditingCV() {
-  editedCVText.value = profile.value?.anonymized_text || ''
-  isEditingCV.value = true
-}
+// --------------------------------------------------------------------------
+// Profile Mutations & Inline Steppers
+// --------------------------------------------------------------------------
 
-function cancelEditingCV() {
-  isEditingCV.value = false
-}
-
-async function saveEditedCV() {
+async function adjustTotalYears(delta) {
   if (!profile.value) return
-  isSavingEdits.value = true
-  try {
-    const res = await CandidateProfileAPI.update(profile.value.id, {
-      anonymized_text: editedCVText.value,
+  const current = Number(profile.value.years_of_experience || 0)
+  const nextVal = Math.max(0, Math.round((current + delta) * 10) / 10)
+  profile.value.years_of_experience = nextVal
+  await saveProfileField({ years_of_experience: nextVal })
+}
+
+// Domain experience management
+async function adjustDomainYears(item, delta) {
+  if (!profile.value) return
+  const current = Number(item.years || 0)
+  item.years = Math.max(0.5, Math.round((current + delta) * 10) / 10)
+  await saveProfileField({ domain_experience: profile.value.domain_experience })
+}
+
+async function toggleDomainActive(item) {
+  if (!profile.value) return
+  item.is_active = !item.is_active
+  await saveProfileField({ domain_experience: profile.value.domain_experience })
+  uiStore.showToast(`Domain '${item.domain}' ${item.is_active ? 'enabled for matching' : 'muted from matching'}`, 'info')
+}
+
+async function addDomainArea() {
+  const dName = newDomainName.value.trim()
+  if (!dName || !profile.value) return
+
+  if (!profile.value.domain_experience) profile.value.domain_experience = []
+  const exists = profile.value.domain_experience.some((d) => d.domain.toLowerCase() === dName.toLowerCase())
+
+  if (!exists) {
+    profile.value.domain_experience.push({
+      domain: dName,
+      years: Number(newDomainYears.value) || 1.0,
+      is_active: true,
     })
-    profile.value.anonymized_text = res.data.anonymized_text
-    isEditingCV.value = false
-    uiStore.showToast('Sanitized CV updated successfully', 'success')
-  } catch (err) {
-    uiStore.showToast(err.message, 'error')
-  } finally {
-    isSavingEdits.value = false
+    newDomainName.value = ''
+    newDomainYears.value = 2.0
+    await saveProfileField({ domain_experience: profile.value.domain_experience })
+    uiStore.showToast(`Added domain area '${dName}'`, 'success')
   }
 }
 
-function copyAnonymizedCV() {
-  if (profile.value?.anonymized_text) {
-    navigator.clipboard.writeText(profile.value.anonymized_text)
-    uiStore.showToast('Sanitized CV copied to clipboard', 'info')
-  }
+async function removeDomainArea(item) {
+  if (!profile.value?.domain_experience) return
+  profile.value.domain_experience = profile.value.domain_experience.filter((d) => d.domain !== item.domain)
+  await saveProfileField({ domain_experience: profile.value.domain_experience })
+  uiStore.showToast(`Removed domain '${item.domain}'`, 'info')
 }
 
-// Skills management
+// Technical skills management
 function addSkill() {
   const skill = newSkillInput.value.trim()
   if (skill && profile.value) {
-    if (!profile.value.extracted_skills) profile.value.extracted_skills = []
     if (!profile.value.extracted_skills.includes(skill)) {
       profile.value.extracted_skills.push(skill)
       newSkillInput.value = ''
@@ -170,13 +210,13 @@ function addSkill() {
 }
 
 function removeSkill(skill) {
-  if (profile.value?.extracted_skills) {
+  if (profile.value) {
     profile.value.extracted_skills = profile.value.extracted_skills.filter((s) => s !== skill)
     saveProfileField({ extracted_skills: profile.value.extracted_skills })
   }
 }
 
-// Competencies management
+// Core competencies management
 function addCompetency() {
   const comp = newCompetencyInput.value.trim()
   if (comp && profile.value) {
@@ -196,23 +236,37 @@ function removeCompetency(comp) {
   }
 }
 
-// Domain expertise management
-function addDomain() {
-  const domain = newDomainInput.value.trim()
-  if (domain && profile.value) {
-    if (!profile.value.domain_expertise) profile.value.domain_expertise = []
-    if (!profile.value.domain_expertise.includes(domain)) {
-      profile.value.domain_expertise.push(domain)
-      newDomainInput.value = ''
-      saveProfileField({ domain_expertise: profile.value.domain_expertise })
-    }
-  }
+// In-place text editors
+function startEditingSummary() {
+  editedSummaryText.value = profile.value?.summary || ''
+  isEditingSummary.value = true
 }
 
-function removeDomain(domain) {
-  if (profile.value?.domain_expertise) {
-    profile.value.domain_expertise = profile.value.domain_expertise.filter((d) => d !== domain)
-    saveProfileField({ domain_expertise: profile.value.domain_expertise })
+async function saveEditedSummary() {
+  if (!profile.value) return
+  profile.value.summary = editedSummaryText.value.trim()
+  await saveProfileField({ summary: profile.value.summary })
+  isEditingSummary.value = false
+  uiStore.showToast('Candidate summary updated', 'success')
+}
+
+function startEditingCV() {
+  editedCVText.value = profile.value?.anonymized_text || ''
+  isEditingCV.value = true
+}
+
+async function saveEditedCV() {
+  if (!profile.value) return
+  profile.value.anonymized_text = editedCVText.value
+  await saveProfileField({ anonymized_text: editedCVText.value })
+  isEditingCV.value = false
+  uiStore.showToast('Sanitized resume updated successfully!', 'success')
+}
+
+async function copyAnonymizedCV() {
+  if (profile.value?.anonymized_text) {
+    await navigator.clipboard.writeText(profile.value.anonymized_text)
+    uiStore.showToast('Sanitized resume copied to clipboard!', 'info')
   }
 }
 
@@ -222,7 +276,6 @@ async function saveProfileField(patchData) {
   try {
     const res = await CandidateProfileAPI.update(profile.value.id, patchData)
     profile.value = res.data
-    uiStore.showToast('Profile updated', 'success')
   } catch (err) {
     uiStore.showToast(err.message, 'error')
   } finally {
@@ -232,9 +285,7 @@ async function saveProfileField(patchData) {
 
 async function deleteProfile() {
   if (!profile.value) return
-  if (!confirm('Are you sure you want to delete this Candidate Profile? Pre-screening matching will be deactivated until a new CV is added.')) {
-    return
-  }
+  if (!confirm('Are you sure you want to delete your active candidate profile? All extracted competencies will be reset.')) return
 
   isDeleting.value = true
   try {
@@ -273,320 +324,496 @@ onMounted(async () => {
 
 <template>
   <div class="page-container">
+    <!-- Header -->
     <div class="profile-header">
-      <div class="header-badge">
-        <ShieldCheck :size="14" />
-        <span>Privacy-First Candidate Profile</span>
+      <div>
+        <div class="header-badge">
+          <ShieldCheck :size="14" />
+          <span>Privacy-First Candidate Profile</span>
+        </div>
+        <h1 class="page-title">Candidate Profile &amp; Skills</h1>
+        <p class="page-subtitle">
+          Sanitized locally before AI processing. Powers pre-application qualification audits, keyword gap analysis, and tailored CV guidance.
+        </p>
       </div>
-      <h1 class="page-title">Candidate CV & Skills Profile</h1>
-      <p class="page-subtitle">
-        Your CV is sanitized locally to strip identifying contacts before processing. The AI de-identifies company names, converts date windows to durations, and extracts canonical technical skills for pre-matching.
-      </p>
+
+      <div v-if="profile" class="header-actions">
+        <button
+          class="btn btn-secondary btn-sm"
+          @click="showUpdateDrawer = !showUpdateDrawer"
+        >
+          <Edit3 :size="14" />
+          <span>{{ showUpdateDrawer ? 'Close Resume Input' : 'Update / Re-Paste Resume' }}</span>
+        </button>
+
+        <button
+          class="btn btn-ghost btn-sm text-danger"
+          :disabled="isDeleting"
+          @click="deleteProfile"
+          title="Delete profile"
+        >
+          <Trash2 :size="14" />
+          <span>Clear Profile</span>
+        </button>
+      </div>
     </div>
 
-    <!-- Cloud vs Local Privacy Advisory Banner -->
-    <div class="cloud-privacy-advisory">
-      <div class="advisory-icon">
-        <Info :size="18" />
-      </div>
-      <div class="advisory-text">
-        <strong>Privacy Tip for Cloud AI Models:</strong>
-        <span> If you have configured an external cloud provider (OpenAI, Claude, Gemini, OpenRouter), we strongly recommend replacing specific employer names with generic tags (e.g. <code>[Tier-1 Tech Enterprise]</code>, <code>[Fintech Scaleup]</code>, <code>[E-commerce Startup]</code>) in your raw text before submission. When using local models (Ollama, LM Studio), all processing is 100% private and on-device.</span>
-      </div>
-    </div>
-
-    <div class="profile-grid">
-      <!-- Left Column: Raw Input & Trigger -->
-      <div class="profile-col">
-        <div class="card-box">
-          <div class="box-header">
-            <div class="box-title">
-              <FileText :size="16" class="text-primary" />
-              <span>Resume / CV Content</span>
-            </div>
-            
-            <!-- Input Tabs -->
-            <div class="input-tabs">
-              <button
-                class="tab-btn"
-                :class="{ active: activeInputTab === 'raw' }"
-                @click="activeInputTab = 'raw'"
-              >
-                Raw Input
-              </button>
-              <button
-                class="tab-btn"
-                :class="{ active: activeInputTab === 'preview' }"
-                @click="activeInputTab = 'preview'"
-              >
-                <Lock :size="12" />
-                <span>Local Scrubbed Preview</span>
-              </button>
-            </div>
+    <!-- =================================================================== -->
+    <!-- COLLAPSIBLE RESUME SOURCE & SANITIZATION DRAWER / TOP PANEL        -->
+    <!-- =================================================================== -->
+    <div v-if="showUpdateDrawer || !profile" class="resume-input-panel animate-fade-in">
+      <div class="panel-card">
+        <div class="panel-header">
+          <div class="panel-title">
+            <FileText :size="16" class="text-primary" />
+            <span>{{ profile ? 'Update Resume Source Text' : 'Import Candidate Resume / CV' }}</span>
           </div>
 
-          <!-- Privacy Shield Advisory Banner -->
-          <div class="privacy-shield-callout">
-            <div class="shield-callout-header">
-              <Shield :size="15" class="text-success flex-shrink-0" />
-              <div class="shield-callout-title">
-                <strong>Zero-Cloud PII Transmission:</strong> Emails, phones, links, and addresses are scrubbed locally on your device before sending to the AI model.
-              </div>
-            </div>
-            <div v-if="localScrubResult.stats.total > 0" class="shield-stats-badge">
-              🛡️ <strong>{{ localScrubResult.stats.total }}</strong> PII item(s) sanitized locally:
-              <span v-if="localScrubResult.stats.emails">{{ localScrubResult.stats.emails }} email(s) </span>
-              <span v-if="localScrubResult.stats.phones">{{ localScrubResult.stats.phones }} phone(s) </span>
-              <span v-if="localScrubResult.stats.urls">{{ localScrubResult.stats.urls }} link(s) </span>
-              <span v-if="localScrubResult.stats.addresses">{{ localScrubResult.stats.addresses }} address(es)</span>
-            </div>
-          </div>
-
-          <!-- Raw Input Tab -->
-          <textarea
-            v-if="activeInputTab === 'raw'"
-            v-model="rawCVInput"
-            rows="14"
-            class="form-textarea font-mono text-xs"
-            placeholder="Paste your complete resume or CV text here..."
-          ></textarea>
-
-          <!-- Local Scrubbed Preview Tab -->
-          <div
-            v-else
-            class="local-preview-box font-mono text-xs"
-          >
-            {{ localScrubResult.scrubbedText || 'Paste resume text to see live local sanitization preview...' }}
-          </div>
-
-          <!-- Live Queue Task Progress Card -->
-          <div v-if="isProcessing" class="queue-progress-card animate-fade-in">
-            <div class="queue-progress-header">
-              <div class="queue-status-title">
-                <Loader2 class="animate-spin text-primary" :size="16" />
-                <span>Processing in AI Queue (Task #{{ currentTaskId || '...' }})</span>
-              </div>
-              <span class="queue-stage-badge">{{ currentTaskStage }}</span>
-            </div>
-
-            <!-- Stepper Indicators -->
-            <div class="stepper-track">
-              <div
-                class="stepper-step"
-                :class="{
-                  active: currentTaskStage === 'SCRUBBING',
-                  complete: ['EXTRACTING', 'SAVING', 'COMPLETE'].includes(currentTaskStage),
-                }"
-              >
-                <div class="step-dot">1</div>
-                <span class="step-label">Local PII Scrubbing</span>
-              </div>
-
-              <div
-                class="stepper-step"
-                :class="{
-                  active: currentTaskStage === 'EXTRACTING',
-                  complete: ['SAVING', 'COMPLETE'].includes(currentTaskStage),
-                }"
-              >
-                <div class="step-dot">2</div>
-                <span class="step-label">AI Extraction</span>
-              </div>
-
-              <div
-                class="stepper-step"
-                :class="{
-                  active: currentTaskStage === 'SAVING',
-                  complete: currentTaskStage === 'COMPLETE',
-                }"
-              >
-                <div class="step-dot">3</div>
-                <span class="step-label">Profile Activation</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="box-actions">
+          <!-- Input Tabs -->
+          <div class="input-tabs">
             <button
-              class="btn btn-primary"
-              :disabled="isProcessing || !rawCVInput.trim()"
-              @click="processCV"
+              class="tab-btn"
+              :class="{ active: activeInputTab === 'raw' }"
+              @click="activeInputTab = 'raw'"
             >
-              <Loader2 v-if="isProcessing" class="animate-spin" :size="16" />
-              <Sparkles v-else :size="16" />
-              <span>{{ isProcessing ? 'Processing in Queue...' : 'De-Identify & Save Profile' }}</span>
+              Raw Input
+            </button>
+            <button
+              class="tab-btn"
+              :class="{ active: activeInputTab === 'preview' }"
+              @click="activeInputTab = 'preview'"
+            >
+              <Lock :size="12" />
+              <span>Local Scrubbed Preview</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Cloud vs Local Advisory -->
+        <div class="privacy-callout">
+          <Info :size="15" class="text-primary flex-shrink-0" />
+          <span>
+            <strong>Zero-Cloud Contact Sanitization:</strong> Real names, emails, phone numbers, addresses, and personal links are redacted client-side via regex before AI dispatch.
+          </span>
+        </div>
+
+        <!-- Live Redaction Stats -->
+        <div v-if="localScrubResult.stats.total > 0" class="redaction-stats-pill font-mono">
+          🛡️ <strong>{{ localScrubResult.stats.total }}</strong> PII item(s) sanitized locally:
+          <span v-if="localScrubResult.stats.emails">{{ localScrubResult.stats.emails }} email(s) </span>
+          <span v-if="localScrubResult.stats.phones">{{ localScrubResult.stats.phones }} phone(s) </span>
+          <span v-if="localScrubResult.stats.urls">{{ localScrubResult.stats.urls }} link(s) </span>
+          <span v-if="localScrubResult.stats.addresses">{{ localScrubResult.stats.addresses }} address(es)</span>
+        </div>
+
+        <!-- Raw Textarea -->
+        <textarea
+          v-if="activeInputTab === 'raw'"
+          v-model="rawCVInput"
+          rows="10"
+          class="form-textarea font-mono text-xs"
+          placeholder="Paste your complete resume or CV text here..."
+        ></textarea>
+
+        <!-- Local Preview -->
+        <div
+          v-else
+          class="local-preview-box font-mono text-xs"
+        >
+          {{ localScrubResult.scrubbedText || 'Paste resume text to see live local sanitization preview...' }}
+        </div>
+
+        <!-- Queue Processing Stepper Card -->
+        <div v-if="isProcessing" class="queue-progress-card animate-fade-in">
+          <div class="queue-progress-header">
+            <div class="queue-status-title">
+              <Loader2 class="animate-spin text-primary" :size="16" />
+              <span>Processing in AI Queue (Task #{{ currentTaskId || '...' }})</span>
+            </div>
+            <span class="queue-stage-badge">{{ currentTaskStage }}</span>
+          </div>
+
+          <div class="stepper-track">
+            <div
+              class="stepper-step"
+              :class="{
+                active: currentTaskStage === 'SCRUBBING',
+                complete: ['EXTRACTING', 'SAVING', 'COMPLETE'].includes(currentTaskStage),
+              }"
+            >
+              <div class="step-dot">1</div>
+              <span class="step-label">Local PII Scrubbing</span>
+            </div>
+
+            <div
+              class="stepper-step"
+              :class="{
+                active: currentTaskStage === 'EXTRACTING',
+                complete: ['SAVING', 'COMPLETE'].includes(currentTaskStage),
+              }"
+            >
+              <div class="step-dot">2</div>
+              <span class="step-label">AI Extraction</span>
+            </div>
+
+            <div
+              class="stepper-step"
+              :class="{
+                active: currentTaskStage === 'SAVING',
+                complete: currentTaskStage === 'COMPLETE',
+              }"
+            >
+              <div class="step-dot">3</div>
+              <span class="step-label">Profile Activation</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-actions">
+          <button
+            class="btn btn-primary"
+            :disabled="isProcessing || !rawCVInput.trim()"
+            @click="processCV"
+          >
+            <Loader2 v-if="isProcessing" class="animate-spin" :size="16" />
+            <Sparkles v-else :size="16" />
+            <span>{{ isProcessing ? 'Processing in Queue...' : (profile ? 'Re-Analyze & Update Profile' : 'De-Identify & Activate Profile') }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- ACTIVE PROFILE MAIN WORKSPACE (FULL WIDTH SPACIOUS LAYOUT)          -->
+    <!-- =================================================================== -->
+    <div v-if="profile" class="profile-main-layout animate-fade-in">
+      <!-- 1. Top Hero Overview Card -->
+      <div class="hero-overview-card">
+        <div class="hero-top-row">
+          <div class="hero-identity">
+            <div class="profile-avatar">
+              <ShieldCheck :size="24" class="text-success" />
+            </div>
+            <div>
+              <div class="hero-title-row">
+                <span class="hero-name">Candidate Active Profile</span>
+                <span class="badge badge-applied">Verified &amp; De-Identified</span>
+              </div>
+              <span class="hero-meta text-xs text-muted">
+                Created {{ new Date(profile.created_at).toLocaleDateString() }} • Ready for job match evaluations
+              </span>
+            </div>
+          </div>
+
+          <!-- Overall Years Stepper -->
+          <div class="experience-counter-box">
+            <span class="counter-label">Cumulative Experience</span>
+            <div class="stepper-controls">
+              <button
+                type="button"
+                class="step-btn"
+                title="Decrease overall experience by 0.5 yrs"
+                @click="adjustTotalYears(-0.5)"
+              >
+                -
+              </button>
+              <span class="counter-val font-mono font-bold">
+                {{ profile.years_of_experience || 0 }} <span class="counter-unit">yrs</span>
+              </span>
+              <button
+                type="button"
+                class="step-btn"
+                title="Increase overall experience by 0.5 yrs"
+                @click="adjustTotalYears(0.5)"
+              >
+                +
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Executive Summary -->
+        <div class="summary-section">
+          <div class="section-sub-header">
+            <span class="section-title">Executive Candidate Summary</span>
+            <button
+              v-if="!isEditingSummary"
+              class="btn btn-ghost btn-xs text-secondary"
+              @click="startEditingSummary"
+            >
+              <Edit3 :size="12" />
+              <span>Edit</span>
+            </button>
+          </div>
+
+          <p v-if="!isEditingSummary" class="summary-text">
+            {{ profile.summary || 'No summary generated.' }}
+          </p>
+
+          <div v-else class="summary-editor-box">
+            <textarea
+              v-model="editedSummaryText"
+              rows="3"
+              class="form-textarea text-xs"
+            ></textarea>
+            <div class="editor-actions-row">
+              <button class="btn btn-ghost btn-xs" @click="isEditingSummary = false">Cancel</button>
+              <button class="btn btn-primary btn-xs" @click="saveEditedSummary">Save Summary</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Specialized Domain / Area Experience Breakdown -->
+      <div class="content-card">
+        <div class="card-header-clean">
+          <div>
+            <h3 class="card-title">Domain &amp; Area Experience Breakdown</h3>
+            <p class="card-sub">
+              Granular durations across your core industry specializations. Muted domains are preserved on your profile but automatically excluded from AI match qualifications.
+            </p>
+          </div>
+        </div>
+
+        <!-- Domain Cards Grid -->
+        <div class="domains-grid">
+          <div
+            v-for="item in (profile.domain_experience || [])"
+            :key="item.domain"
+            class="domain-card"
+            :class="{ 'is-muted': !item.is_active }"
+          >
+            <div class="domain-card-top">
+              <span class="domain-name" :title="item.domain">{{ item.domain }}</span>
+              <button
+                class="btn-icon-xs text-danger"
+                title="Remove domain area"
+                @click="removeDomainArea(item)"
+              >
+                <Trash2 :size="12" />
+              </button>
+            </div>
+
+            <!-- Years Stepper -->
+            <div class="domain-stepper-row">
+              <button
+                type="button"
+                class="step-btn-sm"
+                title="Decrease years"
+                @click="adjustDomainYears(item, -0.5)"
+              >
+                -
+              </button>
+              <span class="domain-years-val font-mono">
+                {{ item.years }} <span class="text-xs text-muted">years</span>
+              </span>
+              <button
+                type="button"
+                class="step-btn-sm"
+                title="Increase years"
+                @click="adjustDomainYears(item, 0.5)"
+              >
+                +
+              </button>
+            </div>
+
+            <!-- Active / Mute Toggle -->
+            <div class="domain-toggle-footer">
+              <button
+                type="button"
+                class="domain-toggle-btn"
+                :class="{ active: item.is_active, muted: !item.is_active }"
+                @click="toggleDomainActive(item)"
+              >
+                <span class="toggle-dot"></span>
+                <span>{{ item.is_active ? 'Active for Matching' : 'Muted (Ignored)' }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add New Domain Bar -->
+        <div class="add-domain-bar">
+          <input
+            v-model="newDomainName"
+            type="text"
+            placeholder="Add new specialization (e.g. Distributed Systems, FinTech)..."
+            class="form-input flex-1 text-xs"
+            @keyup.enter="addDomainArea"
+          />
+          <div class="domain-years-input-group">
+            <span class="text-xs text-muted">Years:</span>
+            <input
+              v-model.number="newDomainYears"
+              type="number"
+              step="0.5"
+              min="0.5"
+              max="50"
+              class="form-input font-mono text-xs w-16"
+            />
+          </div>
+          <button
+            class="btn btn-secondary btn-sm"
+            :disabled="!newDomainName.trim()"
+            @click="addDomainArea"
+          >
+            <Plus :size="14" />
+            <span>Add Area</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 3. Technical Skills & Core Competencies Split -->
+      <div class="skills-competencies-grid">
+        <!-- Core Competencies -->
+        <div class="content-card">
+          <div class="card-header-clean">
+            <div>
+              <h3 class="card-title">Core Competencies</h3>
+              <p class="card-sub">Top standout technical and leadership strengths.</p>
+            </div>
+          </div>
+
+          <div class="chip-cloud">
+            <span
+              v-for="comp in (profile.core_competencies || [])"
+              :key="comp"
+              class="tag-chip comp-chip"
+            >
+              <span>{{ comp }}</span>
+              <button class="chip-remove-btn" @click="removeCompetency(comp)">
+                <X :size="11" />
+              </button>
+            </span>
+          </div>
+
+          <div class="add-chip-row">
+            <input
+              v-model="newCompetencyInput"
+              type="text"
+              placeholder="+ Add competency..."
+              class="form-input text-xs flex-1"
+              @keyup.enter="addCompetency"
+            />
+            <button class="btn btn-ghost btn-xs" :disabled="!newCompetencyInput.trim()" @click="addCompetency">
+              <Plus :size="12" />
+            </button>
+          </div>
+        </div>
+
+        <!-- Canonical Skills Cloud -->
+        <div class="content-card">
+          <div class="card-header-clean">
+            <div>
+              <h3 class="card-title">Canonical Technical Skills ({{ (profile.extracted_skills || []).length }})</h3>
+              <p class="card-sub">Languages, frameworks, databases, and ATS keywords.</p>
+            </div>
+          </div>
+
+          <div class="chip-cloud skills-scroll-box">
+            <span
+              v-for="skill in (profile.extracted_skills || [])"
+              :key="skill"
+              class="tag-chip skill-chip"
+            >
+              <span>{{ skill }}</span>
+              <button class="chip-remove-btn" @click="removeSkill(skill)">
+                <X :size="11" />
+              </button>
+            </span>
+          </div>
+
+          <div class="add-chip-row">
+            <input
+              v-model="newSkillInput"
+              type="text"
+              placeholder="+ Add canonical skill..."
+              class="form-input text-xs flex-1"
+              @keyup.enter="addSkill"
+            />
+            <button class="btn btn-ghost btn-xs" :disabled="!newSkillInput.trim()" @click="addSkill">
+              <Plus :size="12" />
             </button>
           </div>
         </div>
       </div>
 
-      <!-- Right Column: Extracted Canonical Profile -->
-      <div class="profile-col">
-        <div v-if="profile" class="card-box animate-fade-in">
-          <div class="box-header">
-            <div class="box-title">
-              <ShieldCheck :size="16" class="text-success" />
-              <span>Active De-Identified Profile</span>
-            </div>
-            <div class="header-right-actions">
-              <span class="badge badge-applied">
-                {{ profile.years_of_experience ? `${profile.years_of_experience} yrs exp` : 'Active' }}
-              </span>
-              <button
-                class="btn btn-ghost btn-xs text-danger"
-                title="Delete Profile"
-                :disabled="isDeleting"
-                @click="deleteProfile"
-              >
-                <Trash2 :size="13" />
-              </button>
-            </div>
+      <!-- 4. Sanitized Resume Document Viewer / Editor -->
+      <div class="content-card">
+        <div class="card-header-clean">
+          <div>
+            <h3 class="card-title">Sanitized Resume Document</h3>
+            <p class="card-sub">
+              Clean markdown document with contact info stripped and dates converted to duration windows. Used for AI qualification audits.
+            </p>
           </div>
 
-          <!-- Domain Badges & Input -->
-          <div class="meta-section">
-            <div class="meta-section-header">
-              <span class="meta-label">Domain Expertise ({{ profile.domain_expertise?.length || 0 }})</span>
-            </div>
-            <div class="meta-tags-row">
-              <span v-for="d in profile.domain_expertise" :key="d" class="domain-badge">
-                <span>{{ d }}</span>
-                <button class="chip-remove" @click="removeDomain(d)"><X :size="10" /></button>
-              </span>
-              <div class="inline-add">
-                <input
-                  v-model="newDomainInput"
-                  type="text"
-                  placeholder="+ Add domain..."
-                  class="inline-input"
-                  @keydown.enter.prevent="addDomain"
-                />
-              </div>
-            </div>
-          </div>
+          <div class="header-actions-group">
+            <button
+              v-if="!isEditingCV"
+              class="btn btn-ghost btn-xs"
+              title="Edit sanitized resume text"
+              @click="startEditingCV"
+            >
+              <Edit3 :size="13" />
+              <span>Edit Document</span>
+            </button>
 
-          <!-- Core Competencies Badges & Input -->
-          <div class="meta-section">
-            <div class="meta-section-header">
-              <span class="meta-label">Core Competencies ({{ profile.core_competencies?.length || 0 }})</span>
-            </div>
-            <div class="meta-tags-row">
-              <span v-for="c in profile.core_competencies" :key="c" class="competency-badge">
-                <span>{{ c }}</span>
-                <button class="chip-remove" @click="removeCompetency(c)"><X :size="10" /></button>
-              </span>
-              <div class="inline-add">
-                <input
-                  v-model="newCompetencyInput"
-                  type="text"
-                  placeholder="+ Add competency..."
-                  class="inline-input"
-                  @keydown.enter.prevent="addCompetency"
-                />
-              </div>
-            </div>
-          </div>
+            <button
+              v-if="!isEditingCV"
+              class="btn btn-ghost btn-xs"
+              title="Copy sanitized resume text"
+              @click="copyAnonymizedCV"
+            >
+              <Copy :size="13" />
+              <span>Copy</span>
+            </button>
 
-          <!-- Skills Management Section -->
-          <div class="skills-section">
-            <div class="section-top">
-              <span class="section-label">Canonical Skills ({{ profile.extracted_skills?.length || 0 }})</span>
-              <span class="text-xs text-muted">Used for programmatic pre-screening</span>
-            </div>
-
-            <!-- Add Skill Input -->
-            <div class="add-skill-bar">
-              <input
-                v-model="newSkillInput"
-                type="text"
-                placeholder="Add custom skill (e.g. FastAPI, PostgreSQL, Docker)..."
-                class="form-input text-xs"
-                @keydown.enter.prevent="addSkill"
-              />
-              <button class="btn btn-secondary btn-sm" @click="addSkill">
-                <Plus :size="14" />
-                <span>Add</span>
-              </button>
-            </div>
-
-            <!-- Skills Tag Cloud -->
-            <div class="skills-cloud">
-              <span
-                v-for="skill in profile.extracted_skills"
-                :key="skill"
-                class="skill-chip"
-              >
-                <span>{{ skill }}</span>
-                <button class="skill-remove-btn" @click="removeSkill(skill)">
-                  <X :size="11" />
-                </button>
-              </span>
-            </div>
-          </div>
-
-          <!-- De-Identified Resume Text Preview & Editor -->
-          <div class="sanitized-preview">
-            <div class="preview-header">
-              <div>
-                <span class="section-label">Sanitized Resume Preview</span>
-                <span class="text-xs text-muted block">Used for AI match assessments & qualification audits</span>
-              </div>
-              <div class="preview-actions">
-                <button
-                  v-if="!isEditingCV && profile.anonymized_text"
-                  class="btn btn-ghost btn-xs"
-                  title="Edit sanitized resume"
-                  @click="startEditingCV"
-                >
-                  <Edit3 :size="13" />
-                  <span>Edit</span>
-                </button>
-                <button
-                  v-if="!isEditingCV && profile.anonymized_text"
-                  class="btn btn-ghost btn-xs"
-                  title="Copy sanitized resume text"
-                  @click="copyAnonymizedCV"
-                >
-                  <Copy :size="13" />
-                  <span>Copy</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- Read-only View -->
-            <div v-if="!isEditingCV" class="sanitized-text font-mono text-xs">
-              {{ profile.anonymized_text || 'No anonymized text generated yet.' }}
-            </div>
-
-            <!-- In-place Editor -->
-            <div v-else class="cv-editor-box">
-              <textarea
-                v-model="editedCVText"
-                rows="10"
-                class="form-textarea font-mono text-xs"
-              ></textarea>
-              <div class="cv-editor-actions">
-                <button class="btn btn-secondary btn-xs" @click="cancelEditingCV">
-                  <RotateCcw :size="12" />
-                  <span>Cancel</span>
-                </button>
-                <button class="btn btn-primary btn-xs" :disabled="isSavingEdits" @click="saveEditedCV">
-                  <Loader2 v-if="isSavingEdits" class="animate-spin" :size="12" />
-                  <Save v-else :size="12" />
-                  <span>Save Changes</span>
-                </button>
-              </div>
-            </div>
+            <button
+              class="btn btn-ghost btn-xs"
+              @click="isDocExpanded = !isDocExpanded"
+            >
+              <component :is="isDocExpanded ? ChevronUp : ChevronDown" :size="14" />
+              <span>{{ isDocExpanded ? 'Collapse' : 'Expand' }}</span>
+            </button>
           </div>
         </div>
 
-        <div v-else class="empty-profile-box">
-          <ShieldCheck :size="32" class="text-muted" />
-          <div class="empty-title">No Candidate Profile Configured</div>
-          <p class="empty-sub">
-            Paste your CV in the left editor and click "De-Identify & Save Profile" to unlock automated keyword pre-screening and skill fit evaluations.
-          </p>
+        <div v-if="isDocExpanded" class="doc-container animate-fade-in">
+          <!-- Read-only Document View -->
+          <div v-if="!isEditingCV" class="sanitized-doc-body font-mono text-xs">
+            {{ profile.anonymized_text || 'No anonymized text generated yet.' }}
+          </div>
+
+          <!-- In-place Markdown Editor -->
+          <div v-else class="doc-editor-box">
+            <textarea
+              v-model="editedCVText"
+              rows="16"
+              class="form-textarea font-mono text-xs"
+            ></textarea>
+            <div class="editor-actions-row">
+              <button class="btn btn-secondary btn-sm" @click="isEditingCV = false">Cancel</button>
+              <button class="btn btn-primary btn-sm" @click="saveEditedCV">
+                <Save :size="14" />
+                <span>Save Sanitized Document</span>
+              </button>
+            </div>
+          </div>
         </div>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- EMPTY STATE (NO PROFILE YET)                                       -->
+    <!-- =================================================================== -->
+    <div v-else-if="!isProcessing" class="empty-profile-layout">
+      <div class="empty-card">
+        <ShieldCheck :size="42" class="text-primary" />
+        <h2 class="empty-title">No Candidate Profile Active</h2>
+        <p class="empty-sub">
+          Paste your resume or CV in the form above to activate your privacy-first profile. The system scrubs PII locally and extracts skills for AI job matching.
+        </p>
       </div>
     </div>
   </div>
@@ -600,11 +827,12 @@ onMounted(async () => {
 }
 
 .profile-header {
-  text-align: center;
-  margin-bottom: 20px;
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 16px;
 }
 
 .header-badge {
@@ -613,12 +841,12 @@ onMounted(async () => {
   gap: 6px;
   padding: 4px 12px;
   border-radius: var(--radius-full);
-  background-color: var(--status-offer-bg);
-  color: var(--status-offer-text);
-  border: 1px solid var(--status-offer-border);
+  background-color: rgba(16, 185, 129, 0.1);
+  color: var(--text-success);
+  border: 1px solid rgba(16, 185, 129, 0.25);
   font-size: 11px;
   font-weight: 600;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .page-title {
@@ -635,153 +863,37 @@ onMounted(async () => {
   line-height: 1.5;
 }
 
-.cloud-privacy-advisory {
+.header-actions {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  background-color: rgba(59, 130, 246, 0.06);
-  border: 1px solid rgba(59, 130, 246, 0.22);
-  border-radius: var(--radius-md);
-  padding: 12px 16px;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Resume Source Drawer / Panel */
+.resume-input-panel {
   margin-bottom: 24px;
-  color: var(--text-main);
-  font-size: 12px;
-  line-height: 1.5;
 }
 
-.advisory-icon {
-  color: #3b82f6;
-  margin-top: 2px;
-  flex-shrink: 0;
-}
-
-.advisory-text code {
-  background-color: var(--bg-main);
-  border: 1px solid var(--border-color);
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-family: monospace;
-  font-size: 11px;
-}
-
-.profile-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
-}
-
-@media (max-width: 860px) {
-  .profile-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.card-box {
+.panel-card {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 22px;
-  box-shadow: var(--shadow-md);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
-.box-header {
+.panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 12px;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
 }
 
-.header-right-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.input-tabs {
-  display: flex;
-  background-color: var(--bg-main);
-  padding: 2px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
-  gap: 2px;
-}
-
-.tab-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border: none;
-  background: transparent;
-  color: var(--text-tertiary);
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: var(--radius-xs, 4px);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.tab-btn:hover {
-  color: var(--text-main);
-}
-
-.tab-btn.active {
-  background-color: var(--bg-surface);
-  color: var(--text-main);
-  box-shadow: var(--shadow-sm);
-}
-
-.privacy-shield-callout {
-  background-color: rgba(16, 185, 129, 0.06);
-  border: 1px solid rgba(16, 185, 129, 0.25);
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.shield-callout-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.shield-callout-title {
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--text-main);
-}
-
-.shield-stats-badge {
-  font-size: 11px;
-  color: var(--text-success);
-  margin-left: 23px;
-  font-weight: 500;
-}
-
-.local-preview-box {
-  width: 100%;
-  min-height: 220px;
-  max-height: 380px;
-  overflow-y: auto;
-  padding: 12px;
-  background-color: var(--bg-main);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.box-title {
+.panel-title {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -790,187 +902,63 @@ onMounted(async () => {
   color: var(--text-main);
 }
 
-.box-desc {
-  font-size: 12px;
+.input-tabs {
+  display: flex;
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+}
+
+.tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.tab-btn.active {
+  background-color: var(--bg-elevated);
+  color: var(--text-main);
+  box-shadow: var(--shadow-sm);
+}
+
+.privacy-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background-color: rgba(59, 130, 246, 0.05);
+  border: 1px solid rgba(59, 130, 246, 0.18);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 11px;
   color: var(--text-secondary);
   line-height: 1.5;
 }
 
-.box-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.meta-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.meta-section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.meta-tags-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  font-size: 12px;
-}
-
-.meta-label {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.domain-badge {
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  color: var(--primary);
-  font-weight: 500;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.competency-badge {
-  background-color: rgba(16, 185, 129, 0.08);
-  border: 1px solid rgba(16, 185, 129, 0.25);
-  padding: 2px 8px;
-  border-radius: 4px;
+.redaction-stats-pill {
   font-size: 11px;
   color: var(--text-success);
-  font-weight: 500;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.chip-remove {
-  background: transparent;
-  border: none;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  padding: 0;
-}
-
-.chip-remove:hover {
-  color: var(--text-danger, #ef4444);
-}
-
-.inline-add {
-  display: inline-flex;
-}
-
-.inline-input {
-  background: transparent;
-  border: 1px dashed var(--border-color);
-  border-radius: 4px;
-  padding: 2px 6px;
-  font-size: 11px;
-  color: var(--text-main);
-  width: 110px;
-}
-
-.inline-input:focus {
-  outline: none;
-  border-color: var(--primary);
-  width: 140px;
-}
-
-.skills-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.section-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.section-label {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.add-skill-bar {
-  display: flex;
-  gap: 8px;
-}
-
-.skills-cloud {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.skill-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-color);
+  background-color: rgba(16, 185, 129, 0.06);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  padding: 6px 10px;
   border-radius: var(--radius-sm);
-  font-size: 12px;
-  color: var(--text-main);
 }
 
-.skill-remove-btn {
-  border: none;
-  background: transparent;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  padding: 0;
-}
-
-.skill-remove-btn:hover {
-  color: var(--text-danger);
-}
-
-.sanitized-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border-top: 1px solid var(--border-color);
-  padding-top: 14px;
-}
-
-.preview-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.preview-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.sanitized-text {
+.local-preview-box {
   background-color: var(--bg-main);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
-  padding: 12px;
-  max-height: 260px;
+  padding: 14px;
+  max-height: 220px;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
@@ -978,43 +966,13 @@ onMounted(async () => {
   line-height: 1.5;
 }
 
-.cv-editor-box {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.cv-editor-actions {
+.panel-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  margin-top: 6px;
 }
 
-.empty-profile-box {
-  background-color: var(--bg-surface);
-  border: 1px dashed var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 48px 24px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-
-.empty-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.empty-sub {
-  font-size: 12px;
-  color: var(--text-secondary);
-  max-width: 380px;
-  line-height: 1.5;
-}
-
+/* Queue Progress Stepper */
 .queue-progress-card {
   background-color: var(--bg-main);
   border: 1px solid var(--border-color);
@@ -1103,5 +1061,447 @@ onMounted(async () => {
 
 .step-label {
   font-size: 11px;
+}
+
+/* =================================================================== */
+/* Main Active Profile Styles                                          */
+/* =================================================================== */
+.profile-main-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.hero-overview-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.hero-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.hero-identity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.profile-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background-color: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hero-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hero-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.experience-counter-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.counter-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.stepper-controls {
+  display: flex;
+  align-items: center;
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+  gap: 8px;
+}
+
+.step-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-elevated);
+  color: var(--text-main);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.step-btn:hover {
+  background-color: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.counter-val {
+  font-size: 15px;
+  color: var(--text-main);
+}
+
+.counter-unit {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.summary-section {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section-sub-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.section-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.summary-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.summary-editor-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editor-actions-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Content Cards */
+.content-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card-header-clean {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.card-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+.header-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Domains Grid */
+.domains-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.domain-card {
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: all var(--transition-fast);
+}
+
+.domain-card.is-muted {
+  opacity: 0.6;
+  background-color: rgba(0, 0, 0, 0.05);
+  border-style: dashed;
+}
+
+.domain-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.domain-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-icon-xs {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+}
+
+.domain-stepper-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+.step-btn-sm {
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.step-btn-sm:hover {
+  background-color: var(--primary);
+  color: white;
+}
+
+.domain-years-val {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.domain-toggle-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-elevated);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.domain-toggle-btn.active {
+  color: var(--text-success);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.domain-toggle-btn.muted {
+  color: var(--text-muted);
+}
+
+.toggle-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+.add-domain-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  flex-wrap: wrap;
+}
+
+.domain-years-input-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Skills & Competencies Grid */
+.skills-competencies-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 768px) {
+  .skills-competencies-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.chip-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 48px;
+}
+
+.skills-scroll-box {
+  max-height: 160px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.comp-chip {
+  background-color: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.skill-chip {
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+}
+
+.chip-remove-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0;
+}
+
+.chip-remove-btn:hover {
+  color: var(--text-danger);
+}
+
+.add-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Document View */
+.sanitized-doc-body {
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 16px 20px;
+  max-height: 480px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.doc-editor-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.empty-profile-layout {
+  display: flex;
+  justify-content: center;
+  padding: 40px 0;
+}
+
+.empty-card {
+  background-color: var(--bg-surface);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 48px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 480px;
+}
+
+.empty-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.empty-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
 }
 </style>

@@ -51,12 +51,28 @@ async def _execute_cv_extraction_steps(task: IntakeEvaluationTaskModel, db: Asyn
         for p in res.scalars().all():
             p.is_active = False
 
+        # Build domain_experience list of dicts
+        raw_breakdown = [
+            item.model_dump() if hasattr(item, "model_dump") else item
+            for item in (anonymized_result.domain_breakdown or [])
+        ]
+        if not raw_breakdown and anonymized_result.domain_expertise:
+            raw_breakdown = [
+                {
+                    "domain": d,
+                    "years": max(1.0, round(anonymized_result.total_years_experience / max(1, len(anonymized_result.domain_expertise)), 1)),
+                    "is_active": True,
+                }
+                for d in anonymized_result.domain_expertise
+            ]
+
         cv_record = CandidateCVModel(
             raw_text=raw_text,
             anonymized_text=anonymized_result.anonymized_resume,
             extracted_skills=anonymized_result.extracted_skills,
             years_of_experience=anonymized_result.total_years_experience,
             domain_expertise=anonymized_result.domain_expertise,
+            domain_experience=raw_breakdown,
             core_competencies=anonymized_result.core_competencies,
             summary=anonymized_result.summary,
             is_active=True,
@@ -72,6 +88,7 @@ async def _execute_cv_extraction_steps(task: IntakeEvaluationTaskModel, db: Asyn
             "profile_id": cv_record.id,
             "years_of_experience": cv_record.years_of_experience,
             "extracted_skills_count": len(cv_record.extracted_skills),
+            "domain_experience_count": len(raw_breakdown),
             "summary": cv_record.summary,
         }
         task.completed_at = datetime.now(timezone.utc)
@@ -136,6 +153,19 @@ async def _execute_evaluation_steps(task: IntakeEvaluationTaskModel, db: AsyncSe
         match_info = compute_programmatic_skill_match(candidate_skills, content)
         await db.commit()
 
+        # Format active domain experience breakdown string
+        active_domains_str = None
+        if active_cv and active_cv.domain_experience:
+            active_list = [
+                f"{item['domain']} ({item['years']} yrs)"
+                for item in active_cv.domain_experience
+                if item.get("is_active", True)
+            ]
+            if active_list:
+                active_domains_str = ", ".join(active_list)
+        elif active_cv and active_cv.domain_expertise:
+            active_domains_str = ", ".join(active_cv.domain_expertise)
+
         # Stage 4: Qualitative AI Fit Assessment
         task.stage = "ASSESSING"
         await db.commit()
@@ -146,6 +176,7 @@ async def _execute_evaluation_steps(task: IntakeEvaluationTaskModel, db: AsyncSe
             candidate_skills=candidate_skills,
             candidate_cv=active_cv.anonymized_text or active_cv.raw_text if active_cv else None,
             programmatic_baseline=match_info.get("programmatic_score", 0),
+            candidate_domain_breakdown=active_domains_str,
         )
 
         # Persist to database (or route to staging if duplicate)

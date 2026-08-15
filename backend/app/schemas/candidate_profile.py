@@ -3,6 +3,12 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class DomainExperienceItem(BaseModel):
+    domain: str = Field(..., description="Specialized domain area e.g. 'Backend Systems', 'Fintech', 'Cloud & DevOps'")
+    years: float = Field(default=1.0, ge=0.0, le=50.0, description="Estimated years of experience in this specific area")
+    is_active: bool = Field(default=True, description="Whether this domain area is included in AI qualification matching")
+
+
 class CVAnonymizationResult(BaseModel):
     anonymized_resume: str = Field(
         description="De-identified resume text with names, addresses, emails, and specific company names scrubbed, and dates converted to duration windows."
@@ -18,6 +24,10 @@ class CVAnonymizationResult(BaseModel):
     domain_expertise: List[str] = Field(
         default_factory=list,
         description="Industry domain tags (e.g. 'Fintech', 'Distributed Systems', 'Cloud Infrastructure', 'E-commerce')."
+    )
+    domain_breakdown: List[DomainExperienceItem] = Field(
+        default_factory=list,
+        description="Granular domain and specialization experience breakdown with estimated durations."
     )
     core_competencies: List[str] = Field(
         default_factory=list,
@@ -38,6 +48,7 @@ class CandidateCVUpdateRequest(BaseModel):
     extracted_skills: Optional[List[str]] = None
     years_of_experience: Optional[float] = None
     domain_expertise: Optional[List[str]] = None
+    domain_experience: Optional[List[DomainExperienceItem]] = None
     core_competencies: Optional[List[str]] = None
     summary: Optional[str] = None
 
@@ -49,6 +60,7 @@ class CandidateCVResponse(BaseModel):
     extracted_skills: List[str] = Field(default_factory=list)
     years_of_experience: Optional[float] = None
     domain_expertise: List[str] = Field(default_factory=list)
+    domain_experience: List[DomainExperienceItem] = Field(default_factory=list)
     core_competencies: List[str] = Field(default_factory=list)
     summary: Optional[str] = None
     is_active: bool

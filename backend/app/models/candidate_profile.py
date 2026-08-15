@@ -16,6 +16,7 @@ class CandidateCVModel(Base):
     extracted_skills: Mapped[List[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     years_of_experience: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     domain_expertise: Mapped[List[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    domain_experience: Mapped[List[dict[str, Any]]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     core_competencies: Mapped[List[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

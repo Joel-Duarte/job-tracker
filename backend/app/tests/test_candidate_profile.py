@@ -38,6 +38,8 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
         "Built distributed billing pipelines using Python, FastAPI, PostgreSQL, and AWS."
     )
 
+    from app.schemas.candidate_profile import DomainExperienceItem
+
     mock_anonymized = CVAnonymizationResult(
         anonymized_resume=(
             "Staff Engineer at [Fintech Enterprise] (4 years)\n"
@@ -46,6 +48,10 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
         extracted_skills=["Python", "FastAPI", "PostgreSQL", "AWS", "Distributed Systems"],
         total_years_experience=6.0,
         domain_expertise=["Fintech", "Distributed Systems"],
+        domain_breakdown=[
+            DomainExperienceItem(domain="Distributed Systems", years=5.0, is_active=True),
+            DomainExperienceItem(domain="Fintech", years=3.5, is_active=True),
+        ],
         core_competencies=["Distributed Billing Pipelines", "High-Throughput APIs"],
         summary="Experienced Staff Engineer with fintech and distributed systems expertise.",
     )
@@ -80,22 +86,33 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
             assert active_data is not None
             assert "Python" in active_data["extracted_skills"]
             assert active_data["years_of_experience"] == 6.0
+            assert len(active_data["domain_experience"]) == 2
+            assert active_data["domain_experience"][0]["domain"] == "Distributed Systems"
+            assert active_data["domain_experience"][0]["years"] == 5.0
+            assert active_data["domain_experience"][0]["is_active"] is True
             assert "[Fintech Enterprise]" in active_data["anonymized_text"]
             assert active_data["core_competencies"] == ["Distributed Billing Pipelines", "High-Throughput APIs"]
 
-            # 4. Patch CV
+            # 4. Patch CV (years_of_experience & domain_experience active/mute)
             patch_resp = await client.patch(
                 f"/api/v1/profile/cv/{active_data['id']}",
                 json={
+                    "years_of_experience": 7.0,
                     "anonymized_text": "Updated Custom Sanitized CV",
                     "core_competencies": ["Distributed Systems", "Cloud Architecture"],
-                    "domain_expertise": ["Fintech", "Healthtech"],
+                    "domain_experience": [
+                        {"domain": "Distributed Systems", "years": 5.5, "is_active": True},
+                        {"domain": "Fintech", "years": 3.5, "is_active": False},
+                        {"domain": "Cloud & DevOps", "years": 2.0, "is_active": True},
+                    ],
                 },
             )
             assert patch_resp.status_code == 200
             patched_data = patch_resp.json()
-            assert patched_data["anonymized_text"] == "Updated Custom Sanitized CV"
-            assert "Healthtech" in patched_data["domain_expertise"]
+            assert patched_data["years_of_experience"] == 7.0
+            assert len(patched_data["domain_experience"]) == 3
+            assert patched_data["domain_experience"][1]["is_active"] is False
+            assert "Cloud & DevOps" in patched_data["domain_expertise"]
 
             # 5. Delete CV
             del_resp = await client.delete(f"/api/v1/profile/cv/{active_data['id']}")
