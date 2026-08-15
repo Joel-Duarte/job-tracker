@@ -173,13 +173,22 @@ async def assess_job_posting(
 
 
 async def anonymize_and_parse_cv(db: AsyncSession, raw_cv_text: str) -> CVAnonymizationResult:
-    """De-identifies candidate resume (scrubs names/companies, converts dates to durations, extracts skills)."""
+    """
+    De-identifies candidate resume:
+    - Scrubs real names, addresses, emails, phone numbers, and company names (replaces with industry/scale tags).
+    - Converts date ranges into relative duration windows.
+    - Extracts canonical technical skills, domain expertise, core competencies, and calculated total years of experience.
+    """
     llm = await get_task_chat_model(db, task_type="EXTRACTION", temperature=0.2)
     structured_llm = llm.with_structured_output(CVAnonymizationResult)
     template_str = await get_prompt_template(db, "cv_anonymization")
 
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You de-identify resumes and extract structured canonical skills."),
+        ("system", (
+            "You are an expert resume privacy officer and talent analyst. "
+            "Completely de-identify the candidate resume: redact contacts and real names, convert dates to relative duration windows, "
+            "and replace company names with industry/scale tags while extracting canonical skills, domain expertise, and core competencies."
+        )),
         ("human", template_str),
     ])
 

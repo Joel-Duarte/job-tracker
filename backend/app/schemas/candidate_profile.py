@@ -19,6 +19,10 @@ class CVAnonymizationResult(BaseModel):
         default_factory=list,
         description="Industry domain tags (e.g. 'Fintech', 'Distributed Systems', 'Cloud Infrastructure', 'E-commerce')."
     )
+    core_competencies: List[str] = Field(
+        default_factory=list,
+        description="Top 4-6 standout professional strengths and core competencies."
+    )
     summary: str = Field(
         default="",
         description="High-level candidate executive overview."
@@ -34,6 +38,7 @@ class CandidateCVUpdateRequest(BaseModel):
     extracted_skills: Optional[List[str]] = None
     years_of_experience: Optional[float] = None
     domain_expertise: Optional[List[str]] = None
+    core_competencies: Optional[List[str]] = None
     summary: Optional[str] = None
 
 
@@ -44,6 +49,7 @@ class CandidateCVResponse(BaseModel):
     extracted_skills: List[str] = Field(default_factory=list)
     years_of_experience: Optional[float] = None
     domain_expertise: List[str] = Field(default_factory=list)
+    core_competencies: List[str] = Field(default_factory=list)
     summary: Optional[str] = None
     is_active: bool
     created_at: datetime

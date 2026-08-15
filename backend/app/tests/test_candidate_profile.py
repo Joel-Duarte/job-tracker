@@ -46,6 +46,7 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
         extracted_skills=["Python", "FastAPI", "PostgreSQL", "AWS", "Distributed Systems"],
         total_years_experience=6.0,
         domain_expertise=["Fintech", "Distributed Systems"],
+        core_competencies=["Distributed Billing Pipelines", "High-Throughput APIs"],
         summary="Experienced Staff Engineer with fintech and distributed systems expertise.",
     )
 
@@ -62,6 +63,7 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
             assert "Python" in data["extracted_skills"]
             assert data["years_of_experience"] == 6.0
             assert "[Fintech Enterprise]" in data["anonymized_text"]
+            assert "High-Throughput APIs" in data["core_competencies"]
 
             # 2. Get Active CV
             get_resp = await client.get("/api/v1/profile/cv")
@@ -69,6 +71,7 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
             active_data = get_resp.json()
             assert active_data["id"] == data["id"]
             assert active_data["extracted_skills"] == data["extracted_skills"]
+            assert active_data["core_competencies"] == ["Distributed Billing Pipelines", "High-Throughput APIs"]
 
     app.dependency_overrides.clear()
 

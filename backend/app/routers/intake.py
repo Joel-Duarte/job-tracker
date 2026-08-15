@@ -333,7 +333,7 @@ async def assess_job_lead(
         db,
         content,
         candidate_skills=candidate_skills,
-        candidate_cv=active_cv.scrubbed_content if active_cv else None,
+        candidate_cv=active_cv.anonymized_text or active_cv.raw_text if active_cv else None,
         programmatic_baseline=match_info.get("programmatic_score", 0),
     )
 

@@ -70,6 +70,7 @@ async def process_and_save_cv_profile(
         extracted_skills=anonymized_result.extracted_skills,
         years_of_experience=anonymized_result.total_years_experience,
         domain_expertise=anonymized_result.domain_expertise,
+        core_competencies=anonymized_result.core_competencies,
         summary=anonymized_result.summary,
         is_active=True,
     )
@@ -105,6 +106,8 @@ async def update_cv_profile(
         profile.years_of_experience = payload.years_of_experience
     if payload.domain_expertise is not None:
         profile.domain_expertise = payload.domain_expertise
+    if payload.core_competencies is not None:
+        profile.core_competencies = payload.core_competencies
     if payload.summary is not None:
         profile.summary = payload.summary
 

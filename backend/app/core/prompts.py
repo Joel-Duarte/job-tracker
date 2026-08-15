@@ -43,9 +43,18 @@ DEFAULT_PROMPTS = {
         "Generate a complete evaluation with match_summary, hard_matches, optimization_gaps, tailoring_strategy (vocabulary translations, impact reframing, structural adjustments), and a rich markdown_report."
     ),
     "cv_anonymization": (
-        "You are an expert resume privacy officer and talent analyst. De-identify the provided resume: remove real names, addresses, emails, phone numbers, and specific company names (replace company names with industry tags like [Fintech Scaleup], [Tech Enterprise], [Early-stage Startup]).\n"
-        "Convert all date ranges into relative durations (e.g. '2018-2020' -> '2 years', '2021 - Present' -> '3.5 years').\n"
-        "Extract canonical technical skills, total years of experience, and industry domains.\n\n"
+        "You are an expert resume privacy officer and talent analyst. Your job is to completely de-identify a candidate's resume while extracting rich structured career metadata.\n\n"
+        "STRICT DE-IDENTIFICATION & PRIVACY RULES:\n"
+        "1. Contact & Identity Redaction: Remove real candidate names, physical addresses, email addresses, phone numbers, social handles, and personal links (replace with [Candidate Name], [Location Redacted], [Email Redacted], [Phone Redacted]).\n"
+        "2. Company Anonymization: Remove specific company/employer names. Replace them with descriptive industry/scale tags (e.g. '[Tier-1 Tech Enterprise]', '[Series B FinTech Scaleup]', '[E-commerce Startup]', '[Healthcare SaaS]').\n"
+        "3. Date to Duration Conversion: Convert all chronological date ranges into relative durations (e.g. 'Jan 2019 - Mar 2021' -> '[2+ Years]', '2021 - Present' -> '[3.5 Years]').\n"
+        "4. Content Preservation: Keep core bullet points, technical details, metrics, and accomplishments intact so the profile can be accurately evaluated against job descriptions.\n\n"
+        "METADATA EXTRACTION:\n"
+        "- Extract all canonical technical skills, frameworks, languages, databases, tools, and methodologies.\n"
+        "- Extract industry domain expertise tags.\n"
+        "- Calculate total cumulative years of professional experience.\n"
+        "- Extract 4-6 standout core competencies.\n"
+        "- Provide a concise executive candidate summary.\n\n"
         "Resume Content:\n{resume_text}"
     ),
     "agent_system": (

@@ -17,12 +17,20 @@ import {
   Eye,
   Edit3,
   Save,
+  Copy,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
 
 const profile = ref(null)
 const rawCVInput = ref('')
+
+function copyAnonymizedCV() {
+  if (profile.value?.anonymized_text) {
+    navigator.clipboard.writeText(profile.value.anonymized_text)
+    uiStore.showToast('Sanitized CV copied to clipboard', 'info')
+  }
+}
 const newSkillInput = ref('')
 const isProcessing = ref(false)
 const isSavingEdits = ref(false)
@@ -166,6 +174,14 @@ onMounted(() => {
             </span>
           </div>
 
+          <!-- Core Competencies -->
+          <div v-if="profile.core_competencies?.length" class="meta-tags-row">
+            <span class="meta-label">Core Competencies:</span>
+            <span v-for="c in profile.core_competencies" :key="c" class="competency-badge">
+              {{ c }}
+            </span>
+          </div>
+
           <!-- Skills Management Section -->
           <div class="skills-section">
             <div class="section-top">
@@ -206,8 +222,19 @@ onMounted(() => {
           <!-- De-Identified Resume Text Preview -->
           <div class="sanitized-preview">
             <div class="preview-header">
-              <span class="section-label">Sanitized Resume Preview</span>
-              <span class="text-xs text-muted">PII scrubbed • Dates converted to durations</span>
+              <div>
+                <span class="section-label">Sanitized Resume Preview</span>
+                <span class="text-xs text-muted block">PII scrubbed • Dates converted to durations • Used for AI match assessments</span>
+              </div>
+              <button
+                v-if="profile.anonymized_text"
+                class="btn btn-ghost btn-xs"
+                title="Copy sanitized resume text"
+                @click="copyAnonymizedCV"
+              >
+                <Copy :size="13" />
+                <span>Copy</span>
+              </button>
             </div>
             <div class="sanitized-text font-mono text-xs">
               {{ profile.anonymized_text || 'No anonymized text generated yet.' }}
@@ -343,6 +370,16 @@ onMounted(() => {
   border-radius: 4px;
   font-size: 11px;
   color: var(--primary);
+  font-weight: 500;
+}
+
+.competency-badge {
+  background-color: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-success);
   font-weight: 500;
 }
 
