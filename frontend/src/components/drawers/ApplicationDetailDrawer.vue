@@ -4,6 +4,7 @@ import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
 import { ActionItemsAPI } from '../../api/endpoints'
 import DateTimePicker from '../common/DateTimePicker.vue'
+import InterviewGuideModal from '../modals/InterviewGuideModal.vue'
 import {
   X,
   Building2,
@@ -27,14 +28,18 @@ import {
   Send,
   Loader2,
   SlidersHorizontal,
+  BookOpen,
+  Globe,
+  RotateCcw,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
 
-const activeTab = ref('timeline') // 'timeline' | 'job_spec' | 'actions'
+const activeTab = ref('timeline') // 'timeline' | 'job_spec' | 'actions' | 'guide'
 const showDeleteConfirm = ref(false)
 const isDeleting = ref(false)
+const showInterviewGuideModal = ref(false)
 
 // In-drawer Action Item creation state
 const showNewTaskForm = ref(false)
@@ -456,6 +461,16 @@ function formatDate(isoStr) {
               <CheckSquare :size="15" />
               <span>Action Items ({{ appStore.selectedApplication.action_items?.length || 0 }})</span>
             </button>
+
+            <button
+              class="tab-item"
+              :class="{ active: activeTab === 'guide' }"
+              @click="activeTab = 'guide'"
+            >
+              <BookOpen :size="15" />
+              <span>Interview Guide</span>
+              <span v-if="appStore.selectedApplication.has_interview_guide" class="guide-ready-indicator"></span>
+            </button>
           </div>
 
           <!-- Tab Panels -->
@@ -667,6 +682,62 @@ function formatDate(isoStr) {
                 class="empty-state"
               >
                 No action items recorded for this application. Click "Add Task" above to create one.
+              </div>
+            </div>
+
+            <!-- 4. INTERVIEW PREPARATION GUIDE TAB -->
+            <div v-if="activeTab === 'guide'" class="guide-tab-panel animate-fade-in">
+              <div v-if="appStore.selectedApplication.interview_guide_html" class="guide-preview-card">
+                <div class="guide-preview-topbar">
+                  <div class="guide-meta-left">
+                    <span class="guide-lang-badge">
+                      <Globe :size="12" />
+                      <span>{{ appStore.selectedApplication.interview_guide_language?.toUpperCase() || 'EN' }}</span>
+                    </span>
+                    <span v-if="appStore.selectedApplication.interview_guide_generated_at" class="guide-meta-time">
+                      Generated {{ formatDate(appStore.selectedApplication.interview_guide_generated_at) }}
+                    </span>
+                  </div>
+                  <div class="guide-meta-actions">
+                    <button
+                      class="btn btn-primary btn-sm"
+                      @click="showInterviewGuideModal = true"
+                    >
+                      <BookOpen :size="13" />
+                      <span>Open Full Reader &amp; Print</span>
+                    </button>
+                    <button
+                      class="btn btn-secondary btn-sm"
+                      title="Re-configure or regenerate"
+                      @click="showInterviewGuideModal = true"
+                    >
+                      <RotateCcw :size="13" />
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  class="drawer-guide-content guide-article"
+                  v-html="appStore.selectedApplication.interview_guide_html"
+                ></div>
+              </div>
+
+              <!-- Empty State / No Guide Yet -->
+              <div v-else class="guide-empty-state">
+                <div class="guide-empty-icon">
+                  <BookOpen :size="32" class="text-primary" />
+                </div>
+                <h4 class="guide-empty-title">Interview Prep Guide</h4>
+                <p class="guide-empty-desc">
+                  Generate an AI-powered tactical interview playbook cross-referencing your candidate profile, role spec, and company signals.
+                </p>
+                <button
+                  class="btn btn-primary"
+                  @click="showInterviewGuideModal = true"
+                >
+                  <Sparkles :size="15" />
+                  <span>Generate Interview Guide</span>
+                </button>
               </div>
             </div>
           </div>
@@ -885,6 +956,14 @@ function formatDate(isoStr) {
       </div>
     </div>
   </Transition>
+
+  <!-- INTERVIEW PREPARATION GUIDE MODAL -->
+  <InterviewGuideModal
+    :is-open="showInterviewGuideModal"
+    :application-id="appStore.selectedApplication?.id"
+    @close="showInterviewGuideModal = false"
+    @updated="appStore.fetchApplication(appStore.selectedApplication?.id); appStore.fetchApplications()"
+  />
 </template>
 
 <style scoped>
@@ -1761,5 +1840,115 @@ function formatDate(isoStr) {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+/* Interview Guide Tab Styles */
+.guide-ready-indicator {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--primary);
+  box-shadow: 0 0 6px var(--primary-glow);
+}
+
+.guide-tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.guide-preview-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.guide-preview-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.guide-meta-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guide-lang-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  background-color: var(--primary-subtle);
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.guide-meta-time {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.guide-meta-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.drawer-guide-content {
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 8px;
+  scrollbar-gutter: stable;
+}
+
+.guide-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  background-color: var(--bg-card);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  gap: 12px;
+}
+
+.guide-empty-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-md);
+  background-color: var(--primary-subtle);
+  border: 1px solid var(--primary-glow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.guide-empty-title {
+  font-family: var(--font-heading);
+  font-size: 16px;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.guide-empty-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 380px;
+  line-height: 1.5;
+  margin: 0 0 8px 0;
 }
 </style>

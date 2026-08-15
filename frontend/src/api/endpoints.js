@@ -7,6 +7,8 @@ export const ApplicationsAPI = {
   transition: (id, data) => apiClient.post(`/applications/${id}/transition`, data),
   delete: (id) => apiClient.delete(`/applications/${id}`),
   byStatus: () => apiClient.get('/applications/by-status'),
+  generateInterviewGuide: (id, data = {}) => apiClient.post(`/applications/${id}/interview-guide`, data),
+  clearInterviewGuide: (id) => apiClient.delete(`/applications/${id}/interview-guide`),
 }
 
 export const IntakeAPI = {

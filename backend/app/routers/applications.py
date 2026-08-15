@@ -27,8 +27,10 @@ from app.schemas.applications import (
     ApplicationUpdate,
     CompanySummary,
     EventSummary,
+    GenerateInterviewGuideRequest,
     JobPostingDetail,
 )
+from app.services.interview_guide import clear_interview_guide, generate_interview_guide
 from app.services.llm import async_enqueue_application_embedding, generate_and_save_application_embedding
 
 logger = logging.getLogger(__name__)
@@ -162,6 +164,7 @@ async def list_applications(
                 application_date=app.application_date,
                 last_activity_at=app.last_activity_at,
                 has_action_required=has_action,
+                has_interview_guide=bool(app.interview_guide_html),
                 match_score=match_score,
                 nearest_due_date=nearest_due,
                 latest_event=EventSummary(
@@ -280,6 +283,11 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
         application_date=app.application_date,
         last_activity_at=app.last_activity_at,
         has_action_required=has_action,
+        has_interview_guide=bool(app.interview_guide_html),
+        interview_guide_html=app.interview_guide_html,
+        interview_guide_language=app.interview_guide_language,
+        interview_guide_generated_at=app.interview_guide_generated_at,
+        interview_guide_preferences=app.interview_guide_preferences,
         latest_event=EventSummary(
             id=latest_evt.id,
             email_event_type=latest_evt.email_event_type,
@@ -592,3 +600,42 @@ async def delete_application(
         "message": f"Application {application_id} deleted successfully.",
         "application_id": application_id,
     }
+
+
+@router.post(
+    "/{application_id}/interview-guide",
+    response_model=ApplicationDetailResponse,
+    summary="Generate or regenerate a tailored interview preparation guide",
+)
+async def generate_app_interview_guide(
+    application_id: int,
+    payload: GenerateInterviewGuideRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        updated_app = await generate_interview_guide(db, application_id, payload)
+        return await get_application(updated_app.id, db)
+    except ValueError as val_err:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(val_err))
+    except Exception as exc:
+        logger.error("Failed to generate interview guide: %s", exc, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@router.delete(
+    "/{application_id}/interview-guide",
+    response_model=ApplicationDetailResponse,
+    summary="Clear existing interview preparation guide",
+)
+async def clear_app_interview_guide(
+    application_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        updated_app = await clear_interview_guide(db, application_id)
+        return await get_application(updated_app.id, db)
+    except ValueError as val_err:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(val_err))
+    except Exception as exc:
+        logger.error("Failed to clear interview guide: %s", exc, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))

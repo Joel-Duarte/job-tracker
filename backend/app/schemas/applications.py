@@ -35,6 +35,7 @@ class ApplicationListItem(BaseModel):
     application_date: Optional[datetime] = None
     last_activity_at: Optional[datetime] = None
     has_action_required: bool = False
+    has_interview_guide: bool = False
     match_score: Optional[int] = None
     latest_event: Optional[EventSummary] = None
     nearest_due_date: Optional[datetime] = None
@@ -99,11 +100,31 @@ class ApplicationDetailResponse(ApplicationListItem):
     external_job_id: Optional[str] = None
     job_url: Optional[str] = None
     application_key: Optional[str] = None
+    interview_guide_html: Optional[str] = None
+    interview_guide_language: Optional[str] = "en"
+    interview_guide_generated_at: Optional[datetime] = None
+    interview_guide_preferences: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
     events: List[ApplicationEventDetail] = []
     job_posting: Optional[JobPostingDetail] = None
     action_items: List[ActionItemDetail] = []
+
+
+class GenerateInterviewGuideRequest(BaseModel):
+    language: str = Field("en", description="Output language code e.g. en, pt, es, de, fr, it, nl")
+    selected_sections: List[str] = Field(
+        default_factory=lambda: [
+            "role_company_brief",
+            "strategic_fit_pitch",
+            "star_stories",
+            "question_defenses",
+            "interviewer_questions",
+            "prep_checklist",
+        ],
+        description="Target sections to generate in the guide",
+    )
+    recursion_limit: int = Field(25, ge=5, le=100, description="LangGraph execution recursion limit")
 
 
 # --- Query Filter Schema ---

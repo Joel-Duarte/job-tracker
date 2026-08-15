@@ -49,6 +49,10 @@ class ApplicationModel(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="APPLIED")
     application_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     last_activity_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    interview_guide_html: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    interview_guide_language: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default="en")
+    interview_guide_generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    interview_guide_preferences: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

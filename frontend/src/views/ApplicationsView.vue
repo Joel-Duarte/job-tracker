@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useUIStore } from '../stores/uiStore'
 import DateTimePicker from '../components/common/DateTimePicker.vue'
+import InterviewGuideModal from '../components/modals/InterviewGuideModal.vue'
 import {
   Search,
   Kanban,
@@ -33,10 +34,20 @@ import {
   RotateCcw,
   Ban,
   Briefcase,
+  BookOpen,
 } from 'lucide-vue-next'
 
 const appStore = useApplicationsStore()
 const uiStore = useUIStore()
+
+// Interview Guide Modal State
+const isInterviewGuideOpen = ref(false)
+const activeGuideAppId = ref(null)
+
+function openInterviewGuide(appId) {
+  activeGuideAppId.value = appId
+  isInterviewGuideOpen.value = true
+}
 
 // Drag & Drop State
 const draggedApp = ref(null)
@@ -707,6 +718,24 @@ async function confirmDelete() {
                 </div>
               </div>
 
+              <!-- Interview Preparation Guide Chip (Technical Interview Column) -->
+              <div
+                v-if="['TECHNICAL_INTERVIEW', 'ONLINE_ASSESSMENT'].includes(app.status)"
+                class="card-guide-row"
+                @click.stop
+              >
+                <button
+                  class="btn-interview-guide-chip"
+                  :class="{ 'has-guide': app.has_interview_guide }"
+                  title="Open AI Interview Preparation Guide"
+                  @click="openInterviewGuide(app.id)"
+                >
+                  <BookOpen :size="11" />
+                  <span>{{ app.has_interview_guide ? 'Guide Ready' : 'Interview Prep' }}</span>
+                  <Sparkles v-if="!app.has_interview_guide" :size="10" />
+                </button>
+              </div>
+
               <!-- Latest Event Summary Pill -->
               <div v-if="app.latest_event?.email_summary" class="card-summary">
                 <span class="summary-prefix">{{ app.latest_event.email_event_type }}:</span>
@@ -839,6 +868,16 @@ async function confirmDelete() {
               </td>
 
               <td class="text-right cell-actions" @click.stop>
+                <button
+                  v-if="['TECHNICAL_INTERVIEW', 'ONLINE_ASSESSMENT'].includes(app.status)"
+                  class="btn btn-secondary btn-sm"
+                  :class="{ 'btn-primary-subtle': app.has_interview_guide }"
+                  title="Open AI Interview Preparation Guide"
+                  @click="openInterviewGuide(app.id)"
+                >
+                  <BookOpen :size="13" />
+                  <span>Prep</span>
+                </button>
                 <button
                   class="btn btn-secondary btn-sm"
                   title="Quick reject & move to archive"
@@ -1083,6 +1122,14 @@ async function confirmDelete() {
         </div>
       </div>
     </Transition>
+
+    <!-- INTERVIEW PREPARATION GUIDE MODAL -->
+    <InterviewGuideModal
+      :is-open="isInterviewGuideOpen"
+      :application-id="activeGuideAppId"
+      @close="isInterviewGuideOpen = false"
+      @updated="appStore.fetchApplications()"
+    />
   </div>
 </template>
 
@@ -1670,6 +1717,44 @@ async function confirmDelete() {
   background-color: var(--status-interview-border);
   border-color: var(--status-interview-text);
   transform: translateY(-1px);
+}
+
+.card-guide-row {
+  margin-top: 6px;
+  display: flex;
+}
+
+.btn-interview-guide-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-interview-guide-chip:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background-color: var(--primary-subtle);
+  transform: translateY(-1px);
+}
+
+.btn-interview-guide-chip.has-guide {
+  background-color: var(--primary-subtle);
+  color: var(--primary);
+  border-color: var(--primary-glow);
+}
+
+.btn-interview-guide-chip.has-guide:hover {
+  border-color: var(--primary);
+  box-shadow: 0 0 8px var(--primary-glow);
 }
 
 .card-footer {

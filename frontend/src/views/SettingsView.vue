@@ -47,6 +47,7 @@ import {
   Eye,
   EyeOff,
   Info,
+  BookOpen,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
@@ -140,6 +141,18 @@ const TASKS = [
     hasPrompt: true,
     desc: 'Evaluates fuzzy deduplication confidence and powers the interactive chat assistant.',
     variables: []
+  },
+  {
+    key: 'INTERVIEW_GUIDE',
+    promptKey: 'interview_guide',
+    label: 'Interview Prep Guide',
+    icon: 'BookOpen',
+    recommendedTemp: 0.4,
+    recommendedReasoning: 'high',
+    recommendedMaxTokens: null,
+    hasPrompt: true,
+    desc: 'Generates tailored interview preparation guides, STAR stories, and strategic question defenses.',
+    variables: ['{language}', '{company_name}', '{position}', '{company_context}', '{jd_text}', '{cv_text}', '{target_section}']
   },
   {
     key: 'EMBEDDING',
