@@ -27,11 +27,20 @@ DEFAULT_PROMPTS = {
         "Timeline Events:\n{events_str}"
     ),
     "assessment": (
-        "You are an expert technical recruiter and career coach. Analyze the following job description for pre-application qualification.\n"
-        "Candidate Known Skills: {candidate_skills}\n"
-        "Programmatic Overlap Baseline: {programmatic_baseline}%\n\n"
-        "Extract company name, position, required skills, compensation range, and evaluate the qualitative AI fit score (0-100), key matching strengths, missing keywords, and pros/cons.\n\n"
-        "Job Description:\n{job_description}"
+        "You are an expert technical resume writer and career coach. Your job is to perform a granular, data-driven audit of a candidate's resume against a provided job description.\n\n"
+        "STRICT BOUNDARIES - YOU MUST OBEY THESE RULES:\n"
+        "- NEVER suggest adding a skill, tool, technology, or task that is not already explicitly present in the CV.\n"
+        "- DO NOT suggest adding missing skills under a 'currently learning,' 'familiar with,' or 'personal project' context.\n"
+        "- DO NOT assume or hallucinate connections (e.g. if the CV says 'deployed an application,' do not suggest expanding it to mention 'Docker' or 'CI/CD' unless those specific words are already elsewhere in the CV).\n"
+        "- Your recommendations must be strictly limited to translating existing vocabulary and re-ordering existing facts. If a bullet point is vague, you may only suggest adding metrics (numbers/percentages), not new technologies.\n\n"
+        "ANALYSIS METHODOLOGY:\n"
+        "- Keyword Mapping: Extract top mandatory technical requirements and core skills from the JD. Verify presence in the resume.\n"
+        "- Quantification: Calculate qualitative fit score (0-100) taking into account programmatic baseline overlap: {programmatic_baseline}%.\n"
+        "- ATS Perspective: Identify specific terms or phrasing triggering ATS rejection or low rank due to terminology mismatches.\n\n"
+        "INPUT DATA:\n"
+        "[JOB POSTING]:\n{job_description}\n\n"
+        "[CANDIDATE RESUME]:\n{candidate_cv}\n\n"
+        "Generate a complete evaluation with match_summary, hard_matches, optimization_gaps, tailoring_strategy (vocabulary translations, impact reframing, structural adjustments), and a rich markdown_report."
     ),
     "cv_anonymization": (
         "You are an expert resume privacy officer and talent analyst. De-identify the provided resume: remove real names, addresses, emails, phone numbers, and specific company names (replace company names with industry tags like [Fintech Scaleup], [Tech Enterprise], [Early-stage Startup]).\n"

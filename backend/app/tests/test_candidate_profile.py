@@ -11,19 +11,22 @@ from app.services.matcher import compute_programmatic_skill_match
 
 
 def test_programmatic_skill_matcher_aliases_and_ratios():
-    candidate_skills = ["Python", "PostgreSQL", "Kubernetes", "Docker", "FastAPI"]
+    candidate_skills = ["Python", "PostgreSQL", "Kubernetes", "Docker", "FastAPI", "Kafka"]
     jd_text = (
         "We are looking for a Senior Engineer with deep knowledge of Python, Postgres, "
-        "and k8s container orchestration. Experience with Docker and REST APIs is a plus."
+        "and k8s container orchestration. Must build high-throughput FastAPI backend services "
+        "and distributed Kafka event streaming pipelines. Experience with Docker is a plus."
     )
 
     result = compute_programmatic_skill_match(candidate_skills, jd_text)
-    assert result["candidate_total_skills"] == 5
-    assert result["programmatic_score"] > 60
+    assert result["candidate_total_skills"] == 6
+    assert result["programmatic_score"] >= 80
     assert "Python" in result["matching_skills"]
     assert "PostgreSQL" in result["matching_skills"]
     assert "Kubernetes" in result["matching_skills"]
     assert "Docker" in result["matching_skills"]
+    assert "FastAPI" in result["matching_skills"]
+    assert "Kafka" in result["matching_skills"]
 
 
 @pytest.mark.asyncio

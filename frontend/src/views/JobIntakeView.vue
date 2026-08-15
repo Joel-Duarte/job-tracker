@@ -611,10 +611,61 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <!-- Narrative Evaluation -->
+            <!-- Narrative Evaluation & Match Summary -->
             <div class="evaluation-summary">
               <div class="eval-title">Evaluation Summary</div>
-              <p class="eval-text">{{ task.result_json.summary }}</p>
+              <p class="eval-text">{{ task.result_json.match_summary || task.result_json.summary }}</p>
+            </div>
+
+            <!-- Resume Tailoring Strategy & Terminology Optimizations -->
+            <div v-if="task.result_json.tailoring_strategy || task.result_json.optimization_gaps" class="tailoring-strategy-card">
+              <div class="tailoring-strategy-title">
+                <FileText :size="15" class="text-primary" />
+                <span>AI Step-by-Step Resume Tailoring Strategy</span>
+              </div>
+
+              <!-- Vocabulary Translation -->
+              <div v-if="task.result_json.tailoring_strategy?.vocabulary_translation?.length" class="tailoring-subsection">
+                <div class="tailoring-sub-title">Exact Vocabulary Translations</div>
+                <div class="vocab-grid">
+                  <div
+                    v-for="(vt, idx) in task.result_json.tailoring_strategy.vocabulary_translation"
+                    :key="idx"
+                    class="vocab-pill"
+                  >
+                    <span class="vocab-from">{{ vt.cv_term }}</span>
+                    <span class="vocab-arrow">→</span>
+                    <span class="vocab-to font-semibold">{{ vt.jd_term }}</span>
+                    <span v-if="vt.replacement_guidance" class="vocab-guide text-xs text-muted">({{ vt.replacement_guidance }})</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Impact Reframing -->
+              <div v-if="task.result_json.tailoring_strategy?.impact_reframing?.length" class="tailoring-subsection">
+                <div class="tailoring-sub-title">Impact Reframing & Metric Suggestions</div>
+                <div class="reframe-list">
+                  <div
+                    v-for="(ir, idx) in task.result_json.tailoring_strategy.impact_reframing"
+                    :key="idx"
+                    class="reframe-item"
+                  >
+                    <div class="reframe-orig text-xs text-muted"><strong>Original:</strong> {{ ir.bullet_point }}</div>
+                    <div class="reframe-suggest text-xs text-success"><strong>Suggested Rewrite:</strong> {{ ir.suggested_rewrite }}</div>
+                    <div v-if="ir.reason" class="reframe-reason text-xs text-tertiary"><em>Rationale:</em> {{ ir.reason }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Structural Adjustments -->
+              <div v-if="task.result_json.tailoring_strategy?.structural_adjustments?.length" class="tailoring-subsection">
+                <div class="tailoring-sub-title">Structural & Section Layout Adjustments</div>
+                <ul class="structural-list text-xs">
+                  <li v-for="(sa, idx) in task.result_json.tailoring_strategy.structural_adjustments" :key="idx">
+                    {{ sa }}
+                  </li>
+                </ul>
+              </div>
             </div>
 
             <!-- Duplicate Advisory Banner if applicable -->
@@ -1271,6 +1322,91 @@ onUnmounted(() => {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   padding: 14px;
+}
+
+.tailoring-strategy-card {
+  background-color: var(--bg-surface-elevated, var(--bg-surface));
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tailoring-strategy-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.tailoring-subsection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tailoring-sub-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.vocab-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.vocab-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.vocab-from {
+  color: var(--text-tertiary);
+  text-decoration: line-through;
+}
+
+.vocab-arrow {
+  color: var(--text-muted);
+}
+
+.vocab-to {
+  color: var(--text-success);
+}
+
+.reframe-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reframe-item {
+  padding: 8px 10px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.structural-list {
+  padding-left: 18px;
+  color: var(--text-main);
+  line-height: 1.5;
 }
 
 .eval-title {

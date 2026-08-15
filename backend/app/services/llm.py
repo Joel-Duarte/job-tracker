@@ -86,24 +86,36 @@ async def assess_job_posting(
     db: AsyncSession,
     job_description: str,
     candidate_skills: Optional[List[str]] = None,
+    candidate_cv: Optional[str] = None,
     programmatic_baseline: int = 0,
 ) -> JobAssessmentResult:
-    """Evaluates a job posting / JD for pre-application qualification and keyword fit."""
-    llm = await get_task_chat_model(db, task_type="EXTRACTION", temperature=0.2)
+    """
+    Evaluates a job posting / JD against candidate CV for pre-application qualification,
+    strict terminology gap mapping, and granular resume tailoring strategy.
+    """
+    llm = await get_task_chat_model(db, task_type="ASSESSMENT", temperature=0.2)
     structured_llm = llm.with_structured_output(JobAssessmentResult)
     template_str = await get_prompt_template(db, "assessment")
 
-    skills_str = ", ".join(candidate_skills) if candidate_skills else "General Full-Stack / Software Engineering Profile"
+    cv_text = candidate_cv
+    if not cv_text:
+        skills_str = ", ".join(candidate_skills) if candidate_skills else "General Full-Stack / Software Engineering Profile"
+        cv_text = f"Candidate Technical Skills:\n{skills_str}"
 
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You evaluate job descriptions and output structured pre-application assessments."),
+        ("system", (
+            "You are an expert technical resume writer and career coach. "
+            "Perform a granular, data-driven audit of the candidate's resume against the job description. "
+            "Never suggest skills not in the CV. Translate exact vocabulary synonyms, quantify match rate, and reframe bullet points."
+        )),
         ("human", template_str),
     ])
 
     chain = prompt | structured_llm
     result = await chain.ainvoke({
         "job_description": job_description,
-        "candidate_skills": skills_str,
+        "candidate_cv": cv_text,
+        "candidate_skills": ", ".join(candidate_skills) if candidate_skills else "Not Specified",
         "programmatic_baseline": str(programmatic_baseline),
     })
 
@@ -111,6 +123,52 @@ async def assess_job_posting(
         result = JobAssessmentResult.model_validate(result)
 
     result.programmatic_match_score = programmatic_baseline
+
+    # Synthesize fallback markdown_report if model omitted it
+    if not result.markdown_report:
+        report_lines = [
+            f"# Job Match Analysis: {result.fit_score}%",
+            "",
+            "## 📊 Match Summary",
+            result.match_summary or result.summary or "Evaluation completed against candidate profile.",
+            "",
+            "## ✅ Hard Matches (Your Strengths)",
+            f"* **Keyword Match Rate:** {result.hard_matches.keyword_match_rate if result.hard_matches else f'{len(result.matching_skills)} core skills found'}",
+            f"* **Top Alignment:** {', '.join(result.hard_matches.top_alignment) if result.hard_matches and result.hard_matches.top_alignment else ', '.join(result.matching_skills[:3]) if result.matching_skills else 'Strong core profile alignment'}",
+            "",
+            "## ❌ Optimization Gaps (Strict Terminology Mismatches)",
+        ]
+        if result.optimization_gaps:
+            if result.optimization_gaps.missing_completely:
+                report_lines.append(f"* **Missing Completely:** {', '.join(result.optimization_gaps.missing_completely)}")
+            if result.optimization_gaps.vocabulary_mismatches:
+                report_lines.append(f"* **Vocabulary Mismatches:** {', '.join(result.optimization_gaps.vocabulary_mismatches)}")
+            if result.optimization_gaps.experience_mismatch:
+                report_lines.append(f"* **Experience Delta:** {result.optimization_gaps.experience_mismatch}")
+        elif result.missing_skills:
+            report_lines.append(f"* **Missing Requirements:** {', '.join(result.missing_skills)}")
+
+        report_lines.extend([
+            "",
+            "## 💡 Step-by-Step Resume Tailoring Strategy",
+        ])
+        if result.tailoring_strategy:
+            if result.tailoring_strategy.vocabulary_translation:
+                report_lines.append("### Vocabulary Translation:")
+                for vt in result.tailoring_strategy.vocabulary_translation:
+                    report_lines.append(f"* Swap **'{vt.cv_term}'** → **'{vt.jd_term}'**: {vt.replacement_guidance}")
+            if result.tailoring_strategy.impact_reframing:
+                report_lines.append("### Impact Reframing:")
+                for ir in result.tailoring_strategy.impact_reframing:
+                    report_lines.append(f"* **Original:** {ir.bullet_point}")
+                    report_lines.append(f"  **Suggested Rewrite:** {ir.suggested_rewrite}")
+                    report_lines.append(f"  *Rationale:* {ir.reason}")
+            if result.tailoring_strategy.structural_adjustments:
+                report_lines.append("### Structural Adjustments:")
+                for sa in result.tailoring_strategy.structural_adjustments:
+                    report_lines.append(f"* {sa}")
+        result.markdown_report = "\n".join(report_lines)
+
     return result
 
 

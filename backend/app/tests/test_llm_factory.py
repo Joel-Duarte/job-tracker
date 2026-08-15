@@ -140,3 +140,77 @@ async def test_summarize_application_status_runnable(db_session: AsyncSession):
         res = await summarize_application_status(db_session, timeline)
         assert res.current_stage == "INTERVIEW"
         assert "Interview scheduled" in res.snapshot
+
+
+@pytest.mark.asyncio
+async def test_assess_job_posting_runnable(db_session: AsyncSession):
+    await seed_default_prompts(db_session)
+
+    from app.schemas.llm import (
+        HardMatches,
+        ImpactReframingItem,
+        JobAssessmentResult,
+        OptimizationGaps,
+        ResumeTailoringStrategy,
+        VocabularyTranslationItem,
+    )
+    from app.services.llm import assess_job_posting
+
+    mock_assessment = JobAssessmentResult(
+        company="Datadog",
+        position="Staff Software Engineer",
+        fit_score=88,
+        programmatic_match_score=75,
+        match_summary="Strong match across Python and distributed systems with minor terminology deltas.",
+        hard_matches=HardMatches(
+            keyword_match_rate="8/10 core skills found",
+            top_alignment=["Python", "Distributed Systems", "PostgreSQL"],
+        ),
+        optimization_gaps=OptimizationGaps(
+            missing_completely=["Rust"],
+            vocabulary_mismatches=["Node -> Node.js"],
+            experience_mismatch=None,
+        ),
+        tailoring_strategy=ResumeTailoringStrategy(
+            vocabulary_translation=[
+                VocabularyTranslationItem(
+                    jd_term="PostgreSQL",
+                    cv_term="Postgres",
+                    replacement_guidance="Standardize to formal product name.",
+                )
+            ],
+            impact_reframing=[
+                ImpactReframingItem(
+                    bullet_point="Maintained data pipelines.",
+                    suggested_rewrite="Architected and scaled real-time data ingestion pipelines handling 50k req/sec.",
+                    reason="Adds concrete throughput metrics and mirrors JD action verbs.",
+                )
+            ],
+            structural_adjustments=["Move distributed systems certifications to top of technical summary."],
+        ),
+        matching_skills=["Python", "PostgreSQL", "Distributed Systems"],
+        missing_skills=["Rust"],
+        pros=["High impact role", "Modern tech stack"],
+        cons=[],
+        summary="High potential match.",
+    )
+
+    with patch("app.services.llm.get_task_chat_model") as mock_get_chat:
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = RunnableLambda(AsyncMock(return_value=mock_assessment))
+        mock_get_chat.return_value = mock_llm
+
+        res = await assess_job_posting(
+            db_session,
+            job_description="Datadog is looking for a Staff Software Engineer...",
+            candidate_skills=["Python", "Postgres", "Distributed Systems"],
+            candidate_cv="Candidate CV text with Python and Postgres experience.",
+            programmatic_baseline=75,
+        )
+
+        assert res.fit_score == 88
+        assert res.programmatic_match_score == 75
+        assert res.hard_matches.keyword_match_rate == "8/10 core skills found"
+        assert len(res.tailoring_strategy.vocabulary_translation) == 1
+        assert "Job Match Analysis" in res.markdown_report
+

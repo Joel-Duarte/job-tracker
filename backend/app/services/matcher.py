@@ -31,7 +31,9 @@ SKILL_ALIASES = {
     "sql": "sql",
     "nosql": "nosql",
     "ci/cd": "ci/cd",
+    "cicd": "ci/cd",
     "llm": "large language models",
+    "llms": "large language models",
     "langchain": "langchain",
     "langgraph": "langgraph",
     "pytorch": "pytorch",
@@ -51,6 +53,7 @@ def compute_programmatic_skill_match(
 ) -> dict:
     """
     Computes hybrid exact + rapidfuzz skill overlap between candidate CV skills and Job Description text.
+    Handles single tokens, multi-word phrases, and extended keywords using partial and token-set matching.
     Returns:
       - programmatic_score: int (0 - 100)
       - matching_skills: list of candidate skills present in the JD
@@ -68,9 +71,10 @@ def compute_programmatic_skill_match(
 
     matching_skills: List[str] = []
 
-    # Extract word tokens from JD
+    # Extract word tokens and multi-word line segments from JD
     jd_words = set(re.findall(r"\b[a-zA-Z0-9\+\#\/\.\-]+\b", jd_lower))
     jd_words_normalized = {_normalize_token(w) for w in jd_words}
+    jd_phrases = [p.strip() for p in re.split(r"[\n,;•·\-–—]+", jd_lower) if len(p.strip()) >= 3]
 
     for orig_skill, norm_skill in normalized_candidate.items():
         if not norm_skill:
@@ -82,11 +86,30 @@ def compute_programmatic_skill_match(
             matching_skills.append(orig_skill)
             continue
 
-        # 2. RapidFuzz token matching against JD phrases
+        # 2. Check multi-word phrase containment
+        skill_clean = orig_skill.lower().strip()
+        if skill_clean and skill_clean in jd_lower:
+            matching_skills.append(orig_skill)
+            continue
+
+        # 3. RapidFuzz token matching against JD words
+        matched = False
         for jd_word in jd_words_normalized:
             if len(norm_skill) >= 4 and len(jd_word) >= 4:
                 ratio = fuzz.ratio(norm_skill, jd_word)
                 if ratio >= fuzzy_threshold:
+                    matching_skills.append(orig_skill)
+                    matched = True
+                    break
+        if matched:
+            continue
+
+        # 4. RapidFuzz partial & token set matching against JD phrases (e.g. 'FastAPI backend services')
+        for phrase in jd_phrases:
+            if len(norm_skill) >= 3 and len(phrase) >= 3:
+                partial = fuzz.partial_ratio(norm_skill, phrase)
+                token_set = fuzz.token_set_ratio(norm_skill, phrase)
+                if max(partial, token_set) >= fuzzy_threshold:
                     matching_skills.append(orig_skill)
                     break
 

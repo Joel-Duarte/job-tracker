@@ -218,7 +218,12 @@ async def get_task_chat_model(
             logger.warning("Failed loading task binding '%s', falling back: %s", task_type, err)
 
     is_agent_flag = task_type in ("AGENT_REASONING",)
-    default_temp = 0.0 if task_type in ("SCRAPER_PARSER", "EXTRACTION") else None
+    default_temp = None
+    if task_type in ("SCRAPER_PARSER", "EXTRACTION"):
+        default_temp = 0.0
+    elif task_type in ("ASSESSMENT",):
+        default_temp = 0.2
+
     if default_temp is not None and "temperature" not in override_kwargs:
         override_kwargs["temperature"] = default_temp
 
