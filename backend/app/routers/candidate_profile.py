@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -6,12 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.candidate_profile import CandidateCVModel
+from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.schemas.candidate_profile import (
     CandidateCVResponse,
     CandidateCVSaveRequest,
     CandidateCVUpdateRequest,
+    CVTaskStatusResponse,
 )
-from app.services.llm import anonymize_and_parse_cv
+from app.services.evaluation_worker import process_evaluation_task
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +34,14 @@ async def get_active_cv_profile(db: AsyncSession = Depends(get_db)):
     return profile
 
 
-@router.post("", response_model=CandidateCVResponse, status_code=status.HTTP_201_CREATED)
-async def process_and_save_cv_profile(
+@router.post("", response_model=CVTaskStatusResponse, status_code=status.HTTP_202_ACCEPTED)
+async def enqueue_cv_profile_processing(
     payload: CandidateCVSaveRequest,
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Ingests raw candidate CV/resume, runs AI de-identification & duration conversion at 0.2 temperature,
-    extracts canonical skills, and activates as user's profile.
+    Enqueues candidate CV for asynchronous de-identification, duration conversion,
+    and canonical skill extraction bounded by provider concurrency limits.
     """
     raw_text = payload.raw_text.strip()
     if not raw_text:
@@ -47,38 +50,67 @@ async def process_and_save_cv_profile(
             detail="CV content cannot be empty.",
         )
 
-    # 1. AI De-identification & canonical skill extraction
-    try:
-        anonymized_result = await anonymize_and_parse_cv(db, raw_text)
-    except Exception as err:
-        logger.error("Failed CV de-identification: %s", err, exc_info=True)
+    task = IntakeEvaluationTaskModel(
+        task_type="CV_EXTRACTION",
+        raw_text=raw_text,
+        title_hint="Candidate CV Profile",
+        status="QUEUED",
+        stage="QUEUED",
+    )
+    db.add(task)
+    await db.commit()
+    await db.refresh(task)
+
+    # Dispatch to shared background worker queue
+    asyncio.create_task(process_evaluation_task(task.id))
+
+    return CVTaskStatusResponse(
+        task_id=task.id,
+        task_type=task.task_type,
+        status=task.status,
+        stage=task.stage,
+        error_message=None,
+        profile_id=None,
+        created_at=task.created_at,
+        completed_at=None,
+        result=None,
+    )
+
+
+@router.get("/tasks/{task_id}", response_model=CVTaskStatusResponse)
+async def get_cv_task_status(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieves status and stage of an asynchronous CV processing task."""
+    stmt = select(IntakeEvaluationTaskModel).where(
+        IntakeEvaluationTaskModel.id == task_id,
+        IntakeEvaluationTaskModel.task_type == "CV_EXTRACTION",
+    )
+    res = await db.execute(stmt)
+    task = res.scalar_one_or_none()
+
+    if not task:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to analyze and de-identify CV: {str(err)}",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"CV processing task ID {task_id} not found.",
         )
 
-    # 2. Deactivate previous active profiles
-    stmt_deact = select(CandidateCVModel).where(CandidateCVModel.is_active == True)
-    res = await db.execute(stmt_deact)
-    for p in res.scalars().all():
-        p.is_active = False
+    profile_id = None
+    if task.result_json and isinstance(task.result_json, dict):
+        profile_id = task.result_json.get("profile_id")
 
-    # 3. Save new profile
-    cv_record = CandidateCVModel(
-        raw_text=raw_text,
-        anonymized_text=anonymized_result.anonymized_resume,
-        extracted_skills=anonymized_result.extracted_skills,
-        years_of_experience=anonymized_result.total_years_experience,
-        domain_expertise=anonymized_result.domain_expertise,
-        core_competencies=anonymized_result.core_competencies,
-        summary=anonymized_result.summary,
-        is_active=True,
+    return CVTaskStatusResponse(
+        task_id=task.id,
+        task_type=task.task_type,
+        status=task.status,
+        stage=task.stage,
+        error_message=task.error_message,
+        profile_id=profile_id,
+        created_at=task.created_at,
+        completed_at=task.completed_at,
+        result=task.result_json,
     )
-    db.add(cv_record)
-    await db.commit()
-    await db.refresh(cv_record)
-
-    return cv_record
 
 
 @router.patch("/{id}", response_model=CandidateCVResponse)

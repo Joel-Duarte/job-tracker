@@ -50,32 +50,42 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
         summary="Experienced Staff Engineer with fintech and distributed systems expertise.",
     )
 
-    with patch("app.routers.candidate_profile.anonymize_and_parse_cv", new_callable=AsyncMock) as mock_anonymize:
+    with patch("app.services.evaluation_worker.anonymize_and_parse_cv", new_callable=AsyncMock) as mock_anonymize:
         mock_anonymize.return_value = mock_anonymized
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            # 1. Save CV
+            # 1. Enqueue CV Task
             resp = await client.post("/api/v1/profile/cv", json={"raw_text": raw_cv})
-            assert resp.status_code == 201
+            assert resp.status_code == 202
             data = resp.json()
-            assert data["is_active"] is True
-            assert "Python" in data["extracted_skills"]
-            assert data["years_of_experience"] == 6.0
-            assert "[Fintech Enterprise]" in data["anonymized_text"]
-            assert "High-Throughput APIs" in data["core_competencies"]
+            task_id = data["task_id"]
+            assert data["status"] in ["QUEUED", "PROCESSING"]
 
-            # 2. Get Active CV
+            # Process task in test session
+            from app.services.evaluation_worker import process_evaluation_task
+            await process_evaluation_task(task_id, db=db_session)
+
+            # 2. Check Task Status
+            task_resp = await client.get(f"/api/v1/profile/cv/tasks/{task_id}")
+            assert task_resp.status_code == 200
+            task_data = task_resp.json()
+            assert task_data["status"] == "COMPLETED"
+            assert task_data["stage"] == "COMPLETE"
+
+            # 3. Get Active CV Profile
             get_resp = await client.get("/api/v1/profile/cv")
             assert get_resp.status_code == 200
             active_data = get_resp.json()
-            assert active_data["id"] == data["id"]
-            assert active_data["extracted_skills"] == data["extracted_skills"]
+            assert active_data is not None
+            assert "Python" in active_data["extracted_skills"]
+            assert active_data["years_of_experience"] == 6.0
+            assert "[Fintech Enterprise]" in active_data["anonymized_text"]
             assert active_data["core_competencies"] == ["Distributed Billing Pipelines", "High-Throughput APIs"]
 
-            # 3. Patch CV
+            # 4. Patch CV
             patch_resp = await client.patch(
-                f"/api/v1/profile/cv/{data['id']}",
+                f"/api/v1/profile/cv/{active_data['id']}",
                 json={
                     "anonymized_text": "Updated Custom Sanitized CV",
                     "core_competencies": ["Distributed Systems", "Cloud Architecture"],
@@ -87,11 +97,11 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
             assert patched_data["anonymized_text"] == "Updated Custom Sanitized CV"
             assert "Healthtech" in patched_data["domain_expertise"]
 
-            # 4. Delete CV
-            del_resp = await client.delete(f"/api/v1/profile/cv/{data['id']}")
+            # 5. Delete CV
+            del_resp = await client.delete(f"/api/v1/profile/cv/{active_data['id']}")
             assert del_resp.status_code == 204
 
-            # 5. Verify Active CV is None
+            # 6. Verify Active CV is None
             get_after_del = await client.get("/api/v1/profile/cv")
             assert get_after_del.status_code == 200
             assert get_after_del.json() is None

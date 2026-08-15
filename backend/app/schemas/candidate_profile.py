@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -54,5 +54,19 @@ class CandidateCVResponse(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CVTaskStatusResponse(BaseModel):
+    task_id: int
+    task_type: str = "CV_EXTRACTION"
+    status: str
+    stage: str
+    error_message: Optional[str] = None
+    profile_id: Optional[int] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    result: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)

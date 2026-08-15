@@ -12,7 +12,7 @@ from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.models.candidate_profile import CandidateCVModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.services.job_saver import persist_or_stage_job_assessment
-from app.services.llm import assess_job_posting, extract_job_spec
+from app.services.llm import anonymize_and_parse_cv, assess_job_posting, extract_job_spec
 from app.services.matcher import compute_programmatic_skill_match
 
 from app.services.scraper import scrape_job_url
@@ -20,7 +20,78 @@ from app.services.scraper import scrape_job_url
 logger = logging.getLogger(__name__)
 
 
+async def _execute_cv_extraction_steps(task: IntakeEvaluationTaskModel, db: AsyncSession) -> None:
+    try:
+        raw_text = task.raw_text
+        if not raw_text or not raw_text.strip():
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = "EMPTY_CV: Provided CV text is empty."
+            task.completed_at = datetime.now(timezone.utc)
+            await db.commit()
+            return
+
+        # Stage 1: SCRUBBING
+        task.stage = "SCRUBBING"
+        await db.commit()
+
+        # Stage 2: EXTRACTING
+        task.stage = "EXTRACTING"
+        await db.commit()
+
+        anonymized_result = await anonymize_and_parse_cv(db, raw_text)
+
+        # Stage 3: SAVING
+        task.stage = "SAVING"
+        await db.commit()
+
+        # Deactivate previous active profiles
+        stmt_deact = select(CandidateCVModel).where(CandidateCVModel.is_active == True)
+        res = await db.execute(stmt_deact)
+        for p in res.scalars().all():
+            p.is_active = False
+
+        cv_record = CandidateCVModel(
+            raw_text=raw_text,
+            anonymized_text=anonymized_result.anonymized_resume,
+            extracted_skills=anonymized_result.extracted_skills,
+            years_of_experience=anonymized_result.total_years_experience,
+            domain_expertise=anonymized_result.domain_expertise,
+            core_competencies=anonymized_result.core_competencies,
+            summary=anonymized_result.summary,
+            is_active=True,
+        )
+        db.add(cv_record)
+        await db.commit()
+        await db.refresh(cv_record)
+
+        # Stage 4: COMPLETE
+        task.status = "COMPLETED"
+        task.stage = "COMPLETE"
+        task.result_json = {
+            "profile_id": cv_record.id,
+            "years_of_experience": cv_record.years_of_experience,
+            "extracted_skills_count": len(cv_record.extracted_skills),
+            "summary": cv_record.summary,
+        }
+        task.completed_at = datetime.now(timezone.utc)
+        await db.commit()
+        logger.info("CV extraction task %d completed. Active profile ID: %d", task.id, cv_record.id)
+
+    except Exception as err:
+        logger.error("Failed processing CV task %d: %s", task.id, err, exc_info=True)
+        task.status = "FAILED"
+        task.stage = "FAILED"
+        task.error_message = str(err)
+        task.completed_at = datetime.now(timezone.utc)
+        await db.commit()
+
+
 async def _execute_evaluation_steps(task: IntakeEvaluationTaskModel, db: AsyncSession) -> None:
+    if task.task_type == "CV_EXTRACTION":
+        await _execute_cv_extraction_steps(task, db)
+        return
+
     try:
         content = task.raw_text
 

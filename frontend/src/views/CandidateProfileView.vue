@@ -45,6 +45,9 @@ const newCompetencyInput = ref('')
 const newDomainInput = ref('')
 
 const isProcessing = ref(false)
+const currentTaskId = ref(null)
+const currentTaskStage = ref('QUEUED')
+const currentTaskStatus = ref('QUEUED')
 const isSavingEdits = ref(false)
 const isDeleting = ref(false)
 
@@ -62,6 +65,43 @@ async function loadProfile() {
   }
 }
 
+async function pollTaskUntilComplete(taskId) {
+  const maxAttempts = 60
+  let attempts = 0
+
+  while (attempts < maxAttempts) {
+    await new Promise((r) => setTimeout(r, 800))
+    attempts++
+
+    try {
+      const res = await CandidateProfileAPI.getTaskStatus(taskId)
+      const task = res.data
+      currentTaskStatus.value = task.status
+      currentTaskStage.value = task.stage
+
+      if (task.status === 'COMPLETED') {
+        await loadProfile()
+        uiStore.showToast('Resume de-identified and canonical profile activated!', 'success')
+        isProcessing.value = false
+        currentTaskId.value = null
+        return
+      }
+
+      if (task.status === 'FAILED') {
+        uiStore.showToast(task.error_message || 'CV processing failed', 'error')
+        isProcessing.value = false
+        currentTaskId.value = null
+        return
+      }
+    } catch (err) {
+      logger.error('Error polling CV task:', err)
+    }
+  }
+
+  uiStore.showToast('Processing timed out. Please check again in a moment.', 'warning')
+  isProcessing.value = false
+}
+
 async function processCV() {
   if (!rawCVInput.value.trim() || rawCVInput.value.trim().length < 20) {
     uiStore.showToast('Please provide a complete resume or CV text.', 'error')
@@ -69,14 +109,16 @@ async function processCV() {
   }
 
   isProcessing.value = true
+  currentTaskStatus.value = 'QUEUED'
+  currentTaskStage.value = 'QUEUED'
+
   try {
     const res = await CandidateProfileAPI.save(rawCVInput.value.trim())
-    profile.value = res.data
-    isEditingCV.value = false
-    uiStore.showToast('Resume de-identified and canonical profile activated!', 'success')
+    const taskId = res.data.task_id
+    currentTaskId.value = taskId
+    await pollTaskUntilComplete(taskId)
   } catch (err) {
-    uiStore.showToast(err.message, 'error')
-  } finally {
+    uiStore.showToast(err.message || 'Failed to enqueue CV processing', 'error')
     isProcessing.value = false
   }
 }
@@ -300,6 +342,53 @@ onMounted(() => {
             {{ localScrubResult.scrubbedText || 'Paste resume text to see live local sanitization preview...' }}
           </div>
 
+          <!-- Live Queue Task Progress Card -->
+          <div v-if="isProcessing" class="queue-progress-card animate-fade-in">
+            <div class="queue-progress-header">
+              <div class="queue-status-title">
+                <Loader2 class="animate-spin text-primary" :size="16" />
+                <span>Processing in AI Queue (Task #{{ currentTaskId || '...' }})</span>
+              </div>
+              <span class="queue-stage-badge">{{ currentTaskStage }}</span>
+            </div>
+
+            <!-- Stepper Indicators -->
+            <div class="stepper-track">
+              <div
+                class="stepper-step"
+                :class="{
+                  active: currentTaskStage === 'SCRUBBING',
+                  complete: ['EXTRACTING', 'SAVING', 'COMPLETE'].includes(currentTaskStage),
+                }"
+              >
+                <div class="step-dot">1</div>
+                <span class="step-label">Local PII Scrubbing</span>
+              </div>
+
+              <div
+                class="stepper-step"
+                :class="{
+                  active: currentTaskStage === 'EXTRACTING',
+                  complete: ['SAVING', 'COMPLETE'].includes(currentTaskStage),
+                }"
+              >
+                <div class="step-dot">2</div>
+                <span class="step-label">AI Extraction</span>
+              </div>
+
+              <div
+                class="stepper-step"
+                :class="{
+                  active: currentTaskStage === 'SAVING',
+                  complete: currentTaskStage === 'COMPLETE',
+                }"
+              >
+                <div class="step-dot">3</div>
+                <span class="step-label">Profile Activation</span>
+              </div>
+            </div>
+          </div>
+
           <div class="box-actions">
             <button
               class="btn btn-primary"
@@ -308,7 +397,7 @@ onMounted(() => {
             >
               <Loader2 v-if="isProcessing" class="animate-spin" :size="16" />
               <Sparkles v-else :size="16" />
-              <span>{{ isProcessing ? 'De-Identifying & Extracting Skills...' : 'De-Identify & Save Profile' }}</span>
+              <span>{{ isProcessing ? 'Processing in Queue...' : 'De-Identify & Save Profile' }}</span>
             </button>
           </div>
         </div>
@@ -907,5 +996,95 @@ onMounted(() => {
   color: var(--text-secondary);
   max-width: 380px;
   line-height: 1.5;
+}
+
+.queue-progress-card {
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.queue-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.queue-status-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.queue-stage-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--primary);
+}
+
+.stepper-track {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.stepper-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.4;
+  transition: all var(--transition-fast);
+}
+
+.stepper-step.active {
+  opacity: 1;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.stepper-step.complete {
+  opacity: 0.9;
+  color: var(--text-success);
+}
+
+.step-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.stepper-step.active .step-dot {
+  background-color: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.stepper-step.complete .step-dot {
+  background-color: var(--text-success);
+  color: white;
+  border-color: var(--text-success);
+}
+
+.step-label {
+  font-size: 11px;
 }
 </style>

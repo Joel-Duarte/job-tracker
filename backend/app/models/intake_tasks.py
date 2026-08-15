@@ -9,12 +9,14 @@ from app.models.applications import Base
 
 class IntakeEvaluationTaskModel(Base):
     """
-    Persisted queue for asynchronous job lead intake & AI qualification assessments.
-    Enables continuous input UX and tracks 4-stage pipeline execution safely.
+    Persisted queue for asynchronous job lead intake & AI qualification assessments,
+    as well as candidate CV de-identification and extraction tasks.
+    Enables continuous input UX and tracks pipeline execution bounded by provider concurrency limits.
     """
     __tablename__ = "intake_evaluation_tasks"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    task_type: Mapped[str] = mapped_column(Text, nullable=False, default="JOB_ASSESSMENT", index=True)
     job_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     raw_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     title_hint: Mapped[str] = mapped_column(Text, nullable=False, default="Job Lead")
@@ -22,12 +24,12 @@ class IntakeEvaluationTaskModel(Base):
     # Status: 'QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED'
     status: Mapped[str] = mapped_column(Text, nullable=False, default="QUEUED", index=True)
     
-    # Stage: 'FETCHING', 'EXTRACTING', 'MATCHING', 'ASSESSING', 'COMPLETE', 'FAILED'
+    # Stage: 'FETCHING', 'SCRUBBING', 'EXTRACTING', 'MATCHING', 'ASSESSING', 'SAVING', 'COMPLETE', 'FAILED'
     stage: Mapped[str] = mapped_column(Text, nullable=False, default="FETCHING")
     
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
-    # Holds the complete evaluated JobAssessmentResult JSON structure upon completion
+    # Holds evaluated JobAssessmentResult or CVAnonymizationResult JSON structure upon completion
     result_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
