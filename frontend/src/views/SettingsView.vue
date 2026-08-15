@@ -417,8 +417,8 @@ const isDeletingAccount = ref(false)
 const emailAccountForm = ref({
   name: '',
   provider_preset: 'gmail', // 'gmail' | 'outlook' | 'custom'
-  auth_type: 'IMAP', // 'GMAIL_OAUTH' | 'MS_GRAPH_OAUTH' | 'IMAP'
-  auth_method: 'app_password', // 'app_password' | 'oauth'
+  auth_type: 'GMAIL_OAUTH', // 'GMAIL_OAUTH' | 'MS_GRAPH_OAUTH' | 'IMAP'
+  auth_method: 'oauth', // 'app_password' | 'oauth'
   username: '',
   app_password: '',
   imap_host: 'imap.gmail.com',
@@ -501,8 +501,8 @@ function openAddEmailAccountModal() {
   emailAccountForm.value = {
     name: 'Gmail Inbox',
     provider_preset: 'gmail',
-    auth_type: 'IMAP',
-    auth_method: 'app_password',
+    auth_type: 'GMAIL_OAUTH',
+    auth_method: 'oauth',
     username: '',
     app_password: '',
     imap_host: 'imap.gmail.com',
@@ -609,6 +609,17 @@ async function saveEmailAccount() {
   } finally {
     isSavingAccount.value = false
   }
+}
+
+async function saveAndConnectOAuth() {
+  if (!emailAccountForm.value.username.trim()) {
+    uiStore.showToast('Please enter your email address first', 'warning')
+    return
+  }
+  await saveEmailAccount()
+  // Only launch OAuth if save succeeded (modal would still be open on error)
+  if (!isEmailAccountModalOpen.value) return
+  startOAuthLogin(emailAccountForm.value.provider_preset)
 }
 
 function openDeleteAccountModal(acc) {
@@ -1289,20 +1300,20 @@ function formatLastSync(dateStr) {
               <button
                 type="button"
                 class="auth-toggle-btn"
-                :class="{ active: emailAccountForm.auth_method === 'app_password' }"
-                @click="onAuthMethodChange('app_password')"
-              >
-                <Key :size="14" />
-                <span>Email & App Password (Fastest)</span>
-              </button>
-              <button
-                type="button"
-                class="auth-toggle-btn"
                 :class="{ active: emailAccountForm.auth_method === 'oauth' }"
                 @click="onAuthMethodChange('oauth')"
               >
                 <Lock :size="14" />
-                <span>1-Click OAuth2 Connect</span>
+                <span>OAuth2 Connect <span class="auth-badge recommended">Recommended</span></span>
+              </button>
+              <button
+                type="button"
+                class="auth-toggle-btn"
+                :class="{ active: emailAccountForm.auth_method === 'app_password' }"
+                @click="onAuthMethodChange('app_password')"
+              >
+                <Key :size="14" />
+                <span>Email &amp; App Password</span>
               </button>
             </div>
           </div>
@@ -1326,30 +1337,31 @@ function formatLastSync(dateStr) {
             <div v-if="showConnectionGuide" class="guide-content-body animate-fade-in">
               <!-- Gmail Guide -->
               <div v-if="emailAccountForm.provider_preset === 'gmail'" class="guide-steps-list">
-                <div class="guide-step-card">
-                  <span class="step-badge">Fastest</span>
+                <!-- Gmail + OAuth selected -->
+                <div v-if="emailAccountForm.auth_method === 'oauth'" class="guide-step-card">
+                  <span class="step-badge oauth">OAuth2</span>
                   <div class="step-details">
-                    <strong>Option A: Google App Password (Recommended — 10 Seconds)</strong>
+                    <strong>Google Cloud Console — OAuth2 App Setup</strong>
                     <ol class="step-sublist">
-                      <li>Go to <a href="https://myaccount.google.com/security" target="_blank" rel="noopener" class="guide-link">Google Account Security <ExternalLink :size="10" /></a> and ensure <em>2-Step Verification</em> is ON.</li>
-                      <li>Visit <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" class="guide-link">Google App Passwords <ExternalLink :size="10" /></a>.</li>
-                      <li>Enter App name <code>Job Tracker</code> and click <em>Create</em>.</li>
-                      <li>Copy the 16-character password and paste it into the <em>App Password</em> field below.</li>
+                      <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="guide-link">Google Cloud Console <ExternalLink :size="10" /></a> and create or select a project.</li>
+                      <li>Enable the <strong>Gmail API</strong> under APIs &amp; Services → Library.</li>
+                      <li>Configure <strong>OAuth Consent Screen</strong> (External) and add your email as a test user.</li>
+                      <li>Create Credentials → <strong>OAuth client ID</strong> → type: <em>Web application</em>.</li>
+                      <li>Add Authorized Redirect URI: <code>http://localhost:8000/api/v1/email_accounts/oauth/callback/google</code></li>
+                      <li>Copy the <strong>Client ID</strong> and <strong>Client Secret</strong> into the fields in the OAuth card below.</li>
                     </ol>
                   </div>
                 </div>
-
-                <div class="guide-step-card">
-                  <span class="step-badge oauth">OAuth2</span>
+                <!-- Gmail + App Password selected -->
+                <div v-else class="guide-step-card">
+                  <span class="step-badge">App Password</span>
                   <div class="step-details">
-                    <strong>Option B: Google Cloud OAuth2 App (1-Click Login)</strong>
+                    <strong>Google App Password — 10 Seconds Setup</strong>
                     <ol class="step-sublist">
-                      <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="guide-link">Google Cloud Console <ExternalLink :size="10" /></a>.</li>
-                      <li>Enable the <strong>Gmail API</strong> for your project.</li>
-                      <li>Configure <strong>OAuth Consent Screen</strong> (User Type: External) and add your email to Test Users.</li>
-                      <li>Create Credentials -> <strong>OAuth client ID</strong> -> Application type: <em>Web application</em>.</li>
-                      <li>Add Authorized Redirect URI: <code>http://localhost:8000/api/v1/email_accounts/oauth/callback</code></li>
-                      <li>Paste Client ID & Client Secret into OAuth fields.</li>
+                      <li>Go to <a href="https://myaccount.google.com/security" target="_blank" rel="noopener" class="guide-link">Google Account Security <ExternalLink :size="10" /></a> and ensure <em>2-Step Verification</em> is ON.</li>
+                      <li>Visit <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" class="guide-link">Google App Passwords <ExternalLink :size="10" /></a>.</li>
+                      <li>Enter app name <code>Job Tracker</code> and click <em>Create</em>.</li>
+                      <li>Copy the 16-character password and paste it into the <em>App Password</em> field below.</li>
                     </ol>
                   </div>
                 </div>
@@ -1357,10 +1369,26 @@ function formatLastSync(dateStr) {
 
               <!-- Outlook Guide -->
               <div v-else-if="emailAccountForm.provider_preset === 'outlook'" class="guide-steps-list">
-                <div class="guide-step-card">
-                  <span class="step-badge">Fastest</span>
+                <!-- Outlook + OAuth selected -->
+                <div v-if="emailAccountForm.auth_method === 'oauth'" class="guide-step-card">
+                  <span class="step-badge oauth">OAuth2</span>
                   <div class="step-details">
-                    <strong>Option A: Microsoft App Password / IMAP</strong>
+                    <strong>Azure Portal — Microsoft Graph OAuth2 Setup</strong>
+                    <ol class="step-sublist">
+                      <li>Open <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener" class="guide-link">Azure App Registrations <ExternalLink :size="10" /></a> and click <strong>New registration</strong>.</li>
+                      <li>Add Web Redirect URI: <code>http://localhost:8000/api/v1/email_accounts/oauth/callback/microsoft</code></li>
+                      <li>Under <em>API Permissions</em> add <code>Mail.Read</code>, <code>User.Read</code>, <code>offline_access</code> (Delegated).</li>
+                      <li>Under <em>Certificates &amp; secrets</em>, create a secret — copy its <strong>Value</strong> immediately (shown once).</li>
+                      <li>Copy the <strong>Application (client) ID</strong> from the Overview page.</li>
+                      <li>Paste both into the fields in the OAuth card below.</li>
+                    </ol>
+                  </div>
+                </div>
+                <!-- Outlook + App Password selected -->
+                <div v-else class="guide-step-card">
+                  <span class="step-badge">App Password</span>
+                  <div class="step-details">
+                    <strong>Microsoft App Password / IMAP</strong>
                     <ol class="step-sublist">
                       <li>Go to <a href="https://account.live.com/proofs/manage/additional" target="_blank" rel="noopener" class="guide-link">Microsoft Security Settings <ExternalLink :size="10" /></a>.</li>
                       <li>Under <em>App passwords</em>, click <em>Create a new app password</em>.</li>
@@ -1368,23 +1396,9 @@ function formatLastSync(dateStr) {
                     </ol>
                   </div>
                 </div>
-
-                <div class="guide-step-card">
-                  <span class="step-badge oauth">OAuth2</span>
-                  <div class="step-details">
-                    <strong>Option B: Azure Portal OAuth2 (Microsoft Graph)</strong>
-                    <ol class="step-sublist">
-                      <li>Open <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener" class="guide-link">Azure App Registrations <ExternalLink :size="10" /></a>.</li>
-                      <li>Register a new app named <code>Job Tracker</code> (Supported account types: <em>Personal & Organizational</em>).</li>
-                      <li>Add Web Redirect URI: <code>http://localhost:8000/api/v1/email_accounts/oauth/callback</code>.</li>
-                      <li>Under <em>API Permissions</em>, add <code>Mail.Read</code>, <code>User.Read</code>, <code>offline_access</code>.</li>
-                      <li>Generate a secret under <em>Certificates & secrets</em>, and paste Client ID & Secret.</li>
-                    </ol>
-                  </div>
-                </div>
               </div>
 
-              <!-- Custom IMAP Guide -->
+              <!-- Custom IMAP Guide (no auth method toggle shown for custom) -->
               <div v-else class="guide-steps-list">
                 <div class="guide-step-card">
                   <span class="step-badge">iCloud</span>
@@ -1395,7 +1409,6 @@ function formatLastSync(dateStr) {
                     </p>
                   </div>
                 </div>
-
                 <div class="guide-step-card">
                   <span class="step-badge">IMAP</span>
                   <div class="step-details">
@@ -1438,75 +1451,73 @@ function formatLastSync(dateStr) {
           <div v-if="emailAccountForm.auth_method === 'oauth' && emailAccountForm.provider_preset !== 'custom'" class="oauth-fields-card">
             <div class="oauth-card-header">
               <Lock :size="14" class="text-primary" />
-              <span>1-Click OAuth2 Authorization</span>
+              <span>OAuth2 Authorization</span>
             </div>
 
-            <p class="text-xs text-secondary mb-3">
-              Click the button below to authorize Job Tracker with your {{ emailAccountForm.provider_preset === 'outlook' ? 'Microsoft 365' : 'Google Workspace / Gmail' }} account.
-            </p>
-
-            <button
-              type="button"
-              class="btn btn-primary btn-oauth-action"
-              @click="startOAuthLogin(emailAccountForm.provider_preset)"
-            >
-              <ExternalLink :size="14" />
-              <span>Launch {{ emailAccountForm.provider_preset === 'outlook' ? 'Microsoft' : 'Google' }} OAuth Login</span>
-            </button>
-
-            <div class="oauth-optional-section mt-3">
-              <span class="text-xs text-muted">Custom OAuth App:</span>
-
-              <!-- Provider-specific setup guide -->
-              <details class="oauth-guide-details">
-                <summary class="oauth-guide-summary">
-                  <HelpCircle :size="12" />
-                  <span>How to get your Client ID &amp; Secret</span>
-                  <ChevronDown :size="12" class="oauth-guide-chevron" />
-                </summary>
-
-                <!-- Gmail guide -->
-                <div v-if="emailAccountForm.provider_preset === 'gmail'" class="oauth-guide-body">
-                  <p class="oauth-guide-provider-label">Google Cloud Console (Gmail API)</p>
-                  <ol class="oauth-steps">
-                    <li>Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noopener" class="oauth-guide-link">console.cloud.google.com</a> and create or select a project.</li>
-                    <li>Navigate to <strong>APIs &amp; Services → Library</strong> and enable the <strong>Gmail API</strong>.</li>
-                    <li>Go to <strong>OAuth Consent Screen</strong> → choose <em>External</em> → add your Gmail address as a test user.</li>
-                    <li>Go to <strong>Credentials → Create Credentials → OAuth 2.0 Client ID</strong>, type: <em>Web Application</em>.</li>
-                    <li>Under <strong>Authorised Redirect URIs</strong> add:<br /><code class="oauth-redirect-uri">http://localhost:8000/api/v1/email_accounts/oauth/callback/google</code></li>
-                    <li>Copy the <strong>Client ID</strong> and <strong>Client Secret</strong> into the fields below.</li>
-                  </ol>
-                </div>
-
-                <!-- Outlook / Microsoft guide -->
-                <div v-else-if="emailAccountForm.provider_preset === 'outlook'" class="oauth-guide-body">
-                  <p class="oauth-guide-provider-label">Azure Portal (Microsoft Graph)</p>
-                  <ol class="oauth-steps">
-                    <li>Go to <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener" class="oauth-guide-link">portal.azure.com → App registrations</a> and click <strong>New registration</strong>.</li>
-                    <li>Under <strong>Redirect URIs</strong> (Web), add:<br /><code class="oauth-redirect-uri">http://localhost:8000/api/v1/email_accounts/oauth/callback/microsoft</code></li>
-                    <li>Go to <strong>API permissions → Add a permission → Microsoft Graph → Delegated</strong> and add <code>Mail.Read</code> and <code>offline_access</code>.</li>
-                    <li>Go to <strong>Certificates &amp; secrets → New client secret</strong>. Copy the secret <strong>Value</strong> (not the ID) immediately — it's only shown once.</li>
-                    <li>Copy the <strong>Application (client) ID</strong> from the app's Overview page.</li>
-                    <li>Paste both into the fields below.</li>
-                  </ol>
-                </div>
-              </details>
-
-              <div class="form-row-2 mt-2">
+            <!-- Credentials first -->
+            <div class="form-row-2 mb-3">
+              <div class="input-group">
+                <label class="input-label">Client ID</label>
                 <input
                   v-model="emailAccountForm.client_id"
                   type="text"
-                  placeholder="Client ID"
+                  placeholder="Paste your Client ID"
                   class="form-input font-mono text-xs"
                 />
+              </div>
+              <div class="input-group">
+                <label class="input-label">Client Secret</label>
                 <input
                   v-model="emailAccountForm.client_secret"
                   type="password"
-                  placeholder="Client Secret"
+                  placeholder="Paste your Client Secret"
                   class="form-input font-mono text-xs"
                 />
               </div>
             </div>
+
+            <!-- Setup guide (open by default, collapsible) -->
+            <details class="oauth-guide-details" open>
+              <summary class="oauth-guide-summary">
+                <HelpCircle :size="12" />
+                <span>How to create your OAuth app</span>
+                <ChevronDown :size="12" class="oauth-guide-chevron" />
+              </summary>
+
+              <div class="oauth-guide-body">
+                <!-- Gmail steps -->
+                <ol v-if="emailAccountForm.provider_preset === 'gmail'" class="oauth-steps">
+                  <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="oauth-guide-link">Google Cloud Console <ExternalLink :size="10" /></a> and create or select a project.</li>
+                  <li>Enable the <strong>Gmail API</strong> under APIs &amp; Services &rarr; Library.</li>
+                  <li>Configure <strong>OAuth Consent Screen</strong> (External) &mdash; add your Gmail as a test user.</li>
+                  <li>Create Credentials &rarr; <strong>OAuth client ID</strong> &rarr; type: <em>Web application</em>.</li>
+                  <li>Add Authorized Redirect URI:<br /><code class="oauth-redirect-uri">http://localhost:8000/api/v1/email_accounts/oauth/callback/google</code></li>
+                  <li>Paste the <strong>Client ID</strong> and <strong>Client Secret</strong> into the fields above.</li>
+                </ol>
+
+                <!-- Outlook / MS Graph steps -->
+                <ol v-else-if="emailAccountForm.provider_preset === 'outlook'" class="oauth-steps">
+                  <li>Open <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener" class="oauth-guide-link">Azure App Registrations <ExternalLink :size="10" /></a> &rarr; <strong>New registration</strong>.</li>
+                  <li>Add Web Redirect URI:<br /><code class="oauth-redirect-uri">http://localhost:8000/api/v1/email_accounts/oauth/callback/microsoft</code></li>
+                  <li>Under <em>API permissions</em> add <code>Mail.Read</code>, <code>User.Read</code>, <code>offline_access</code> (Delegated).</li>
+                  <li>Under <em>Certificates &amp; secrets</em> create a secret &mdash; copy its <strong>Value</strong> immediately (shown once).</li>
+                  <li>Copy the <strong>Application (client) ID</strong> from the Overview page.</li>
+                  <li>Paste both into the fields above.</li>
+                </ol>
+              </div>
+            </details>
+
+            <!-- Single connect button at bottom -->
+            <button
+              type="button"
+              class="btn btn-primary btn-oauth-action mt-3"
+              :disabled="isSavingAccount"
+              @click="saveAndConnectOAuth()"
+            >
+              <Loader2 v-if="isSavingAccount" :size="14" class="spin" />
+              <ExternalLink v-else :size="14" />
+              <span>Connect with {{ emailAccountForm.provider_preset === 'outlook' ? 'Microsoft' : 'Google' }}</span>
+            </button>
           </div>
 
           <!-- App Password / IMAP Mode Card -->
@@ -1566,13 +1577,14 @@ function formatLastSync(dateStr) {
 
             <div class="form-row-2">
               <div class="input-group">
-                <label class="input-label">Target Mailbox Folder</label>
+                <label class="input-label">Scan Folder</label>
                 <input
                   v-model="emailAccountForm.folder"
                   type="text"
                   placeholder="INBOX"
                   class="form-input font-mono text-xs"
                 />
+                <p class="field-hint">Pre-filter: only emails inside this folder are scanned and ingested by Job Tracker. Use <code class="hint-code">INBOX</code> to monitor your main inbox, or a label like <code class="hint-code">Recruitment</code> to keep intake focused.</p>
               </div>
 
               <div class="input-group">
@@ -2165,11 +2177,14 @@ function formatLastSync(dateStr) {
 .modal-card {
   width: 100%;
   max-width: 480px;
+  max-height: 90vh;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .modal-header {
@@ -2185,6 +2200,7 @@ function formatLastSync(dateStr) {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  overflow-y: auto;
 }
 
 .input-group {
@@ -2200,6 +2216,23 @@ function formatLastSync(dateStr) {
 
 .form-input {
   width: 100%;
+}
+
+.field-hint {
+  font-size: 11px;
+  color: var(--text-muted, var(--text-secondary));
+  line-height: 1.5;
+  margin-top: 4px;
+}
+
+.hint-code {
+  font-family: monospace;
+  font-size: 10.5px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-main);
 }
 
 .modal-actions {
@@ -2484,6 +2517,40 @@ function formatLastSync(dateStr) {
   font-weight: 600;
 }
 
+.auth-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  vertical-align: middle;
+  margin-left: 2px;
+}
+
+.auth-badge.recommended {
+  background-color: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.oauth-inline-guide {
+  padding: 10px 12px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  margin-bottom: 2px;
+}
+
+.oauth-inline-guide-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
 .form-row-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2553,7 +2620,7 @@ function formatLastSync(dateStr) {
 }
 
 .oauth-guide-details {
-  margin-top: 6px;
+  margin-top: 4px;
   margin-bottom: 2px;
 }
 
@@ -2591,18 +2658,9 @@ function formatLastSync(dateStr) {
 .oauth-guide-body {
   margin-top: 8px;
   padding: 10px 12px;
-  background-color: var(--bg-elevated);
+  background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
-}
-
-.oauth-guide-provider-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
 }
 
 .oauth-steps {
