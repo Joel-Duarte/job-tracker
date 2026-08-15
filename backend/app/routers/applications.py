@@ -16,15 +16,18 @@ from app.models.applications import (
     JobPostingModel,
 )
 from app.schemas.applications import (
+    ActionItemDetail,
     AllowedApplicationStatus,
     ApplicationByStatusResult,
     ApplicationDetailResponse,
+    ApplicationEventDetail,
     ApplicationListItem,
     ApplicationListResponse,
     ApplicationTransitionRequest,
     ApplicationUpdate,
     CompanySummary,
     EventSummary,
+    JobPostingDetail,
 )
 from app.services.llm import async_enqueue_application_embedding, generate_and_save_application_embedding
 
@@ -200,6 +203,8 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
         .options(
             joinedload(ApplicationModel.company),
             selectinload(ApplicationModel.events),
+            selectinload(ApplicationModel.job_posting),
+            selectinload(ApplicationModel.action_items),
         )
     )
     result = await db.execute(stmt)
@@ -208,7 +213,12 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
     if not app:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
 
-    latest_evt = app.events[0] if app.events else None
+    sorted_events = sorted(
+        app.events or [],
+        key=lambda e: (e.email_received_at or e.created_at),
+        reverse=True,
+    )
+    latest_evt = sorted_events[0] if sorted_events else None
     has_action = any(e.email_action_required for e in app.events)
 
     return ApplicationDetailResponse(
@@ -234,6 +244,9 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
         application_key=app.application_key,
         created_at=app.created_at,
         updated_at=app.updated_at,
+        events=[ApplicationEventDetail.model_validate(e) for e in sorted_events],
+        job_posting=JobPostingDetail.model_validate(app.job_posting) if app.job_posting else None,
+        action_items=[ActionItemDetail.model_validate(a) for a in (app.action_items or [])],
     )
 
 @router.patch(
@@ -446,13 +459,19 @@ async def transition_application(
             joinedload(ApplicationModel.company),
             selectinload(ApplicationModel.events),
             selectinload(ApplicationModel.job_posting),
+            selectinload(ApplicationModel.action_items),
         )
         .execution_options(populate_existing=True)
     )
     res_refreshed = await db.execute(stmt_reload)
     app_refreshed = res_refreshed.scalar_one()
 
-    latest_evt = app_refreshed.events[0] if app_refreshed.events else event
+    sorted_events = sorted(
+        app_refreshed.events or [],
+        key=lambda e: (e.email_received_at or e.created_at),
+        reverse=True,
+    )
+    latest_evt = sorted_events[0] if sorted_events else event
     has_action = any(e.email_action_required for e in app_refreshed.events)
 
     return ApplicationDetailResponse(
@@ -482,6 +501,9 @@ async def transition_application(
         application_key=app_refreshed.application_key,
         created_at=app_refreshed.created_at,
         updated_at=app_refreshed.updated_at,
+        events=[ApplicationEventDetail.model_validate(e) for e in sorted_events],
+        job_posting=JobPostingDetail.model_validate(app_refreshed.job_posting) if app_refreshed.job_posting else None,
+        action_items=[ActionItemDetail.model_validate(a) for a in (app_refreshed.action_items or [])],
     )
 
 

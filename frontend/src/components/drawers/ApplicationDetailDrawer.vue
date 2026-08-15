@@ -19,12 +19,13 @@ import {
   Trash2,
   Send,
   Loader2,
+  SlidersHorizontal,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
 
-const activeTab = ref('timeline') // 'timeline' | 'job_spec' | 'actions' | 'embedding'
+const activeTab = ref('timeline') // 'timeline' | 'job_spec' | 'actions'
 const showDeleteConfirm = ref(false)
 const isDeleting = ref(false)
 
@@ -77,11 +78,70 @@ watch(
 const latestEvent = computed(() => {
   const events = appStore.selectedApplication?.events
   if (!events || events.length === 0) return null
-  return events[events.length - 1]
+  return events[0]
 })
 
 function close() {
   uiStore.closeDetail()
+}
+
+function getAppSubPhaseLabel(app) {
+  if (!app) return ''
+  const status = app.status || 'APPLIED'
+  const payload = app.latest_event?.raw_payload || app.events?.[0]?.raw_payload || {}
+
+  if (status === 'TECHNICAL_INTERVIEW') {
+    return payload.interview_stage || 'Technical Round 1'
+  }
+  if (status === 'OFFER') {
+    const sal = payload.offered_salary || app.job_posting?.salary_max || app.job_posting?.salary_min
+    const curr = payload.currency || app.job_posting?.currency || 'USD'
+    return sal ? `$${Number(sal).toLocaleString()} ${curr}` : 'Offer Package'
+  }
+  if (status === 'REJECTED') {
+    return payload.rejection_reason || 'Rejection Notice'
+  }
+  if (status === 'ASSESSMENT') return 'AI Assessment'
+  return 'Applied'
+}
+
+function getInterviewDate(app) {
+  if (!app) return null
+  const payload = app.latest_event?.raw_payload || app.events?.[0]?.raw_payload || {}
+  const dateStr = payload.scheduled_at
+  if (!dateStr) return null
+  try {
+    const d = new Date(dateStr)
+    return d.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+  } catch {
+    return dateStr
+  }
+}
+
+function openEditModal() {
+  const app = appStore.selectedApplication
+  if (!app) return
+  transitionTargetStatus.value = app.status || 'APPLIED'
+  const today = new Date().toISOString().substring(0, 10)
+  const existingPayload = app.latest_event?.raw_payload || app.events?.[0]?.raw_payload || {}
+
+  transitionForm.value = {
+    interview_stage: existingPayload.interview_stage || 'Technical Round 1',
+    scheduled_at: existingPayload.scheduled_at ? existingPayload.scheduled_at.substring(0, 16) : '',
+    offered_salary: existingPayload.offered_salary || app.job_posting?.salary_max || app.job_posting?.salary_min || null,
+    currency: existingPayload.currency || app.job_posting?.currency || 'USD',
+    offer_received_date: existingPayload.offer_received_date || today,
+    decision_deadline: existingPayload.decision_deadline || '',
+    rejection_date: existingPayload.rejection_date || today,
+    rejection_reason: existingPayload.rejection_reason || 'Resume / Initial Screen',
+    notes: '',
+  }
+  showTransitionModal.value = true
 }
 
 function handleStatusSelect(e) {
@@ -224,20 +284,43 @@ function formatDate(isoStr) {
 
           <!-- Metadata & Status Bar -->
           <div class="status-bar">
-            <div class="status-control">
-              <label class="status-label">Status</label>
-              <select
-                :value="appStore.selectedApplication.status"
-                class="status-select"
-                :class="`status-${appStore.selectedApplication.status?.toLowerCase()}`"
-                @change="handleStatusSelect"
+            <div class="status-control-group">
+              <div class="status-control">
+                <label class="status-label">Status</label>
+                <select
+                  :value="appStore.selectedApplication.status"
+                  class="status-select"
+                  :class="`status-${appStore.selectedApplication.status?.toLowerCase()}`"
+                  @change="handleStatusSelect"
+                >
+                  <option value="ASSESSMENT">AI Assessment</option>
+                  <option value="APPLIED">Applied</option>
+                  <option value="TECHNICAL_INTERVIEW">Interview</option>
+                  <option value="OFFER">Offer</option>
+                  <option value="REJECTED">Rejected</option>
+                </select>
+              </div>
+
+              <!-- Interactive Sub-Status Pill with Edit Trigger -->
+              <button
+                class="phase-detail-btn"
+                :class="`phase-${(appStore.selectedApplication.status || 'applied').toLowerCase()}`"
+                @click="openEditModal"
+                title="Edit phase details, scheduled dates & compensation"
               >
-                <option value="ASSESSMENT">AI Assessment</option>
-                <option value="APPLIED">Applied</option>
-                <option value="TECHNICAL_INTERVIEW">Interview</option>
-                <option value="OFFER">Offer</option>
-                <option value="REJECTED">Rejected</option>
-              </select>
+                <span class="phase-detail-text">{{ getAppSubPhaseLabel(appStore.selectedApplication) }}</span>
+                <SlidersHorizontal :size="12" class="phase-icon" />
+              </button>
+
+              <!-- Interview Scheduled Date Tag -->
+              <div
+                v-if="getInterviewDate(appStore.selectedApplication)"
+                class="interview-date-tag"
+                title="Scheduled Interview Date & Time"
+              >
+                <Calendar :size="12" />
+                <span>{{ getInterviewDate(appStore.selectedApplication) }}</span>
+              </div>
             </div>
 
             <div class="meta-item">
@@ -305,22 +388,13 @@ function formatDate(isoStr) {
               @click="activeTab = 'actions'"
             >
               <CheckSquare :size="15" />
-              <span>Action Items</span>
-            </button>
-
-            <button
-              class="tab-item"
-              :class="{ active: activeTab === 'embedding' }"
-              @click="activeTab = 'embedding'"
-            >
-              <Sparkles :size="15" />
-              <span>AI Snapshot</span>
+              <span>Action Items ({{ appStore.selectedApplication.action_items?.length || 0 }})</span>
             </button>
           </div>
 
           <!-- Tab Panels -->
           <div class="drawer-body">
-            <!-- 1. TIMELINE STREAM -->
+            <!-- 1. TIMELINE STREAM (Newest First) -->
             <div v-if="activeTab === 'timeline'" class="timeline-stream">
               <div
                 v-for="(event, idx) in appStore.selectedApplication.events || []"
@@ -330,9 +404,14 @@ function formatDate(isoStr) {
                 <div class="timeline-bullet"></div>
                 <div class="timeline-card">
                   <div class="event-header">
-                    <span class="badge" :class="`badge-${(event.email_status_after_event || 'applied').toLowerCase()}`">
-                      {{ event.email_event_type }}
-                    </span>
+                    <div class="event-type-group">
+                      <span class="badge" :class="`badge-${(event.email_status_after_event || 'applied').toLowerCase()}`">
+                        {{ event.email_event_type }}
+                      </span>
+                      <span v-if="event.email_sender_name || event.email_sender" class="event-sender">
+                        {{ event.email_sender_name || event.email_sender }}
+                      </span>
+                    </div>
                     <span class="event-date">{{ formatDate(event.email_received_at || event.created_at) }}</span>
                   </div>
 
@@ -435,20 +514,6 @@ function formatDate(isoStr) {
                   <Calendar :size="13" />
                   <span>Due: {{ formatDate(action.due_date) }}</span>
                 </div>
-              </div>
-            </div>
-
-            <!-- 4. AI SNAPSHOT / EMBEDDING -->
-            <div v-else-if="activeTab === 'embedding'" class="ai-snapshot-panel">
-              <div class="snapshot-header">
-                <Sparkles :size="16" class="text-primary" />
-                <span class="snapshot-title">Synthesized Narrative Snapshot</span>
-              </div>
-              <p class="snapshot-description">
-                This narrative snapshot is embedded as a 768-dimension vector in pgvector for semantic vector search.
-              </p>
-              <div class="snapshot-content">
-                {{ appStore.selectedApplication.embedding_record?.content || 'No vector embedding narrative generated yet.' }}
               </div>
             </div>
           </div>
@@ -700,11 +765,19 @@ function formatDate(isoStr) {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 16px;
+  justify-content: space-between;
+  gap: 12px;
   padding: 12px 24px;
   background-color: var(--bg-sidebar);
   border-bottom: 1px solid var(--border-color);
   font-size: 13px;
+}
+
+.status-control-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .status-control {
@@ -724,12 +797,79 @@ function formatDate(isoStr) {
   font-size: 12px;
   font-weight: 600;
   border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  cursor: pointer;
 }
 
-.status-select.status-applied { color: var(--status-applied-text); }
-.status-select.status-interview, .status-select.status-technical_interview { color: var(--status-interview-text); }
-.status-select.status-offer { color: var(--status-offer-text); }
-.status-select.status-rejected { color: var(--status-rejected-text); }
+.status-select.status-applied { color: var(--status-applied-text); border-color: var(--status-applied-border); background-color: var(--status-applied-bg); }
+.status-select.status-interview, .status-select.status-technical_interview { color: var(--status-interview-text); border-color: var(--status-interview-border); background-color: var(--status-interview-bg); }
+.status-select.status-offer { color: var(--status-offer-text); border-color: var(--status-offer-border); background-color: var(--status-offer-bg); }
+.status-select.status-rejected { color: var(--status-rejected-text); border-color: var(--status-rejected-border); background-color: var(--status-rejected-bg); }
+.status-select.status-assessment { color: var(--status-assessment-text); border-color: var(--status-assessment-border); background-color: var(--status-assessment-bg); }
+
+.phase-detail-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  max-width: 220px;
+}
+
+.phase-detail-btn:hover {
+  border-color: var(--primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.phase-detail-btn.phase-applied { color: var(--status-applied-text); border-color: var(--status-applied-border); background-color: var(--status-applied-bg); }
+.phase-detail-btn.phase-interview, .phase-detail-btn.phase-technical_interview { color: var(--status-interview-text); border-color: var(--status-interview-border); background-color: var(--status-interview-bg); }
+.phase-detail-btn.phase-offer { color: var(--status-offer-text); border-color: var(--status-offer-border); background-color: var(--status-offer-bg); }
+.phase-detail-btn.phase-rejected { color: var(--status-rejected-text); border-color: var(--status-rejected-border); background-color: var(--status-rejected-bg); }
+.phase-detail-btn.phase-assessment { color: var(--status-assessment-text); border-color: var(--status-assessment-border); background-color: var(--status-assessment-bg); }
+
+.phase-detail-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.phase-icon {
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.interview-date-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  background-color: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  font-family: var(--font-mono);
+}
+
+.event-type-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.event-sender {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
 
 .meta-item {
   display: flex;

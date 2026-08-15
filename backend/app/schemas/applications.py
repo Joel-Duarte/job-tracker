@@ -39,32 +39,30 @@ class ApplicationListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class ApplicationListResponse(BaseModel):
-    items: List[ApplicationListItem]
-    total: int
-    limit: int
-    offset: int
+class JobPostingDetail(BaseModel):
+    id: int
+    title: Optional[str] = None
+    description_markdown: Optional[str] = None
+    location: Optional[str] = None
+    work_model: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    currency: Optional[str] = "USD"
+    required_skills: Optional[List[str]] = []
+    source_url: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
-class ApplicationDetailResponse(ApplicationListItem):
-    external_job_id: Optional[str] = None
-    job_url: Optional[str] = None
-    application_key: Optional[str] = None
+class ActionItemDetail(BaseModel):
+    id: int
+    title: str
+    status: str
+    urgency: Optional[str] = "MEDIUM"
+    due_date: Optional[datetime] = None
     created_at: datetime
-    updated_at: datetime
 
-
-# --- Query Filter Schema ---
-
-class ApplicationFilterParams(BaseModel):
-    q: Optional[str] = Field(None, description="Search term for position or company name")
-    status: Optional[str] = Field(None, description="Filter by application status (e.g., APPLIED, INTERVIEW)")
-    action_required: Optional[bool] = Field(None, description="Filter applications with pending action items")
-    company_id: Optional[int] = Field(None, description="Filter by specific company ID")
-    sort_by: str = Field("last_activity_at", description="Sort field: last_activity_at, application_date, status")
-    order: str = Field("desc", description="Sort order: asc or desc")
-    limit: int = Field(20, ge=1, le=100, description="Pagination limit")
-    offset: int = Field(0, ge=0, description="Pagination offset")
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ApplicationEventDetail(BaseModel):
@@ -81,9 +79,41 @@ class ApplicationEventDetail(BaseModel):
     email_action_required: bool = False
     email_action: Optional[str] = None
     email_raw_body: Optional[str] = None
+    raw_payload: Optional[dict] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ApplicationListResponse(BaseModel):
+    items: List[ApplicationListItem]
+    total: int
+    limit: int
+    offset: int
+
+
+class ApplicationDetailResponse(ApplicationListItem):
+    external_job_id: Optional[str] = None
+    job_url: Optional[str] = None
+    application_key: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    events: List[ApplicationEventDetail] = []
+    job_posting: Optional[JobPostingDetail] = None
+    action_items: List[ActionItemDetail] = []
+
+
+# --- Query Filter Schema ---
+
+class ApplicationFilterParams(BaseModel):
+    q: Optional[str] = Field(None, description="Search term for position or company name")
+    status: Optional[str] = Field(None, description="Filter by application status (e.g., APPLIED, INTERVIEW)")
+    action_required: Optional[bool] = Field(None, description="Filter applications with pending action items")
+    company_id: Optional[int] = Field(None, description="Filter by specific company ID")
+    sort_by: str = Field("last_activity_at", description="Sort field: last_activity_at, application_date, status")
+    order: str = Field("desc", description="Sort order: asc or desc")
+    limit: int = Field(20, ge=1, le=100, description="Pagination limit")
+    offset: int = Field(0, ge=0, description="Pagination offset")
 
 
 class AllowedApplicationStatus(str, Enum):
