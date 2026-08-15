@@ -11,6 +11,11 @@ DEFAULT_PROMPTS = {
         "- If the provided text does not contain an actual job description or job posting, you must set the 'job_found' key to false and leave the details as 'Not Specified'.\n\n"
         "Raw Webpage / Job Data:\n{raw_webpage_data}"
     ),
+    "email_extraction": (
+        "Extract key information from the following email body regarding a job application. "
+        "Provide accurate values for all fields according to the requested output structure.\n\n"
+        "Email Content:\n{email_content}"
+    ),
     "extraction": (
         "Extract key information from the following email body regarding a job application. "
         "Provide accurate values for all fields according to the requested output structure.\n\n"
@@ -64,4 +69,11 @@ async def get_prompt_template(session: AsyncSession, prompt_name: str) -> str:
     if template:
         return template
 
-    return DEFAULT_PROMPTS.get(prompt_name, "")
+    # Fallback to defaults
+    if prompt_name in DEFAULT_PROMPTS:
+        return DEFAULT_PROMPTS[prompt_name]
+
+    if prompt_name == "email_extraction":
+        return DEFAULT_PROMPTS.get("extraction", "")
+
+    return ""

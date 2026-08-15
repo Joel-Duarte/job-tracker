@@ -54,7 +54,10 @@ async def extract_job_spec(
     ])
 
     chain = prompt | structured_llm
-    result = await chain.ainvoke({"raw_webpage_data": raw_webpage_data})
+    result = await chain.ainvoke({
+        "raw_webpage_data": raw_webpage_data,
+        "email_content": raw_webpage_data,
+    })
 
     if not isinstance(result, ExtractedJobSpec):
         result = ExtractedJobSpec.model_validate(result)
@@ -65,7 +68,7 @@ async def extract_email_info(db: AsyncSession, email_content: str) -> EmailExtra
     """Extracts structured job application metadata from email body using LangChain EXTRACTION model."""
     llm = await get_task_chat_model(db, task_type="EXTRACTION", temperature=0.2)
     structured_llm = llm.with_structured_output(EmailExtractionResult)
-    template_str = await get_prompt_template(db, "extraction")
+    template_str = await get_prompt_template(db, "email_extraction")
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You parse job application emails into structured data."),

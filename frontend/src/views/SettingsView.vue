@@ -119,9 +119,19 @@ const TASKS = [
 ]
 
 const PROMPT_METAS = {
-  extraction: {
+  jd_extraction: {
+    title: 'Job Description Extraction Prompt',
+    desc: 'Extracts structured job details, responsibilities, requirements, and ATS keywords from raw scraped webpages or pasted text.',
+    placeholders: ['{raw_webpage_data}'],
+  },
+  email_extraction: {
     title: 'Email Extraction Prompt',
-    desc: 'Controls structured metadata parsing from raw email bodies.',
+    desc: 'Controls structured metadata parsing from raw job application and recruiter emails.',
+    placeholders: ['{email_content}'],
+  },
+  extraction: {
+    title: 'Legacy Extraction Prompt',
+    desc: 'Fallback metadata parsing prompt.',
     placeholders: ['{email_content}'],
   },
   assessment: {
