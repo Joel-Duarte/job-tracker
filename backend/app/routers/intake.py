@@ -49,9 +49,73 @@ async def get_extension_config(request: Request):
         base_url = f"{forwarded_proto}://{forwarded_host}"
 
     return {
+        "url_endpoint": f"{base_url}/api/v1/intake/url",
+        "jd_endpoint": f"{base_url}/api/v1/intake/jd",
         "extension_ingest_url": f"{base_url}/api/v1/intake/assess-job",
         "api_base_url": f"{base_url}/api/v1",
     }
+
+
+class ExtensionUrlDirectPayload(BaseModel):
+    type: Optional[str] = "URL_DIRECT_SEND"
+    url: str
+    title: Optional[str] = None
+    timestamp: Optional[str] = None
+
+
+@router.post("/url", response_model=JobAssessmentResult, status_code=status.HTTP_200_OK)
+async def intake_extension_url(
+    payload: ExtensionUrlDirectPayload,
+    db: AsyncSession = Depends(get_db),
+) -> JobAssessmentResult:
+    """Receives URL directly from browser extension send-url button and triggers AI assessment."""
+    assess_req = AssessJobRequest(url=payload.url, text=payload.title)
+    return await assess_job_lead(assess_req, db=db)
+
+
+@router.post("/jd", response_model=JobAssessmentResult, status_code=status.HTTP_200_OK)
+async def intake_extension_jd_elements(
+    payload: dict[str, Any],
+    db: AsyncSession = Depends(get_db),
+) -> JobAssessmentResult:
+    """
+    Receives selected DOM elements / group cards from browser extension,
+    extracts all text/html recursively, and triggers AI assessment.
+    """
+    from app.routers.extension import _extract_text_from_html
+
+    def _extract_all_text(data: Any) -> list[str]:
+        snippets = []
+        if isinstance(data, dict):
+            if data.get("title") and data.get("title") != "New Group":
+                snippets.append(str(data["title"]))
+            if data.get("text"):
+                snippets.append(str(data["text"]))
+            if data.get("html"):
+                snippets.append(_extract_text_from_html(str(data["html"])))
+            if data.get("children") and isinstance(data["children"], list):
+                for child in data["children"]:
+                    snippets.extend(_extract_all_text(child))
+            if data.get("payload"):
+                snippets.extend(_extract_all_text(data["payload"]))
+        elif isinstance(data, list):
+            for item in data:
+                snippets.extend(_extract_all_text(item))
+        elif isinstance(data, str):
+            snippets.append(data)
+        return snippets
+
+    extracted_lines = _extract_all_text(payload)
+    combined_text = "\n".join([line.strip() for line in extracted_lines if line.strip()])
+
+    if not combined_text:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No text or HTML content found in the extension selection payload.",
+        )
+
+    assess_req = AssessJobRequest(text=combined_text)
+    return await assess_job_lead(assess_req, db=db)
 
 
 class SyncFolderRequest(BaseModel):

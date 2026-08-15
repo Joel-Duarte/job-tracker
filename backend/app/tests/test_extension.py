@@ -8,6 +8,7 @@ from app.main import app
 from app.core.database import get_db
 from app.models.applications import ApplicationEventModel, ApplicationModel, CompanyModel
 from app.schemas.intake import ExtractedEmailInfo
+from app.schemas.llm import JobAssessmentResult
 
 
 @pytest.mark.asyncio
@@ -96,3 +97,58 @@ async def test_extension_clip_url_pipeline(db_session: AsyncSession):
         assert data["application_id"] is not None
 
     app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_extension_intake_url_and_jd_routes():
+    mock_assessment = JobAssessmentResult(
+        company="Datadog",
+        position="Senior Systems Engineer",
+        fit_score=88,
+        programmatic_match_score=80,
+        matching_skills=["Python", "Go", "Docker"],
+        missing_skills=[],
+        pros=["Great tech stack"],
+        cons=[],
+        salary_min=170000,
+        salary_max=220000,
+        currency="USD",
+        location="Remote",
+        work_model="Remote",
+        recommendation="APPLY_STRONGLY",
+        summary="Strong profile match for distributed systems.",
+    )
+
+    with patch("app.routers.intake.assess_job_posting", new_callable=AsyncMock) as mock_assess:
+        mock_assess.return_value = mock_assessment
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            # 1. Test POST /api/v1/intake/url (from extension send-url-btn)
+            url_res = await ac.post(
+                "/api/v1/intake/url",
+                json={
+                    "type": "URL_DIRECT_SEND",
+                    "url": "https://boards.greenhouse.io/datadog/jobs/123",
+                    "title": "Datadog - Senior Systems Engineer",
+                },
+            )
+            assert url_res.status_code == 200
+            assert url_res.json()["company"] == "Datadog"
+            assert url_res.json()["fit_score"] == 88
+
+            # 2. Test POST /api/v1/intake/jd (from extension elements selection send-btn)
+            jd_res = await ac.post(
+                "/api/v1/intake/jd",
+                json={
+                    "id": "card-1",
+                    "type": "group",
+                    "title": "Job Requirements",
+                    "children": [
+                        {"id": "elem-1", "type": "card", "text": "Datadog is seeking Senior Systems Engineers with Python and Go experience."}
+                    ],
+                },
+            )
+            assert jd_res.status_code == 200
+            assert jd_res.json()["company"] == "Datadog"
+            assert jd_res.json()["recommendation"] == "APPLY_STRONGLY"
