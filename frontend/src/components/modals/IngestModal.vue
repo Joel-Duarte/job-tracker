@@ -41,12 +41,20 @@ async function handlePasteSubmit() {
   isSubmitting.value = true
   ingestResult.value = null
 
+  const textToSubmit = pasteText.value
+  const subjectToSubmit = pasteSubject.value
+
   try {
     const res = await IntakeAPI.paste({
-      text: pasteText.value,
-      subject: pasteSubject.value || null,
+      text: textToSubmit,
+      subject: subjectToSubmit || null,
     })
     ingestResult.value = res.data
+
+    // Clear fields upon successful send
+    pasteText.value = ''
+    pasteSubject.value = ''
+
     uiStore.showToast('Intake processed successfully', 'success')
     appStore.fetchApplications()
   } catch (err) {
@@ -83,6 +91,10 @@ async function handleUploadSubmit() {
       isBatch: true,
       items: res.data,
     }
+
+    // Clear file selection upon send
+    selectedFiles.value = []
+
     uiStore.showToast(`Uploaded ${res.data.length} files`, 'success')
     appStore.fetchApplications()
   } catch (err) {
@@ -91,6 +103,7 @@ async function handleUploadSubmit() {
     isSubmitting.value = false
   }
 }
+
 </script>
 
 <template>

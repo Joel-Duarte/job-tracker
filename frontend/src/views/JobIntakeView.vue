@@ -33,6 +33,8 @@ const appStore = useApplicationsStore()
 
 const jobUrl = ref('')
 const jobText = ref('')
+const submittedUrl = ref('')
+const submittedText = ref('')
 const isAnalyzing = ref(false)
 const isSaving = ref(false)
 const assessmentResult = ref(null)
@@ -81,11 +83,21 @@ function copyToClipboard(val, type) {
   uiStore.showToast('Endpoint URL copied to clipboard!', 'info')
 }
 
+function clearForm() {
+  jobUrl.value = ''
+  jobText.value = ''
+  scrapeDegraded.value = false
+  scrapeErrorMessage.value = ''
+}
+
 async function runAssessment() {
   if (!jobUrl.value.trim() && !jobText.value.trim()) {
     uiStore.showToast('Please provide a job posting URL or paste the job description text.', 'error')
     return
   }
+
+  submittedUrl.value = jobUrl.value.trim()
+  submittedText.value = jobText.value.trim()
 
   isAnalyzing.value = true
   assessmentResult.value = null
@@ -96,8 +108,8 @@ async function runAssessment() {
   const taskId = `intake-${Date.now()}`
   uiStore.addIntakeTask({
     id: taskId,
-    title: jobUrl.value.trim() ? `Lead: ${jobUrl.value.trim().slice(0, 45)}...` : 'Pasted Job Lead',
-    url: jobUrl.value.trim() || null,
+    title: submittedUrl.value ? `Lead: ${submittedUrl.value.slice(0, 45)}...` : 'Pasted Job Lead',
+    url: submittedUrl.value || null,
     stage: 'SCRAPING',
     status: 'running',
     message: 'Scraping and analyzing job specifications...',
@@ -126,11 +138,16 @@ async function runAssessment() {
 
   try {
     const res = await IntakeAPI.assessJob({
-      url: jobUrl.value.trim() || null,
-      text: jobText.value.trim() || null,
+      url: submittedUrl.value || null,
+      text: submittedText.value || null,
     })
     assessmentResult.value = res.data
     currentStageIndex.value = 4
+
+    // Clear input fields immediately after successful transmission/assessment
+    jobUrl.value = ''
+    jobText.value = ''
+
     uiStore.updateIntakeTask(taskId, {
       stage: 'COMPLETE',
       status: 'success',
@@ -187,8 +204,8 @@ async function confirmAndProcess(targetStatus = 'ASSESSMENT') {
       company: assessmentResult.value.company,
       position: assessmentResult.value.position,
       status: targetStatus,
-      job_url: jobUrl.value.trim() || null,
-      description_markdown: jobText.value.trim() || assessmentResult.value.summary,
+      job_url: submittedUrl.value || null,
+      description_markdown: submittedText.value || assessmentResult.value.summary,
       salary_min: assessmentResult.value.salary_min,
       salary_max: assessmentResult.value.salary_max,
       currency: assessmentResult.value.currency,
@@ -200,7 +217,13 @@ async function confirmAndProcess(targetStatus = 'ASSESSMENT') {
       ],
     })
 
-    uiStore.showToast(`Saved '${assessmentResult.value.company}' to ${targetStatus}!`, 'success')
+    jobUrl.value = ''
+    jobText.value = ''
+    submittedUrl.value = ''
+    submittedText.value = ''
+    assessmentResult.value = null
+
+    uiStore.showToast(`Saved '${res.data.company || 'Job'}' to ${targetStatus}!`, 'success')
     appStore.fetchApplications()
     router.push('/')
   } catch (err) {
@@ -209,6 +232,7 @@ async function confirmAndProcess(targetStatus = 'ASSESSMENT') {
     isSaving.value = false
   }
 }
+
 
 onMounted(() => {
   fetchExtensionConfig()
@@ -333,6 +357,15 @@ onMounted(() => {
 
       <div class="intake-actions">
         <button
+          v-if="jobUrl || jobText"
+          class="btn btn-secondary"
+          :disabled="isAnalyzing"
+          @click="clearForm"
+        >
+          <X :size="15" />
+          <span>Clear</span>
+        </button>
+        <button
           class="btn btn-primary btn-assess"
           :disabled="isAnalyzing || (!jobUrl.trim() && !jobText.trim())"
           @click="runAssessment"
@@ -342,6 +375,7 @@ onMounted(() => {
           <span>{{ isAnalyzing ? 'Evaluating Pipeline...' : 'Evaluate Job Fit' }}</span>
         </button>
       </div>
+
     </div>
 
     <!-- REAL-TIME 4-STAGE PIPELINE VISUALIZER -->
