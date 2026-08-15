@@ -176,7 +176,6 @@ async def _execute_evaluation_steps(task: IntakeEvaluationTaskModel, db: AsyncSe
             candidate_skills=candidate_skills,
             candidate_cv=active_cv.anonymized_text or active_cv.raw_text if active_cv else None,
             programmatic_baseline=match_info.get("programmatic_score", 0),
-            candidate_domain_breakdown=active_domains_str,
         )
 
         # Persist to database (or route to staging if duplicate)
