@@ -96,6 +96,7 @@ def _to_provider_read(p: AIProviderModel) -> AIProviderRead:
         provider_type=p.provider_type,
         base_url=p.base_url,
         api_key_masked=mask_secret(p.api_key),
+        max_concurrency=getattr(p, "max_concurrency", 1) or 1,
         is_active=p.is_active,
         created_at=p.created_at,
         updated_at=p.updated_at,
@@ -143,6 +144,7 @@ async def create_ai_provider(
         provider_type=payload.provider_type.strip().lower(),
         base_url=payload.base_url.strip() if payload.base_url else None,
         api_key=payload.api_key.strip() if payload.api_key else None,
+        max_concurrency=payload.max_concurrency if payload.max_concurrency is not None else 1,
         is_active=payload.is_active,
     )
     db.add(provider)
