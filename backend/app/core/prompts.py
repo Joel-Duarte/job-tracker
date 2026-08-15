@@ -55,7 +55,7 @@ DEFAULT_PROMPTS = {
         "- Extract all canonical technical skills, frameworks, languages, databases, tools, and methodologies.\n"
         "- Extract industry domain expertise tags.\n"
         "- Calculate total cumulative years of professional experience.\n"
-        "- Extract granular domain_breakdown with realistic estimated years per specialization (e.g. [{'domain': 'Backend Systems', 'years': 5.0, 'is_active': true}, {'domain': 'Fintech', 'years': 3.0, 'is_active': true}]).\n"
+        "- Extract granular domain_breakdown with realistic estimated years per specialization (e.g. Backend Systems with 5.0 years, Fintech with 3.0 years).\n"
         "- Extract 4-6 standout core competencies.\n"
         "- Provide a concise executive candidate summary.\n\n"
         "Resume Content:\n{resume_text}"
@@ -69,7 +69,7 @@ DEFAULT_PROMPTS = {
 
 
 async def seed_default_prompts(session: AsyncSession) -> None:
-    """Seeds missing prompts into DB upon boot without overwriting existing user edits."""
+    """Seeds missing prompts into DB upon boot without overwriting existing user edits, auto-fixing malformed prompts."""
     for prompt_name, default_template in DEFAULT_PROMPTS.items():
         stmt = select(PromptModel).where(PromptModel.name == prompt_name)
         result = await session.execute(stmt)
@@ -77,6 +77,9 @@ async def seed_default_prompts(session: AsyncSession) -> None:
 
         if not existing:
             session.add(PromptModel(name=prompt_name, template=default_template))
+        elif prompt_name == "cv_anonymization" and ("{'domain'}" in (existing.template or "") or "{'domain" in (existing.template or "")):
+            # Auto-heal legacy prompt with unescaped braces
+            existing.template = default_template
 
     await session.commit()
 
@@ -88,6 +91,8 @@ async def get_prompt_template(session: AsyncSession, prompt_name: str) -> str:
     template = result.scalar_one_or_none()
 
     if template:
+        if prompt_name == "cv_anonymization" and ("{'domain'}" in template or "{'domain" in template):
+            return DEFAULT_PROMPTS["cv_anonymization"]
         return template
 
     # Fallback to defaults
