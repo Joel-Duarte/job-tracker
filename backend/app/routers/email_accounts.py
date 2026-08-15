@@ -1,5 +1,7 @@
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+import logging
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +13,85 @@ from app.schemas.email_accounts import (
     EmailAccountUpdate,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/email_accounts", tags=["Email Accounts"])
+
+
+class OAuthUrlResponse(BaseModel):
+    provider: str
+    auth_url: Optional[str] = None
+    client_id_configured: bool
+    redirect_uri: str
+    message: str
+
+
+@router.get("/oauth/authorize-url", response_model=OAuthUrlResponse)
+async def get_oauth_authorize_url(
+    provider: str = Query(..., description="Provider: 'google' or 'microsoft'"),
+    client_id: Optional[str] = Query(None, description="Custom OAuth Client ID"),
+    redirect_uri: Optional[str] = Query("http://localhost:8000/api/v1/email_accounts/oauth/callback", description="Redirect URI"),
+):
+    """Returns OAuth2 authorization URL for Google Gmail or Microsoft 365."""
+    import os
+    prov = provider.lower().strip()
+    
+    if prov == "google":
+        resolved_client_id = client_id or os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+        if resolved_client_id:
+            scopes = "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email"
+            auth_url = (
+                f"https://accounts.google.com/o/oauth2/v2/auth?"
+                f"client_id={resolved_client_id}&"
+                f"redirect_uri={redirect_uri}&"
+                f"response_type=code&"
+                f"scope={scopes}&"
+                f"access_type=offline&"
+                f"prompt=consent"
+            )
+            return OAuthUrlResponse(
+                provider="google",
+                auth_url=auth_url,
+                client_id_configured=True,
+                redirect_uri=redirect_uri,
+                message="Google OAuth authorization URL generated.",
+            )
+        return OAuthUrlResponse(
+            provider="google",
+            auth_url=None,
+            client_id_configured=False,
+            redirect_uri=redirect_uri,
+            message="No Google Client ID configured. You can use App Password for instant connection or enter your Client ID.",
+        )
+
+    elif prov in ["microsoft", "outlook"]:
+        resolved_client_id = client_id or os.getenv("MS_OAUTH_CLIENT_ID")
+        if resolved_client_id:
+            scopes = "Mail.Read offline_access User.Read"
+            auth_url = (
+                f"https://login.microsoftonline.com/common/oauth2/v2.0/authorize?"
+                f"client_id={resolved_client_id}&"
+                f"response_type=code&"
+                f"redirect_uri={redirect_uri}&"
+                f"response_mode=query&"
+                f"scope={scopes}&"
+                f"prompt=consent"
+            )
+            return OAuthUrlResponse(
+                provider="microsoft",
+                auth_url=auth_url,
+                client_id_configured=True,
+                redirect_uri=redirect_uri,
+                message="Microsoft Graph OAuth authorization URL generated.",
+            )
+        return OAuthUrlResponse(
+            provider="microsoft",
+            auth_url=None,
+            client_id_configured=False,
+            redirect_uri=redirect_uri,
+            message="No Microsoft Client ID configured. You can use App Password or IMAP for instant connection.",
+        )
+
+    raise HTTPException(status_code=400, detail=f"Unsupported OAuth provider: {provider}")
 
 
 @router.get("", response_model=List[EmailAccountResponse])
@@ -44,11 +124,20 @@ async def create_account(
     db: AsyncSession = Depends(get_db),
 ):
     """Add a new email account configuration."""
-    account = EmailAccountModel(**payload.model_dump())
-    db.add(account)
-    await db.commit()
-    await db.refresh(account)
-    return account
+    try:
+        data = payload.model_dump()
+        account = EmailAccountModel(**data)
+        db.add(account)
+        await db.commit()
+        await db.refresh(account)
+        return account
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error creating email account: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to create email account: {str(e)}",
+        )
 
 
 @router.patch("/{account_id}", response_model=EmailAccountResponse)
@@ -69,13 +158,21 @@ async def update_account(
             detail=f"Email account with ID {account_id} not found.",
         )
 
-    update_data = payload.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(account, field, value)
+    try:
+        update_data = payload.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(account, field, value)
 
-    await db.commit()
-    await db.refresh(account)
-    return account
+        await db.commit()
+        await db.refresh(account)
+        return account
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error updating email account {account_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to update email account: {str(e)}",
+        )
 
 
 @router.delete("/{account_id}", status_code=status.HTTP_204_NO_CONTENT)

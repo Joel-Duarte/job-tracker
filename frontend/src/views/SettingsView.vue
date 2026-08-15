@@ -416,8 +416,8 @@ const isDeletingAccount = ref(false)
 const emailAccountForm = ref({
   name: '',
   provider_preset: 'gmail', // 'gmail' | 'outlook' | 'custom'
-  auth_type: 'GMAIL_OAUTH', // 'GMAIL_OAUTH' | 'MS_GRAPH_OAUTH' | 'IMAP'
-  auth_method: 'oauth', // 'oauth' | 'app_password'
+  auth_type: 'IMAP', // 'GMAIL_OAUTH' | 'MS_GRAPH_OAUTH' | 'IMAP'
+  auth_method: 'app_password', // 'app_password' | 'oauth'
   username: '',
   app_password: '',
   imap_host: 'imap.gmail.com',
@@ -426,7 +426,8 @@ const emailAccountForm = ref({
   client_id: '',
   client_secret: '',
   sync_interval: '1h',
-  sync_schedule_time: '09:00',
+  sync_schedule_hour: '09',
+  sync_schedule_min: '00',
   sync_schedule_day: 'MON',
   is_active: true,
 })
@@ -471,13 +472,36 @@ function onAuthMethodChange(method) {
   }
 }
 
+async function startOAuthLogin(providerName) {
+  try {
+    const prov = providerName || emailAccountForm.value.provider_preset
+    const res = await EmailAccountsAPI.getOAuthUrl({
+      provider: prov === 'outlook' ? 'microsoft' : 'google',
+      client_id: emailAccountForm.value.client_id || undefined,
+    })
+    if (res.data.auth_url) {
+      window.open(res.data.auth_url, '_blank', 'width=600,height=700')
+    } else {
+      uiStore.showToast(res.data.message || 'No OAuth credentials configured.', 'info')
+    }
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to initiate OAuth', 'error')
+  }
+}
+
+function applySchedulePreset(timeStr) {
+  const [h, m] = timeStr.split(':')
+  emailAccountForm.value.sync_schedule_hour = h
+  emailAccountForm.value.sync_schedule_min = m
+}
+
 function openAddEmailAccountModal() {
   editingAccount.value = null
   emailAccountForm.value = {
     name: 'Gmail Inbox',
     provider_preset: 'gmail',
-    auth_type: 'GMAIL_OAUTH',
-    auth_method: 'oauth',
+    auth_type: 'IMAP',
+    auth_method: 'app_password',
     username: '',
     app_password: '',
     imap_host: 'imap.gmail.com',
@@ -486,7 +510,8 @@ function openAddEmailAccountModal() {
     client_id: '',
     client_secret: '',
     sync_interval: '1h',
-    sync_schedule_time: '09:00',
+    sync_schedule_hour: '09',
+    sync_schedule_min: '00',
     sync_schedule_day: 'MON',
     is_active: true,
   }
@@ -511,6 +536,8 @@ function openEditEmailAccountModal(acc) {
     method = 'app_password'
   }
 
+  const [rawH, rawM] = (acc.sync_schedule_time || '09:00').split(':')
+
   emailAccountForm.value = {
     name: acc.name,
     provider_preset: preset,
@@ -524,7 +551,8 @@ function openEditEmailAccountModal(acc) {
     client_id: acc.client_id || '',
     client_secret: '',
     sync_interval: acc.sync_interval || '1h',
-    sync_schedule_time: acc.sync_schedule_time || '09:00',
+    sync_schedule_hour: rawH || '09',
+    sync_schedule_min: rawM || '00',
     sync_schedule_day: acc.sync_schedule_day || 'MON',
     is_active: acc.is_active !== false,
   }
@@ -538,16 +566,21 @@ async function saveEmailAccount() {
   }
   isSavingAccount.value = true
   try {
+    const scheduleTime = `${String(emailAccountForm.value.sync_schedule_hour).padStart(2, '0')}:${String(emailAccountForm.value.sync_schedule_min).padStart(2, '0')}`
+    const resolvedAuthType = emailAccountForm.value.auth_method === 'oauth'
+      ? (emailAccountForm.value.provider_preset === 'outlook' ? 'MS_GRAPH_OAUTH' : 'GMAIL_OAUTH')
+      : 'IMAP'
+
     const payload = {
       name: emailAccountForm.value.name.trim() || emailAccountForm.value.username.trim(),
-      auth_type: emailAccountForm.value.auth_type,
+      auth_type: resolvedAuthType,
       username: emailAccountForm.value.username.trim(),
       folder: emailAccountForm.value.folder.trim() || 'INBOX',
       imap_host: emailAccountForm.value.imap_host ? emailAccountForm.value.imap_host.trim() : null,
       imap_port: emailAccountForm.value.imap_port ? Number(emailAccountForm.value.imap_port) : 993,
       is_active: emailAccountForm.value.is_active,
       sync_interval: emailAccountForm.value.sync_interval,
-      sync_schedule_time: emailAccountForm.value.sync_schedule_time,
+      sync_schedule_time: scheduleTime,
       sync_schedule_day: emailAccountForm.value.sync_schedule_day,
     }
 
@@ -571,7 +604,7 @@ async function saveEmailAccount() {
     isEmailAccountModalOpen.value = false
     loadEmailAccounts()
   } catch (err) {
-    uiStore.showToast(err.message || 'Failed to save email account', 'error')
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to save email account', 'error')
   } finally {
     isSavingAccount.value = false
   }
@@ -1255,20 +1288,20 @@ function formatLastSync(dateStr) {
               <button
                 type="button"
                 class="auth-toggle-btn"
+                :class="{ active: emailAccountForm.auth_method === 'app_password' }"
+                @click="onAuthMethodChange('app_password')"
+              >
+                <Key :size="14" />
+                <span>Email & App Password (Fastest)</span>
+              </button>
+              <button
+                type="button"
+                class="auth-toggle-btn"
                 :class="{ active: emailAccountForm.auth_method === 'oauth' }"
                 @click="onAuthMethodChange('oauth')"
               >
                 <Lock :size="14" />
                 <span>1-Click OAuth2 Connect</span>
-              </button>
-              <button
-                type="button"
-                class="auth-toggle-btn"
-                :class="{ active: emailAccountForm.auth_method === 'app_password' }"
-                @click="onAuthMethodChange('app_password')"
-              >
-                <Key :size="14" />
-                <span>App Password / IMAP</span>
               </button>
             </div>
           </div>
@@ -1291,63 +1324,95 @@ function formatLastSync(dateStr) {
               <input
                 v-model="emailAccountForm.username"
                 type="email"
-                placeholder="candidate@example.com"
+                placeholder="candidate@gmail.com"
                 class="form-input font-mono"
                 required
               />
             </div>
           </div>
 
-          <!-- OAuth2 Credentials Fields -->
+          <!-- OAuth2 Mode Card -->
           <div v-if="emailAccountForm.auth_method === 'oauth' && emailAccountForm.provider_preset !== 'custom'" class="oauth-fields-card">
             <div class="oauth-card-header">
               <Lock :size="14" class="text-primary" />
-              <span>OAuth2 Credentials (Optional if preconfigured in environment)</span>
+              <span>1-Click OAuth2 Authorization</span>
             </div>
-            <div class="form-row-2">
-              <div class="input-group">
-                <label class="input-label">Client ID (Optional)</label>
+
+            <p class="text-xs text-secondary mb-3">
+              Click the button below to authorize Job Tracker with your {{ emailAccountForm.provider_preset === 'outlook' ? 'Microsoft 365' : 'Google Workspace / Gmail' }} account.
+            </p>
+
+            <button
+              type="button"
+              class="btn btn-primary btn-oauth-action"
+              @click="startOAuthLogin(emailAccountForm.provider_preset)"
+            >
+              <ExternalLink :size="14" />
+              <span>Launch {{ emailAccountForm.provider_preset === 'outlook' ? 'Microsoft' : 'Google' }} OAuth Login</span>
+            </button>
+
+            <div class="oauth-optional-section mt-3">
+              <span class="text-xs text-muted">Custom OAuth App (Optional if set in .env):</span>
+              <div class="form-row-2 mt-1">
                 <input
                   v-model="emailAccountForm.client_id"
                   type="text"
-                  placeholder="OAuth Client ID"
+                  placeholder="Client ID"
                   class="form-input font-mono text-xs"
                 />
-              </div>
-              <div class="input-group">
-                <label class="input-label">Client Secret (Optional)</label>
                 <input
                   v-model="emailAccountForm.client_secret"
                   type="password"
-                  placeholder="OAuth Client Secret"
+                  placeholder="Client Secret"
                   class="form-input font-mono text-xs"
                 />
               </div>
             </div>
           </div>
 
-          <!-- IMAP Server & App Password Fields -->
+          <!-- App Password / IMAP Mode Card -->
           <div v-else class="imap-fields-card">
-            <div class="form-row-2">
-              <div class="input-group">
-                <label class="input-label">App Password / Password *</label>
-                <input
-                  v-model="emailAccountForm.app_password"
-                  type="password"
-                  placeholder="xxxx-xxxx-xxxx-xxxx"
-                  class="form-input font-mono text-xs"
-                  required
-                />
+            <div class="input-group">
+              <div class="label-with-hint">
+                <label class="input-label">App Password / Mail Password *</label>
+                <a
+                  v-if="emailAccountForm.provider_preset === 'gmail'"
+                  href="https://myaccount.google.com/apppasswords"
+                  target="_blank"
+                  rel="noopener"
+                  class="app-pass-hint-link"
+                >
+                  Create Gmail App Password <ExternalLink :size="11" />
+                </a>
               </div>
+              <input
+                v-model="emailAccountForm.app_password"
+                type="password"
+                placeholder="xxxx-xxxx-xxxx-xxxx"
+                class="form-input font-mono text-xs"
+                required
+              />
+            </div>
 
+            <div class="form-row-2 mt-2">
               <div class="input-group">
-                <label class="input-label">IMAP Host Server *</label>
+                <label class="input-label">IMAP Host Server</label>
                 <input
                   v-model="emailAccountForm.imap_host"
                   type="text"
                   placeholder="imap.gmail.com"
                   class="form-input font-mono text-xs"
                   required
+                />
+              </div>
+
+              <div class="input-group">
+                <label class="input-label">IMAP SSL Port</label>
+                <input
+                  v-model.number="emailAccountForm.imap_port"
+                  type="number"
+                  placeholder="993"
+                  class="form-input font-mono text-xs"
                 />
               </div>
             </div>
@@ -1378,34 +1443,64 @@ function formatLastSync(dateStr) {
                   <option value="15m">Every 15 Minutes</option>
                   <option value="1h">Every 1 Hour (Recommended)</option>
                   <option value="6h">Every 6 Hours</option>
-                  <option value="24h">Daily (At specific time)</option>
-                  <option value="WEEKLY">Weekly (At specific day & time)</option>
+                  <option value="24h">Daily (At specific 24h time)</option>
+                  <option value="WEEKLY">Weekly (At specific day & 24h time)</option>
                 </select>
               </div>
             </div>
 
-            <!-- Daily / Weekly Time Controls -->
-            <div v-if="emailAccountForm.sync_interval === '24h' || emailAccountForm.sync_interval === 'WEEKLY'" class="form-row-2 mt-2">
-              <div v-if="emailAccountForm.sync_interval === 'WEEKLY'" class="input-group">
-                <label class="input-label">Scheduled Day</label>
-                <select v-model="emailAccountForm.sync_schedule_day" class="form-select">
-                  <option value="MON">Monday</option>
-                  <option value="TUE">Tuesday</option>
-                  <option value="WED">Wednesday</option>
-                  <option value="THU">Thursday</option>
-                  <option value="FRI">Friday</option>
-                  <option value="SAT">Saturday</option>
-                  <option value="SUN">Sunday</option>
-                </select>
+            <!-- Daily / Weekly 24-Hour Time Controls -->
+            <div v-if="emailAccountForm.sync_interval === '24h' || emailAccountForm.sync_interval === 'WEEKLY'" class="schedule-24h-box mt-3">
+              <div class="form-row-2">
+                <div v-if="emailAccountForm.sync_interval === 'WEEKLY'" class="input-group">
+                  <label class="input-label">Scheduled Day</label>
+                  <select v-model="emailAccountForm.sync_schedule_day" class="form-select">
+                    <option value="MON">Monday</option>
+                    <option value="TUE">Tuesday</option>
+                    <option value="WED">Wednesday</option>
+                    <option value="THU">Thursday</option>
+                    <option value="FRI">Friday</option>
+                    <option value="SAT">Saturday</option>
+                    <option value="SUN">Sunday</option>
+                  </select>
+                </div>
+
+                <div class="input-group">
+                  <label class="input-label">Scheduled Time (24h Standard: {{ emailAccountForm.sync_schedule_hour }}:{{ emailAccountForm.sync_schedule_min }})</label>
+                  <div class="time-spinners-24h">
+                    <select v-model="emailAccountForm.sync_schedule_hour" class="form-select time-dropdown font-mono">
+                      <option v-for="h in 24" :key="h" :value="String(h - 1).padStart(2, '0')">
+                        {{ String(h - 1).padStart(2, '0') }}:00
+                      </option>
+                    </select>
+
+                    <span class="time-sep">:</span>
+
+                    <select v-model="emailAccountForm.sync_schedule_min" class="form-select time-dropdown font-mono">
+                      <option value="00">00</option>
+                      <option value="15">15</option>
+                      <option value="30">30</option>
+                      <option value="45">45</option>
+                    </select>
+                  </div>
+                </div>
               </div>
 
-              <div class="input-group">
-                <label class="input-label">Scheduled Time (24-Hour format)</label>
-                <input
-                  v-model="emailAccountForm.sync_schedule_time"
-                  type="time"
-                  class="form-input font-mono"
-                />
+              <!-- Quick Presets -->
+              <div class="presets-row mt-2">
+                <span class="text-xs text-muted">24h Presets:</span>
+                <div class="preset-chips-list">
+                  <button
+                    v-for="p in ['08:00', '09:00', '12:00', '14:00', '18:00', '22:00']"
+                    :key="p"
+                    type="button"
+                    class="time-preset-chip font-mono"
+                    :class="{ active: emailAccountForm.sync_schedule_hour + ':' + emailAccountForm.sync_schedule_min === p }"
+                    @click="applySchedulePreset(p)"
+                  >
+                    {{ p }}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -2316,5 +2411,85 @@ function formatLastSync(dateStr) {
   color: var(--text-main);
   margin-bottom: 8px;
   line-height: 1.5;
+}
+
+.btn-oauth-action {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-weight: 600;
+}
+
+.app-pass-hint-link {
+  font-size: 11px;
+  color: var(--primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+}
+
+.app-pass-hint-link:hover {
+  text-decoration: underline;
+}
+
+.schedule-24h-box {
+  background-color: var(--bg-surface-hover);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.time-spinners-24h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.time-dropdown {
+  flex: 1;
+}
+
+.time-sep {
+  font-weight: bold;
+  color: var(--text-muted);
+}
+
+.presets-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.preset-chips-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.time-preset-chip {
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.time-preset-chip:hover {
+  border-color: var(--primary);
+  color: var(--text-main);
+}
+
+.time-preset-chip.active {
+  background-color: rgba(99, 102, 241, 0.15);
+  border-color: var(--primary);
+  color: var(--primary);
+  font-weight: 700;
 }
 </style>

@@ -75,6 +75,7 @@ export const EmailAccountsAPI = {
   create: (data) => apiClient.post('/email_accounts', data),
   update: (id, data) => apiClient.patch(`/email_accounts/${id}`, data),
   delete: (id) => apiClient.delete(`/email_accounts/${id}`),
+  getOAuthUrl: (params) => apiClient.get('/email_accounts/oauth/authorize-url', { params }),
 }
 
 export const ActionItemsAPI = {
