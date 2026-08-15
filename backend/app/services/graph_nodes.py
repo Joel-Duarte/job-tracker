@@ -130,6 +130,15 @@ async def fuzzy_match_node(
     company_norm = company_name.strip().lower() if company_name else ""
     position_norm = position_name.strip().lower() if position_name else ""
 
+    if not company_norm:
+        # No company extracted -> cannot match or create reliably, send to staging
+        return {
+            "match_score": 0.0,
+            "company_id": None,
+            "application_id": None,
+            "route": "staging",
+        }
+
     stmt = select(CompanyModel)
     res = await db.execute(stmt)
     companies = res.scalars().all()
@@ -165,21 +174,57 @@ async def fuzzy_match_node(
     app_res = await db.execute(app_stmt)
     applications = app_res.scalars().all()
 
-    best_app = None
-    best_app_score = 0.0
-    for app in applications:
-        if app.position_normalized:
-            score = fuzz.ratio(position_norm, app.position_normalized) / 100.0
-            if score > best_app_score:
-                best_app_score = score
-                best_app = app
+    # Case 1: Exactly 1 application exists for this company -> auto-link directly
+    if len(applications) == 1:
+        return {
+            "match_score": 1.0,
+            "company_id": best_company.id,
+            "application_id": applications[0].id,
+            "route": "commit",
+        }
 
-    overall_score = best_app_score if best_app else 1.0
+    # Case 2: Multiple applications exist for this company -> disambiguate by position name
+    if len(applications) > 1:
+        if not position_norm:
+            # Ambiguous: multiple applications exist but position is missing from email
+            return {
+                "match_score": best_company_score,
+                "company_id": best_company.id,
+                "application_id": None,
+                "route": "staging",
+            }
+
+        best_app = None
+        best_app_score = 0.0
+        for app in applications:
+            if app.position_normalized:
+                score = fuzz.ratio(position_norm, app.position_normalized) / 100.0
+                if score > best_app_score:
+                    best_app_score = score
+                    best_app = app
+
+        if best_app and best_app_score >= threshold:
+            return {
+                "match_score": best_app_score,
+                "company_id": best_company.id,
+                "application_id": best_app.id,
+                "route": "commit",
+            }
+        else:
+            # Ambiguous: position didn't match any existing application closely
+            return {
+                "match_score": best_app_score,
+                "company_id": best_company.id,
+                "application_id": None,
+                "route": "staging",
+            }
+
+    # Case 3: 0 applications exist for this company
     return {
-        "match_score": overall_score,
+        "match_score": 1.0,
         "company_id": best_company.id,
-        "application_id": best_app.id if best_app else None,
-        "route": "staging" if overall_score < threshold else "commit",
+        "application_id": None,
+        "route": "commit",
     }
 
 

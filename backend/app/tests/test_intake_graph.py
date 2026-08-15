@@ -152,3 +152,131 @@ async def test_graph_low_confidence_staging_flow(db_session: AsyncSession):
     staged = staging_res.scalar_one_or_none()
     assert staged is not None
     assert staged.status == "PENDING"
+
+
+@pytest.mark.asyncio
+async def test_graph_single_company_auto_link(db_session: AsyncSession):
+    """When exactly 1 application exists for a matched company, auto-link to it even if position is vague."""
+    comp = CompanyModel(name="Stripe", name_normalized="stripe")
+    db_session.add(comp)
+    await db_session.flush()
+
+    app = ApplicationModel(
+        company_id=comp.id,
+        position="Senior Backend Engineer",
+        position_normalized="senior backend engineer",
+        status="APPLIED",
+    )
+    db_session.add(app)
+    await db_session.commit()
+
+    state_input: JobTrackerState = {
+        "message_id": "msg-stripe-201",
+        "conversation_id": "conv-stripe-201",
+        "subject": "Interview Invitation at Stripe",
+        "body": "We would like to invite you to an interview.",
+    }
+
+    extracted = ExtractedEmailInfo(
+        company="Stripe",
+        position="Backend Engineering Role",
+        email_type="INTERVIEW_INVITE",
+        event_type="INTERVIEW_INVITE",
+        status="INTERVIEW",
+        summary="Invitation to interview.",
+        action_required=True,
+        action="Schedule interview.",
+    )
+
+    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract, \
+         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock):
+        mock_extract.return_value = extracted
+
+        result = await intake_graph.ainvoke(
+            state_input,
+            config={"configurable": {"db": db_session}},
+        )
+
+        assert result.get("is_application") is True
+        assert result.get("application_id") == app.id
+        assert result.get("company_id") == comp.id
+
+
+@pytest.mark.asyncio
+async def test_graph_multiple_company_disambiguation(db_session: AsyncSession):
+    """When multiple applications exist for a company, disambiguate by position or route to staging."""
+    comp = CompanyModel(name="Uber", name_normalized="uber")
+    db_session.add(comp)
+    await db_session.flush()
+
+    app1 = ApplicationModel(
+        company_id=comp.id,
+        position="Frontend Developer",
+        position_normalized="frontend developer",
+        status="APPLIED",
+    )
+    app2 = ApplicationModel(
+        company_id=comp.id,
+        position="Site Reliability Engineer",
+        position_normalized="site reliability engineer",
+        status="APPLIED",
+    )
+    db_session.add_all([app1, app2])
+    await db_session.commit()
+
+    # 1. Matching position -> links to app2
+    state_sre: JobTrackerState = {
+        "message_id": "msg-uber-sre",
+        "conversation_id": "conv-uber-sre",
+        "subject": "Update on your SRE Application at Uber",
+        "body": "Next steps for Site Reliability Engineer.",
+    }
+    extracted_sre = ExtractedEmailInfo(
+        company="Uber",
+        position="Site Reliability Engineer",
+        email_type="STATUS_UPDATE",
+        event_type="STATUS_UPDATE",
+        status="TECHNICAL_INTERVIEW",
+        summary="SRE update.",
+        action_required=False,
+        action=None,
+    )
+
+    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract, \
+         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock):
+        mock_extract.return_value = extracted_sre
+
+        result = await intake_graph.ainvoke(
+            state_sre,
+            config={"configurable": {"db": db_session}},
+        )
+
+        assert result.get("application_id") == app2.id
+
+    # 2. Ambiguous/missing position -> routes to staging
+    state_ambiguous: JobTrackerState = {
+        "message_id": "msg-uber-ambig",
+        "conversation_id": "conv-uber-ambig",
+        "subject": "Important update regarding your application",
+        "body": "Please contact HR.",
+    }
+    extracted_ambig = ExtractedEmailInfo(
+        company="Uber",
+        position="General Applicant",
+        email_type="STATUS_UPDATE",
+        event_type="STATUS_UPDATE",
+        status="APPLIED",
+        summary="General update.",
+        action_required=False,
+        action=None,
+    )
+
+    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract:
+        mock_extract.return_value = extracted_ambig
+
+        result = await intake_graph.ainvoke(
+            state_ambiguous,
+            config={"configurable": {"db": db_session}},
+        )
+
+        assert result.get("staging_item_id") is not None
