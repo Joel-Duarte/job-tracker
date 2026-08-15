@@ -28,6 +28,7 @@ from app.services.email_fetcher import fetch_emails_from_account
 from app.services.file_parser import parse_uploaded_file
 from app.services.intake import process_email_batch_sequential, process_single_email_graph
 from app.services.llm import assess_job_posting, generate_and_save_application_embedding
+from app.services.scraper import scrape_job_url
 from app.services.task_tracker import task_tracker
 
 logger = logging.getLogger(__name__)
@@ -297,17 +298,9 @@ async def assess_job_lead(
         content = _extract_text_from_html(payload.raw_html)
 
     if not content and payload.url:
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(
-                    payload.url,
-                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
-                    follow_redirects=True,
-                )
-                if resp.status_code == 200:
-                    content = resp.text[:12000]
-        except Exception as err:
-            logger.warning("Failed direct HTTP fetch of %s: %s", payload.url, err)
+        scraped = await scrape_job_url(payload.url)
+        if scraped.text:
+            content = scraped.text
 
     if not content or not content.strip():
         if payload.url:

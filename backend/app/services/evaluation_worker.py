@@ -15,6 +15,8 @@ from app.services.job_saver import persist_or_stage_job_assessment
 from app.services.llm import assess_job_posting
 from app.services.matcher import compute_programmatic_skill_match
 
+from app.services.scraper import scrape_job_url
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,17 +26,9 @@ async def _execute_evaluation_steps(task: IntakeEvaluationTaskModel, db: AsyncSe
 
         # Stage 1: Fetch URL if content not already provided
         if not content and task.job_url:
-            try:
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    resp = await client.get(
-                        task.job_url,
-                        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
-                        follow_redirects=True,
-                    )
-                    if resp.status_code == 200:
-                        content = resp.text[:12000]
-            except Exception as scrape_err:
-                logger.warning("Worker scrape failed for %s: %s", task.job_url, scrape_err)
+            scraped = await scrape_job_url(task.job_url)
+            if scraped.text:
+                content = scraped.text
 
         if not content or not content.strip():
             task.status = "FAILED"

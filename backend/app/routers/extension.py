@@ -48,18 +48,9 @@ async def clip_job_url(
     if payload.raw_html:
         page_text = _extract_text_from_html(payload.raw_html)
     else:
-        try:
-            async with httpx.AsyncClient(
-                timeout=15.0,
-                follow_redirects=True,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-            ) as client:
-                resp = await client.get(payload.url)
-                if resp.status_code == 200:
-                    page_text = _extract_text_from_html(resp.text)
-        except Exception as err:
-            logger.warning("Static fetch failed for '%s': %s", payload.url, err)
-            page_text = f"Job Posting URL: {payload.url}"
+        from app.services.scraper import scrape_job_url
+        scraped = await scrape_job_url(payload.url)
+        page_text = scraped.text or f"Job Posting URL: {payload.url}"
 
     if not page_text:
         page_text = f"Job URL: {payload.url}\nNotes: {payload.notes or ''}"

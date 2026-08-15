@@ -216,9 +216,17 @@ async def scrape_enrich_node(
     state: JobTrackerState, config: RunnableConfig
 ) -> dict[str, Any]:
     job_url = state.get("job_url")
+    scraped_text = None
     if job_url:
         logger.info("External job URL detected: %s. Scrape hook triggered.", job_url)
-    return {"scraped_spec": None}
+        try:
+            from app.services.scraper import scrape_job_url
+            scraped = await scrape_job_url(job_url)
+            if scraped.text:
+                scraped_text = scraped.text
+        except Exception as err:
+            logger.warning("Scrape enrich node encountered error for %s: %s", job_url, err)
+    return {"scraped_spec": scraped_text}
 
 
 async def db_commit_node(
