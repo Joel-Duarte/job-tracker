@@ -20,6 +20,7 @@ class EventSummary(BaseModel):
     email_action_required: bool
     email_action: Optional[str] = None
     email_received_at: Optional[datetime] = None
+    raw_payload: Optional[dict] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -35,6 +36,7 @@ class ApplicationListItem(BaseModel):
     last_activity_at: Optional[datetime] = None
     has_action_required: bool = False
     latest_event: Optional[EventSummary] = None
+    nearest_due_date: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 

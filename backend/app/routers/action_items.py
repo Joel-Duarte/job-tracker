@@ -1,18 +1,20 @@
 import logging
+from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.database import get_db
-from app.models.applications import ActionItemModel, ApplicationModel, CompanyModel
+from app.models.applications import ActionItemModel, ApplicationEventModel, ApplicationModel, CompanyModel
 from app.schemas.action_items import (
     ActionItemCreate,
     ActionItemListResponse,
     ActionItemResponse,
     ActionItemUpdate,
 )
+from app.services.llm import async_enqueue_application_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -108,10 +110,10 @@ async def list_action_items(
 @router.post("", response_model=ActionItemResponse, status_code=status.HTTP_201_CREATED, summary="Create a new action item")
 async def create_action_item(
     payload: ActionItemCreate,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """Creates a new action item for a job application or standalone task."""
-    # Verify application exists if application_id provided
     company_name = None
     position = None
     app_status = None
@@ -142,6 +144,10 @@ async def create_action_item(
     await db.commit()
     await db.refresh(action_item)
 
+    # If linked to application, refresh embedding in background
+    if payload.application_id:
+        background_tasks.add_task(async_enqueue_application_embedding, payload.application_id, skip_llm_summary=True)
+
     return ActionItemResponse(
         id=action_item.id,
         application_id=action_item.application_id,
@@ -163,9 +169,10 @@ async def create_action_item(
 async def update_action_item(
     action_item_id: int,
     payload: ActionItemUpdate,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    """Updates an action item's status, title, due date, or urgency."""
+    """Updates an action item's status, title, due date, or urgency, and records a timeline event on completion."""
     stmt = (
         select(ActionItemModel)
         .where(ActionItemModel.id == action_item_id)
@@ -179,6 +186,7 @@ async def update_action_item(
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action item not found")
 
+    old_status = item.status
     update_data = payload.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         if value is not None and key in ["status", "urgency"]:
@@ -186,8 +194,34 @@ async def update_action_item(
         elif key in update_data:
             setattr(item, key, value)
 
+    new_status = item.status
+
+    # If marked as COMPLETED and linked to an application, record timeline event
+    if new_status == "COMPLETED" and old_status != "COMPLETED" and item.application_id:
+        app = item.application
+        event = ApplicationEventModel(
+            email_application_id=item.application_id,
+            email_conversation_id=f"task-comp-{item.id}",
+            email_event_type="ACTION_ITEM_COMPLETED",
+            email_status_after_event=app.status if app else None,
+            email_summary=f"Completed action item: {item.title}",
+            email_received_at=datetime.now(timezone.utc),
+            source_channel="MANUAL",
+            raw_payload={
+                "action_item_id": item.id,
+                "title": item.title,
+                "urgency": item.urgency,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        db.add(event)
+
     await db.commit()
     await db.refresh(item)
+
+    # Refresh application vector embedding in background
+    if item.application_id:
+        background_tasks.add_task(async_enqueue_application_embedding, item.application_id, skip_llm_summary=True)
 
     app = item.application
     company_name = app.company.name if app and app.company else None
@@ -214,6 +248,7 @@ async def update_action_item(
 @router.delete("/{action_item_id}", status_code=status.HTTP_200_OK, summary="Delete an action item")
 async def delete_action_item(
     action_item_id: int,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """Permanently deletes an action item."""
@@ -224,8 +259,12 @@ async def delete_action_item(
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action item not found")
 
+    app_id = item.application_id
     await db.delete(item)
     await db.commit()
+
+    if app_id:
+        background_tasks.add_task(async_enqueue_application_embedding, app_id, skip_llm_summary=True)
 
     return {
         "status": "success",

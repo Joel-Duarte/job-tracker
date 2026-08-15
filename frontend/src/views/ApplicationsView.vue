@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useUIStore } from '../stores/uiStore'
+import DateTimePicker from '../components/common/DateTimePicker.vue'
 import {
   Search,
   Kanban,
@@ -9,6 +10,7 @@ import {
   Filter,
   Building2,
   Calendar,
+  Clock,
   AlertCircle,
   ChevronRight,
   ChevronDown,
@@ -143,6 +145,30 @@ function getInterviewDate(app) {
   } catch {
     return dateStr
   }
+}
+
+function getDueDate(app) {
+  if (!app) return null
+  const payload = app.latest_event?.raw_payload || {}
+  const dateStr = app.nearest_due_date || payload.decision_deadline || payload.due_date
+  if (!dateStr) return null
+  try {
+    const d = new Date(dateStr)
+    return d.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+    })
+  } catch {
+    return dateStr
+  }
+}
+
+function isOverdue(app) {
+  if (!app) return false
+  const payload = app.latest_event?.raw_payload || {}
+  const dateStr = app.nearest_due_date || payload.decision_deadline || payload.due_date
+  if (!dateStr) return false
+  return new Date(dateStr) < new Date()
 }
 
 // Drag and Drop Handlers
@@ -401,7 +427,7 @@ async function confirmDelete() {
                 {{ app.position || 'Position Not Specified' }}
               </div>
 
-              <!-- Phase Detail Pill & Interview Date -->
+              <!-- Phase Detail Pill, Interview Date, & Due Date -->
               <div class="card-phase-row" @click.stop>
                 <button
                   class="phase-detail-btn"
@@ -417,6 +443,17 @@ async function confirmDelete() {
                 <div v-if="getInterviewDate(app)" class="interview-date-tag" title="Scheduled Interview Date & Time">
                   <Calendar :size="11" />
                   <span>{{ getInterviewDate(app) }}</span>
+                </div>
+
+                <!-- Show Due Date / Deadline if it exists -->
+                <div
+                  v-if="getDueDate(app)"
+                  class="due-date-tag"
+                  :class="{ overdue: isOverdue(app) }"
+                  title="Task Due Date / Offer Decision Deadline"
+                >
+                  <Clock :size="11" />
+                  <span>Due: {{ getDueDate(app) }}</span>
                 </div>
               </div>
 
@@ -497,6 +534,16 @@ async function confirmDelete() {
                     <Calendar :size="11" />
                     <span>{{ getInterviewDate(app) }}</span>
                   </div>
+
+                  <div
+                    v-if="getDueDate(app)"
+                    class="due-date-tag"
+                    :class="{ overdue: isOverdue(app) }"
+                    title="Task Due Date / Offer Decision Deadline"
+                  >
+                    <Clock :size="11" />
+                    <span>Due: {{ getDueDate(app) }}</span>
+                  </div>
                 </div>
               </td>
 
@@ -569,10 +616,10 @@ async function confirmDelete() {
 
               <div class="form-group">
                 <label class="form-label">Scheduled Date & Time (Optional)</label>
-                <input
+                <DateTimePicker
                   v-model="transitionForm.scheduled_at"
-                  type="datetime-local"
-                  class="form-input"
+                  type="datetime"
+                  placeholder="Select scheduled date & time..."
                 />
               </div>
             </div>
@@ -601,19 +648,19 @@ async function confirmDelete() {
               <div class="form-row-2">
                 <div class="form-group">
                   <label class="form-label">Offer Received Date</label>
-                  <input
+                  <DateTimePicker
                     v-model="transitionForm.offer_received_date"
                     type="date"
-                    class="form-input"
+                    placeholder="Select offer received date..."
                   />
                 </div>
 
                 <div class="form-group">
                   <label class="form-label">Decision Deadline (Limit Date)</label>
-                  <input
+                  <DateTimePicker
                     v-model="transitionForm.decision_deadline"
                     type="date"
-                    class="form-input"
+                    placeholder="Select decision deadline..."
                   />
                 </div>
               </div>
@@ -623,10 +670,10 @@ async function confirmDelete() {
             <div v-if="targetStatus === 'REJECTED'" class="form-group-stack">
               <div class="form-group">
                 <label class="form-label">Rejection Notice Date</label>
-                <input
+                <DateTimePicker
                   v-model="transitionForm.rejection_date"
                   type="date"
-                  class="form-input"
+                  placeholder="Select rejection date..."
                 />
               </div>
 
@@ -1008,6 +1055,26 @@ async function confirmDelete() {
   color: #6366f1;
   border: 1px solid rgba(99, 102, 241, 0.25);
   font-family: var(--font-mono);
+}
+
+.due-date-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 4px;
+  background-color: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  font-family: var(--font-mono);
+}
+
+.due-date-tag.overdue {
+  background-color: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.25);
 }
 
 .card-footer {

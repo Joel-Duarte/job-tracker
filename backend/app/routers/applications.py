@@ -59,6 +59,7 @@ async def list_applications(
         .options(
             joinedload(ApplicationModel.company),
             selectinload(ApplicationModel.events),
+            selectinload(ApplicationModel.action_items),
         )
     )
 
@@ -105,6 +106,21 @@ async def list_applications(
         latest_evt = app.events[0] if app.events else None
         has_action = any(e.email_action_required for e in app.events)
 
+        # Compute nearest pending due date across action items & payload deadlines
+        due_dates = [
+            a.due_date for a in (app.action_items or [])
+            if a.status == "PENDING" and a.due_date is not None
+        ]
+        if latest_evt and latest_evt.raw_payload:
+            payload_deadline = latest_evt.raw_payload.get("decision_deadline")
+            if payload_deadline:
+                try:
+                    due_dates.append(datetime.fromisoformat(payload_deadline))
+                except Exception:
+                    pass
+
+        nearest_due = min(due_dates) if due_dates else None
+
         items.append(
             ApplicationListItem(
                 id=app.id,
@@ -114,6 +130,7 @@ async def list_applications(
                 application_date=app.application_date,
                 last_activity_at=app.last_activity_at,
                 has_action_required=has_action,
+                nearest_due_date=nearest_due,
                 latest_event=EventSummary(
                     id=latest_evt.id,
                     email_event_type=latest_evt.email_event_type,
@@ -121,6 +138,7 @@ async def list_applications(
                     email_action_required=latest_evt.email_action_required,
                     email_action=latest_evt.email_action,
                     email_received_at=latest_evt.email_received_at,
+                    raw_payload=latest_evt.raw_payload,
                 )
                 if latest_evt
                 else None,

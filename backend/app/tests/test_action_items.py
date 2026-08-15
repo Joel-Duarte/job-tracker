@@ -87,6 +87,16 @@ async def test_action_items_crud_and_filtering(db_session):
         list_res_after = await ac.get("/api/v1/action-items")
         assert list_res_after.json()["completed_count"] >= 1
 
+        # Verify ACTION_ITEM_COMPLETED event is recorded in application's timeline
+        app_res = await ac.get(f"/api/v1/applications/{application.id}")
+        assert app_res.status_code == 200
+        app_data = app_res.json()
+        completed_events = [
+            e for e in app_data["events"] if e["email_event_type"] == "ACTION_ITEM_COMPLETED"
+        ]
+        assert len(completed_events) >= 1
+        assert "Completed action item:" in completed_events[0]["email_summary"]
+
         # 6. Delete Action Item
         del_res = await ac.delete(f"/api/v1/action-items/{item2_id}")
         assert del_res.status_code == 200
