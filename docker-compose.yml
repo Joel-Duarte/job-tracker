@@ -4,9 +4,9 @@ services:
   # ============================================================================
   # Database: PostgreSQL 16 + pgvector & pg_trgm (Permanent Data Storage)
   # ============================================================================
-  postgres-db:
+  db:
     image: pgvector/pgvector:pg16
-    container_name: job-tracker-postgre-db
+    container_name: job-tracker-postgresdb
     restart: unless-stopped
     stop_grace_period: 30s
     environment:
@@ -57,7 +57,7 @@ services:
     ports:
       - "${BACKEND_PORT:-8008}:8000"
     depends_on:
-      postgres-db:
+      db:
         condition: service_healthy
       scraper:
         condition: service_started
