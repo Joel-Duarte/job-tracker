@@ -17,6 +17,7 @@ import {
   Award,
   Tag,
   AlertCircle,
+  CheckCircle2,
   ChevronRight,
   ChevronDown,
   SlidersHorizontal,
@@ -61,6 +62,7 @@ const isDeleting = ref(false)
 
 const INTERVIEW_STAGES = [
   'Interview Requested / Scheduling',
+  'Task Completed / Awaiting Response',
   'Recruiter Screen / Initial Chat',
   'Online Assessment / Take-Home',
   'Technical Round 1',
@@ -225,11 +227,16 @@ function openTransitionModal(app, colKey) {
   const today = new Date().toISOString().substring(0, 10)
   const existingPayload = app.latest_event?.raw_payload || {}
 
+  const isAlreadyOffer = app.status === 'OFFER'
+  const initialCurrency = (isAlreadyOffer && existingPayload.currency)
+    ? existingPayload.currency
+    : (uiStore.defaultCurrency || 'USD')
+
   transitionForm.value = {
     interview_stage: existingPayload.interview_stage || 'Interview Requested / Scheduling',
     scheduled_at: existingPayload.scheduled_at ? existingPayload.scheduled_at.substring(0, 16) : '',
     offered_salary: existingPayload.offered_salary || app.job_posting?.salary_max || app.job_posting?.salary_min || null,
-    currency: existingPayload.currency || uiStore.defaultCurrency || 'USD',
+    currency: initialCurrency,
     offer_received_date: existingPayload.offer_received_date || today,
     decision_deadline: existingPayload.decision_deadline || '',
     rejection_date: existingPayload.rejection_date || today,
@@ -453,6 +460,16 @@ async function confirmDelete() {
                   <span>{{ getInterviewDate(app) }}</span>
                 </div>
 
+                <!-- Show Awaiting Response badge if task was completed -->
+                <div
+                  v-else-if="app.status === 'TECHNICAL_INTERVIEW' && getAppSubPhaseLabel(app) === 'Task Completed / Awaiting Response'"
+                  class="awaiting-response-tag"
+                  title="Action item completed - Awaiting company response"
+                >
+                  <CheckCircle2 :size="11" />
+                  <span>Awaiting Reply</span>
+                </div>
+
                 <!-- Show Needs Scheduling Warning if in interview column but no date is set -->
                 <button
                   v-else-if="app.status === 'TECHNICAL_INTERVIEW'"
@@ -548,6 +565,15 @@ async function confirmDelete() {
                   <div v-if="getInterviewDate(app)" class="interview-date-tag" title="Scheduled Interview Date & Time">
                     <Calendar :size="11" />
                     <span>{{ getInterviewDate(app) }}</span>
+                  </div>
+
+                  <div
+                    v-else-if="app.status === 'TECHNICAL_INTERVIEW' && getAppSubPhaseLabel(app) === 'Task Completed / Awaiting Response'"
+                    class="awaiting-response-tag"
+                    title="Action item completed - Awaiting company response"
+                  >
+                    <CheckCircle2 :size="11" />
+                    <span>Awaiting Reply</span>
                   </div>
 
                   <button
@@ -1144,6 +1170,19 @@ async function confirmDelete() {
   background-color: rgba(239, 68, 68, 0.12);
   color: #ef4444;
   border-color: rgba(239, 68, 68, 0.25);
+}
+
+.awaiting-response-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 4px;
+  background-color: rgba(99, 102, 241, 0.12);
+  color: var(--text-main);
+  border: 1px solid rgba(99, 102, 241, 0.25);
 }
 
 .scheduling-needed-tag {

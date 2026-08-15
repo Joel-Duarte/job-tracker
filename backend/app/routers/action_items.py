@@ -199,20 +199,24 @@ async def update_action_item(
     # If marked as COMPLETED and linked to an application, record timeline event
     if new_status == "COMPLETED" and old_status != "COMPLETED" and item.application_id:
         app = item.application
+        payload_data = {
+            "action_item_id": item.id,
+            "title": item.title,
+            "urgency": item.urgency,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if app and app.status == "TECHNICAL_INTERVIEW":
+            payload_data["interview_stage"] = "Task Completed / Awaiting Response"
+
         event = ApplicationEventModel(
             email_application_id=item.application_id,
             email_conversation_id=f"task-comp-{item.id}",
             email_event_type="ACTION_ITEM_COMPLETED",
             email_status_after_event=app.status if app else None,
-            email_summary=f"Completed action item: {item.title}",
+            email_summary=f"Completed action item: {item.title}. Awaiting response.",
             email_received_at=datetime.now(timezone.utc),
             source_channel="MANUAL",
-            raw_payload={
-                "action_item_id": item.id,
-                "title": item.title,
-                "urgency": item.urgency,
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-            },
+            raw_payload=payload_data,
         )
         db.add(event)
 

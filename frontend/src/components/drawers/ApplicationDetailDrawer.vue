@@ -147,11 +147,16 @@ function openEditModal() {
   const today = new Date().toISOString().substring(0, 10)
   const existingPayload = app.latest_event?.raw_payload || app.events?.[0]?.raw_payload || {}
 
+  const isAlreadyOffer = app.status === 'OFFER'
+  const initialCurrency = (isAlreadyOffer && existingPayload.currency)
+    ? existingPayload.currency
+    : (uiStore.defaultCurrency || 'USD')
+
   transitionForm.value = {
-    interview_stage: existingPayload.interview_stage || 'Technical Round 1',
+    interview_stage: existingPayload.interview_stage || 'Interview Requested / Scheduling',
     scheduled_at: existingPayload.scheduled_at ? existingPayload.scheduled_at.substring(0, 16) : '',
     offered_salary: existingPayload.offered_salary || app.job_posting?.salary_max || app.job_posting?.salary_min || null,
-    currency: existingPayload.currency || app.job_posting?.currency || uiStore.defaultCurrency,
+    currency: initialCurrency,
     offer_received_date: existingPayload.offer_received_date || today,
     decision_deadline: existingPayload.decision_deadline || '',
     rejection_date: existingPayload.rejection_date || today,
@@ -169,10 +174,10 @@ function handleStatusSelect(e) {
     transitionTargetStatus.value = newStatus
     const today = new Date().toISOString().substring(0, 10)
     transitionForm.value = {
-      interview_stage: 'Technical Round 1',
+      interview_stage: 'Interview Requested / Scheduling',
       scheduled_at: '',
       offered_salary: appStore.selectedApplication.job_posting?.salary_max || null,
-      currency: appStore.selectedApplication.job_posting?.currency || uiStore.defaultCurrency,
+      currency: uiStore.defaultCurrency || 'USD',
       offer_received_date: today,
       decision_deadline: '',
       rejection_date: today,
