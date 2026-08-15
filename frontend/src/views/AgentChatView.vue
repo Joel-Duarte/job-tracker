@@ -1,8 +1,6 @@
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
-import { useUIStore } from '../stores/uiStore'
-import { useApplicationsStore } from '../stores/applicationsStore'
-import { AgentAPI } from '../api/endpoints'
+import { ref, onMounted, nextTick, watch } from 'vue'
+import { useAgentChatStore } from '../stores/agentChatStore'
 import {
   Bot,
   User,
@@ -13,22 +11,12 @@ import {
   HelpCircle,
   Building2,
   ArrowRight,
+  RotateCcw,
+  Plus,
 } from 'lucide-vue-next'
 
-const uiStore = useUIStore()
-const appStore = useApplicationsStore()
-
-const messages = ref([
-  {
-    role: 'assistant',
-    content:
-      "Hello! I am your Job Tracker Agent. I can search through your applications using 768-dimension vector similarity, check interview timelines, and modify application statuses on demand. How can I help you today?",
-    actions: [],
-  },
-])
-
+const chatStore = useAgentChatStore()
 const inputMessage = ref('')
-const isSending = ref(false)
 const chatContainer = ref(null)
 
 const starterPrompts = [
@@ -46,54 +34,57 @@ function scrollToBottom() {
   })
 }
 
-async function sendMessage(textToSend = null) {
-  const text = textToSend || inputMessage.value.trim()
-  if (!text || isSending.value) return
-
-  // Push user message
-  messages.value.push({
-    role: 'user',
-    content: text,
-  })
-  inputMessage.value = ''
-  isSending.value = true
+onMounted(() => {
   scrollToBottom()
+})
 
-  try {
-    const payload = messages.value.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }))
+watch(() => chatStore.messages.length, () => {
+  scrollToBottom()
+})
 
-    const res = await AgentAPI.chat(payload)
-    messages.value.push({
-      role: 'assistant',
-      content: res.data.reply,
-      actions: res.data.actions_performed || [],
-    })
+async function handleSendMessage(textToSend = null) {
+  const text = textToSend || inputMessage.value.trim()
+  if (!text || chatStore.isSending) return
 
-    // If any DB mutations occurred, refresh application store
-    if (res.data.actions_performed?.length) {
-      appStore.fetchApplications()
-      uiStore.showToast('Agent updated pipeline records', 'success')
-    }
-  } catch (err) {
-    messages.value.push({
-      role: 'assistant',
-      content: `Sorry, I encountered an error: ${err.message}`,
-      actions: [],
-    })
-  } finally {
-    isSending.value = false
-    scrollToBottom()
-  }
+  inputMessage.value = ''
+  await chatStore.sendMessage(text)
+  scrollToBottom()
 }
 
 function handleKeyDown(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
-    sendMessage()
+    handleSendMessage()
   }
+}
+
+function handleResetChat() {
+  chatStore.resetChat()
+  scrollToBottom()
+}
+
+function formatActionLabel(act) {
+  if (act.action === 'UPDATE_STATUS' || act.action === 'update_application_status') {
+    const comp = act.args?.company_name || act.company || 'Application'
+    const st = act.args?.new_status || act.new_status || 'Updated'
+    return `Updated ${comp} status to ${st}`
+  }
+  if (act.action === 'semantic_vector_search') {
+    const q = act.args?.query ? `"${act.args.query}"` : 'records'
+    return `Searched vector database for ${q}`
+  }
+  if (act.action === 'list_applications') {
+    const st = act.args?.status ? `(${act.args.status})` : ''
+    return `Queried database applications ${st}`.trim()
+  }
+  if (act.action === 'get_application_details') {
+    const comp = act.args?.company_or_id || 'Company'
+    return `Retrieved full event timeline for ${comp}`
+  }
+  if (act.action === 'get_action_items') {
+    return `Queried pending action items & deadlines`
+  }
+  return `Executed: ${act.action || 'Tool'}`
 }
 </script>
 
@@ -113,12 +104,23 @@ function handleKeyDown(e) {
           </div>
         </div>
       </div>
+
+      <div class="header-actions">
+        <button
+          class="btn-new-chat"
+          title="Start fresh conversation"
+          @click="handleResetChat"
+        >
+          <Plus :size="14" />
+          <span>New Chat</span>
+        </button>
+      </div>
     </div>
 
     <!-- Chat Messages Stream -->
     <div ref="chatContainer" class="chat-messages">
       <div
-        v-for="(msg, idx) in messages"
+        v-for="(msg, idx) in chatStore.messages"
         :key="idx"
         class="message-row"
         :class="`msg-${msg.role}`"
@@ -133,7 +135,7 @@ function handleKeyDown(e) {
           <div v-if="msg.actions && msg.actions.length > 0" class="actions-chips">
             <div v-for="(act, aIdx) in msg.actions" :key="aIdx" class="action-chip">
               <CheckCircle2 :size="13" class="text-success" />
-              <span>Action Executed: {{ act.action }} ({{ act.company }} -> {{ act.new_status }})</span>
+              <span>{{ formatActionLabel(act) }}</span>
             </div>
           </div>
 
@@ -142,7 +144,7 @@ function handleKeyDown(e) {
       </div>
 
       <!-- Thinking Indicator -->
-      <div v-if="isSending" class="message-row msg-assistant">
+      <div v-if="chatStore.isSending" class="message-row msg-assistant">
         <div class="avatar-icon">
           <Bot :size="16" />
         </div>
@@ -154,12 +156,12 @@ function handleKeyDown(e) {
     </div>
 
     <!-- Starter Prompts (if chat is short) -->
-    <div v-if="messages.length <= 2" class="starters-bar">
+    <div v-if="chatStore.messages.length <= 2" class="starters-bar">
       <button
         v-for="prompt in starterPrompts"
         :key="prompt"
         class="starter-chip"
-        @click="sendMessage(prompt)"
+        @click="handleSendMessage(prompt)"
       >
         <span>{{ prompt }}</span>
         <ArrowRight :size="12" />
@@ -178,8 +180,8 @@ function handleKeyDown(e) {
 
       <button
         class="btn btn-primary btn-send"
-        :disabled="isSending || !inputMessage.trim()"
-        @click="sendMessage()"
+        :disabled="chatStore.isSending || !inputMessage.trim()"
+        @click="handleSendMessage()"
       >
         <Send :size="15" />
       </button>
@@ -198,15 +200,45 @@ function handleKeyDown(e) {
 }
 
 .chat-header {
-  padding: 16px 24px;
+  padding: 14px 24px;
   border-bottom: 1px solid var(--border-color);
   background-color: var(--bg-app);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .header-left {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-new-chat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-new-chat:hover {
+  background-color: var(--bg-surface-hover, rgba(255, 255, 255, 0.05));
+  border-color: var(--border-color);
+  color: var(--text-primary);
 }
 
 .agent-avatar {
