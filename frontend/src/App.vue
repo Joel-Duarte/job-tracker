@@ -1,0 +1,33 @@
+<script setup>
+import AppNavbar from './components/layout/AppNavbar.vue'
+import ApplicationDetailDrawer from './components/drawers/ApplicationDetailDrawer.vue'
+import IngestModal from './components/modals/IngestModal.vue'
+import ToastNotification from './components/common/ToastNotification.vue'
+</script>
+
+<template>
+  <div class="app-layout">
+    <AppNavbar />
+    <main class="main-content">
+      <router-view />
+    </main>
+    <ApplicationDetailDrawer />
+    <IngestModal />
+    <ToastNotification />
+  </div>
+</template>
+
+<style scoped>
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background-color: var(--bg-app);
+}
+
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+</style>

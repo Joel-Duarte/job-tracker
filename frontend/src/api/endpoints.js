@@ -1,0 +1,73 @@
+import apiClient from './client'
+
+export const ApplicationsAPI = {
+  list: (params = {}) => apiClient.get('/applications', { params }),
+  get: (id) => apiClient.get(`/applications/${id}`),
+  update: (id, data) => apiClient.patch(`/applications/${id}`, data),
+  delete: (id) => apiClient.delete(`/applications/${id}`),
+  byStatus: () => apiClient.get('/applications/by-status'),
+}
+
+export const IntakeAPI = {
+  paste: (data) => apiClient.post('/intake/paste', data),
+  upload: (formData) =>
+    apiClient.post('/intake/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  assessJob: (data) => apiClient.post('/intake/assess-job', data),
+  confirmAssessment: (data) => apiClient.post('/intake/confirm-assessment', data),
+  getExtensionConfig: () => apiClient.get('/intake/extension-config'),
+  syncAccount: (data) => apiClient.post('/intake/sync-account', data),
+  getTaskStatus: (taskId) => apiClient.get(`/intake/tasks/${taskId}`),
+}
+
+export const CandidateProfileAPI = {
+  get: () => apiClient.get('/profile/cv'),
+  save: (rawText) => apiClient.post('/profile/cv', { raw_text: rawText }),
+  update: (id, data) => apiClient.patch(`/profile/cv/${id}`, data),
+}
+
+export const AgentAPI = {
+  chat: (messages) => apiClient.post('/agent/chat', { messages }),
+}
+
+export const PromptsAPI = {
+  list: () => apiClient.get('/prompts'),
+  get: (name) => apiClient.get(`/prompts/${name}`),
+  update: (name, template) => apiClient.patch(`/prompts/${name}`, { template }),
+  reset: (name) => apiClient.post(`/prompts/${name}/reset`),
+}
+
+export const StagingAPI = {
+  list: (params = {}) => apiClient.get('/staging', { params }),
+  resolve: (id, data) => apiClient.post(`/staging/${id}/resolve`, data),
+  delete: (id) => apiClient.delete(`/staging/${id}`),
+}
+
+export const SearchAPI = {
+  semantic: (query, limit = 10, threshold = 0.5) =>
+    apiClient.get('/search/semantic', { params: { query, limit, threshold } }),
+  companies: (q = '') => apiClient.get('/search/companies', { params: { q } }),
+}
+
+export const AIConfigAPI = {
+  listProviders: () => apiClient.get('/ai/providers'),
+  createProvider: (data) => apiClient.post('/ai/providers', data),
+  updateProvider: (id, data) => apiClient.patch(`/ai/providers/${id}`, data),
+  deleteProvider: (id) => apiClient.delete(`/ai/providers/${id}`),
+  testProvider: (id) => apiClient.post(`/ai/providers/${id}/test`),
+  getProviderModels: (id) => apiClient.get(`/ai/providers/${id}/models`),
+  listBindings: () => apiClient.get('/ai/bindings'),
+  setBinding: (taskType, data) => apiClient.put(`/ai/bindings/${taskType}`, data),
+  deleteBinding: (taskType) => apiClient.delete(`/ai/bindings/${taskType}`),
+  testBinding: (taskType) => apiClient.post(`/ai/bindings/${taskType}/test`),
+}
+
+
+export const EmailAccountsAPI = {
+  list: () => apiClient.get('/email_accounts'),
+  get: (id) => apiClient.get(`/email_accounts/${id}`),
+  create: (data) => apiClient.post('/email_accounts', data),
+  update: (id, data) => apiClient.patch(`/email_accounts/${id}`, data),
+  delete: (id) => apiClient.delete(`/email_accounts/${id}`),
+}
