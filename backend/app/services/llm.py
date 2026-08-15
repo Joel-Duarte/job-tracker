@@ -16,7 +16,12 @@ from app.core.llm_factory import (
 from app.core.prompts import get_prompt_template
 from app.models.applications import ApplicationEmbeddingModel, ApplicationModel
 from app.schemas.candidate_profile import CVAnonymizationResult
-from app.schemas.llm import ApplicationSummaryResult, EmailExtractionResult, JobAssessmentResult
+from app.schemas.llm import (
+    ApplicationSummaryResult,
+    EmailExtractionResult,
+    ExtractedJobSpec,
+    JobAssessmentResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +29,36 @@ logger = logging.getLogger(__name__)
 async def get_active_llm_config(db: AsyncSession) -> dict[str, Any]:
     """Backward compatibility helper returning active LLM config dictionary."""
     return await get_active_llm_config_dict(db)
+
+
+async def extract_job_spec(
+    db: AsyncSession,
+    raw_webpage_data: str,
+) -> ExtractedJobSpec:
+    """
+    Stage 1: Extracts structured job specs, responsibilities, requirements, and ATS keywords from raw webpage data.
+    Uses SCRAPER_PARSER task binding with temperature=0.0 and reasoning disabled.
+    """
+    llm = await get_task_chat_model(db, task_type="SCRAPER_PARSER", temperature=0.0)
+    structured_llm = llm.with_structured_output(ExtractedJobSpec)
+    template_str = await get_prompt_template(db, "jd_extraction")
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", (
+            "You are an expert recruitment data analyst. "
+            "Extract essential job details from raw scraped webpage markdown text or pasted specs. "
+            "Disregard navigation, cookie popups, footers, headers, ads, or legal notices. "
+            "If no job vacancy is found, set job_found to false and leave fields as 'Not Specified'."
+        )),
+        ("human", template_str),
+    ])
+
+    chain = prompt | structured_llm
+    result = await chain.ainvoke({"raw_webpage_data": raw_webpage_data})
+
+    if not isinstance(result, ExtractedJobSpec):
+        result = ExtractedJobSpec.model_validate(result)
+    return result
 
 
 async def extract_email_info(db: AsyncSession, email_content: str) -> EmailExtractionResult:

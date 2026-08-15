@@ -12,7 +12,7 @@ from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.models.applications import ApplicationEventModel, ApplicationModel, CompanyModel, JobPostingModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.models.staging import StagingItemModel
-from app.schemas.llm import JobAssessmentResult
+from app.schemas.llm import ExtractedJobSpec, JobAssessmentResult
 from app.services.evaluation_worker import process_evaluation_task
 from sqlalchemy import select
 
@@ -95,13 +95,24 @@ async def test_intake_queue_endpoints_and_worker(db_session: AsyncSession):
             recommendation="APPLY_STRONGLY",
             fit_score=95,
             matching_skills=["Python", "Distributed Systems", "SQL"],
-            missing_skills=[],
             pros=["Excellent compensation", "Fully remote"],
             cons=[],
             summary="Strong match for backend architecture.",
         )
 
-        with patch("app.services.evaluation_worker.assess_job_posting", new=AsyncMock(return_value=mock_assessment)):
+        mock_job_spec = ExtractedJobSpec(
+            job_found=True,
+            company="Stripe",
+            position="Staff Backend Engineer",
+            location_work_type="Remote",
+            salary_benefits="$200k - $250k",
+            core_responsibilities="Backend systems",
+            requirements_qualifications="Python, SQL",
+            ats_keywords=["Python", "SQL"],
+        )
+
+        with patch("app.services.evaluation_worker.extract_job_spec", new=AsyncMock(return_value=mock_job_spec)), \
+             patch("app.services.evaluation_worker.assess_job_posting", new=AsyncMock(return_value=mock_assessment)):
             await process_evaluation_task(task_id, db=db_session)
 
         # 5. Verify task is marked COMPLETED in database
@@ -182,7 +193,19 @@ async def test_intake_queue_duplicate_staging_and_resolution(db_session: AsyncSe
             summary="Strong candidate match for AI role.",
         )
 
-        with patch("app.services.evaluation_worker.assess_job_posting", new=AsyncMock(return_value=mock_assessment)):
+        mock_job_spec = ExtractedJobSpec(
+            job_found=True,
+            company="GitHub",
+            position="Staff AI Engineer",
+            location_work_type="Remote",
+            salary_benefits="Competitive",
+            core_responsibilities="AI platform engineering",
+            requirements_qualifications="Python, LLM",
+            ats_keywords=["Python", "LLM"],
+        )
+
+        with patch("app.services.evaluation_worker.extract_job_spec", new=AsyncMock(return_value=mock_job_spec)), \
+             patch("app.services.evaluation_worker.assess_job_posting", new=AsyncMock(return_value=mock_assessment)):
             await process_evaluation_task(task_id, db=db_session)
 
         # 3. Verify task stage is STAGED_DUPLICATE

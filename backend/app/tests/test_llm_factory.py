@@ -12,8 +12,8 @@ from app.core.llm_factory import (
 )
 from app.core.prompts import seed_default_prompts
 from app.models.llm import LLMConfigModel
-from app.schemas.llm import ApplicationSummaryResult, EmailExtractionResult
-from app.services.llm import extract_email_info, summarize_application_status
+from app.schemas.llm import ApplicationSummaryResult, EmailExtractionResult, ExtractedJobSpec
+from app.services.llm import extract_email_info, extract_job_spec, summarize_application_status
 
 
 def test_resolve_provider_and_clean_url():
@@ -92,6 +92,33 @@ async def test_extract_email_info_runnable(db_session: AsyncSession):
         assert res.company == "Acme Corp"
         assert res.position == "Python Engineer"
         assert res.status == "APPLIED"
+
+
+@pytest.mark.asyncio
+async def test_extract_job_spec_runnable(db_session: AsyncSession):
+    await seed_default_prompts(db_session)
+
+    mock_spec = ExtractedJobSpec(
+        job_found=True,
+        company="Stripe",
+        position="Senior Staff Backend Engineer",
+        location_work_type="San Francisco, CA (Hybrid)",
+        salary_benefits="$220,000 - $280,000 + Equity",
+        core_responsibilities="Lead architecture of real-time payment pipelines.",
+        requirements_qualifications="10+ years experience, Distributed Systems, Python, Go.",
+        ats_keywords=["Python", "Go", "Distributed Systems", "Kafka", "PostgreSQL"],
+    )
+
+    with patch("app.services.llm.get_task_chat_model") as mock_get_chat:
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = RunnableLambda(AsyncMock(return_value=mock_spec))
+        mock_get_chat.return_value = mock_llm
+
+        res = await extract_job_spec(db_session, "Stripe is hiring a Senior Staff Backend Engineer...")
+        assert res.job_found is True
+        assert res.company == "Stripe"
+        assert res.position == "Senior Staff Backend Engineer"
+        assert "Kafka" in res.ats_keywords
 
 
 @pytest.mark.asyncio

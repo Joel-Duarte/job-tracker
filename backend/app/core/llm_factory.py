@@ -208,13 +208,20 @@ async def get_task_chat_model(
 
                 if binding.extra_kwargs and isinstance(binding.extra_kwargs, dict):
                     init_kwargs.update(binding.extra_kwargs)
+                elif task_type in ("SCRAPER_PARSER", "EXTRACTION"):
+                    # Disable reasoning / thinking mode by default for high-speed structured extraction
+                    init_kwargs.setdefault("extra_body", {"reasoning_effort": "none"})
 
                 init_kwargs.update(override_kwargs)
                 return init_chat_model(**init_kwargs)
         except Exception as err:
             logger.warning("Failed loading task binding '%s', falling back: %s", task_type, err)
 
-    is_agent_flag = task_type in ("AGENT_REASONING", "SCRAPER_PARSER")
+    is_agent_flag = task_type in ("AGENT_REASONING",)
+    default_temp = 0.0 if task_type in ("SCRAPER_PARSER", "EXTRACTION") else None
+    if default_temp is not None and "temperature" not in override_kwargs:
+        override_kwargs["temperature"] = default_temp
+
     return await get_chat_model(db, is_agent=is_agent_flag, **override_kwargs)
 
 

@@ -3,6 +3,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.prompts import PromptModel
 
 DEFAULT_PROMPTS = {
+    "jd_extraction": (
+        "You are an expert recruitment data analyst. Your job is to review raw scraped website markdown text or pasted job specs and extract the essential job details.\n\n"
+        "STRICT EXTRACTION BOUNDARIES:\n"
+        "- Completely disregard any navigation links, cookie popups, footers, headers, ads, or legal notices.\n"
+        "- Do not add any introductory text, pleasantries, or conclusions.\n"
+        "- If the provided text does not contain an actual job description or job posting, you must set the 'job_found' key to false and leave the details as 'Not Specified'.\n\n"
+        "Raw Webpage / Job Data:\n{raw_webpage_data}"
+    ),
     "extraction": (
         "Extract key information from the following email body regarding a job application. "
         "Provide accurate values for all fields according to the requested output structure.\n\n"

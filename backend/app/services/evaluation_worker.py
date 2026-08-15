@@ -12,7 +12,7 @@ from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.models.candidate_profile import CandidateCVModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.services.job_saver import persist_or_stage_job_assessment
-from app.services.llm import assess_job_posting
+from app.services.llm import assess_job_posting, extract_job_spec
 from app.services.matcher import compute_programmatic_skill_match
 
 from app.services.scraper import scrape_job_url
@@ -43,6 +43,17 @@ async def _execute_evaluation_steps(task: IntakeEvaluationTaskModel, db: AsyncSe
         # Stage 2: Extract Specs
         task.stage = "EXTRACTING"
         await db.commit()
+
+        job_spec = await extract_job_spec(db, content)
+        if not job_spec.job_found:
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = (
+                "NO_JOB_FOUND: The scraped page or input text did not contain an active job description or vacancy."
+            )
+            task.completed_at = datetime.now(timezone.utc)
+            await db.commit()
+            return
 
         # Stage 3: CV Keyword Overlap Matching
         task.stage = "MATCHING"

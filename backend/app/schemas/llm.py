@@ -21,6 +21,45 @@ class ApplicationSummaryResult(BaseModel):
     next_action: Optional[str] = Field(default=None, description="Next action item if any")
 
 
+class ExtractedJobSpec(BaseModel):
+    """Structured job details extracted from raw webpage or pasted job description text."""
+    job_found: bool = Field(
+        description="True if the provided text contains an actual job vacancy/description; False if error page, navigation, or unrelated text."
+    )
+    company: str = Field(
+        default="Not Specified",
+        description="Company, employer, or organization name"
+    )
+    position: str = Field(
+        default="Not Specified",
+        description="Job title or role position"
+    )
+    location_work_type: str = Field(
+        default="Not Specified",
+        description="Location and work model e.g. 'San Francisco, CA (Hybrid)' or 'Remote (US)'"
+    )
+    salary_benefits: str = Field(
+        default="Not Specified",
+        description="Salary range, compensation, and key benefits or perks mentioned"
+    )
+    core_responsibilities: str = Field(
+        default="Not Specified",
+        description="Core duties, responsibilities, and expected impact"
+    )
+    requirements_qualifications: str = Field(
+        default="Not Specified",
+        description="Key technical requirements, years of experience, education, and required qualifications"
+    )
+    ats_keywords: List[str] = Field(
+        default_factory=list,
+        description="Critical technical and domain ATS keywords for candidate matching"
+    )
+    raw_markdown_summary: Optional[str] = Field(
+        default=None,
+        description="Clean formatted markdown overview of the role"
+    )
+
+
 class JobAssessmentResult(BaseModel):
     company: str = Field(description="Company name extracted from the job posting")
     position: str = Field(description="Position or job title")
