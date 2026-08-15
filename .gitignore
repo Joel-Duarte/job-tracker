@@ -120,3 +120,10 @@ coverage/
 
 AGENTS.md
 TODO.md
+.agent
+.claude
+.cursor
+.gemini
+.hermes
+.opencode
+.impeccable
