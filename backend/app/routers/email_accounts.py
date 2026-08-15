@@ -1,10 +1,12 @@
 import logging
+import os
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.email_accounts import EmailAccountModel
 from app.schemas.email_accounts import (
@@ -17,6 +19,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/email_accounts", tags=["Email Accounts"])
 
 
+def _resolve_base_url(request: Request) -> str:
+    """Dynamically resolves the public base URL of the backend.
+    Prefers PUBLIC_API_URL if configured in .env (for Docker/reverse proxy),
+    otherwise inspects the incoming request headers (host/port/proto).
+    """
+    if settings.PUBLIC_API_URL:
+        return settings.PUBLIC_API_URL.rstrip("/")
+    forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    forwarded_host = (
+        request.headers.get("x-forwarded-host")
+        or request.headers.get("host")
+        or f"{request.url.hostname}:{request.url.port}"
+    )
+    return f"{forwarded_proto}://{forwarded_host}"
+
+
 class OAuthUrlResponse(BaseModel):
     provider: str
     auth_url: Optional[str] = None
@@ -25,15 +43,36 @@ class OAuthUrlResponse(BaseModel):
     message: str
 
 
+class OAuthConfigResponse(BaseModel):
+    base_url: str
+    google_redirect_uri: str
+    microsoft_redirect_uri: str
+
+
+@router.get("/oauth/config", response_model=OAuthConfigResponse)
+async def get_oauth_config(request: Request):
+    """Returns dynamic OAuth configuration including derived redirect URIs for Google and Microsoft."""
+    base_url = _resolve_base_url(request)
+    return OAuthConfigResponse(
+        base_url=base_url,
+        google_redirect_uri=f"{base_url}/api/v1/email_accounts/oauth/callback/google",
+        microsoft_redirect_uri=f"{base_url}/api/v1/email_accounts/oauth/callback/microsoft",
+    )
+
+
 @router.get("/oauth/authorize-url", response_model=OAuthUrlResponse)
 async def get_oauth_authorize_url(
+    request: Request,
     provider: str = Query(..., description="Provider: 'google' or 'microsoft'"),
     client_id: Optional[str] = Query(None, description="Custom OAuth Client ID"),
-    redirect_uri: Optional[str] = Query("http://localhost:8000/api/v1/email_accounts/oauth/callback", description="Redirect URI"),
+    redirect_uri: Optional[str] = Query(None, description="Redirect URI (optional, auto-derived from host / PUBLIC_API_URL)"),
 ):
     """Returns OAuth2 authorization URL for Google Gmail or Microsoft 365."""
-    import os
     prov = provider.lower().strip()
+    base_url = _resolve_base_url(request)
+    
+    # Auto-resolve redirect URI if not explicitly passed
+    effective_redirect_uri = redirect_uri or f"{base_url}/api/v1/email_accounts/oauth/callback/{prov}"
     
     if prov == "google":
         resolved_client_id = client_id or os.getenv("GOOGLE_OAUTH_CLIENT_ID")
@@ -42,7 +81,7 @@ async def get_oauth_authorize_url(
             auth_url = (
                 f"https://accounts.google.com/o/oauth2/v2/auth?"
                 f"client_id={resolved_client_id}&"
-                f"redirect_uri={redirect_uri}&"
+                f"redirect_uri={effective_redirect_uri}&"
                 f"response_type=code&"
                 f"scope={scopes}&"
                 f"access_type=offline&"
@@ -52,14 +91,14 @@ async def get_oauth_authorize_url(
                 provider="google",
                 auth_url=auth_url,
                 client_id_configured=True,
-                redirect_uri=redirect_uri,
+                redirect_uri=effective_redirect_uri,
                 message="Google OAuth authorization URL generated.",
             )
         return OAuthUrlResponse(
             provider="google",
             auth_url=None,
             client_id_configured=False,
-            redirect_uri=redirect_uri,
+            redirect_uri=effective_redirect_uri,
             message="No Google Client ID configured. You can use App Password for instant connection or enter your Client ID.",
         )
 
@@ -71,7 +110,7 @@ async def get_oauth_authorize_url(
                 f"https://login.microsoftonline.com/common/oauth2/v2.0/authorize?"
                 f"client_id={resolved_client_id}&"
                 f"response_type=code&"
-                f"redirect_uri={redirect_uri}&"
+                f"redirect_uri={effective_redirect_uri}&"
                 f"response_mode=query&"
                 f"scope={scopes}&"
                 f"prompt=consent"
@@ -80,14 +119,14 @@ async def get_oauth_authorize_url(
                 provider="microsoft",
                 auth_url=auth_url,
                 client_id_configured=True,
-                redirect_uri=redirect_uri,
+                redirect_uri=effective_redirect_uri,
                 message="Microsoft Graph OAuth authorization URL generated.",
             )
         return OAuthUrlResponse(
             provider="microsoft",
             auth_url=None,
             client_id_configured=False,
-            redirect_uri=redirect_uri,
+            redirect_uri=effective_redirect_uri,
             message="No Microsoft Client ID configured. You can use App Password or IMAP for instant connection.",
         )
 

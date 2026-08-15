@@ -232,11 +232,35 @@ async function loadEmailAccounts() {
   }
 }
 
+const oauthConfig = ref({
+  google_redirect_uri: '',
+  microsoft_redirect_uri: '',
+})
+
+async function loadOAuthConfig() {
+  const origin = window.location.origin
+  try {
+    const res = await EmailAccountsAPI.getOAuthConfig()
+    if (res.data?.base_url && !res.data.base_url.includes(':8000')) {
+      oauthConfig.value = res.data
+      return
+    }
+  } catch {
+    // fallback to window.location.origin
+  }
+
+  oauthConfig.value = {
+    google_redirect_uri: `${origin}/api/v1/email_accounts/oauth/callback/google`,
+    microsoft_redirect_uri: `${origin}/api/v1/email_accounts/oauth/callback/microsoft`,
+  }
+}
+
 onMounted(() => {
   loadProviders()
   loadBindings()
   loadPrompts()
   loadEmailAccounts()
+  loadOAuthConfig()
 })
 
 // Provider CRUD & Direct Probe
@@ -476,9 +500,14 @@ function onAuthMethodChange(method) {
 async function startOAuthLogin(providerName) {
   try {
     const prov = providerName || emailAccountForm.value.provider_preset
+    const redirectUri = prov === 'outlook'
+      ? oauthConfig.value.microsoft_redirect_uri
+      : oauthConfig.value.google_redirect_uri
+
     const res = await EmailAccountsAPI.getOAuthUrl({
       provider: prov === 'outlook' ? 'microsoft' : 'google',
       client_id: emailAccountForm.value.client_id || undefined,
+      redirect_uri: redirectUri || undefined,
     })
     if (res.data.auth_url) {
       window.open(res.data.auth_url, '_blank', 'width=600,height=700')
@@ -497,6 +526,7 @@ function applySchedulePreset(timeStr) {
 }
 
 function openAddEmailAccountModal() {
+  loadOAuthConfig()
   editingAccount.value = null
   emailAccountForm.value = {
     name: 'Gmail Inbox',
@@ -1347,7 +1377,7 @@ function formatLastSync(dateStr) {
                       <li>Enable the <strong>Gmail API</strong> under APIs &amp; Services → Library.</li>
                       <li>Configure <strong>OAuth Consent Screen</strong> (External) and add your email as a test user.</li>
                       <li>Create Credentials → <strong>OAuth client ID</strong> → type: <em>Web application</em>.</li>
-                      <li>Add Authorized Redirect URI: <code>http://localhost:8000/api/v1/email_accounts/oauth/callback/google</code></li>
+                      <li>Add Authorized Redirect URI: <code>{{ oauthConfig.google_redirect_uri }}</code></li>
                       <li>Copy the <strong>Client ID</strong> and <strong>Client Secret</strong> into the fields in the OAuth card below.</li>
                     </ol>
                   </div>
@@ -1376,7 +1406,7 @@ function formatLastSync(dateStr) {
                     <strong>Azure Portal — Microsoft Graph OAuth2 Setup</strong>
                     <ol class="step-sublist">
                       <li>Open <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener" class="guide-link">Azure App Registrations <ExternalLink :size="10" /></a> and click <strong>New registration</strong>.</li>
-                      <li>Add Web Redirect URI: <code>http://localhost:8000/api/v1/email_accounts/oauth/callback/microsoft</code></li>
+                      <li>Add Web Redirect URI: <code>{{ oauthConfig.microsoft_redirect_uri }}</code></li>
                       <li>Under <em>API Permissions</em> add <code>Mail.Read</code>, <code>User.Read</code>, <code>offline_access</code> (Delegated).</li>
                       <li>Under <em>Certificates &amp; secrets</em>, create a secret — copy its <strong>Value</strong> immediately (shown once).</li>
                       <li>Copy the <strong>Application (client) ID</strong> from the Overview page.</li>
@@ -1491,14 +1521,14 @@ function formatLastSync(dateStr) {
                   <li>Enable the <strong>Gmail API</strong> under APIs &amp; Services &rarr; Library.</li>
                   <li>Configure <strong>OAuth Consent Screen</strong> (External) &mdash; add your Gmail as a test user.</li>
                   <li>Create Credentials &rarr; <strong>OAuth client ID</strong> &rarr; type: <em>Web application</em>.</li>
-                  <li>Add Authorized Redirect URI:<br /><code class="oauth-redirect-uri">http://localhost:8000/api/v1/email_accounts/oauth/callback/google</code></li>
+                  <li>Add Authorized Redirect URI:<br /><code class="oauth-redirect-uri">{{ oauthConfig.google_redirect_uri }}</code></li>
                   <li>Paste the <strong>Client ID</strong> and <strong>Client Secret</strong> into the fields above.</li>
                 </ol>
 
                 <!-- Outlook / MS Graph steps -->
                 <ol v-else-if="emailAccountForm.provider_preset === 'outlook'" class="oauth-steps">
                   <li>Open <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener" class="oauth-guide-link">Azure App Registrations <ExternalLink :size="10" /></a> &rarr; <strong>New registration</strong>.</li>
-                  <li>Add Web Redirect URI:<br /><code class="oauth-redirect-uri">http://localhost:8000/api/v1/email_accounts/oauth/callback/microsoft</code></li>
+                  <li>Add Web Redirect URI:<br /><code class="oauth-redirect-uri">{{ oauthConfig.microsoft_redirect_uri }}</code></li>
                   <li>Under <em>API permissions</em> add <code>Mail.Read</code>, <code>User.Read</code>, <code>offline_access</code> (Delegated).</li>
                   <li>Under <em>Certificates &amp; secrets</em> create a secret &mdash; copy its <strong>Value</strong> immediately (shown once).</li>
                   <li>Copy the <strong>Application (client) ID</strong> from the Overview page.</li>
@@ -1577,14 +1607,41 @@ function formatLastSync(dateStr) {
 
             <div class="form-row-2">
               <div class="input-group">
-                <label class="input-label">Scan Folder</label>
+                <label class="input-label">Scan Folder / Label</label>
                 <input
                   v-model="emailAccountForm.folder"
                   type="text"
                   placeholder="INBOX"
                   class="form-input font-mono text-xs"
                 />
-                <p class="field-hint">Pre-filter: only emails inside this folder are scanned and ingested by Job Tracker. Use <code class="hint-code">INBOX</code> to monitor your main inbox, or a label like <code class="hint-code">Recruitment</code> to keep intake focused.</p>
+                <!-- Quick Suggestion Chips -->
+                <div class="folder-chips">
+                  <span class="folder-chips-label">Quick presets:</span>
+                  <button
+                    type="button"
+                    class="folder-chip"
+                    :class="{ active: emailAccountForm.folder === 'Jobs' }"
+                    @click="emailAccountForm.folder = 'Jobs'"
+                  >Jobs</button>
+                  <button
+                    type="button"
+                    class="folder-chip"
+                    :class="{ active: emailAccountForm.folder === 'Applications' }"
+                    @click="emailAccountForm.folder = 'Applications'"
+                  >Applications</button>
+                  <button
+                    type="button"
+                    class="folder-chip"
+                    :class="{ active: emailAccountForm.folder === 'Recruitment' }"
+                    @click="emailAccountForm.folder = 'Recruitment'"
+                  >Recruitment</button>
+                  <button
+                    type="button"
+                    class="folder-chip"
+                    :class="{ active: emailAccountForm.folder === 'INBOX' }"
+                    @click="emailAccountForm.folder = 'INBOX'"
+                  >INBOX (All)</button>
+                </div>
               </div>
 
               <div class="input-group">
@@ -1597,6 +1654,27 @@ function formatLastSync(dateStr) {
                   <option value="24h">Daily (At specific 24h time)</option>
                   <option value="WEEKLY">Weekly (At specific day & 24h time)</option>
                 </select>
+              </div>
+            </div>
+
+            <!-- Folder Strategy Guide Callout -->
+            <div class="folder-guide-callout mt-2">
+              <div class="folder-guide-header">
+                <Filter :size="13" class="text-primary" />
+                <span class="folder-guide-title">Recommended: Set up an email rule with your provider</span>
+              </div>
+              <p class="folder-guide-text">
+                To prevent Job Tracker from scanning personal emails and spending AI tokens unnecessarily, create an automatic rule in your email client to label incoming recruitment emails:
+              </p>
+              <div class="folder-guide-tips">
+                <div class="folder-guide-tip">
+                  <span class="tip-provider">Gmail:</span>
+                  <span>Settings &rarr; <em>Filters and Blocked Addresses</em> &rarr; <em>Create filter</em> with subject <code class="hint-code">application OR interview OR offer OR recruiter</code> &rarr; Apply label <code class="hint-code">Jobs</code>.</span>
+                </div>
+                <div class="folder-guide-tip">
+                  <span class="tip-provider">Outlook:</span>
+                  <span>Settings &rarr; <em>Rules</em> &rarr; <em>Add rule</em> (keywords in subject/sender) &rarr; Move to folder <code class="hint-code">Jobs</code>.</span>
+                </div>
               </div>
             </div>
 
@@ -2732,6 +2810,88 @@ function formatLastSync(dateStr) {
   padding: 10px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-subtle);
+}
+
+.folder-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.folder-chips-label {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.folder-chip {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.folder-chip:hover {
+  border-color: var(--border-subtle);
+  color: var(--text-main);
+}
+
+.folder-chip.active {
+  border-color: var(--primary);
+  background-color: rgba(99, 102, 241, 0.1);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.folder-guide-callout {
+  padding: 10px 12px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.folder-guide-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.folder-guide-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.folder-guide-text {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin-bottom: 6px;
+}
+
+.folder-guide-tips {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.folder-guide-tip {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.tip-provider {
+  font-weight: 600;
+  color: var(--text-main);
+  margin-right: 4px;
 }
 
 .time-spinners-24h {
