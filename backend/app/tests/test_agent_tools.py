@@ -16,7 +16,7 @@ from app.services.agent_tools import (
 async def test_agent_tools_execution(db_session):
     """Test individual agent tool execution for listing, details, status update, and action items."""
     # 1. Seed Company & Application
-    company = CompanyModel(name="Bloomidea", name_normalized="bloomidea")
+    company = CompanyModel(name="Stripe", name_normalized="Stripe")
     db_session.add(company)
     await db_session.flush()
 
@@ -41,11 +41,11 @@ async def test_agent_tools_execution(db_session):
     # 2. Test List Applications Tool
     list_res = await execute_list_applications(db_session, status="APPLIED")
     assert len(list_res) >= 1
-    assert any(a["company"] == "Bloomidea" for a in list_res)
+    assert any(a["company"] == "Stripe" for a in list_res)
 
     # 3. Test Application Details Tool
-    details_res = await execute_get_application_details(db_session, "Bloomidea")
-    assert details_res["company"] == "Bloomidea"
+    details_res = await execute_get_application_details(db_session, "Stripe")
+    assert details_res["company"] == "Stripe"
     assert details_res["position"] == "Senior Python Developer"
     assert len(details_res["action_items"]) == 1
 
@@ -58,7 +58,7 @@ async def test_agent_tools_execution(db_session):
     with patch("app.services.agent_tools.generate_and_save_application_embedding", new_callable=AsyncMock):
         update_res = await execute_update_application_status(
             db_session,
-            company_name="Bloomidea",
+            company_name="Stripe",
             new_status="TECHNICAL_INTERVIEW",
             notes="Recruiter confirmed technical assessment.",
         )
