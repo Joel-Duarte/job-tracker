@@ -1290,12 +1290,12 @@ async function confirmDelete() {
 
 .inner-modal-box {
   width: 100%;
-  max-width: 440px;
+  max-width: 480px;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xl);
-  overflow: hidden;
+  position: relative;
 }
 
 .inner-modal-header {

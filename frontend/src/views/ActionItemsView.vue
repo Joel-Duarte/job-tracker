@@ -865,7 +865,7 @@ onMounted(() => {
   box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  position: relative;
 }
 
 .modal-header {
