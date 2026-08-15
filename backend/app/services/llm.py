@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any
+from typing import Any, List, Optional
 from langchain_core.prompts import ChatPromptTemplate
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,7 @@ from app.core.llm_factory import (
 )
 from app.core.prompts import get_prompt_template
 from app.models.applications import ApplicationEmbeddingModel, ApplicationModel
+from app.schemas.candidate_profile import CVAnonymizationResult
 from app.schemas.llm import ApplicationSummaryResult, EmailExtractionResult, JobAssessmentResult
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ async def get_active_llm_config(db: AsyncSession) -> dict[str, Any]:
 
 async def extract_email_info(db: AsyncSession, email_content: str) -> EmailExtractionResult:
     """Extracts structured job application metadata from email body using LangChain EXTRACTION model."""
-    llm = await get_task_chat_model(db, task_type="EXTRACTION")
+    llm = await get_task_chat_model(db, task_type="EXTRACTION", temperature=0.2)
     structured_llm = llm.with_structured_output(EmailExtractionResult)
     template_str = await get_prompt_template(db, "extraction")
 
@@ -43,11 +44,18 @@ async def extract_email_info(db: AsyncSession, email_content: str) -> EmailExtra
     return EmailExtractionResult.model_validate(result)
 
 
-async def assess_job_posting(db: AsyncSession, job_description: str) -> JobAssessmentResult:
+async def assess_job_posting(
+    db: AsyncSession,
+    job_description: str,
+    candidate_skills: Optional[List[str]] = None,
+    programmatic_baseline: int = 0,
+) -> JobAssessmentResult:
     """Evaluates a job posting / JD for pre-application qualification and keyword fit."""
-    llm = await get_task_chat_model(db, task_type="EXTRACTION")
+    llm = await get_task_chat_model(db, task_type="EXTRACTION", temperature=0.2)
     structured_llm = llm.with_structured_output(JobAssessmentResult)
     template_str = await get_prompt_template(db, "assessment")
+
+    skills_str = ", ".join(candidate_skills) if candidate_skills else "General Full-Stack / Software Engineering Profile"
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You evaluate job descriptions and output structured pre-application assessments."),
@@ -55,17 +63,42 @@ async def assess_job_posting(db: AsyncSession, job_description: str) -> JobAsses
     ])
 
     chain = prompt | structured_llm
-    result = await chain.ainvoke({"job_description": job_description})
-    if isinstance(result, JobAssessmentResult):
+    result = await chain.ainvoke({
+        "job_description": job_description,
+        "candidate_skills": skills_str,
+        "programmatic_baseline": str(programmatic_baseline),
+    })
+
+    if not isinstance(result, JobAssessmentResult):
+        result = JobAssessmentResult.model_validate(result)
+
+    result.programmatic_match_score = programmatic_baseline
+    return result
+
+
+async def anonymize_and_parse_cv(db: AsyncSession, raw_cv_text: str) -> CVAnonymizationResult:
+    """De-identifies candidate resume (scrubs names/companies, converts dates to durations, extracts skills)."""
+    llm = await get_task_chat_model(db, task_type="EXTRACTION", temperature=0.2)
+    structured_llm = llm.with_structured_output(CVAnonymizationResult)
+    template_str = await get_prompt_template(db, "cv_anonymization")
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "You de-identify resumes and extract structured canonical skills."),
+        ("human", template_str),
+    ])
+
+    chain = prompt | structured_llm
+    result = await chain.ainvoke({"resume_text": raw_cv_text})
+    if isinstance(result, CVAnonymizationResult):
         return result
-    return JobAssessmentResult.model_validate(result)
+    return CVAnonymizationResult.model_validate(result)
 
 
 async def summarize_application_status(
     db: AsyncSession, events_timeline: list[dict[str, Any]]
 ) -> ApplicationSummaryResult:
     """Synthesizes a narrative status snapshot from timeline events using LangChain SUMMARIZATION model."""
-    llm = await get_task_chat_model(db, task_type="SUMMARIZATION")
+    llm = await get_task_chat_model(db, task_type="SUMMARIZATION", temperature=0.1)
     structured_llm = llm.with_structured_output(ApplicationSummaryResult)
     events_str = json.dumps(events_timeline, indent=2)
     template_str = await get_prompt_template(db, "summarization")

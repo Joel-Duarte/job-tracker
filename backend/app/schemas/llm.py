@@ -24,7 +24,8 @@ class ApplicationSummaryResult(BaseModel):
 class JobAssessmentResult(BaseModel):
     company: str = Field(description="Company name extracted from the job posting")
     position: str = Field(description="Position or job title")
-    fit_score: int = Field(description="Match / fit score from 0 to 100")
+    fit_score: int = Field(description="Qualitative AI match/fit score from 0 to 100")
+    programmatic_match_score: int = Field(default=0, description="Programmatic keyword overlap score (0 to 100)")
     matching_skills: List[str] = Field(default_factory=list, description="List of matching skills / strengths")
     missing_skills: List[str] = Field(default_factory=list, description="List of missing skills or requirements")
     pros: List[str] = Field(default_factory=list, description="Key advantages / pros of this role")

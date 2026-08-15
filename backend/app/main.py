@@ -9,6 +9,7 @@ from app.routers import (
     agent_chat,
     ai_config,
     applications,
+    candidate_profile,
     email_accounts,
     events,
     extension,
@@ -55,6 +56,7 @@ app = FastAPI(
 
 # Register routers
 app.include_router(intake.router, prefix="/api/v1")
+app.include_router(candidate_profile.router, prefix="/api/v1")
 app.include_router(extension.router, prefix="/api/v1")
 app.include_router(agent_chat.router, prefix="/api/v1")
 app.include_router(ai_config.router, prefix="/api/v1")

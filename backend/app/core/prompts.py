@@ -14,9 +14,17 @@ DEFAULT_PROMPTS = {
         "Timeline Events:\n{events_str}"
     ),
     "assessment": (
-        "You are an expert technical recruiter and career coach. Analyze the following job description for pre-application qualification. "
-        "Extract company name, position, required skills, compensation range, and evaluate the match score (0-100), key strengths, and missing qualification keywords.\n\n"
+        "You are an expert technical recruiter and career coach. Analyze the following job description for pre-application qualification.\n"
+        "Candidate Known Skills: {candidate_skills}\n"
+        "Programmatic Overlap Baseline: {programmatic_baseline}%\n\n"
+        "Extract company name, position, required skills, compensation range, and evaluate the qualitative AI fit score (0-100), key matching strengths, missing keywords, and pros/cons.\n\n"
         "Job Description:\n{job_description}"
+    ),
+    "cv_anonymization": (
+        "You are an expert resume privacy officer and talent analyst. De-identify the provided resume: remove real names, addresses, emails, phone numbers, and specific company names (replace company names with industry tags like [Fintech Scaleup], [Tech Enterprise], [Early-stage Startup]).\n"
+        "Convert all date ranges into relative durations (e.g. '2018-2020' -> '2 years', '2021 - Present' -> '3.5 years').\n"
+        "Extract canonical technical skills, total years of experience, and industry domains.\n\n"
+        "Resume Content:\n{resume_text}"
     ),
     "agent_system": (
         "You are the intelligent Job Tracker Agent. You help the user manage, query, and optimize their job search pipeline.\n"

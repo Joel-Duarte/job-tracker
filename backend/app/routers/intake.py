@@ -184,7 +184,27 @@ async def assess_job_lead(
             detail="Please provide a valid job description text or reachable URL.",
         )
 
-    return await assess_job_posting(db, content)
+    # 1. Fetch candidate's active CV skills if available
+    from app.models.candidate_profile import CandidateCVModel
+    from app.services.matcher import compute_programmatic_skill_match
+
+    cv_stmt = (
+        select(CandidateCVModel)
+        .where(CandidateCVModel.is_active == True)
+        .order_by(CandidateCVModel.id.desc())
+    )
+    cv_res = await db.execute(cv_stmt)
+    active_cv = cv_res.scalars().first()
+
+    candidate_skills = active_cv.extracted_skills if active_cv else []
+    match_info = compute_programmatic_skill_match(candidate_skills, content)
+
+    return await assess_job_posting(
+        db,
+        content,
+        candidate_skills=candidate_skills,
+        programmatic_baseline=match_info.get("programmatic_score", 0),
+    )
 
 
 @router.post("/confirm-assessment", response_model=IntakeResultResponse, status_code=status.HTTP_200_OK)
