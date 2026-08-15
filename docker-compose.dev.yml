@@ -4,7 +4,9 @@ name: job-tracker
 # Docker Compose Development Overlay (Hot Reloading for Backend & Frontend)
 #
 # Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#   ./dev.sh
+#   OR
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 # ==============================================================================
 
 services:
@@ -26,8 +28,8 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
-      target: dev
+      dockerfile: Dockerfile.dev
+    image: job-tracker-frontend:dev
     container_name: job-tracker-frontend-dev
     ports: !override
       - "${FRONTEND_DEV_PORT:-5173}:5173"
