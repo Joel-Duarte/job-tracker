@@ -117,8 +117,29 @@ async def summarize_application_status(
 
 async def generate_embedding(db: AsyncSession, text_input: str) -> list[float]:
     """Generates vector embedding for input text using configured LangChain EMBEDDING model."""
+    if isinstance(text_input, str):
+        cleaned_text = text_input.strip()
+    elif isinstance(text_input, (dict, list)):
+        cleaned_text = json.dumps(text_input)
+    else:
+        cleaned_text = str(text_input).strip() if text_input is not None else ""
+
+    if not cleaned_text:
+        cleaned_text = "Job Application"
+
     embeddings = await get_task_embeddings_model(db)
-    return await embeddings.aembed_query(text_input)
+
+    # Local OpenAI-compatible servers (such as LM Studio / Ollama) often strictly require
+    # an array of strings in the 'input' JSON payload (e.g. {"input": ["..."], "model": "..."}).
+    # Trying aembed_documents([cleaned_text]) first satisfies array input requirement.
+    try:
+        doc_vectors = await embeddings.aembed_documents([cleaned_text])
+        if doc_vectors and len(doc_vectors) > 0 and len(doc_vectors[0]) > 0:
+            return doc_vectors[0]
+    except Exception as doc_err:
+        logger.debug("aembed_documents attempt failed, trying aembed_query: %s", doc_err)
+
+    return await embeddings.aembed_query(cleaned_text)
 
 
 async def generate_and_save_application_embedding(
@@ -149,19 +170,31 @@ async def generate_and_save_application_embedding(
             "status_after_event": event.email_status_after_event,
         })
 
-    summary_result = await summarize_application_status(db, events_timeline)
+    content_to_embed = None
+    try:
+        summary_result = await summarize_application_status(db, events_timeline)
+        content_to_embed = getattr(summary_result, "snapshot", None)
+        if not content_to_embed:
+            for alt_field in ("summary", "overview", "summary_text", "application_summary", "result", "text"):
+                content_to_embed = getattr(summary_result, alt_field, None)
+                if content_to_embed:
+                    break
+    except Exception as sum_err:
+        logger.warning("Summarization failed before embedding, generating fallback text: %s", sum_err)
 
-    content_to_embed = getattr(summary_result, "snapshot", None)
-    if content_to_embed is None:
-        for alt_field in ("summary", "overview", "summary_text", "application_summary", "result", "text"):
-            content_to_embed = getattr(summary_result, alt_field, None)
-            if content_to_embed is not None:
-                break
+    if not content_to_embed or not str(content_to_embed).strip():
+        comp_name = application.company.name if application.company else "Unknown Company"
+        event_lines = [
+            f"- [{e.email_event_type}] {e.email_subject or ''}: {e.email_summary or ''}"
+            for e in application.events
+        ]
+        content_to_embed = (
+            f"Job Application: {application.position} at {comp_name}.\n"
+            f"Status: {application.status}.\n"
+            f"Timeline:\n" + "\n".join(event_lines)
+        )
 
-    if content_to_embed is None:
-        raise ValueError("Unable to extract snapshot or summary text from ApplicationSummaryResult.")
-
-    vector = await generate_embedding(db, content_to_embed)
+    vector = await generate_embedding(db, str(content_to_embed))
 
     emb_stmt = select(ApplicationEmbeddingModel).where(
         ApplicationEmbeddingModel.email_application_id == application_id
