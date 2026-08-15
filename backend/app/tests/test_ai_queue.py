@@ -9,9 +9,12 @@ from app.core.ai_queue import ProviderConcurrencyManager
 from app.core.database import get_db
 from app.main import app
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
+from app.models.applications import ApplicationEventModel, ApplicationModel, CompanyModel, JobPostingModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
+from app.models.staging import StagingItemModel
 from app.schemas.llm import JobAssessmentResult
 from app.services.evaluation_worker import process_evaluation_task
+from sqlalchemy import select
 
 
 @pytest.mark.asyncio
@@ -60,13 +63,14 @@ async def test_intake_queue_endpoints_and_worker(db_session: AsyncSession):
         await db_session.commit()
 
         # 2. Enqueue Assessment via POST /api/v1/intake/enqueue-assessment
-        enqueue_res = await ac.post(
-            "/api/v1/intake/enqueue-assessment",
-            json={
-                "text": "Stripe - Staff Backend Engineer\nLocation: Remote\nSalary: $200k - $250k\nRequirements: Python, Distributed Systems, SQL",
-                "title_hint": "Stripe - Staff Backend Engineer",
-            },
-        )
+        with patch("fastapi.BackgroundTasks.add_task"):
+            enqueue_res = await ac.post(
+                "/api/v1/intake/enqueue-assessment",
+                json={
+                    "text": "Stripe - Staff Backend Engineer\nLocation: Remote\nSalary: $200k - $250k\nRequirements: Python, Distributed Systems, SQL",
+                    "title_hint": "Stripe - Staff Backend Engineer",
+                },
+            )
         assert enqueue_res.status_code == 202
         task_data = enqueue_res.json()
         task_id = task_data["id"]
@@ -98,8 +102,7 @@ async def test_intake_queue_endpoints_and_worker(db_session: AsyncSession):
         )
 
         with patch("app.services.evaluation_worker.assess_job_posting", new=AsyncMock(return_value=mock_assessment)):
-            with patch("app.services.evaluation_worker.AsyncSessionLocal", return_value=db_session):
-                await process_evaluation_task(task_id)
+            await process_evaluation_task(task_id, db=db_session)
 
         # 5. Verify task is marked COMPLETED in database
         updated_task = await db_session.get(IntakeEvaluationTaskModel, task_id)
@@ -108,6 +111,20 @@ async def test_intake_queue_endpoints_and_worker(db_session: AsyncSession):
         assert updated_task.stage == "COMPLETE"
         assert updated_task.result_json["company"] == "Stripe"
         assert updated_task.result_json["fit_score"] == 95
+        assert updated_task.result_json["application_id"] is not None
+
+        # Verify Application, Company, JobPosting, and Event are persisted
+        app_id = updated_task.result_json["application_id"]
+        app_res = await db_session.get(ApplicationModel, app_id)
+        assert app_res is not None
+        assert app_res.status == "ASSESSMENT"
+        assert app_res.position == "Staff Backend Engineer"
+
+        jp_stmt = select(JobPostingModel).where(JobPostingModel.application_id == app_id)
+        jp_res = await db_session.execute(jp_stmt)
+        jp = jp_res.scalar_one_or_none()
+        assert jp is not None
+        assert jp.salary_min == 200000.0
 
         # 6. Delete evaluation task via DELETE /api/v1/intake/evaluations/{task_id}
         del_res = await ac.delete(f"/api/v1/intake/evaluations/{task_id}")
@@ -115,5 +132,89 @@ async def test_intake_queue_endpoints_and_worker(db_session: AsyncSession):
 
         deleted_check = await db_session.get(IntakeEvaluationTaskModel, task_id)
         assert deleted_check is None
+
+    app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_intake_queue_duplicate_staging_and_resolution(db_session: AsyncSession):
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # 1. First lead creates Application in ASSESSMENT
+        comp = CompanyModel(name="GitHub", name_normalized="github")
+        db_session.add(comp)
+        await db_session.flush()
+
+        app_orig = ApplicationModel(
+            company_id=comp.id,
+            position="Staff AI Engineer",
+            position_normalized="staff ai engineer",
+            status="ASSESSMENT",
+        )
+        db_session.add(app_orig)
+        await db_session.commit()
+
+        # 2. Enqueue duplicate lead
+        with patch("fastapi.BackgroundTasks.add_task"):
+            enqueue_res = await ac.post(
+                "/api/v1/intake/enqueue-assessment",
+                json={
+                    "text": "GitHub - Staff AI Engineer\nLocation: Remote\nRequirements: Python, LLM",
+                    "title_hint": "GitHub - Staff AI Engineer",
+                },
+            )
+        assert enqueue_res.status_code == 202
+        task_id = enqueue_res.json()["id"]
+
+        mock_assessment = JobAssessmentResult(
+            company="GitHub",
+            position="Staff AI Engineer",
+            location="Remote",
+            work_model="Remote",
+            recommendation="APPLY_STRONGLY",
+            fit_score=92,
+            matching_skills=["Python", "LLM"],
+            missing_skills=[],
+            pros=["Great culture"],
+            cons=[],
+            summary="Strong candidate match for AI role.",
+        )
+
+        with patch("app.services.evaluation_worker.assess_job_posting", new=AsyncMock(return_value=mock_assessment)):
+            await process_evaluation_task(task_id, db=db_session)
+
+        # 3. Verify task stage is STAGED_DUPLICATE
+        dup_task = await db_session.get(IntakeEvaluationTaskModel, task_id)
+        assert dup_task.stage == "STAGED_DUPLICATE"
+        assert dup_task.result_json["is_duplicate"] is True
+        staging_id = dup_task.result_json["staging_item_id"]
+        assert staging_id is not None
+
+        # 4. Verify Staging Item exists
+        staging_item = await db_session.get(StagingItemModel, staging_id)
+        assert staging_item is not None
+        assert staging_item.match_reason == "DUPLICATE_APPLICATION_FOUND"
+        assert staging_item.status == "PENDING"
+
+        # 5. Resolve as NEW application (e.g. re-application)
+        resolve_res = await ac.post(
+            f"/api/v1/staging/{staging_id}/resolve",
+            json={
+                "company_name": "GitHub",
+                "position": "Staff AI Engineer",
+                "status": "ASSESSMENT",
+                "create_new": True,
+            },
+        )
+        assert resolve_res.status_code == 200
+        data = resolve_res.json()
+        new_app_id = data["application_id"]
+        assert new_app_id != app_orig.id
+
+        # Verify two distinct applications now exist
+        all_apps = (await db_session.execute(select(ApplicationModel).where(ApplicationModel.company_id == comp.id))).scalars().all()
+        assert len(all_apps) == 2
 
     app.dependency_overrides.clear()

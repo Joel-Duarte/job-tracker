@@ -156,7 +156,7 @@ function toggleExpandTask(taskId) {
   }
 }
 
-async function confirmAndSaveLead(task, targetStatus = 'ASSESSMENT') {
+async function confirmAndSaveLead(task, targetStatus = 'ASSESSMENT', forceNew = false) {
   if (!task.result_json) return
   const result = task.result_json
   processingTaskIds.value.add(task.id)
@@ -167,6 +167,8 @@ async function confirmAndSaveLead(task, targetStatus = 'ASSESSMENT') {
       position: result.position,
       status: targetStatus,
       job_url: task.job_url || null,
+      application_id: !forceNew ? result.application_id : null,
+      force_new: forceNew,
       description_markdown: task.raw_text || result.summary,
       salary_min: result.salary_min,
       salary_max: result.salary_max,
@@ -179,7 +181,7 @@ async function confirmAndSaveLead(task, targetStatus = 'ASSESSMENT') {
       ],
     })
 
-    uiStore.showToast(`Saved '${res.data.company || 'Job'}' to ${targetStatus}!`, 'success')
+    uiStore.showToast(`Updated '${res.data.company || 'Job'}' in ${targetStatus}!`, 'success')
     appStore.fetchApplications()
 
     // Dismiss evaluated task from queue
@@ -575,6 +577,14 @@ onUnmounted(() => {
               <p class="eval-text">{{ task.result_json.summary }}</p>
             </div>
 
+            <!-- Duplicate Advisory Banner if applicable -->
+            <div v-if="task.stage === 'STAGED_DUPLICATE' || task.result_json?.is_duplicate" class="advisory-banner mt-3">
+              <AlertTriangle :size="16" class="text-warning flex-shrink-0" />
+              <span>
+                <strong>Existing Application Detected:</strong> A prior application for this role was found in your pipeline. You can choose to create a fresh application or update the existing record.
+              </span>
+            </div>
+
             <!-- Confirmation Action Bar -->
             <div class="review-action-bar">
               <button class="btn btn-danger btn-sm" @click="deleteTask(task.id)">
@@ -582,15 +592,31 @@ onUnmounted(() => {
                 <span>Dismiss Lead</span>
               </button>
 
-              <div class="confirm-buttons">
+              <div v-if="task.stage === 'STAGED_DUPLICATE' || task.result_json?.is_duplicate" class="confirm-buttons">
                 <button
                   class="btn btn-secondary btn-sm"
                   :disabled="processingTaskIds.has(task.id)"
-                  @click="confirmAndSaveLead(task, 'ASSESSMENT')"
+                  @click="confirmAndSaveLead(task, 'ASSESSMENT', true)"
                 >
-                  <Loader2 v-if="processingTaskIds.has(task.id)" class="animate-spin" :size="14" />
-                  <span>Save to Assessment</span>
+                  <Sparkles :size="14" class="text-primary" />
+                  <span>Create as New Application</span>
                 </button>
+
+                <button
+                  class="btn btn-primary btn-sm"
+                  :disabled="processingTaskIds.has(task.id)"
+                  @click="confirmAndSaveLead(task, 'ASSESSMENT', false)"
+                >
+                  <CheckCircle2 :size="14" />
+                  <span>Update Existing Application</span>
+                </button>
+              </div>
+
+              <div v-else class="confirm-buttons">
+                <span v-if="task.result_json?.application_id" class="badge badge-success text-xs flex items-center gap-1 mr-2">
+                  <CheckCircle2 :size="12" />
+                  <span>Auto-saved to ASSESSMENT</span>
+                </span>
 
                 <button
                   class="btn btn-primary btn-sm"

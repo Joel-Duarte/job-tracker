@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.applications import ApplicationEventModel, ApplicationModel, CompanyModel
+from app.models.applications import ApplicationEventModel, ApplicationModel, CompanyModel, JobPostingModel
 from app.schemas.extension import ClipJobRequest, ClipUrlRequest, ExtensionClipResponse
 from app.schemas.intake import EmailPayload
 from app.services.intake import process_single_email_graph
@@ -149,6 +149,26 @@ async def clip_job_pre_extracted(
             application.status = payload.status
         if payload.url and not application.job_url:
             application.job_url = payload.url
+
+    # Upsert Job Posting
+    jp_stmt = select(JobPostingModel).where(JobPostingModel.application_id == application.id)
+    jp_res = await db.execute(jp_stmt)
+    job_posting = jp_res.scalar_one_or_none()
+
+    if not job_posting:
+        job_posting = JobPostingModel(
+            application_id=application.id,
+            job_url=payload.url or f"clip-{application.id}",
+            description_markdown=payload.description,
+            location=payload.location,
+            work_model=payload.work_model if hasattr(payload, "work_model") else None,
+        )
+        db.add(job_posting)
+    else:
+        if payload.description:
+            job_posting.description_markdown = payload.description
+        if payload.location:
+            job_posting.location = payload.location
 
     # Create timeline event
     conv_id = f"ext-clip-{uuid.uuid4().hex[:12]}"

@@ -316,12 +316,25 @@ async def assess_job_lead(
     candidate_skills = active_cv.extracted_skills if active_cv else []
     match_info = compute_programmatic_skill_match(candidate_skills, content)
 
-    return await assess_job_posting(
+    assessment = await assess_job_posting(
         db,
         content,
         candidate_skills=candidate_skills,
         programmatic_baseline=match_info.get("programmatic_score", 0),
     )
+
+    # Automatically persist to database or stage if duplicate
+    from app.services.job_saver import persist_or_stage_job_assessment
+    await persist_or_stage_job_assessment(
+        db=db,
+        assessment=assessment,
+        raw_text=content,
+        job_url=payload.url,
+        force_new=False,
+        target_status="ASSESSMENT",
+    )
+
+    return assessment
 
 
 @router.post("/confirm-assessment", response_model=IntakeResultResponse, status_code=status.HTTP_200_OK)
@@ -331,6 +344,8 @@ async def confirm_job_assessment(
 ) -> IntakeResultResponse:
     """Commits an assessed job lead to the application pipeline in ASSESSMENT or APPLIED status."""
     comp_norm = payload.company.strip().lower()
+    position_norm = payload.position.strip().lower()
+    now = datetime.now(timezone.utc)
 
     # 1. Company
     stmt = select(CompanyModel).where(CompanyModel.name_normalized == comp_norm)
@@ -342,45 +357,85 @@ async def confirm_job_assessment(
         db.add(company)
         await db.flush()
 
-    # 2. Application
-    app_record = ApplicationModel(
-        company_id=company.id,
-        position=payload.position.strip(),
-        position_normalized=payload.position.strip().lower(),
-        status=payload.status or "ASSESSMENT",
-        job_url=payload.job_url,
-        application_date=datetime.now(timezone.utc),
-        last_activity_at=datetime.now(timezone.utc),
-    )
-    db.add(app_record)
-    await db.flush()
+    # 2. Application resolution
+    app_record = None
+    if payload.application_id:
+        app_record = await db.get(ApplicationModel, payload.application_id)
+
+    if not app_record and not payload.force_new:
+        app_stmt = select(ApplicationModel).where(
+            ApplicationModel.company_id == company.id,
+            ApplicationModel.position_normalized == position_norm,
+        )
+        app_res = await db.execute(app_stmt)
+        app_record = app_res.scalar_one_or_none()
+
+    if not app_record:
+        app_record = ApplicationModel(
+            company_id=company.id,
+            position=payload.position.strip(),
+            position_normalized=position_norm,
+            status=payload.status or "ASSESSMENT",
+            job_url=payload.job_url,
+            application_date=now,
+            last_activity_at=now,
+        )
+        db.add(app_record)
+        await db.flush()
+    else:
+        if payload.status:
+            app_record.status = payload.status
+        if payload.job_url and not app_record.job_url:
+            app_record.job_url = payload.job_url
+        app_record.last_activity_at = now
 
     # 3. Job Posting Record
-    job_posting = JobPostingModel(
-        application_id=app_record.id,
-        job_url=payload.job_url or f"lead-{uuid.uuid4().hex[:8]}",
-        description_markdown=payload.description_markdown,
-        salary_min=payload.salary_min,
-        salary_max=payload.salary_max,
-        currency=payload.currency or "USD",
-        location=payload.location,
-        work_model=payload.work_model,
-        required_skills=payload.required_skills or [],
-    )
-    db.add(job_posting)
+    jp_stmt = select(JobPostingModel).where(JobPostingModel.application_id == app_record.id)
+    jp_res = await db.execute(jp_stmt)
+    job_posting = jp_res.scalar_one_or_none()
 
-    # 4. Initial Event
+    if not job_posting:
+        job_posting = JobPostingModel(
+            application_id=app_record.id,
+            job_url=payload.job_url or f"lead-{uuid.uuid4().hex[:8]}",
+            description_markdown=payload.description_markdown,
+            salary_min=payload.salary_min,
+            salary_max=payload.salary_max,
+            currency=payload.currency or "USD",
+            location=payload.location,
+            work_model=payload.work_model,
+            required_skills=payload.required_skills or [],
+        )
+        db.add(job_posting)
+    else:
+        if payload.description_markdown:
+            job_posting.description_markdown = payload.description_markdown
+        if payload.salary_min is not None:
+            job_posting.salary_min = payload.salary_min
+        if payload.salary_max is not None:
+            job_posting.salary_max = payload.salary_max
+        if payload.location:
+            job_posting.location = payload.location
+        if payload.work_model:
+            job_posting.work_model = payload.work_model
+        if payload.required_skills:
+            job_posting.required_skills = payload.required_skills
+
+    # 4. Initial/Update Event
     event = ApplicationEventModel(
         email_application_id=app_record.id,
         email_conversation_id=f"lead-conv-{app_record.id}",
         email_event_type="PRE_APPLICATION_ASSESSMENT",
         email_status_after_event=app_record.status,
-        email_summary=f"Pre-application AI assessment completed for {payload.position} at {payload.company}.",
-        email_received_at=datetime.now(timezone.utc),
+        email_summary=f"Pre-application AI assessment recorded for {payload.position} at {payload.company}.",
+        email_received_at=now,
         source_channel="INTAKE",
+        email_raw_body=payload.description_markdown,
     )
     db.add(event)
     await db.commit()
+    await db.refresh(app_record)
+    await db.refresh(event)
 
     # 5. Generate Vector Embedding
     try:

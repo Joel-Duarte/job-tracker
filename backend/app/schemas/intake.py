@@ -107,6 +107,8 @@ class ConfirmAssessmentRequest(BaseModel):
     position: str = Field(..., description="Position or title")
     status: str = Field(default="ASSESSMENT", description="Initial pipeline status: ASSESSMENT or APPLIED")
     job_url: Optional[str] = Field(default=None, description="Job URL")
+    application_id: Optional[int] = Field(default=None, description="Optional target Application ID to update")
+    force_new: Optional[bool] = Field(default=False, description="If True, creates a fresh Application record")
     description_markdown: Optional[str] = Field(default=None, description="Job description or AI assessment")
     salary_min: Optional[float] = Field(default=None)
     salary_max: Optional[float] = Field(default=None)

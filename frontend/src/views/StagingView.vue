@@ -25,8 +25,21 @@ const editingItem = ref(null)
 const editForm = ref({
   company: '',
   position: '',
-  status: 'APPLIED',
+  status: 'ASSESSMENT',
+  create_new: false,
 })
+
+function getItemCompany(item) {
+  return item.extracted_data?.company || item.extracted_data?.company_name || item.suggested_company || 'Unknown Company'
+}
+
+function getItemPosition(item) {
+  return item.extracted_data?.position || item.suggested_position || 'Position Unspecified'
+}
+
+function getItemStatus(item) {
+  return item.extracted_data?.status || item.suggested_status || 'ASSESSMENT'
+}
 
 async function fetchStagingItems() {
   loading.value = true
@@ -50,18 +63,37 @@ onMounted(() => {
 async function resolveItem(item, customData = null) {
   try {
     const payload = customData || {
-      company: item.suggested_company,
-      position: item.suggested_position,
-      status: item.suggested_status || 'APPLIED',
+      company: getItemCompany(item),
+      position: getItemPosition(item),
+      status: getItemStatus(item),
+      create_new: false,
     }
     await StagingAPI.resolve(item.id, payload)
-    uiStore.showToast(`Staged item for '${payload.company}' approved & committed`, 'success')
+    uiStore.showToast(`Staged item for '${payload.company}' processed & committed!`, 'success')
     editingItem.value = null
     fetchStagingItems()
     appStore.fetchApplications()
   } catch (err) {
     uiStore.showToast(err.message, 'error')
   }
+}
+
+async function resolveAsNew(item) {
+  await resolveItem(item, {
+    company: getItemCompany(item),
+    position: getItemPosition(item),
+    status: 'ASSESSMENT',
+    create_new: true,
+  })
+}
+
+async function resolveAsUpdate(item) {
+  await resolveItem(item, {
+    company: getItemCompany(item),
+    position: getItemPosition(item),
+    status: getItemStatus(item),
+    create_new: false,
+  })
 }
 
 async function dismissItem(item) {
@@ -77,9 +109,10 @@ async function dismissItem(item) {
 function startEdit(item) {
   editingItem.value = item
   editForm.value = {
-    company: item.suggested_company || '',
-    position: item.suggested_position || '',
-    status: item.suggested_status || 'APPLIED',
+    company: getItemCompany(item),
+    position: getItemPosition(item),
+    status: getItemStatus(item),
+    create_new: false,
   }
 }
 </script>
@@ -91,7 +124,7 @@ function startEdit(item) {
       <div>
         <h1 class="page-title">Human-in-the-Loop Staging Queue</h1>
         <p class="page-subtitle">
-          Review incoming communications with low confidence or ambiguous multi-role matches.
+          Review incoming communications with low confidence, duplicate applications, or ambiguous multi-role matches.
         </p>
       </div>
 
@@ -136,16 +169,21 @@ function startEdit(item) {
           <div class="card-top">
             <div class="company-tag">
               <Building2 :size="16" class="text-primary" />
-              <span class="company-name">{{ item.suggested_company || 'Unknown Company' }}</span>
+              <span class="company-name">{{ getItemCompany(item) }}</span>
             </div>
             <div class="match-score">
-              <span class="score-label">Confidence:</span>
-              <span class="score-val">{{ (item.match_score * 100).toFixed(0) }}%</span>
+              <span v-if="item.match_reason === 'DUPLICATE_APPLICATION_FOUND'" class="badge badge-warning text-xs font-semibold">
+                Duplicate Detected
+              </span>
+              <template v-else>
+                <span class="score-label">Confidence:</span>
+                <span class="score-val">{{ ((item.match_score || 0) * 100).toFixed(0) }}%</span>
+              </template>
             </div>
           </div>
 
           <div class="role-title">
-            {{ item.suggested_position || 'Position Unspecified' }}
+            {{ getItemPosition(item) }}
           </div>
 
           <!-- Email Info -->
@@ -177,13 +215,35 @@ function startEdit(item) {
               <span>Dismiss</span>
             </button>
 
-            <button
-              class="btn btn-primary btn-sm ml-auto"
-              @click="resolveItem(item)"
-            >
-              <CheckCircle2 :size="14" />
-              <span>Approve Match</span>
-            </button>
+            <div class="ml-auto flex items-center gap-2">
+              <template v-if="item.match_reason === 'DUPLICATE_APPLICATION_FOUND'">
+                <button
+                  class="btn btn-secondary btn-sm"
+                  title="Create as a new separate application in ASSESSMENT status"
+                  @click="resolveAsNew(item)"
+                >
+                  <Sparkles :size="14" class="text-primary" />
+                  <span>Create as New</span>
+                </button>
+                <button
+                  class="btn btn-primary btn-sm"
+                  title="Update existing application with this new event"
+                  @click="resolveAsUpdate(item)"
+                >
+                  <CheckCircle2 :size="14" />
+                  <span>Update Existing</span>
+                </button>
+              </template>
+              <template v-else>
+                <button
+                  class="btn btn-primary btn-sm"
+                  @click="resolveItem(item)"
+                >
+                  <CheckCircle2 :size="14" />
+                  <span>Approve Match</span>
+                </button>
+              </template>
+            </div>
           </div>
         </div>
       </div>
@@ -211,6 +271,7 @@ function startEdit(item) {
           <div class="input-group">
             <label class="input-label">Application Status</label>
             <select v-model="editForm.status" class="form-input">
+              <option value="ASSESSMENT">AI Assessment</option>
               <option value="APPLIED">Applied</option>
               <option value="ONLINE_ASSESSMENT">Online Assessment</option>
               <option value="TECHNICAL_INTERVIEW">Technical Interview</option>
@@ -219,7 +280,14 @@ function startEdit(item) {
             </select>
           </div>
 
-          <div class="modal-actions">
+          <div class="input-group checkbox-group mt-2">
+            <label class="flex items-center gap-2 cursor-pointer text-xs text-secondary">
+              <input v-model="editForm.create_new" type="checkbox" />
+              <span>Create as a new separate Application record (bypass linking to existing)</span>
+            </label>
+          </div>
+
+          <div class="modal-actions mt-4">
             <button class="btn btn-secondary" @click="editingItem = null">Cancel</button>
             <button
               class="btn btn-primary"

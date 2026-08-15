@@ -87,10 +87,12 @@ class ApplicationEventDetail(BaseModel):
 
 
 class AllowedApplicationStatus(str, Enum):
+    ASSESSMENT = "ASSESSMENT"
     APPLIED = "APPLIED"
-    REJECTED = "REJECTED"
     ONLINE_ASSESSMENT = "ONLINE_ASSESSMENT"
     TECHNICAL_INTERVIEW = "TECHNICAL_INTERVIEW"
+    OFFER = "OFFER"
+    REJECTED = "REJECTED"
 
 
 class ApplicationByStatusResult(BaseModel):
