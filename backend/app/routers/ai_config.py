@@ -223,14 +223,25 @@ async def test_ai_provider(
             detail=f"AI Provider with ID {provider_id} not found.",
         )
 
-    # First check if there's an active binding using this provider
+    # 1. Check if there's an active binding using this provider
     binding_stmt = select(AITaskBindingModel).where(AITaskBindingModel.provider_id == provider_id)
     binding_res = await db.execute(binding_stmt)
     binding = binding_res.scalars().first()
 
+    # 2. Probe endpoint for discovered models if any
+    discovered_models = await _fetch_models_from_endpoint(provider)
+    live_models = [m.id for m in discovered_models if m.is_discovered]
+
     p_type = provider.provider_type.lower()
     resolved_prov = _resolve_provider(p_type)
-    model_to_use = binding.model_name if binding else (CURATED_MODELS.get(p_type, ["gpt-4o-mini"])[0])
+
+    if binding:
+        model_to_use = binding.model_name
+    elif live_models:
+        model_to_use = live_models[0]
+    else:
+        model_to_use = CURATED_MODELS.get(p_type, ["gpt-4o-mini"])[0]
+
     base_url = _clean_base_url(provider.base_url)
     api_key = provider.api_key or "dummy-key"
 
@@ -255,14 +266,31 @@ async def test_ai_provider(
             provider_name=provider.name,
             provider_type=provider.provider_type,
             base_url=provider.base_url,
-            response=content.strip(),
+            response=f"Verified model '{model_to_use}': {content.strip()}",
         )
     except Exception as err:
+        err_str = str(err)
+        # Check if the server is online but responded that no model is loaded or requested model is missing
+        if "No models loaded" in err_str or "no model loaded" in err_str.lower() or "does not exist" in err_str.lower():
+            if live_models:
+                models_hint = f"Discovered models on server: {', '.join(live_models)}."
+            else:
+                models_hint = "Server is online, but no model is currently loaded into memory. Please load a model in LM Studio / Ollama."
+
+            return AIProviderTestResponse(
+                status="success",
+                provider_name=provider.name,
+                provider_type=provider.provider_type,
+                base_url=provider.base_url,
+                response=f"Endpoint reached ({models_hint})",
+            )
+
         logger.error("Provider test probe failed for %s: %s", provider.name, err, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Provider probe failed for '{provider.name}' ({provider.provider_type}): {str(err)}",
+            detail=f"Provider probe failed for '{provider.name}' ({provider.provider_type}): {err_str}",
         )
+
 
 
 @router.get("/providers/{provider_id}/models", response_model=AIProviderModelsResponse)

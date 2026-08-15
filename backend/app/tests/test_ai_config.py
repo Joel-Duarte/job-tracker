@@ -66,7 +66,7 @@ async def test_ai_provider_crud_and_masking(db_session: AsyncSession):
             assert probe_res.status_code == 200
             probe_data = probe_res.json()
             assert probe_data["status"] == "success"
-            assert probe_data["response"] == "OK"
+            assert "OK" in probe_data["response"]
 
     app.dependency_overrides.clear()
 
