@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # Public exposed API base URL (for Docker port forwarding or reverse proxy)
     PUBLIC_API_URL: Optional[str] = None
 
+    # Camofox Browser Automation Server URL
+    CAMOUFOX_ENDPOINT: str = "http://localhost:9377"
+
     # Embedding Service Configuration
     EMBEDDING_API_URL: str = "http://localhost:1234/v1/embeddings"
     EMBEDDING_API_KEY: str = ""

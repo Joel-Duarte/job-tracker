@@ -13,8 +13,8 @@ LOG_LEVEL=DEBUG
 # Public exposed API base URL (for Docker port forwarding or reverse proxy)
 PUBLIC_API_URL=
 
-# Stealth Scraper WebSocket Endpoint
-CAMOUFOX_WS_ENDPOINT=ws://localhost:9222
+# Camofox Browser Automation Server URL
+CAMOUFOX_ENDPOINT=http://localhost:9377
 
 # Embedding Service Configuration (LM Studio / Ollama / OpenAI)
 EMBEDDING_API_URL=http://localhost:1234/v1/embeddings

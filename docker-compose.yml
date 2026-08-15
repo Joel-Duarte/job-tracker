@@ -1,11 +1,14 @@
+name: job-tracker
+
 services:
   # ============================================================================
-  # Database: PostgreSQL 16 + pgvector & pg_trgm
+  # Database: PostgreSQL 16 + pgvector & pg_trgm (Permanent Data Storage)
   # ============================================================================
-  db:
+  postgres-db:
     image: pgvector/pgvector:pg16
-    container_name: job-tracker-db
+    container_name: job-tracker-postgre-db
     restart: unless-stopped
+    stop_grace_period: 30s
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -24,16 +27,16 @@ services:
       - job-tracker-net
 
   # ============================================================================
-  # Stealth Scraper: Camoufox Headless Browser Service
+  # Stealth Scraper: Camofox Browser Automation Server
   # ============================================================================
   scraper:
-    image: ghcr.io/daijro/camoufox:latest
+    image: ghcr.io/jo-inc/camofox-browser:latest
     container_name: job-tracker-scraper
     restart: unless-stopped
     ports:
-      - "${CAMOUFOX_PORT:-9333}:9222"
+      - "${CAMOUFOX_PORT:-9377}:9377"
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9222/json/version || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:9377/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -50,10 +53,11 @@ services:
       dockerfile: Dockerfile
     container_name: job-tracker-backend
     restart: unless-stopped
+    stop_grace_period: 15s
     ports:
       - "${BACKEND_PORT:-8008}:8000"
     depends_on:
-      db:
+      postgres-db:
         condition: service_healthy
       scraper:
         condition: service_started
@@ -64,7 +68,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
       PUBLIC_API_URL: ${PUBLIC_API_URL:-}
-      CAMOUFOX_WS_ENDPOINT: ws://scraper:9222
+      CAMOUFOX_ENDPOINT: http://scraper:9377
       LLM_PROVIDER_NAME: ${LLM_PROVIDER_NAME:-openai}
       LLM_API_BASE: ${LLM_API_BASE:-http://host.docker.internal:1234/v1}
       LLM_API_KEY: ${LLM_API_KEY:-lm-1234}
@@ -77,6 +81,8 @@ services:
       MS_OAUTH_CLIENT_ID: ${MS_OAUTH_CLIENT_ID:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - app_data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
@@ -110,11 +116,13 @@ services:
       - job-tracker-net
 
 # ==============================================================================
-# Persistent Volumes & Networks
+# Persistent Named Volumes & Isolated Network
 # ==============================================================================
 volumes:
   postgres_data:
     name: job_tracker_postgres_data
+  app_data:
+    name: job_tracker_app_data
 
 networks:
   job-tracker-net:
