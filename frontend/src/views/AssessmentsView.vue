@@ -67,7 +67,9 @@ const activeQueueTasks = computed(() =>
 )
 
 const allCompletedTasks = computed(() =>
-  evaluationTasks.value.filter((t) => t.status === 'COMPLETED' && t.result_json)
+  evaluationTasks.value.filter(
+    (t) => (t.task_type === 'JOB_ASSESSMENT' || !t.task_type) && t.status === 'COMPLETED' && t.result_json
+  )
 )
 
 const readyEvaluations = computed(() => {
@@ -281,9 +283,9 @@ onUnmounted(() => {
     <!-- Header -->
     <div class="assessments-header">
       <div>
-        <h1 class="page-title">Assessments &amp; AI Queue</h1>
+        <h1 class="page-title">Job Lead Assessments</h1>
         <p class="page-subtitle">
-          Pre-screen opportunities with AI qualification, track background processing, and decide which leads enter your active pipeline.
+          Pre-screen job opportunities with AI qualification, analyze CV keyword overlap, and decide which leads enter your active pipeline.
         </p>
       </div>
 
@@ -298,6 +300,20 @@ onUnmounted(() => {
           <span>Refresh</span>
         </button>
       </div>
+    </div>
+
+    <!-- Active Processing Queue Banner (When background tasks are running) -->
+    <div v-if="activeQueueTasks.length > 0" class="active-queue-banner animate-fade-in">
+      <div class="banner-left">
+        <span class="live-pulse-dot"></span>
+        <Sparkles :size="15" class="text-primary" />
+        <span class="banner-text">
+          <strong>{{ activeQueueTasks.length }}</strong> task{{ activeQueueTasks.length > 1 ? 's are' : ' is' }} currently processing in the background AI Queue.
+        </span>
+      </div>
+      <router-link to="/queue" class="btn btn-secondary btn-xs">
+        <span>Open AI Queue &rarr;</span>
+      </router-link>
     </div>
 
     <!-- Overview Stats Bar -->
@@ -326,19 +342,18 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div
-        class="stat-card"
-        :class="{ active: activeTab === 'queue' }"
-        @click="activeTab = 'queue'"
+      <router-link
+        to="/queue"
+        class="stat-card queue-stat-card"
       >
         <div class="stat-icon queue-icon">
           <Clock :size="18" />
         </div>
         <div class="stat-info">
           <span class="stat-val">{{ activeQueueTasks.length }}</span>
-          <span class="stat-lbl">Processing in Queue</span>
+          <span class="stat-lbl">Active in AI Queue &rarr;</span>
         </div>
-      </div>
+      </router-link>
 
       <div
         class="stat-card"
@@ -366,18 +381,6 @@ onUnmounted(() => {
           <Sparkles :size="15" />
           <span>Ready for Review</span>
           <span class="tab-counter-badge">{{ readyEvaluations.length }}</span>
-        </button>
-
-        <button
-          class="sub-nav-tab"
-          :class="{ active: activeTab === 'queue' }"
-          @click="activeTab = 'queue'"
-        >
-          <Clock :size="15" />
-          <span>AI Queue</span>
-          <span v-if="activeQueueTasks.length > 0" class="tab-counter-badge pulse-badge">
-            {{ activeQueueTasks.length }}
-          </span>
         </button>
 
         <button
@@ -632,105 +635,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- TAB 2: BACKGROUND AI QUEUE -->
-    <div v-else-if="activeTab === 'queue'" class="tab-view animate-fade-in">
-      <div class="queue-card">
-        <div class="queue-card-header">
-          <div>
-            <h2 class="section-title">Asynchronous Background Queue</h2>
-            <p class="section-desc">Live multi-stage execution pipeline for job scraping, CV de-identification, and AI qualification.</p>
-          </div>
-
-          <button
-            class="btn btn-ghost btn-sm text-secondary"
-            @click="clearCompleted"
-            title="Clear completed evaluation records"
-          >
-            <Trash2 :size="14" />
-            <span>Clear Completed</span>
-          </button>
-        </div>
-
-        <div v-if="evaluationTasks.length === 0" class="empty-state-box">
-          <Clock :size="40" class="empty-state-icon" />
-          <h3 class="empty-state-title">Queue is idle</h3>
-          <p class="empty-state-desc">No tasks currently processing. Ingest a job posting to trigger background evaluation.</p>
-        </div>
-
-        <div v-else class="queue-tasks-list">
-          <div
-            v-for="task in evaluationTasks"
-            :key="task.id"
-            class="queue-item"
-            :class="`status-${task.status.toLowerCase()}`"
-          >
-            <div class="queue-item-header">
-              <div class="queue-title-line">
-                <span class="queue-task-type font-mono text-xs">{{ task.task_type || 'JOB_ASSESSMENT' }}</span>
-                <span class="queue-task-title">{{ task.title_hint || task.job_url || `Evaluation #${task.id}` }}</span>
-              </div>
-
-              <div class="queue-status-pill font-mono" :class="`pill-${task.status.toLowerCase()}`">
-                <Loader2 v-if="task.status === 'PROCESSING'" class="animate-spin" :size="12" />
-                <CheckCircle v-else-if="task.status === 'COMPLETED'" :size="12" />
-                <AlertTriangle v-else-if="task.status === 'FAILED'" :size="12" />
-                <span>{{ task.status }}</span>
-              </div>
-            </div>
-
-            <!-- Stepper Progress -->
-            <div class="stepper-track">
-              <div class="stepper-step" :class="{ done: ['EXTRACTING', 'MATCHING', 'ASSESSING', 'SAVING', 'COMPLETED'].includes(task.stage) || task.status === 'COMPLETED' }">
-                <div class="step-dot"></div>
-                <span class="step-lbl">Scrape / Ingest</span>
-              </div>
-              <div class="stepper-step" :class="{ done: ['MATCHING', 'ASSESSING', 'SAVING', 'COMPLETED'].includes(task.stage) || task.status === 'COMPLETED' }">
-                <div class="step-dot"></div>
-                <span class="step-lbl">Extract Roles</span>
-              </div>
-              <div class="stepper-step" :class="{ done: ['ASSESSING', 'SAVING', 'COMPLETED'].includes(task.stage) || task.status === 'COMPLETED' }">
-                <div class="step-dot"></div>
-                <span class="step-lbl">Match CV</span>
-              </div>
-              <div class="stepper-step" :class="{ done: ['SAVING', 'COMPLETED'].includes(task.stage) || task.status === 'COMPLETED' }">
-                <div class="step-dot"></div>
-                <span class="step-lbl">Qualitative Fit</span>
-              </div>
-              <div class="stepper-step" :class="{ done: task.status === 'COMPLETED' }">
-                <div class="step-dot"></div>
-                <span class="step-lbl">Complete</span>
-              </div>
-            </div>
-
-            <div class="queue-item-footer">
-              <span class="stage-info-text text-muted">
-                Current Stage: <strong>{{ formatStageLabel(task.stage) }}</strong>
-              </span>
-
-              <div class="queue-actions">
-                <button
-                  v-if="task.status === 'COMPLETED'"
-                  class="btn btn-primary btn-xs"
-                  @click="activeTab = 'ready'"
-                >
-                  <span>Review Dossier &rarr;</span>
-                </button>
-
-                <button
-                  class="btn btn-ghost btn-xs text-muted"
-                  @click="deleteEvaluation(task.id)"
-                  title="Dismiss task"
-                >
-                  <Trash2 :size="12" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- TAB 4: PASSED / ARCHIVED -->
+    <!-- TAB 2: PASSED / ARCHIVED -->
     <div v-else-if="activeTab === 'passed'" class="tab-view animate-fade-in">
       <div class="passed-list-container">
         <div class="passed-header">
@@ -893,6 +798,51 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.queue-stat-card {
+  text-decoration: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.queue-stat-card:hover {
+  border-color: var(--primary-glow);
+  box-shadow: 0 0 10px var(--primary-subtle);
+  transform: translateY(-1px);
+}
+
+.active-queue-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background-color: var(--primary-subtle);
+  border: 1px solid var(--primary-glow);
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.banner-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.banner-text {
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.live-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--primary);
+  box-shadow: 0 0 6px var(--primary-glow);
+  animation: pulse-ring 1.5s infinite;
 }
 
 .stat-val {

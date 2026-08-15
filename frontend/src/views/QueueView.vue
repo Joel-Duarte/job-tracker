@@ -21,6 +21,9 @@ import {
   CheckCircle2,
   XCircle,
   Search,
+  UserCheck,
+  ArrowRight,
+  SlidersHorizontal,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -106,7 +109,6 @@ function formatDate(isoStr) {
 function startPolling() {
   stopPolling()
   pollTimer = setInterval(() => {
-    // Poll fast if tasks are active, slower if idle
     fetchTasks(true)
   }, activeCount.value > 0 ? 1500 : 4000)
 }
@@ -118,8 +120,8 @@ function stopPolling() {
   }
 }
 
-onMounted(async () => {
-  await fetchTasks()
+onMounted(() => {
+  fetchTasks()
   startPolling()
 })
 
@@ -129,123 +131,134 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="page-container">
-    <!-- Header -->
-    <div class="queue-header">
-      <div>
-        <div class="header-badge">
-          <Cpu :size="14" />
-          <span>AI Background Processing Queue</span>
-        </div>
-        <h1 class="page-title">Task Execution Queue</h1>
+  <div class="page-container queue-page-layout">
+    <!-- Header Area -->
+    <div class="queue-header-section">
+      <div class="header-titles">
+        <h1 class="page-title">AI Processing Queue</h1>
         <p class="page-subtitle">
-          Real-time pipeline monitoring for asynchronous Job Intake assessments, CV profile extractions, and model tasks bounded by provider concurrency limits.
+          Real-time background execution queue for automated Job Lead evaluations and Candidate CV extractions.
         </p>
       </div>
 
-      <div class="header-actions">
-        <button
-          v-if="completedCount > 0 || failedCount > 0"
-          class="btn btn-secondary btn-sm"
-          :disabled="isClearing"
-          @click="clearCompleted"
-        >
-          <Trash2 :size="14" />
-          <span>Clear Finished</span>
-        </button>
-        <button class="btn btn-primary btn-sm" :disabled="loading" @click="fetchTasks(false)">
-          <RefreshCw :class="{ 'animate-spin': loading }" :size="14" />
-          <span>Refresh</span>
-        </button>
-      </div>
-    </div>
+      <!-- Quick Metrics Grid -->
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-icon-box active-box">
+            <Cpu :size="18" class="text-primary" />
+          </div>
+          <div class="metric-data">
+            <span class="metric-val">{{ activeCount }}</span>
+            <span class="metric-lbl">Actively Processing</span>
+          </div>
+        </div>
 
-    <!-- Summary Metrics Cards -->
-    <div class="metrics-row">
-      <div class="metric-card" :class="{ highlight: activeCount > 0 }">
-        <div class="metric-icon active">
-          <Loader2 v-if="activeCount > 0" class="animate-spin" :size="18" />
-          <Clock v-else :size="18" />
+        <div class="metric-card">
+          <div class="metric-icon-box complete-box">
+            <CheckCircle :size="18" class="text-success" />
+          </div>
+          <div class="metric-data">
+            <span class="metric-val">{{ completedCount }}</span>
+            <span class="metric-lbl">Completed</span>
+          </div>
         </div>
-        <div class="metric-content">
-          <span class="metric-val">{{ activeCount }}</span>
-          <span class="metric-label">Active / Queued</span>
-        </div>
-      </div>
 
-      <div class="metric-card">
-        <div class="metric-icon success">
-          <CheckCircle2 :size="18" />
+        <div class="metric-card">
+          <div class="metric-icon-box failed-box">
+            <AlertCircle :size="18" class="text-danger" />
+          </div>
+          <div class="metric-data">
+            <span class="metric-val">{{ failedCount }}</span>
+            <span class="metric-lbl">Failed / Cancelled</span>
+          </div>
         </div>
-        <div class="metric-content">
-          <span class="metric-val">{{ completedCount }}</span>
-          <span class="metric-label">Completed</span>
-        </div>
-      </div>
 
-      <div class="metric-card">
-        <div class="metric-icon danger">
-          <AlertCircle :size="18" />
-        </div>
-        <div class="metric-content">
-          <span class="metric-val">{{ failedCount }}</span>
-          <span class="metric-label">Failed / Cancelled</span>
-        </div>
-      </div>
-
-      <div class="metric-card">
-        <div class="metric-icon neutral">
-          <Layers :size="18" />
-        </div>
-        <div class="metric-content">
-          <span class="metric-val">{{ tasks.length }}</span>
-          <span class="metric-label">Total Recorded</span>
+        <div class="metric-card action-card">
+          <button
+            class="btn btn-secondary btn-sm btn-clear-all"
+            :disabled="isClearing || (completedCount === 0 && failedCount === 0)"
+            @click="clearCompleted"
+          >
+            <Loader2 v-if="isClearing" class="animate-spin" :size="14" />
+            <Trash2 v-else :size="14" />
+            <span>Clear Completed</span>
+          </button>
         </div>
       </div>
     </div>
 
-    <!-- Filters & Search Bar -->
-    <div class="filter-toolbar">
-      <div class="filter-pills">
-        <button
-          class="filter-pill"
-          :class="{ active: statusFilter === 'ALL' }"
-          @click="statusFilter = 'ALL'"
-        >
-          All ({{ tasks.length }})
-        </button>
-        <button
-          class="filter-pill"
-          :class="{ active: statusFilter === 'ACTIVE' }"
-          @click="statusFilter = 'ACTIVE'"
-        >
-          Active ({{ activeCount }})
-        </button>
-        <button
-          class="filter-pill"
-          :class="{ active: statusFilter === 'COMPLETED' }"
-          @click="statusFilter = 'COMPLETED'"
-        >
-          Completed ({{ completedCount }})
-        </button>
-        <button
-          class="filter-pill"
-          :class="{ active: statusFilter === 'FAILED' }"
-          @click="statusFilter = 'FAILED'"
-        >
-          Failed ({{ failedCount }})
-        </button>
+    <!-- Filter & Search Toolbar -->
+    <div class="queue-toolbar">
+      <div class="toolbar-left">
+        <!-- Status Filter Pills -->
+        <div class="filter-pills-group">
+          <button
+            class="filter-pill"
+            :class="{ active: statusFilter === 'ALL' }"
+            @click="statusFilter = 'ALL'"
+          >
+            <span>All Status</span>
+            <span class="pill-badge">{{ tasks.length }}</span>
+          </button>
+          <button
+            class="filter-pill"
+            :class="{ active: statusFilter === 'ACTIVE' }"
+            @click="statusFilter = 'ACTIVE'"
+          >
+            <span class="live-dot" v-if="activeCount > 0"></span>
+            <span>Processing</span>
+            <span class="pill-badge">{{ activeCount }}</span>
+          </button>
+          <button
+            class="filter-pill"
+            :class="{ active: statusFilter === 'COMPLETED' }"
+            @click="statusFilter = 'COMPLETED'"
+          >
+            <span>Completed</span>
+            <span class="pill-badge">{{ completedCount }}</span>
+          </button>
+          <button
+            v-if="failedCount > 0"
+            class="filter-pill"
+            :class="{ active: statusFilter === 'FAILED' }"
+            @click="statusFilter = 'FAILED'"
+          >
+            <span>Failed</span>
+            <span class="pill-badge">{{ failedCount }}</span>
+          </button>
+        </div>
+
+        <!-- Task Type Selector -->
+        <div class="type-filter-group">
+          <button
+            class="type-pill"
+            :class="{ active: typeFilter === 'ALL' }"
+            @click="typeFilter = 'ALL'"
+          >
+            All Types
+          </button>
+          <button
+            class="type-pill"
+            :class="{ active: typeFilter === 'JOB_ASSESSMENT' }"
+            @click="typeFilter = 'JOB_ASSESSMENT'"
+          >
+            <Briefcase :size="12" />
+            <span>Job Leads</span>
+          </button>
+          <button
+            class="type-pill"
+            :class="{ active: typeFilter === 'CV_EXTRACTION' }"
+            @click="typeFilter = 'CV_EXTRACTION'"
+          >
+            <UserCheck :size="12" />
+            <span>CV Extractions</span>
+          </button>
+        </div>
       </div>
 
-      <div class="type-filter-group">
-        <select v-model="typeFilter" class="form-select-sm">
-          <option value="ALL">All Task Types</option>
-          <option value="JOB_ASSESSMENT">Job Assessment</option>
-          <option value="CV_EXTRACTION">CV Extraction</option>
-        </select>
-
-        <div class="search-box">
-          <Search :size="13" class="search-icon" />
+      <div class="toolbar-right">
+        <div class="search-input-box">
+          <Search :size="14" class="search-icon text-muted" />
           <input
             v-model="searchQuery"
             type="text"
@@ -253,446 +266,475 @@ onUnmounted(() => {
             class="search-input"
           />
         </div>
+        <button
+          class="btn btn-secondary btn-sm"
+          :disabled="loading"
+          @click="fetchTasks()"
+          title="Refresh Queue"
+        >
+          <RefreshCw :size="13" :class="{ 'animate-spin': loading }" />
+          <span>Refresh</span>
+        </button>
       </div>
     </div>
 
-    <!-- Task List Cards -->
-    <div v-if="filteredTasks.length" class="task-list-grid">
-      <div
-        v-for="task in filteredTasks"
-        :key="task.id"
-        class="queue-task-card animate-fade-in"
-        :class="{
-          'is-active': ['QUEUED', 'PROCESSING'].includes(task.status),
-          'is-failed': ['FAILED', 'CANCELLED'].includes(task.status),
-          'is-complete': task.status === 'COMPLETED',
-        }"
-      >
-        <div class="task-card-header">
-          <div class="task-identity">
-            <span class="task-id-badge">#{{ task.id }}</span>
-            <span
-              class="task-type-badge"
-              :class="task.task_type === 'CV_EXTRACTION' ? 'type-cv' : 'type-job'"
-            >
-              {{ task.task_type === 'CV_EXTRACTION' ? 'CV Extraction' : 'Job Assessment' }}
-            </span>
-            <span class="task-title-text" :title="task.title_hint">{{ task.title_hint }}</span>
-          </div>
+    <!-- Main Content Area -->
+    <div class="queue-content-scroll">
+      <!-- Empty State -->
+      <div v-if="filteredTasks.length === 0" class="empty-state-box">
+        <Clock :size="40" class="empty-state-icon" />
+        <h3 class="empty-state-title">No tasks in queue</h3>
+        <p class="empty-state-desc">
+          {{ tasks.length === 0 ? 'Queue is currently idle. Ingest a job posting or upload a CV to initiate processing.' : 'No tasks match your active filters.' }}
+        </p>
+      </div>
 
-          <div class="task-status-actions">
-            <!-- Status Badge -->
-            <span
-              class="status-pill"
-              :class="{
-                'status-processing': task.status === 'PROCESSING',
-                'status-queued': task.status === 'QUEUED',
-                'status-completed': task.status === 'COMPLETED',
-                'status-failed': ['FAILED', 'CANCELLED'].includes(task.status),
-              }"
-            >
-              <Loader2 v-if="task.status === 'PROCESSING'" class="animate-spin" :size="12" />
-              <CheckCircle v-else-if="task.status === 'COMPLETED'" :size="12" />
-              <AlertCircle v-else-if="['FAILED', 'CANCELLED'].includes(task.status)" :size="12" />
-              <Clock v-else :size="12" />
-              <span>{{ task.status }}</span>
-            </span>
-
-            <button
-              class="btn btn-ghost btn-xs text-danger"
-              title="Dismiss Task"
-              @click="deleteTask(task.id)"
-            >
-              <Trash2 :size="13" />
-            </button>
-          </div>
-        </div>
-
-        <!-- URL or Info Line -->
-        <div v-if="task.job_url" class="task-url-row">
-          <a :href="task.job_url" target="_blank" rel="noopener noreferrer" class="task-url-link">
-            <ExternalLink :size="11" />
-            <span>{{ task.job_url }}</span>
-          </a>
-        </div>
-
-        <!-- Animated Execution Stepper -->
-        <div class="task-stepper-box">
-          <!-- Stepper for Job Assessment -->
-          <div v-if="task.task_type !== 'CV_EXTRACTION'" class="pipeline-stepper">
-            <div
-              class="pipe-step"
-              :class="{
-                active: task.stage === 'FETCHING',
-                complete: ['EXTRACTING', 'MATCHING', 'ASSESSING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage),
-              }"
-            >
-              <div class="step-num">1</div>
-              <span>Fetch/Scrape</span>
-            </div>
-
-            <div
-              class="pipe-step"
-              :class="{
-                active: task.stage === 'EXTRACTING',
-                complete: ['MATCHING', 'ASSESSING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage),
-              }"
-            >
-              <div class="step-num">2</div>
-              <span>Extract Spec</span>
-            </div>
-
-            <div
-              class="pipe-step"
-              :class="{
-                active: task.stage === 'MATCHING',
-                complete: ['ASSESSING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage),
-              }"
-            >
-              <div class="step-num">3</div>
-              <span>Fuzzy Match</span>
-            </div>
-
-            <div
-              class="pipe-step"
-              :class="{
-                active: task.stage === 'ASSESSING',
-                complete: ['COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage),
-              }"
-            >
-              <div class="step-num">4</div>
-              <span>AI Audit & Score</span>
-            </div>
-
-            <div
-              class="pipe-step"
-              :class="{
-                complete: ['COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage),
-              }"
-            >
-              <div class="step-num">5</div>
-              <span>Saved</span>
-            </div>
-          </div>
-
-          <!-- Stepper for CV Extraction -->
-          <div v-else class="pipeline-stepper">
-            <div
-              class="pipe-step"
-              :class="{
-                active: task.stage === 'SCRUBBING',
-                complete: ['EXTRACTING', 'SAVING', 'COMPLETE'].includes(task.stage),
-              }"
-            >
-              <div class="step-num">1</div>
-              <span>PII Scrub</span>
-            </div>
-
-            <div
-              class="pipe-step"
-              :class="{
-                active: task.stage === 'EXTRACTING',
-                complete: ['SAVING', 'COMPLETE'].includes(task.stage),
-              }"
-            >
-              <div class="step-num">2</div>
-              <span>AI Extract</span>
-            </div>
-
-            <div
-              class="pipe-step"
-              :class="{
-                active: task.stage === 'SAVING',
-                complete: task.stage === 'COMPLETE',
-              }"
-            >
-              <div class="step-num">3</div>
-              <span>Save Profile</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Result Overview or Error Message -->
-        <div v-if="task.error_message" class="task-error-box">
-          <AlertCircle :size="14" class="text-danger flex-shrink-0" />
-          <span>{{ task.error_message }}</span>
-        </div>
-
-        <div v-else-if="task.result_json" class="task-result-box">
-          <!-- Job Assessment Result Preview -->
-          <template v-if="task.task_type !== 'CV_EXTRACTION'">
-            <div class="result-left">
-              <span v-if="task.result_json.fit_score !== undefined" class="score-badge">
-                {{ task.result_json.fit_score }}% Fit Score
-              </span>
-              <span v-if="task.result_json.company" class="text-xs text-muted">
-                {{ task.result_json.company }} • {{ task.result_json.position }}
-              </span>
-            </div>
-            <div class="result-actions">
-              <router-link
-                v-if="task.result_json.application_id"
-                :to="'/'"
-                class="btn btn-ghost btn-xs text-primary"
+      <!-- Task Cards List -->
+      <div v-else class="tasks-card-list">
+        <div
+          v-for="task in filteredTasks"
+          :key="task.id"
+          class="task-card animate-fade-in"
+          :class="`task-card-${task.status.toLowerCase()}`"
+        >
+          <!-- Task Card Header -->
+          <div class="task-card-top">
+            <div class="task-header-left">
+              <span class="task-id-tag">#{{ task.id }}</span>
+              <span
+                class="task-type-tag"
+                :class="task.task_type === 'CV_EXTRACTION' ? 'type-cv' : 'type-job'"
               >
-                <span>View Application</span>
-                <ExternalLink :size="11" />
-              </router-link>
-              <router-link
-                v-else-if="task.result_json.staging_item_id"
-                :to="'/staging'"
-                class="btn btn-ghost btn-xs text-warning"
-              >
-                <span>View in Staging</span>
-                <ExternalLink :size="11" />
-              </router-link>
-            </div>
-          </template>
-
-          <!-- CV Extraction Result Preview -->
-          <template v-else>
-            <div class="result-left">
-              <span class="score-badge type-cv">
-                Profile Active
+                <component :is="task.task_type === 'CV_EXTRACTION' ? UserCheck : Briefcase" :size="12" />
+                <span>{{ task.task_type === 'CV_EXTRACTION' ? 'CV Profile Extraction' : 'Job Assessment' }}</span>
               </span>
-              <span class="text-xs text-muted">
-                {{ task.result_json.extracted_skills_count || 0 }} skills extracted • {{ task.result_json.years_of_experience || 0 }} yrs exp
+              <span class="task-title-text" :title="task.title_hint || task.job_url">
+                {{ task.title_hint || task.job_url || `Task #${task.id}` }}
               </span>
             </div>
-            <div class="result-actions">
-              <router-link
-                :to="'/profile'"
-                class="btn btn-ghost btn-xs text-primary"
-              >
-                <span>View Profile</span>
-                <ExternalLink :size="11" />
-              </router-link>
-            </div>
-          </template>
-        </div>
 
-        <!-- Footer timestamps -->
-        <div class="task-card-footer">
-          <span class="time-meta">
-            Created at {{ formatDate(task.created_at) }}
-            <template v-if="task.completed_at">
-              • Completed at {{ formatDate(task.completed_at) }}
+            <div class="task-header-right">
+              <!-- Live Status Pill -->
+              <div class="status-badge-pill" :class="`pill-${task.status.toLowerCase()}`">
+                <Loader2 v-if="task.status === 'PROCESSING'" class="animate-spin" :size="12" />
+                <CheckCircle v-else-if="task.status === 'COMPLETED'" :size="12" />
+                <AlertCircle v-else-if="['FAILED', 'CANCELLED'].includes(task.status)" :size="12" />
+                <Clock v-else :size="12" />
+                <span>{{ task.status }}</span>
+              </div>
+
+              <!-- Delete/Dismiss Button -->
+              <button
+                class="btn-icon-dismiss"
+                title="Dismiss task"
+                @click="deleteTask(task.id)"
+              >
+                <Trash2 :size="13" />
+              </button>
+            </div>
+          </div>
+
+          <!-- URL / Source Bar if available -->
+          <div v-if="task.job_url" class="task-source-row">
+            <a :href="task.job_url" target="_blank" rel="noopener noreferrer" class="task-source-link">
+              <ExternalLink :size="11" />
+              <span>{{ task.job_url }}</span>
+            </a>
+          </div>
+
+          <!-- DEDICATED PIPELINE STEPPERS -->
+          <div class="task-pipeline-container">
+            <!-- 1. JOB ASSESSMENT STEPPER (5 Stages) -->
+            <div v-if="task.task_type !== 'CV_EXTRACTION'" class="pipeline-stepper job-stepper">
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'FETCHING',
+                  done: ['EXTRACTING', 'MATCHING', 'ASSESSING', 'SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">1</div>
+                <span class="node-label">Scrape / Ingest</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'EXTRACTING',
+                  done: ['MATCHING', 'ASSESSING', 'SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">2</div>
+                <span class="node-label">Extract Specs &amp; Skills</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'MATCHING',
+                  done: ['ASSESSING', 'SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">3</div>
+                <span class="node-label">Match CV Overlap</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'ASSESSING',
+                  done: ['SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">4</div>
+                <span class="node-label">Qualitative Fit &amp; Tips</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  done: ['COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">5</div>
+                <span class="node-label">{{ task.stage === 'STAGED_DUPLICATE' ? 'Staged' : 'Complete' }}</span>
+              </div>
+            </div>
+
+            <!-- 2. CV EXTRACTION STEPPER (4 Stages) -->
+            <div v-else class="pipeline-stepper cv-stepper">
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'SCRUBBING',
+                  done: ['EXTRACTING', 'SAVING', 'COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">1</div>
+                <span class="node-label">Privacy Scrubbing</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'EXTRACTING',
+                  done: ['SAVING', 'COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">2</div>
+                <span class="node-label">Skills &amp; Domain Extraction</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'SAVING',
+                  done: ['COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">3</div>
+                <span class="node-label">Update Candidate Profile</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">4</div>
+                <span class="node-label">CV Profile Ready</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Error Alert Banner -->
+          <div v-if="task.error_message" class="task-error-box">
+            <AlertCircle :size="14" class="text-danger flex-shrink-0" />
+            <span>{{ task.error_message }}</span>
+          </div>
+
+          <!-- Result Footer & Contextual Actions -->
+          <div v-else-if="task.status === 'COMPLETED' && task.result_json" class="task-card-footer">
+            <!-- Job Assessment Context -->
+            <template v-if="task.task_type !== 'CV_EXTRACTION'">
+              <div class="footer-left">
+                <span v-if="task.result_json.match_score !== undefined || task.result_json.fit_score !== undefined" class="score-badge">
+                  {{ task.result_json.match_score ?? task.result_json.fit_score }}% Match
+                </span>
+                <span class="footer-meta-text">
+                  {{ task.result_json.company || 'Company' }} • {{ task.result_json.position || 'Position' }}
+                </span>
+              </div>
+
+              <div class="footer-right">
+                <router-link
+                  to="/assessments"
+                  class="btn btn-primary btn-xs"
+                >
+                  <span>Review Dossier</span>
+                  <ArrowRight :size="12" />
+                </router-link>
+              </div>
             </template>
-          </span>
+
+            <!-- CV Extraction Context -->
+            <template v-else>
+              <div class="footer-left">
+                <span class="badge-cv-ready">
+                  <ShieldCheck :size="12" />
+                  <span>Profile Scrubbed &amp; Updated</span>
+                </span>
+                <span v-if="task.result_json.extracted_skills_count" class="footer-meta-text">
+                  {{ task.result_json.extracted_skills_count }} skills • {{ task.result_json.years_of_experience || 0 }} yrs exp
+                </span>
+              </div>
+
+              <div class="footer-right">
+                <router-link
+                  to="/profile"
+                  class="btn btn-primary btn-xs"
+                >
+                  <UserCheck :size="12" />
+                  <span>View Profile &rarr;</span>
+                </router-link>
+              </div>
+            </template>
+          </div>
         </div>
       </div>
-    </div>
-
-    <!-- Empty State -->
-    <div v-else class="empty-queue-box">
-      <Cpu :size="36" class="text-muted" />
-      <div class="empty-title">No Tasks in Queue</div>
-      <p class="empty-sub">
-        Asynchronous job qualification assessments and CV extractions will appear here in real time as they are processed.
-      </p>
     </div>
   </div>
 </template>
 
 <style scoped>
-.page-container {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 32px 24px 60px;
-}
-
-.queue-header {
+.queue-page-layout {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 24px;
-  flex-wrap: wrap;
-  gap: 16px;
+  flex-direction: column;
+  height: calc(100vh - var(--navbar-height));
+  overflow: hidden;
+  background-color: var(--bg-app);
 }
 
-.header-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  border-radius: var(--radius-full);
-  background-color: var(--primary-subtle);
-  color: var(--primary);
-  border: 1px solid var(--border-color);
-  font-size: 11px;
-  font-weight: 600;
-  margin-bottom: 8px;
+/* Header Section */
+.queue-header-section {
+  padding: 20px 24px 16px 24px;
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.header-titles {
+  text-align: center;
 }
 
 .page-title {
   font-family: var(--font-heading);
-  font-size: 24px;
   font-weight: var(--font-heading-weight);
+  font-size: 22px;
   color: var(--text-main);
+  margin: 0;
 }
 
 .page-subtitle {
   font-size: 13px;
   color: var(--text-secondary);
-  max-width: 680px;
-  margin-top: 4px;
-  line-height: 1.5;
+  margin: 4px 0 0 0;
 }
 
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.metrics-row {
+/* Metrics Grid */
+.metrics-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-  margin-bottom: 24px;
-}
-
-@media (max-width: 768px) {
-  .metrics-row {
-    grid-template-columns: repeat(2, 1fr);
-  }
+  gap: 12px;
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .metric-card {
-  background-color: var(--bg-surface);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-md);
-  padding: 14px 16px;
   display: flex;
   align-items: center;
   gap: 12px;
-  box-shadow: var(--card-shadow);
-  transition: all var(--transition-fast);
+  padding: 12px 14px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
 }
 
-.metric-card.highlight {
-  border-color: var(--primary);
-  background-color: var(--primary-subtle);
+.metric-card.action-card {
+  justify-content: center;
 }
 
-.metric-icon {
+.btn-clear-all {
+  width: 100%;
+  justify-content: center;
+}
+
+.metric-icon-box {
   width: 36px;
   height: 36px;
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
-.metric-icon.active {
+.active-box {
   background-color: var(--primary-subtle);
-  color: var(--primary);
+  border: 1px solid var(--primary-glow);
 }
 
-.metric-icon.success {
+.complete-box {
   background-color: var(--status-offer-bg);
-  color: var(--text-success);
+  border: 1px solid var(--status-offer-border);
 }
 
-.metric-icon.danger {
+.failed-box {
   background-color: var(--status-rejected-bg);
-  color: var(--text-danger);
+  border: 1px solid var(--status-rejected-border);
 }
 
-.metric-icon.neutral {
-  background-color: var(--bg-elevated);
-  color: var(--text-secondary);
-}
-
-.metric-content {
+.metric-data {
   display: flex;
   flex-direction: column;
-  gap: 2px;
 }
 
 .metric-val {
-  font-size: 20px;
+  font-family: var(--font-mono);
+  font-size: 18px;
   font-weight: 700;
   color: var(--text-main);
   line-height: 1.2;
 }
 
-.metric-label {
+.metric-lbl {
   font-size: 11px;
-  color: var(--text-muted);
-  font-weight: 500;
+  color: var(--text-secondary);
 }
 
-.filter-toolbar {
+/* Toolbar */
+.queue-toolbar {
+  padding: 12px 24px;
+  background-color: var(--bg-card);
+  border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
+  gap: 16px;
+  flex-shrink: 0;
   flex-wrap: wrap;
-  gap: 12px;
 }
 
-.filter-pills {
+.toolbar-left {
   display: flex;
   align-items: center;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 3px;
-  gap: 3px;
-  height: 36px;
-  box-sizing: border-box;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.filter-pills-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .filter-pill {
-  border: none;
-  background: transparent;
-  padding: 0 12px;
-  height: 100%;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  cursor: pointer;
   display: inline-flex;
   align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
   transition: all var(--transition-fast);
 }
 
 .filter-pill:hover {
+  border-color: var(--border-focus);
   color: var(--text-main);
 }
 
 .filter-pill.active {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+}
+
+.pill-badge {
+  font-size: 10px;
+  font-weight: 700;
+  background-color: rgba(255, 255, 255, 0.2);
+  padding: 1px 5px;
+  border-radius: var(--radius-full);
+}
+
+.filter-pill:not(.active) .pill-badge {
   background-color: var(--bg-elevated);
-  color: var(--text-main);
-  font-weight: 600;
-  box-shadow: var(--shadow-sm);
+  color: var(--text-muted);
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--primary);
+  box-shadow: 0 0 6px var(--primary-glow);
+  animation: pulse-ring 1.5s infinite;
 }
 
 .type-filter-group {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.form-select-sm {
+  gap: 4px;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
-  padding: 0 12px;
-  height: 36px;
-  font-size: 12px;
+  padding: 2px;
+}
+
+.type-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.type-pill:hover {
   color: var(--text-main);
-  box-sizing: border-box;
-  transition: border-color var(--transition-fast);
 }
 
-.form-select-sm:focus {
-  border-color: var(--border-focus);
+.type-pill.active {
+  background-color: var(--bg-card);
+  color: var(--primary);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
 }
 
-.search-box {
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.search-input-box {
   position: relative;
   display: flex;
   align-items: center;
@@ -701,97 +743,96 @@ onUnmounted(() => {
 .search-icon {
   position: absolute;
   left: 10px;
-  color: var(--text-muted);
 }
 
 .search-input {
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 0 12px 0 32px;
-  height: 36px;
+  padding: 6px 12px 6px 30px;
   font-size: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
   color: var(--text-main);
-  width: 200px;
-  box-sizing: border-box;
-  transition: all var(--transition-fast);
+  width: 220px;
 }
 
 .search-input:focus {
+  border-color: var(--primary);
   outline: none;
-  border-color: var(--border-focus);
-  width: 240px;
 }
 
-.task-list-grid {
+/* Content Area */
+.queue-content-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+  scrollbar-gutter: stable;
+}
+
+.tasks-card-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
+  max-width: 900px;
+  margin: 0 auto;
 }
 
-.queue-task-card {
-  background-color: var(--bg-surface);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-md);
-  padding: 16px 18px;
-  box-shadow: var(--card-shadow);
+.task-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   gap: 12px;
   transition: all var(--transition-fast);
 }
 
-.queue-task-card.is-active {
-  border-left: 3px solid var(--primary);
+.task-card.task-card-processing {
+  border-color: var(--primary-glow);
+  box-shadow: 0 0 12px var(--primary-subtle);
 }
 
-.queue-task-card.is-complete {
-  border-left: 3px solid var(--text-success);
-}
-
-.queue-task-card.is-failed {
-  border-left: 3px solid var(--text-danger);
-}
-
-.task-card-header {
+.task-card-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
 }
 
-.task-identity {
+.task-header-left {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
 
-.task-id-badge {
-  font-family: monospace;
+.task-id-tag {
+  font-family: var(--font-mono);
   font-size: 11px;
-  font-weight: 700;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
+  font-weight: 600;
 }
 
-.task-type-badge {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 6px;
+.task-type-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
   border-radius: 4px;
-  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 600;
 }
 
-.type-job {
-  background-color: var(--primary-subtle);
-  color: var(--primary);
-  border: 1px solid var(--primary);
+.task-type-tag.type-job {
+  background-color: var(--status-applied-bg);
+  color: var(--status-applied-text);
+  border: 1px solid var(--status-applied-border);
 }
 
-.type-cv {
+.task-type-tag.type-cv {
   background-color: var(--status-offer-bg);
-  color: var(--text-success);
+  color: var(--status-offer-text);
   border: 1px solid var(--status-offer-border);
 }
 
@@ -799,202 +840,233 @@ onUnmounted(() => {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-main);
-  max-width: 480px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.task-status-actions {
+.task-header-right {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.status-pill {
+.status-badge-pill {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   padding: 3px 8px;
   border-radius: var(--radius-full);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
 }
 
-.status-processing {
+.pill-processing {
   background-color: var(--primary-subtle);
   color: var(--primary);
+  border: 1px solid var(--primary-glow);
 }
 
-.status-queued {
-  background-color: var(--status-interview-bg);
-  color: var(--text-warning);
-}
-
-.status-completed {
+.pill-completed {
   background-color: var(--status-offer-bg);
-  color: var(--text-success);
+  color: var(--status-offer-text);
+  border: 1px solid var(--status-offer-border);
 }
 
-.status-failed {
+.pill-failed, .pill-cancelled {
   background-color: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+  border: 1px solid var(--status-rejected-border);
+}
+
+.pill-queued {
+  background-color: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.btn-icon-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.btn-icon-dismiss:hover {
   color: var(--text-danger);
+  background-color: var(--status-rejected-bg);
 }
 
-.task-url-row {
-  font-size: 11px;
+.task-source-row {
+  display: flex;
+  align-items: center;
 }
 
-.task-url-link {
+.task-source-link {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  color: var(--text-secondary);
-  text-decoration: none;
-  word-break: break-all;
-}
-
-.task-url-link:hover {
+  gap: 5px;
+  font-size: 11px;
   color: var(--primary);
+  text-decoration: none;
+  font-family: var(--font-mono);
 }
 
-.task-stepper-box {
-  background-color: var(--bg-main);
+.task-source-link:hover {
+  text-decoration: underline;
+}
+
+/* Stepper Component */
+.task-pipeline-container {
+  padding: 10px 14px;
+  background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
-  padding: 10px 14px;
 }
 
 .pipeline-stepper {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
+  position: relative;
 }
 
-.pipe-step {
+.pipeline-stepper::before {
+  content: '';
+  position: absolute;
+  top: 11px;
+  left: 20px;
+  right: 20px;
+  height: 2px;
+  background-color: var(--border-color);
+  z-index: 1;
+}
+
+.stepper-node {
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
-  color: var(--text-muted);
-  opacity: 0.5;
-  transition: all var(--transition-fast);
+  position: relative;
+  z-index: 2;
 }
 
-.pipe-step.active {
-  opacity: 1;
-  color: var(--primary);
-  font-weight: 600;
-}
-
-.pipe-step.complete {
-  opacity: 0.9;
-  color: var(--text-success);
-}
-
-.step-num {
-  width: 18px;
-  height: 18px;
+.node-bullet {
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  border: 2px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 10px;
   font-weight: 700;
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
 }
 
-.pipe-step.active .step-num {
-  background-color: var(--primary);
-  color: #fff;
+.node-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.stepper-node.active .node-bullet {
   border-color: var(--primary);
+  background-color: var(--primary);
+  color: #ffffff;
+  box-shadow: 0 0 8px var(--primary-glow);
 }
 
-.pipe-step.complete .step-num {
-  background-color: var(--text-success);
-  color: #fff;
-  border-color: var(--text-success);
+.stepper-node.active .node-label {
+  color: var(--primary);
+  font-weight: 600;
 }
 
+.stepper-node.done .node-bullet {
+  border-color: var(--status-offer-text);
+  background-color: var(--status-offer-bg);
+  color: var(--status-offer-text);
+}
+
+.stepper-node.done .node-label {
+  color: var(--text-main);
+}
+
+/* Error Box */
 .task-error-box {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
   background-color: var(--status-rejected-bg);
   border: 1px solid var(--status-rejected-border);
-  border-radius: var(--radius-sm);
-  padding: 8px 12px;
+  color: var(--status-rejected-text);
   font-size: 12px;
-  color: var(--text-danger);
 }
 
-.task-result-box {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background-color: var(--status-offer-bg);
-  border: 1px solid var(--status-offer-border);
-  border-radius: var(--radius-sm);
-  padding: 8px 12px;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.result-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.score-badge {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background-color: var(--status-offer-bg);
-  color: var(--text-success);
-}
-
-.score-badge.type-cv {
-  background-color: var(--primary-subtle);
-  color: var(--primary);
-}
-
+/* Card Footer */
 .task-card-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.empty-queue-box {
-  background-color: var(--bg-surface);
-  border: 1px dashed var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 48px 24px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-color);
   gap: 12px;
 }
 
-.empty-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-main);
+.footer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.empty-sub {
+.score-badge {
+  padding: 2px 7px;
+  border-radius: 4px;
+  background-color: var(--status-offer-bg);
+  color: var(--status-offer-text);
+  border: 1px solid var(--status-offer-border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.badge-cv-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background-color: var(--status-offer-bg);
+  color: var(--status-offer-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.footer-meta-text {
   font-size: 12px;
   color: var(--text-secondary);
-  max-width: 400px;
-  line-height: 1.5;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 var(--primary-glow); }
+  70% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(0, 0, 0, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+}
+
+@media (max-width: 768px) {
+  .metrics-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .pipeline-stepper {
+    overflow-x: auto;
+  }
 }
 </style>

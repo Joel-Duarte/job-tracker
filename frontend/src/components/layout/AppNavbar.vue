@@ -49,7 +49,7 @@ async function fetchBadgeCounts() {
       activeQueueCount.value = resQueue.data.filter((t) => ['QUEUED', 'PROCESSING'].includes(t.status)).length
       const passedSet = new Set(JSON.parse(localStorage.getItem('job_tracker_passed_assessments') || '[]'))
       readyAssessmentsCount.value = resQueue.data.filter(
-        (t) => t.status === 'COMPLETED' && !passedSet.has(String(t.id))
+        (t) => (t.task_type === 'JOB_ASSESSMENT' || !t.task_type) && t.status === 'COMPLETED' && !passedSet.has(String(t.id))
       ).length
     }
   } catch (err) {
@@ -86,15 +86,24 @@ onMounted(() => {
         <router-link
           to="/assessments"
           class="nav-link"
-          :class="{ active: ['/assessments', '/intake', '/queue'].includes(route.path) }"
+          :class="{ active: ['/assessments', '/intake'].includes(route.path) }"
         >
           <Sparkles :size="16" />
           <span>Assessments</span>
-          <span v-if="activeQueueCount > 0" class="nav-badge nav-badge-pulse" title="AI Queue active">
-            {{ activeQueueCount }}
-          </span>
-          <span v-else-if="readyAssessmentsCount > 0" class="nav-badge" title="Ready for review">
+          <span v-if="readyAssessmentsCount > 0" class="nav-badge" title="Ready for review">
             {{ readyAssessmentsCount }}
+          </span>
+        </router-link>
+
+        <router-link
+          to="/queue"
+          class="nav-link"
+          :class="{ active: route.path === '/queue' }"
+        >
+          <Cpu :size="16" />
+          <span>AI Queue</span>
+          <span v-if="activeQueueCount > 0" class="nav-badge nav-badge-pulse" title="Tasks currently processing">
+            {{ activeQueueCount }}
           </span>
         </router-link>
 

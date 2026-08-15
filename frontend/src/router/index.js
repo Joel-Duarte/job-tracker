@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import ApplicationsView from '../views/ApplicationsView.vue'
 import ActionItemsView from '../views/ActionItemsView.vue'
 import AssessmentsView from '../views/AssessmentsView.vue'
+import QueueView from '../views/QueueView.vue'
 import CandidateProfileView from '../views/CandidateProfileView.vue'
 import AgentChatView from '../views/AgentChatView.vue'
 import StagingView from '../views/StagingView.vue'
@@ -22,7 +23,12 @@ const routes = [
     path: '/assessments',
     name: 'Assessments',
     component: AssessmentsView,
-    alias: ['/intake', '/queue'],
+    alias: ['/intake'],
+  },
+  {
+    path: '/queue',
+    name: 'Queue',
+    component: QueueView,
   },
   {
     path: '/profile',
