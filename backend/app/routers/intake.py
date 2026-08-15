@@ -4,22 +4,28 @@ import logging
 from typing import Any, Optional
 import uuid
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+import httpx
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal, get_db
+from app.models.applications import ApplicationEventModel, ApplicationModel, CompanyModel, JobPostingModel
 from app.models.email_accounts import EmailAccountModel
 from app.schemas.intake import (
+    AssessJobRequest,
+    ConfirmAssessmentRequest,
     DirectEmailIntakeRequest,
     EmailBatchIntakeRequest,
     EmailPayload,
     IntakeResultResponse,
     PasteIntakeRequest,
 )
+from app.schemas.llm import JobAssessmentResult
 from app.services.email_fetcher import fetch_emails_from_account
 from app.services.file_parser import parse_uploaded_file
 from app.services.intake import process_email_batch_sequential, process_single_email_graph
+from app.services.llm import assess_job_posting, generate_and_save_application_embedding
 from app.services.task_tracker import task_tracker
 
 logger = logging.getLogger(__name__)
@@ -152,6 +158,111 @@ async def intake_uploaded_files(
     return results
 
 
+@router.post("/assess-job", response_model=JobAssessmentResult, status_code=status.HTTP_200_OK)
+async def assess_job_lead(
+    payload: AssessJobRequest,
+    db: AsyncSession = Depends(get_db),
+) -> JobAssessmentResult:
+    """Pre-screens a job lead (via URL or pasted JD text) using AI assessment."""
+    content = payload.text
+    if not content and payload.url:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(
+                    payload.url,
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+                    follow_redirects=True,
+                )
+                if resp.status_code == 200:
+                    content = resp.text[:12000]
+        except Exception as err:
+            logger.warning("Failed direct HTTP fetch of %s: %s", payload.url, err)
+
+    if not content or not content.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please provide a valid job description text or reachable URL.",
+        )
+
+    return await assess_job_posting(db, content)
+
+
+@router.post("/confirm-assessment", response_model=IntakeResultResponse, status_code=status.HTTP_200_OK)
+async def confirm_job_assessment(
+    payload: ConfirmAssessmentRequest,
+    db: AsyncSession = Depends(get_db),
+) -> IntakeResultResponse:
+    """Commits an assessed job lead to the application pipeline in ASSESSMENT or APPLIED status."""
+    comp_norm = payload.company.strip().lower()
+
+    # 1. Company
+    stmt = select(CompanyModel).where(CompanyModel.name_normalized == comp_norm)
+    res = await db.execute(stmt)
+    company = res.scalar_one_or_none()
+
+    if not company:
+        company = CompanyModel(name=payload.company.strip(), name_normalized=comp_norm)
+        db.add(company)
+        await db.flush()
+
+    # 2. Application
+    app_record = ApplicationModel(
+        company_id=company.id,
+        position=payload.position.strip(),
+        position_normalized=payload.position.strip().lower(),
+        status=payload.status or "ASSESSMENT",
+        job_url=payload.job_url,
+        application_date=datetime.now(timezone.utc),
+        last_activity_at=datetime.now(timezone.utc),
+    )
+    db.add(app_record)
+    await db.flush()
+
+    # 3. Job Posting Record
+    job_posting = JobPostingModel(
+        application_id=app_record.id,
+        job_url=payload.job_url or f"lead-{uuid.uuid4().hex[:8]}",
+        description_markdown=payload.description_markdown,
+        salary_min=payload.salary_min,
+        salary_max=payload.salary_max,
+        currency=payload.currency or "USD",
+        location=payload.location,
+        work_model=payload.work_model,
+        required_skills=payload.required_skills or [],
+    )
+    db.add(job_posting)
+
+    # 4. Initial Event
+    event = ApplicationEventModel(
+        email_application_id=app_record.id,
+        email_conversation_id=f"lead-conv-{app_record.id}",
+        email_event_type="PRE_APPLICATION_ASSESSMENT",
+        email_status_after_event=app_record.status,
+        email_summary=f"Pre-application AI assessment completed for {payload.position} at {payload.company}.",
+        email_received_at=datetime.now(timezone.utc),
+        source_channel="INTAKE",
+    )
+    db.add(event)
+    await db.commit()
+
+    # 5. Generate Vector Embedding
+    try:
+        await generate_and_save_application_embedding(db, app_record.id)
+    except Exception as err:
+        logger.warning("Vector embedding generation deferred: %s", err)
+
+    return IntakeResultResponse(
+        status="success",
+        route="commit",
+        is_application=True,
+        company=company.name,
+        position=app_record.position,
+        application_id=app_record.id,
+        event_id=event.id,
+        message=f"Job lead saved to pipeline under status '{app_record.status}'.",
+    )
+
+
 @router.post("/sync-account", response_model=TaskResponse, status_code=status.HTTP_202_ACCEPTED)
 async def sync_email_account(
     payload: SyncFolderRequest,
@@ -213,10 +324,7 @@ async def intake_direct_raw_email(
     payload: DirectEmailIntakeRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Directly ingests a raw email payload for immediate testing.
-    Runs extraction, deduplication, fuzzy matching, and staging/embedding logic synchronously.
-    """
+    """Directly ingests a raw email payload for immediate testing."""
     now = datetime.now(timezone.utc)
     conv_id = payload.conversation_id or f"test-conv-{uuid.uuid4().hex[:8]}"
     msg_id = payload.message_id or f"test-msg-{uuid.uuid4().hex[:8]}"

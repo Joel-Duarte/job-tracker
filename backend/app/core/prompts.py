@@ -1,4 +1,3 @@
-# app/core/prompts.py
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.prompts import PromptModel
@@ -13,6 +12,16 @@ DEFAULT_PROMPTS = {
         "Summarize the current progress and status of a job application based on its historical timeline events. "
         "Keep the snapshot clear and direct.\n\n"
         "Timeline Events:\n{events_str}"
+    ),
+    "assessment": (
+        "You are an expert technical recruiter and career coach. Analyze the following job description for pre-application qualification. "
+        "Extract company name, position, required skills, compensation range, and evaluate the match score (0-100), key strengths, and missing qualification keywords.\n\n"
+        "Job Description:\n{job_description}"
+    ),
+    "agent_system": (
+        "You are the intelligent Job Tracker Agent. You help the user manage, query, and optimize their job search pipeline.\n"
+        "You have access to tools for semantic vector search, querying application timelines, listing statuses, and updating application records.\n"
+        "When performing actions that modify data (e.g. updating statuses, deleting items), summarize what you are about to do clearly."
     ),
 }
 

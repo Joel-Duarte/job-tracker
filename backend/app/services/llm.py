@@ -15,7 +15,7 @@ from app.core.llm_factory import (
 )
 from app.core.prompts import get_prompt_template
 from app.models.applications import ApplicationEmbeddingModel, ApplicationModel
-from app.schemas.llm import ApplicationSummaryResult, EmailExtractionResult
+from app.schemas.llm import ApplicationSummaryResult, EmailExtractionResult, JobAssessmentResult
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,24 @@ async def extract_email_info(db: AsyncSession, email_content: str) -> EmailExtra
     if isinstance(result, EmailExtractionResult):
         return result
     return EmailExtractionResult.model_validate(result)
+
+
+async def assess_job_posting(db: AsyncSession, job_description: str) -> JobAssessmentResult:
+    """Evaluates a job posting / JD for pre-application qualification and keyword fit."""
+    llm = await get_task_chat_model(db, task_type="EXTRACTION")
+    structured_llm = llm.with_structured_output(JobAssessmentResult)
+    template_str = await get_prompt_template(db, "assessment")
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "You evaluate job descriptions and output structured pre-application assessments."),
+        ("human", template_str),
+    ])
+
+    chain = prompt | structured_llm
+    result = await chain.ainvoke({"job_description": job_description})
+    if isinstance(result, JobAssessmentResult):
+        return result
+    return JobAssessmentResult.model_validate(result)
 
 
 async def summarize_application_status(

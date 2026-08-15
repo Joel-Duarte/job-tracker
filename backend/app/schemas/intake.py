@@ -95,6 +95,25 @@ class PasteIntakeRequest(BaseModel):
     message_id: Optional[str] = Field(default=None, description="Optional message ID")
 
 
+class AssessJobRequest(BaseModel):
+    text: Optional[str] = Field(default=None, description="Job description or requirements text")
+    url: Optional[str] = Field(default=None, description="Job posting URL")
+
+
+class ConfirmAssessmentRequest(BaseModel):
+    company: str = Field(..., description="Company name")
+    position: str = Field(..., description="Position or title")
+    status: str = Field(default="ASSESSMENT", description="Initial pipeline status: ASSESSMENT or APPLIED")
+    job_url: Optional[str] = Field(default=None, description="Job URL")
+    description_markdown: Optional[str] = Field(default=None, description="Job description or AI assessment")
+    salary_min: Optional[float] = Field(default=None)
+    salary_max: Optional[float] = Field(default=None)
+    currency: Optional[str] = Field(default="USD")
+    location: Optional[str] = Field(default=None)
+    work_model: Optional[str] = Field(default=None)
+    required_skills: List[str] = Field(default_factory=list)
+
+
 class IntakeResultResponse(BaseModel):
     status: str = Field(description="Status of the ingestion e.g. success, skipped, staged, error")
     route: str = Field(description="Pipeline route taken: commit, staging, other_event, skip")
