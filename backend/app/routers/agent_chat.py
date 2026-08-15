@@ -3,15 +3,13 @@ import logging
 from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from app.core.database import get_db
 from app.core.llm_factory import get_task_chat_model
 from app.core.prompts import get_prompt_template
-from app.models.applications import ActionItemModel, ApplicationModel, CompanyModel
-from app.services.llm import generate_embedding
+from app.services.agent_tools import create_agent_tools
 
 logger = logging.getLogger(__name__)
 
@@ -38,91 +36,85 @@ async def chat_with_agent(
     db: AsyncSession = Depends(get_db),
 ) -> AgentChatResponse:
     """
-    Conversational Agent Chat equipped with semantic vector search and database query/mutation tools.
+    Conversational Agent Chat equipped with native semantic vector search and database query/mutation tools.
     """
     system_prompt = await get_prompt_template(db, "agent_system")
     chat_model = await get_task_chat_model(db, task_type="AGENT_REASONING")
 
-    # 1. Inspect user's last message for intents / context
+    tools = create_agent_tools(db)
+    tool_map = {t.name: t for t in tools}
+
+    try:
+        model_with_tools = chat_model.bind_tools(tools)
+    except Exception as bind_err:
+        logger.warning("Native tool binding not available, using raw model: %s", bind_err)
+        model_with_tools = chat_model
+
     last_user_msg = payload.messages[-1].content.strip()
     actions_performed: list[dict[str, Any]] = []
 
-    # Prepare context probe
-    context_notes = []
-
-    # Check if query warrants semantic vector search
-    try:
-        query_vector = await generate_embedding(db, last_user_msg)
-        from app.models.applications import ApplicationEmbeddingModel
-
-        distance_expr = ApplicationEmbeddingModel.embedding.cosine_distance(query_vector).label("distance")
-        stmt = (
-            select(ApplicationEmbeddingModel, distance_expr)
-            .join(ApplicationModel, ApplicationEmbeddingModel.email_application_id == ApplicationModel.id)
-            .options(selectinload(ApplicationEmbeddingModel.application).selectinload(ApplicationModel.company))
-            .order_by(distance_expr.asc())
-            .limit(4)
-        )
-        res = await db.execute(stmt)
-        search_hits = res.all()
-
-        if search_hits:
-            context_notes.append("Relevant Application Matches from Database:")
-            for emb, dist in search_hits:
-                app_obj = emb.application
-                comp_name = app_obj.company.name if app_obj and app_obj.company else "Unknown"
-                sim_pct = max(0.0, min(100.0, (1.0 - float(dist)) * 100.0))
-                context_notes.append(
-                    f"- Company: {comp_name}, Role: {app_obj.position}, Status: {app_obj.status} (Match: {sim_pct:.1f}%)\n"
-                    f"  Summary: {emb.content[:200]}..."
-                )
-    except Exception as err:
-        logger.warning("Agent vector retrieval probe note: %s", err)
-
-    # 2. Check for explicit update command in user message (e.g., "move Stripe to Offer", "set Figma status to Rejected")
-    lower_msg = last_user_msg.lower()
-    for status_key in ["applied", "assessment", "interview", "technical_interview", "offer", "rejected"]:
-        if f"to {status_key}" in lower_msg or f"as {status_key}" in lower_msg:
-            # Look for company name mentioned
-            companies_res = await db.execute(select(CompanyModel))
-            for comp in companies_res.scalars().all():
-                if comp.name.lower() in lower_msg:
-                    # Update application
-                    app_stmt = select(ApplicationModel).where(ApplicationModel.company_id == comp.id)
-                    target_app = (await db.execute(app_stmt)).scalar_one_or_none()
-                    if target_app:
-                        target_app.status = status_key.upper()
-                        await db.commit()
-                        actions_performed.append({
-                            "action": "UPDATE_STATUS",
-                            "company": comp.name,
-                            "new_status": status_key.upper(),
-                        })
-                        context_notes.append(f"[SYSTEM ACTION EXECUTED]: Updated {comp.name} status to '{status_key.upper()}'.")
-
-    # 3. Assemble prompt for LangChain chat model
-    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-
-    langchain_msgs = [SystemMessage(content=system_prompt)]
-    if context_notes:
-        langchain_msgs.append(SystemMessage(content="\n".join(context_notes)))
-
+    # Assemble conversation history
+    messages: list[Any] = [SystemMessage(content=system_prompt)]
     for m in payload.messages[:-1]:
         if m.role == "user":
-            langchain_msgs.append(HumanMessage(content=m.content))
+            messages.append(HumanMessage(content=m.content))
         elif m.role == "assistant":
-            langchain_msgs.append(AIMessage(content=m.content))
+            messages.append(AIMessage(content=m.content))
 
-    langchain_msgs.append(HumanMessage(content=last_user_msg))
+    messages.append(HumanMessage(content=last_user_msg))
 
-    try:
-        response = await chat_model.ainvoke(langchain_msgs)
-        reply_content = response.content if isinstance(response.content, str) else str(response.content)
-    except Exception as err:
-        logger.error("Agent chat generation error: %s", err)
-        reply_content = f"I retrieved the relevant records from your pipeline:\n\n" + "\n".join(context_notes)
+    reply_content = ""
+    max_turns = 4
+
+    for turn in range(max_turns):
+        try:
+            response = await model_with_tools.ainvoke(messages)
+            messages.append(response)
+
+            tool_calls = getattr(response, "tool_calls", None)
+            if not tool_calls:
+                reply_content = response.content if isinstance(response.content, str) else str(response.content)
+                break
+
+            for tc in tool_calls:
+                tool_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+                tool_args = tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {})
+                tool_id = tc.get("id", f"call_{turn}") if isinstance(tc, dict) else getattr(tc, "id", f"call_{turn}")
+
+                selected_tool = tool_map.get(tool_name)
+                if selected_tool:
+                    try:
+                        tool_result = await selected_tool.ainvoke(tool_args)
+                        parsed_res = tool_result
+                        if isinstance(tool_result, str) and (tool_result.strip().startswith("{") or tool_result.strip().startswith("[")):
+                            try:
+                                parsed_res = json.loads(tool_result)
+                            except Exception:
+                                parsed_res = tool_result
+
+                        actions_performed.append({
+                            "action": tool_name,
+                            "args": tool_args,
+                            "result": parsed_res,
+                        })
+                    except Exception as err:
+                        logger.error("Error executing tool %s: %s", tool_name, err)
+                        tool_result = json.dumps({"error": str(err)})
+                else:
+                    tool_result = json.dumps({"error": f"Tool '{tool_name}' not available."})
+
+                messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_id))
+
+        except Exception as err:
+            logger.error("Agent chat generation error on turn %d: %s", turn, err)
+            reply_content = f"I encountered an issue processing your request: {err}"
+            break
+
+    if not reply_content and messages:
+        last_msg = messages[-1]
+        reply_content = getattr(last_msg, "content", "Processing completed.")
 
     return AgentChatResponse(
-        reply=reply_content.strip(),
+        reply=str(reply_content).strip(),
         actions_performed=actions_performed,
     )
