@@ -491,3 +491,90 @@ async def intake_direct_raw_email(
         "task_id": task_id,
         "details": task_summary,
     }
+
+
+# =========================================================================
+# ASYNC INTAKE EVALUATION QUEUE & PERSISTENCE ENDPOINTS
+# =========================================================================
+
+from app.models.intake_tasks import IntakeEvaluationTaskModel
+from app.schemas.intake import EnqueueAssessmentRequest, IntakeEvaluationTaskResponse
+from app.services.evaluation_worker import process_evaluation_task
+
+
+@router.post("/enqueue-assessment", response_model=IntakeEvaluationTaskResponse, status_code=status.HTTP_202_ACCEPTED)
+async def enqueue_job_assessment(
+    payload: EnqueueAssessmentRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> IntakeEvaluationTaskResponse:
+    """
+    Enqueues a job lead evaluation task into PostgreSQL for continuous intake UX.
+    The background worker executes the 4-stage pipeline respecting provider concurrency limits.
+    """
+    url_clean = payload.url.strip() if payload.url else None
+    text_clean = payload.text.strip() if payload.text else None
+
+    if not url_clean and not text_clean:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please provide a valid job URL or job description text.",
+        )
+
+    # Derive title hint from payload
+    if payload.title_hint:
+        title_hint = payload.title_hint.strip()
+    elif url_clean:
+        title_hint = f"Lead: {url_clean.split('/')[-1] or url_clean[:50]}"
+    else:
+        first_line = text_clean.splitlines()[0] if text_clean else "Job Lead"
+        title_hint = first_line[:50]
+
+    task_record = IntakeEvaluationTaskModel(
+        job_url=url_clean,
+        raw_text=text_clean,
+        title_hint=title_hint,
+        status="QUEUED",
+        stage="FETCHING",
+    )
+    db.add(task_record)
+    await db.commit()
+    await db.refresh(task_record)
+
+    # Hand off to background worker
+    background_tasks.add_task(process_evaluation_task, task_id=task_record.id)
+
+    return task_record
+
+
+@router.get("/evaluations", response_model=list[IntakeEvaluationTaskResponse], status_code=status.HTTP_200_OK)
+async def list_evaluation_tasks(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+) -> list[IntakeEvaluationTaskResponse]:
+    """Retrieves all queued, processing, and recent evaluation tasks from PostgreSQL."""
+    stmt = (
+        select(IntakeEvaluationTaskModel)
+        .order_by(IntakeEvaluationTaskModel.id.desc())
+        .limit(limit)
+    )
+    res = await db.execute(stmt)
+    return list(res.scalars().all())
+
+
+@router.delete("/evaluations/{task_id}", status_code=status.HTTP_200_OK)
+async def delete_evaluation_task(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancels an ongoing evaluation or dismisses a completed/failed evaluation task."""
+    task = await db.get(IntakeEvaluationTaskModel, task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Evaluation task {task_id} not found.",
+        )
+
+    await db.delete(task)
+    await db.commit()
+    return {"status": "success", "message": f"Evaluation task {task_id} deleted."}

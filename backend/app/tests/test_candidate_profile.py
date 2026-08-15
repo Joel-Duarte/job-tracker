@@ -1,6 +1,9 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_db
 
 from app.main import app
 from app.schemas.candidate_profile import CVAnonymizationResult
@@ -24,7 +27,8 @@ def test_programmatic_skill_matcher_aliases_and_ratios():
 
 
 @pytest.mark.asyncio
-async def test_candidate_profile_crud_and_anonymization():
+async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession):
+    app.dependency_overrides[get_db] = lambda: db_session
     raw_cv = (
         "John Doe, 123 Main St, San Francisco CA\n"
         "Staff Engineer at Stripe (2018-2022)\n"
@@ -62,3 +66,6 @@ async def test_candidate_profile_crud_and_anonymization():
             active_data = get_resp.json()
             assert active_data["id"] == data["id"]
             assert active_data["extracted_skills"] == data["extracted_skills"]
+
+    app.dependency_overrides.clear()
+

@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 from sqlalchemy import String, Text, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
-from app.core.database import Base
+from app.models.applications import Base
+
 
 
 class PromptModel(Base):

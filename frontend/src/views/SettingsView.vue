@@ -39,8 +39,10 @@ const providerForm = ref({
   provider_type: 'openai',
   base_url: 'http://192.168.1.187:1234/v1',
   api_key: '',
+  max_concurrency: 1,
   is_active: true,
 })
+
 
 // Task Bindings state
 const bindings = ref([])
@@ -234,6 +236,7 @@ function openCreateProvider() {
     provider_type: 'openai',
     base_url: 'http://192.168.1.187:1234/v1',
     api_key: '',
+    max_concurrency: 1,
     is_active: true,
   }
   isProviderModalOpen.value = true
@@ -246,10 +249,12 @@ function openEditProvider(p) {
     provider_type: p.provider_type,
     base_url: p.base_url || '',
     api_key: '',
+    max_concurrency: p.max_concurrency || 1,
     is_active: p.is_active,
   }
   isProviderModalOpen.value = true
 }
+
 
 async function saveProvider() {
   try {
@@ -537,7 +542,12 @@ async function triggerSync(account) {
                 <span class="meta-k">API Key:</span>
                 <span class="meta-v font-mono">{{ p.api_key_masked || 'Not Required / Local' }}</span>
               </div>
+              <div class="meta-row">
+                <span class="meta-k">Max Concurrency:</span>
+                <span class="meta-v font-mono font-semibold">{{ p.max_concurrency || 1 }} parallel</span>
+              </div>
             </div>
+
 
             <!-- Provider Live Probe Result -->
             <div v-if="providerTestResults[p.id]" class="provider-probe-feedback font-mono text-xs">
@@ -725,7 +735,24 @@ async function triggerSync(account) {
             <input v-model="providerForm.api_key" type="password" placeholder="lm-studio / sk-..." class="form-input" />
           </div>
 
+          <div class="input-group">
+            <div class="label-with-hint">
+              <label class="input-label">Max Concurrency Limit</label>
+              <span class="text-xs text-muted">Local: 1 | Cloud: 5-10</span>
+            </div>
+            <input
+              v-model.number="providerForm.max_concurrency"
+              type="number"
+              min="1"
+              max="50"
+              placeholder="1"
+              class="form-input font-mono"
+              required
+            />
+          </div>
+
           <div class="modal-actions">
+
             <button class="btn btn-secondary" @click="isProviderModalOpen = false">Cancel</button>
             <button class="btn btn-primary" @click="saveProvider">{{ editingProvider ? 'Update Provider' : 'Save Provider' }}</button>
           </div>

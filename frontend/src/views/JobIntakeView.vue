@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
 import { useApplicationsStore } from '../stores/applicationsStore'
@@ -25,35 +25,49 @@ import {
   Layers,
   ArrowDownCircle,
   Clock,
+  ChevronDown,
+  ChevronUp,
+  Trash2,
+  CheckCircle,
+  Inbox,
+  RefreshCw,
 } from 'lucide-vue-next'
 
 const router = useRouter()
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
 
+// Input Form State
 const jobUrl = ref('')
 const jobText = ref('')
-const submittedUrl = ref('')
-const submittedText = ref('')
-const isAnalyzing = ref(false)
-const isSaving = ref(false)
-const assessmentResult = ref(null)
-const scrapeDegraded = ref(false)
-const scrapeErrorMessage = ref('')
+const isEnqueuing = ref(false)
 const jdTextareaRef = ref(null)
 
-const currentStageIndex = ref(0)
-const pipelineStages = [
-  { id: 1, name: 'Fetch & Scrape', desc: 'Fetching URL with anti-bot scraper' },
-  { id: 2, name: 'Extract Specs', desc: 'Parsing role, company & compensation' },
-  { id: 3, name: 'CV Keyword Overlap', desc: 'Computing skill match via RapidFuzz' },
-  { id: 4, name: 'Qualitative AI Fit', desc: 'Evaluating pros/cons & fit score' },
-]
+// Queue & Evaluations State
+const evaluationTasks = ref([])
+const loadingEvaluations = ref(false)
+const expandedTaskIds = ref(new Set())
+const processingTaskIds = ref(new Set())
+let pollingInterval = null
 
+// Extension Config State
 const copiedUrl = ref(false)
 const copiedJd = ref(false)
 const urlEndpoint = ref('Loading...')
 const jdEndpoint = ref('Loading...')
+
+// Computed Lists
+const activeTasks = computed(() =>
+  evaluationTasks.value.filter((t) => t.status === 'QUEUED' || t.status === 'PROCESSING')
+)
+
+const completedTasks = computed(() =>
+  evaluationTasks.value.filter((t) => t.status === 'COMPLETED' && t.result_json)
+)
+
+const failedTasks = computed(() =>
+  evaluationTasks.value.filter((t) => t.status === 'FAILED')
+)
 
 async function fetchExtensionConfig() {
   try {
@@ -86,169 +100,168 @@ function copyToClipboard(val, type) {
 function clearForm() {
   jobUrl.value = ''
   jobText.value = ''
-  scrapeDegraded.value = false
-  scrapeErrorMessage.value = ''
 }
 
-async function runAssessment() {
-  if (!jobUrl.value.trim() && !jobText.value.trim()) {
-    uiStore.showToast('Please provide a job posting URL or paste the job description text.', 'error')
+async function loadEvaluations(silent = false) {
+  if (!silent) loadingEvaluations.value = true
+  try {
+    const res = await IntakeAPI.getEvaluations(50)
+    evaluationTasks.value = res.data || []
+
+    // Auto-expand the latest completed task if none expanded
+    if (expandedTaskIds.value.size === 0 && completedTasks.value.length > 0) {
+      expandedTaskIds.value.add(completedTasks.value[0].id)
+    }
+  } catch (err) {
+    if (!silent) uiStore.showToast(err.message, 'error')
+  } finally {
+    if (!silent) loadingEvaluations.value = false
+  }
+}
+
+async function enqueueLead() {
+  const urlVal = jobUrl.value.trim()
+  const textVal = jobText.value.trim()
+
+  if (!urlVal && !textVal) {
+    uiStore.showToast('Please enter a Job Posting URL or paste the job description text.', 'error')
     return
   }
 
-  submittedUrl.value = jobUrl.value.trim()
-  submittedText.value = jobText.value.trim()
-
-  isAnalyzing.value = true
-  assessmentResult.value = null
-  scrapeDegraded.value = false
-  scrapeErrorMessage.value = ''
-  currentStageIndex.value = 1
-
-  const taskId = `intake-${Date.now()}`
-  uiStore.addIntakeTask({
-    id: taskId,
-    title: submittedUrl.value ? `Lead: ${submittedUrl.value.slice(0, 45)}...` : 'Pasted Job Lead',
-    url: submittedUrl.value || null,
-    stage: 'SCRAPING',
-    status: 'running',
-    message: 'Scraping and analyzing job specifications...',
-  })
-
-  const stepTimer1 = setTimeout(() => {
-    if (isAnalyzing.value) {
-      currentStageIndex.value = 2
-      uiStore.updateIntakeTask(taskId, { stage: 'EXTRACTING' })
-    }
-  }, 1200)
-
-  const stepTimer2 = setTimeout(() => {
-    if (isAnalyzing.value) {
-      currentStageIndex.value = 3
-      uiStore.updateIntakeTask(taskId, { stage: 'MATCHING' })
-    }
-  }, 2600)
-
-  const stepTimer3 = setTimeout(() => {
-    if (isAnalyzing.value) {
-      currentStageIndex.value = 4
-      uiStore.updateIntakeTask(taskId, { stage: 'ASSESSING' })
-    }
-  }, 4000)
-
+  isEnqueuing.value = true
   try {
-    const res = await IntakeAPI.assessJob({
-      url: submittedUrl.value || null,
-      text: submittedText.value || null,
+    const res = await IntakeAPI.enqueueAssessment({
+      url: urlVal || null,
+      text: textVal || null,
     })
-    assessmentResult.value = res.data
-    currentStageIndex.value = 4
 
-    // Clear input fields immediately after successful transmission/assessment
+    // Immediately clear input fields for continuous workflow
     jobUrl.value = ''
     jobText.value = ''
 
-    uiStore.updateIntakeTask(taskId, {
-      stage: 'COMPLETE',
-      status: 'success',
-      title: `${res.data.company} - ${res.data.position}`,
-      message: `Fit Score: ${res.data.fit_score}%`,
-    })
-    uiStore.showToast('AI Pre-Application assessment completed!', 'success')
-  } catch (err) {
-    clearTimeout(stepTimer1)
-    clearTimeout(stepTimer2)
-    clearTimeout(stepTimer3)
-
-    const errDetail = err.response?.data?.detail || err.message || ''
-    if (
-      typeof errDetail === 'string' &&
-      (errDetail.includes('SCRAPE_FAILED') || errDetail.includes('422') || errDetail.includes('valid job description'))
-    ) {
-      scrapeDegraded.value = true
-      scrapeErrorMessage.value =
-        'Scraper Protection / Empty Response: Automated scraping was blocked or unavailable for this job URL. Please paste the job description text below to continue.'
-      uiStore.updateIntakeTask(taskId, {
-        stage: 'FAILED',
-        status: 'error',
-        message: 'Scrape blocked. Paste JD required.',
-      })
-      await nextTick()
-      jdTextareaRef.value?.focus()
-    } else {
-      uiStore.updateIntakeTask(taskId, {
-        stage: 'FAILED',
-        status: 'error',
-        message: err.message,
-      })
-      uiStore.showToast(err.message, 'error')
-    }
-  } finally {
-    clearTimeout(stepTimer1)
-    clearTimeout(stepTimer2)
-    clearTimeout(stepTimer3)
-    isAnalyzing.value = false
-  }
-}
-
-function focusJdTextarea() {
-  jdTextareaRef.value?.focus()
-}
-
-async function confirmAndProcess(targetStatus = 'ASSESSMENT') {
-  if (!assessmentResult.value) return
-  isSaving.value = true
-
-  try {
-    const res = await IntakeAPI.confirmAssessment({
-      company: assessmentResult.value.company,
-      position: assessmentResult.value.position,
-      status: targetStatus,
-      job_url: submittedUrl.value || null,
-      description_markdown: submittedText.value || assessmentResult.value.summary,
-      salary_min: assessmentResult.value.salary_min,
-      salary_max: assessmentResult.value.salary_max,
-      currency: assessmentResult.value.currency,
-      location: assessmentResult.value.location,
-      work_model: assessmentResult.value.work_model,
-      required_skills: [
-        ...(assessmentResult.value.matching_skills || []),
-        ...(assessmentResult.value.missing_skills || []),
-      ],
-    })
-
-    jobUrl.value = ''
-    jobText.value = ''
-    submittedUrl.value = ''
-    submittedText.value = ''
-    assessmentResult.value = null
-
-    uiStore.showToast(`Saved '${res.data.company || 'Job'}' to ${targetStatus}!`, 'success')
-    appStore.fetchApplications()
-    router.push('/')
+    uiStore.showToast(`Lead '${res.data.title_hint}' enqueued for AI evaluation!`, 'success')
+    await loadEvaluations(true)
   } catch (err) {
     uiStore.showToast(err.message, 'error')
   } finally {
-    isSaving.value = false
+    isEnqueuing.value = false
   }
 }
 
+function toggleExpandTask(taskId) {
+  if (expandedTaskIds.value.has(taskId)) {
+    expandedTaskIds.value.delete(taskId)
+  } else {
+    expandedTaskIds.value.add(taskId)
+  }
+}
+
+async function confirmAndSaveLead(task, targetStatus = 'ASSESSMENT') {
+  if (!task.result_json) return
+  const result = task.result_json
+  processingTaskIds.value.add(task.id)
+
+  try {
+    const res = await IntakeAPI.confirmAssessment({
+      company: result.company,
+      position: result.position,
+      status: targetStatus,
+      job_url: task.job_url || null,
+      description_markdown: task.raw_text || result.summary,
+      salary_min: result.salary_min,
+      salary_max: result.salary_max,
+      currency: result.currency || 'USD',
+      location: result.location,
+      work_model: result.work_model,
+      required_skills: [
+        ...(result.matching_skills || []),
+        ...(result.missing_skills || []),
+      ],
+    })
+
+    uiStore.showToast(`Saved '${res.data.company || 'Job'}' to ${targetStatus}!`, 'success')
+    appStore.fetchApplications()
+
+    // Dismiss evaluated task from queue
+    await IntakeAPI.deleteEvaluation(task.id)
+    await loadEvaluations(true)
+  } catch (err) {
+    uiStore.showToast(err.message, 'error')
+  } finally {
+    processingTaskIds.value.delete(task.id)
+  }
+}
+
+async function deleteTask(taskId) {
+  try {
+    await IntakeAPI.deleteEvaluation(taskId)
+    evaluationTasks.value = evaluationTasks.value.filter((t) => t.id !== taskId)
+    uiStore.showToast('Evaluation dismissed', 'info')
+  } catch (err) {
+    uiStore.showToast(err.message, 'error')
+  }
+}
+
+function retryFailedWithPaste(task) {
+  if (task.job_url) {
+    jobUrl.value = task.job_url
+  }
+  if (task.raw_text) {
+    jobText.value = task.raw_text
+  }
+  deleteTask(task.id)
+  nextTick(() => {
+    jdTextareaRef.value?.focus()
+  })
+}
+
+function formatStageLabel(stage) {
+  switch (stage) {
+    case 'FETCHING':
+      return 'Fetching URL / Scraping'
+    case 'EXTRACTING':
+      return 'Extracting Specs & Roles'
+    case 'MATCHING':
+      return 'Matching CV Keyword Overlap'
+    case 'ASSESSING':
+      return 'Running Qualitative AI Fit'
+    case 'COMPLETE':
+      return 'Ready for Review'
+    case 'FAILED':
+      return 'Failed'
+    default:
+      return stage
+  }
+}
 
 onMounted(() => {
   fetchExtensionConfig()
+  loadEvaluations()
+
+  // Poll active tasks every 2.5s
+  pollingInterval = setInterval(() => {
+    if (activeTasks.value.length > 0) {
+      loadEvaluations(true)
+    }
+  }, 2500)
+})
+
+onUnmounted(() => {
+  if (pollingInterval) clearInterval(pollingInterval)
 })
 </script>
 
 <template>
   <div class="page-container">
+    <!-- Header -->
     <div class="intake-header">
       <div class="header-badge">
         <Sparkles :size="14" />
         <span>Pre-Application Intelligence</span>
       </div>
-      <h1 class="page-title">Job Lead Intake & AI Assessment</h1>
+      <h1 class="page-title">Job Lead Intake & AI Evaluation Queue</h1>
       <p class="page-subtitle">
-        Paste a career portal URL or job description. Our hybrid engine calculates programmatic keyword overlap against your profile, then runs qualitative AI evaluation before applying.
+        Paste a career URL or job description. Leads are queued and evaluated safely within provider concurrency limits, calculating keyword overlap against your CV profile before applying.
       </p>
     </div>
 
@@ -256,23 +269,8 @@ onMounted(() => {
     <div class="advisory-banner">
       <Info :size="16" class="text-primary flex-shrink-0" />
       <span>
-        <strong>LinkedIn & Protected Portals:</strong> LinkedIn actively blocks automated scrapers. If your posting is from LinkedIn, please copy and paste the job description text below directly for best results.
+        <strong>Continuous Lead Input:</strong> Input fields clear immediately on submit so you can paste multiple job leads in rapid succession. Track live progress and review completed assessments below.
       </span>
-    </div>
-
-    <!-- Scraper Fallback Advisory Card -->
-    <div v-if="scrapeDegraded" class="scrape-fallback-banner animate-fade-in">
-      <div class="fallback-icon-box">
-        <AlertTriangle :size="20" class="text-warning" />
-      </div>
-      <div class="fallback-content">
-        <div class="fallback-title">Scraper Fallback Triggered</div>
-        <p class="fallback-desc">{{ scrapeErrorMessage }}</p>
-        <button class="btn btn-secondary btn-xs mt-2" @click="focusJdTextarea">
-          <ArrowDownCircle :size="13" />
-          <span>Jump to Job Description Textarea</span>
-        </button>
-      </div>
     </div>
 
     <!-- Browser Extension Endpoints Configuration Bar -->
@@ -332,6 +330,7 @@ onMounted(() => {
           type="url"
           placeholder="https://boards.greenhouse.io/company/jobs/123456"
           class="form-input"
+          @keydown.enter="enqueueLead"
         />
       </div>
 
@@ -348,10 +347,9 @@ onMounted(() => {
         <textarea
           ref="jdTextareaRef"
           v-model="jobText"
-          rows="7"
-          placeholder="e.g. Stripe - Senior Backend Engineer&#10;&#10;About the Role...&#10;Responsibilities...&#10;Requirements: Python, PostgreSQL, Distributed Systems..."
+          rows="5"
+          placeholder="e.g. Stripe - Staff Backend Engineer&#10;&#10;About the Role...&#10;Responsibilities...&#10;Requirements: Python, PostgreSQL, Distributed Systems..."
           class="form-textarea font-mono text-xs"
-          :class="{ 'border-highlight': scrapeDegraded }"
         ></textarea>
       </div>
 
@@ -359,7 +357,7 @@ onMounted(() => {
         <button
           v-if="jobUrl || jobText"
           class="btn btn-secondary"
-          :disabled="isAnalyzing"
+          :disabled="isEnqueuing"
           @click="clearForm"
         >
           <X :size="15" />
@@ -367,194 +365,258 @@ onMounted(() => {
         </button>
         <button
           class="btn btn-primary btn-assess"
-          :disabled="isAnalyzing || (!jobUrl.trim() && !jobText.trim())"
-          @click="runAssessment"
+          :disabled="isEnqueuing || (!jobUrl.trim() && !jobText.trim())"
+          @click="enqueueLead"
         >
-          <Loader2 v-if="isAnalyzing" class="animate-spin" :size="16" />
+          <Loader2 v-if="isEnqueuing" class="animate-spin" :size="16" />
           <Sparkles v-else :size="16" />
-          <span>{{ isAnalyzing ? 'Evaluating Pipeline...' : 'Evaluate Job Fit' }}</span>
+          <span>{{ isEnqueuing ? 'Enqueuing Lead...' : 'Evaluate Job Fit (Add to Queue)' }}</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- EVALUATION QUEUE & REVIEW STACK SECTION -->
+    <!-- ================================================================= -->
+    <div class="queue-section">
+      <div class="queue-section-header">
+        <div class="queue-title-group">
+          <Clock :size="18" class="text-primary" />
+          <h2 class="queue-title">Evaluation Queue & Ready Reviews</h2>
+          <span v-if="activeTasks.length > 0" class="badge badge-interview">
+            {{ activeTasks.length }} Processing
+          </span>
+          <span v-if="completedTasks.length > 0" class="badge badge-offer">
+            {{ completedTasks.length }} Ready for Review
+          </span>
+        </div>
+        <button class="btn btn-secondary btn-xs" @click="loadEvaluations(false)">
+          <RefreshCw :size="12" :class="{ 'animate-spin': loadingEvaluations }" />
+          <span>Refresh</span>
         </button>
       </div>
 
-    </div>
-
-    <!-- REAL-TIME 4-STAGE PIPELINE VISUALIZER -->
-    <div v-if="isAnalyzing" class="visualizer-card animate-fade-in">
-      <div class="visualizer-header">
-        <div class="visualizer-title">
-          <Loader2 class="animate-spin text-primary" :size="18" />
-          <span>Intake Assessment in Progress</span>
+      <!-- 1. Active In-Progress Tasks -->
+      <div v-if="activeTasks.length > 0" class="active-tasks-list">
+        <div v-for="task in activeTasks" :key="task.id" class="active-task-card animate-fade-in">
+          <div class="task-card-main">
+            <div class="task-spinner-box">
+              <Loader2 class="animate-spin text-primary" :size="18" />
+            </div>
+            <div class="task-info">
+              <div class="task-title font-semibold">{{ task.title_hint }}</div>
+              <div class="task-stage-row">
+                <span class="badge badge-applied font-mono text-xs">{{ task.status }}</span>
+                <span class="task-stage-text">{{ formatStageLabel(task.stage) }}</span>
+                <span v-if="task.job_url" class="task-url-text font-mono text-xs">{{ task.job_url.slice(0, 45) }}...</span>
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-danger btn-xs" @click="deleteTask(task.id)" title="Cancel Evaluation">
+            <X :size="13" />
+          </button>
         </div>
-        <span class="stage-counter font-mono text-xs">Stage {{ currentStageIndex }} of 4</span>
       </div>
 
-      <div class="stages-timeline">
+      <!-- 2. Failed Tasks Alert -->
+      <div v-if="failedTasks.length > 0" class="failed-tasks-list">
+        <div v-for="task in failedTasks" :key="task.id" class="failed-task-card animate-fade-in">
+          <div class="failed-card-main">
+            <AlertTriangle :size="18" class="text-danger flex-shrink-0" />
+            <div class="failed-info">
+              <div class="failed-title font-semibold">{{ task.title_hint }} (Scrape Failed)</div>
+              <div class="failed-msg text-xs">{{ task.error_message || 'Unable to extract job specs automatically.' }}</div>
+            </div>
+          </div>
+          <div class="failed-actions">
+            <button class="btn btn-secondary btn-xs" @click="retryFailedWithPaste(task)">
+              <span>Paste JD & Retry</span>
+            </button>
+            <button class="btn btn-danger btn-xs" @click="deleteTask(task.id)">
+              <Trash2 :size="12" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Completed Ready-for-Review Assessments Stack -->
+      <div v-if="completedTasks.length > 0" class="completed-tasks-stack">
         <div
-          v-for="(stage, idx) in pipelineStages"
-          :key="stage.id"
-          class="stage-node"
-          :class="{
-            active: currentStageIndex === stage.id,
-            completed: currentStageIndex > stage.id,
-            pending: currentStageIndex < stage.id,
-          }"
+          v-for="task in completedTasks"
+          :key="task.id"
+          class="review-card animate-fade-in"
+          :class="{ expanded: expandedTaskIds.has(task.id) }"
         >
-          <div class="node-indicator">
-            <Check v-if="currentStageIndex > stage.id" :size="12" />
-            <Loader2 v-else-if="currentStageIndex === stage.id" class="animate-spin" :size="12" />
-            <span v-else class="font-mono text-xs">{{ stage.id }}</span>
-          </div>
-          <div class="node-content">
-            <div class="node-name">{{ stage.name }}</div>
-            <div class="node-desc">{{ stage.desc }}</div>
-          </div>
-          <div v-if="idx < pipelineStages.length - 1" class="node-connector"></div>
-        </div>
-      </div>
-    </div>
+          <!-- Review Card Summary Header -->
+          <div class="review-header" @click="toggleExpandTask(task.id)">
+            <div class="review-header-left">
+              <div class="company-icon-box">
+                <Building2 :size="20" />
+              </div>
+              <div>
+                <div class="review-company-title">{{ task.result_json.company }}</div>
+                <div class="review-role-title">{{ task.result_json.position }}</div>
+              </div>
+            </div>
 
+            <!-- Scores & Actions -->
+            <div class="review-header-right">
+              <div class="scores-compact">
+                <div class="score-pill">
+                  <span class="score-pill-num font-mono">{{ task.result_json.programmatic_match_score || 0 }}%</span>
+                  <span class="score-pill-lbl">Overlap</span>
+                </div>
+                <div class="score-pill score-pill-ai">
+                  <span class="score-pill-num font-mono">{{ task.result_json.fit_score }}%</span>
+                  <span class="score-pill-lbl">AI Fit</span>
+                </div>
+              </div>
 
-    <!-- Real-Time AI Pre-Assessment Result -->
-    <div v-if="assessmentResult" class="assessment-dashboard animate-fade-in">
-      <div class="dashboard-header">
-        <div class="header-left">
-          <div class="company-icon-box">
-            <Building2 :size="22" />
-          </div>
-          <div>
-            <h2 class="company-title">{{ assessmentResult.company }}</h2>
-            <div class="role-title">{{ assessmentResult.position }}</div>
-          </div>
-        </div>
-
-        <!-- Dual Scores: Programmatic Overlap + AI Fit Score -->
-        <div class="scores-group">
-          <div class="score-badge-box">
-            <div class="score-num font-mono">{{ assessmentResult.programmatic_match_score || 0 }}%</div>
-            <div class="score-lbl">Keyword Overlap</div>
-          </div>
-
-          <div class="score-badge-box score-ai-box">
-            <div class="score-num font-mono">{{ assessmentResult.fit_score }}%</div>
-            <div class="score-lbl">AI Qualitative Fit</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Quick Metrics Grid -->
-      <div class="metrics-grid">
-        <div class="metric-card">
-          <DollarSign :size="16" class="metric-icon" />
-          <div>
-            <div class="metric-k">Compensation</div>
-            <div class="metric-v">
-              <span v-if="assessmentResult.salary_min || assessmentResult.salary_max">
-                ${{ assessmentResult.salary_min?.toLocaleString() }} - ${{ assessmentResult.salary_max?.toLocaleString() }} {{ assessmentResult.currency || 'USD' }}
+              <span
+                class="badge"
+                :class="task.result_json.recommendation === 'APPLY_STRONGLY' ? 'badge-offer' : 'badge-applied'"
+              >
+                {{ task.result_json.recommendation }}
               </span>
-              <span v-else class="text-muted">Not specified</span>
+
+              <button class="btn-icon" @click.stop="toggleExpandTask(task.id)">
+                <ChevronUp v-if="expandedTaskIds.has(task.id)" :size="16" />
+                <ChevronDown v-else :size="16" />
+              </button>
+            </div>
+          </div>
+
+          <!-- Expanded Assessment Breakdown -->
+          <div v-if="expandedTaskIds.has(task.id)" class="review-body animate-fade-in">
+            <!-- Quick Metrics Grid -->
+            <div class="metrics-grid">
+              <div class="metric-card">
+                <DollarSign :size="16" class="metric-icon" />
+                <div>
+                  <div class="metric-k">Compensation</div>
+                  <div class="metric-v">
+                    <span v-if="task.result_json.salary_min || task.result_json.salary_max">
+                      ${{ task.result_json.salary_min?.toLocaleString() }} - ${{ task.result_json.salary_max?.toLocaleString() }} {{ task.result_json.currency || 'USD' }}
+                    </span>
+                    <span v-else class="text-muted">Not specified</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="metric-card">
+                <MapPin :size="16" class="metric-icon" />
+                <div>
+                  <div class="metric-k">Location & Model</div>
+                  <div class="metric-v">
+                    {{ task.result_json.location || 'Location Unspecified' }}
+                    <span v-if="task.result_json.work_model">({{ task.result_json.work_model }})</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="metric-card">
+                <ShieldCheck :size="16" class="metric-icon" />
+                <div>
+                  <div class="metric-k">AI Recommendation</div>
+                  <div class="metric-v font-semibold text-primary">
+                    {{ task.result_json.recommendation }}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Skills Matrix -->
+            <div class="skills-matrix">
+              <div class="matrix-col">
+                <div class="matrix-title text-success">
+                  <Check :size="15" />
+                  <span>Matching Strengths & Skills ({{ task.result_json.matching_skills?.length || 0 }})</span>
+                </div>
+                <div class="tags-container">
+                  <span v-for="s in task.result_json.matching_skills" :key="s" class="tag-chip tag-match">
+                    {{ s }}
+                  </span>
+                </div>
+              </div>
+
+              <div class="matrix-col">
+                <div class="matrix-title text-danger">
+                  <AlertTriangle :size="15" />
+                  <span>Missing Qualification Keywords ({{ task.result_json.missing_skills?.length || 0 }})</span>
+                </div>
+                <div class="tags-container">
+                  <span v-for="m in task.result_json.missing_skills" :key="m" class="tag-chip tag-miss">
+                    {{ m }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pros & Cons -->
+            <div class="pros-cons-grid">
+              <div v-if="task.result_json.pros?.length" class="pro-con-box">
+                <div class="pro-con-title">Key Advantages / Pros</div>
+                <ul class="pro-con-list">
+                  <li v-for="(p, idx) in task.result_json.pros" :key="idx">{{ p }}</li>
+                </ul>
+              </div>
+
+              <div v-if="task.result_json.cons?.length" class="pro-con-box">
+                <div class="pro-con-title">Potential Caveats / Cons</div>
+                <ul class="pro-con-list">
+                  <li v-for="(c, idx) in task.result_json.cons" :key="idx">{{ c }}</li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- Narrative Evaluation -->
+            <div class="evaluation-summary">
+              <div class="eval-title">Evaluation Summary</div>
+              <p class="eval-text">{{ task.result_json.summary }}</p>
+            </div>
+
+            <!-- Confirmation Action Bar -->
+            <div class="review-action-bar">
+              <button class="btn btn-danger btn-sm" @click="deleteTask(task.id)">
+                <Trash2 :size="14" />
+                <span>Dismiss Lead</span>
+              </button>
+
+              <div class="confirm-buttons">
+                <button
+                  class="btn btn-secondary btn-sm"
+                  :disabled="processingTaskIds.has(task.id)"
+                  @click="confirmAndSaveLead(task, 'ASSESSMENT')"
+                >
+                  <Loader2 v-if="processingTaskIds.has(task.id)" class="animate-spin" :size="14" />
+                  <span>Save to Assessment</span>
+                </button>
+
+                <button
+                  class="btn btn-primary btn-sm"
+                  :disabled="processingTaskIds.has(task.id)"
+                  @click="confirmAndSaveLead(task, 'APPLIED')"
+                >
+                  <Loader2 v-if="processingTaskIds.has(task.id)" class="animate-spin" :size="14" />
+                  <span>Confirm & Mark as Applied</span>
+                  <ArrowRight :size="14" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
-
-        <div class="metric-card">
-          <MapPin :size="16" class="metric-icon" />
-          <div>
-            <div class="metric-k">Location & Model</div>
-            <div class="metric-v">
-              {{ assessmentResult.location || 'Location Unspecified' }}
-              <span v-if="assessmentResult.work_model">({{ assessmentResult.work_model }})</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="metric-card">
-          <ShieldCheck :size="16" class="metric-icon" />
-          <div>
-            <div class="metric-k">AI Recommendation</div>
-            <div class="metric-v">
-              <span class="badge" :class="assessmentResult.recommendation === 'APPLY_STRONGLY' ? 'badge-offer' : 'badge-applied'">
-                {{ assessmentResult.recommendation }}
-              </span>
-            </div>
-          </div>
-        </div>
       </div>
 
-      <!-- Skills Matrix -->
-      <div class="skills-matrix">
-        <div class="matrix-col">
-          <div class="matrix-title text-success">
-            <Check :size="15" />
-            <span>Matching Strengths & Skills ({{ assessmentResult.matching_skills?.length || 0 }})</span>
-          </div>
-          <div class="tags-container">
-            <span v-for="s in assessmentResult.matching_skills" :key="s" class="tag-chip tag-match">
-              {{ s }}
-            </span>
-          </div>
-        </div>
-
-        <div class="matrix-col">
-          <div class="matrix-title text-danger">
-            <AlertTriangle :size="15" />
-            <span>Missing Qualification Keywords ({{ assessmentResult.missing_skills?.length || 0 }})</span>
-          </div>
-          <div class="tags-container">
-            <span v-for="m in assessmentResult.missing_skills" :key="m" class="tag-chip tag-miss">
-              {{ m }}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Pros & Cons -->
-      <div class="pros-cons-grid">
-        <div v-if="assessmentResult.pros?.length" class="pro-con-box">
-          <div class="pro-con-title">Key Advantages / Pros</div>
-          <ul class="pro-con-list">
-            <li v-for="(p, idx) in assessmentResult.pros" :key="idx">{{ p }}</li>
-          </ul>
-        </div>
-
-        <div v-if="assessmentResult.cons?.length" class="pro-con-box">
-          <div class="pro-con-title">Potential Caveats / Cons</div>
-          <ul class="pro-con-list">
-            <li v-for="(c, idx) in assessmentResult.cons" :key="idx">{{ c }}</li>
-          </ul>
-        </div>
-      </div>
-
-      <!-- Narrative Evaluation -->
-      <div class="evaluation-summary">
-        <div class="eval-title">Evaluation Summary</div>
-        <p class="eval-text">{{ assessmentResult.summary }}</p>
-      </div>
-
-      <!-- Confirmation Execution Bar -->
-      <div class="confirmation-bar">
-        <div class="confirm-text">
-          Confirm and save this lead into your application pipeline:
-        </div>
-        <div class="confirm-buttons">
-          <button
-            class="btn btn-secondary"
-            :disabled="isSaving"
-            @click="confirmAndProcess('ASSESSMENT')"
-          >
-            <Loader2 v-if="isSaving" class="animate-spin" :size="15" />
-            <span>Save to AI Assessment</span>
-          </button>
-
-          <button
-            class="btn btn-primary"
-            :disabled="isSaving"
-            @click="confirmAndProcess('APPLIED')"
-          >
-            <Loader2 v-if="isSaving" class="animate-spin" :size="15" />
-            <span>Confirm & Mark as Applied</span>
-            <ArrowRight :size="15" />
-          </button>
-        </div>
+      <!-- Empty State -->
+      <div
+        v-if="!loadingEvaluations && activeTasks.length === 0 && completedTasks.length === 0 && failedTasks.length === 0"
+        class="queue-empty-state"
+      >
+        <Inbox :size="32" class="text-muted mb-2" />
+        <div class="font-semibold text-main">No Evaluations in Queue</div>
+        <p class="text-xs text-secondary max-w-sm mt-1">
+          Paste a job posting URL or job description text above to enqueue for real-time qualification assessment.
+        </p>
       </div>
     </div>
   </div>
@@ -746,6 +808,7 @@ onMounted(() => {
 .intake-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 10px;
   margin-top: 6px;
 }
 
@@ -754,36 +817,166 @@ onMounted(() => {
   font-weight: 600;
 }
 
-/* ASSESSMENT DASHBOARD */
-.assessment-dashboard {
-  margin-top: 32px;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  padding: 28px;
-  box-shadow: var(--shadow-lg);
+/* ========================================================================= */
+/* QUEUE & REVIEW STACK STYLING */
+/* ========================================================================= */
+.queue-section {
+  margin-top: 36px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 18px;
 }
 
-.dashboard-header {
+.queue-section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--border-color);
-  padding-bottom: 20px;
+  padding-bottom: 12px;
 }
 
-.header-left {
+.queue-title-group {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
+}
+
+.queue-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.active-tasks-list, .failed-tasks-list, .completed-tasks-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.active-task-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.task-card-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.task-spinner-box {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background-color: var(--primary-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.task-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-title {
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.task-stage-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-stage-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.task-url-text {
+  color: var(--text-muted);
+}
+
+/* Failed Tasks Card */
+.failed-task-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background-color: var(--status-rejected-bg);
+  border: 1px solid var(--status-rejected-border);
+  border-radius: var(--radius-md);
+}
+
+.failed-card-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.failed-title {
+  font-size: 13px;
+  color: var(--status-rejected-text);
+}
+
+.failed-msg {
+  color: var(--text-secondary);
+}
+
+.failed-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Review Card */
+.review-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  transition: all var(--transition-fast);
+}
+
+.review-card.expanded {
+  box-shadow: var(--shadow-md);
+  border-color: var(--primary-subtle);
+}
+
+.review-header {
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  background-color: var(--bg-surface);
+  transition: background-color var(--transition-fast);
+}
+
+.review-header:hover {
+  background-color: var(--bg-surface-hover);
+}
+
+.review-header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 
 .company-icon-box {
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--radius-md);
   background-color: var(--bg-elevated);
   display: flex;
@@ -793,71 +986,90 @@ onMounted(() => {
   border: 1px solid var(--border-subtle);
 }
 
-.company-title {
-  font-size: 20px;
+.review-company-title {
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-main);
 }
 
-.role-title {
-  font-size: 14px;
+.review-role-title {
+  font-size: 13px;
   color: var(--text-secondary);
-  margin-top: 2px;
 }
 
-.scores-group {
+.review-header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
-.score-badge-box {
+.scores-compact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.score-pill {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 8px 14px;
+  padding: 4px 10px;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
+  border-radius: 4px;
 }
 
-.score-ai-box {
+.score-pill-ai {
   background-color: var(--status-offer-bg);
   border-color: var(--status-offer-border);
 }
 
-.score-num {
-  font-size: 16px;
+.score-pill-num {
+  font-size: 13px;
   font-weight: 800;
   color: var(--text-main);
 }
 
-.score-ai-box .score-num {
+.score-pill-ai .score-pill-num {
   color: var(--status-offer-text);
 }
 
-.score-lbl {
-  font-size: 10px;
+.score-pill-lbl {
+  font-size: 9px;
   text-transform: uppercase;
   color: var(--text-muted);
   font-weight: 600;
-  margin-top: 2px;
+}
+
+.btn-icon {
+  color: var(--text-muted);
+  padding: 4px;
+}
+
+/* Review Body */
+.review-body {
+  padding: 20px 24px;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
 }
 
 .metric-card {
   display: flex;
   align-items: center;
-  gap: 12px;
-  background-color: var(--bg-card);
+  gap: 10px;
+  background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 14px;
+  border-radius: var(--radius-sm);
+  padding: 12px;
 }
 
 .metric-icon {
@@ -865,29 +1077,29 @@ onMounted(() => {
 }
 
 .metric-k {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
   text-transform: uppercase;
   font-weight: 600;
 }
 
 .metric-v {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-main);
 }
 
 .skills-matrix {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
 }
 
 .matrix-col {
-  background-color: var(--bg-card);
+  background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 16px;
+  border-radius: var(--radius-sm);
+  padding: 14px;
 }
 
 .matrix-title {
@@ -896,7 +1108,7 @@ onMounted(() => {
   gap: 6px;
   font-size: 12px;
   font-weight: 700;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .tags-container {
@@ -906,9 +1118,9 @@ onMounted(() => {
 }
 
 .tag-chip {
-  padding: 4px 10px;
+  padding: 3px 8px;
   border-radius: var(--radius-full);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
 }
 
@@ -926,223 +1138,76 @@ onMounted(() => {
 
 .pros-cons-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
 }
 
 .pro-con-box {
-  background-color: var(--bg-card);
+  background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 16px;
+  border-radius: var(--radius-sm);
+  padding: 14px;
 }
 
 .pro-con-title {
   font-size: 12px;
   font-weight: 700;
   color: var(--text-secondary);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .pro-con-list {
-  padding-left: 18px;
-  font-size: 13px;
+  padding-left: 16px;
+  font-size: 12px;
   color: var(--text-main);
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .evaluation-summary {
-  background-color: var(--bg-card);
+  background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 16px;
+  border-radius: var(--radius-sm);
+  padding: 14px;
 }
 
 .eval-title {
   font-size: 12px;
   font-weight: 700;
   color: var(--text-secondary);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .eval-text {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-main);
   line-height: 1.5;
 }
 
-.confirmation-bar {
+.review-action-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 16px;
-  padding-top: 16px;
+  gap: 12px;
+  padding-top: 14px;
   border-top: 1px solid var(--border-color);
-}
-
-.confirm-text {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
 }
 
 .confirm-buttons {
   display: flex;
   align-items: center;
-  gap: 12px;
-}
-
-/* SCRAPER FALLBACK BANNER */
-.scrape-fallback-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 16px;
-  background-color: var(--status-interview-bg);
-  border: 1px solid var(--status-interview-border);
-  border-radius: var(--radius-md);
-  margin-bottom: 16px;
-}
-
-.fallback-icon-box {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-}
-
-.fallback-content {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.fallback-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--status-interview-text);
-}
-
-.fallback-desc {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-main);
-}
-
-.border-highlight {
-  border-color: var(--status-interview-border) !important;
-  box-shadow: 0 0 0 2px var(--status-interview-bg);
-}
-
-/* 4-STAGE PIPELINE VISUALIZER */
-.visualizer-card {
-  margin-top: 20px;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 20px 24px;
-  box-shadow: var(--shadow-sm);
-}
-
-.visualizer-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--border-subtle);
-  padding-bottom: 12px;
-  margin-bottom: 16px;
-}
-
-.visualizer-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.stage-counter {
-  color: var(--primary);
-  font-weight: 600;
-  background-color: var(--primary-subtle);
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-}
-
-.stages-timeline {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  position: relative;
-}
-
-@media (max-width: 768px) {
-  .stages-timeline {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
-}
-
-.stage-node {
-  display: flex;
-  align-items: flex-start;
   gap: 10px;
-  position: relative;
 }
 
-.node-indicator {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-muted);
-  flex-shrink: 0;
-  transition: all var(--transition-fast);
-}
-
-.stage-node.active .node-indicator {
-  background-color: var(--primary);
-  color: #ffffff;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px var(--primary-subtle);
-}
-
-.stage-node.completed .node-indicator {
-  background-color: var(--status-offer-bg);
-  color: var(--status-offer-text);
-  border-color: var(--status-offer-border);
-}
-
-.stage-node.pending .node-indicator {
-  opacity: 0.6;
-}
-
-.node-content {
+.queue-empty-state {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-}
-
-.node-name {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.stage-node.active .node-name {
-  color: var(--primary);
-}
-
-.node-desc {
-  font-size: 10px;
-  color: var(--text-muted);
-  line-height: 1.3;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  background-color: var(--bg-surface);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-md);
+  text-align: center;
 }
 </style>
-

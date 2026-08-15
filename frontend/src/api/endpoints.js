@@ -15,11 +15,15 @@ export const IntakeAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
   assessJob: (data) => apiClient.post('/intake/assess-job', data),
+  enqueueAssessment: (data) => apiClient.post('/intake/enqueue-assessment', data),
+  getEvaluations: (limit = 50) => apiClient.get('/intake/evaluations', { params: { limit } }),
+  deleteEvaluation: (taskId) => apiClient.delete(`/intake/evaluations/${taskId}`),
   confirmAssessment: (data) => apiClient.post('/intake/confirm-assessment', data),
   getExtensionConfig: () => apiClient.get('/intake/extension-config'),
   syncAccount: (data) => apiClient.post('/intake/sync-account', data),
   getTaskStatus: (taskId) => apiClient.get(`/intake/tasks/${taskId}`),
 }
+
 
 export const CandidateProfileAPI = {
   get: () => apiClient.get('/profile/cv'),

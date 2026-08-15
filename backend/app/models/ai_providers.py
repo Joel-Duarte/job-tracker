@@ -15,8 +15,10 @@ class AIProviderModel(Base):
     provider_type: Mapped[str] = mapped_column(Text, nullable=False, default="openai")
     base_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     api_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    max_concurrency: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     task_bindings: Mapped[list["AITaskBindingModel"]] = relationship(

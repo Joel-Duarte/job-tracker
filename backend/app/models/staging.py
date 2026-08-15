@@ -3,7 +3,8 @@ from typing import Any, Dict, Optional
 from sqlalchemy import BigInteger, DateTime, Float, Index, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from app.core.database import Base
+from app.models.applications import Base
+
 
 
 class StagingItemModel(Base):

@@ -16,6 +16,7 @@ class AIProviderCreate(BaseModel):
     provider_type: str = Field(..., description="Provider identifier: 'openai', 'anthropic', 'ollama', 'google_genai', 'openrouter', 'custom'")
     base_url: Optional[str] = Field(default=None, description="Base API URL e.g. 'http://192.168.1.187:1234/v1'")
     api_key: Optional[str] = Field(default=None, description="API key if required")
+    max_concurrency: int = Field(default=1, ge=1, le=50, description="Max parallel AI requests to this provider")
     is_active: bool = Field(default=True)
 
 
@@ -24,6 +25,7 @@ class AIProviderUpdate(BaseModel):
     provider_type: Optional[str] = None
     base_url: Optional[str] = None
     api_key: Optional[str] = None
+    max_concurrency: Optional[int] = Field(default=None, ge=1, le=50)
     is_active: Optional[bool] = None
 
 
@@ -33,11 +35,13 @@ class AIProviderRead(BaseModel):
     provider_type: str
     base_url: Optional[str] = None
     api_key_masked: Optional[str] = None
+    max_concurrency: int = 1
     is_active: bool
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
 
 
 class AITaskBindingCreate(BaseModel):

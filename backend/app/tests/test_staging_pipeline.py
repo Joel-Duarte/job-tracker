@@ -70,7 +70,8 @@ async def test_duplicate_email_deduplication(db_session, mock_job_email_payload,
     task_id_1 = task_tracker.create_task(total_emails=1)
     task_id_2 = task_tracker.create_task(total_emails=1)
 
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract:
+    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract, \
+         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock):
         mock_extract.return_value = mock_extracted_job_info
 
         # Pass 1: Ingests email
@@ -81,6 +82,7 @@ async def test_duplicate_email_deduplication(db_session, mock_job_email_payload,
 
         # Extraction should only be called ONCE (during Pass 1)
         assert mock_extract.call_count == 1
+
 
     # Verify only 1 timeline event exists in DB
     events = (await db_session.execute(select(ApplicationEventModel))).scalars().all()

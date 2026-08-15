@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Any, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
 
 
 class ExtractedEmailInfo(BaseModel):
@@ -127,3 +128,24 @@ class IntakeResultResponse(BaseModel):
     event_id: Optional[int] = None
     message: str = Field(default="")
     extracted_data: Optional[dict[str, Any]] = None
+
+
+class EnqueueAssessmentRequest(BaseModel):
+    url: Optional[str] = Field(default=None, description="Job URL")
+    text: Optional[str] = Field(default=None, description="Pasted job description text")
+    title_hint: Optional[str] = Field(default=None, description="Optional title or company hint")
+
+
+class IntakeEvaluationTaskResponse(BaseModel):
+    id: int
+    job_url: Optional[str] = None
+    raw_text: Optional[str] = None
+    title_hint: str
+    status: str
+    stage: str
+    error_message: Optional[str] = None
+    result_json: Optional[dict[str, Any]] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)

@@ -14,7 +14,8 @@ async def test_process_new_job_application(db_session, mock_job_email_payload, m
     """Test that a new job email correctly creates a Company, Application, and Event record."""
     task_id = task_tracker.create_task(total_emails=1)
 
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract:
+    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract, \
+         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock):
         mock_extract.return_value = mock_extracted_job_info
 
         await process_email_batch_sequential(db_session, [mock_job_email_payload], task_id)
@@ -53,7 +54,8 @@ async def test_deduplication_and_update_existing_application(db_session, mock_jo
     task_id_1 = task_tracker.create_task(total_emails=1)
     
     # --- Step 1: Initial Email (Status: INTERVIEW) ---
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract:
+    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract, \
+         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock):
         mock_extract.return_value = mock_extracted_job_info
         await process_email_batch_sequential(db_session, [mock_job_email_payload], task_id_1)
 
@@ -75,9 +77,11 @@ async def test_deduplication_and_update_existing_application(db_session, mock_jo
     )
 
     task_id_2 = task_tracker.create_task(total_emails=1)
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract:
+    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract, \
+         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock):
         mock_extract.return_value = second_extracted
         await process_email_batch_sequential(db_session, [second_email], task_id_2)
+
 
     # --- Verification ---
     # Total companies must still be 1
