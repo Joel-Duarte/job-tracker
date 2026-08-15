@@ -280,20 +280,6 @@ onMounted(() => {
           <span class="metric-lbl">Completed</span>
         </div>
       </div>
-
-      <div
-        class="metric-card"
-        :class="{ active: filterTab === 'ALL' }"
-        @click="filterTab = 'ALL'; fetchActionItems()"
-      >
-        <div class="metric-icon all-icon">
-          <Layers :size="20" />
-        </div>
-        <div class="metric-info">
-          <span class="metric-val">{{ metrics.total }}</span>
-          <span class="metric-lbl">Total Recorded</span>
-        </div>
-      </div>
     </div>
 
     <!-- Filter Tabs Bar -->
@@ -552,9 +538,15 @@ onMounted(() => {
 
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   margin-bottom: 24px;
+}
+
+@media (max-width: 768px) {
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .metric-card {

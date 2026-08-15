@@ -80,12 +80,26 @@ async def list_applications(
         stmt = stmt.where(ApplicationModel.company_id == company_id)
 
     if action_required is not None:
-        subq = (
+        event_subq = (
             select(ApplicationEventModel.email_application_id)
-            .where(ApplicationEventModel.email_action_required == action_required)
-            .scalar_subquery()
+            .where(ApplicationEventModel.email_action_required == True)
         )
-        stmt = stmt.where(ApplicationModel.id.in_(subq))
+        action_item_subq = (
+            select(ActionItemModel.application_id)
+            .where(ActionItemModel.status == "PENDING")
+        )
+        if action_required:
+            stmt = stmt.where(
+                or_(
+                    ApplicationModel.id.in_(event_subq),
+                    ApplicationModel.id.in_(action_item_subq),
+                )
+            )
+        else:
+            stmt = stmt.where(
+                ~ApplicationModel.id.in_(event_subq),
+                ~ApplicationModel.id.in_(action_item_subq),
+            )
 
     # Calculate total count before pagination
     count_stmt = select(func.count()).select_from(stmt.subquery())
@@ -104,7 +118,9 @@ async def list_applications(
     items = []
     for app in applications:
         latest_evt = app.events[0] if app.events else None
-        has_action = any(e.email_action_required for e in app.events)
+        has_pending_tasks = any(a.status == "PENDING" for a in (app.action_items or []))
+        has_email_action = any(e.email_action_required for e in app.events)
+        has_action = has_pending_tasks or has_email_action
 
         # Compute nearest pending due date across action items & payload deadlines
         due_dates = [
@@ -421,6 +437,14 @@ async def transition_application(
             application_id=app.id,
             title=f"Interview: {payload.interview_stage or 'Technical Round'} ({app.company.name})",
             due_date=payload.scheduled_at,
+            urgency="HIGH",
+        )
+        db.add(action_item)
+    elif new_status == "TECHNICAL_INTERVIEW":
+        # Create action item to respond and schedule interview
+        action_item = ActionItemModel(
+            application_id=app.id,
+            title=f"Schedule Interview / Reply with Availability ({app.company.name})",
             urgency="HIGH",
         )
         db.add(action_item)

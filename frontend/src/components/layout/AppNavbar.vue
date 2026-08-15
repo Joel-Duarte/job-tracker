@@ -130,19 +130,6 @@ onMounted(() => {
     </div>
 
     <div class="nav-right">
-      <!-- Quick Currency Selector -->
-      <div class="currency-selector-nav" title="Default System Currency">
-        <select
-          :value="uiStore.defaultCurrency"
-          class="nav-currency-select"
-          @change="(e) => uiStore.setDefaultCurrency(e.target.value)"
-        >
-          <option v-for="c in uiStore.SUPPORTED_CURRENCIES" :key="c.code" :value="c.code">
-            {{ c.code }} ({{ c.symbol }})
-          </option>
-        </select>
-      </div>
-
       <button
         class="btn btn-primary btn-ingest"
         @click="uiStore.openIngestModal"

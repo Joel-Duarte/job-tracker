@@ -62,6 +62,7 @@ const transitionForm = ref({
 })
 
 const INTERVIEW_STAGES = [
+  'Interview Requested / Scheduling',
   'Recruiter Screen / Initial Chat',
   'Online Assessment / Take-Home',
   'Technical Round 1',

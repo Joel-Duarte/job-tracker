@@ -60,6 +60,7 @@ const appToDelete = ref(null)
 const isDeleting = ref(false)
 
 const INTERVIEW_STAGES = [
+  'Interview Requested / Scheduling',
   'Recruiter Screen / Initial Chat',
   'Online Assessment / Take-Home',
   'Technical Round 1',
@@ -120,11 +121,11 @@ function getAppSubPhaseLabel(app) {
   const payload = app.latest_event?.raw_payload || {}
 
   if (status === 'TECHNICAL_INTERVIEW') {
-    return payload.interview_stage || 'Technical Round 1'
+    return payload.interview_stage || 'Interview Requested / Scheduling'
   }
   if (status === 'OFFER') {
     const sal = payload.offered_salary || app.job_posting?.salary_max || app.job_posting?.salary_min
-    const curr = payload.currency || app.job_posting?.currency || 'USD'
+    const curr = payload.currency || uiStore.defaultCurrency || 'USD'
     return sal ? `$${Number(sal).toLocaleString()} ${curr}` : 'Offer Package'
   }
   if (status === 'REJECTED') {
@@ -179,8 +180,8 @@ function isOverdue(app) {
 // Drag and Drop Handlers
 function onDragStart(app, event) {
   draggedApp.value = app
-  event.dataTransfer.effectAllowed = 'move'
   event.dataTransfer.setData('text/plain', app.id.toString())
+  event.dataTransfer.effectAllowed = 'move'
 }
 
 function onDragEnd() {
@@ -191,7 +192,6 @@ function onDragEnd() {
 function onDragOver(colKey, event) {
   event.preventDefault()
   dragOverCol.value = colKey
-  event.dataTransfer.dropEffect = 'move'
 }
 
 function onDragLeave(colKey) {
@@ -226,10 +226,10 @@ function openTransitionModal(app, colKey) {
   const existingPayload = app.latest_event?.raw_payload || {}
 
   transitionForm.value = {
-    interview_stage: existingPayload.interview_stage || 'Technical Round 1',
+    interview_stage: existingPayload.interview_stage || 'Interview Requested / Scheduling',
     scheduled_at: existingPayload.scheduled_at ? existingPayload.scheduled_at.substring(0, 16) : '',
     offered_salary: existingPayload.offered_salary || app.job_posting?.salary_max || app.job_posting?.salary_min || null,
-    currency: existingPayload.currency || app.job_posting?.currency || 'USD',
+    currency: existingPayload.currency || uiStore.defaultCurrency || 'USD',
     offer_received_date: existingPayload.offer_received_date || today,
     decision_deadline: existingPayload.decision_deadline || '',
     rejection_date: existingPayload.rejection_date || today,
@@ -321,14 +321,16 @@ async function confirmDelete() {
           <Search :size="15" class="search-icon" />
           <input
             type="text"
-            placeholder="Search company, position, or keywords..."
+            placeholder="Search company, role, or keywords..."
             :value="appStore.searchQuery"
             class="search-input"
             @input="handleSearch"
           />
         </div>
 
+        <!-- Status Filter shown in Table view where columns don't separate statuses -->
         <select
+          v-if="uiStore.viewMode === 'table'"
           :value="appStore.selectedStatus"
           class="filter-select"
           @change="handleStatusFilter"
@@ -343,9 +345,10 @@ async function confirmDelete() {
           class="btn btn-secondary filter-toggle-btn"
           :class="{ active: appStore.actionRequiredOnly }"
           @click="toggleActionRequired"
+          title="Filter applications with pending tasks, unscheduled interviews, or deadlines"
         >
           <AlertCircle :size="14" />
-          <span>Action Required</span>
+          <span>Needs Action</span>
         </button>
       </div>
 
@@ -450,6 +453,17 @@ async function confirmDelete() {
                   <span>{{ getInterviewDate(app) }}</span>
                 </div>
 
+                <!-- Show Needs Scheduling Warning if in interview column but no date is set -->
+                <button
+                  v-else-if="app.status === 'TECHNICAL_INTERVIEW'"
+                  class="scheduling-needed-tag"
+                  @click="openTransitionModal(app, 'TECHNICAL_INTERVIEW')"
+                  title="No interview date scheduled yet - Click to schedule"
+                >
+                  <Clock :size="11" />
+                  <span>⚡ Schedule</span>
+                </button>
+
                 <!-- Show Due Date / Deadline if it exists -->
                 <div
                   v-if="getDueDate(app)"
@@ -468,14 +482,10 @@ async function confirmDelete() {
                 {{ app.latest_event.email_summary }}
               </div>
 
-              <div class="card-footer">
-                <div v-if="app.has_action_required" class="card-action-badge">
-                  <AlertCircle :size="12" />
-                  <span>Action Needed</span>
-                </div>
-                <div class="card-drag-hint">
-                  <GripVertical :size="14" />
-                </div>
+              <!-- Action Required Flag -->
+              <div v-if="app.has_action_required" class="card-action-flag">
+                <AlertCircle :size="12" />
+                <span>Action Required</span>
               </div>
             </div>
 
@@ -484,23 +494,23 @@ async function confirmDelete() {
               v-if="!appStore.kanbanColumns[col.key]?.length"
               class="column-empty"
             >
-              Drop applications here
+              No applications
             </div>
           </div>
         </div>
       </div>
 
-      <!-- 2. DATA TABLE VIEW -->
-      <div v-else class="table-container animate-fade-in">
+      <!-- 2. TABLE VIEW -->
+      <div v-else class="table-view-container">
         <table class="data-table">
           <thead>
             <tr>
               <th>Company</th>
               <th>Position</th>
-              <th>Status / Phase</th>
-              <th>Last Activity</th>
-              <th>Action Needed</th>
-              <th class="text-right">Actions</th>
+              <th>Status & Phase</th>
+              <th>Activity Date</th>
+              <th>Action Required</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -539,6 +549,16 @@ async function confirmDelete() {
                     <Calendar :size="11" />
                     <span>{{ getInterviewDate(app) }}</span>
                   </div>
+
+                  <button
+                    v-else-if="app.status === 'TECHNICAL_INTERVIEW'"
+                    class="scheduling-needed-tag"
+                    @click="openTransitionModal(app, 'TECHNICAL_INTERVIEW')"
+                    title="No interview date scheduled yet - Click to schedule"
+                  >
+                    <Clock :size="11" />
+                    <span>⚡ Schedule</span>
+                  </button>
 
                   <div
                     v-if="getDueDate(app)"
@@ -1124,6 +1144,27 @@ async function confirmDelete() {
   background-color: rgba(239, 68, 68, 0.12);
   color: #ef4444;
   border-color: rgba(239, 68, 68, 0.25);
+}
+
+.scheduling-needed-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 4px;
+  background-color: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.scheduling-needed-tag:hover {
+  background-color: rgba(245, 158, 11, 0.25);
+  border-color: #f59e0b;
+  transform: translateY(-1px);
 }
 
 .card-footer {
