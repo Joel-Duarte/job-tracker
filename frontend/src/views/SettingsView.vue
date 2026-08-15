@@ -11,6 +11,7 @@ import {
   Edit3,
   Play,
   CheckCircle,
+  CheckCircle2,
   AlertCircle,
   Loader2,
   Sparkles,
@@ -28,6 +29,12 @@ import {
   Moon,
   Kanban,
   Table as TableIcon,
+  Clock,
+  Key,
+  RefreshCw,
+  X,
+  ExternalLink,
+  Lock,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
@@ -397,6 +404,226 @@ async function triggerSync(account) {
     syncingAccount.value = null
   }
 }
+
+// Email Account Management State & Handlers
+const isEmailAccountModalOpen = ref(false)
+const editingAccount = ref(null)
+const accountToDelete = ref(null)
+const showDeleteAccountModal = ref(false)
+const isSavingAccount = ref(false)
+const isDeletingAccount = ref(false)
+
+const emailAccountForm = ref({
+  name: '',
+  provider_preset: 'gmail', // 'gmail' | 'outlook' | 'custom'
+  auth_type: 'GMAIL_OAUTH', // 'GMAIL_OAUTH' | 'MS_GRAPH_OAUTH' | 'IMAP'
+  auth_method: 'oauth', // 'oauth' | 'app_password'
+  username: '',
+  app_password: '',
+  imap_host: 'imap.gmail.com',
+  imap_port: 993,
+  folder: 'INBOX',
+  client_id: '',
+  client_secret: '',
+  sync_interval: '1h',
+  sync_schedule_time: '09:00',
+  sync_schedule_day: 'MON',
+  is_active: true,
+})
+
+function onProviderPresetChange(preset) {
+  emailAccountForm.value.provider_preset = preset
+  if (preset === 'gmail') {
+    emailAccountForm.value.auth_type = emailAccountForm.value.auth_method === 'oauth' ? 'GMAIL_OAUTH' : 'IMAP'
+    emailAccountForm.value.imap_host = 'imap.gmail.com'
+    emailAccountForm.value.imap_port = 993
+    if (!emailAccountForm.value.name || emailAccountForm.value.name === 'Outlook 365' || emailAccountForm.value.name === 'Work IMAP') {
+      emailAccountForm.value.name = 'Gmail Inbox'
+    }
+  } else if (preset === 'outlook') {
+    emailAccountForm.value.auth_type = emailAccountForm.value.auth_method === 'oauth' ? 'MS_GRAPH_OAUTH' : 'IMAP'
+    emailAccountForm.value.imap_host = 'outlook.office365.com'
+    emailAccountForm.value.imap_port = 993
+    if (!emailAccountForm.value.name || emailAccountForm.value.name === 'Gmail Inbox' || emailAccountForm.value.name === 'Work IMAP') {
+      emailAccountForm.value.name = 'Outlook 365'
+    }
+  } else {
+    emailAccountForm.value.auth_type = 'IMAP'
+    emailAccountForm.value.auth_method = 'app_password'
+    emailAccountForm.value.imap_host = ''
+    emailAccountForm.value.imap_port = 993
+    if (!emailAccountForm.value.name || emailAccountForm.value.name === 'Gmail Inbox' || emailAccountForm.value.name === 'Outlook 365') {
+      emailAccountForm.value.name = 'Work IMAP'
+    }
+  }
+}
+
+function onAuthMethodChange(method) {
+  emailAccountForm.value.auth_method = method
+  if (method === 'oauth') {
+    if (emailAccountForm.value.provider_preset === 'gmail') {
+      emailAccountForm.value.auth_type = 'GMAIL_OAUTH'
+    } else if (emailAccountForm.value.provider_preset === 'outlook') {
+      emailAccountForm.value.auth_type = 'MS_GRAPH_OAUTH'
+    }
+  } else {
+    emailAccountForm.value.auth_type = 'IMAP'
+  }
+}
+
+function openAddEmailAccountModal() {
+  editingAccount.value = null
+  emailAccountForm.value = {
+    name: 'Gmail Inbox',
+    provider_preset: 'gmail',
+    auth_type: 'GMAIL_OAUTH',
+    auth_method: 'oauth',
+    username: '',
+    app_password: '',
+    imap_host: 'imap.gmail.com',
+    imap_port: 993,
+    folder: 'INBOX',
+    client_id: '',
+    client_secret: '',
+    sync_interval: '1h',
+    sync_schedule_time: '09:00',
+    sync_schedule_day: 'MON',
+    is_active: true,
+  }
+  isEmailAccountModalOpen.value = true
+}
+
+function openEditEmailAccountModal(acc) {
+  editingAccount.value = acc
+  let preset = 'custom'
+  let method = 'app_password'
+  if (acc.auth_type === 'GMAIL_OAUTH') {
+    preset = 'gmail'
+    method = 'oauth'
+  } else if (acc.auth_type === 'MS_GRAPH_OAUTH') {
+    preset = 'outlook'
+    method = 'oauth'
+  } else if (acc.imap_host?.includes('gmail')) {
+    preset = 'gmail'
+    method = 'app_password'
+  } else if (acc.imap_host?.includes('office365') || acc.imap_host?.includes('outlook')) {
+    preset = 'outlook'
+    method = 'app_password'
+  }
+
+  emailAccountForm.value = {
+    name: acc.name,
+    provider_preset: preset,
+    auth_type: acc.auth_type || 'IMAP',
+    auth_method: method,
+    username: acc.username,
+    app_password: '',
+    imap_host: acc.imap_host || '',
+    imap_port: acc.imap_port || 993,
+    folder: acc.folder || 'INBOX',
+    client_id: acc.client_id || '',
+    client_secret: '',
+    sync_interval: acc.sync_interval || '1h',
+    sync_schedule_time: acc.sync_schedule_time || '09:00',
+    sync_schedule_day: acc.sync_schedule_day || 'MON',
+    is_active: acc.is_active !== false,
+  }
+  isEmailAccountModalOpen.value = true
+}
+
+async function saveEmailAccount() {
+  if (!emailAccountForm.value.username.trim()) {
+    uiStore.showToast('Please enter an email username / address', 'warning')
+    return
+  }
+  isSavingAccount.value = true
+  try {
+    const payload = {
+      name: emailAccountForm.value.name.trim() || emailAccountForm.value.username.trim(),
+      auth_type: emailAccountForm.value.auth_type,
+      username: emailAccountForm.value.username.trim(),
+      folder: emailAccountForm.value.folder.trim() || 'INBOX',
+      imap_host: emailAccountForm.value.imap_host ? emailAccountForm.value.imap_host.trim() : null,
+      imap_port: emailAccountForm.value.imap_port ? Number(emailAccountForm.value.imap_port) : 993,
+      is_active: emailAccountForm.value.is_active,
+      sync_interval: emailAccountForm.value.sync_interval,
+      sync_schedule_time: emailAccountForm.value.sync_schedule_time,
+      sync_schedule_day: emailAccountForm.value.sync_schedule_day,
+    }
+
+    if (emailAccountForm.value.app_password) {
+      payload.app_password = emailAccountForm.value.app_password
+    }
+    if (emailAccountForm.value.client_id) {
+      payload.client_id = emailAccountForm.value.client_id
+    }
+    if (emailAccountForm.value.client_secret) {
+      payload.client_secret = emailAccountForm.value.client_secret
+    }
+
+    if (editingAccount.value) {
+      await EmailAccountsAPI.update(editingAccount.value.id, payload)
+      uiStore.showToast('Email account settings updated successfully', 'success')
+    } else {
+      await EmailAccountsAPI.create(payload)
+      uiStore.showToast('Email account connected successfully', 'success')
+    }
+    isEmailAccountModalOpen.value = false
+    loadEmailAccounts()
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to save email account', 'error')
+  } finally {
+    isSavingAccount.value = false
+  }
+}
+
+function openDeleteAccountModal(acc) {
+  accountToDelete.value = acc
+  showDeleteAccountModal.value = true
+}
+
+async function confirmDeleteAccount() {
+  if (!accountToDelete.value) return
+  isDeletingAccount.value = true
+  try {
+    await EmailAccountsAPI.delete(accountToDelete.value.id)
+    uiStore.showToast('Email account removed', 'info')
+    showDeleteAccountModal.value = false
+    accountToDelete.value = null
+    loadEmailAccounts()
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to delete account', 'error')
+  } finally {
+    isDeletingAccount.value = false
+  }
+}
+
+function formatSyncInterval(acc) {
+  if (!acc) return 'Manual'
+  const interval = acc.sync_interval || '1h'
+  if (interval === 'MANUAL') return 'Manual on demand'
+  if (interval === '15m') return 'Every 15 minutes'
+  if (interval === '1h') return 'Every 1 hour'
+  if (interval === '6h') return 'Every 6 hours'
+  if (interval === '24h') return `Daily at ${acc.sync_schedule_time || '09:00'}`
+  if (interval === 'WEEKLY') return `Weekly (${acc.sync_schedule_day || 'MON'} at ${acc.sync_schedule_time || '09:00'})`
+  return interval
+}
+
+function formatLastSync(dateStr) {
+  if (!dateStr) return 'Never synced'
+  try {
+    const d = new Date(dateStr)
+    return d.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+  } catch {
+    return dateStr
+  }
+}
 </script>
 
 <template>
@@ -752,9 +979,14 @@ async function triggerSync(account) {
       <div class="section-card">
         <div class="section-header-row">
           <div>
-            <h3>Connected Mailboxes & OAuth Sync</h3>
-            <p>Sync recruitment inboxes using Google Workspace OAuth2, Microsoft Graph, or basic IMAP.</p>
+            <h3>Connected Mailboxes & Sync Schedule</h3>
+            <p>Connect mailboxes via 1-Click OAuth (Google / Microsoft) or IMAP, and configure automated background sync schedules.</p>
           </div>
+
+          <button class="btn btn-primary" @click="openAddEmailAccountModal">
+            <Plus :size="15" />
+            <span>Connect Email Account</span>
+          </button>
         </div>
 
         <div class="accounts-list">
@@ -763,9 +995,23 @@ async function triggerSync(account) {
               <div class="account-title-row">
                 <Mail :size="16" class="text-primary" />
                 <span class="account-name">{{ acc.name }}</span>
+                <span class="badge" :class="acc.is_active ? 'badge-applied' : 'badge-rejected'">
+                  {{ acc.is_active ? 'Active' : 'Paused' }}
+                </span>
                 <span class="badge badge-applied font-mono">{{ acc.auth_type || 'IMAP' }}</span>
               </div>
-              <div class="account-user text-xs text-secondary">{{ acc.username }} (Folder: {{ acc.folder }})</div>
+              <div class="account-details-sub">
+                <span class="text-xs text-secondary font-mono">{{ acc.username }}</span>
+                <span class="text-muted text-xs">•</span>
+                <span class="text-xs text-muted">Folder: {{ acc.folder }}</span>
+                <span class="text-muted text-xs">•</span>
+                <span class="sync-schedule-pill">
+                  <Clock :size="11" />
+                  <span>{{ formatSyncInterval(acc) }}</span>
+                </span>
+                <span class="text-muted text-xs">•</span>
+                <span class="text-xs text-muted">Last sync: {{ formatLastSync(acc.last_synced_at) }}</span>
+              </div>
             </div>
 
             <div class="account-actions">
@@ -773,15 +1019,39 @@ async function triggerSync(account) {
                 class="btn btn-primary btn-sm"
                 :disabled="syncingAccount === acc.id"
                 @click="triggerSync(acc)"
+                title="Trigger immediate mailbox sync"
               >
                 <Loader2 v-if="syncingAccount === acc.id" class="animate-spin" :size="14" />
+                <RefreshCw v-else :size="14" />
                 <span>{{ syncingAccount === acc.id ? 'Syncing...' : 'Sync Now' }}</span>
+              </button>
+
+              <button
+                class="btn btn-secondary btn-sm"
+                @click="openEditEmailAccountModal(acc)"
+                title="Edit account credentials and sync schedule"
+              >
+                <Edit3 :size="14" />
+                <span>Edit</span>
+              </button>
+
+              <button
+                class="btn btn-danger btn-sm"
+                @click="openDeleteAccountModal(acc)"
+                title="Remove email account connection"
+              >
+                <Trash2 :size="14" />
               </button>
             </div>
           </div>
 
           <div v-if="emailAccounts.length === 0" class="empty-state">
-            No email accounts registered. Use Quick Ingest for drag-and-drop or paste!
+            <Mail :size="32" class="empty-icon" />
+            <p>No email accounts connected yet.</p>
+            <button class="btn btn-primary btn-sm mt-2" @click="openAddEmailAccountModal">
+              <Plus :size="14" />
+              <span>Connect First Account</span>
+            </button>
           </div>
         </div>
       </div>
@@ -913,6 +1183,279 @@ async function triggerSync(account) {
           <div class="modal-actions">
             <button class="btn btn-secondary" @click="isBindingModalOpen = false">Cancel</button>
             <button class="btn btn-primary" @click="saveBinding">Bind Task</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- EMAIL ACCOUNT MODAL -->
+    <div v-if="isEmailAccountModalOpen" class="modal-backdrop" @click.self="isEmailAccountModalOpen = false">
+      <div class="modal-card modal-lg animate-fade-in">
+        <div class="modal-header">
+          <h3 class="modal-title">{{ editingAccount ? 'Edit Account: ' + editingAccount.name : 'Connect Email Account' }}</h3>
+          <button class="btn-close" @click="isEmailAccountModalOpen = false">×</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- Step 1: Provider Selection -->
+          <div class="input-group">
+            <label class="input-label">Select Email Provider</label>
+            <div class="provider-presets-grid">
+              <button
+                type="button"
+                class="provider-preset-card"
+                :class="{ active: emailAccountForm.provider_preset === 'gmail' }"
+                @click="onProviderPresetChange('gmail')"
+              >
+                <div class="preset-icon gmail-icon">
+                  <Mail :size="18" />
+                </div>
+                <div class="preset-info">
+                  <span class="preset-name">Google Gmail</span>
+                  <span class="preset-sub">OAuth2 or App Password</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                class="provider-preset-card"
+                :class="{ active: emailAccountForm.provider_preset === 'outlook' }"
+                @click="onProviderPresetChange('outlook')"
+              >
+                <div class="preset-icon outlook-icon">
+                  <Mail :size="18" />
+                </div>
+                <div class="preset-info">
+                  <span class="preset-name">Microsoft Outlook / 365</span>
+                  <span class="preset-sub">MS Graph OAuth2 or IMAP</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                class="provider-preset-card"
+                :class="{ active: emailAccountForm.provider_preset === 'custom' }"
+                @click="onProviderPresetChange('custom')"
+              >
+                <div class="preset-icon imap-icon">
+                  <Server :size="18" />
+                </div>
+                <div class="preset-info">
+                  <span class="preset-name">Custom IMAP</span>
+                  <span class="preset-sub">iCloud, Fastmail, Yahoo, etc.</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Step 2: Auth Method Toggle (for Gmail/Outlook) -->
+          <div v-if="emailAccountForm.provider_preset !== 'custom'" class="input-group">
+            <label class="input-label">Authentication Method</label>
+            <div class="auth-method-toggle">
+              <button
+                type="button"
+                class="auth-toggle-btn"
+                :class="{ active: emailAccountForm.auth_method === 'oauth' }"
+                @click="onAuthMethodChange('oauth')"
+              >
+                <Lock :size="14" />
+                <span>1-Click OAuth2 Connect</span>
+              </button>
+              <button
+                type="button"
+                class="auth-toggle-btn"
+                :class="{ active: emailAccountForm.auth_method === 'app_password' }"
+                @click="onAuthMethodChange('app_password')"
+              >
+                <Key :size="14" />
+                <span>App Password / IMAP</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Account Name & Username -->
+          <div class="form-row-2">
+            <div class="input-group">
+              <label class="input-label">Account Display Name *</label>
+              <input
+                v-model="emailAccountForm.name"
+                type="text"
+                placeholder="e.g. Personal Gmail"
+                class="form-input"
+                required
+              />
+            </div>
+
+            <div class="input-group">
+              <label class="input-label">Email Address / Username *</label>
+              <input
+                v-model="emailAccountForm.username"
+                type="email"
+                placeholder="candidate@example.com"
+                class="form-input font-mono"
+                required
+              />
+            </div>
+          </div>
+
+          <!-- OAuth2 Credentials Fields -->
+          <div v-if="emailAccountForm.auth_method === 'oauth' && emailAccountForm.provider_preset !== 'custom'" class="oauth-fields-card">
+            <div class="oauth-card-header">
+              <Lock :size="14" class="text-primary" />
+              <span>OAuth2 Credentials (Optional if preconfigured in environment)</span>
+            </div>
+            <div class="form-row-2">
+              <div class="input-group">
+                <label class="input-label">Client ID (Optional)</label>
+                <input
+                  v-model="emailAccountForm.client_id"
+                  type="text"
+                  placeholder="OAuth Client ID"
+                  class="form-input font-mono text-xs"
+                />
+              </div>
+              <div class="input-group">
+                <label class="input-label">Client Secret (Optional)</label>
+                <input
+                  v-model="emailAccountForm.client_secret"
+                  type="password"
+                  placeholder="OAuth Client Secret"
+                  class="form-input font-mono text-xs"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- IMAP Server & App Password Fields -->
+          <div v-else class="imap-fields-card">
+            <div class="form-row-2">
+              <div class="input-group">
+                <label class="input-label">App Password / Password *</label>
+                <input
+                  v-model="emailAccountForm.app_password"
+                  type="password"
+                  placeholder="xxxx-xxxx-xxxx-xxxx"
+                  class="form-input font-mono text-xs"
+                  required
+                />
+              </div>
+
+              <div class="input-group">
+                <label class="input-label">IMAP Host Server *</label>
+                <input
+                  v-model="emailAccountForm.imap_host"
+                  type="text"
+                  placeholder="imap.gmail.com"
+                  class="form-input font-mono text-xs"
+                  required
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Folder & Sync Schedule -->
+          <div class="schedule-section-card">
+            <div class="schedule-header-row">
+              <Clock :size="15" class="text-primary" />
+              <span class="schedule-title">Automated Sync Schedule & Folder</span>
+            </div>
+
+            <div class="form-row-2">
+              <div class="input-group">
+                <label class="input-label">Target Mailbox Folder</label>
+                <input
+                  v-model="emailAccountForm.folder"
+                  type="text"
+                  placeholder="INBOX"
+                  class="form-input font-mono text-xs"
+                />
+              </div>
+
+              <div class="input-group">
+                <label class="input-label">Sync Frequency</label>
+                <select v-model="emailAccountForm.sync_interval" class="form-select">
+                  <option value="MANUAL">Manual Sync Only (On Demand)</option>
+                  <option value="15m">Every 15 Minutes</option>
+                  <option value="1h">Every 1 Hour (Recommended)</option>
+                  <option value="6h">Every 6 Hours</option>
+                  <option value="24h">Daily (At specific time)</option>
+                  <option value="WEEKLY">Weekly (At specific day & time)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Daily / Weekly Time Controls -->
+            <div v-if="emailAccountForm.sync_interval === '24h' || emailAccountForm.sync_interval === 'WEEKLY'" class="form-row-2 mt-2">
+              <div v-if="emailAccountForm.sync_interval === 'WEEKLY'" class="input-group">
+                <label class="input-label">Scheduled Day</label>
+                <select v-model="emailAccountForm.sync_schedule_day" class="form-select">
+                  <option value="MON">Monday</option>
+                  <option value="TUE">Tuesday</option>
+                  <option value="WED">Wednesday</option>
+                  <option value="THU">Thursday</option>
+                  <option value="FRI">Friday</option>
+                  <option value="SAT">Saturday</option>
+                  <option value="SUN">Sunday</option>
+                </select>
+              </div>
+
+              <div class="input-group">
+                <label class="input-label">Scheduled Time (24-Hour format)</label>
+                <input
+                  v-model="emailAccountForm.sync_schedule_time"
+                  type="time"
+                  class="form-input font-mono"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Active Toggle -->
+          <div class="active-toggle-row">
+            <label class="checkbox-label">
+              <input v-model="emailAccountForm.is_active" type="checkbox" />
+              <span>Enable automatic background sync for this account</span>
+            </label>
+          </div>
+
+          <div class="modal-actions">
+            <button class="btn btn-secondary" @click="isEmailAccountModalOpen = false">Cancel</button>
+            <button class="btn btn-primary" :disabled="isSavingAccount" @click="saveEmailAccount">
+              <Loader2 v-if="isSavingAccount" class="animate-spin" :size="14" />
+              <Save v-else :size="14" />
+              <span>{{ editingAccount ? 'Update Account' : 'Connect Account' }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DELETE EMAIL ACCOUNT CONFIRMATION MODAL -->
+    <div v-if="showDeleteAccountModal" class="modal-backdrop" @click.self="showDeleteAccountModal = false">
+      <div class="modal-card animate-fade-in modal-danger">
+        <div class="modal-header">
+          <h3 class="modal-title text-danger flex items-center gap-2">
+            <Trash2 :size="16" />
+            <span>Remove Email Account</span>
+          </h3>
+          <button class="btn-close" @click="showDeleteAccountModal = false">×</button>
+        </div>
+
+        <div class="modal-body">
+          <p class="modal-warn-text">
+            Are you sure you want to disconnect <strong>{{ accountToDelete?.name }}</strong> ({{ accountToDelete?.username }})?
+          </p>
+          <p class="text-xs text-muted">
+            This will stop background email syncing. Existing ingested job applications and timeline events will not be deleted.
+          </p>
+
+          <div class="modal-actions">
+            <button class="btn btn-secondary" @click="showDeleteAccountModal = false">Cancel</button>
+            <button class="btn btn-danger" :disabled="isDeletingAccount" @click="confirmDeleteAccount">
+              <Loader2 v-if="isDeletingAccount" class="animate-spin" :size="14" />
+              <Trash2 v-else :size="14" />
+              <span>{{ isDeletingAccount ? 'Removing...' : 'Permanently Remove' }}</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1565,5 +2108,213 @@ async function triggerSync(account) {
   border-color: var(--primary);
   color: var(--primary);
   font-weight: 600;
+}
+
+/* Email Accounts Management Styles */
+.account-details-sub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.sync-schedule-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--primary);
+  background-color: rgba(99, 102, 241, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+}
+
+.modal-lg {
+  max-width: 620px;
+  width: 100%;
+}
+
+.provider-presets-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 6px;
+}
+
+@media (max-width: 640px) {
+  .provider-presets-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.provider-preset-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 14px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  gap: 8px;
+}
+
+.provider-preset-card:hover {
+  border-color: var(--border-subtle);
+  background-color: var(--bg-surface-hover);
+}
+
+.provider-preset-card.active {
+  border-color: var(--primary);
+  background-color: rgba(99, 102, 241, 0.08);
+}
+
+.preset-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gmail-icon {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.outlook-icon {
+  background-color: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.imap-icon {
+  background-color: rgba(168, 85, 247, 0.15);
+  color: #a855f7;
+}
+
+.preset-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.preset-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.preset-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.auth-method-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.auth-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.auth-toggle-btn:hover {
+  border-color: var(--border-subtle);
+  color: var(--text-main);
+}
+
+.auth-toggle-btn.active {
+  border-color: var(--primary);
+  background-color: rgba(99, 102, 241, 0.12);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.form-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 550px) {
+  .form-row-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.oauth-fields-card,
+.imap-fields-card,
+.schedule-section-card {
+  padding: 12px 14px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  margin-bottom: 14px;
+}
+
+.oauth-card-header,
+.schedule-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 10px;
+}
+
+.form-select {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  font-size: 13px;
+}
+
+.active-toggle-row {
+  margin-top: 6px;
+  margin-bottom: 16px;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.modal-danger .modal-title {
+  color: #ef4444;
+}
+
+.modal-warn-text {
+  font-size: 14px;
+  color: var(--text-main);
+  margin-bottom: 8px;
+  line-height: 1.5;
 }
 </style>

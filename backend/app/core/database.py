@@ -139,8 +139,10 @@ async def ensure_db_schema() -> None:
             "ALTER TABLE IF EXISTS email_accounts ADD COLUMN IF NOT EXISTS refresh_token TEXT;",
             "ALTER TABLE IF EXISTS email_accounts ADD COLUMN IF NOT EXISTS client_id VARCHAR(255);",
             "ALTER TABLE IF EXISTS email_accounts ADD COLUMN IF NOT EXISTS client_secret VARCHAR(255);",
-            "ALTER TABLE IF EXISTS email_accounts ADD COLUMN IF NOT EXISTS sync_cursor TEXT;",
             "ALTER TABLE IF EXISTS email_accounts ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;",
+            "ALTER TABLE IF EXISTS email_accounts ADD COLUMN IF NOT EXISTS sync_interval VARCHAR(50) NOT NULL DEFAULT '1h';",
+            "ALTER TABLE IF EXISTS email_accounts ADD COLUMN IF NOT EXISTS sync_schedule_time VARCHAR(20) DEFAULT '09:00';",
+            "ALTER TABLE IF EXISTS email_accounts ADD COLUMN IF NOT EXISTS sync_schedule_day VARCHAR(20) DEFAULT 'MON';",
             "ALTER TABLE IF EXISTS email_accounts ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ;",
 
             # email_staging_items

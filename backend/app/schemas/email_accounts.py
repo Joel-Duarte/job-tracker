@@ -11,6 +11,9 @@ class EmailAccountBase(BaseModel):
     imap_host: Optional[str] = Field(default=None, examples=["imap.gmail.com"], description="IMAP server hostname")
     imap_port: Optional[int] = Field(default=993, examples=[993], description="IMAP SSL port")
     is_active: bool = Field(default=True, description="Whether account is active for syncs")
+    sync_interval: str = Field(default="1h", description="Sync schedule interval: 'MANUAL', '15m', '1h', '6h', '24h', 'WEEKLY'")
+    sync_schedule_time: Optional[str] = Field(default="09:00", description="24h time format HH:MM for daily/weekly sync")
+    sync_schedule_day: Optional[str] = Field(default="MON", description="Day of week: 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'")
 
 
 class EmailAccountCreate(EmailAccountBase):
@@ -35,6 +38,9 @@ class EmailAccountUpdate(BaseModel):
     client_secret: Optional[str] = None
     sync_cursor: Optional[str] = None
     is_active: Optional[bool] = None
+    sync_interval: Optional[str] = None
+    sync_schedule_time: Optional[str] = None
+    sync_schedule_day: Optional[str] = None
 
 
 class EmailAccountResponse(EmailAccountBase):

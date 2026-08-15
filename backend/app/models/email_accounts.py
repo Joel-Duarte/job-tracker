@@ -27,6 +27,9 @@ class EmailAccountModel(Base):
     sync_cursor: Mapped[str | None] = mapped_column(Text, nullable=True)  # Gmail historyId or MS Graph deltaLink
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    sync_interval: Mapped[str] = mapped_column(String(50), default="1h", nullable=False)  # MANUAL, 15m, 1h, 6h, 24h, WEEKLY
+    sync_schedule_time: Mapped[str | None] = mapped_column(String(20), default="09:00", nullable=True)  # "09:00" (24h)
+    sync_schedule_day: Mapped[str | None] = mapped_column(String(20), default="MON", nullable=True)  # MON, TUE, etc.
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
