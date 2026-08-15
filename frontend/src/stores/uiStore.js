@@ -82,12 +82,34 @@ export const useUIStore = defineStore('ui', () => {
     intakeQueue.value = intakeQueue.value.filter(t => t.status === 'running')
   }
 
+  // Currency Preference
+  const defaultCurrency = ref(localStorage.getItem('jt_currency') || 'USD')
+  const SUPPORTED_CURRENCIES = [
+    { code: 'USD', symbol: '$', label: 'USD ($)' },
+    { code: 'EUR', symbol: '€', label: 'EUR (€)' },
+    { code: 'GBP', symbol: '£', label: 'GBP (£)' },
+    { code: 'CAD', symbol: 'CAD $', label: 'CAD ($)' },
+    { code: 'AUD', symbol: 'AUD $', label: 'AUD ($)' },
+    { code: 'CHF', symbol: 'CHF', label: 'CHF' },
+    { code: 'JPY', symbol: '¥', label: 'JPY (¥)' },
+    { code: 'SGD', symbol: 'SGD $', label: 'SGD ($)' },
+    { code: 'BRL', symbol: 'R$', label: 'BRL (R$)' },
+    { code: 'INR', symbol: '₹', label: 'INR (₹)' },
+  ]
+
+  function setDefaultCurrency(curr) {
+    defaultCurrency.value = curr
+    localStorage.setItem('jt_currency', curr)
+  }
+
   // Initialize root class
   document.documentElement.className = theme.value
 
   return {
     theme,
     viewMode,
+    defaultCurrency,
+    SUPPORTED_CURRENCIES,
     isIngestModalOpen,
     isCommandPaletteOpen,
     activeDetailId,
@@ -98,6 +120,7 @@ export const useUIStore = defineStore('ui', () => {
     hideToast,
     toggleTheme,
     setViewMode,
+    setDefaultCurrency,
     openIngestModal,
     closeIngestModal,
     openDetail,

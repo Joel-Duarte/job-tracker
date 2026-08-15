@@ -21,11 +21,18 @@ import {
   ShieldCheck,
   Thermometer,
   Zap,
+  SlidersHorizontal,
+  DollarSign,
+  Globe,
+  Sun,
+  Moon,
+  Kanban,
+  Table as TableIcon,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
 
-const activeTab = ref('bindings') // 'bindings' | 'providers' | 'prompts' | 'email_accounts'
+const activeTab = ref('preferences') // 'preferences' | 'bindings' | 'providers' | 'prompts' | 'email_accounts'
 
 // AI Providers state
 const providers = ref([])
@@ -405,6 +412,14 @@ async function triggerSync(account) {
       <div class="tab-bar">
         <button
           class="tab-pill"
+          :class="{ active: activeTab === 'preferences' }"
+          @click="activeTab = 'preferences'"
+        >
+          <SlidersHorizontal :size="15" />
+          <span>Preferences & Currency</span>
+        </button>
+        <button
+          class="tab-pill"
           :class="{ active: activeTab === 'bindings' }"
           @click="activeTab = 'bindings'"
         >
@@ -435,6 +450,79 @@ async function triggerSync(account) {
           <Mail :size="15" />
           <span>Email Accounts ({{ emailAccounts.length }})</span>
         </button>
+      </div>
+    </div>
+
+    <!-- TAB 0: PREFERENCES & CURRENCY -->
+    <div v-if="activeTab === 'preferences'" class="tab-content animate-fade-in">
+      <div class="section-card">
+        <div class="card-intro">
+          <h3>System & Workspace Preferences</h3>
+          <p>Configure default currency for offers and salaries, interface view mode, and appearance settings.</p>
+        </div>
+
+        <div class="preferences-grid">
+          <!-- Currency Setting Card -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <DollarSign :size="18" />
+              </div>
+              <div>
+                <h4 class="preference-title">Default System Currency</h4>
+                <p class="preference-desc">Used as the default currency for salary inputs, offer packages, and compensation ranges.</p>
+              </div>
+            </div>
+
+            <div class="currency-chips-grid">
+              <button
+                v-for="c in uiStore.SUPPORTED_CURRENCIES"
+                :key="c.code"
+                type="button"
+                class="currency-chip"
+                :class="{ active: uiStore.defaultCurrency === c.code }"
+                @click="uiStore.setDefaultCurrency(c.code)"
+              >
+                <span class="chip-code">{{ c.code }}</span>
+                <span class="chip-symbol">{{ c.symbol }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- View Mode Setting Card -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <Globe :size="18" />
+              </div>
+              <div>
+                <h4 class="preference-title">Default Pipeline View</h4>
+                <p class="preference-desc">Choose whether the pipeline launches in Kanban board or tabular data table view.</p>
+              </div>
+            </div>
+
+            <div class="view-mode-toggle-row">
+              <button
+                type="button"
+                class="view-mode-option"
+                :class="{ active: uiStore.viewMode === 'kanban' }"
+                @click="uiStore.setViewMode('kanban')"
+              >
+                <Kanban :size="16" />
+                <span>Kanban Board</span>
+              </button>
+              <button
+                type="button"
+                class="view-mode-option"
+                :class="{ active: uiStore.viewMode === 'table' }"
+                @click="uiStore.setViewMode('table')"
+              >
+                <TableIcon :size="16" />
+                <span>Data Table</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1349,5 +1437,133 @@ async function triggerSync(account) {
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+/* Preferences Grid */
+.preferences-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.preference-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.preference-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.preference-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.preference-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 2px;
+}
+
+.preference-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.currency-chips-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.currency-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.currency-chip:hover {
+  border-color: var(--primary);
+  color: var(--text-main);
+  background-color: var(--bg-surface-hover);
+}
+
+.currency-chip.active {
+  background-color: rgba(99, 102, 241, 0.12);
+  border-color: var(--primary);
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.chip-code {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chip-symbol {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.currency-chip.active .chip-symbol {
+  color: var(--primary);
+}
+
+.view-mode-toggle-row {
+  display: flex;
+  gap: 10px;
+}
+
+.view-mode-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.view-mode-option:hover {
+  border-color: var(--border-subtle);
+  color: var(--text-main);
+}
+
+.view-mode-option.active {
+  background-color: rgba(99, 102, 241, 0.12);
+  border-color: var(--primary);
+  color: var(--primary);
+  font-weight: 600;
 }
 </style>

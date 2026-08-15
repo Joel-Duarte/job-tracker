@@ -14,6 +14,9 @@ import {
   AlertCircle,
   FileText,
   DollarSign,
+  Award,
+  XCircle,
+  Tag,
   MapPin,
   Sparkles,
   Layers,
@@ -147,7 +150,7 @@ function openEditModal() {
     interview_stage: existingPayload.interview_stage || 'Technical Round 1',
     scheduled_at: existingPayload.scheduled_at ? existingPayload.scheduled_at.substring(0, 16) : '',
     offered_salary: existingPayload.offered_salary || app.job_posting?.salary_max || app.job_posting?.salary_min || null,
-    currency: existingPayload.currency || app.job_posting?.currency || 'USD',
+    currency: existingPayload.currency || app.job_posting?.currency || uiStore.defaultCurrency,
     offer_received_date: existingPayload.offer_received_date || today,
     decision_deadline: existingPayload.decision_deadline || '',
     rejection_date: existingPayload.rejection_date || today,
@@ -168,7 +171,7 @@ function handleStatusSelect(e) {
       interview_stage: 'Technical Round 1',
       scheduled_at: '',
       offered_salary: appStore.selectedApplication.job_posting?.salary_max || null,
-      currency: appStore.selectedApplication.job_posting?.currency || 'USD',
+      currency: appStore.selectedApplication.job_posting?.currency || uiStore.defaultCurrency,
       offer_received_date: today,
       decision_deadline: '',
       rejection_date: today,
@@ -480,6 +483,15 @@ function formatDate(isoStr) {
                     {{ event.email_summary }}
                   </div>
 
+                  <!-- Recorded Notes Pill / Card -->
+                  <div v-if="event.raw_payload?.notes" class="event-notes-card">
+                    <div class="notes-header">
+                      <FileText :size="12" class="text-primary" />
+                      <span>Note / Context</span>
+                    </div>
+                    <div class="notes-body">{{ event.raw_payload.notes }}</div>
+                  </div>
+
                   <div v-if="event.email_action_required" class="event-action-required">
                     <AlertCircle :size="14" />
                     <span>Action Required: {{ event.email_action || 'Pending response' }}</span>
@@ -693,22 +705,33 @@ function formatDate(isoStr) {
           </div>
 
           <!-- Offer Compensation & Deadlines -->
-          <div v-if="transitionTargetStatus === 'OFFER'" class="form-group-stack">
+          <div v-if="transitionTargetStatus === 'OFFER'" class="form-group-stack offer-form-box">
+            <div class="stage-section-header">
+              <div class="stage-section-icon offer-icon">
+                <Award :size="16" />
+              </div>
+              <div class="stage-section-text">
+                <span class="stage-section-title">Offer Package Details</span>
+                <span class="stage-section-sub">Record compensation package and decision timelines.</span>
+              </div>
+            </div>
+
             <div class="form-group">
-              <label class="form-label">Offered Compensation / Salary</label>
-              <div class="salary-input-row">
+              <label class="form-label">Offered Compensation / Annual Base</label>
+              <div class="salary-input-group">
+                <div class="currency-prefix-box">
+                  <DollarSign :size="14" class="text-muted" />
+                </div>
                 <input
                   v-model="transitionForm.offered_salary"
                   type="number"
                   placeholder="e.g. 185000"
-                  class="form-input"
+                  class="form-input salary-input"
                 />
                 <select v-model="transitionForm.currency" class="form-select currency-select">
-                  <option value="USD">USD ($)</option>
-                  <option value="EUR">EUR (€)</option>
-                  <option value="GBP">GBP (£)</option>
-                  <option value="CAD">CAD ($)</option>
-                  <option value="CHF">CHF</option>
+                  <option v-for="c in uiStore.SUPPORTED_CURRENCIES" :key="c.code" :value="c.code">
+                    {{ c.code }} ({{ c.symbol }})
+                  </option>
                 </select>
               </div>
             </div>
@@ -719,7 +742,7 @@ function formatDate(isoStr) {
                 <DateTimePicker
                   v-model="transitionForm.offer_received_date"
                   type="date"
-                  placeholder="Select offer received date..."
+                  placeholder="Select received date..."
                 />
               </div>
 
@@ -735,34 +758,67 @@ function formatDate(isoStr) {
           </div>
 
           <!-- Rejection Reason & Date -->
-          <div v-if="transitionTargetStatus === 'REJECTED'" class="form-group-stack">
-            <div class="form-group">
-              <label class="form-label">Rejection Notice Date</label>
-              <DateTimePicker
-                v-model="transitionForm.rejection_date"
-                type="date"
-                placeholder="Select rejection date..."
-              />
+          <div v-if="transitionTargetStatus === 'REJECTED'" class="form-group-stack rejection-form-box">
+            <div class="stage-section-header">
+              <div class="stage-section-icon rejection-icon">
+                <XCircle :size="16" />
+              </div>
+              <div class="stage-section-text">
+                <span class="stage-section-title">Rejection Outcome</span>
+                <span class="stage-section-sub">Record the outcome and reason for future analytics.</span>
+              </div>
             </div>
 
-            <div class="form-group">
-              <label class="form-label">Rejection Reason</label>
-              <select v-model="transitionForm.rejection_reason" class="form-select">
-                <option v-for="reason in REJECTION_REASONS" :key="reason" :value="reason">
-                  {{ reason }}
-                </option>
-              </select>
+            <div class="form-row-2">
+              <div class="form-group">
+                <label class="form-label">Rejection Notice Date</label>
+                <DateTimePicker
+                  v-model="transitionForm.rejection_date"
+                  type="date"
+                  placeholder="Select notice date..."
+                />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Primary Rejection Reason</label>
+                <select v-model="transitionForm.rejection_reason" class="form-select">
+                  <option v-for="reason in REJECTION_REASONS" :key="reason" :value="reason">
+                    {{ reason }}
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Quick Reason Selection Chips -->
+            <div class="quick-reasons-chips">
+              <span class="chips-label">Quick select:</span>
+              <button
+                v-for="r in ['Resume / Initial Screen', 'Technical Round Fit', 'System Design / Culture Fit', 'Offer Declined by Candidate', 'Position Closed / Cancelled', 'Ghosted / No Response']"
+                :key="r"
+                type="button"
+                class="reason-chip-btn"
+                :class="{ active: transitionForm.rejection_reason === r }"
+                @click="transitionForm.rejection_reason = r"
+              >
+                {{ r }}
+              </button>
             </div>
           </div>
 
-          <!-- Optional Notes -->
-          <div class="form-group">
-            <label class="form-label">Additional Context / Notes (Optional)</label>
+          <!-- Optional Context / Notes -->
+          <div class="form-group notes-form-group">
+            <div class="notes-header-row">
+              <label class="form-label notes-label">
+                <FileText :size="13" class="text-primary" />
+                <span>Additional Context / Notes (Optional)</span>
+              </label>
+              <span class="notes-char-count">{{ transitionForm.notes?.length || 0 }} chars</span>
+            </div>
             <textarea
               v-model="transitionForm.notes"
               rows="3"
-              placeholder="Add quick notes about feedback, interviewers, or timeline..."
-              class="form-textarea text-xs"
+              placeholder="Add notes about feedback, interviewers, compensation details, or timeline context..."
+              class="form-textarea"
             ></textarea>
           </div>
         </div>
@@ -1508,6 +1564,183 @@ function formatDate(isoStr) {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+/* Offer & Rejection Boxes */
+.offer-form-box {
+  background-color: rgba(16, 185, 129, 0.05);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: var(--radius-md);
+  padding: 14px;
+}
+
+.rejection-form-box {
+  background-color: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-md);
+  padding: 14px;
+}
+
+.stage-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.stage-section-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.stage-section-icon.offer-icon {
+  background-color: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.stage-section-icon.rejection-icon {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.stage-section-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.stage-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.stage-section-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.salary-input-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.currency-prefix-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.salary-input {
+  flex: 1;
+}
+
+.currency-select {
+  width: 130px;
+  flex-shrink: 0;
+}
+
+.quick-reasons-chips {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.chips-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.reason-chip-btn {
+  padding: 3px 7px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.reason-chip-btn:hover {
+  border-color: var(--status-rejected-border);
+  color: var(--text-main);
+}
+
+.reason-chip-btn.active {
+  background-color: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+  border-color: var(--status-rejected-border);
+  font-weight: 600;
+}
+
+.event-notes-card {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background-color: var(--bg-surface);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.event-notes-card .notes-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.event-notes-card .notes-body {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-main);
+  white-space: pre-wrap;
+}
+
+.notes-form-group {
+  margin-top: 4px;
+}
+
+.notes-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.notes-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.notes-char-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
 }
 
 .fade-enter-active,
