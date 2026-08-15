@@ -143,18 +143,6 @@ const TASKS = [
     variables: []
   },
   {
-    key: 'SUMMARIZATION',
-    promptKey: 'summarization',
-    label: 'Timeline Narrative Synthesizer',
-    icon: 'Layers',
-    recommendedTemp: 0.1,
-    recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
-    hasPrompt: true,
-    desc: 'Synthesizes chronologies and status updates into cohesive narrative snapshots for semantic vector search.',
-    variables: ['{events_str}']
-  },
-  {
     key: 'EMBEDDING',
     promptKey: null,
     label: 'Vector Embeddings (pgvector)',

@@ -280,13 +280,11 @@ async def generate_embedding(db: AsyncSession, text_input: str) -> list[float]:
 async def generate_and_save_application_embedding(
     db: AsyncSession,
     application_id: int,
-    skip_llm_summary: bool = False,
+    skip_llm_summary: bool = True,
 ) -> ApplicationEmbeddingModel:
     """
     Creates or updates 768-dim vector embedding record for an application.
-    If skip_llm_summary is True (e.g. manual status transition, user apply, or non-email change),
-    it generates the embedding directly from structured metadata without invoking the LLM.
-    AI timeline summarization is reserved for real incoming email events.
+    Constructs the embedding directly from structured application metadata and the latest timeline event.
     """
     stmt = (
         select(ApplicationModel)
@@ -309,46 +307,32 @@ async def generate_and_save_application_embedding(
         else (application.created_at.strftime("%Y-%m-%d") if application.created_at else "Recent")
     )
 
-    has_email_events = any(getattr(e, "source_channel", "") == "EMAIL" for e in (application.events or []))
+    # Resolve latest timeline event
+    sorted_events = sorted(
+        application.events or [],
+        key=lambda e: (e.email_received_at or e.id or 0),
+        reverse=True,
+    )
+    latest_event = sorted_events[0] if sorted_events else None
 
-    content_to_embed = None
+    evt_date = (
+        latest_event.email_received_at.strftime("%Y-%m-%d")
+        if (latest_event and latest_event.email_received_at)
+        else date_str
+    )
+    evt_type = latest_event.email_event_type if latest_event else "INITIAL_APPLICATION"
+    evt_summary = latest_event.email_summary if (latest_event and latest_event.email_summary) else "Application recorded."
+    action_info = (
+        f"\nAction Required: {latest_event.email_action}"
+        if (latest_event and latest_event.email_action_required and latest_event.email_action)
+        else ""
+    )
 
-    # Only run LLM summarization if not skipped and there are actual email events
-    if not skip_llm_summary and has_email_events:
-        events_timeline: list[dict[str, Any]] = []
-        for event in application.events:
-            events_timeline.append({
-                "event_type": event.email_event_type,
-                "received_at": event.email_received_at.isoformat() if event.email_received_at else None,
-                "subject": event.email_subject,
-                "summary": event.email_summary,
-                "status_after_event": event.email_status_after_event,
-            })
-
-        try:
-            summary_result = await summarize_application_status(db, events_timeline)
-            content_to_embed = getattr(summary_result, "snapshot", None)
-            if not content_to_embed:
-                for alt_field in ("summary", "overview", "summary_text", "application_summary", "result", "text"):
-                    content_to_embed = getattr(summary_result, alt_field, None)
-                    if content_to_embed:
-                        break
-        except Exception as sum_err:
-            logger.warning("Summarization failed before embedding, generating fallback text: %s", sum_err)
-
-    # Fast programmatic structured snapshot for manual actions or fallback
-    if not content_to_embed or not str(content_to_embed).strip():
-        event_lines = [
-            f"- [{e.email_event_type}{f' ({e.email_received_at.strftime('%Y-%m-%d')})' if e.email_received_at else ''}] {e.email_summary or ''}"
-            for e in (application.events or [])
-        ]
-        timeline_text = "\n".join(event_lines) if event_lines else "Initial application recorded."
-        content_to_embed = (
-            f"Job Application: {application.position} at {comp_name}.\n"
-            f"Status: {application.status}.\n"
-            f"Date: {date_str}.\n"
-            f"Activity & Updates:\n{timeline_text}"
-        )
+    content_to_embed = (
+        f"Job Application: {application.position} at {comp_name}.\n"
+        f"Status: {application.status}.\n"
+        f"Latest Update ({evt_date}): [{evt_type}] {evt_summary}.{action_info}"
+    )
 
     vector = await generate_embedding(db, str(content_to_embed))
 
