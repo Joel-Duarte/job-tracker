@@ -14,7 +14,9 @@ export const useApplicationsStore = defineStore('applications', () => {
   const selectedApplication = ref(null)
   const loadingDetail = ref(false)
 
-  // Status mapping - Assessment is before Applied as requested
+  const pipelineViewMode = ref('active') // 'active' | 'archive'
+
+  // Full status list
   const STATUSES = [
     { key: 'ASSESSMENT', label: 'AI Assessment', color: 'assessment' },
     { key: 'APPLIED', label: 'Applied', color: 'applied' },
@@ -23,13 +25,32 @@ export const useApplicationsStore = defineStore('applications', () => {
     { key: 'REJECTED', label: 'Rejected', color: 'rejected' },
   ]
 
+  // Active Pipeline Stages for the main Kanban Board
+  const ACTIVE_STATUSES = [
+    { key: 'APPLIED', label: 'Applied', color: 'applied' },
+    { key: 'TECHNICAL_INTERVIEW', label: 'Interview', color: 'interview' },
+    { key: 'OFFER', label: 'Offer', color: 'offer' },
+  ]
+
+  const activeApplications = computed(() => {
+    return applications.value.filter((a) => {
+      const status = (a.status || 'APPLIED').toUpperCase()
+      return status !== 'REJECTED'
+    })
+  })
+
+  const archivedApplications = computed(() => {
+    return applications.value.filter((a) => {
+      const status = (a.status || '').toUpperCase()
+      return status === 'REJECTED'
+    })
+  })
+
   const kanbanColumns = computed(() => {
     const columns = {
-      ASSESSMENT: [],
       APPLIED: [],
       TECHNICAL_INTERVIEW: [],
       OFFER: [],
-      REJECTED: [],
     }
 
     applications.value.forEach((app) => {
@@ -49,10 +70,11 @@ export const useApplicationsStore = defineStore('applications', () => {
         statusKey = 'TECHNICAL_INTERVIEW'
       }
 
+      // If app is in REJECTED or ASSESSMENT, it doesn't display on active 3-stage board
       if (columns[statusKey]) {
         columns[statusKey].push(app)
-      } else {
-        // Fallback to applied
+      } else if (statusKey === 'ASSESSMENT') {
+        // In case any legacy assessment exists, group into Applied or leave for Assessments Studio
         columns.APPLIED.push(app)
       }
     })
@@ -65,7 +87,7 @@ export const useApplicationsStore = defineStore('applications', () => {
     error.value = null
     try {
       const params = {
-        limit: 100,
+        limit: 200,
         offset: 0,
       }
       if (searchQuery.value) params.q = searchQuery.value
@@ -129,6 +151,22 @@ export const useApplicationsStore = defineStore('applications', () => {
     }
   }
 
+  async function quickReject(applicationId, rejectionReason = 'Quick rejection') {
+    return transitionApplication(applicationId, {
+      status: 'REJECTED',
+      rejection_date: new Date().toISOString(),
+      rejection_reason: rejectionReason,
+      notes: 'Moved to archive via quick reject',
+    })
+  }
+
+  async function restoreToActive(applicationId, targetStatus = 'APPLIED') {
+    return transitionApplication(applicationId, {
+      status: targetStatus,
+      notes: 'Restored to active pipeline',
+    })
+  }
+
   async function deleteApplication(applicationId) {
     try {
       await ApplicationsAPI.delete(applicationId)
@@ -151,14 +189,21 @@ export const useApplicationsStore = defineStore('applications', () => {
     searchQuery,
     selectedStatus,
     actionRequiredOnly,
+    minMatchScore,
     selectedApplication,
     loadingDetail,
+    pipelineViewMode,
     STATUSES,
+    ACTIVE_STATUSES,
+    activeApplications,
+    archivedApplications,
     kanbanColumns,
     fetchApplications,
     fetchApplicationDetail,
     updateStatus,
     transitionApplication,
+    quickReject,
+    restoreToActive,
     deleteApplication,
   }
 })

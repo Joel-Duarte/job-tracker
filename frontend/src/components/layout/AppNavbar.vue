@@ -25,6 +25,7 @@ const uiStore = useUIStore()
 const pendingStagingCount = ref(0)
 const pendingTasksCount = ref(0)
 const activeQueueCount = ref(0)
+const readyAssessmentsCount = ref(0)
 
 async function fetchBadgeCounts() {
   try {
@@ -42,9 +43,13 @@ async function fetchBadgeCounts() {
   }
 
   try {
-    const resQueue = await IntakeAPI.getEvaluations(50)
+    const resQueue = await IntakeAPI.getEvaluations(100)
     if (Array.isArray(resQueue.data)) {
       activeQueueCount.value = resQueue.data.filter((t) => ['QUEUED', 'PROCESSING'].includes(t.status)).length
+      const passedSet = new Set(JSON.parse(localStorage.getItem('job_tracker_passed_assessments') || '[]'))
+      readyAssessmentsCount.value = resQueue.data.filter(
+        (t) => t.status === 'COMPLETED' && !passedSet.has(String(t.id))
+      ).length
     }
   } catch (err) {
     // ignore
@@ -74,7 +79,22 @@ onMounted(() => {
           :class="{ active: route.path === '/' }"
         >
           <Briefcase :size="16" />
-          <span>Pipeline</span>
+          <span>Board</span>
+        </router-link>
+
+        <router-link
+          to="/assessments"
+          class="nav-link"
+          :class="{ active: ['/assessments', '/intake', '/queue'].includes(route.path) }"
+        >
+          <Sparkles :size="16" />
+          <span>Assessments</span>
+          <span v-if="activeQueueCount > 0" class="nav-badge nav-badge-pulse" title="AI Queue active">
+            {{ activeQueueCount }}
+          </span>
+          <span v-else-if="readyAssessmentsCount > 0" class="nav-badge" title="Ready for review">
+            {{ readyAssessmentsCount }}
+          </span>
         </router-link>
 
         <router-link
@@ -86,27 +106,6 @@ onMounted(() => {
           <span>Tasks</span>
           <span v-if="pendingTasksCount > 0" class="nav-badge">
             {{ pendingTasksCount }}
-          </span>
-        </router-link>
-
-        <router-link
-          to="/intake"
-          class="nav-link"
-          :class="{ active: route.path === '/intake' }"
-        >
-          <FileInput :size="16" />
-          <span>Job Intake</span>
-        </router-link>
-
-        <router-link
-          to="/queue"
-          class="nav-link"
-          :class="{ active: route.path === '/queue' }"
-        >
-          <Cpu :size="16" />
-          <span>AI Queue</span>
-          <span v-if="activeQueueCount > 0" class="nav-badge nav-badge-pulse">
-            {{ activeQueueCount }}
           </span>
         </router-link>
 
@@ -154,11 +153,20 @@ onMounted(() => {
     <div class="nav-right">
       <button
         class="btn btn-primary btn-ingest"
-        @click="uiStore.openIngestModal"
-        title="Ingest raw email text or drag files"
+        @click="uiStore.openJobIntakeModal"
+        title="Ingest job URL or specification text for AI qualification"
       >
-        <Plus :size="16" />
-        <span>Quick Ingest</span>
+        <Sparkles :size="14" />
+        <span>+ Job Intake</span>
+      </button>
+
+      <button
+        class="btn btn-secondary btn-ingest"
+        @click="uiStore.openIngestModal"
+        title="Ingest raw email text or upload email files"
+      >
+        <Plus :size="14" />
+        <span>+ Email Intake</span>
       </button>
 
       <button

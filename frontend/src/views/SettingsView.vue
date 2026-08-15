@@ -892,7 +892,9 @@ onMounted(async () => {
 
             <div class="form-grid-2">
               <div class="input-group">
-                <label class="input-label">AI Provider *</label>
+                <div class="label-with-hint">
+                  <label class="input-label">AI Provider *</label>
+                </div>
                 <select
                   v-model="studioForm.provider_id"
                   class="form-input"
@@ -966,9 +968,46 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div v-else class="form-grid-3 mt-4">
-              <!-- Temperature -->
-              <div class="input-group">
+            <template v-else>
+              <div class="form-grid-2 mt-4">
+                <!-- Thinking / Reasoning Mode Segmented Control -->
+                <div class="input-group">
+                  <div class="label-with-hint">
+                    <label class="input-label">Thinking / Reasoning Mode</label>
+                  </div>
+                  <div class="reasoning-pills">
+                    <button
+                      v-for="effort in ['none', 'low', 'medium', 'high']"
+                      :key="effort"
+                      type="button"
+                      class="reasoning-pill font-mono"
+                      :class="{ active: studioForm.reasoning_effort === effort }"
+                      @click="studioForm.reasoning_effort = effort"
+                    >
+                      {{ effort === 'none' ? 'None (Fast)' : effort }}
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Max Tokens -->
+                <div class="input-group">
+                  <div class="label-with-hint">
+                    <label class="input-label">Max Generation Tokens</label>
+                  </div>
+                  <input
+                    v-model.number="studioForm.max_tokens"
+                    type="number"
+                    step="256"
+                    min="256"
+                    max="64000"
+                    placeholder="Optional (Default unconstrained)"
+                    class="form-input font-mono"
+                  />
+                </div>
+              </div>
+
+              <!-- Sampling Temperature Slider -->
+              <div class="input-group mt-3">
                 <div class="label-with-hint">
                   <label class="input-label">Sampling Temperature</label>
                   <span class="font-mono text-xs font-semibold text-primary">{{ studioForm.temperature }}</span>
@@ -984,48 +1023,12 @@ onMounted(async () => {
                   />
                 </div>
               </div>
-
-              <!-- Thinking / Reasoning Mode Segmented Control -->
-              <div class="input-group">
-                <div class="label-with-hint">
-                  <label class="input-label">Thinking / Reasoning Mode</label>
-                </div>
-                <div class="reasoning-pills">
-                  <button
-                    v-for="effort in ['none', 'low', 'medium', 'high']"
-                    :key="effort"
-                    type="button"
-                    class="reasoning-pill font-mono"
-                    :class="{ active: studioForm.reasoning_effort === effort }"
-                    @click="studioForm.reasoning_effort = effort"
-                  >
-                    {{ effort === 'none' ? 'None (Fast)' : effort }}
-                  </button>
-                </div>
-              </div>
-
-              <!-- Max Tokens -->
-              <div class="input-group">
-                <div class="label-with-hint">
-                  <label class="input-label">Max Generation Tokens</label>
-                  <span class="text-xs text-muted">Optional</span>
-                </div>
-                <input
-                  v-model.number="studioForm.max_tokens"
-                  type="number"
-                  step="256"
-                  min="256"
-                  max="64000"
-                  placeholder="Default (Unconstrained)"
-                  class="form-input font-mono"
-                />
-              </div>
-            </div>
+            </template>
 
             <div v-if="selectedTaskKey !== 'EMBEDDING'" class="reasoning-info-callout">
               <Zap :size="13" class="text-primary flex-shrink-0" />
               <span>
-                <strong>Thinking Mode &amp; Token Limits:</strong> Instructs reasoning models (e.g. DeepSeek-R1, OpenAI o1/o3-mini, Claude 3.7 Thinking, Gemini Thinking) to execute extended chain-of-thought verification. Leaving Max Tokens as <em>Default (Unconstrained)</em> ensures reasoning chains don't get truncated before output generation.
+                <strong>Thinking Mode &amp; Token Limits:</strong> Instructs reasoning models (e.g. DeepSeek-R1, OpenAI o1/o3-mini, Claude 3.7 Thinking, Gemini Thinking) to execute extended chain-of-thought verification. Leaving Max Tokens as <em>Optional (Default unconstrained)</em> ensures reasoning chains don't get truncated before output generation.
               </span>
             </div>
           </div>
@@ -2422,7 +2425,10 @@ onMounted(async () => {
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
   font-size: 11px;
-  padding: 2px 8px;
+  height: 22px;
+  padding: 0 8px;
+  line-height: 20px;
+  box-sizing: border-box;
   border-radius: var(--radius-sm);
   display: inline-flex;
   align-items: center;
@@ -2511,8 +2517,14 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 20px;
+  height: 24px;
+  min-height: 24px;
   margin-bottom: 6px;
+}
+
+.label-with-hint .input-label {
+  margin-bottom: 0;
+  line-height: 24px;
 }
 
 .form-range-container {
@@ -2526,6 +2538,14 @@ onMounted(async () => {
   accent-color: var(--primary);
 }
 
+.form-grid-2 .form-input,
+.form-grid-2 select.form-input {
+  height: 38px;
+  min-height: 38px;
+  max-height: 38px;
+  box-sizing: border-box;
+}
+
 .reasoning-pills {
   display: flex;
   align-items: center;
@@ -2535,7 +2555,10 @@ onMounted(async () => {
   padding: 3px;
   gap: 3px;
   height: 38px;
+  min-height: 38px;
+  max-height: 38px;
   box-sizing: border-box;
+  width: 100%;
 }
 
 .reasoning-pill {

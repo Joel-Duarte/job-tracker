@@ -5,6 +5,7 @@ export const useUIStore = defineStore('ui', () => {
   const theme = ref(localStorage.getItem('jt_theme') || 'midnight')
   const viewMode = ref(localStorage.getItem('jt_view_mode') || 'kanban') // 'kanban' | 'table'
   const isIngestModalOpen = ref(false)
+  const isJobIntakeModalOpen = ref(false)
   const isCommandPaletteOpen = ref(false)
   const activeDetailId = ref(null)
 
@@ -26,6 +27,22 @@ export const useUIStore = defineStore('ui', () => {
 
   function hideToast() {
     toast.value.show = false
+  }
+
+  function openJobIntakeModal() {
+    isJobIntakeModalOpen.value = true
+  }
+
+  function closeJobIntakeModal() {
+    isJobIntakeModalOpen.value = false
+  }
+
+  function openIngestModal() {
+    isIngestModalOpen.value = true
+  }
+
+  function closeIngestModal() {
+    isIngestModalOpen.value = false
   }
 
   const customDarkBg = ref(localStorage.getItem('jt_custom_dark_bg') || '')
@@ -255,6 +272,7 @@ export const useUIStore = defineStore('ui', () => {
     defaultCurrency,
     SUPPORTED_CURRENCIES,
     isIngestModalOpen,
+    isJobIntakeModalOpen,
     isCommandPaletteOpen,
     activeDetailId,
     intakeQueue,
@@ -268,6 +286,8 @@ export const useUIStore = defineStore('ui', () => {
     setDefaultCurrency,
     openIngestModal,
     closeIngestModal,
+    openJobIntakeModal,
+    closeJobIntakeModal,
     openDetail,
     closeDetail,
     addIntakeTask,

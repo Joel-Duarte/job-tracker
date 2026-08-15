@@ -29,6 +29,10 @@ import {
   Send,
   Loader2,
   GripVertical,
+  Archive,
+  RotateCcw,
+  Ban,
+  Briefcase,
 } from 'lucide-vue-next'
 
 const appStore = useApplicationsStore()
@@ -59,6 +63,24 @@ const transitionForm = ref({
 const showDeleteModal = ref(false)
 const appToDelete = ref(null)
 const isDeleting = ref(false)
+
+async function quickRejectApp(app) {
+  try {
+    await appStore.quickReject(app.id)
+    uiStore.showToast(`Moved '${app.company?.name || 'Application'}' to Rejections Archive`, 'info')
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to reject application', 'error')
+  }
+}
+
+async function restoreApp(app) {
+  try {
+    await appStore.restoreToActive(app.id, 'APPLIED')
+    uiStore.showToast(`Restored '${app.company?.name || 'Application'}' to Active Pipeline`, 'success')
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to restore application', 'error')
+  }
+}
 
 const INTERVIEW_STAGES = [
   'Interview Requested / Scheduling',
@@ -346,6 +368,26 @@ async function confirmDelete() {
     <div class="controls-bar">
       <!-- Search & Filters -->
       <div class="search-filter-group">
+        <!-- Pipeline Mode Segmented Toggle -->
+        <div class="pipeline-mode-toggle">
+          <button
+            class="pipeline-mode-btn"
+            :class="{ active: appStore.pipelineViewMode === 'active' }"
+            @click="appStore.pipelineViewMode = 'active'"
+          >
+            <Briefcase :size="14" />
+            <span>Active Pipeline ({{ appStore.activeApplications.length }})</span>
+          </button>
+          <button
+            class="pipeline-mode-btn"
+            :class="{ active: appStore.pipelineViewMode === 'archive' }"
+            @click="appStore.pipelineViewMode = 'archive'"
+          >
+            <Archive :size="14" />
+            <span>Archive / Rejected ({{ appStore.archivedApplications.length }})</span>
+          </button>
+        </div>
+
         <div class="search-input-wrapper">
           <Search :size="15" class="search-icon" />
           <input
@@ -359,18 +401,19 @@ async function confirmDelete() {
 
         <!-- Status Filter shown in Table view where columns don't separate statuses -->
         <select
-          v-if="uiStore.viewMode === 'table'"
+          v-if="uiStore.viewMode === 'table' && appStore.pipelineViewMode === 'active'"
           :value="appStore.selectedStatus"
           class="filter-select"
           @change="handleStatusFilter"
         >
-          <option value="">All Statuses</option>
-          <option v-for="s in appStore.STATUSES" :key="s.key" :value="s.key">
+          <option value="">All Active Statuses</option>
+          <option v-for="s in appStore.ACTIVE_STATUSES" :key="s.key" :value="s.key">
             {{ s.label }}
           </option>
         </select>
 
         <button
+          v-if="appStore.pipelineViewMode === 'active'"
           class="btn btn-secondary filter-toggle-btn"
           :class="{ active: appStore.actionRequiredOnly }"
           @click="toggleActionRequired"
@@ -424,11 +467,11 @@ async function confirmDelete() {
       <!-- View Switcher & Total Count -->
       <div class="view-switch-group">
         <div class="total-counter">
-          <span class="count-num">{{ appStore.total }}</span>
-          <span class="count-label">Applications</span>
+          <span class="count-num">{{ appStore.pipelineViewMode === 'active' ? appStore.activeApplications.length : appStore.archivedApplications.length }}</span>
+          <span class="count-label">{{ appStore.pipelineViewMode === 'active' ? 'Active' : 'Archived' }}</span>
         </div>
 
-        <div class="view-toggle">
+        <div v-if="appStore.pipelineViewMode === 'active'" class="view-toggle">
           <button
             class="view-btn"
             :class="{ active: uiStore.viewMode === 'kanban' }"
@@ -451,10 +494,103 @@ async function confirmDelete() {
 
     <!-- MAIN VIEW AREA -->
     <div class="content-wrapper">
-      <!-- 1. KANBAN VIEW (WITH DRAG & DROP) -->
-      <div v-if="uiStore.viewMode === 'kanban'" class="kanban-board">
+      <!-- 1. ARCHIVE / REJECTIONS VIEW -->
+      <div v-if="appStore.pipelineViewMode === 'archive'" class="archive-view-container animate-fade-in">
+        <div v-if="appStore.archivedApplications.length === 0" class="empty-state-box">
+          <Archive :size="40" class="empty-state-icon" />
+          <h3 class="empty-state-title">No archived or rejected applications</h3>
+          <p class="empty-state-desc">
+            When you reject or conclude applications, they will be archived here safely without crowding your active board.
+          </p>
+        </div>
+
+        <div v-else class="archive-table-card">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Position</th>
+                <th>Rejection Reason</th>
+                <th>Archived Date</th>
+                <th>Match Fit</th>
+                <th class="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="app in appStore.archivedApplications"
+                :key="app.id"
+                class="table-row"
+                @click="uiStore.openDetail(app.id)"
+              >
+                <td class="cell-company">
+                  <div class="company-cell-wrapper">
+                    <div class="company-logo-mini">
+                      <Building2 :size="14" />
+                    </div>
+                    <span class="company-name-bold">{{ app.company?.name || 'Company' }}</span>
+                  </div>
+                </td>
+
+                <td class="cell-position">
+                  <span class="position-title">{{ app.position || '—' }}</span>
+                </td>
+
+                <td class="cell-reason">
+                  <span class="archive-reason-pill">
+                    {{ app.rejection_reason || 'Rejection / Concluded' }}
+                  </span>
+                </td>
+
+                <td class="cell-date">
+                  {{ formatDate(app.rejection_date || app.last_activity_at) }}
+                </td>
+
+                <td class="cell-match">
+                  <div
+                    v-if="getAppMatchScore(app) !== null"
+                    class="match-score-pill table-match-pill"
+                    :class="getMatchScoreTierClass(getAppMatchScore(app))"
+                  >
+                    <Sparkles :size="10" class="match-pill-icon" />
+                    <span>{{ getAppMatchScore(app) }}%</span>
+                  </div>
+                  <span v-else class="text-muted text-xs">—</span>
+                </td>
+
+                <td class="text-right cell-actions" @click.stop>
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    title="Restore back to Active Pipeline (Applied)"
+                    @click="restoreApp(app)"
+                  >
+                    <RotateCcw :size="13" />
+                    <span>Restore</span>
+                  </button>
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    @click="uiStore.openDetail(app.id)"
+                  >
+                    Details
+                  </button>
+                  <button
+                    class="btn btn-danger-subtle btn-sm"
+                    title="Permanently Delete"
+                    @click="openDeleteConfirm(app)"
+                  >
+                    <Trash2 :size="13" />
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 2. ACTIVE KANBAN VIEW (WITH DRAG & DROP) -->
+      <div v-else-if="uiStore.viewMode === 'kanban'" class="kanban-board">
         <div
-          v-for="col in appStore.STATUSES"
+          v-for="col in appStore.ACTIVE_STATUSES"
           :key="col.key"
           class="kanban-column"
           :class="{ 'drag-over': dragOverCol === col.key }"
@@ -499,6 +635,13 @@ async function confirmDelete() {
                     <span>{{ getAppMatchScore(app) }}%</span>
                   </div>
                   <span class="card-date">{{ formatDate(app.last_activity_at || app.application_date) }}</span>
+                  <button
+                    class="card-action-btn quick-reject-btn"
+                    title="Quick reject & move to archive"
+                    @click="quickRejectApp(app)"
+                  >
+                    <Ban :size="13" />
+                  </button>
                   <button
                     class="card-action-btn"
                     title="Delete application"
@@ -582,13 +725,13 @@ async function confirmDelete() {
               v-if="!appStore.kanbanColumns[col.key]?.length"
               class="column-empty"
             >
-              No applications
+              No applications in {{ col.label }}
             </div>
           </div>
         </div>
       </div>
 
-      <!-- 2. TABLE VIEW -->
+      <!-- 3. ACTIVE TABLE VIEW -->
       <div v-else class="table-view-container">
         <table class="data-table">
           <thead>
@@ -603,7 +746,7 @@ async function confirmDelete() {
           </thead>
           <tbody>
             <tr
-              v-for="app in appStore.applications"
+              v-for="app in appStore.activeApplications"
               :key="app.id"
               class="table-row"
               @click="uiStore.openDetail(app.id)"
@@ -698,9 +841,17 @@ async function confirmDelete() {
               <td class="text-right cell-actions" @click.stop>
                 <button
                   class="btn btn-secondary btn-sm"
+                  title="Quick reject & move to archive"
+                  @click="quickRejectApp(app)"
+                >
+                  <Ban :size="13" />
+                  <span>Reject</span>
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm"
                   @click="uiStore.openDetail(app.id)"
                 >
-                  View Details
+                  Details
                 </button>
                 <button
                   class="btn btn-danger-subtle btn-sm"
@@ -712,9 +863,9 @@ async function confirmDelete() {
               </td>
             </tr>
 
-            <tr v-if="appStore.applications.length === 0">
+            <tr v-if="appStore.activeApplications.length === 0">
               <td colspan="6" class="table-empty">
-                No matching job applications found.
+                No active job applications found.
               </td>
             </tr>
           </tbody>
@@ -958,6 +1109,78 @@ async function confirmDelete() {
   align-items: center;
   gap: 10px;
   flex: 1;
+}
+
+/* Pipeline Mode Segmented Control */
+.pipeline-mode-toggle {
+  display: flex;
+  align-items: center;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+}
+
+.pipeline-mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--radius-xs);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.pipeline-mode-btn:hover {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
+}
+
+.pipeline-mode-btn.active {
+  background-color: var(--primary);
+  color: #fff;
+}
+
+/* Quick Reject Action Button */
+.quick-reject-btn:hover {
+  color: var(--status-rejected-text) !important;
+  background-color: var(--status-rejected-bg) !important;
+  border-color: var(--status-rejected-border) !important;
+}
+
+/* Archive & Rejections View */
+.archive-view-container {
+  padding: 24px;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.archive-table-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.archive-reason-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  background-color: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+  border: 1px solid var(--status-rejected-border);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .search-input-wrapper {
@@ -1215,10 +1438,11 @@ async function confirmDelete() {
 /* KANBAN BOARD */
 .kanban-board {
   display: grid;
-  grid-template-columns: repeat(5, minmax(280px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(3, minmax(340px, 1fr));
+  gap: 20px;
   height: 100%;
   align-items: start;
+  width: 100%;
 }
 
 .kanban-column {
