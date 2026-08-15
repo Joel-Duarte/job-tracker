@@ -21,6 +21,7 @@ export const IntakeAPI = {
   enqueueAssessment: (data) => apiClient.post('/intake/enqueue-assessment', data),
   getEvaluations: (limit = 50) => apiClient.get('/intake/evaluations', { params: { limit } }),
   deleteEvaluation: (taskId) => apiClient.delete(`/intake/evaluations/${taskId}`),
+  retryEvaluation: (taskId) => apiClient.post(`/intake/evaluations/${taskId}/retry`),
   clearCompletedEvaluations: () => apiClient.post('/intake/evaluations/clear-completed'),
   confirmAssessment: (data) => apiClient.post('/intake/confirm-assessment', data),
   getExtensionConfig: () => apiClient.get('/intake/extension-config'),

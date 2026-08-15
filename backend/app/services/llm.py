@@ -102,6 +102,7 @@ async def assess_job_posting(
     job_description: str,
     candidate_skills: Optional[List[str]] = None,
     candidate_cv: Optional[str] = None,
+    candidate_domain_breakdown: Optional[str] = None,
     programmatic_baseline: int = 0,
 ) -> JobAssessmentResult:
     """
@@ -117,6 +118,8 @@ async def assess_job_posting(
         skills_str = ", ".join(candidate_skills) if candidate_skills else "General Full-Stack / Software Engineering Profile"
         cv_text = f"Candidate Technical Skills:\n{skills_str}"
 
+    domain_text = candidate_domain_breakdown or "General / Full-Stack Experience (No active domain constraints)"
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", (
             "You are an expert technical resume writer and career coach. "
@@ -130,6 +133,7 @@ async def assess_job_posting(
     result = await chain.ainvoke({
         "job_description": job_description,
         "candidate_cv": cv_text,
+        "candidate_domain_breakdown": domain_text,
         "programmatic_baseline": str(programmatic_baseline),
     })
 

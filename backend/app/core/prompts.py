@@ -156,6 +156,7 @@ DEFAULT_PROMPTS = {
         "--------------------------------------------------\n"
         "[JOB DESCRIPTION]:\n{job_description}\n\n"
         "[CANDIDATE CV]:\n{candidate_cv}\n\n"
+        "[ACTIVE DOMAIN SPECIALIZATIONS]:\n{candidate_domain_breakdown}\n\n"
         "Generate a complete structured evaluation with match_summary, hard_matches, optimization_gaps, tailoring_strategy, and markdown_report."
     ),
     "cv_anonymization": (

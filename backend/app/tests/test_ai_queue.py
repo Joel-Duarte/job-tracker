@@ -241,3 +241,31 @@ async def test_intake_queue_duplicate_staging_and_resolution(db_session: AsyncSe
         assert len(all_apps) == 2
 
     app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_retry_evaluation_task(db_session: AsyncSession):
+    app.dependency_overrides[get_db] = lambda: db_session
+
+    task = IntakeEvaluationTaskModel(
+        job_url="https://example.com/failed-job",
+        raw_text="Some text",
+        title_hint="Failed Task",
+        status="FAILED",
+        stage="FAILED",
+        error_message="Network timeout",
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        with patch("app.routers.intake.process_evaluation_task") as mock_proc:
+            res = await ac.post(f"/api/v1/intake/evaluations/{task.id}/retry")
+            assert res.status_code == 200
+            data = res.json()
+            assert data["id"] == task.id
+            assert data["status"] == "QUEUED"
+            assert data["error_message"] is None
+
+    app.dependency_overrides.clear()

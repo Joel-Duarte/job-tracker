@@ -24,6 +24,7 @@ import {
   UserCheck,
   ArrowRight,
   SlidersHorizontal,
+  RotateCcw,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -32,6 +33,7 @@ const uiStore = useUIStore()
 const tasks = ref([])
 const loading = ref(false)
 const isClearing = ref(false)
+const retryingTaskIds = ref(new Set())
 const statusFilter = ref('ALL') // 'ALL' | 'ACTIVE' | 'COMPLETED' | 'FAILED'
 const typeFilter = ref('ALL') // 'ALL' | 'JOB_ASSESSMENT' | 'CV_EXTRACTION'
 const searchQuery = ref('')
@@ -74,6 +76,19 @@ async function fetchTasks(silent = false) {
     if (!silent) uiStore.showToast(err.message, 'error')
   } finally {
     if (!silent) loading.value = false
+  }
+}
+
+async function retryTask(taskId) {
+  retryingTaskIds.value.add(taskId)
+  try {
+    await IntakeAPI.retryEvaluation(taskId)
+    uiStore.showToast(`Task #${taskId} re-queued for execution!`, 'success')
+    await fetchTasks(true)
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to retry task', 'error')
+  } finally {
+    retryingTaskIds.value.delete(taskId)
   }
 }
 
@@ -279,6 +294,19 @@ onUnmounted(() => {
             </div>
 
             <div class="task-header-right">
+              <!-- Retry Action for Failed / Cancelled Tasks -->
+              <button
+                v-if="['FAILED', 'CANCELLED'].includes(task.status)"
+                class="btn btn-secondary btn-xs btn-retry-task"
+                :disabled="retryingTaskIds.has(task.id)"
+                @click="retryTask(task.id)"
+                title="Retry task execution"
+              >
+                <Loader2 v-if="retryingTaskIds.has(task.id)" class="animate-spin" :size="12" />
+                <RotateCcw v-else :size="12" />
+                <span>Retry</span>
+              </button>
+
               <!-- Live Status Pill -->
               <div class="status-badge-pill" :class="`pill-${task.status.toLowerCase()}`">
                 <Loader2 v-if="task.status === 'PROCESSING'" class="animate-spin" :size="12" />
@@ -413,10 +441,21 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Error Alert Banner -->
+          <!-- Error Alert Banner with 1-Click Retry -->
           <div v-if="task.error_message" class="task-error-box">
-            <AlertCircle :size="14" class="text-danger flex-shrink-0" />
-            <span>{{ task.error_message }}</span>
+            <div class="error-msg-left">
+              <AlertCircle :size="14" class="text-danger flex-shrink-0" />
+              <span>{{ task.error_message }}</span>
+            </div>
+            <button
+              class="btn btn-secondary btn-xs btn-retry-error"
+              :disabled="retryingTaskIds.has(task.id)"
+              @click="retryTask(task.id)"
+            >
+              <Loader2 v-if="retryingTaskIds.has(task.id)" class="animate-spin" :size="12" />
+              <RotateCcw v-else :size="12" />
+              <span>Retry Execution</span>
+            </button>
           </div>
 
           <!-- Result Footer & Contextual Actions -->
@@ -907,13 +946,31 @@ onUnmounted(() => {
 .task-error-box {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
   padding: 8px 12px;
   border-radius: var(--radius-sm);
   background-color: var(--status-rejected-bg);
   border: 1px solid var(--status-rejected-border);
   color: var(--status-rejected-text);
   font-size: 12px;
+  flex-wrap: wrap;
+}
+
+.error-msg-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.btn-retry-task, .btn-retry-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 /* Card Footer */

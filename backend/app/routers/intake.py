@@ -329,11 +329,24 @@ async def assess_job_lead(
     candidate_skills = active_cv.extracted_skills if active_cv else []
     match_info = compute_programmatic_skill_match(candidate_skills, content)
 
+    active_domains_str = None
+    if active_cv and active_cv.domain_experience:
+        active_list = [
+            f"{item['domain']} ({item['years']} yrs)"
+            for item in active_cv.domain_experience
+            if item.get("is_active", True)
+        ]
+        if active_list:
+            active_domains_str = ", ".join(active_list)
+    elif active_cv and active_cv.domain_expertise:
+        active_domains_str = ", ".join(active_cv.domain_expertise)
+
     assessment = await assess_job_posting(
         db,
         content,
         candidate_skills=candidate_skills,
         candidate_cv=active_cv.anonymized_text or active_cv.raw_text if active_cv else None,
+        candidate_domain_breakdown=active_domains_str,
         programmatic_baseline=match_info.get("programmatic_score", 0),
     )
 
@@ -750,3 +763,33 @@ async def clear_completed_evaluations(
     result = await db.execute(stmt)
     await db.commit()
     return {"status": "success", "cleared_count": result.rowcount}
+
+
+@router.post("/evaluations/{task_id}/retry", response_model=IntakeEvaluationTaskResponse, status_code=status.HTTP_200_OK)
+async def retry_evaluation_task(
+    task_id: int,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> IntakeEvaluationTaskResponse:
+    """
+    Retries a failed or cancelled evaluation task by resetting its state
+    and re-dispatching to the background worker.
+    """
+    task = await db.get(IntakeEvaluationTaskModel, task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Evaluation task {task_id} not found.",
+        )
+
+    task.status = "QUEUED"
+    task.stage = "FETCHING" if task.task_type != "CV_EXTRACTION" else "SCRUBBING"
+    task.error_message = None
+    task.result_json = None
+    task.completed_at = None
+    task.created_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(task)
+
+    background_tasks.add_task(process_evaluation_task, task_id=task.id)
+    return task
