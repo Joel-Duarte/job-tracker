@@ -1,0 +1,48 @@
+name: job-tracker
+
+# ==============================================================================
+# Docker Compose Development Overlay (Hot Reloading for Backend & Frontend)
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # Backend with Live Auto-Reload on Python file changes
+  # ----------------------------------------------------------------------------
+  backend:
+    volumes:
+      - ./backend/app:/app/app
+      - app_data:/app/data
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: DEBUG
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  # ----------------------------------------------------------------------------
+  # Frontend with Vite Dev Server & Instant Hot Module Replacement (HMR)
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+    container_name: job-tracker-frontend-dev
+    ports: !override
+      - "${FRONTEND_DEV_PORT:-5173}:5173"
+    environment:
+      VITE_BACKEND_URL: http://backend:8000
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.js:/app/vite.config.js
+      - /app/node_modules
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5173/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
