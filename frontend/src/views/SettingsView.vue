@@ -2394,27 +2394,27 @@ onMounted(async () => {
 .rec-temp-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-secondary);
-  background-color: var(--bg-elevated);
-  padding: 2px 8px;
-  border-radius: 4px;
-  border: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  background-color: var(--bg-main);
+  padding: 3px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
 }
 
 .rec-reasoning-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   font-size: 11px;
   font-weight: 600;
-  color: #38bdf8;
-  background-color: rgba(56, 189, 248, 0.08);
-  padding: 2px 8px;
-  border-radius: 4px;
-  border: 1px solid rgba(56, 189, 248, 0.2);
+  color: var(--primary);
+  background-color: var(--primary-subtle);
+  padding: 3px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--primary-glow);
 }
 
 .btn-refresh-models {
@@ -2698,9 +2698,35 @@ onMounted(async () => {
 
 .section-header-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 24px;
   margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.section-header-row > div {
+  flex: 1;
+  min-width: 260px;
+}
+
+.section-header-row h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+
+.section-header-row p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.section-header-row .btn {
+  flex-shrink: 0;
+  margin-top: 2px;
 }
 
 .providers-grid, .accounts-grid {

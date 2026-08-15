@@ -519,9 +519,21 @@ onMounted(() => {
 
 .tasks-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 24px;
   margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.tasks-header > div {
+  flex: 1;
+  min-width: 260px;
+}
+
+.tasks-header .btn {
+  flex-shrink: 0;
+  margin-top: 2px;
 }
 
 .page-title {

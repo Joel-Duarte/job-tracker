@@ -993,6 +993,8 @@ async function confirmDelete() {
   background-color: var(--status-interview-bg);
   color: var(--status-interview-text);
   border-color: var(--status-interview-border);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--status-interview-border);
 }
 
 /* Match Score Filter in Toolbar */

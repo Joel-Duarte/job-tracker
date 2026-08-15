@@ -145,26 +145,26 @@ html.daylight {
   --card-hover-border: 1px solid var(--border-subtle);
   --card-hover-shadow: 0 4px 12px 0 rgba(40, 32, 20, 0.08), 0 2px 4px -1px rgba(40, 32, 20, 0.04);
 
-  /* Status Colors — Richer on light */
-  --status-applied-bg: #fef3c7;
-  --status-applied-text: #92400e;
-  --status-applied-border: #fde68a;
+  /* Status Colors — High contrast, crisp clarity on light */
+  --status-applied-bg: #eef2ff;
+  --status-applied-text: #4338ca;
+  --status-applied-border: #c7d2fe;
 
   --status-assessment-bg: #ecfeff;
   --status-assessment-text: #0e7490;
-  --status-assessment-border: #a5f3fc;
+  --status-assessment-border: #67e8f9;
 
-  --status-interview-bg: #fffbeb;
-  --status-interview-text: #b45309;
-  --status-interview-border: #fef08a;
+  --status-interview-bg: #fef3c7;
+  --status-interview-text: #92400e;
+  --status-interview-border: #f59e0b;
 
   --status-offer-bg: #ecfdf5;
   --status-offer-text: #047857;
-  --status-offer-border: #a7f3d0;
+  --status-offer-border: #6ee7b7;
 
-  --status-rejected-bg: #fff1f2;
-  --status-rejected-text: #be123c;
-  --status-rejected-border: #fecdd3;
+  --status-rejected-bg: #fef2f2;
+  --status-rejected-text: #b91c1c;
+  --status-rejected-border: #fca5a5;
 
   /* Primary — Saddle Umber */
   --primary: #854d0e;
