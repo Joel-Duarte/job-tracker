@@ -73,5 +73,28 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
             assert active_data["extracted_skills"] == data["extracted_skills"]
             assert active_data["core_competencies"] == ["Distributed Billing Pipelines", "High-Throughput APIs"]
 
+            # 3. Patch CV
+            patch_resp = await client.patch(
+                f"/api/v1/profile/cv/{data['id']}",
+                json={
+                    "anonymized_text": "Updated Custom Sanitized CV",
+                    "core_competencies": ["Distributed Systems", "Cloud Architecture"],
+                    "domain_expertise": ["Fintech", "Healthtech"],
+                },
+            )
+            assert patch_resp.status_code == 200
+            patched_data = patch_resp.json()
+            assert patched_data["anonymized_text"] == "Updated Custom Sanitized CV"
+            assert "Healthtech" in patched_data["domain_expertise"]
+
+            # 4. Delete CV
+            del_resp = await client.delete(f"/api/v1/profile/cv/{data['id']}")
+            assert del_resp.status_code == 204
+
+            # 5. Verify Active CV is None
+            get_after_del = await client.get("/api/v1/profile/cv")
+            assert get_after_del.status_code == 200
+            assert get_after_del.json() is None
+
     app.dependency_overrides.clear()
 

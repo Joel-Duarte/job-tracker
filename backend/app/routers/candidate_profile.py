@@ -114,3 +114,24 @@ async def update_cv_profile(
     await db.commit()
     await db.refresh(profile)
     return profile
+
+
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_cv_profile(
+    id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Deletes a candidate CV profile."""
+    stmt = select(CandidateCVModel).where(CandidateCVModel.id == id)
+    res = await db.execute(stmt)
+    profile = res.scalar_one_or_none()
+
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"CV profile ID {id} not found.",
+        )
+
+    await db.delete(profile)
+    await db.commit()
+    return None

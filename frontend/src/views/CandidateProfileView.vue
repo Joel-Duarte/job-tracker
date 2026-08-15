@@ -21,6 +21,9 @@ import {
   Copy,
   Lock,
   Shield,
+  Info,
+  Trash2,
+  RotateCcw,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
@@ -29,18 +32,21 @@ const profile = ref(null)
 const rawCVInput = ref('')
 const activeInputTab = ref('raw') // 'raw' | 'preview'
 
+// Programmatic local scrub calculation
 const localScrubResult = computed(() => scrubCVText(rawCVInput.value))
 
-function copyAnonymizedCV() {
-  if (profile.value?.anonymized_text) {
-    navigator.clipboard.writeText(profile.value.anonymized_text)
-    uiStore.showToast('Sanitized CV copied to clipboard', 'info')
-  }
-}
+// State for editing sanitized CV text
+const isEditingCV = ref(false)
+const editedCVText = ref('')
+
+// Add item inputs
 const newSkillInput = ref('')
+const newCompetencyInput = ref('')
+const newDomainInput = ref('')
+
 const isProcessing = ref(false)
 const isSavingEdits = ref(false)
-const isEditingSkills = ref(false)
+const isDeleting = ref(false)
 
 async function loadProfile() {
   try {
@@ -48,6 +54,8 @@ async function loadProfile() {
     if (res.data) {
       profile.value = res.data
       rawCVInput.value = res.data.raw_text || ''
+    } else {
+      profile.value = null
     }
   } catch (err) {
     uiStore.showToast('Could not load CV profile', 'error')
@@ -64,7 +72,8 @@ async function processCV() {
   try {
     const res = await CandidateProfileAPI.save(rawCVInput.value.trim())
     profile.value = res.data
-    uiStore.showToast('Resume de-identified and canonical skills extracted!', 'success')
+    isEditingCV.value = false
+    uiStore.showToast('Resume de-identified and canonical profile activated!', 'success')
   } catch (err) {
     uiStore.showToast(err.message, 'error')
   } finally {
@@ -72,35 +81,129 @@ async function processCV() {
   }
 }
 
-function addSkill() {
-  const skill = newSkillInput.value.trim()
-  if (skill && profile.value && !profile.value.extracted_skills.includes(skill)) {
-    profile.value.extracted_skills.push(skill)
-    newSkillInput.value = ''
-    saveProfileEdits()
-  }
+function startEditingCV() {
+  editedCVText.value = profile.value?.anonymized_text || ''
+  isEditingCV.value = true
 }
 
-function removeSkill(skill) {
-  if (profile.value) {
-    profile.value.extracted_skills = profile.value.extracted_skills.filter((s) => s !== skill)
-    saveProfileEdits()
-  }
+function cancelEditingCV() {
+  isEditingCV.value = false
 }
 
-async function saveProfileEdits() {
+async function saveEditedCV() {
   if (!profile.value) return
   isSavingEdits.value = true
   try {
-    await CandidateProfileAPI.update(profile.value.id, {
-      extracted_skills: profile.value.extracted_skills,
-      anonymized_text: profile.value.anonymized_text,
+    const res = await CandidateProfileAPI.update(profile.value.id, {
+      anonymized_text: editedCVText.value,
     })
-    uiStore.showToast('Skills updated', 'success')
+    profile.value.anonymized_text = res.data.anonymized_text
+    isEditingCV.value = false
+    uiStore.showToast('Sanitized CV updated successfully', 'success')
   } catch (err) {
     uiStore.showToast(err.message, 'error')
   } finally {
     isSavingEdits.value = false
+  }
+}
+
+function copyAnonymizedCV() {
+  if (profile.value?.anonymized_text) {
+    navigator.clipboard.writeText(profile.value.anonymized_text)
+    uiStore.showToast('Sanitized CV copied to clipboard', 'info')
+  }
+}
+
+// Skills management
+function addSkill() {
+  const skill = newSkillInput.value.trim()
+  if (skill && profile.value) {
+    if (!profile.value.extracted_skills) profile.value.extracted_skills = []
+    if (!profile.value.extracted_skills.includes(skill)) {
+      profile.value.extracted_skills.push(skill)
+      newSkillInput.value = ''
+      saveProfileField({ extracted_skills: profile.value.extracted_skills })
+    }
+  }
+}
+
+function removeSkill(skill) {
+  if (profile.value?.extracted_skills) {
+    profile.value.extracted_skills = profile.value.extracted_skills.filter((s) => s !== skill)
+    saveProfileField({ extracted_skills: profile.value.extracted_skills })
+  }
+}
+
+// Competencies management
+function addCompetency() {
+  const comp = newCompetencyInput.value.trim()
+  if (comp && profile.value) {
+    if (!profile.value.core_competencies) profile.value.core_competencies = []
+    if (!profile.value.core_competencies.includes(comp)) {
+      profile.value.core_competencies.push(comp)
+      newCompetencyInput.value = ''
+      saveProfileField({ core_competencies: profile.value.core_competencies })
+    }
+  }
+}
+
+function removeCompetency(comp) {
+  if (profile.value?.core_competencies) {
+    profile.value.core_competencies = profile.value.core_competencies.filter((c) => c !== comp)
+    saveProfileField({ core_competencies: profile.value.core_competencies })
+  }
+}
+
+// Domain expertise management
+function addDomain() {
+  const domain = newDomainInput.value.trim()
+  if (domain && profile.value) {
+    if (!profile.value.domain_expertise) profile.value.domain_expertise = []
+    if (!profile.value.domain_expertise.includes(domain)) {
+      profile.value.domain_expertise.push(domain)
+      newDomainInput.value = ''
+      saveProfileField({ domain_expertise: profile.value.domain_expertise })
+    }
+  }
+}
+
+function removeDomain(domain) {
+  if (profile.value?.domain_expertise) {
+    profile.value.domain_expertise = profile.value.domain_expertise.filter((d) => d !== domain)
+    saveProfileField({ domain_expertise: profile.value.domain_expertise })
+  }
+}
+
+async function saveProfileField(patchData) {
+  if (!profile.value) return
+  isSavingEdits.value = true
+  try {
+    const res = await CandidateProfileAPI.update(profile.value.id, patchData)
+    profile.value = res.data
+    uiStore.showToast('Profile updated', 'success')
+  } catch (err) {
+    uiStore.showToast(err.message, 'error')
+  } finally {
+    isSavingEdits.value = false
+  }
+}
+
+async function deleteProfile() {
+  if (!profile.value) return
+  if (!confirm('Are you sure you want to delete this Candidate Profile? Pre-screening matching will be deactivated until a new CV is added.')) {
+    return
+  }
+
+  isDeleting.value = true
+  try {
+    await CandidateProfileAPI.delete(profile.value.id)
+    profile.value = null
+    rawCVInput.value = ''
+    uiStore.showToast('Candidate profile cleared', 'info')
+  } catch (err) {
+    uiStore.showToast(err.message, 'error')
+  } finally {
+    isDeleting.value = false
   }
 }
 
@@ -118,8 +221,19 @@ onMounted(() => {
       </div>
       <h1 class="page-title">Candidate CV & Skills Profile</h1>
       <p class="page-subtitle">
-        Your CV is processed through an automated privacy sanitization step. Personal information and company names are de-identified, date windows are converted to durations, and canonical technical skills are extracted for programmatic pre-matching.
+        Your CV is sanitized locally to strip identifying contacts before processing. The AI de-identifies company names, converts date windows to durations, and extracts canonical technical skills for pre-matching.
       </p>
+    </div>
+
+    <!-- Cloud vs Local Privacy Advisory Banner -->
+    <div class="cloud-privacy-advisory">
+      <div class="advisory-icon">
+        <Info :size="18" />
+      </div>
+      <div class="advisory-text">
+        <strong>Privacy Tip for Cloud AI Models:</strong>
+        <span> If you have configured an external cloud provider (OpenAI, Claude, Gemini, OpenRouter), we strongly recommend replacing specific employer names with generic tags (e.g. <code>[Tier-1 Tech Enterprise]</code>, <code>[Fintech Scaleup]</code>, <code>[E-commerce Startup]</code>) in your raw text before submission. When using local models (Ollama, LM Studio), all processing is 100% private and on-device.</span>
+      </div>
     </div>
 
     <div class="profile-grid">
@@ -208,25 +322,63 @@ onMounted(() => {
               <ShieldCheck :size="16" class="text-success" />
               <span>Active De-Identified Profile</span>
             </div>
-            <span class="badge badge-applied">
-              {{ profile.years_of_experience ? `${profile.years_of_experience} yrs exp` : 'Active' }}
-            </span>
+            <div class="header-right-actions">
+              <span class="badge badge-applied">
+                {{ profile.years_of_experience ? `${profile.years_of_experience} yrs exp` : 'Active' }}
+              </span>
+              <button
+                class="btn btn-ghost btn-xs text-danger"
+                title="Delete Profile"
+                :disabled="isDeleting"
+                @click="deleteProfile"
+              >
+                <Trash2 :size="13" />
+              </button>
+            </div>
           </div>
 
-          <!-- Domain Badges -->
-          <div v-if="profile.domain_expertise?.length" class="meta-tags-row">
-            <span class="meta-label">Domain Expertise:</span>
-            <span v-for="d in profile.domain_expertise" :key="d" class="domain-badge">
-              {{ d }}
-            </span>
+          <!-- Domain Badges & Input -->
+          <div class="meta-section">
+            <div class="meta-section-header">
+              <span class="meta-label">Domain Expertise ({{ profile.domain_expertise?.length || 0 }})</span>
+            </div>
+            <div class="meta-tags-row">
+              <span v-for="d in profile.domain_expertise" :key="d" class="domain-badge">
+                <span>{{ d }}</span>
+                <button class="chip-remove" @click="removeDomain(d)"><X :size="10" /></button>
+              </span>
+              <div class="inline-add">
+                <input
+                  v-model="newDomainInput"
+                  type="text"
+                  placeholder="+ Add domain..."
+                  class="inline-input"
+                  @keydown.enter.prevent="addDomain"
+                />
+              </div>
+            </div>
           </div>
 
-          <!-- Core Competencies -->
-          <div v-if="profile.core_competencies?.length" class="meta-tags-row">
-            <span class="meta-label">Core Competencies:</span>
-            <span v-for="c in profile.core_competencies" :key="c" class="competency-badge">
-              {{ c }}
-            </span>
+          <!-- Core Competencies Badges & Input -->
+          <div class="meta-section">
+            <div class="meta-section-header">
+              <span class="meta-label">Core Competencies ({{ profile.core_competencies?.length || 0 }})</span>
+            </div>
+            <div class="meta-tags-row">
+              <span v-for="c in profile.core_competencies" :key="c" class="competency-badge">
+                <span>{{ c }}</span>
+                <button class="chip-remove" @click="removeCompetency(c)"><X :size="10" /></button>
+              </span>
+              <div class="inline-add">
+                <input
+                  v-model="newCompetencyInput"
+                  type="text"
+                  placeholder="+ Add competency..."
+                  class="inline-input"
+                  @keydown.enter.prevent="addCompetency"
+                />
+              </div>
+            </div>
           </div>
 
           <!-- Skills Management Section -->
@@ -266,25 +418,58 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- De-Identified Resume Text Preview -->
+          <!-- De-Identified Resume Text Preview & Editor -->
           <div class="sanitized-preview">
             <div class="preview-header">
               <div>
                 <span class="section-label">Sanitized Resume Preview</span>
-                <span class="text-xs text-muted block">PII scrubbed • Dates converted to durations • Used for AI match assessments</span>
+                <span class="text-xs text-muted block">Used for AI match assessments & qualification audits</span>
               </div>
-              <button
-                v-if="profile.anonymized_text"
-                class="btn btn-ghost btn-xs"
-                title="Copy sanitized resume text"
-                @click="copyAnonymizedCV"
-              >
-                <Copy :size="13" />
-                <span>Copy</span>
-              </button>
+              <div class="preview-actions">
+                <button
+                  v-if="!isEditingCV && profile.anonymized_text"
+                  class="btn btn-ghost btn-xs"
+                  title="Edit sanitized resume"
+                  @click="startEditingCV"
+                >
+                  <Edit3 :size="13" />
+                  <span>Edit</span>
+                </button>
+                <button
+                  v-if="!isEditingCV && profile.anonymized_text"
+                  class="btn btn-ghost btn-xs"
+                  title="Copy sanitized resume text"
+                  @click="copyAnonymizedCV"
+                >
+                  <Copy :size="13" />
+                  <span>Copy</span>
+                </button>
+              </div>
             </div>
-            <div class="sanitized-text font-mono text-xs">
+
+            <!-- Read-only View -->
+            <div v-if="!isEditingCV" class="sanitized-text font-mono text-xs">
               {{ profile.anonymized_text || 'No anonymized text generated yet.' }}
+            </div>
+
+            <!-- In-place Editor -->
+            <div v-else class="cv-editor-box">
+              <textarea
+                v-model="editedCVText"
+                rows="10"
+                class="form-textarea font-mono text-xs"
+              ></textarea>
+              <div class="cv-editor-actions">
+                <button class="btn btn-secondary btn-xs" @click="cancelEditingCV">
+                  <RotateCcw :size="12" />
+                  <span>Cancel</span>
+                </button>
+                <button class="btn btn-primary btn-xs" :disabled="isSavingEdits" @click="saveEditedCV">
+                  <Loader2 v-if="isSavingEdits" class="animate-spin" :size="12" />
+                  <Save v-else :size="12" />
+                  <span>Save Changes</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -310,7 +495,7 @@ onMounted(() => {
 
 .profile-header {
   text-align: center;
-  margin-bottom: 28px;
+  margin-bottom: 20px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -344,6 +529,35 @@ onMounted(() => {
   line-height: 1.5;
 }
 
+.cloud-privacy-advisory {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background-color: rgba(59, 130, 246, 0.06);
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  margin-bottom: 24px;
+  color: var(--text-main);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.advisory-icon {
+  color: #3b82f6;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.advisory-text code {
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-color);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 11px;
+}
+
 .profile-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -374,6 +588,12 @@ onMounted(() => {
   border-bottom: 1px solid var(--border-color);
   padding-bottom: 12px;
   flex-wrap: wrap;
+  gap: 8px;
+}
+
+.header-right-actions {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -475,6 +695,18 @@ onMounted(() => {
   justify-content: flex-end;
 }
 
+.meta-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.meta-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .meta-tags-row {
   display: flex;
   align-items: center;
@@ -498,6 +730,9 @@ onMounted(() => {
   font-size: 11px;
   color: var(--primary);
   font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .competency-badge {
@@ -508,6 +743,43 @@ onMounted(() => {
   font-size: 11px;
   color: var(--text-success);
   font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chip-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+}
+
+.chip-remove:hover {
+  color: var(--text-danger, #ef4444);
+}
+
+.inline-add {
+  display: inline-flex;
+}
+
+.inline-input {
+  background: transparent;
+  border: 1px dashed var(--border-color);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: var(--text-main);
+  width: 110px;
+}
+
+.inline-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  width: 140px;
 }
 
 .skills-section {
@@ -537,9 +809,6 @@ onMounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  max-height: 160px;
-  overflow-y: auto;
-  padding: 4px 0;
 }
 
 .skill-chip {
@@ -547,73 +816,96 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
   padding: 3px 8px;
-  border-radius: var(--radius-full);
-  background-color: var(--status-applied-bg);
-  color: var(--status-applied-text);
-  border: 1px solid var(--status-applied-border);
-  font-size: 11px;
-  font-weight: 500;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-main);
 }
 
 .skill-remove-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: inherit;
-  opacity: 0.7;
-  transition: opacity var(--transition-fast);
+  padding: 0;
 }
 
 .skill-remove-btn:hover {
-  opacity: 1;
+  color: var(--text-danger);
 }
 
 .sanitized-preview {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  border-top: 1px solid var(--border-color);
+  padding-top: 14px;
 }
 
 .preview-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .sanitized-text {
-  background-color: var(--bg-card);
+  background-color: var(--bg-main);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   padding: 12px;
-  max-height: 180px;
+  max-height: 260px;
   overflow-y: auto;
   white-space: pre-wrap;
-  color: var(--text-main);
+  word-break: break-word;
+  color: var(--text-secondary);
   line-height: 1.5;
+}
+
+.cv-editor-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cv-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .empty-profile-box {
   background-color: var(--bg-surface);
   border: 1px dashed var(--border-color);
   border-radius: var(--radius-md);
-  padding: 40px 24px;
+  padding: 48px 24px;
   text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .empty-title {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   color: var(--text-main);
 }
 
 .empty-sub {
   font-size: 12px;
   color: var(--text-secondary);
-  max-width: 320px;
-  line-height: 1.4;
+  max-width: 380px;
+  line-height: 1.5;
 }
 </style>

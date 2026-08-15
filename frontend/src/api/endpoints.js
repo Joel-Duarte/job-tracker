@@ -30,6 +30,7 @@ export const CandidateProfileAPI = {
   get: () => apiClient.get('/profile/cv'),
   save: (rawText) => apiClient.post('/profile/cv', { raw_text: rawText }),
   update: (id, data) => apiClient.patch(`/profile/cv/${id}`, data),
+  delete: (id) => apiClient.delete(`/profile/cv/${id}`),
 }
 
 export const AgentAPI = {
