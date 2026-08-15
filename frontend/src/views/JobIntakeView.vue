@@ -43,6 +43,27 @@ const jobText = ref('')
 const isEnqueuing = ref(false)
 const jdTextareaRef = ref(null)
 
+// LinkedIn Detection & Advisory State
+const dismissedLinkedInUrl = ref('')
+const isLinkedInUrl = computed(() => {
+  if (!jobUrl.value) return false
+  const trimmed = jobUrl.value.trim().toLowerCase()
+  return trimmed.includes('linkedin.com') && dismissedLinkedInUrl.value !== trimmed
+})
+
+function dismissLinkedInWarning() {
+  dismissedLinkedInUrl.value = jobUrl.value.trim().toLowerCase()
+}
+
+function handlePasteTextInstead() {
+  dismissLinkedInWarning()
+  nextTick(() => {
+    if (jdTextareaRef.value) {
+      jdTextareaRef.value.focus()
+    }
+  })
+}
+
 // Queue & Evaluations State
 const evaluationTasks = ref([])
 const loadingEvaluations = ref(false)
@@ -334,6 +355,25 @@ onUnmounted(() => {
           class="form-input"
           @keydown.enter="enqueueLead"
         />
+
+        <!-- LinkedIn Advisory Callout -->
+        <div v-if="isLinkedInUrl" class="linkedin-warning-card">
+          <div class="linkedin-warning-header">
+            <AlertTriangle :size="15" class="text-warning flex-shrink-0" />
+            <div class="linkedin-warning-text">
+              <strong>LinkedIn URL detected:</strong> LinkedIn often blocks automated scrapers behind an authentication wall.
+            </div>
+          </div>
+          <div class="linkedin-warning-actions">
+            <button type="button" class="btn btn-secondary btn-xs" @click="handlePasteTextInstead">
+              <FileText :size="12" />
+              <span>Paste JD text below (Recommended)</span>
+            </button>
+            <button type="button" class="btn btn-ghost btn-xs text-muted" @click="dismissLinkedInWarning">
+              <span>Scrape anyway with Camofox</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="input-section">
@@ -342,8 +382,8 @@ onUnmounted(() => {
             <FileText :size="15" />
             <span>Job Description & Requirements Text</span>
           </label>
-          <span class="text-xs text-primary font-semibold">
-            * Include Company Name and Role in text if URL is not provided
+          <span class="field-hint text-xs text-muted">
+            Include company name & role in text if URL is not provided
           </span>
         </div>
         <textarea
@@ -829,6 +869,43 @@ onUnmounted(() => {
 
 .form-input, .form-textarea {
   width: 100%;
+}
+
+.linkedin-warning-card {
+  margin-top: 6px;
+  padding: 10px 14px;
+  background-color: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.linkedin-warning-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.linkedin-warning-text {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-main);
+}
+
+.linkedin-warning-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 23px;
+  flex-wrap: wrap;
+}
+
+.field-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: normal;
 }
 
 .intake-actions {
