@@ -3,6 +3,7 @@ import { ref, watch, computed } from 'vue'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
 import { ActionItemsAPI } from '../../api/endpoints'
+import DateTimePicker from '../common/DateTimePicker.vue'
 import {
   X,
   Building2,
@@ -580,10 +581,10 @@ function formatDate(isoStr) {
                     <option value="MEDIUM">Medium Urgency</option>
                     <option value="LOW">Low Urgency</option>
                   </select>
-                  <input
+                  <DateTimePicker
                     v-model="newDrawerTask.due_date"
-                    type="datetime-local"
-                    class="form-input form-input-sm"
+                    type="datetime"
+                    placeholder="Due date & time..."
                   />
                 </div>
                 <div class="form-actions-row">
@@ -683,10 +684,10 @@ function formatDate(isoStr) {
 
             <div class="form-group">
               <label class="form-label">Scheduled Date & Time (Optional)</label>
-              <input
+              <DateTimePicker
                 v-model="transitionForm.scheduled_at"
-                type="datetime-local"
-                class="form-input"
+                type="datetime"
+                placeholder="Select scheduled date & time..."
               />
             </div>
           </div>
@@ -715,19 +716,19 @@ function formatDate(isoStr) {
             <div class="form-row-2">
               <div class="form-group">
                 <label class="form-label">Offer Received Date</label>
-                <input
+                <DateTimePicker
                   v-model="transitionForm.offer_received_date"
                   type="date"
-                  class="form-input"
+                  placeholder="Select offer received date..."
                 />
               </div>
 
               <div class="form-group">
                 <label class="form-label">Decision Deadline (Limit Date)</label>
-                <input
+                <DateTimePicker
                   v-model="transitionForm.decision_deadline"
                   type="date"
-                  class="form-input"
+                  placeholder="Select decision deadline..."
                 />
               </div>
             </div>
@@ -737,10 +738,10 @@ function formatDate(isoStr) {
           <div v-if="transitionTargetStatus === 'REJECTED'" class="form-group-stack">
             <div class="form-group">
               <label class="form-label">Rejection Notice Date</label>
-              <input
+              <DateTimePicker
                 v-model="transitionForm.rejection_date"
                 type="date"
-                class="form-input"
+                placeholder="Select rejection date..."
               />
             </div>
 

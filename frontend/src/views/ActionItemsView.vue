@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { ActionItemsAPI, ApplicationsAPI } from '../api/endpoints'
 import { useUIStore } from '../stores/uiStore'
+import DateTimePicker from '../components/common/DateTimePicker.vue'
 import {
   CheckSquare,
   Square,
@@ -490,10 +491,10 @@ onMounted(() => {
 
             <div class="form-group">
               <label class="form-label">Due Date & Time (Optional)</label>
-              <input
+              <DateTimePicker
                 v-model="taskForm.due_date"
-                type="datetime-local"
-                class="form-input"
+                type="datetime"
+                placeholder="Select due date & time..."
               />
             </div>
 
