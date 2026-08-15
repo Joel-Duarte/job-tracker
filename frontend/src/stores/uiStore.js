@@ -29,14 +29,80 @@ export const useUIStore = defineStore('ui', () => {
   }
 
   const customDarkBg = ref(localStorage.getItem('jt_custom_dark_bg') || '')
-  const customLightBg = ref(localStorage.getItem('jt_custom_light_bg') || '')
+  const customDarkSurface = ref(localStorage.getItem('jt_custom_dark_surface') || '')
+  const customDarkPrimary = ref(localStorage.getItem('jt_custom_dark_primary') || '')
+  const customDarkBorder = ref(localStorage.getItem('jt_custom_dark_border') || '')
 
-  function applyCustomBg() {
-    const activeCustom = theme.value === 'midnight' ? customDarkBg.value : customLightBg.value
-    if (activeCustom) {
-      document.documentElement.style.setProperty('--bg-app', activeCustom)
+  const customLightBg = ref(localStorage.getItem('jt_custom_light_bg') || '')
+  const customLightSurface = ref(localStorage.getItem('jt_custom_light_surface') || '')
+  const customLightPrimary = ref(localStorage.getItem('jt_custom_light_primary') || '')
+  const customLightBorder = ref(localStorage.getItem('jt_custom_light_border') || '')
+
+  function hexToRgba(hex, alpha) {
+    if (!hex || !hex.startsWith('#')) return `rgba(56, 189, 248, ${alpha})`
+    let c = hex.substring(1)
+    if (c.length === 3) c = c.split('').map((x) => x + x).join('')
+    const num = parseInt(c, 16)
+    if (isNaN(num)) return `rgba(56, 189, 248, ${alpha})`
+    const r = (num >> 16) & 255
+    const g = (num >> 8) & 255
+    const b = num & 255
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`
+  }
+
+  function applyCustomColors() {
+    const isDark = theme.value === 'midnight'
+    const bg = isDark ? customDarkBg.value : customLightBg.value
+    const surface = isDark ? customDarkSurface.value : customLightSurface.value
+    const primary = isDark ? customDarkPrimary.value : customLightPrimary.value
+    const border = isDark ? customDarkBorder.value : customLightBorder.value
+
+    const rootStyle = document.documentElement.style
+
+    // 1. Background Canvas
+    if (bg) {
+      rootStyle.setProperty('--bg-app', bg)
     } else {
-      document.documentElement.style.removeProperty('--bg-app')
+      rootStyle.removeProperty('--bg-app')
+    }
+
+    // 2. Card / Surface
+    if (surface) {
+      rootStyle.setProperty('--bg-surface', surface)
+      rootStyle.setProperty('--bg-card', surface)
+      rootStyle.setProperty('--bg-main', surface)
+      rootStyle.setProperty('--bg-elevated', surface)
+    } else {
+      rootStyle.removeProperty('--bg-surface')
+      rootStyle.removeProperty('--bg-card')
+      rootStyle.removeProperty('--bg-main')
+      rootStyle.removeProperty('--bg-elevated')
+    }
+
+    // 3. Primary Accent
+    if (primary) {
+      rootStyle.setProperty('--primary', primary)
+      rootStyle.setProperty('--primary-hover', primary)
+      rootStyle.setProperty('--text-primary', primary)
+      rootStyle.setProperty('--border-focus', primary)
+      rootStyle.setProperty('--primary-glow', hexToRgba(primary, 0.22))
+      rootStyle.setProperty('--primary-subtle', hexToRgba(primary, 0.10))
+    } else {
+      rootStyle.removeProperty('--primary')
+      rootStyle.removeProperty('--primary-hover')
+      rootStyle.removeProperty('--text-primary')
+      rootStyle.removeProperty('--border-focus')
+      rootStyle.removeProperty('--primary-glow')
+      rootStyle.removeProperty('--primary-subtle')
+    }
+
+    // 4. Border / Divider
+    if (border) {
+      rootStyle.setProperty('--border-color', border)
+      rootStyle.setProperty('--border-subtle', border)
+    } else {
+      rootStyle.removeProperty('--border-color')
+      rootStyle.removeProperty('--border-subtle')
     }
   }
 
@@ -44,33 +110,58 @@ export const useUIStore = defineStore('ui', () => {
     theme.value = newTheme
     localStorage.setItem('jt_theme', newTheme)
     document.documentElement.className = newTheme
-    applyCustomBg()
+    applyCustomColors()
   }
 
   function toggleTheme() {
     setTheme(theme.value === 'midnight' ? 'daylight' : 'midnight')
   }
 
-  function setCustomBg(themeName, colorHex) {
+  function setCustomColor(themeName, key, colorHex) {
+    const storageKey = `jt_custom_${themeName === 'midnight' ? 'dark' : 'light'}_${key}`
     if (themeName === 'midnight') {
-      customDarkBg.value = colorHex
-      localStorage.setItem('jt_custom_dark_bg', colorHex)
+      if (key === 'bg') customDarkBg.value = colorHex
+      else if (key === 'surface') customDarkSurface.value = colorHex
+      else if (key === 'primary') customDarkPrimary.value = colorHex
+      else if (key === 'border') customDarkBorder.value = colorHex
     } else {
-      customLightBg.value = colorHex
-      localStorage.setItem('jt_custom_light_bg', colorHex)
+      if (key === 'bg') customLightBg.value = colorHex
+      else if (key === 'surface') customLightSurface.value = colorHex
+      else if (key === 'primary') customLightPrimary.value = colorHex
+      else if (key === 'border') customLightBorder.value = colorHex
     }
-    applyCustomBg()
+    localStorage.setItem(storageKey, colorHex)
+    applyCustomColors()
+  }
+
+  function resetCustomColor(themeName, key) {
+    const storageKey = `jt_custom_${themeName === 'midnight' ? 'dark' : 'light'}_${key}`
+    if (themeName === 'midnight') {
+      if (key === 'bg') customDarkBg.value = ''
+      else if (key === 'surface') customDarkSurface.value = ''
+      else if (key === 'primary') customDarkPrimary.value = ''
+      else if (key === 'border') customDarkBorder.value = ''
+    } else {
+      if (key === 'bg') customLightBg.value = ''
+      else if (key === 'surface') customLightSurface.value = ''
+      else if (key === 'primary') customLightPrimary.value = ''
+      else if (key === 'border') customLightBorder.value = ''
+    }
+    localStorage.removeItem(storageKey)
+    applyCustomColors()
+  }
+
+  function resetAllCustomColors(themeName) {
+    ;['bg', 'surface', 'primary', 'border'].forEach((k) => resetCustomColor(themeName, k))
+  }
+
+  // Alias functions for backward compatibility
+  function setCustomBg(themeName, colorHex) {
+    setCustomColor(themeName, 'bg', colorHex)
   }
 
   function resetCustomBg(themeName) {
-    if (themeName === 'midnight') {
-      customDarkBg.value = ''
-      localStorage.removeItem('jt_custom_dark_bg')
-    } else {
-      customLightBg.value = ''
-      localStorage.removeItem('jt_custom_light_bg')
-    }
-    applyCustomBg()
+    resetCustomColor(themeName, 'bg')
   }
 
   function setViewMode(mode) {
@@ -141,14 +232,23 @@ export const useUIStore = defineStore('ui', () => {
     localStorage.setItem('jt_currency', curr)
   }
 
-  // Initialize root class and custom background
+  // Initialize root class and custom theme colors
   document.documentElement.className = theme.value
-  applyCustomBg()
+  applyCustomColors()
 
   return {
     theme,
     customDarkBg,
+    customDarkSurface,
+    customDarkPrimary,
+    customDarkBorder,
     customLightBg,
+    customLightSurface,
+    customLightPrimary,
+    customLightBorder,
+    setCustomColor,
+    resetCustomColor,
+    resetAllCustomColors,
     setCustomBg,
     resetCustomBg,
     viewMode,

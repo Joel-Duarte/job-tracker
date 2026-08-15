@@ -4,77 +4,77 @@
    ========================================================================== */
 
 /* --------------------------------------------------------------------------
-   Midnight Theme (Default) — Refined Dark Slate, Linear/Raycast Evolved
+   Midnight Theme (Default) — OLED Black Base & Emerald Precision
    -------------------------------------------------------------------------- */
 :root {
   /* Typography */
-  --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-heading: 'DM Serif Display', Georgia, 'Times New Roman', serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-heading: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
-  --font-tracking: -0.006em;
-  --font-heading-weight: 400;
+  --font-tracking: -0.015em;
+  --font-heading-weight: 600;
 
-  /* Backgrounds */
-  --bg-app: #0b0f19;
-  --bg-sidebar: #101524;
-  --bg-surface: #151c2e;
-  --bg-surface-hover: #1c2540;
-  --bg-card: #151c2e;
-  --bg-card-hover: #1e2845;
-  --bg-elevated: #202a48;
-  --bg-input: #0d1220;
-  --bg-backdrop: rgba(4, 7, 15, 0.78);
-  --bg-hover: #1c2540;
-  --bg-main: #151c2e;
+  /* Backgrounds — OLED Black Base & Obsidian Surfaces */
+  --bg-app: #000000;
+  --bg-sidebar: #090d14;
+  --bg-surface: #11151e;
+  --bg-surface-hover: #171e2b;
+  --bg-card: #11151e;
+  --bg-card-hover: #171e2b;
+  --bg-elevated: #1a2232;
+  --bg-input: #090d14;
+  --bg-backdrop: rgba(0, 0, 0, 0.85);
+  --bg-hover: #171e2b;
+  --bg-main: #11151e;
 
   /* Text */
-  --text-main: #e8edf5;
-  --text-secondary: #8d9bb5;
-  --text-muted: #5e6e8a;
-  --text-faint: #3f4e68;
-  --text-primary: #60a5fa;
-  --text-tertiary: #4a5a74;
+  --text-main: #eef2f8;
+  --text-secondary: #96a5be;
+  --text-muted: #64748b;
+  --text-faint: #435269;
+  --text-primary: #2dd4bf;
+  --text-tertiary: #4e607c;
   --text-success: #34d399;
   --text-danger: #fb7185;
   --text-warning: #fbbf24;
 
-  /* Borders */
-  --border-color: #1e293b;
-  --border-subtle: #263050;
-  --border-focus: #3b82f6;
+  /* Borders — Deep Edge */
+  --border-color: #1c2534;
+  --border-subtle: #263245;
+  --border-focus: #2dd4bf;
 
   /* Surface Treatment — Midnight uses borders, not shadows */
   --card-border: 1px solid var(--border-color);
   --card-shadow: none;
   --card-hover-border: 1px solid var(--border-subtle);
-  --card-hover-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.3);
+  --card-hover-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.45);
 
   /* Status Colors */
-  --status-applied-bg: rgba(99, 102, 241, 0.10);
+  --status-applied-bg: rgba(99, 102, 241, 0.12);
   --status-applied-text: #818cf8;
-  --status-applied-border: rgba(99, 102, 241, 0.24);
+  --status-applied-border: rgba(99, 102, 241, 0.28);
 
-  --status-assessment-bg: rgba(6, 182, 212, 0.10);
+  --status-assessment-bg: rgba(6, 182, 212, 0.12);
   --status-assessment-text: #22d3ee;
-  --status-assessment-border: rgba(6, 182, 212, 0.24);
+  --status-assessment-border: rgba(6, 182, 212, 0.28);
 
-  --status-interview-bg: rgba(245, 158, 11, 0.10);
+  --status-interview-bg: rgba(245, 158, 11, 0.12);
   --status-interview-text: #fbbf24;
-  --status-interview-border: rgba(245, 158, 11, 0.24);
+  --status-interview-border: rgba(245, 158, 11, 0.28);
 
-  --status-offer-bg: rgba(16, 185, 129, 0.10);
-  --status-offer-text: #34d399;
-  --status-offer-border: rgba(16, 185, 129, 0.24);
+  --status-offer-bg: rgba(45, 212, 191, 0.12);
+  --status-offer-text: #2dd4bf;
+  --status-offer-border: rgba(45, 212, 191, 0.28);
 
-  --status-rejected-bg: rgba(244, 63, 94, 0.10);
+  --status-rejected-bg: rgba(244, 63, 94, 0.12);
   --status-rejected-text: #fb7185;
-  --status-rejected-border: rgba(244, 63, 94, 0.24);
+  --status-rejected-border: rgba(244, 63, 94, 0.28);
 
-  /* Primary Accent */
-  --primary: #3b82f6;
-  --primary-hover: #2563eb;
-  --primary-glow: rgba(59, 130, 246, 0.20);
-  --primary-subtle: rgba(59, 130, 246, 0.08);
+  /* Primary Accent — Emerald Cyan */
+  --primary: #2dd4bf;
+  --primary-hover: #14b8a6;
+  --primary-glow: rgba(45, 212, 191, 0.22);
+  --primary-subtle: rgba(45, 212, 191, 0.10);
   --danger: #ef4444;
 
   /* Radii — Tight, geometric, tool-like */
@@ -84,11 +84,11 @@
   --radius-full: 9999px;
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.18);
-  --shadow-md: 0 3px 10px 0 rgba(0, 0, 0, 0.30);
-  --shadow-lg: 0 10px 28px -4px rgba(0, 0, 0, 0.45);
-  --shadow-xl: 0 20px 50px -8px rgba(0, 0, 0, 0.55);
-  --shadow-glow: 0 0 16px -2px rgba(59, 130, 246, 0.25);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 3px 10px 0 rgba(0, 0, 0, 0.40);
+  --shadow-lg: 0 10px 28px -4px rgba(0, 0, 0, 0.55);
+  --shadow-xl: 0 20px 50px -8px rgba(0, 0, 0, 0.65);
+  --shadow-glow: 0 0 16px -2px rgba(45, 212, 191, 0.25);
 
   /* Transitions */
   --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
@@ -101,7 +101,7 @@
 
 
 /* --------------------------------------------------------------------------
-   Daylight Theme — Warm Light Studio, Notion/Stripe Inspired
+   Daylight Theme — Muted Stone Canvas & Saddle Studio
    -------------------------------------------------------------------------- */
 html.daylight {
   /* Typography Overrides */
@@ -110,53 +110,53 @@ html.daylight {
   --font-tracking: -0.006em;
   --font-heading-weight: 400;
 
-  /* Backgrounds — Warm cream canvas */
-  --bg-app: #faf8f5;
-  --bg-sidebar: #f4f1ec;
-  --bg-surface: #ffffff;
-  --bg-surface-hover: #f7f5f2;
-  --bg-card: #ffffff;
-  --bg-card-hover: #faf8f5;
-  --bg-elevated: #ffffff;
-  --bg-input: #f4f1ec;
-  --bg-backdrop: rgba(20, 18, 14, 0.38);
-  --bg-hover: #f7f5f2;
-  --bg-main: #ffffff;
+  /* Backgrounds — Muted Stone Canvas Base & Parchment Surfaces */
+  --bg-app: #e5ded1;
+  --bg-sidebar: #ded6c7;
+  --bg-surface: #f7f4ee;
+  --bg-surface-hover: #ffffff;
+  --bg-card: #f7f4ee;
+  --bg-card-hover: #ffffff;
+  --bg-elevated: #fcfbf8;
+  --bg-input: #ede5d8;
+  --bg-backdrop: rgba(28, 24, 20, 0.42);
+  --bg-hover: #ffffff;
+  --bg-main: #f7f4ee;
 
-  /* Text — Warm ink */
-  --text-main: #1a1a2e;
-  --text-secondary: #555770;
-  --text-muted: #7c7e92;
-  --text-faint: #a8aab8;
-  --text-primary: #4f46e5;
-  --text-tertiary: #9496a8;
+  /* Text — Warm Umber Ink */
+  --text-main: #1e1c18;
+  --text-secondary: #575249;
+  --text-muted: #827b70;
+  --text-faint: #ab9f90;
+  --text-primary: #854d0e;
+  --text-tertiary: #9c9183;
   --text-success: #059669;
   --text-danger: #dc2626;
   --text-warning: #d97706;
 
-  /* Borders — Barely visible, shadows do the work */
-  --border-color: #e8e4de;
-  --border-subtle: #d6d1c8;
-  --border-focus: #4f46e5;
+  /* Borders — Soft Ochre Borders */
+  --border-color: #b8aa97;
+  --border-subtle: #a89985;
+  --border-focus: #854d0e;
 
-  /* Surface Treatment — Daylight uses shadows, not borders */
-  --card-border: 1px solid transparent;
-  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
-  --card-hover-border: 1px solid transparent;
-  --card-hover-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
+  /* Surface Treatment — Elevated with soft shadows + subtle stone borders */
+  --card-border: 1px solid var(--border-color);
+  --card-shadow: 0 1px 3px 0 rgba(40, 32, 20, 0.05), 0 1px 2px -1px rgba(40, 32, 20, 0.03);
+  --card-hover-border: 1px solid var(--border-subtle);
+  --card-hover-shadow: 0 4px 12px 0 rgba(40, 32, 20, 0.08), 0 2px 4px -1px rgba(40, 32, 20, 0.04);
 
   /* Status Colors — Richer on light */
-  --status-applied-bg: #eef2ff;
-  --status-applied-text: #4338ca;
-  --status-applied-border: #c7d2fe;
+  --status-applied-bg: #fef3c7;
+  --status-applied-text: #92400e;
+  --status-applied-border: #fde68a;
 
   --status-assessment-bg: #ecfeff;
   --status-assessment-text: #0e7490;
   --status-assessment-border: #a5f3fc;
 
-  --status-interview-bg: #fef3c7;
+  --status-interview-bg: #fffbeb;
   --status-interview-text: #b45309;
-  --status-interview-border: #fde68a;
+  --status-interview-border: #fef08a;
 
   --status-offer-bg: #ecfdf5;
   --status-offer-text: #047857;
@@ -166,11 +166,11 @@ html.daylight {
   --status-rejected-text: #be123c;
   --status-rejected-border: #fecdd3;
 
-  /* Primary — Deep Indigo */
-  --primary: #4f46e5;
-  --primary-hover: #4338ca;
-  --primary-glow: rgba(79, 70, 229, 0.18);
-  --primary-subtle: rgba(79, 70, 229, 0.06);
+  /* Primary — Saddle Umber */
+  --primary: #854d0e;
+  --primary-hover: #713f12;
+  --primary-glow: rgba(133, 77, 14, 0.20);
+  --primary-subtle: rgba(133, 77, 14, 0.08);
   --danger: #dc2626;
 
   /* Radii — Generous, soft, approachable */
