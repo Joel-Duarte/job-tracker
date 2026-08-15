@@ -11,6 +11,8 @@ import {
   Calendar,
   AlertCircle,
   ChevronRight,
+  ChevronDown,
+  SlidersHorizontal,
   Sparkles,
   Layers,
   ArrowUpDown,
@@ -101,6 +103,48 @@ function formatDate(isoStr) {
   }
 }
 
+function hasDetailedPhase(app) {
+  return ['TECHNICAL_INTERVIEW', 'OFFER', 'REJECTED'].includes(app?.status)
+}
+
+function getAppSubPhaseLabel(app) {
+  if (!app) return ''
+  const status = app.status || 'APPLIED'
+  const payload = app.latest_event?.raw_payload || {}
+
+  if (status === 'TECHNICAL_INTERVIEW') {
+    return payload.interview_stage || 'Technical Round 1'
+  }
+  if (status === 'OFFER') {
+    const sal = payload.offered_salary || app.job_posting?.salary_max || app.job_posting?.salary_min
+    const curr = payload.currency || app.job_posting?.currency || 'USD'
+    return sal ? `$${Number(sal).toLocaleString()} ${curr}` : 'Offer Package'
+  }
+  if (status === 'REJECTED') {
+    return payload.rejection_reason || 'Rejection Notice'
+  }
+  if (status === 'ASSESSMENT') return 'AI Assessment'
+  return 'Applied'
+}
+
+function getInterviewDate(app) {
+  if (!app) return null
+  const payload = app.latest_event?.raw_payload || {}
+  const dateStr = payload.scheduled_at
+  if (!dateStr) return null
+  try {
+    const d = new Date(dateStr)
+    return d.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+  } catch {
+    return dateStr
+  }
+}
+
 // Drag and Drop Handlers
 function onDragStart(app, event) {
   draggedApp.value = app
@@ -146,20 +190,31 @@ function onDrop(colKey, event) {
 
 function openTransitionModal(app, colKey) {
   transitionApp.value = app
-  targetStatus.value = colKey
+  targetStatus.value = colKey || app.status || 'APPLIED'
   const today = new Date().toISOString().substring(0, 10)
+  const existingPayload = app.latest_event?.raw_payload || {}
+
   transitionForm.value = {
-    interview_stage: 'Technical Round 1',
-    scheduled_at: '',
-    offered_salary: app.job_posting?.salary_max || null,
-    currency: app.job_posting?.currency || 'USD',
-    offer_received_date: today,
-    decision_deadline: '',
-    rejection_date: today,
-    rejection_reason: 'Resume / Initial Screen',
+    interview_stage: existingPayload.interview_stage || 'Technical Round 1',
+    scheduled_at: existingPayload.scheduled_at ? existingPayload.scheduled_at.substring(0, 16) : '',
+    offered_salary: existingPayload.offered_salary || app.job_posting?.salary_max || app.job_posting?.salary_min || null,
+    currency: existingPayload.currency || app.job_posting?.currency || 'USD',
+    offer_received_date: existingPayload.offer_received_date || today,
+    decision_deadline: existingPayload.decision_deadline || '',
+    rejection_date: existingPayload.rejection_date || today,
+    rejection_reason: existingPayload.rejection_reason || 'Resume / Initial Screen',
     notes: '',
   }
   showTransitionModal.value = true
+}
+
+function handleStatusChange(app, newStatus) {
+  if (!newStatus) return
+  if (['TECHNICAL_INTERVIEW', 'OFFER', 'REJECTED'].includes(newStatus)) {
+    openTransitionModal(app, newStatus)
+  } else {
+    executeTransition(app.id, { status: newStatus })
+  }
 }
 
 async function executeTransition(appId, payload) {
@@ -346,6 +401,25 @@ async function confirmDelete() {
                 {{ app.position || 'Position Not Specified' }}
               </div>
 
+              <!-- Phase Detail Pill & Interview Date -->
+              <div class="card-phase-row" @click.stop>
+                <button
+                  class="phase-detail-btn"
+                  :class="`phase-${(app.status || 'applied').toLowerCase()}`"
+                  @click="openTransitionModal(app, app.status)"
+                  title="Click to edit phase details, dates, or status"
+                >
+                  <span class="phase-detail-text">{{ getAppSubPhaseLabel(app) }}</span>
+                  <SlidersHorizontal :size="11" class="phase-icon" />
+                </button>
+
+                <!-- Show Interview Scheduled Date if it exists -->
+                <div v-if="getInterviewDate(app)" class="interview-date-tag" title="Scheduled Interview Date & Time">
+                  <Calendar :size="11" />
+                  <span>{{ getInterviewDate(app) }}</span>
+                </div>
+              </div>
+
               <!-- Latest Event Summary Pill -->
               <div v-if="app.latest_event?.email_summary" class="card-summary">
                 <span class="summary-prefix">{{ app.latest_event.email_event_type }}:</span>
@@ -381,7 +455,7 @@ async function confirmDelete() {
             <tr>
               <th>Company</th>
               <th>Position</th>
-              <th>Status</th>
+              <th>Status / Phase</th>
               <th>Last Activity</th>
               <th>Action Needed</th>
               <th class="text-right">Actions</th>
@@ -407,10 +481,23 @@ async function confirmDelete() {
                 {{ app.position || '—' }}
               </td>
 
-              <td>
-                <span class="badge" :class="`badge-${(app.status || 'applied').toLowerCase()}`">
-                  {{ app.status }}
-                </span>
+              <td class="cell-status" @click.stop>
+                <div class="table-phase-row">
+                  <button
+                    class="phase-detail-btn"
+                    :class="`phase-${(app.status || 'applied').toLowerCase()}`"
+                    @click="openTransitionModal(app, app.status)"
+                    title="Click to edit phase details, dates, or status"
+                  >
+                    <span class="phase-detail-text">{{ getAppSubPhaseLabel(app) }}</span>
+                    <SlidersHorizontal :size="11" class="phase-icon" />
+                  </button>
+
+                  <div v-if="getInterviewDate(app)" class="interview-date-tag" title="Scheduled Interview Date & Time">
+                    <Calendar :size="11" />
+                    <span>{{ getInterviewDate(app) }}</span>
+                  </div>
+                </div>
               </td>
 
               <td class="cell-date">
@@ -861,15 +948,66 @@ async function confirmDelete() {
   line-height: 1.3;
 }
 
-.card-summary {
-  font-size: 11px;
-  color: var(--text-secondary);
-  line-height: 1.3;
+/* Card & Table Phase Row */
+.card-phase-row,
+.table-phase-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-bottom: 8px;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+}
+
+.phase-detail-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  max-width: 190px;
+}
+
+.phase-detail-btn:hover {
+  border-color: var(--primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.phase-detail-btn.phase-applied { color: var(--status-applied-text); border-color: var(--status-applied-border); background-color: var(--status-applied-bg); }
+.phase-detail-btn.phase-interview, .phase-detail-btn.phase-technical_interview { color: var(--status-interview-text); border-color: var(--status-interview-border); background-color: var(--status-interview-bg); }
+.phase-detail-btn.phase-offer { color: var(--status-offer-text); border-color: var(--status-offer-border); background-color: var(--status-offer-bg); }
+.phase-detail-btn.phase-rejected { color: var(--status-rejected-text); border-color: var(--status-rejected-border); background-color: var(--status-rejected-bg); }
+.phase-detail-btn.phase-assessment { color: var(--status-assessment-text); border-color: var(--status-assessment-border); background-color: var(--status-assessment-bg); }
+
+.phase-detail-text {
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.phase-icon {
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.interview-date-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 4px;
+  background-color: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  font-family: var(--font-mono);
 }
 
 .card-footer {

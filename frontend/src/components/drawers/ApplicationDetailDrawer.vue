@@ -234,8 +234,7 @@ function formatDate(isoStr) {
               >
                 <option value="ASSESSMENT">AI Assessment</option>
                 <option value="APPLIED">Applied</option>
-                <option value="ONLINE_ASSESSMENT">Online Assessment</option>
-                <option value="TECHNICAL_INTERVIEW">Technical Interview</option>
+                <option value="TECHNICAL_INTERVIEW">Interview</option>
                 <option value="OFFER">Offer</option>
                 <option value="REJECTED">Rejected</option>
               </select>
