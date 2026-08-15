@@ -140,6 +140,7 @@ class EnqueueAssessmentRequest(BaseModel):
 
 class IntakeEvaluationTaskResponse(BaseModel):
     id: int
+    task_type: str = "JOB_ASSESSMENT"
     job_url: Optional[str] = None
     raw_text: Optional[str] = None
     title_hint: str

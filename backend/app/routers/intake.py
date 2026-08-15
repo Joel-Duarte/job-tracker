@@ -735,3 +735,17 @@ async def delete_evaluation_task(
     await db.delete(task)
     await db.commit()
     return {"status": "success", "message": f"Evaluation task {task_id} deleted."}
+
+
+@router.post("/evaluations/clear-completed", status_code=status.HTTP_200_OK)
+async def clear_completed_evaluations(
+    db: AsyncSession = Depends(get_db),
+):
+    """Clears all completed or failed evaluation tasks from the queue history."""
+    from sqlalchemy import delete
+    stmt = delete(IntakeEvaluationTaskModel).where(
+        IntakeEvaluationTaskModel.status.in_(["COMPLETED", "FAILED", "CANCELLED"])
+    )
+    result = await db.execute(stmt)
+    await db.commit()
+    return {"status": "success", "cleared_count": result.rowcount}

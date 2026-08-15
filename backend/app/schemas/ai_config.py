@@ -48,6 +48,7 @@ class AITaskBindingCreate(BaseModel):
     provider_id: int = Field(..., description="ID of the AIProviderModel to bind to")
     model_name: str = Field(..., description="Model identifier e.g. 'qwen3.5-4b', 'claude-3-5-sonnet-20241022'")
     temperature: float = Field(default=0.2, description="Sampling temperature")
+    reasoning_effort: Optional[str] = Field(default="none", description="Thinking mode: 'none', 'low', 'medium', 'high'")
     max_tokens: Optional[int] = Field(default=None)
     top_p: Optional[float] = Field(default=None)
     embedding_dimensions: Optional[int] = Field(default=None)
@@ -59,6 +60,7 @@ class AITaskBindingUpdate(BaseModel):
     provider_id: Optional[int] = None
     model_name: Optional[str] = None
     temperature: Optional[float] = None
+    reasoning_effort: Optional[str] = None
     max_tokens: Optional[int] = None
     top_p: Optional[float] = None
     embedding_dimensions: Optional[int] = None
@@ -74,6 +76,7 @@ class AITaskBindingRead(BaseModel):
     provider_type: Optional[str] = None
     model_name: str
     temperature: float
+    reasoning_effort: Optional[str] = "none"
     max_tokens: Optional[int] = None
     top_p: Optional[float] = None
     embedding_dimensions: Optional[int] = None

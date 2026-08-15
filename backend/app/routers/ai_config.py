@@ -104,6 +104,8 @@ def _to_provider_read(p: AIProviderModel) -> AIProviderRead:
 
 
 def _to_binding_read(b: AITaskBindingModel) -> AITaskBindingRead:
+    extra = b.extra_kwargs or {}
+    reasoning = extra.get("reasoning_effort", "none")
     return AITaskBindingRead(
         id=b.id,
         task_type=b.task_type,
@@ -112,10 +114,11 @@ def _to_binding_read(b: AITaskBindingModel) -> AITaskBindingRead:
         provider_type=b.provider.provider_type if b.provider else None,
         model_name=b.model_name,
         temperature=b.temperature,
+        reasoning_effort=reasoning,
         max_tokens=b.max_tokens,
         top_p=b.top_p,
         embedding_dimensions=b.embedding_dimensions,
-        extra_kwargs=b.extra_kwargs or {},
+        extra_kwargs=extra,
         is_active=b.is_active,
         created_at=b.created_at,
         updated_at=b.updated_at,
@@ -357,6 +360,10 @@ async def set_ai_task_binding(
     res = await db.execute(stmt)
     binding = res.scalar_one_or_none()
 
+    extra = dict(payload.extra_kwargs or {})
+    if payload.reasoning_effort is not None:
+        extra["reasoning_effort"] = payload.reasoning_effort.strip().lower()
+
     if not binding:
         binding = AITaskBindingModel(
             task_type=task_type_norm,
@@ -366,7 +373,7 @@ async def set_ai_task_binding(
             max_tokens=payload.max_tokens,
             top_p=payload.top_p,
             embedding_dimensions=payload.embedding_dimensions,
-            extra_kwargs=payload.extra_kwargs or {},
+            extra_kwargs=extra,
             is_active=payload.is_active,
         )
         db.add(binding)
@@ -377,7 +384,7 @@ async def set_ai_task_binding(
         binding.max_tokens = payload.max_tokens
         binding.top_p = payload.top_p
         binding.embedding_dimensions = payload.embedding_dimensions
-        binding.extra_kwargs = payload.extra_kwargs or {}
+        binding.extra_kwargs = extra
         binding.is_active = payload.is_active
 
     await db.commit()

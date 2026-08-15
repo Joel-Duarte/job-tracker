@@ -5,6 +5,7 @@ import JobIntakeView from '../views/JobIntakeView.vue'
 import CandidateProfileView from '../views/CandidateProfileView.vue'
 import AgentChatView from '../views/AgentChatView.vue'
 import StagingView from '../views/StagingView.vue'
+import QueueView from '../views/QueueView.vue'
 import SettingsView from '../views/SettingsView.vue'
 
 const routes = [
@@ -22,6 +23,11 @@ const routes = [
     path: '/intake',
     name: 'JobIntake',
     component: JobIntakeView,
+  },
+  {
+    path: '/queue',
+    name: 'Queue',
+    component: QueueView,
   },
   {
     path: '/profile',

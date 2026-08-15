@@ -116,6 +116,7 @@ async def get_chat_model(
         "model": model,
         "model_provider": provider,
         "temperature": temperature,
+        "timeout": 300.0,
     }
 
     if api_base:
@@ -139,23 +140,24 @@ async def get_embeddings_model(
     cfg = await get_active_llm_config_dict(db)
 
     provider = _resolve_provider(cfg.get("provider_name"))
-    model = cfg.get("embedding_model_name") or settings.EMBEDDING_MODEL_NAME
-    api_base = _clean_base_url(cfg.get("api_base")) or _clean_base_url(settings.EMBEDDING_API_URL)
-    api_key = cfg.get("api_key") or settings.EMBEDDING_API_KEY or "dummy-key"
+    model = cfg.get("embedding_model_name", settings.EMBEDDING_MODEL_NAME)
+    api_base = _clean_base_url(cfg.get("api_base"))
+    api_key = cfg.get("api_key") or "dummy-key"
 
     init_kwargs: dict[str, Any] = {
         "model": model,
         "provider": provider,
     }
 
-    if provider == "openai":
-        init_kwargs["check_embedding_ctx_length"] = False
-        init_kwargs["tiktoken_enabled"] = False
-
     if api_base:
         init_kwargs["base_url"] = api_base
     if api_key:
         init_kwargs["api_key"] = api_key
+
+    # Strict string array compatibility for local providers (LM Studio / Ollama)
+    if provider == "openai":
+        init_kwargs["check_embedding_ctx_length"] = False
+        init_kwargs["tiktoken_enabled"] = False
 
     init_kwargs.update(override_kwargs)
     return init_embeddings(**init_kwargs)
@@ -167,8 +169,7 @@ async def get_task_chat_model(
     **override_kwargs: Any,
 ) -> BaseChatModel:
     """
-    Dynamically loads and initializes a LangChain BaseChatModel based on task binding
-    (e.g., 'EXTRACTION', 'AGENT_REASONING', 'SUMMARIZATION', 'SCRAPER_PARSER').
+    Dynamically loads and initializes a LangChain BaseChatModel based on task binding configuration.
     Cascades gracefully to legacy/env config if task binding is not configured.
     """
     if db is not None:
@@ -195,6 +196,7 @@ async def get_task_chat_model(
                     "model": binding.model_name,
                     "model_provider": provider_type,
                     "temperature": binding.temperature,
+                    "timeout": 300.0,
                 }
 
                 if base_url:
@@ -206,11 +208,23 @@ async def get_task_chat_model(
                 if binding.max_tokens is not None:
                     init_kwargs["max_tokens"] = binding.max_tokens
 
-                if binding.extra_kwargs and isinstance(binding.extra_kwargs, dict):
-                    init_kwargs.update(binding.extra_kwargs)
-                elif task_type in ("SCRAPER_PARSER", "EXTRACTION"):
-                    # Disable reasoning / thinking mode by default for high-speed structured extraction
-                    init_kwargs.setdefault("extra_body", {"reasoning_effort": "none"})
+                extra = dict(binding.extra_kwargs or {})
+                reasoning = extra.get("reasoning_effort", "none")
+
+                # Configure reasoning / thinking mode across model families
+                if reasoning and reasoning.lower() != "none":
+                    if provider_type in ("openai", "openrouter"):
+                        init_kwargs.setdefault("extra_body", {})["reasoning_effort"] = reasoning.lower()
+                    elif provider_type == "anthropic":
+                        budget = 1024 if reasoning == "low" else (2048 if reasoning == "medium" else 4096)
+                        init_kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
+                elif reasoning and reasoning.lower() == "none" and provider_type in ("openai", "openrouter"):
+                    init_kwargs.setdefault("extra_body", {})["reasoning_effort"] = "none"
+
+                # Apply remaining extra kwargs if provided
+                for k, v in extra.items():
+                    if k != "reasoning_effort":
+                        init_kwargs[k] = v
 
                 init_kwargs.update(override_kwargs)
                 return init_chat_model(**init_kwargs)

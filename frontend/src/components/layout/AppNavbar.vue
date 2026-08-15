@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUIStore } from '../../stores/uiStore'
-import { StagingAPI, ActionItemsAPI } from '../../api/endpoints'
+import { StagingAPI, ActionItemsAPI, IntakeAPI } from '../../api/endpoints'
 import {
   Briefcase,
   Layers,
@@ -16,6 +16,7 @@ import {
   FileInput,
   UserCheck,
   CheckSquare,
+  Cpu,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -24,6 +25,7 @@ const uiStore = useUIStore()
 
 const pendingStagingCount = ref(0)
 const pendingTasksCount = ref(0)
+const activeQueueCount = ref(0)
 
 async function fetchBadgeCounts() {
   try {
@@ -39,11 +41,20 @@ async function fetchBadgeCounts() {
   } catch (err) {
     // ignore
   }
+
+  try {
+    const resQueue = await IntakeAPI.getEvaluations(50)
+    if (Array.isArray(resQueue.data)) {
+      activeQueueCount.value = resQueue.data.filter((t) => ['QUEUED', 'PROCESSING'].includes(t.status)).length
+    }
+  } catch (err) {
+    // ignore
+  }
 }
 
 onMounted(() => {
   fetchBadgeCounts()
-  setInterval(fetchBadgeCounts, 15000)
+  setInterval(fetchBadgeCounts, 10000)
 })
 </script>
 
@@ -86,6 +97,18 @@ onMounted(() => {
         >
           <FileInput :size="16" />
           <span>Job Intake</span>
+        </router-link>
+
+        <router-link
+          to="/queue"
+          class="nav-link"
+          :class="{ active: route.path === '/queue' }"
+        >
+          <Cpu :size="16" />
+          <span>AI Queue</span>
+          <span v-if="activeQueueCount > 0" class="nav-badge nav-badge-pulse">
+            {{ activeQueueCount }}
+          </span>
         </router-link>
 
         <router-link
@@ -230,6 +253,23 @@ onMounted(() => {
   font-weight: 700;
   padding: 1px 6px;
   border-radius: var(--radius-full);
+}
+
+.nav-badge-pulse {
+  background-color: var(--primary);
+  color: white;
+  animation: pulse-glow 2s infinite ease-in-out;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.6);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0);
+  }
 }
 
 .nav-right {

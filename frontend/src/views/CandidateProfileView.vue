@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useUIStore } from '../stores/uiStore'
-import { CandidateProfileAPI } from '../api/endpoints'
+import { CandidateProfileAPI, IntakeAPI } from '../api/endpoints'
 import { scrubCVText } from '../utils/scrubber'
 import {
   ShieldCheck,
@@ -66,11 +66,11 @@ async function loadProfile() {
 }
 
 async function pollTaskUntilComplete(taskId) {
-  const maxAttempts = 60
+  const maxAttempts = 300 // 5 minutes max
   let attempts = 0
 
   while (attempts < maxAttempts) {
-    await new Promise((r) => setTimeout(r, 800))
+    await new Promise((r) => setTimeout(r, 1000))
     attempts++
 
     try {
@@ -94,11 +94,11 @@ async function pollTaskUntilComplete(taskId) {
         return
       }
     } catch (err) {
-      logger.error('Error polling CV task:', err)
+      console.warn('Polling check anomaly, retrying...', err)
     }
   }
 
-  uiStore.showToast('Processing timed out. Please check again in a moment.', 'warning')
+  uiStore.showToast('Task is taking longer than expected. It will continue running in the background.', 'info')
   isProcessing.value = false
 }
 
@@ -249,8 +249,25 @@ async function deleteProfile() {
   }
 }
 
-onMounted(() => {
-  loadProfile()
+onMounted(async () => {
+  await loadProfile()
+  try {
+    const res = await IntakeAPI.getEvaluations(20)
+    if (Array.isArray(res.data)) {
+      const activeCVTask = res.data.find(
+        (t) => t.task_type === 'CV_EXTRACTION' && ['QUEUED', 'PROCESSING'].includes(t.status)
+      )
+      if (activeCVTask) {
+        isProcessing.value = true
+        currentTaskId.value = activeCVTask.id
+        currentTaskStatus.value = activeCVTask.status
+        currentTaskStage.value = activeCVTask.stage
+        pollTaskUntilComplete(activeCVTask.id)
+      }
+    }
+  } catch (err) {
+    // ignore
+  }
 })
 </script>
 

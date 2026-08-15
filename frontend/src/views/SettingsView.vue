@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useUIStore } from '../stores/uiStore'
 import { AIConfigAPI, EmailAccountsAPI, IntakeAPI, PromptsAPI } from '../api/endpoints'
 import {
@@ -38,11 +38,14 @@ import {
   HelpCircle,
   ChevronDown,
   ChevronUp,
+  BrainCircuit,
+  Bot,
+  Briefcase,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
 
-const activeTab = ref('preferences') // 'preferences' | 'bindings' | 'providers' | 'prompts' | 'email_accounts'
+const activeTab = ref('studio') // 'studio' | 'providers' | 'email_accounts' | 'preferences'
 
 // AI Providers state
 const providers = ref([])
@@ -60,102 +63,249 @@ const providerForm = ref({
   is_active: true,
 })
 
-
-// Task Bindings state
+// Unified Task Studio State
 const bindings = ref([])
-const loadingBindings = ref(false)
-const isBindingModalOpen = ref(false)
-const currentBindingTask = ref('EXTRACTION')
-const providerModels = ref([])
-const loadingModels = ref(false)
-const testingTask = ref(null)
-const testResult = ref(null)
-const bindingForm = ref({
-  provider_id: null,
-  model_name: '',
-  temperature: 0.2,
-  embedding_dimensions: 768,
-})
-
-// Prompt Templates state
 const promptsList = ref([])
-const loadingPrompts = ref(false)
-const selectedPromptName = ref('EXTRACTION')
-const currentPromptTemplate = ref('')
-const isSavingPrompt = ref(false)
+const loadingStudio = ref(false)
+const selectedTaskKey = ref('JD_EXTRACTION')
+const studioProviderModels = ref([])
+const loadingStudioModels = ref(false)
+const isSavingStudio = ref(false)
 const isResettingPrompt = ref(false)
+const testingStudioTask = ref(false)
+const studioTestResult = ref(null)
 
 const TASKS = [
   {
+    key: 'JD_EXTRACTION',
+    promptKey: 'jd_extraction',
+    label: 'Job Spec Web Extraction',
+    icon: 'Briefcase',
+    recommendedTemp: 0.0,
+    hasPrompt: true,
+    desc: 'Extracts structured job title, company, salary, and requirements from scraped web HTML / markdown.',
+    variables: ['{raw_webpage_data}']
+  },
+  {
     key: 'EXTRACTION',
+    promptKey: 'email_extraction',
     label: 'Email Metadata Extraction',
+    icon: 'Mail',
     recommendedTemp: 0.2,
-    desc: 'Parses job details, dates, companies, and roles into structured Pydantic schemas'
+    hasPrompt: true,
+    desc: 'Parses job details, dates, companies, and roles from emails into structured Pydantic schemas.',
+    variables: ['{email_content}']
+  },
+  {
+    key: 'ASSESSMENT',
+    promptKey: 'assessment',
+    label: 'Pre-Screen Match Audit & Tips',
+    icon: 'Sparkles',
+    recommendedTemp: 0.2,
+    hasPrompt: true,
+    desc: 'Computes deep semantic fit score, keyword matches/gaps, and strategic resume improvement suggestions.',
+    variables: ['{job_description}', '{candidate_cv}', '{programmatic_baseline}']
+  },
+  {
+    key: 'cv_anonymization',
+    promptKey: 'cv_anonymization',
+    label: 'CV De-Identification & Skills',
+    icon: 'ShieldCheck',
+    recommendedTemp: 0.2,
+    hasPrompt: true,
+    desc: 'Replaces companies with scale tags, transforms date windows into durations, and extracts canonical technical skills.',
+    variables: ['{resume_text}']
   },
   {
     key: 'AGENT_REASONING',
-    label: 'LangGraph Reasoning & Routing',
+    promptKey: 'agent_system',
+    label: 'LangGraph Reasoning & Assistant',
+    icon: 'Bot',
     recommendedTemp: 0.2,
-    desc: 'Evaluates fuzzy deduplication and routes ambiguous items to staging'
+    hasPrompt: true,
+    desc: 'Evaluates fuzzy deduplication confidence and powers the interactive chat assistant.',
+    variables: []
   },
   {
     key: 'SUMMARIZATION',
+    promptKey: 'summarization',
     label: 'Timeline Narrative Synthesizer',
+    icon: 'Layers',
     recommendedTemp: 0.1,
-    desc: 'Summarizes chronologies into rich textual snapshots for semantic indexing'
-  },
-  {
-    key: 'EMBEDDING',
-    label: 'Vector Embeddings (pgvector)',
-    recommendedTemp: '768 dims',
-    desc: 'Generates 768-dimension dense vector representations for cosine search'
+    hasPrompt: true,
+    desc: 'Synthesizes chronologies and status updates into cohesive narrative snapshots for semantic vector search.',
+    variables: ['{events_str}']
   },
   {
     key: 'SCRAPER_PARSER',
-    label: 'Job Spec & Scraper Parser',
+    promptKey: null,
+    label: 'Stealth Scraper DOM Parser',
+    icon: 'Globe',
     recommendedTemp: 0.0,
-    desc: 'Extracts skills, salary ranges, and markdown from Camoufox DOM captures'
+    hasPrompt: false,
+    desc: 'Parses raw Camoufox DOM captures into structured job spec markdown.',
+    variables: []
+  },
+  {
+    key: 'EMBEDDING',
+    promptKey: null,
+    label: 'Vector Embeddings (pgvector)',
+    icon: 'Cpu',
+    recommendedTemp: '768 dims',
+    hasPrompt: false,
+    desc: 'Generates 768-dimension dense vector representations for pgvector cosine similarity search.',
+    variables: []
   },
 ]
 
-const PROMPT_METAS = {
-  jd_extraction: {
-    title: 'Job Description Extraction Prompt',
-    desc: 'Extracts structured job details, responsibilities, requirements, and ATS keywords from raw scraped webpages or pasted text.',
-    placeholders: ['{raw_webpage_data}'],
-  },
-  email_extraction: {
-    title: 'Email Extraction Prompt',
-    desc: 'Controls structured metadata parsing from raw job application and recruiter emails.',
-    placeholders: ['{email_content}'],
-  },
-  extraction: {
-    title: 'Legacy Extraction Prompt',
-    desc: 'Fallback metadata parsing prompt.',
-    placeholders: ['{email_content}'],
-  },
-  assessment: {
-    title: 'Pre-Application Assessment Prompt',
-    desc: 'Evaluates candidate-job fit score, matching skills, and missing keywords from job descriptions.',
-    placeholders: ['{job_description}', '{candidate_skills}', '{programmatic_baseline}'],
-  },
-  cv_anonymization: {
-    title: 'CV De-Identification & Anonymization',
-    desc: 'Scrubs real names, addresses, and past employer names, and converts date windows into durations.',
-    placeholders: ['{resume_text}'],
-  },
-  summarization: {
-    title: 'Timeline Summarization Prompt',
-    desc: 'Synthesizes chronological timeline events into rich narrative snapshots for vector embedding.',
-    placeholders: ['{events_str}'],
-  },
-  agent_system: {
-    title: 'Agent Chat Assistant System Prompt',
-    desc: 'Instructs the conversational agent on tone, database query tools, and pipeline management.',
-    placeholders: [],
-  },
+// Current active task definition
+const activeTaskDef = computed(() => {
+  return TASKS.find((t) => t.key === selectedTaskKey.value) || TASKS[0]
+})
+
+// Unified form for currently selected task
+const studioForm = ref({
+  provider_id: null,
+  model_name: '',
+  temperature: 0.2,
+  reasoning_effort: 'none', // 'none' | 'low' | 'medium' | 'high'
+  max_tokens: 2000,
+  embedding_dimensions: 768,
+  prompt_template: '',
+})
+
+// Sync studio form with selected task
+function syncStudioForm() {
+  const taskKey = selectedTaskKey.value
+  const taskDef = activeTaskDef.value
+
+  // 1. Find existing binding
+  const existingBinding = bindings.value.find(
+    (b) => b.task_type.toUpperCase() === taskKey.toUpperCase()
+  )
+
+  const defaultTemp = typeof taskDef.recommendedTemp === 'number' ? taskDef.recommendedTemp : 0.2
+  const chosenProviderId = existingBinding?.provider_id || (providers.value[0]?.id || null)
+
+  studioForm.value.provider_id = chosenProviderId
+  studioForm.value.model_name = existingBinding?.model_name || (taskKey === 'EMBEDDING' ? 'nomic-embed-text' : 'qwen3.5-4b')
+  studioForm.value.temperature = existingBinding?.temperature !== undefined ? existingBinding.temperature : defaultTemp
+  studioForm.value.reasoning_effort = existingBinding?.reasoning_effort || existingBinding?.extra_kwargs?.reasoning_effort || 'none'
+  studioForm.value.max_tokens = existingBinding?.max_tokens || 2000
+  studioForm.value.embedding_dimensions = existingBinding?.embedding_dimensions || (taskKey === 'EMBEDDING' ? 768 : null)
+
+  // 2. Find prompt template if task supports prompts
+  if (taskDef.promptKey) {
+    const promptRecord = promptsList.value.find((p) => p.name.toLowerCase() === taskDef.promptKey.toLowerCase())
+    studioForm.value.prompt_template = promptRecord?.template || ''
+  } else {
+    studioForm.value.prompt_template = ''
+  }
+
+  studioTestResult.value = null
+  fetchStudioModels(chosenProviderId)
 }
 
+function selectStudioTask(taskKey) {
+  selectedTaskKey.value = taskKey
+  syncStudioForm()
+}
+
+async function fetchStudioModels(providerId) {
+  if (!providerId) {
+    studioProviderModels.value = []
+    return
+  }
+  loadingStudioModels.value = true
+  try {
+    const res = await AIConfigAPI.getProviderModels(providerId)
+    studioProviderModels.value = res.data?.models || []
+  } catch (err) {
+    studioProviderModels.value = []
+  } finally {
+    loadingStudioModels.value = false
+  }
+}
+
+function onStudioProviderChange() {
+  fetchStudioModels(studioForm.value.provider_id)
+}
+
+function selectStudioSuggestedModel(modelId) {
+  studioForm.value.model_name = modelId
+}
+
+async function saveStudioTask() {
+  isSavingStudio.value = true
+  const taskKey = selectedTaskKey.value
+  const taskDef = activeTaskDef.value
+
+  try {
+    // 1. Save Model Binding
+    await AIConfigAPI.setBinding(taskKey, {
+      provider_id: studioForm.value.provider_id,
+      model_name: studioForm.value.model_name.trim(),
+      temperature: studioForm.value.temperature,
+      reasoning_effort: studioForm.value.reasoning_effort,
+      max_tokens: studioForm.value.max_tokens || undefined,
+      embedding_dimensions: taskKey === 'EMBEDDING' ? studioForm.value.embedding_dimensions : undefined,
+      extra_kwargs: {
+        reasoning_effort: studioForm.value.reasoning_effort,
+      },
+    })
+
+    // 2. Save Prompt Template if applicable
+    if (taskDef.hasPrompt && taskDef.promptKey && studioForm.value.prompt_template) {
+      await PromptsAPI.update(taskDef.promptKey, studioForm.value.prompt_template)
+    }
+
+    uiStore.showToast(`Task '${taskDef.label}' configuration saved!`, 'success')
+    await loadBindings()
+    await loadPrompts()
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to save task configuration', 'error')
+  } finally {
+    isSavingStudio.value = false
+  }
+}
+
+async function resetStudioPrompt() {
+  const taskDef = activeTaskDef.value
+  if (!taskDef.promptKey) return
+
+  if (!confirm(`Reset '${taskDef.label}' prompt back to factory defaults?`)) return
+  isResettingPrompt.value = true
+  try {
+    const res = await PromptsAPI.reset(taskDef.promptKey)
+    studioForm.value.prompt_template = res.data.template
+    uiStore.showToast(`Prompt '${taskDef.label}' reset to factory defaults`, 'info')
+    await loadPrompts()
+  } catch (err) {
+    uiStore.showToast(err.message, 'error')
+  } finally {
+    isResettingPrompt.value = false
+  }
+}
+
+async function testStudioTask() {
+  testingStudioTask.value = true
+  studioTestResult.value = null
+  const taskKey = selectedTaskKey.value
+
+  try {
+    const res = await AIConfigAPI.testBinding(taskKey)
+    studioTestResult.value = res.data
+    uiStore.showToast(`Task connectivity probe verified for '${activeTaskDef.value.label}'!`, 'success')
+  } catch (err) {
+    uiStore.showToast(err.message || 'Probe execution failed', 'error')
+  } finally {
+    testingStudioTask.value = false
+  }
+}
+
+// --------------------------------------------------------------------------
+// AI Providers State & CRUD
+// --------------------------------------------------------------------------
 async function loadProviders() {
   loadingProviders.value = true
   try {
@@ -169,111 +319,23 @@ async function loadProviders() {
 }
 
 async function loadBindings() {
-  loadingBindings.value = true
   try {
     const res = await AIConfigAPI.listBindings()
     bindings.value = res.data || []
   } catch (err) {
-    uiStore.showToast(err.message, 'error')
-  } finally {
-    loadingBindings.value = false
+    // ignore
   }
 }
 
 async function loadPrompts() {
-  loadingPrompts.value = true
   try {
     const res = await PromptsAPI.list()
     promptsList.value = res.data || []
-    const selected = promptsList.value.find((p) => p.name === selectedPromptName.value)
-    if (selected) {
-      currentPromptTemplate.value = selected.template
-    }
   } catch (err) {
-    uiStore.showToast(err.message, 'error')
-  } finally {
-    loadingPrompts.value = false
+    // ignore
   }
 }
 
-function selectPrompt(name) {
-  selectedPromptName.value = name
-  const found = promptsList.value.find((p) => p.name === name)
-  currentPromptTemplate.value = found ? found.template : ''
-}
-
-async function savePromptTemplate() {
-  isSavingPrompt.value = true
-  try {
-    await PromptsAPI.update(selectedPromptName.value, currentPromptTemplate.value)
-    uiStore.showToast(`Prompt '${selectedPromptName.value}' updated successfully!`, 'success')
-    loadPrompts()
-  } catch (err) {
-    uiStore.showToast(err.message, 'error')
-  } finally {
-    isSavingPrompt.value = false
-  }
-}
-
-async function resetPromptTemplate() {
-  if (!confirm(`Reset '${selectedPromptName.value}' prompt back to factory defaults?`)) return
-  isResettingPrompt.value = true
-  try {
-    const res = await PromptsAPI.reset(selectedPromptName.value)
-    currentPromptTemplate.value = res.data.template
-    uiStore.showToast(`Prompt '${selectedPromptName.value}' reset to defaults`, 'info')
-    loadPrompts()
-  } catch (err) {
-    uiStore.showToast(err.message, 'error')
-  } finally {
-    isResettingPrompt.value = false
-  }
-}
-
-async function loadEmailAccounts() {
-  loadingAccounts.value = true
-  try {
-    const res = await EmailAccountsAPI.list()
-    emailAccounts.value = res.data || []
-  } catch (err) {
-    uiStore.showToast(err.message, 'error')
-  } finally {
-    loadingAccounts.value = false
-  }
-}
-
-const oauthConfig = ref({
-  google_redirect_uri: '',
-  microsoft_redirect_uri: '',
-})
-
-async function loadOAuthConfig() {
-  const origin = window.location.origin
-  try {
-    const res = await EmailAccountsAPI.getOAuthConfig()
-    if (res.data?.base_url && !res.data.base_url.includes(':8000')) {
-      oauthConfig.value = res.data
-      return
-    }
-  } catch {
-    // fallback to window.location.origin
-  }
-
-  oauthConfig.value = {
-    google_redirect_uri: `${origin}/api/v1/email_accounts/oauth/callback/google`,
-    microsoft_redirect_uri: `${origin}/api/v1/email_accounts/oauth/callback/microsoft`,
-  }
-}
-
-onMounted(() => {
-  loadProviders()
-  loadBindings()
-  loadPrompts()
-  loadEmailAccounts()
-  loadOAuthConfig()
-})
-
-// Provider CRUD & Direct Probe
 function openCreateProvider() {
   editingProvider.value = null
   providerForm.value = {
@@ -300,7 +362,6 @@ function openEditProvider(p) {
   isProviderModalOpen.value = true
 }
 
-
 async function saveProvider() {
   try {
     if (editingProvider.value) {
@@ -311,7 +372,8 @@ async function saveProvider() {
       uiStore.showToast('Provider registered successfully', 'success')
     }
     isProviderModalOpen.value = false
-    loadProviders()
+    await loadProviders()
+    syncStudioForm()
   } catch (err) {
     uiStore.showToast(err.message, 'error')
   }
@@ -322,7 +384,8 @@ async function deleteProvider(id) {
   try {
     await AIConfigAPI.deleteProvider(id)
     uiStore.showToast('Provider deleted', 'info')
-    loadProviders()
+    await loadProviders()
+    syncStudioForm()
   } catch (err) {
     uiStore.showToast(err.message, 'error')
   }
@@ -342,117 +405,25 @@ async function testProviderDirect(provider) {
   }
 }
 
-// Model Discovery
-async function fetchModelsForProvider(providerId) {
-  if (!providerId) {
-    providerModels.value = []
-    return
-  }
-  loadingModels.value = true
-  try {
-    const res = await AIConfigAPI.getProviderModels(providerId)
-    providerModels.value = res.data?.models || []
-  } catch (err) {
-    console.warn('Failed to load models for provider', err)
-    providerModels.value = []
-  } finally {
-    loadingModels.value = false
-  }
-}
-
-function onBindingProviderChange() {
-  fetchModelsForProvider(bindingForm.value.provider_id)
-}
-
-function selectSuggestedModel(modelId) {
-  bindingForm.value.model_name = modelId
-}
-
-// Binding CRUD & Test
-function openEditBinding(taskKey) {
-  currentBindingTask.value = taskKey
-  const taskDef = TASKS.find(t => t.key === taskKey)
-  const defaultTemp = typeof taskDef?.recommendedTemp === 'number' ? taskDef.recommendedTemp : 0.2
-
-  const existing = bindings.value.find((b) => b.task_type === taskKey)
-  const chosenProviderId = existing ? existing.provider_id : (providers.value[0]?.id || null)
-
-  if (existing) {
-    bindingForm.value = {
-      provider_id: existing.provider_id,
-      model_name: existing.model_name,
-      temperature: existing.temperature,
-      max_tokens: existing.max_tokens || 2000,
-      embedding_dimensions: existing.embedding_dimensions || (taskKey === 'EMBEDDING' ? 768 : null),
-    }
-  } else {
-    bindingForm.value = {
-      provider_id: chosenProviderId,
-      model_name: taskKey === 'EMBEDDING' ? 'nomic-embed-text' : 'qwen3.5-4b',
-      temperature: defaultTemp,
-      max_tokens: 2000,
-      embedding_dimensions: taskKey === 'EMBEDDING' ? 768 : null,
-    }
-  }
-  fetchModelsForProvider(chosenProviderId)
-  isBindingModalOpen.value = true
-}
-
-async function saveBinding() {
-  try {
-    await AIConfigAPI.setBinding(currentBindingTask.value, bindingForm.value)
-    uiStore.showToast(`Task '${currentBindingTask.value}' bound successfully`, 'success')
-    isBindingModalOpen.value = false
-    loadBindings()
-  } catch (err) {
-    uiStore.showToast(err.message, 'error')
-  }
-}
-
-async function testTaskBinding(taskKey) {
-  testingTask.value = taskKey
-  testResult.value = null
-  try {
-    const res = await AIConfigAPI.testBinding(taskKey)
-    testResult.value = res.data
-    uiStore.showToast(`Connectivity test passed for ${taskKey}!`, 'success')
-  } catch (err) {
-    uiStore.showToast(err.message, 'error')
-  } finally {
-    testingTask.value = null
-  }
-}
-
-async function triggerSync(account) {
-  syncingAccount.value = account.id
-  try {
-    const res = await IntakeAPI.syncAccount({ account_id: account.id })
-    uiStore.showToast(res.data.message, 'success')
-    loadEmailAccounts()
-  } catch (err) {
-    uiStore.showToast(err.message, 'error')
-  } finally {
-    syncingAccount.value = null
-  }
-}
-
-// Email Account Management State & Handlers
+// --------------------------------------------------------------------------
+// Email Accounts State & OAuth
+// --------------------------------------------------------------------------
 const emailAccounts = ref([])
 const loadingAccounts = ref(false)
-const syncingAccount = ref(null)
 const isEmailAccountModalOpen = ref(false)
-const showConnectionGuide = ref(false)
 const editingAccount = ref(null)
-const accountToDelete = ref(null)
+const syncingAccount = ref(null)
+const showConnectionGuide = ref(false)
 const showDeleteAccountModal = ref(false)
+const accountToDelete = ref(null)
 const isSavingAccount = ref(false)
 const isDeletingAccount = ref(false)
 
 const emailAccountForm = ref({
   name: '',
-  provider_preset: 'gmail', // 'gmail' | 'outlook' | 'custom'
-  auth_type: 'GMAIL_OAUTH', // 'GMAIL_OAUTH' | 'MS_GRAPH_OAUTH' | 'IMAP'
-  auth_method: 'oauth', // 'app_password' | 'oauth'
+  provider_preset: 'gmail',
+  auth_type: 'GMAIL_OAUTH',
+  auth_method: 'oauth',
   username: '',
   app_password: '',
   imap_host: 'imap.gmail.com',
@@ -467,30 +438,57 @@ const emailAccountForm = ref({
   is_active: true,
 })
 
+const oauthConfig = ref({
+  google_redirect_uri: '',
+  microsoft_redirect_uri: '',
+})
+
+async function loadEmailAccounts() {
+  loadingAccounts.value = true
+  try {
+    const res = await EmailAccountsAPI.list()
+    emailAccounts.value = res.data || []
+  } catch (err) {
+    uiStore.showToast(err.message, 'error')
+  } finally {
+    loadingAccounts.value = false
+  }
+}
+
+async function loadOAuthConfig() {
+  const origin = window.location.origin
+  try {
+    const res = await EmailAccountsAPI.getOAuthConfig()
+    if (res.data?.base_url && !res.data.base_url.includes(':8000')) {
+      oauthConfig.value = res.data
+      return
+    }
+  } catch {
+    // fallback
+  }
+
+  oauthConfig.value = {
+    google_redirect_uri: `${origin}/api/v1/email_accounts/oauth/callback/google`,
+    microsoft_redirect_uri: `${origin}/api/v1/email_accounts/oauth/callback/microsoft`,
+  }
+}
+
 function onProviderPresetChange(preset) {
   emailAccountForm.value.provider_preset = preset
   if (preset === 'gmail') {
-    emailAccountForm.value.auth_type = emailAccountForm.value.auth_method === 'oauth' ? 'GMAIL_OAUTH' : 'IMAP'
+    emailAccountForm.value.name = emailAccountForm.value.name || 'Gmail Inbox'
     emailAccountForm.value.imap_host = 'imap.gmail.com'
     emailAccountForm.value.imap_port = 993
-    if (!emailAccountForm.value.name || emailAccountForm.value.name === 'Outlook 365' || emailAccountForm.value.name === 'Work IMAP') {
-      emailAccountForm.value.name = 'Gmail Inbox'
-    }
+    emailAccountForm.value.auth_type = emailAccountForm.value.auth_method === 'oauth' ? 'GMAIL_OAUTH' : 'IMAP'
   } else if (preset === 'outlook') {
-    emailAccountForm.value.auth_type = emailAccountForm.value.auth_method === 'oauth' ? 'MS_GRAPH_OAUTH' : 'IMAP'
+    emailAccountForm.value.name = emailAccountForm.value.name || 'Outlook Inbox'
     emailAccountForm.value.imap_host = 'outlook.office365.com'
     emailAccountForm.value.imap_port = 993
-    if (!emailAccountForm.value.name || emailAccountForm.value.name === 'Gmail Inbox' || emailAccountForm.value.name === 'Work IMAP') {
-      emailAccountForm.value.name = 'Outlook 365'
-    }
+    emailAccountForm.value.auth_type = emailAccountForm.value.auth_method === 'oauth' ? 'MS_GRAPH_OAUTH' : 'IMAP'
   } else {
+    emailAccountForm.value.name = emailAccountForm.value.name || 'Work IMAP'
     emailAccountForm.value.auth_type = 'IMAP'
     emailAccountForm.value.auth_method = 'app_password'
-    emailAccountForm.value.imap_host = ''
-    emailAccountForm.value.imap_port = 993
-    if (!emailAccountForm.value.name || emailAccountForm.value.name === 'Gmail Inbox' || emailAccountForm.value.name === 'Outlook 365') {
-      emailAccountForm.value.name = 'Work IMAP'
-    }
   }
 }
 
@@ -527,12 +525,6 @@ async function startOAuthLogin(providerName) {
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to initiate OAuth', 'error')
   }
-}
-
-function applySchedulePreset(timeStr) {
-  const [h, m] = timeStr.split(':')
-  emailAccountForm.value.sync_schedule_hour = h
-  emailAccountForm.value.sync_schedule_min = m
 }
 
 function openAddEmailAccountModal() {
@@ -601,43 +593,27 @@ function openEditEmailAccountModal(acc) {
 }
 
 async function saveEmailAccount() {
-  if (!emailAccountForm.value.username.trim()) {
-    uiStore.showToast('Please enter an email username / address', 'warning')
-    return
-  }
   isSavingAccount.value = true
   try {
-    const scheduleTime = `${String(emailAccountForm.value.sync_schedule_hour).padStart(2, '0')}:${String(emailAccountForm.value.sync_schedule_min).padStart(2, '0')}`
-    const resolvedAuthType = emailAccountForm.value.auth_method === 'oauth'
-      ? (emailAccountForm.value.provider_preset === 'outlook' ? 'MS_GRAPH_OAUTH' : 'GMAIL_OAUTH')
-      : 'IMAP'
-
     const payload = {
-      name: emailAccountForm.value.name.trim() || emailAccountForm.value.username.trim(),
-      auth_type: resolvedAuthType,
+      name: emailAccountForm.value.name.trim(),
+      auth_type: emailAccountForm.value.auth_type,
       username: emailAccountForm.value.username.trim(),
+      app_password: emailAccountForm.value.app_password || undefined,
+      imap_host: emailAccountForm.value.imap_host.trim(),
+      imap_port: Number(emailAccountForm.value.imap_port),
       folder: emailAccountForm.value.folder.trim() || 'INBOX',
-      imap_host: emailAccountForm.value.imap_host ? emailAccountForm.value.imap_host.trim() : null,
-      imap_port: emailAccountForm.value.imap_port ? Number(emailAccountForm.value.imap_port) : 993,
-      is_active: emailAccountForm.value.is_active,
+      client_id: emailAccountForm.value.client_id.trim() || undefined,
+      client_secret: emailAccountForm.value.client_secret.trim() || undefined,
       sync_interval: emailAccountForm.value.sync_interval,
-      sync_schedule_time: scheduleTime,
+      sync_schedule_time: `${emailAccountForm.value.sync_schedule_hour}:${emailAccountForm.value.sync_schedule_min}`,
       sync_schedule_day: emailAccountForm.value.sync_schedule_day,
-    }
-
-    if (emailAccountForm.value.app_password) {
-      payload.app_password = emailAccountForm.value.app_password
-    }
-    if (emailAccountForm.value.client_id) {
-      payload.client_id = emailAccountForm.value.client_id
-    }
-    if (emailAccountForm.value.client_secret) {
-      payload.client_secret = emailAccountForm.value.client_secret
+      is_active: emailAccountForm.value.is_active,
     }
 
     if (editingAccount.value) {
       await EmailAccountsAPI.update(editingAccount.value.id, payload)
-      uiStore.showToast('Email account settings updated successfully', 'success')
+      uiStore.showToast('Email account updated successfully', 'success')
     } else {
       await EmailAccountsAPI.create(payload)
       uiStore.showToast('Email account connected successfully', 'success')
@@ -651,15 +627,20 @@ async function saveEmailAccount() {
   }
 }
 
-async function saveAndConnectOAuth() {
-  if (!emailAccountForm.value.username.trim()) {
-    uiStore.showToast('Please enter your email address first', 'warning')
-    return
+async function triggerSync(acc) {
+  syncingAccount.value = acc.id
+  try {
+    const res = await IntakeAPI.syncAccount({
+      account_id: acc.id,
+      since_date: '2024-01-01',
+    })
+    uiStore.showToast(res.data.message || `Mailbox sync initiated for ${acc.name}!`, 'success')
+    await loadEmailAccounts()
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to sync mailbox', 'error')
+  } finally {
+    syncingAccount.value = null
   }
-  await saveEmailAccount()
-  // Only launch OAuth if save succeeded (modal would still be open on error)
-  if (!isEmailAccountModalOpen.value) return
-  startOAuthLogin(emailAccountForm.value.provider_preset)
 }
 
 function openDeleteAccountModal(acc) {
@@ -683,61 +664,38 @@ async function confirmDeleteAccount() {
   }
 }
 
-function formatSyncInterval(acc) {
-  if (!acc) return 'Manual'
-  const interval = acc.sync_interval || '1h'
-  if (interval === 'MANUAL') return 'Manual on demand'
-  if (interval === '15m') return 'Every 15 minutes'
-  if (interval === '1h') return 'Every 1 hour'
-  if (interval === '6h') return 'Every 6 hours'
-  if (interval === '24h') return `Daily at ${acc.sync_schedule_time || '09:00'}`
-  if (interval === 'WEEKLY') return `Weekly (${acc.sync_schedule_day || 'MON'} at ${acc.sync_schedule_time || '09:00'})`
-  return interval
-}
-
-function formatLastSync(dateStr) {
-  if (!dateStr) return 'Never synced'
-  try {
-    const d = new Date(dateStr)
-    return d.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    })
-  } catch {
-    return dateStr
-  }
-}
+onMounted(async () => {
+  await Promise.all([
+    loadProviders(),
+    loadBindings(),
+    loadPrompts(),
+    loadEmailAccounts(),
+    loadOAuthConfig(),
+  ])
+  syncStudioForm()
+})
 </script>
 
 <template>
   <div class="page-container">
     <div class="page-header">
       <div>
-        <h1 class="page-title">AI Registry & Configuration</h1>
+        <h1 class="page-title">AI & System Settings</h1>
         <p class="page-subtitle">
-          Manage multi-provider LLMs, task-based routing with LangChain, structured system prompts, and email sync accounts.
+          Configure model bindings, thinking/reasoning parameters, custom prompt templates, AI providers, and email integrations.
         </p>
       </div>
 
       <div class="tab-bar">
         <button
           class="tab-pill"
-          :class="{ active: activeTab === 'preferences' }"
-          @click="activeTab = 'preferences'"
+          :class="{ active: activeTab === 'studio' }"
+          @click="activeTab = 'studio'"
         >
-          <SlidersHorizontal :size="15" />
-          <span>Preferences & Currency</span>
+          <Sparkles :size="15" />
+          <span>Unified Task Studio</span>
         </button>
-        <button
-          class="tab-pill"
-          :class="{ active: activeTab === 'bindings' }"
-          @click="activeTab = 'bindings'"
-        >
-          <Cpu :size="15" />
-          <span>Task Bindings</span>
-        </button>
+
         <button
           class="tab-pill"
           :class="{ active: activeTab === 'providers' }"
@@ -746,14 +704,7 @@ function formatLastSync(dateStr) {
           <Server :size="15" />
           <span>AI Providers ({{ providers.length }})</span>
         </button>
-        <button
-          class="tab-pill"
-          :class="{ active: activeTab === 'prompts' }"
-          @click="activeTab = 'prompts'"
-        >
-          <FileCode :size="15" />
-          <span>Prompts Editor</span>
-        </button>
+
         <button
           class="tab-pill"
           :class="{ active: activeTab === 'email_accounts' }"
@@ -762,14 +713,425 @@ function formatLastSync(dateStr) {
           <Mail :size="15" />
           <span>Email Accounts ({{ emailAccounts.length }})</span>
         </button>
+
+        <button
+          class="tab-pill"
+          :class="{ active: activeTab === 'preferences' }"
+          @click="activeTab = 'preferences'"
+        >
+          <SlidersHorizontal :size="15" />
+          <span>Preferences</span>
+        </button>
       </div>
     </div>
 
-    <!-- TAB 0: PREFERENCES & CURRENCY -->
-    <div v-if="activeTab === 'preferences'" class="tab-content animate-fade-in">
+    <!-- TAB 1: UNIFIED TASK STUDIO -->
+    <div v-if="activeTab === 'studio'" class="tab-content animate-fade-in">
+      <div class="studio-layout">
+        <!-- Studio Task Selector Sidebar -->
+        <div class="studio-sidebar">
+          <div class="sidebar-header">
+            <span class="sidebar-title">Pipeline Tasks</span>
+            <span class="sidebar-badge">{{ TASKS.length }} Tasks</span>
+          </div>
+
+          <div class="task-nav-list">
+            <button
+              v-for="t in TASKS"
+              :key="t.key"
+              class="task-nav-item"
+              :class="{ active: selectedTaskKey === t.key }"
+              @click="selectStudioTask(t.key)"
+            >
+              <div class="task-nav-left">
+                <span class="task-nav-name">{{ t.label }}</span>
+                <span class="task-nav-key font-mono">{{ t.key }}</span>
+              </div>
+              <div class="task-nav-right">
+                <span
+                  v-if="bindings.find(b => b.task_type.toUpperCase() === t.key.toUpperCase())"
+                  class="task-bound-indicator"
+                  title="Configured in AI Registry"
+                >
+                  <CheckCircle2 :size="12" class="text-success" />
+                </span>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Studio Workspace Pane -->
+        <div class="studio-workspace">
+          <!-- Active Task Overview Header -->
+          <div class="studio-task-header">
+            <div class="task-header-info">
+              <div class="task-badge-row">
+                <span class="badge badge-applied font-mono">{{ activeTaskDef.key }}</span>
+                <span class="rec-temp-chip">
+                  <Thermometer :size="11" />
+                  <span>Recommended: {{ activeTaskDef.recommendedTemp }}</span>
+                </span>
+              </div>
+              <h2 class="task-header-title">{{ activeTaskDef.label }}</h2>
+              <p class="task-header-desc">{{ activeTaskDef.desc }}</p>
+            </div>
+
+            <div class="studio-header-actions">
+              <button
+                class="btn btn-secondary btn-sm"
+                :disabled="testingStudioTask"
+                @click="testStudioTask"
+                title="Test current model binding and probe response"
+              >
+                <Loader2 v-if="testingStudioTask" class="animate-spin" :size="14" />
+                <Play v-else :size="14" />
+                <span>Test Probe</span>
+              </button>
+
+              <button
+                class="btn btn-primary btn-sm"
+                :disabled="isSavingStudio"
+                @click="saveStudioTask"
+              >
+                <Loader2 v-if="isSavingStudio" class="animate-spin" :size="14" />
+                <Save v-else :size="14" />
+                <span>Save Configuration</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Section 1: Model & Execution Binding -->
+          <div class="studio-card">
+            <div class="studio-card-title">
+              <BrainCircuit :size="16" class="text-primary" />
+              <span>Model &amp; Execution Binding</span>
+            </div>
+
+            <div class="form-grid-2">
+              <div class="input-group">
+                <label class="input-label">AI Provider *</label>
+                <select
+                  v-model="studioForm.provider_id"
+                  class="form-input"
+                  @change="onStudioProviderChange"
+                >
+                  <option v-for="p in providers" :key="p.id" :value="p.id">
+                    {{ p.name }} ({{ p.provider_type }})
+                  </option>
+                </select>
+              </div>
+
+              <div class="input-group">
+                <div class="label-with-hint">
+                  <label class="input-label">Model Identifier *</label>
+                  <span v-if="loadingStudioModels" class="text-xs text-muted font-mono flex items-center gap-1">
+                    <Loader2 class="animate-spin" :size="11" /> Discovering models...
+                  </span>
+                </div>
+                <input
+                  v-model="studioForm.model_name"
+                  type="text"
+                  placeholder="e.g. qwen3.5-4b, claude-3-5-sonnet-20241022"
+                  class="form-input font-mono"
+                  required
+                />
+              </div>
+            </div>
+
+            <!-- Discovered Model Suggestions Chips -->
+            <div v-if="studioProviderModels.length > 0" class="model-suggestions-box">
+              <span class="suggestions-label">Auto-Discovered Provider Models:</span>
+              <div class="suggestions-list">
+                <button
+                  v-for="m in studioProviderModels"
+                  :key="m.id"
+                  type="button"
+                  class="model-chip font-mono"
+                  :class="{ active: studioForm.model_name === m.id, discovered: m.is_discovered }"
+                  @click="selectStudioSuggestedModel(m.id)"
+                >
+                  <Sparkles v-if="m.is_discovered" :size="10" />
+                  <span>{{ m.name }}</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Parameters Grid (Temperature, Thinking Mode, Max Tokens) -->
+            <div class="form-grid-3 mt-4">
+              <!-- Temperature (if not EMBEDDING) -->
+              <div v-if="selectedTaskKey !== 'EMBEDDING'" class="input-group">
+                <div class="label-with-hint">
+                  <label class="input-label">Sampling Temperature</label>
+                  <span class="font-mono text-xs font-semibold text-primary">{{ studioForm.temperature }}</span>
+                </div>
+                <input
+                  v-model.number="studioForm.temperature"
+                  type="range"
+                  step="0.05"
+                  min="0.0"
+                  max="1.0"
+                  class="form-range"
+                />
+              </div>
+
+              <!-- Embedding Dimensions (if EMBEDDING) -->
+              <div v-else class="input-group">
+                <label class="input-label">Embedding Dimensions</label>
+                <input
+                  v-model.number="studioForm.embedding_dimensions"
+                  type="number"
+                  placeholder="768"
+                  class="form-input font-mono"
+                />
+              </div>
+
+              <!-- Thinking / Reasoning Mode Segmented Control -->
+              <div class="input-group">
+                <label class="input-label">Thinking / Reasoning Mode</label>
+                <div class="reasoning-pills">
+                  <button
+                    v-for="effort in ['none', 'low', 'medium', 'high']"
+                    :key="effort"
+                    type="button"
+                    class="reasoning-pill font-mono"
+                    :class="{ active: studioForm.reasoning_effort === effort }"
+                    @click="studioForm.reasoning_effort = effort"
+                  >
+                    {{ effort === 'none' ? 'None (Fast)' : effort }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- Max Tokens -->
+              <div class="input-group">
+                <label class="input-label">Max Generation Tokens</label>
+                <input
+                  v-model.number="studioForm.max_tokens"
+                  type="number"
+                  step="256"
+                  min="256"
+                  max="32000"
+                  class="form-input font-mono"
+                />
+              </div>
+            </div>
+
+            <div class="reasoning-info-callout">
+              <Zap :size="13" class="text-primary flex-shrink-0" />
+              <span>
+                <strong>Thinking Mode:</strong> Instructs reasoning models (e.g. DeepSeek-R1, OpenAI o1/o3-mini, Claude 3.7 Thinking) to execute extended chain-of-thought verification before answering. For high-speed structured extraction, leave as <code>None (Fast)</code>.
+              </span>
+            </div>
+          </div>
+
+          <!-- Section 2: Prompt Template Editor (If task has prompt) -->
+          <div v-if="activeTaskDef.hasPrompt" class="studio-card">
+            <div class="studio-card-header">
+              <div class="studio-card-title">
+                <FileCode :size="16" class="text-primary" />
+                <span>Prompt Template</span>
+              </div>
+
+              <button
+                class="btn btn-ghost btn-xs text-secondary"
+                :disabled="isResettingPrompt"
+                @click="resetStudioPrompt"
+                title="Reset to default seeded template"
+              >
+                <RotateCcw :size="12" />
+                <span>Reset to Default</span>
+              </button>
+            </div>
+
+            <!-- Injected Placeholders -->
+            <div v-if="activeTaskDef.variables.length" class="placeholders-box">
+              <span class="placeholder-label">Injected Variables:</span>
+              <span
+                v-for="v in activeTaskDef.variables"
+                :key="v"
+                class="placeholder-tag font-mono"
+              >
+                {{ v }}
+              </span>
+            </div>
+
+            <!-- Monospace Editor -->
+            <textarea
+              v-model="studioForm.prompt_template"
+              rows="12"
+              class="prompt-textarea font-mono"
+              placeholder="Enter prompt template instructions..."
+            ></textarea>
+          </div>
+
+          <!-- Section 3: Probe Test Result -->
+          <div v-if="studioTestResult" class="studio-test-feedback animate-fade-in">
+            <div class="test-feedback-header">
+              <CheckCircle :size="16" class="text-success" />
+              <span class="font-semibold">Connectivity Probe Verified for {{ studioTestResult.task_type }}</span>
+            </div>
+            <div class="test-feedback-body font-mono text-xs">
+              <div><strong>Provider:</strong> {{ studioTestResult.provider_name }} ({{ studioTestResult.provider_type }})</div>
+              <div><strong>Model:</strong> {{ studioTestResult.model_name }}</div>
+              <div><strong>Probe Output:</strong> {{ studioTestResult.response }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: AI PROVIDERS -->
+    <div v-else-if="activeTab === 'providers'" class="tab-content animate-fade-in">
+      <div class="section-card">
+        <div class="section-header-row">
+          <div>
+            <h3>Configured AI Providers</h3>
+            <p>Connect local endpoints (LM Studio, Ollama, vLLM) or Cloud APIs (OpenAI, Anthropic, Gemini, OpenRouter).</p>
+          </div>
+          <button class="btn btn-primary btn-sm" @click="openCreateProvider">
+            <Plus :size="15" />
+            <span>Add Provider</span>
+          </button>
+        </div>
+
+        <div class="providers-grid">
+          <div v-for="p in providers" :key="p.id" class="provider-card">
+            <div class="provider-header">
+              <div class="provider-title-group">
+                <Server :size="16" class="text-primary" />
+                <span class="provider-name">{{ p.name }}</span>
+              </div>
+              <span class="badge badge-applied font-mono">{{ p.provider_type }}</span>
+            </div>
+
+            <div class="provider-body">
+              <div class="meta-row">
+                <span class="meta-k">Endpoint:</span>
+                <span class="meta-v font-mono">{{ p.base_url || 'Default Cloud Endpoint' }}</span>
+              </div>
+              <div class="meta-row">
+                <span class="meta-k">API Key:</span>
+                <span class="meta-v font-mono">{{ p.api_key_masked || 'Not Required / Local' }}</span>
+              </div>
+              <div class="meta-row">
+                <span class="meta-k">Max Concurrency:</span>
+                <span class="meta-v font-mono font-semibold">{{ p.max_concurrency || 1 }} parallel</span>
+              </div>
+            </div>
+
+            <div class="provider-actions">
+              <button
+                class="btn btn-secondary btn-sm"
+                :disabled="testingProviderId === p.id"
+                @click="testProviderDirect(p)"
+              >
+                <Loader2 v-if="testingProviderId === p.id" class="animate-spin" :size="14" />
+                <Play v-else :size="14" />
+                <span>Test Probe</span>
+              </button>
+
+              <button class="btn btn-secondary btn-sm" @click="openEditProvider(p)">
+                <Edit3 :size="14" />
+                <span>Edit</span>
+              </button>
+
+              <button class="btn btn-danger btn-sm" @click="deleteProvider(p.id)">
+                <Trash2 :size="14" />
+              </button>
+            </div>
+
+            <!-- Provider Test Result -->
+            <div v-if="providerTestResults[p.id]" class="provider-test-pill animate-fade-in">
+              <CheckCircle :size="13" class="text-success" />
+              <span class="font-mono text-xs">{{ providerTestResults[p.id].response }}</span>
+            </div>
+          </div>
+
+          <div v-if="providers.length === 0" class="empty-state">
+            No AI providers configured in DB. System using `.env` fallback.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: EMAIL ACCOUNTS -->
+    <div v-else-if="activeTab === 'email_accounts'" class="tab-content animate-fade-in">
+      <div class="section-card">
+        <div class="section-header-row">
+          <div>
+            <h3>Connected Mailboxes &amp; Sync Schedule</h3>
+            <p>Connect mailboxes via 1-Click OAuth (Google / Microsoft) or IMAP, and configure automated background sync schedules.</p>
+          </div>
+          <button class="btn btn-primary btn-sm" @click="openAddEmailAccountModal">
+            <Plus :size="15" />
+            <span>Connect Account</span>
+          </button>
+        </div>
+
+        <div class="accounts-grid">
+          <div v-for="acc in emailAccounts" :key="acc.id" class="account-card">
+            <div class="account-card-header">
+              <div class="account-title-row">
+                <Mail :size="16" class="text-primary" />
+                <span class="account-name">{{ acc.name }}</span>
+              </div>
+              <span class="badge badge-applied font-mono">{{ acc.auth_type }}</span>
+            </div>
+
+            <div class="account-card-body">
+              <div class="meta-row">
+                <span class="meta-k">Username:</span>
+                <span class="meta-v font-mono">{{ acc.username }}</span>
+              </div>
+              <div class="meta-row">
+                <span class="meta-k">Folder:</span>
+                <span class="meta-v font-mono">{{ acc.folder }}</span>
+              </div>
+              <div class="meta-row">
+                <span class="meta-k">Sync Interval:</span>
+                <span class="meta-v font-mono">{{ acc.sync_interval || '1h' }}</span>
+              </div>
+            </div>
+
+            <div class="account-actions">
+              <button
+                class="btn btn-primary btn-sm"
+                :disabled="syncingAccount === acc.id"
+                @click="triggerSync(acc)"
+              >
+                <Loader2 v-if="syncingAccount === acc.id" class="animate-spin" :size="14" />
+                <RefreshCw v-else :size="14" />
+                <span>{{ syncingAccount === acc.id ? 'Syncing...' : 'Sync Now' }}</span>
+              </button>
+
+              <button class="btn btn-secondary btn-sm" @click="openEditEmailAccountModal(acc)">
+                <Edit3 :size="14" />
+                <span>Edit</span>
+              </button>
+
+              <button class="btn btn-danger btn-sm" @click="openDeleteAccountModal(acc)">
+                <Trash2 :size="14" />
+              </button>
+            </div>
+          </div>
+
+          <div v-if="emailAccounts.length === 0" class="empty-state">
+            <Mail :size="32" class="empty-icon" />
+            <p>No email accounts connected yet.</p>
+            <button class="btn btn-primary btn-sm mt-2" @click="openAddEmailAccountModal">
+              <Plus :size="14" />
+              <span>Connect First Account</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: PREFERENCES -->
+    <div v-else-if="activeTab === 'preferences'" class="tab-content animate-fade-in">
       <div class="section-card">
         <div class="card-intro">
-          <h3>System & Workspace Preferences</h3>
+          <h3>System &amp; Workspace Preferences</h3>
           <p>Configure default currency for offers and salaries, interface view mode, and appearance settings.</p>
         </div>
 
@@ -838,310 +1200,6 @@ function formatLastSync(dateStr) {
       </div>
     </div>
 
-    <!-- TAB 1: TASK BINDINGS -->
-    <div v-if="activeTab === 'bindings'" class="tab-content animate-fade-in">
-      <div class="section-card">
-        <div class="card-intro">
-          <h3>Task-Based Model Routing</h3>
-          <p>Route specific AI subtasks to optimized models with recommended hyperparameter temperatures.</p>
-        </div>
-
-        <div class="bindings-list">
-          <div v-for="t in TASKS" :key="t.key" class="binding-item">
-            <div class="binding-info">
-              <div class="binding-top">
-                <span class="badge badge-applied font-mono">{{ t.key }}</span>
-                <span class="binding-title">{{ t.label }}</span>
-                <span class="recommended-badge" title="Recommended temperature for deterministic output">
-                  <Thermometer :size="11" />
-                  <span>Rec: {{ t.recommendedTemp }}</span>
-                </span>
-              </div>
-              <p class="binding-desc">{{ t.desc }}</p>
-
-              <!-- Resolved Binding Summary -->
-              <div class="binding-active-state">
-                <span class="text-muted">Bound Model:</span>
-                <span class="font-mono text-main font-semibold">
-                  {{ bindings.find(b => b.task_type === t.key)?.model_name || 'Cascades to .env default (qwen3.5-4b)' }}
-                </span>
-                <span v-if="bindings.find(b => b.task_type === t.key)" class="binding-temp">
-                  (temp: {{ bindings.find(b => b.task_type === t.key)?.temperature }})
-                </span>
-              </div>
-            </div>
-
-            <div class="binding-actions">
-              <button
-                class="btn btn-secondary btn-sm"
-                @click="openEditBinding(t.key)"
-              >
-                <Edit3 :size="14" />
-                <span>Configure</span>
-              </button>
-
-              <button
-                v-if="bindings.find(b => b.task_type === t.key)"
-                class="btn btn-primary btn-sm"
-                :disabled="testingTask === t.key"
-                @click="testTaskBinding(t.key)"
-              >
-                <Loader2 v-if="testingTask === t.key" class="animate-spin" :size="14" />
-                <Play v-else :size="14" />
-                <span>Test Probe</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Probe Test Result Feedback -->
-        <div v-if="testResult" class="probe-result-box animate-fade-in">
-          <div class="probe-header">
-            <CheckCircle :size="16" class="text-success" />
-            <span class="font-semibold">Connectivity Probe Verified for {{ testResult.task_type }}</span>
-          </div>
-          <div class="probe-body font-mono text-xs">
-            <div><strong>Provider:</strong> {{ testResult.provider_name }} ({{ testResult.provider_type }})</div>
-            <div><strong>Model:</strong> {{ testResult.model_name }}</div>
-            <div><strong>Response:</strong> {{ testResult.response }}</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- TAB 2: AI PROVIDERS -->
-    <div v-else-if="activeTab === 'providers'" class="tab-content animate-fade-in">
-      <div class="section-card">
-        <div class="section-header-row">
-          <div>
-            <h3>Configured AI Providers</h3>
-            <p>Connect local endpoints (LM Studio, Ollama, vLLM) or Cloud APIs (OpenAI, Anthropic, Gemini).</p>
-          </div>
-          <button class="btn btn-primary btn-sm" @click="openCreateProvider">
-            <Plus :size="15" />
-            <span>Add Provider</span>
-          </button>
-        </div>
-
-        <div class="providers-grid">
-          <div v-for="p in providers" :key="p.id" class="provider-card">
-            <div class="provider-header">
-              <div class="provider-title-group">
-                <Server :size="16" class="text-primary" />
-                <span class="provider-name">{{ p.name }}</span>
-              </div>
-              <span class="badge badge-applied font-mono">{{ p.provider_type }}</span>
-            </div>
-
-            <div class="provider-body">
-              <div class="meta-row">
-                <span class="meta-k">Endpoint:</span>
-                <span class="meta-v font-mono">{{ p.base_url || 'Default Cloud Endpoint' }}</span>
-              </div>
-              <div class="meta-row">
-                <span class="meta-k">API Key:</span>
-                <span class="meta-v font-mono">{{ p.api_key_masked || 'Not Required / Local' }}</span>
-              </div>
-              <div class="meta-row">
-                <span class="meta-k">Max Concurrency:</span>
-                <span class="meta-v font-mono font-semibold">{{ p.max_concurrency || 1 }} parallel</span>
-              </div>
-            </div>
-
-
-            <!-- Provider Live Probe Result -->
-            <div v-if="providerTestResults[p.id]" class="provider-probe-feedback font-mono text-xs">
-              <CheckCircle :size="13" class="text-success" />
-              <span>Probe OK: {{ providerTestResults[p.id].response }}</span>
-            </div>
-
-            <div class="provider-actions">
-              <button
-                class="btn btn-secondary btn-sm"
-                :disabled="testingProviderId === p.id"
-                @click="testProviderDirect(p)"
-                title="Send a lightweight connectivity probe to this provider"
-              >
-                <Loader2 v-if="testingProviderId === p.id" class="animate-spin" :size="13" />
-                <Zap v-else :size="13" />
-                <span>Test Probe</span>
-              </button>
-              <button class="btn btn-secondary btn-sm" @click="openEditProvider(p)">
-                <Edit3 :size="13" />
-                <span>Edit</span>
-              </button>
-              <button class="btn btn-danger btn-sm" @click="deleteProvider(p.id)">
-                <Trash2 :size="13" />
-                <span>Delete</span>
-              </button>
-            </div>
-          </div>
-
-          <div v-if="providers.length === 0" class="empty-state">
-            No AI providers configured in DB. System using `.env` fallback (LM Studio: http://192.168.1.187:1234/v1).
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- TAB 3: PROMPTS EDITOR -->
-    <div v-else-if="activeTab === 'prompts'" class="tab-content animate-fade-in">
-      <div class="prompts-layout">
-        <!-- Sidebar Prompt Selector -->
-        <div class="prompts-sidebar">
-          <div class="sidebar-title">Prompt Templates</div>
-          <div class="prompt-nav">
-            <button
-              v-for="(meta, pName) in PROMPT_METAS"
-              :key="pName"
-              class="prompt-nav-item"
-              :class="{ active: selectedPromptName === pName }"
-              @click="selectPrompt(pName)"
-            >
-              <div class="nav-item-title">{{ meta.title }}</div>
-              <div class="nav-item-sub font-mono text-xs">{{ pName }}</div>
-            </button>
-          </div>
-        </div>
-
-        <!-- Editor Pane -->
-        <div class="prompts-editor-pane">
-          <div class="editor-header">
-            <div>
-              <h3>{{ PROMPT_METAS[selectedPromptName]?.title || selectedPromptName }}</h3>
-              <p>{{ PROMPT_METAS[selectedPromptName]?.desc }}</p>
-            </div>
-
-            <div class="editor-actions">
-              <button
-                class="btn btn-secondary btn-sm"
-                :disabled="isResettingPrompt"
-                @click="resetPromptTemplate"
-              >
-                <RotateCcw :size="14" />
-                <span>Reset Default</span>
-              </button>
-
-              <button
-                class="btn btn-primary btn-sm"
-                :disabled="isSavingPrompt"
-                @click="savePromptTemplate"
-              >
-                <Loader2 v-if="isSavingPrompt" class="animate-spin" :size="14" />
-                <Save v-else :size="14" />
-                <span>Save Prompt</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Variable Placeholders Chips -->
-          <div v-if="PROMPT_METAS[selectedPromptName]?.placeholders.length" class="placeholders-box">
-            <span class="placeholder-label">Supported Placeholders:</span>
-            <span
-              v-for="ph in PROMPT_METAS[selectedPromptName].placeholders"
-              :key="ph"
-              class="placeholder-tag font-mono"
-            >
-              {{ ph }}
-            </span>
-          </div>
-
-          <!-- Prompt Textarea -->
-          <div class="editor-body">
-            <textarea
-              v-model="currentPromptTemplate"
-              rows="14"
-              class="prompt-textarea font-mono"
-              placeholder="Enter prompt template text..."
-            ></textarea>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- TAB 4: EMAIL ACCOUNTS -->
-    <div v-else-if="activeTab === 'email_accounts'" class="tab-content animate-fade-in">
-      <div class="section-card">
-        <div class="section-header-row">
-          <div>
-            <h3>Connected Mailboxes & Sync Schedule</h3>
-            <p>Connect mailboxes via 1-Click OAuth (Google / Microsoft) or IMAP, and configure automated background sync schedules.</p>
-          </div>
-
-          <button class="btn btn-primary" @click="openAddEmailAccountModal">
-            <Plus :size="15" />
-            <span>Connect Email Account</span>
-          </button>
-        </div>
-
-        <div class="accounts-list">
-          <div v-for="acc in emailAccounts" :key="acc.id" class="account-card">
-            <div class="account-info">
-              <div class="account-title-row">
-                <Mail :size="16" class="text-primary" />
-                <span class="account-name">{{ acc.name }}</span>
-                <span class="badge" :class="acc.is_active ? 'badge-applied' : 'badge-rejected'">
-                  {{ acc.is_active ? 'Active' : 'Paused' }}
-                </span>
-                <span class="badge badge-applied font-mono">{{ acc.auth_type || 'IMAP' }}</span>
-              </div>
-              <div class="account-details-sub">
-                <span class="text-xs text-secondary font-mono">{{ acc.username }}</span>
-                <span class="text-muted text-xs">•</span>
-                <span class="text-xs text-muted">Folder: {{ acc.folder }}</span>
-                <span class="text-muted text-xs">•</span>
-                <span class="sync-schedule-pill">
-                  <Clock :size="11" />
-                  <span>{{ formatSyncInterval(acc) }}</span>
-                </span>
-                <span class="text-muted text-xs">•</span>
-                <span class="text-xs text-muted">Last sync: {{ formatLastSync(acc.last_synced_at) }}</span>
-              </div>
-            </div>
-
-            <div class="account-actions">
-              <button
-                class="btn btn-primary btn-sm"
-                :disabled="syncingAccount === acc.id"
-                @click="triggerSync(acc)"
-                title="Trigger immediate mailbox sync"
-              >
-                <Loader2 v-if="syncingAccount === acc.id" class="animate-spin" :size="14" />
-                <RefreshCw v-else :size="14" />
-                <span>{{ syncingAccount === acc.id ? 'Syncing...' : 'Sync Now' }}</span>
-              </button>
-
-              <button
-                class="btn btn-secondary btn-sm"
-                @click="openEditEmailAccountModal(acc)"
-                title="Edit account credentials and sync schedule"
-              >
-                <Edit3 :size="14" />
-                <span>Edit</span>
-              </button>
-
-              <button
-                class="btn btn-danger btn-sm"
-                @click="openDeleteAccountModal(acc)"
-                title="Remove email account connection"
-              >
-                <Trash2 :size="14" />
-              </button>
-            </div>
-          </div>
-
-          <div v-if="emailAccounts.length === 0" class="empty-state">
-            <Mail :size="32" class="empty-icon" />
-            <p>No email accounts connected yet.</p>
-            <button class="btn btn-primary btn-sm mt-2" @click="openAddEmailAccountModal">
-              <Plus :size="14" />
-              <span>Connect First Account</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- PROVIDER MODAL -->
     <div v-if="isProviderModalOpen" class="modal-backdrop" @click.self="isProviderModalOpen = false">
       <div class="modal-card animate-fade-in">
@@ -1195,79 +1253,8 @@ function formatLastSync(dateStr) {
           </div>
 
           <div class="modal-actions">
-
             <button class="btn btn-secondary" @click="isProviderModalOpen = false">Cancel</button>
             <button class="btn btn-primary" @click="saveProvider">{{ editingProvider ? 'Update Provider' : 'Save Provider' }}</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- BINDING MODAL -->
-    <div v-if="isBindingModalOpen" class="modal-backdrop" @click.self="isBindingModalOpen = false">
-      <div class="modal-card animate-fade-in">
-        <div class="modal-header">
-          <h3 class="modal-title">Configure Task Binding: {{ currentBindingTask }}</h3>
-          <button class="btn-close" @click="isBindingModalOpen = false">×</button>
-        </div>
-
-        <div class="modal-body">
-          <div class="input-group">
-            <label class="input-label">Select AI Provider *</label>
-            <select v-model="bindingForm.provider_id" class="form-input" @change="onBindingProviderChange" required>
-              <option v-for="p in providers" :key="p.id" :value="p.id">
-                {{ p.name }} ({{ p.provider_type }})
-              </option>
-            </select>
-          </div>
-
-          <div class="input-group">
-            <div class="label-with-hint">
-              <label class="input-label">Model Identifier *</label>
-              <span v-if="loadingModels" class="text-xs text-muted font-mono flex items-center gap-1">
-                <Loader2 class="animate-spin" :size="11" /> Discovering models...
-              </span>
-            </div>
-            <input
-              v-model="bindingForm.model_name"
-              type="text"
-              placeholder="e.g. qwen3.5-4b, claude-3-5-sonnet-20241022"
-              class="form-input font-mono"
-              required
-            />
-
-            <!-- Discovered / Curated Model Suggestions -->
-            <div v-if="providerModels.length > 0" class="model-suggestions-box">
-              <span class="suggestions-label">Suggested Models:</span>
-              <div class="suggestions-list">
-                <button
-                  v-for="m in providerModels"
-                  :key="m.id"
-                  type="button"
-                  class="model-chip font-mono"
-                  :class="{ active: bindingForm.model_name === m.id, discovered: m.is_discovered }"
-                  @click="selectSuggestedModel(m.id)"
-                >
-                  <Sparkles v-if="m.is_discovered" :size="10" />
-                  <span>{{ m.name }}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div class="input-group" v-if="currentBindingTask === 'EMBEDDING'">
-            <label class="input-label">Embedding Dimensions</label>
-            <input v-model.number="bindingForm.embedding_dimensions" type="number" placeholder="768" class="form-input font-mono" />
-          </div>
-
-          <div class="input-group" v-else>
-            <label class="input-label">Sampling Temperature</label>
-            <input v-model.number="bindingForm.temperature" type="number" step="0.1" min="0" max="2" class="form-input font-mono" />
-          </div>
-
-          <div class="modal-actions">
-            <button class="btn btn-secondary" @click="isBindingModalOpen = false">Cancel</button>
-            <button class="btn btn-primary" @click="saveBinding">Bind Task</button>
           </div>
         </div>
       </div>
@@ -1282,7 +1269,6 @@ function formatLastSync(dateStr) {
         </div>
 
         <div class="modal-body">
-          <!-- Step 1: Provider Selection -->
           <div class="input-group">
             <label class="input-label">Select Email Provider</label>
             <div class="provider-presets-grid">
@@ -1292,9 +1278,7 @@ function formatLastSync(dateStr) {
                 :class="{ active: emailAccountForm.provider_preset === 'gmail' }"
                 @click="onProviderPresetChange('gmail')"
               >
-                <div class="preset-icon gmail-icon">
-                  <Mail :size="18" />
-                </div>
+                <div class="preset-icon gmail-icon"><Mail :size="18" /></div>
                 <div class="preset-info">
                   <span class="preset-name">Google Gmail</span>
                   <span class="preset-sub">OAuth2 or App Password</span>
@@ -1307,11 +1291,9 @@ function formatLastSync(dateStr) {
                 :class="{ active: emailAccountForm.provider_preset === 'outlook' }"
                 @click="onProviderPresetChange('outlook')"
               >
-                <div class="preset-icon outlook-icon">
-                  <Mail :size="18" />
-                </div>
+                <div class="preset-icon outlook-icon"><Mail :size="18" /></div>
                 <div class="preset-info">
-                  <span class="preset-name">Microsoft Outlook / 365</span>
+                  <span class="preset-name">Microsoft Outlook</span>
                   <span class="preset-sub">MS Graph OAuth2 or IMAP</span>
                 </div>
               </button>
@@ -1322,9 +1304,7 @@ function formatLastSync(dateStr) {
                 :class="{ active: emailAccountForm.provider_preset === 'custom' }"
                 @click="onProviderPresetChange('custom')"
               >
-                <div class="preset-icon imap-icon">
-                  <Server :size="18" />
-                </div>
+                <div class="preset-icon imap-icon"><Server :size="18" /></div>
                 <div class="preset-info">
                   <span class="preset-name">Custom IMAP</span>
                   <span class="preset-sub">iCloud, Fastmail, Yahoo, etc.</span>
@@ -1333,7 +1313,6 @@ function formatLastSync(dateStr) {
             </div>
           </div>
 
-          <!-- Step 2: Auth Method Toggle (for Gmail/Outlook) -->
           <div v-if="emailAccountForm.provider_preset !== 'custom'" class="input-group">
             <label class="input-label">Authentication Method</label>
             <div class="auth-method-toggle">
@@ -1358,438 +1337,24 @@ function formatLastSync(dateStr) {
             </div>
           </div>
 
-          <!-- Interactive Provider Connection Guide -->
-          <div class="connection-guide-accordion">
-            <button
-              type="button"
-              class="guide-toggle-header"
-              @click="showConnectionGuide = !showConnectionGuide"
-            >
-              <div class="guide-header-left">
-                <HelpCircle :size="15" class="text-primary" />
-                <span class="guide-toggle-title">
-                  Setup Guide: How to connect {{ emailAccountForm.provider_preset === 'gmail' ? 'Google Gmail' : emailAccountForm.provider_preset === 'outlook' ? 'Microsoft Outlook / 365' : 'Custom IMAP' }}
-                </span>
-              </div>
-              <component :is="showConnectionGuide ? ChevronUp : ChevronDown" :size="15" class="guide-arrow" />
-            </button>
-
-            <div v-if="showConnectionGuide" class="guide-content-body animate-fade-in">
-              <!-- Gmail Guide -->
-              <div v-if="emailAccountForm.provider_preset === 'gmail'" class="guide-steps-list">
-                <!-- Gmail + OAuth selected -->
-                <div v-if="emailAccountForm.auth_method === 'oauth'" class="guide-step-card">
-                  <span class="step-badge oauth">OAuth2</span>
-                  <div class="step-details">
-                    <strong>Google Cloud Console — OAuth2 App Setup</strong>
-                    <ol class="step-sublist">
-                      <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="guide-link">Google Cloud Console <ExternalLink :size="10" /></a> and create or select a project.</li>
-                      <li>Enable the <strong>Gmail API</strong> under APIs &amp; Services → Library.</li>
-                      <li>Configure <strong>OAuth Consent Screen</strong> (External) and add your email as a test user.</li>
-                      <li>Create Credentials → <strong>OAuth client ID</strong> → type: <em>Web application</em>.</li>
-                      <li>Add Authorized Redirect URI: <code>{{ oauthConfig.google_redirect_uri }}</code></li>
-                      <li>Copy the <strong>Client ID</strong> and <strong>Client Secret</strong> into the fields in the OAuth card below.</li>
-                    </ol>
-                  </div>
-                </div>
-                <!-- Gmail + App Password selected -->
-                <div v-else class="guide-step-card">
-                  <span class="step-badge">App Password</span>
-                  <div class="step-details">
-                    <strong>Google App Password — 10 Seconds Setup</strong>
-                    <ol class="step-sublist">
-                      <li>Go to <a href="https://myaccount.google.com/security" target="_blank" rel="noopener" class="guide-link">Google Account Security <ExternalLink :size="10" /></a> and ensure <em>2-Step Verification</em> is ON.</li>
-                      <li>Visit <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" class="guide-link">Google App Passwords <ExternalLink :size="10" /></a>.</li>
-                      <li>Enter app name <code>Job Tracker</code> and click <em>Create</em>.</li>
-                      <li>Copy the 16-character password and paste it into the <em>App Password</em> field below.</li>
-                    </ol>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Outlook Guide -->
-              <div v-else-if="emailAccountForm.provider_preset === 'outlook'" class="guide-steps-list">
-                <!-- Outlook + OAuth selected -->
-                <div v-if="emailAccountForm.auth_method === 'oauth'" class="guide-step-card">
-                  <span class="step-badge oauth">OAuth2</span>
-                  <div class="step-details">
-                    <strong>Azure Portal — Microsoft Graph OAuth2 Setup</strong>
-                    <ol class="step-sublist">
-                      <li>Open <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener" class="guide-link">Azure App Registrations <ExternalLink :size="10" /></a> and click <strong>New registration</strong>.</li>
-                      <li>Add Web Redirect URI: <code>{{ oauthConfig.microsoft_redirect_uri }}</code></li>
-                      <li>Under <em>API Permissions</em> add <code>Mail.Read</code>, <code>User.Read</code>, <code>offline_access</code> (Delegated).</li>
-                      <li>Under <em>Certificates &amp; secrets</em>, create a secret — copy its <strong>Value</strong> immediately (shown once).</li>
-                      <li>Copy the <strong>Application (client) ID</strong> from the Overview page.</li>
-                      <li>Paste both into the fields in the OAuth card below.</li>
-                    </ol>
-                  </div>
-                </div>
-                <!-- Outlook + App Password selected -->
-                <div v-else class="guide-step-card">
-                  <span class="step-badge">App Password</span>
-                  <div class="step-details">
-                    <strong>Microsoft App Password / IMAP</strong>
-                    <ol class="step-sublist">
-                      <li>Go to <a href="https://account.live.com/proofs/manage/additional" target="_blank" rel="noopener" class="guide-link">Microsoft Security Settings <ExternalLink :size="10" /></a>.</li>
-                      <li>Under <em>App passwords</em>, click <em>Create a new app password</em>.</li>
-                      <li>Paste the generated password into the <em>App Password</em> field below.</li>
-                    </ol>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Custom IMAP Guide (no auth method toggle shown for custom) -->
-              <div v-else class="guide-steps-list">
-                <div class="guide-step-card">
-                  <span class="step-badge">iCloud</span>
-                  <div class="step-details">
-                    <strong>Apple iCloud Mail</strong>
-                    <p class="text-xs text-secondary mt-1">
-                      Host: <code>imap.mail.me.com</code> (Port 993). Generate an App-Specific Password at <a href="https://appleid.apple.com" target="_blank" rel="noopener" class="guide-link">appleid.apple.com <ExternalLink :size="10" /></a>.
-                    </p>
-                  </div>
-                </div>
-                <div class="guide-step-card">
-                  <span class="step-badge">IMAP</span>
-                  <div class="step-details">
-                    <strong>Fastmail / Yahoo / Private Mail Server</strong>
-                    <p class="text-xs text-secondary mt-1">
-                      Host: <code>imap.fastmail.com</code> or <code>imap.mail.yahoo.com</code> (Port 993). Use your mailbox login or App Password.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
+          <div class="input-group">
+            <label class="input-label">Account Label *</label>
+            <input v-model="emailAccountForm.name" type="text" class="form-input" required />
           </div>
 
-          <!-- Account Name & Username -->
-          <div class="form-row-2">
-            <div class="input-group">
-              <label class="input-label">Account Display Name *</label>
-              <input
-                v-model="emailAccountForm.name"
-                type="text"
-                placeholder="e.g. Personal Gmail"
-                class="form-input"
-                required
-              />
-            </div>
-
-            <div class="input-group">
-              <label class="input-label">Email Address / Username *</label>
-              <input
-                v-model="emailAccountForm.username"
-                type="email"
-                placeholder="candidate@gmail.com"
-                class="form-input font-mono"
-                required
-              />
-            </div>
+          <div class="input-group">
+            <label class="input-label">Email Address *</label>
+            <input v-model="emailAccountForm.username" type="email" placeholder="user@domain.com" class="form-input" required />
           </div>
 
-          <!-- OAuth2 Mode Card -->
-          <div v-if="emailAccountForm.auth_method === 'oauth' && emailAccountForm.provider_preset !== 'custom'" class="oauth-fields-card">
-            <div class="oauth-card-header">
-              <Lock :size="14" class="text-primary" />
-              <span>OAuth2 Authorization</span>
-            </div>
-
-            <!-- Credentials first -->
-            <div class="form-row-2 mb-3">
-              <div class="input-group">
-                <label class="input-label">Client ID</label>
-                <input
-                  v-model="emailAccountForm.client_id"
-                  type="text"
-                  placeholder="Paste your Client ID"
-                  class="form-input font-mono text-xs"
-                />
-              </div>
-              <div class="input-group">
-                <label class="input-label">Client Secret</label>
-                <input
-                  v-model="emailAccountForm.client_secret"
-                  type="password"
-                  placeholder="Paste your Client Secret"
-                  class="form-input font-mono text-xs"
-                />
-              </div>
-            </div>
-
-            <!-- Setup guide (open by default, collapsible) -->
-            <details class="oauth-guide-details" open>
-              <summary class="oauth-guide-summary">
-                <HelpCircle :size="12" />
-                <span>How to create your OAuth app</span>
-                <ChevronDown :size="12" class="oauth-guide-chevron" />
-              </summary>
-
-              <div class="oauth-guide-body">
-                <!-- Gmail steps -->
-                <ol v-if="emailAccountForm.provider_preset === 'gmail'" class="oauth-steps">
-                  <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="oauth-guide-link">Google Cloud Console <ExternalLink :size="10" /></a> and create or select a project.</li>
-                  <li>Enable the <strong>Gmail API</strong> under APIs &amp; Services &rarr; Library.</li>
-                  <li>Configure <strong>OAuth Consent Screen</strong> (External) &mdash; add your Gmail as a test user.</li>
-                  <li>Create Credentials &rarr; <strong>OAuth client ID</strong> &rarr; type: <em>Web application</em>.</li>
-                  <li>Add Authorized Redirect URI:<br /><code class="oauth-redirect-uri">{{ oauthConfig.google_redirect_uri }}</code></li>
-                  <li>Paste the <strong>Client ID</strong> and <strong>Client Secret</strong> into the fields above.</li>
-                </ol>
-
-                <!-- Outlook / MS Graph steps -->
-                <ol v-else-if="emailAccountForm.provider_preset === 'outlook'" class="oauth-steps">
-                  <li>Open <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener" class="oauth-guide-link">Azure App Registrations <ExternalLink :size="10" /></a> &rarr; <strong>New registration</strong>.</li>
-                  <li>Add Web Redirect URI:<br /><code class="oauth-redirect-uri">{{ oauthConfig.microsoft_redirect_uri }}</code></li>
-                  <li>Under <em>API permissions</em> add <code>Mail.Read</code>, <code>User.Read</code>, <code>offline_access</code> (Delegated).</li>
-                  <li>Under <em>Certificates &amp; secrets</em> create a secret &mdash; copy its <strong>Value</strong> immediately (shown once).</li>
-                  <li>Copy the <strong>Application (client) ID</strong> from the Overview page.</li>
-                  <li>Paste both into the fields above.</li>
-                </ol>
-              </div>
-            </details>
-
-            <!-- Single connect button at bottom -->
-            <button
-              type="button"
-              class="btn btn-primary btn-oauth-action mt-3"
-              :disabled="isSavingAccount"
-              @click="saveAndConnectOAuth()"
-            >
-              <Loader2 v-if="isSavingAccount" :size="14" class="spin" />
-              <ExternalLink v-else :size="14" />
-              <span>Connect with {{ emailAccountForm.provider_preset === 'outlook' ? 'Microsoft' : 'Google' }}</span>
-            </button>
-          </div>
-
-          <!-- App Password / IMAP Mode Card -->
-          <div v-else class="imap-fields-card">
-            <div class="input-group">
-              <div class="label-with-hint">
-                <label class="input-label">App Password / Mail Password *</label>
-                <a
-                  v-if="emailAccountForm.provider_preset === 'gmail'"
-                  href="https://myaccount.google.com/apppasswords"
-                  target="_blank"
-                  rel="noopener"
-                  class="app-pass-hint-link"
-                >
-                  Create Gmail App Password <ExternalLink :size="11" />
-                </a>
-              </div>
-              <input
-                v-model="emailAccountForm.app_password"
-                type="password"
-                placeholder="xxxx-xxxx-xxxx-xxxx"
-                class="form-input font-mono text-xs"
-                required
-              />
-            </div>
-
-            <div class="form-row-2 mt-2">
-              <div class="input-group">
-                <label class="input-label">IMAP Host Server</label>
-                <input
-                  v-model="emailAccountForm.imap_host"
-                  type="text"
-                  placeholder="imap.gmail.com"
-                  class="form-input font-mono text-xs"
-                  required
-                />
-              </div>
-
-              <div class="input-group">
-                <label class="input-label">IMAP SSL Port</label>
-                <input
-                  v-model.number="emailAccountForm.imap_port"
-                  type="number"
-                  placeholder="993"
-                  class="form-input font-mono text-xs"
-                />
-              </div>
-            </div>
-          </div>
-
-          <!-- Folder & Sync Schedule -->
-          <div class="schedule-section-card">
-            <div class="schedule-header-row">
-              <Clock :size="15" class="text-primary" />
-              <span class="schedule-title">Automated Sync Schedule & Folder</span>
-            </div>
-
-            <div class="form-row-2">
-              <div class="input-group">
-                <label class="input-label">Scan Folder / Label</label>
-                <input
-                  v-model="emailAccountForm.folder"
-                  type="text"
-                  placeholder="INBOX"
-                  class="form-input font-mono text-xs"
-                />
-                <!-- Quick Suggestion Chips -->
-                <div class="folder-chips">
-                  <span class="folder-chips-label">Quick presets:</span>
-                  <button
-                    type="button"
-                    class="folder-chip"
-                    :class="{ active: emailAccountForm.folder === 'Jobs' }"
-                    @click="emailAccountForm.folder = 'Jobs'"
-                  >Jobs</button>
-                  <button
-                    type="button"
-                    class="folder-chip"
-                    :class="{ active: emailAccountForm.folder === 'Applications' }"
-                    @click="emailAccountForm.folder = 'Applications'"
-                  >Applications</button>
-                  <button
-                    type="button"
-                    class="folder-chip"
-                    :class="{ active: emailAccountForm.folder === 'Recruitment' }"
-                    @click="emailAccountForm.folder = 'Recruitment'"
-                  >Recruitment</button>
-                  <button
-                    type="button"
-                    class="folder-chip"
-                    :class="{ active: emailAccountForm.folder === 'INBOX' }"
-                    @click="emailAccountForm.folder = 'INBOX'"
-                  >INBOX (All)</button>
-                </div>
-              </div>
-
-              <div class="input-group">
-                <label class="input-label">Sync Frequency</label>
-                <select v-model="emailAccountForm.sync_interval" class="form-select">
-                  <option value="MANUAL">Manual Sync Only (On Demand)</option>
-                  <option value="15m">Every 15 Minutes</option>
-                  <option value="1h">Every 1 Hour (Recommended)</option>
-                  <option value="6h">Every 6 Hours</option>
-                  <option value="24h">Daily (At specific 24h time)</option>
-                  <option value="WEEKLY">Weekly (At specific day & 24h time)</option>
-                </select>
-              </div>
-            </div>
-
-            <!-- Folder Strategy Guide Callout -->
-            <div class="folder-guide-callout mt-2">
-              <div class="folder-guide-header">
-                <Filter :size="13" class="text-primary" />
-                <span class="folder-guide-title">Recommended: Set up an email rule with your provider</span>
-              </div>
-              <p class="folder-guide-text">
-                To prevent Job Tracker from scanning personal emails and spending AI tokens unnecessarily, create an automatic rule in your email client to label incoming recruitment emails:
-              </p>
-              <div class="folder-guide-tips">
-                <div class="folder-guide-tip">
-                  <span class="tip-provider">Gmail:</span>
-                  <span>Settings &rarr; <em>Filters and Blocked Addresses</em> &rarr; <em>Create filter</em> with subject <code class="hint-code">application OR interview OR offer OR recruiter</code> &rarr; Apply label <code class="hint-code">Jobs</code>.</span>
-                </div>
-                <div class="folder-guide-tip">
-                  <span class="tip-provider">Outlook:</span>
-                  <span>Settings &rarr; <em>Rules</em> &rarr; <em>Add rule</em> (keywords in subject/sender) &rarr; Move to folder <code class="hint-code">Jobs</code>.</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Daily / Weekly 24-Hour Time Controls -->
-            <div v-if="emailAccountForm.sync_interval === '24h' || emailAccountForm.sync_interval === 'WEEKLY'" class="schedule-24h-box mt-3">
-              <div class="form-row-2">
-                <div v-if="emailAccountForm.sync_interval === 'WEEKLY'" class="input-group">
-                  <label class="input-label">Scheduled Day</label>
-                  <select v-model="emailAccountForm.sync_schedule_day" class="form-select">
-                    <option value="MON">Monday</option>
-                    <option value="TUE">Tuesday</option>
-                    <option value="WED">Wednesday</option>
-                    <option value="THU">Thursday</option>
-                    <option value="FRI">Friday</option>
-                    <option value="SAT">Saturday</option>
-                    <option value="SUN">Sunday</option>
-                  </select>
-                </div>
-
-                <div class="input-group">
-                  <label class="input-label">Scheduled Time (24h Standard: {{ emailAccountForm.sync_schedule_hour }}:{{ emailAccountForm.sync_schedule_min }})</label>
-                  <div class="time-spinners-24h">
-                    <select v-model="emailAccountForm.sync_schedule_hour" class="form-select time-dropdown font-mono">
-                      <option v-for="h in 24" :key="h" :value="String(h - 1).padStart(2, '0')">
-                        {{ String(h - 1).padStart(2, '0') }}:00
-                      </option>
-                    </select>
-
-                    <span class="time-sep">:</span>
-
-                    <select v-model="emailAccountForm.sync_schedule_min" class="form-select time-dropdown font-mono">
-                      <option value="00">00</option>
-                      <option value="15">15</option>
-                      <option value="30">30</option>
-                      <option value="45">45</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Quick Presets -->
-              <div class="presets-row mt-2">
-                <span class="text-xs text-muted">24h Presets:</span>
-                <div class="preset-chips-list">
-                  <button
-                    v-for="p in ['08:00', '09:00', '12:00', '14:00', '18:00', '22:00']"
-                    :key="p"
-                    type="button"
-                    class="time-preset-chip font-mono"
-                    :class="{ active: emailAccountForm.sync_schedule_hour + ':' + emailAccountForm.sync_schedule_min === p }"
-                    @click="applySchedulePreset(p)"
-                  >
-                    {{ p }}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Active Toggle -->
-          <div class="active-toggle-row">
-            <label class="checkbox-label">
-              <input v-model="emailAccountForm.is_active" type="checkbox" />
-              <span>Enable automatic background sync for this account</span>
-            </label>
+          <div v-if="emailAccountForm.auth_method === 'app_password'" class="input-group">
+            <label class="input-label">App Password *</label>
+            <input v-model="emailAccountForm.app_password" type="password" placeholder="••••••••••••••••" class="form-input" />
           </div>
 
           <div class="modal-actions">
             <button class="btn btn-secondary" @click="isEmailAccountModalOpen = false">Cancel</button>
-            <button class="btn btn-primary" :disabled="isSavingAccount" @click="saveEmailAccount">
-              <Loader2 v-if="isSavingAccount" class="animate-spin" :size="14" />
-              <Save v-else :size="14" />
-              <span>{{ editingAccount ? 'Update Account' : 'Connect Account' }}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- DELETE EMAIL ACCOUNT CONFIRMATION MODAL -->
-    <div v-if="showDeleteAccountModal" class="modal-backdrop" @click.self="showDeleteAccountModal = false">
-      <div class="modal-card animate-fade-in modal-danger">
-        <div class="modal-header">
-          <h3 class="modal-title text-danger flex items-center gap-2">
-            <Trash2 :size="16" />
-            <span>Remove Email Account</span>
-          </h3>
-          <button class="btn-close" @click="showDeleteAccountModal = false">×</button>
-        </div>
-
-        <div class="modal-body">
-          <p class="modal-warn-text">
-            Are you sure you want to disconnect <strong>{{ accountToDelete?.name }}</strong> ({{ accountToDelete?.username }})?
-          </p>
-          <p class="text-xs text-muted">
-            This will stop background email syncing. Existing ingested job applications and timeline events will not be deleted.
-          </p>
-
-          <div class="modal-actions">
-            <button class="btn btn-secondary" @click="showDeleteAccountModal = false">Cancel</button>
-            <button class="btn btn-danger" :disabled="isDeletingAccount" @click="confirmDeleteAccount">
-              <Loader2 v-if="isDeletingAccount" class="animate-spin" :size="14" />
-              <Trash2 v-else :size="14" />
-              <span>{{ isDeletingAccount ? 'Removing...' : 'Permanently Remove' }}</span>
-            </button>
+            <button class="btn btn-primary" @click="saveEmailAccount">{{ editingAccount ? 'Update Account' : 'Connect Account' }}</button>
           </div>
         </div>
       </div>
@@ -1797,23 +1362,19 @@ function formatLastSync(dateStr) {
   </div>
 </template>
 
-
 <style scoped>
 .page-container {
-  max-width: 1050px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 32px 24px 60px;
 }
 
 .page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   margin-bottom: 24px;
 }
 
 .page-title {
-  font-size: 20px;
+  font-size: 24px;
   font-weight: 700;
   color: var(--text-main);
 }
@@ -1821,7 +1382,9 @@ function formatLastSync(dateStr) {
 .page-subtitle {
   font-size: 13px;
   color: var(--text-secondary);
-  margin-top: 2px;
+  max-width: 680px;
+  margin-top: 4px;
+  line-height: 1.5;
 }
 
 .tab-bar {
@@ -1830,314 +1393,449 @@ function formatLastSync(dateStr) {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   padding: 3px;
-  gap: 4px;
+  gap: 3px;
+  margin-top: 16px;
+  width: fit-content;
+  flex-wrap: wrap;
 }
 
 .tab-pill {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 500;
+  border: none;
+  background: transparent;
+  padding: 6px 14px;
   border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-secondary);
+  cursor: pointer;
   transition: all var(--transition-fast);
+}
+
+.tab-pill:hover {
+  color: var(--text-main);
 }
 
 .tab-pill.active {
   background-color: var(--bg-elevated);
   color: var(--text-main);
+  box-shadow: var(--shadow-sm);
 }
 
+/* Studio Layout */
+.studio-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .studio-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.studio-sidebar {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 8px;
+}
+
+.sidebar-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sidebar-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background-color: var(--bg-elevated);
+  color: var(--text-secondary);
+}
+
+.task-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.task-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.task-nav-item:hover {
+  background-color: var(--bg-surface-hover);
+}
+
+.task-nav-item.active {
+  background-color: var(--bg-elevated);
+  border-color: var(--border-color);
+}
+
+.task-nav-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-nav-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.task-nav-key {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* Studio Workspace */
+.studio-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.studio-task-header {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  box-shadow: var(--shadow-sm);
+  flex-wrap: wrap;
+}
+
+.task-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.rec-temp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background-color: var(--bg-elevated);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+}
+
+.task-header-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+
+.task-header-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  max-width: 600px;
+}
+
+.studio-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.studio-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.studio-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.studio-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.form-grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 768px) {
+  .form-grid-2, .form-grid-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.form-range {
+  width: 100%;
+  accent-color: var(--primary);
+  margin-top: 6px;
+}
+
+.reasoning-pills {
+  display: flex;
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+}
+
+.reasoning-pill {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 4px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-transform: capitalize;
+  text-align: center;
+}
+
+.reasoning-pill.active {
+  background-color: var(--primary);
+  color: white;
+}
+
+.reasoning-info-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background-color: rgba(59, 130, 246, 0.05);
+  border: 1px solid rgba(59, 130, 246, 0.18);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.model-suggestions-box {
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.suggestions-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.suggestions-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.model-chip {
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-elevated);
+  color: var(--text-secondary);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.model-chip.active {
+  border-color: var(--primary);
+  background-color: rgba(59, 130, 246, 0.12);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.placeholders-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+}
+
+.placeholder-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.placeholder-tag {
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--primary);
+}
+
+.prompt-textarea {
+  width: 100%;
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  font-size: 12px;
+  color: var(--text-main);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.prompt-textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.studio-test-feedback {
+  background-color: rgba(16, 185, 129, 0.06);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.test-feedback-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-success);
+}
+
+.test-feedback-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-secondary);
+}
+
+/* Providers & Accounts Grid Styles */
 .section-card {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 24px;
-}
-
-.card-intro, .section-header-row {
-  margin-bottom: 20px;
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
 }
 
 .section-header-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  margin-bottom: 20px;
 }
 
-.card-intro h3, .section-header-row h3 {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.card-intro p, .section-header-row p {
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin-top: 2px;
-}
-
-.bindings-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.binding-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+.providers-grid, .accounts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
 }
 
-.binding-info {
-  flex: 1;
-}
-
-.binding-top {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.binding-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.recommended-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background-color: var(--bg-elevated);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-subtle);
-}
-
-.binding-desc {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-}
-
-.binding-active-state {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-}
-
-.binding-temp {
-  color: var(--text-muted);
-}
-
-.binding-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.probe-result-box {
-  margin-top: 20px;
-  padding: 14px 18px;
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-}
-
-.probe-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--status-offer-text);
-  margin-bottom: 6px;
-}
-
-.probe-body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: var(--text-main);
-}
-
-/* PROMPTS LAYOUT */
-.prompts-layout {
-  display: grid;
-  grid-template-columns: 260px 1fr;
-  background-color: var(--bg-surface);
+.provider-card, .account-card {
+  background-color: var(--bg-main);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  min-height: 480px;
-}
-
-.prompts-sidebar {
-  background-color: var(--bg-sidebar);
-  border-right: 1px solid var(--border-color);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.sidebar-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: 6px;
-}
-
-.prompt-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.prompt-nav-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 10px 12px;
   border-radius: var(--radius-sm);
-  text-align: left;
-  transition: all var(--transition-fast);
-  color: var(--text-secondary);
-}
-
-.prompt-nav-item:hover {
-  background-color: var(--bg-surface-hover);
-  color: var(--text-main);
-}
-
-.prompt-nav-item.active {
-  background-color: var(--bg-surface);
-  color: var(--text-main);
-  border: 1px solid var(--border-subtle);
-}
-
-.nav-item-title {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.nav-item-sub {
-  color: var(--text-muted);
-}
-
-.prompts-editor-pane {
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.editor-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.editor-header h3 {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.editor-header p {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 2px;
-}
-
-.editor-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.placeholders-box {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  font-size: 12px;
-}
-
-.placeholder-label {
-  color: var(--text-muted);
-}
-
-.placeholder-tag {
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  padding: 2px 8px;
-  border-radius: 4px;
-  color: var(--primary);
-  font-size: 11px;
-}
-
-.prompt-textarea {
-  width: 100%;
-  font-size: 13px;
-  line-height: 1.6;
-  resize: vertical;
-  min-height: 280px;
-}
-
-.providers-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 14px;
-}
-
-.provider-card {
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.provider-header {
+.provider-header, .account-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-.provider-title-group {
+.provider-title-group, .account-title-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 600;
   font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
 }
 
-.provider-body {
+.provider-body, .account-card-body {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   font-size: 12px;
 }
 
 .meta-row {
   display: flex;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .meta-k {
@@ -2146,9 +1844,11 @@ function formatLastSync(dateStr) {
 
 .meta-v {
   color: var(--text-main);
+  text-align: right;
+  word-break: break-all;
 }
 
-.provider-actions {
+.provider-actions, .account-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -2156,200 +1856,30 @@ function formatLastSync(dateStr) {
   margin-top: 4px;
 }
 
-.provider-probe-feedback {
+.provider-test-pill {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-}
-
-.label-with-hint {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.model-suggestions-box {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 4px;
-}
-
-.suggestions-label {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.suggestions-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  max-height: 100px;
-  overflow-y: auto;
-}
-
-.model-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  padding: 2px 7px;
   border-radius: 4px;
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.model-chip:hover {
-  background-color: var(--bg-surface-hover);
-  color: var(--text-main);
-  border-color: var(--primary);
-}
-
-.model-chip.active {
-  background-color: var(--primary-subtle);
-  color: var(--primary);
-  border-color: var(--primary);
-  font-weight: 600;
-}
-
-.model-chip.discovered {
-  border-color: var(--border-color);
-  color: var(--text-main);
-}
-
-.accounts-list {
-
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.account-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-}
-
-.account-title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 600;
-  background-color: var(--bg-backdrop);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-}
-
-.modal-card {
-  width: 100%;
-  max-width: 480px;
-  max-height: 90vh;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.modal-body {
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  overflow-y: auto;
-}
-
-.input-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.input-label {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.form-input {
-  width: 100%;
-}
-
-.field-hint {
-  font-size: 11px;
-  color: var(--text-muted, var(--text-secondary));
-  line-height: 1.5;
-  margin-top: 4px;
-}
-
-.hint-code {
-  font-family: monospace;
-  font-size: 10.5px;
-  padding: 1px 4px;
-  border-radius: 3px;
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-main);
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 8px;
-}
-
-.empty-state {
-  padding: 30px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
+  background-color: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  color: var(--text-success);
 }
 
 /* Preferences Grid */
 .preferences-grid {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 16px;
   margin-top: 16px;
 }
 
 .preference-card {
-  background-color: var(--bg-card);
+  background-color: var(--bg-main);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 18px 20px;
+  border-radius: var(--radius-sm);
+  padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -2361,711 +1891,249 @@ function formatLastSync(dateStr) {
   gap: 12px;
 }
 
-.preference-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-sm);
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
 .preference-title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--text-main);
-  margin-bottom: 2px;
 }
 
 .preference-desc {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
   line-height: 1.4;
+  margin-top: 2px;
 }
 
 .currency-chips-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
 }
 
 .currency-chip {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
+  padding: 6px 10px;
   border: 1px solid var(--border-color);
-  background-color: var(--bg-surface);
-  color: var(--text-secondary);
+  background-color: var(--bg-elevated);
+  border-radius: 4px;
   cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.currency-chip:hover {
-  border-color: var(--primary);
-  color: var(--text-main);
-  background-color: var(--bg-surface-hover);
 }
 
 .currency-chip.active {
-  background-color: rgba(99, 102, 241, 0.12);
   border-color: var(--primary);
-  color: var(--primary);
-  font-weight: 700;
+  background-color: rgba(59, 130, 246, 0.12);
 }
 
 .chip-code {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-main);
 }
 
 .chip-symbol {
-  font-size: 12px;
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-}
-
-.currency-chip.active .chip-symbol {
+  font-size: 11px;
   color: var(--primary);
+  font-family: monospace;
 }
 
 .view-mode-toggle-row {
   display: flex;
-  gap: 10px;
+  gap: 8px;
 }
 
 .view-mode-option {
-  display: inline-flex;
+  flex: 1;
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border-radius: var(--radius-sm);
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
   border: 1px solid var(--border-color);
-  background-color: var(--bg-surface);
+  background-color: var(--bg-elevated);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
   cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.view-mode-option:hover {
-  border-color: var(--border-subtle);
-  color: var(--text-main);
 }
 
 .view-mode-option.active {
-  background-color: rgba(99, 102, 241, 0.12);
   border-color: var(--primary);
+  background-color: rgba(59, 130, 246, 0.12);
   color: var(--primary);
-  font-weight: 600;
 }
 
-/* Email Accounts Management Styles */
-.account-details-sub {
+/* Modals */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.6);
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 4px;
+  justify-content: center;
+  z-index: 200;
 }
 
-.sync-schedule-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--primary);
-  background-color: rgba(99, 102, 241, 0.1);
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-family: var(--font-mono);
-}
-
-.modal-lg {
-  max-width: 620px;
+.modal-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   width: 100%;
+  max-width: 480px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-card.modal-lg {
+  max-width: 580px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.btn-close {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.input-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.label-with-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.form-input {
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-main);
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .provider-presets-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin-top: 6px;
-}
-
-@media (max-width: 640px) {
-  .provider-presets-grid {
-    grid-template-columns: 1fr;
-  }
+  gap: 8px;
 }
 
 .provider-preset-card {
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-main);
+  border-radius: var(--radius-sm);
+  padding: 10px 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 14px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-surface);
+  gap: 6px;
   cursor: pointer;
-  transition: all var(--transition-fast);
-  gap: 8px;
-}
-
-.provider-preset-card:hover {
-  border-color: var(--border-subtle);
-  background-color: var(--bg-surface-hover);
 }
 
 .provider-preset-card.active {
   border-color: var(--primary);
-  background-color: rgba(99, 102, 241, 0.08);
-}
-
-.preset-icon {
-  width: 38px;
-  height: 38px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.gmail-icon {
-  background-color: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
-}
-
-.outlook-icon {
-  background-color: rgba(59, 130, 246, 0.15);
-  color: #3b82f6;
-}
-
-.imap-icon {
-  background-color: rgba(168, 85, 247, 0.15);
-  color: #a855f7;
-}
-
-.preset-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  background-color: rgba(59, 130, 246, 0.08);
 }
 
 .preset-name {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   color: var(--text-main);
 }
 
 .preset-sub {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-muted);
 }
 
 .auth-method-toggle {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-top: 6px;
+  display: flex;
+  gap: 6px;
 }
 
 .auth-toggle-btn {
-  display: inline-flex;
+  flex: 1;
+  display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: var(--radius-sm);
+  padding: 8px 10px;
   border: 1px solid var(--border-color);
-  background-color: var(--bg-surface);
+  background-color: var(--bg-main);
+  border-radius: 4px;
+  font-size: 11px;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.auth-toggle-btn:hover {
-  border-color: var(--border-subtle);
-  color: var(--text-main);
 }
 
 .auth-toggle-btn.active {
   border-color: var(--primary);
-  background-color: rgba(99, 102, 241, 0.12);
   color: var(--primary);
   font-weight: 600;
-}
-
-.auth-badge {
-  display: inline-block;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 3px;
-  vertical-align: middle;
-  margin-left: 2px;
 }
 
 .auth-badge.recommended {
-  background-color: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
-  border: 1px solid rgba(34, 197, 94, 0.25);
-}
-
-.oauth-inline-guide {
-  padding: 10px 12px;
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  margin-bottom: 2px;
-}
-
-.oauth-inline-guide-header {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-}
-
-.form-row-2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-@media (max-width: 550px) {
-  .form-row-2 {
-    grid-template-columns: 1fr;
-  }
-}
-
-.oauth-fields-card,
-.imap-fields-card,
-.schedule-section-card {
-  padding: 12px 14px;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  margin-bottom: 14px;
-}
-
-.oauth-card-header,
-.schedule-header-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-main);
-  margin-bottom: 10px;
-}
-
-.form-select {
-  width: 100%;
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-surface);
-  color: var(--text-main);
-  font-size: 13px;
-}
-
-.active-toggle-row {
-  margin-top: 6px;
-  margin-bottom: 16px;
-}
-
-.checkbox-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.modal-danger .modal-title {
-  color: #ef4444;
-}
-
-.modal-warn-text {
-  font-size: 14px;
-  color: var(--text-main);
-  margin-bottom: 8px;
-  line-height: 1.5;
-}
-
-.oauth-guide-details {
-  margin-top: 4px;
-  margin-bottom: 2px;
-}
-
-.oauth-guide-summary {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-  padding: 4px 0;
-  transition: color var(--transition-fast);
-}
-
-.oauth-guide-summary::-webkit-details-marker {
-  display: none;
-}
-
-.oauth-guide-summary:hover {
-  color: var(--text-main);
-}
-
-.oauth-guide-chevron {
-  margin-left: auto;
-  transition: transform var(--transition-fast);
-}
-
-.oauth-guide-details[open] .oauth-guide-chevron {
-  transform: rotate(180deg);
-}
-
-.oauth-guide-body {
-  margin-top: 8px;
-  padding: 10px 12px;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-}
-
-.oauth-steps {
-  padding-left: 16px;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.oauth-steps li {
-  font-size: 11.5px;
-  color: var(--text-secondary);
-  line-height: 1.55;
-}
-
-.oauth-steps li strong {
-  color: var(--text-main);
-  font-weight: 600;
-}
-
-.oauth-guide-link {
-  color: var(--accent);
-  text-decoration: none;
-}
-
-.oauth-guide-link:hover {
-  text-decoration: underline;
-}
-
-.oauth-redirect-uri {
-  display: inline-block;
-  margin-top: 3px;
-  font-size: 10.5px;
-  padding: 2px 6px;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: 3px;
-  color: var(--text-main);
-  font-family: monospace;
-  word-break: break-all;
-}
-
-.btn-oauth-action {
-  width: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 10px 16px;
-  font-weight: 600;
-}
-
-.app-pass-hint-link {
-  font-size: 11px;
-  color: var(--primary);
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  text-decoration: none;
-}
-
-.app-pass-hint-link:hover {
-  text-decoration: underline;
-}
-
-.schedule-24h-box {
-  background-color: var(--bg-surface-hover);
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-subtle);
-}
-
-.folder-chips {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 6px;
-}
-
-.folder-chips-label {
-  font-size: 10.5px;
-  color: var(--text-muted);
-}
-
-.folder-chip {
-  font-size: 11px;
-  font-weight: 500;
-  padding: 2px 7px;
-  border-radius: 4px;
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-surface);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.folder-chip:hover {
-  border-color: var(--border-subtle);
-  color: var(--text-main);
-}
-
-.folder-chip.active {
-  border-color: var(--primary);
-  background-color: rgba(99, 102, 241, 0.1);
-  color: var(--primary);
-  font-weight: 600;
-}
-
-.folder-guide-callout {
-  padding: 10px 12px;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-}
-
-.folder-guide-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-
-.folder-guide-title {
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.folder-guide-text {
-  font-size: 11px;
-  color: var(--text-secondary);
-  line-height: 1.45;
-  margin-bottom: 6px;
-}
-
-.folder-guide-tips {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.folder-guide-tip {
-  font-size: 11px;
-  color: var(--text-secondary);
-  line-height: 1.45;
-}
-
-.tip-provider {
-  font-weight: 600;
-  color: var(--text-main);
-  margin-right: 4px;
-}
-
-.time-spinners-24h {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.time-dropdown {
-  flex: 1;
-}
-
-.time-sep {
-  font-weight: bold;
-  color: var(--text-muted);
-}
-
-.presets-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.preset-chips-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.time-preset-chip {
-  padding: 3px 8px;
-  font-size: 11px;
-  border-radius: 4px;
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-surface);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.time-preset-chip:hover {
-  border-color: var(--primary);
-  color: var(--text-main);
-}
-
-.time-preset-chip.active {
-  background-color: rgba(99, 102, 241, 0.15);
-  border-color: var(--primary);
-  color: var(--primary);
+  background-color: var(--status-interview-text);
+  color: #000;
+  font-size: 9px;
   font-weight: 700;
-}
-
-/* Provider Connection Guide Accordion */
-.connection-guide-accordion {
-  margin-top: 10px;
-  margin-bottom: 14px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-subtle);
-  background-color: var(--bg-surface);
-  overflow: hidden;
-}
-
-.guide-toggle-header {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 9px 12px;
-  background-color: var(--bg-surface);
-  border: none;
-  cursor: pointer;
-  transition: background-color var(--transition-fast);
-}
-
-.guide-toggle-header:hover {
-  background-color: var(--bg-surface-hover);
-}
-
-.guide-header-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.guide-toggle-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.guide-arrow {
-  color: var(--text-muted);
-}
-
-.guide-content-body {
-  padding: 12px 14px;
-  border-top: 1px solid var(--border-subtle);
-  background-color: var(--bg-canvas);
-}
-
-.guide-steps-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.guide-step-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 6px;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-}
-
-.step-badge {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background-color: rgba(16, 185, 129, 0.15);
-  color: #10b981;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-.step-badge.oauth {
-  background-color: rgba(99, 102, 241, 0.15);
-  color: #6366f1;
-}
-
-.step-details {
-  font-size: 12px;
-  color: var(--text-main);
-  line-height: 1.4;
-}
-
-.step-sublist {
-  margin-top: 6px;
-  padding-left: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.step-sublist code {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  background-color: var(--bg-surface-hover);
   padding: 1px 4px;
   border-radius: 3px;
-  color: var(--primary);
 }
 
-.guide-link {
-  color: var(--primary);
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  text-decoration: underline;
+.empty-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--text-muted);
+  font-size: 13px;
 }
 </style>
