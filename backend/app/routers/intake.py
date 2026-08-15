@@ -3,12 +3,13 @@ import hashlib
 import logging
 from typing import Any, Optional
 import uuid
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile, status
 import httpx
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.models.applications import ApplicationEventModel, ApplicationModel, CompanyModel, JobPostingModel
 from app.models.email_accounts import EmailAccountModel
@@ -31,6 +32,26 @@ from app.services.task_tracker import task_tracker
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/intake", tags=["Intake"])
+
+
+@router.get("/extension-config")
+async def get_extension_config(request: Request):
+    """Programmatically returns the exact exposed backend endpoint URL for browser extensions."""
+    if settings.PUBLIC_API_URL:
+        base_url = settings.PUBLIC_API_URL.rstrip("/")
+    else:
+        forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+        forwarded_host = (
+            request.headers.get("x-forwarded-host")
+            or request.headers.get("host")
+            or f"{request.url.hostname}:{request.url.port}"
+        )
+        base_url = f"{forwarded_proto}://{forwarded_host}"
+
+    return {
+        "extension_ingest_url": f"{base_url}/api/v1/intake/assess-job",
+        "api_base_url": f"{base_url}/api/v1",
+    }
 
 
 class SyncFolderRequest(BaseModel):
@@ -165,6 +186,10 @@ async def assess_job_lead(
 ) -> JobAssessmentResult:
     """Pre-screens a job lead (via URL or pasted JD text) using AI assessment."""
     content = payload.text
+    if not content and payload.raw_html:
+        from app.routers.extension import _extract_text_from_html
+        content = _extract_text_from_html(payload.raw_html)
+
     if not content and payload.url:
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -181,7 +206,7 @@ async def assess_job_lead(
     if not content or not content.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Please provide a valid job description text or reachable URL.",
+            detail="Please provide a valid job description text, raw HTML DOM, or reachable URL.",
         )
 
     # 1. Fetch candidate's active CV skills if available

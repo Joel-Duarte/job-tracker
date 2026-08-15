@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -9,6 +10,9 @@ class Settings(BaseSettings):
 
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "DEBUG"
+
+    # Public exposed API base URL (for Docker port forwarding or reverse proxy)
+    PUBLIC_API_URL: Optional[str] = None
 
     # Embedding Service Configuration
     EMBEDDING_API_URL: str = "http://localhost:1234/v1/embeddings"

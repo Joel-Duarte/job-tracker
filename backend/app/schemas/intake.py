@@ -98,6 +98,7 @@ class PasteIntakeRequest(BaseModel):
 class AssessJobRequest(BaseModel):
     text: Optional[str] = Field(default=None, description="Job description or requirements text")
     url: Optional[str] = Field(default=None, description="Job posting URL")
+    raw_html: Optional[str] = Field(default=None, description="Optional raw HTML DOM captured by browser extension")
 
 
 class ConfirmAssessmentRequest(BaseModel):
