@@ -9,8 +9,7 @@ import {
   Bot,
   Settings,
   Plus,
-  Sun,
-  Moon,
+  Palette,
   Inbox,
   Sparkles,
   FileInput,
@@ -165,10 +164,9 @@ onMounted(() => {
       <button
         class="btn-icon theme-toggle"
         @click="uiStore.toggleTheme"
-        :title="uiStore.theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'"
+        :title="'Current theme: ' + uiStore.theme"
       >
-        <Sun v-if="uiStore.theme === 'dark'" :size="17" />
-        <Moon v-else :size="17" />
+        <Palette :size="17" />
       </button>
     </div>
   </header>
@@ -179,7 +177,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 56px;
+  height: var(--navbar-height);
   padding: 0 24px;
   background-color: var(--bg-sidebar);
   border-bottom: 1px solid var(--border-color);
@@ -197,7 +195,7 @@ onMounted(() => {
 .nav-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   font-weight: 700;
   font-size: 16px;
   letter-spacing: -0.02em;
@@ -208,8 +206,8 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
@@ -219,16 +217,16 @@ onMounted(() => {
 .nav-links {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
 .nav-link {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
+  gap: 6px;
+  padding: 4px 8px;
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
   transition: all var(--transition-fast);
@@ -243,32 +241,34 @@ onMounted(() => {
 .nav-link.active {
   color: var(--text-main);
   background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  border-bottom: 2px solid var(--primary);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .nav-badge {
   background-color: var(--status-interview-text);
-  color: #000;
+  color: var(--bg-main);
   font-size: 10px;
   font-weight: 700;
-  padding: 1px 6px;
+  padding: 1px 4px;
   border-radius: var(--radius-full);
 }
 
 .nav-badge-pulse {
   background-color: var(--primary);
-  color: white;
+  color: #fff;
   animation: pulse-glow 2s infinite ease-in-out;
 }
 
 @keyframes pulse-glow {
   0%, 100% {
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.6);
+    box-shadow: 0 0 0 0 var(--primary-glow);
   }
   50% {
     transform: scale(1.08);
-    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0);
+    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0);
   }
 }
 

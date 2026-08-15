@@ -153,10 +153,10 @@ function startEdit(item) {
         <span>Loading staging items...</span>
       </div>
 
-      <div v-else-if="stagingItems.length === 0" class="empty-box">
-        <Inbox :size="48" class="empty-icon" />
-        <h3 class="empty-title">Staging Queue is Clean</h3>
-        <p class="empty-desc">No items currently waiting for manual approval.</p>
+      <div v-else-if="stagingItems.length === 0" class="empty-state-box">
+        <Inbox :size="48" class="empty-state-icon" />
+        <h3 class="empty-state-title">Staging Queue is Clean</h3>
+        <p class="empty-state-desc">No items currently waiting for manual approval.</p>
       </div>
 
       <div v-else class="staging-grid">
@@ -199,21 +199,23 @@ function startEdit(item) {
 
           <!-- Action Buttons -->
           <div class="card-actions">
-            <button
-              class="btn btn-secondary btn-sm"
-              @click="startEdit(item)"
-            >
-              <Edit3 :size="14" />
-              <span>Edit</span>
-            </button>
+            <div class="flex items-center gap-2">
+              <button
+                class="btn btn-secondary btn-sm"
+                @click="startEdit(item)"
+              >
+                <Edit3 :size="14" />
+                <span>Edit</span>
+              </button>
 
-            <button
-              class="btn btn-danger btn-sm"
-              @click="dismissItem(item)"
-            >
-              <XCircle :size="14" />
-              <span>Dismiss</span>
-            </button>
+              <button
+                class="btn btn-danger btn-sm"
+                @click="dismissItem(item)"
+              >
+                <XCircle :size="14" />
+                <span>Dismiss</span>
+              </button>
+            </div>
 
             <div class="ml-auto flex items-center gap-2">
               <template v-if="item.match_reason === 'DUPLICATE_APPLICATION_FOUND'">
@@ -314,18 +316,24 @@ function startEdit(item) {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 24px;
+  gap: 20px;
+  flex-wrap: wrap;
 }
 
 .page-title {
+  font-family: var(--font-heading);
   font-size: 20px;
-  font-weight: 700;
+  font-weight: var(--font-heading-weight);
   color: var(--text-main);
+  letter-spacing: var(--font-tracking);
 }
 
 .page-subtitle {
   font-size: 13px;
   color: var(--text-secondary);
   margin-top: 2px;
+  max-width: 650px;
+  line-height: 1.5;
 }
 
 .filter-pills {
@@ -335,6 +343,7 @@ function startEdit(item) {
   border-radius: var(--radius-sm);
   padding: 3px;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .pill-btn {
@@ -351,7 +360,7 @@ function startEdit(item) {
   color: var(--text-main);
 }
 
-.loading-state, .empty-box {
+.loading-state {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -359,21 +368,6 @@ function startEdit(item) {
   padding: 60px 0;
   color: var(--text-secondary);
   gap: 12px;
-}
-
-.empty-icon {
-  color: var(--text-muted);
-}
-
-.empty-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.empty-desc {
-  font-size: 13px;
-  color: var(--text-muted);
 }
 
 .staging-grid {
@@ -384,12 +378,13 @@ function startEdit(item) {
 
 .staging-card {
   background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  box-shadow: var(--card-shadow);
 }
 
 .card-top {
@@ -455,6 +450,7 @@ function startEdit(item) {
 .card-actions {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   margin-top: 4px;
 }

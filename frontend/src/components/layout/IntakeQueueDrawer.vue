@@ -72,7 +72,8 @@ const STAGES = {
     </div>
 
     <!-- Expanded Drawer Content -->
-    <div v-if="uiStore.isQueueDrawerOpen" class="queue-body">
+    <Transition name="expand">
+      <div v-if="uiStore.isQueueDrawerOpen" class="queue-body">
       <div v-for="item in queue" :key="item.id" class="queue-item" :class="`item-${item.status}`">
         <div class="item-top">
           <div class="item-title-group">
@@ -118,7 +119,8 @@ const STAGES = {
           ></div>
         </div>
       </div>
-    </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -129,10 +131,10 @@ const STAGES = {
   right: 24px;
   width: 360px;
   max-width: calc(100vw - 32px);
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  border: var(--card-border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--card-shadow);
   z-index: 550;
   overflow: hidden;
 }
@@ -168,7 +170,7 @@ const STAGES = {
 }
 
 @keyframes pulse-ring {
-  0% { box-shadow: 0 0 0 0 var(--primary-subtle); }
+  0% { box-shadow: 0 0 0 0 var(--primary-glow); }
   70% { box-shadow: 0 0 0 6px rgba(0, 0, 0, 0); }
   100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
 }
@@ -319,5 +321,25 @@ const STAGES = {
   height: 100%;
   background-color: var(--primary);
   transition: width 0.4s ease;
+}
+
+.expand-enter-active,
+.expand-leave-active {
+  transition: max-height var(--transition-smooth), padding var(--transition-smooth), opacity var(--transition-smooth);
+  overflow: hidden;
+}
+.expand-enter-from,
+.expand-leave-to {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+}
+.expand-enter-to,
+.expand-leave-from {
+  max-height: 280px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  opacity: 1;
 }
 </style>

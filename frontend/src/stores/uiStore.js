@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 export const useUIStore = defineStore('ui', () => {
-  const theme = ref(localStorage.getItem('jt_theme') || 'dark')
+  const theme = ref(localStorage.getItem('jt_theme') || 'midnight')
   const viewMode = ref(localStorage.getItem('jt_view_mode') || 'kanban') // 'kanban' | 'table'
   const isIngestModalOpen = ref(false)
   const isCommandPaletteOpen = ref(false)
@@ -28,10 +28,49 @@ export const useUIStore = defineStore('ui', () => {
     toast.value.show = false
   }
 
+  const customDarkBg = ref(localStorage.getItem('jt_custom_dark_bg') || '')
+  const customLightBg = ref(localStorage.getItem('jt_custom_light_bg') || '')
+
+  function applyCustomBg() {
+    const activeCustom = theme.value === 'midnight' ? customDarkBg.value : customLightBg.value
+    if (activeCustom) {
+      document.documentElement.style.setProperty('--bg-app', activeCustom)
+    } else {
+      document.documentElement.style.removeProperty('--bg-app')
+    }
+  }
+
+  function setTheme(newTheme) {
+    theme.value = newTheme
+    localStorage.setItem('jt_theme', newTheme)
+    document.documentElement.className = newTheme
+    applyCustomBg()
+  }
+
   function toggleTheme() {
-    theme.value = theme.value === 'dark' ? 'light' : 'dark'
-    localStorage.setItem('jt_theme', theme.value)
-    document.documentElement.className = theme.value
+    setTheme(theme.value === 'midnight' ? 'daylight' : 'midnight')
+  }
+
+  function setCustomBg(themeName, colorHex) {
+    if (themeName === 'midnight') {
+      customDarkBg.value = colorHex
+      localStorage.setItem('jt_custom_dark_bg', colorHex)
+    } else {
+      customLightBg.value = colorHex
+      localStorage.setItem('jt_custom_light_bg', colorHex)
+    }
+    applyCustomBg()
+  }
+
+  function resetCustomBg(themeName) {
+    if (themeName === 'midnight') {
+      customDarkBg.value = ''
+      localStorage.removeItem('jt_custom_dark_bg')
+    } else {
+      customLightBg.value = ''
+      localStorage.removeItem('jt_custom_light_bg')
+    }
+    applyCustomBg()
   }
 
   function setViewMode(mode) {
@@ -102,11 +141,16 @@ export const useUIStore = defineStore('ui', () => {
     localStorage.setItem('jt_currency', curr)
   }
 
-  // Initialize root class
+  // Initialize root class and custom background
   document.documentElement.className = theme.value
+  applyCustomBg()
 
   return {
     theme,
+    customDarkBg,
+    customLightBg,
+    setCustomBg,
+    resetCustomBg,
     viewMode,
     defaultCurrency,
     SUPPORTED_CURRENCIES,
@@ -118,6 +162,7 @@ export const useUIStore = defineStore('ui', () => {
     toast,
     showToast,
     hideToast,
+    setTheme,
     toggleTheme,
     setViewMode,
     setDefaultCurrency,

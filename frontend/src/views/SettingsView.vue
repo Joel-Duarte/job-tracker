@@ -28,6 +28,7 @@ import {
   Globe,
   Sun,
   Moon,
+  Palette,
   Kanban,
   Table as TableIcon,
   Clock,
@@ -78,8 +79,6 @@ const providerModelsCache = ref({})
 const loadingStudioModels = ref(false)
 const isSavingStudio = ref(false)
 const isResettingPrompt = ref(false)
-const testingStudioTask = ref(false)
-const studioTestResult = ref(null)
 
 const TASKS = [
   {
@@ -224,7 +223,6 @@ function syncStudioForm() {
     studioForm.value.prompt_template = ''
   }
 
-  studioTestResult.value = null
   fetchStudioModels(chosenProviderId)
 }
 
@@ -348,22 +346,6 @@ async function resetStudioPrompt() {
   }
 }
 
-async function testStudioTask() {
-  testingStudioTask.value = true
-  studioTestResult.value = null
-  const taskKey = selectedTaskKey.value
-
-  try {
-    const res = await AIConfigAPI.testBinding(taskKey)
-    studioTestResult.value = res.data
-    uiStore.showToast(`Task connectivity probe verified for '${activeTaskDef.value.label}'!`, 'success')
-  } catch (err) {
-    uiStore.showToast(err.message || 'Probe execution failed', 'error')
-  } finally {
-    testingStudioTask.value = false
-  }
-}
-
 // --------------------------------------------------------------------------
 // AI Providers State & CRUD
 // --------------------------------------------------------------------------
@@ -457,10 +439,19 @@ async function testProviderDirect(provider) {
   providerTestResults.value[provider.id] = null
   try {
     const res = await AIConfigAPI.testProvider(provider.id)
-    providerTestResults.value[provider.id] = res.data
-    uiStore.showToast(`Provider '${provider.name}' connection verified!`, 'success')
+    const isWarning = res.data?.status === 'warning'
+    providerTestResults.value[provider.id] = {
+      status: isWarning ? 'warning' : 'success',
+      message: isWarning ? res.data.response : 'Success (Connected)',
+    }
+    uiStore.showToast(isWarning ? res.data.response : `Provider '${provider.name}' connection verified!`, isWarning ? 'warning' : 'success')
   } catch (err) {
-    uiStore.showToast(err.message, 'error')
+    const errMsg = err.response?.data?.detail || err.message || 'Connection failed'
+    providerTestResults.value[provider.id] = {
+      status: 'error',
+      message: errMsg,
+    }
+    uiStore.showToast(errMsg, 'error')
   } finally {
     testingProviderId.value = null
   }
@@ -881,17 +872,6 @@ onMounted(async () => {
               </button>
 
               <button
-                class="btn btn-secondary btn-sm"
-                :disabled="testingStudioTask"
-                @click="testStudioTask"
-                title="Test current model binding and probe response"
-              >
-                <Loader2 v-if="testingStudioTask" class="animate-spin" :size="14" />
-                <Play v-else :size="14" />
-                <span>Test Probe</span>
-              </button>
-
-              <button
                 class="btn btn-primary btn-sm"
                 :disabled="isSavingStudio"
                 @click="saveStudioTask"
@@ -928,43 +908,42 @@ onMounted(async () => {
                 <div class="label-with-hint">
                   <label class="input-label">Model Identifier *</label>
                   <button
+                    v-if="studioForm.provider_id"
                     type="button"
                     class="btn-refresh-models"
-                    :disabled="loadingStudioModels || !studioForm.provider_id"
+                    :disabled="loadingStudioModels"
                     @click="fetchStudioModels(studioForm.provider_id, true)"
-                    title="Refresh models from provider"
+                    title="Auto-discover models from live endpoint"
                   >
-                    <Loader2 v-if="loadingStudioModels" class="animate-spin" :size="12" />
-                    <RefreshCw v-else :size="12" />
-                    <span>{{ loadingStudioModels ? 'Discovering...' : 'Refresh Models' }}</span>
+                    <RefreshCw :class="{ 'animate-spin': loadingStudioModels }" :size="12" />
+                    <span>{{ loadingStudioModels ? 'Discovering...' : 'Auto-Discover' }}</span>
                   </button>
                 </div>
+
                 <input
                   v-model="studioForm.model_name"
                   type="text"
-                  :placeholder="selectedTaskKey === 'EMBEDDING' ? 'e.g. text-embedding-3-small, nomic-embed-text' : 'e.g. qwen3.5-4b, claude-3-5-sonnet-20241022'"
+                  placeholder="e.g. gpt-4o, claude-3-7-sonnet, deepseek-r1"
                   class="form-input font-mono"
                   required
                 />
               </div>
             </div>
 
-            <!-- Discovered Model Suggestions Chips -->
-            <div v-if="filteredStudioModels.length > 0" class="model-suggestions-box">
-              <span class="suggestions-label">
-                {{ selectedTaskKey === 'EMBEDDING' ? 'Suggested Embedding Models:' : 'Provider Models:' }}
-              </span>
+            <!-- Curated / Discovered Models Quick Pick Chips -->
+            <div v-if="studioProviderModels.length" class="model-suggestions-box">
+              <span class="suggestions-label">Discovered / Available Models on Provider:</span>
               <div class="suggestions-list">
                 <button
-                  v-for="m in filteredStudioModels"
+                  v-for="m in studioProviderModels"
                   :key="m.id"
                   type="button"
                   class="model-chip font-mono"
-                  :class="{ active: studioForm.model_name === m.id, discovered: m.is_discovered }"
-                  @click="selectStudioSuggestedModel(m.id)"
+                  :class="{ active: studioForm.model_name === m.id }"
+                  @click="studioForm.model_name = m.id"
                 >
-                  <Sparkles v-if="m.is_discovered" :size="10" />
-                  <span>{{ m.name }}</span>
+                  <Check v-if="studioForm.model_name === m.id" :size="11" />
+                  <span>{{ m.id }}</span>
                 </button>
               </div>
             </div>
@@ -994,19 +973,23 @@ onMounted(async () => {
                   <label class="input-label">Sampling Temperature</label>
                   <span class="font-mono text-xs font-semibold text-primary">{{ studioForm.temperature }}</span>
                 </div>
-                <input
-                  v-model.number="studioForm.temperature"
-                  type="range"
-                  step="0.05"
-                  min="0.0"
-                  max="1.0"
-                  class="form-range"
-                />
+                <div class="form-range-container">
+                  <input
+                    v-model.number="studioForm.temperature"
+                    type="range"
+                    step="0.05"
+                    min="0.0"
+                    max="1.0"
+                    class="form-range"
+                  />
+                </div>
               </div>
 
               <!-- Thinking / Reasoning Mode Segmented Control -->
               <div class="input-group">
-                <label class="input-label">Thinking / Reasoning Mode</label>
+                <div class="label-with-hint">
+                  <label class="input-label">Thinking / Reasoning Mode</label>
+                </div>
                 <div class="reasoning-pills">
                   <button
                     v-for="effort in ['none', 'low', 'medium', 'high']"
@@ -1086,19 +1069,6 @@ onMounted(async () => {
               placeholder="Enter prompt template instructions..."
             ></textarea>
           </div>
-
-          <!-- Section 3: Probe Test Result -->
-          <div v-if="studioTestResult" class="studio-test-feedback animate-fade-in">
-            <div class="test-feedback-header">
-              <CheckCircle :size="16" class="text-success" />
-              <span class="font-semibold">Connectivity Probe Verified for {{ studioTestResult.task_type }}</span>
-            </div>
-            <div class="test-feedback-body font-mono text-xs">
-              <div><strong>Provider:</strong> {{ studioTestResult.provider_name }} ({{ studioTestResult.provider_type }})</div>
-              <div><strong>Model:</strong> {{ studioTestResult.model_name }}</div>
-              <div><strong>Probe Output:</strong> {{ studioTestResult.response }}</div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -1147,10 +1117,11 @@ onMounted(async () => {
                 class="btn btn-secondary btn-sm"
                 :disabled="testingProviderId === p.id"
                 @click="testProviderDirect(p)"
+                title="Ping endpoint to verify connectivity"
               >
                 <Loader2 v-if="testingProviderId === p.id" class="animate-spin" :size="14" />
-                <Play v-else :size="14" />
-                <span>Test Probe</span>
+                <Zap v-else :size="14" />
+                <span>Ping Provider</span>
               </button>
 
               <button class="btn btn-secondary btn-sm" @click="openEditProvider(p)">
@@ -1164,9 +1135,15 @@ onMounted(async () => {
             </div>
 
             <!-- Provider Test Result -->
-            <div v-if="providerTestResults[p.id]" class="provider-test-pill animate-fade-in">
-              <CheckCircle :size="13" class="text-success" />
-              <span class="font-mono text-xs">{{ providerTestResults[p.id].response }}</span>
+            <div
+              v-if="providerTestResults[p.id]"
+              class="provider-test-pill animate-fade-in"
+              :class="`is-${providerTestResults[p.id].status}`"
+            >
+              <CheckCircle v-if="providerTestResults[p.id].status === 'success'" :size="13" class="text-success" />
+              <AlertCircle v-else-if="providerTestResults[p.id].status === 'warning'" :size="13" class="text-warning" />
+              <AlertCircle v-else :size="13" class="text-danger" />
+              <span class="font-mono text-xs">{{ providerTestResults[p.id].message }}</span>
             </div>
           </div>
 
@@ -1315,6 +1292,173 @@ onMounted(async () => {
               >
                 <TableIcon :size="16" />
                 <span>Data Table</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Appearance Theme Setting Card -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <Palette :size="18" />
+              </div>
+              <div>
+                <h4 class="preference-title">Interface Appearance Theme</h4>
+                <p class="preference-desc">Switch between the refined dark slate Midnight theme and the warm studio Daylight theme.</p>
+              </div>
+            </div>
+
+            <div class="view-mode-toggle-row">
+              <button
+                type="button"
+                class="view-mode-option"
+                :class="{ active: uiStore.theme === 'midnight' }"
+                @click="uiStore.setTheme('midnight')"
+              >
+                <Moon :size="16" />
+                <span>Midnight (Dark Slate)</span>
+              </button>
+              <button
+                type="button"
+                class="view-mode-option"
+                :class="{ active: uiStore.theme === 'daylight' }"
+                @click="uiStore.setTheme('daylight')"
+              >
+                <Sun :size="16" />
+                <span>Daylight (Warm Studio)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Custom Background Color Picker Card -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <Palette :size="18" />
+              </div>
+              <div>
+                <h4 class="preference-title">Custom Canvas Background</h4>
+                <p class="preference-desc">
+                  Customize the background color for <strong>{{ uiStore.theme === 'midnight' ? 'Midnight (Dark)' : 'Daylight (Light)' }}</strong> theme.
+                </p>
+              </div>
+            </div>
+
+            <!-- Swatches for active theme -->
+            <div class="swatches-container">
+              <span class="swatches-label">Quick Presets:</span>
+              <div v-if="uiStore.theme === 'midnight'" class="swatches-grid">
+                <button
+                  type="button"
+                  class="swatch-btn"
+                  :class="{ active: !uiStore.customDarkBg || uiStore.customDarkBg === '#0b0f19' }"
+                  title="Deep Charcoal (Default)"
+                  @click="uiStore.resetCustomBg('midnight')"
+                >
+                  <span class="swatch-preview" style="background-color: #0b0f19;"></span>
+                  <span class="swatch-name">Charcoal</span>
+                </button>
+                <button
+                  type="button"
+                  class="swatch-btn"
+                  :class="{ active: uiStore.customDarkBg === '#000000' }"
+                  title="Pure OLED Black"
+                  @click="uiStore.setCustomBg('midnight', '#000000')"
+                >
+                  <span class="swatch-preview" style="background-color: #000000;"></span>
+                  <span class="swatch-name">OLED Black</span>
+                </button>
+                <button
+                  type="button"
+                  class="swatch-btn"
+                  :class="{ active: uiStore.customDarkBg === '#0a1120' }"
+                  title="Midnight Navy"
+                  @click="uiStore.setCustomBg('midnight', '#0a1120')"
+                >
+                  <span class="swatch-preview" style="background-color: #0a1120;"></span>
+                  <span class="swatch-name">Navy</span>
+                </button>
+                <button
+                  type="button"
+                  class="swatch-btn"
+                  :class="{ active: uiStore.customDarkBg === '#12161f' }"
+                  title="Slate Gunmetal"
+                  @click="uiStore.setCustomBg('midnight', '#12161f')"
+                >
+                  <span class="swatch-preview" style="background-color: #12161f;"></span>
+                  <span class="swatch-name">Gunmetal</span>
+                </button>
+              </div>
+
+              <div v-else class="swatches-grid">
+                <button
+                  type="button"
+                  class="swatch-btn"
+                  :class="{ active: !uiStore.customLightBg || uiStore.customLightBg === '#faf8f5' }"
+                  title="Warm Studio Cream (Default)"
+                  @click="uiStore.resetCustomBg('daylight')"
+                >
+                  <span class="swatch-preview" style="background-color: #faf8f5;"></span>
+                  <span class="swatch-name">Cream</span>
+                </button>
+                <button
+                  type="button"
+                  class="swatch-btn"
+                  :class="{ active: uiStore.customLightBg === '#ffffff' }"
+                  title="Pure Paper White"
+                  @click="uiStore.setCustomBg('daylight', '#ffffff')"
+                >
+                  <span class="swatch-preview" style="background-color: #ffffff;"></span>
+                  <span class="swatch-name">Paper White</span>
+                </button>
+                <button
+                  type="button"
+                  class="swatch-btn"
+                  :class="{ active: uiStore.customLightBg === '#f4f4f7' }"
+                  title="Soft Slate Gray"
+                  @click="uiStore.setCustomBg('daylight', '#f4f4f7')"
+                >
+                  <span class="swatch-preview" style="background-color: #f4f4f7;"></span>
+                  <span class="swatch-name">Slate Gray</span>
+                </button>
+                <button
+                  type="button"
+                  class="swatch-btn"
+                  :class="{ active: uiStore.customLightBg === '#f9f6f0' }"
+                  title="Warm Alabaster"
+                  @click="uiStore.setCustomBg('daylight', '#f9f6f0')"
+                >
+                  <span class="swatch-preview" style="background-color: #f9f6f0;"></span>
+                  <span class="swatch-name">Alabaster</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Custom Picker Input -->
+            <div class="custom-color-row">
+              <input
+                type="color"
+                class="color-input-picker"
+                :value="uiStore.theme === 'midnight' ? (uiStore.customDarkBg || '#0b0f19') : (uiStore.customLightBg || '#faf8f5')"
+                title="Choose custom background color"
+                @input="e => uiStore.setCustomBg(uiStore.theme, e.target.value)"
+              />
+              <input
+                type="text"
+                class="form-input font-mono"
+                style="max-width: 140px; text-transform: uppercase;"
+                placeholder="#HEX"
+                :value="uiStore.theme === 'midnight' ? (uiStore.customDarkBg || '#0B0F19') : (uiStore.customLightBg || '#FAF8F5')"
+                @change="e => uiStore.setCustomBg(uiStore.theme, e.target.value)"
+              />
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm text-secondary"
+                title="Reset to default theme background"
+                @click="uiStore.resetCustomBg(uiStore.theme)"
+              >
+                <RotateCcw :size="13" />
+                <span>Reset</span>
               </button>
             </div>
           </div>
@@ -1704,9 +1848,11 @@ onMounted(async () => {
 }
 
 .page-title {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
   font-size: 24px;
-  font-weight: 700;
   color: var(--text-main);
+  letter-spacing: var(--font-tracking);
 }
 
 .page-subtitle {
@@ -1978,48 +2124,71 @@ onMounted(async () => {
 
 .form-grid-3 {
   display: grid;
-  grid-template-columns: 1fr 1.4fr 1fr;
-  gap: 14px;
+  grid-template-columns: 1fr 1.3fr 1fr;
+  gap: 16px;
+  align-items: start;
 }
 
-@media (max-width: 768px) {
-  .form-grid-2, .form-grid-3 {
+@media (max-width: 900px) {
+  .form-grid-3 {
     grid-template-columns: 1fr;
   }
+}
+
+.label-with-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 20px;
+  margin-bottom: 6px;
+}
+
+.form-range-container {
+  height: 38px;
+  display: flex;
+  align-items: center;
 }
 
 .form-range {
   width: 100%;
   accent-color: var(--primary);
-  margin-top: 6px;
 }
 
 .reasoning-pills {
   display: flex;
+  align-items: center;
   background-color: var(--bg-main);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
-  padding: 2px;
-  gap: 2px;
+  padding: 3px;
+  gap: 3px;
+  height: 38px;
+  box-sizing: border-box;
 }
 
 .reasoning-pill {
   flex: 1;
+  height: 100%;
   border: none;
   background: transparent;
-  padding: 4px 6px;
-  border-radius: 3px;
-  font-size: 10px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
   text-transform: capitalize;
   text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
 }
 
 .reasoning-pill.active {
   background-color: var(--primary);
-  color: white;
+  color: #fff;
+  font-weight: 600;
 }
 
 .reasoning-info-callout {
@@ -2229,18 +2398,115 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  border-radius: 4px;
-  background-color: rgba(16, 185, 129, 0.08);
-  border: 1px solid rgba(16, 185, 129, 0.2);
-  color: var(--text-success);
+  border-radius: var(--radius-sm);
+  background-color: var(--status-offer-bg);
+  border: 1px solid var(--status-offer-border);
+  color: var(--status-offer-text);
+  font-size: 12px;
 }
 
-/* Preferences Grid */
+.provider-test-pill.is-error {
+  background-color: var(--status-rejected-bg);
+  border-color: var(--status-rejected-border);
+  color: var(--status-rejected-text);
+}
+
+.provider-test-pill.is-warning {
+  background-color: var(--status-interview-bg);
+  border-color: var(--status-interview-border);
+  color: var(--status-interview-text);
+}
+
+/* Preferences Grid & Background Customizer */
 .preferences-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 16px;
   margin-top: 16px;
+}
+
+.swatches-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.swatches-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.swatches-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.swatch-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.swatch-btn:hover {
+  border-color: var(--border-focus);
+}
+
+.swatch-btn.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-subtle);
+}
+
+.swatch-preview {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border-subtle);
+}
+
+.swatch-name {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.custom-color-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.color-input-picker {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: transparent;
+  cursor: pointer;
+  padding: 2px;
+  box-sizing: border-box;
+}
+
+.color-input-picker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-input-picker::-webkit-color-swatch {
+  border-radius: 3px;
+  border: none;
 }
 
 .preference-card {

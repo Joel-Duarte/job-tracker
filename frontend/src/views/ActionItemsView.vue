@@ -323,10 +323,10 @@ onMounted(() => {
         <span>Loading action items...</span>
       </div>
 
-      <div v-else-if="actionItems.length === 0" class="empty-tasks">
-        <CheckCircle2 :size="44" class="text-muted" />
-        <h3>No action items in this view</h3>
-        <p>All caught up! Create a new action item or link one from your application pipeline.</p>
+      <div v-else-if="actionItems.length === 0" class="empty-tasks empty-state-box">
+        <CheckCircle2 :size="44" class="empty-state-icon" />
+        <h3 class="empty-state-title">No action items in this view</h3>
+        <p class="empty-state-desc">All caught up! Create a new action item or link one from your application pipeline.</p>
         <button class="btn btn-secondary mt-3" @click="openCreateModal()">
           <Plus :size="15" />
           <span>Add Task</span>
@@ -525,8 +525,9 @@ onMounted(() => {
 }
 
 .page-title {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
   font-size: 24px;
-  font-weight: 700;
   color: var(--text-main);
   margin-bottom: 4px;
 }
@@ -555,15 +556,17 @@ onMounted(() => {
   gap: 14px;
   padding: 16px 20px;
   background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
+  box-shadow: var(--card-shadow);
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
 .metric-card:hover {
-  border-color: var(--border-subtle);
-  transform: translateY(-1px);
+  border-color: var(--card-hover-border);
+  transform: translateY(-2px);
+  box-shadow: var(--card-hover-shadow);
 }
 
 .metric-card.active {
@@ -580,14 +583,15 @@ onMounted(() => {
   border-radius: var(--radius-sm);
 }
 
-.pending-icon { background-color: rgba(59, 130, 246, 0.12); color: #3b82f6; }
-.high-icon { background-color: rgba(239, 68, 68, 0.12); color: #ef4444; }
-.completed-icon { background-color: rgba(16, 185, 129, 0.12); color: #10b981; }
-.all-icon { background-color: rgba(168, 85, 247, 0.12); color: #a855f7; }
+.pending-icon { background-color: var(--primary-subtle); color: var(--primary); }
+.high-icon { background-color: var(--status-rejected-bg); color: var(--status-rejected-text); }
+.completed-icon { background-color: var(--status-offer-bg); color: var(--status-offer-text); }
+.all-icon { background-color: var(--status-applied-bg); color: var(--status-applied-text); }
 
 .metric-info {
   display: flex;
   flex-direction: column;
+  gap: 2px;
 }
 
 .metric-val {
@@ -726,21 +730,21 @@ onMounted(() => {
 }
 
 .urgency-high {
-  background-color: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.25);
+  background-color: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+  border: 1px solid var(--status-rejected-border);
 }
 
 .urgency-medium {
-  background-color: rgba(245, 158, 11, 0.12);
-  color: #f59e0b;
-  border: 1px solid rgba(245, 158, 11, 0.25);
+  background-color: var(--status-interview-bg);
+  color: var(--status-interview-text);
+  border: 1px solid var(--status-interview-border);
 }
 
 .urgency-low {
-  background-color: rgba(148, 163, 184, 0.12);
-  color: #94a3b8;
-  border: 1px solid rgba(148, 163, 184, 0.25);
+  background-color: var(--status-applied-bg);
+  color: var(--status-applied-text);
+  border: 1px solid var(--status-applied-border);
 }
 
 .task-meta {
@@ -791,9 +795,9 @@ onMounted(() => {
 }
 
 .due-date-pill.overdue {
-  background-color: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  border-color: rgba(239, 68, 68, 0.25);
+  background-color: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+  border-color: var(--status-rejected-border);
 }
 
 .external-action-link {

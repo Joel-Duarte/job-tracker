@@ -456,9 +456,9 @@ onBeforeUnmount(() => {
   z-index: 9999;
   width: 280px;
   background-color: var(--bg-card);
-  border: 1px solid var(--border-color);
+  border: var(--card-border);
   border-radius: var(--radius-md);
-  box-shadow: 0 14px 35px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-xl);
   padding: 14px;
   box-sizing: border-box;
 }
@@ -536,7 +536,7 @@ onBeforeUnmount(() => {
   color: var(--text-main);
   font-size: 12px;
   font-weight: 500;
-  height: 30px;
+  height: 32px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   display: flex;
@@ -562,7 +562,7 @@ onBeforeUnmount(() => {
 
 .calendar-day-btn.is-selected {
   background-color: var(--primary);
-  color: #ffffff;
+  color: #fff;
   font-weight: 700;
   border-color: var(--primary);
 }
@@ -657,8 +657,8 @@ onBeforeUnmount(() => {
 }
 
 .preset-time-chip {
-  padding: 3px 2px;
-  font-size: 10px;
+  padding: 4px 4px;
+  font-size: 11px;
   font-weight: 600;
   font-family: var(--font-mono);
   border-radius: 4px;
@@ -677,7 +677,7 @@ onBeforeUnmount(() => {
 
 .preset-time-chip.active {
   background-color: var(--primary);
-  color: #ffffff;
+  color: #fff;
   border-color: var(--primary);
 }
 
@@ -716,7 +716,7 @@ onBeforeUnmount(() => {
   font-weight: 600;
   border-radius: var(--radius-sm);
   background-color: var(--primary);
-  color: #ffffff;
+  color: #fff;
   border: none;
   cursor: pointer;
   transition: all var(--transition-fast);

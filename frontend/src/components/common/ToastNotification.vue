@@ -38,10 +38,10 @@ const uiStore = useUIStore()
   gap: 10px;
   padding: 12px 16px;
   border-radius: var(--radius-md);
-  background-color: var(--bg-surface);
+  background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  box-shadow: var(--shadow-lg);
-  max-width: 400px;
+  box-shadow: var(--card-shadow);
+  max-width: 380px;
   font-size: 13px;
   font-weight: 500;
 }
@@ -86,6 +86,6 @@ const uiStore = useUIStore()
 .toast-slide-enter-from,
 .toast-slide-leave-to {
   opacity: 0;
-  transform: translateY(12px) scale(0.95);
+  transform: translateX(32px) scale(0.95);
 }
 </style>

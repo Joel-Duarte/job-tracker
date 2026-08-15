@@ -155,10 +155,12 @@ function handleKeyDown(e) {
 }
 
 .hero-title {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
   font-size: 26px;
-  font-weight: 700;
   color: var(--text-main);
   margin-bottom: 8px;
+  letter-spacing: var(--font-tracking);
 }
 
 .hero-subtitle {
@@ -176,10 +178,10 @@ function handleKeyDown(e) {
   width: 100%;
   max-width: 740px;
   background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  border: var(--card-border);
   border-radius: var(--radius-md);
   padding: 6px 8px 6px 14px;
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--card-shadow);
 }
 
 .search-bar-icon {
@@ -233,8 +235,9 @@ function handleKeyDown(e) {
   align-items: center;
   justify-content: space-between;
   background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  border: var(--card-border);
   border-radius: var(--radius-md);
+  box-shadow: var(--card-shadow);
   padding: 16px 20px;
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -243,9 +246,8 @@ function handleKeyDown(e) {
 
 .result-card:hover {
   background-color: var(--bg-surface-hover);
-  border-color: var(--border-subtle);
   transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--card-hover-shadow);
 }
 
 .card-left {

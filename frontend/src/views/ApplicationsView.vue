@@ -939,7 +939,7 @@ async function confirmDelete() {
 .page-container {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 56px);
+  height: calc(100vh - var(--navbar-height));
   overflow: hidden;
 }
 
@@ -1126,31 +1126,30 @@ async function confirmDelete() {
 
 /* Tier 1: > 80% (Special Elite Emerald Glow) */
 .match-score-pill.match-tier-elite {
-  background-color: rgba(16, 185, 129, 0.12);
-  color: #10b981;
-  border-color: rgba(16, 185, 129, 0.4);
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.25);
+  background-color: var(--status-offer-bg);
+  color: var(--status-offer-text);
+  border-color: var(--status-offer-border);
 }
 
 /* Tier 2: 60% - 80% (Indigo / Cyan High) */
 .match-score-pill.match-tier-high {
-  background-color: rgba(99, 102, 241, 0.12);
-  color: #818cf8;
-  border-color: rgba(99, 102, 241, 0.3);
+  background-color: var(--status-applied-bg);
+  color: var(--status-applied-text);
+  border-color: var(--status-applied-border);
 }
 
 /* Tier 3: 40% - 60% (Amber Medium) */
 .match-score-pill.match-tier-medium {
-  background-color: rgba(245, 158, 11, 0.12);
-  color: #f59e0b;
-  border-color: rgba(245, 158, 11, 0.3);
+  background-color: var(--status-interview-bg);
+  color: var(--status-interview-text);
+  border-color: var(--status-interview-border);
 }
 
 /* Tier 4: <= 40% (Slate Muted) */
 .match-score-pill.match-tier-low {
-  background-color: rgba(100, 116, 139, 0.12);
-  color: #94a3b8;
-  border-color: rgba(100, 116, 139, 0.25);
+  background-color: var(--bg-surface);
+  color: var(--text-muted);
+  border-color: var(--border-color);
 }
 
 .view-switch-group {
@@ -1234,7 +1233,7 @@ async function confirmDelete() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -1257,8 +1256,9 @@ async function confirmDelete() {
 .dot-rejected { background-color: var(--status-rejected-text); }
 
 .column-title {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
   font-size: 13px;
-  font-weight: 600;
   color: var(--text-main);
 }
 
@@ -1281,19 +1281,19 @@ async function confirmDelete() {
 
 .application-card {
   background-color: var(--bg-card);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--card-border);
   border-radius: var(--radius-sm);
   padding: 12px;
   cursor: pointer;
   transition: all var(--transition-fast);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--card-shadow);
 }
 
 .application-card:hover {
   background-color: var(--bg-card-hover);
-  border-color: var(--border-subtle);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
+  border-color: var(--card-hover-border);
+  transform: translateY(-2px);
+  box-shadow: var(--card-hover-shadow);
 }
 
 .card-header {
@@ -1386,9 +1386,9 @@ async function confirmDelete() {
   font-size: 10px;
   font-weight: 600;
   border-radius: 4px;
-  background-color: rgba(99, 102, 241, 0.12);
-  color: #6366f1;
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  background-color: var(--status-interview-bg);
+  color: var(--status-interview-text);
+  border: 1px solid var(--status-interview-border);
   font-family: var(--font-mono);
 }
 
@@ -1400,16 +1400,16 @@ async function confirmDelete() {
   font-size: 10px;
   font-weight: 600;
   border-radius: 4px;
-  background-color: rgba(245, 158, 11, 0.12);
-  color: #f59e0b;
-  border: 1px solid rgba(245, 158, 11, 0.25);
+  background-color: var(--status-interview-bg);
+  color: var(--status-interview-text);
+  border: 1px solid var(--status-interview-border);
   font-family: var(--font-mono);
 }
 
 .due-date-tag.overdue {
-  background-color: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
-  border-color: rgba(239, 68, 68, 0.25);
+  background-color: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+  border-color: var(--status-rejected-border);
 }
 
 .awaiting-response-tag {
@@ -1420,9 +1420,9 @@ async function confirmDelete() {
   font-size: 10px;
   font-weight: 600;
   border-radius: 4px;
-  background-color: rgba(99, 102, 241, 0.12);
-  color: var(--text-main);
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  background-color: var(--status-applied-bg);
+  color: var(--status-applied-text);
+  border: 1px solid var(--status-applied-border);
 }
 
 .scheduling-needed-tag {
@@ -1433,16 +1433,16 @@ async function confirmDelete() {
   font-size: 10px;
   font-weight: 700;
   border-radius: 4px;
-  background-color: rgba(245, 158, 11, 0.15);
-  color: #f59e0b;
-  border: 1px solid rgba(245, 158, 11, 0.35);
+  background-color: var(--status-interview-bg);
+  color: var(--status-interview-text);
+  border: 1px solid var(--status-interview-border);
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
 .scheduling-needed-tag:hover {
-  background-color: rgba(245, 158, 11, 0.25);
-  border-color: #f59e0b;
+  background-color: var(--status-interview-border);
+  border-color: var(--status-interview-text);
   transform: translateY(-1px);
 }
 
@@ -1649,7 +1649,7 @@ async function confirmDelete() {
   position: fixed;
   inset: 0;
   z-index: 500;
-  background-color: rgba(0, 0, 0, 0.6);
+  background-color: var(--bg-backdrop);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -1676,8 +1676,9 @@ async function confirmDelete() {
 }
 
 .inner-modal-title {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
   font-size: 15px;
-  font-weight: 700;
   color: var(--text-main);
   display: flex;
   align-items: center;
@@ -1757,15 +1758,15 @@ async function confirmDelete() {
 
 /* Offer & Rejection Boxes */
 .offer-form-box {
-  background-color: rgba(16, 185, 129, 0.05);
-  border: 1px solid rgba(16, 185, 129, 0.2);
+  background-color: var(--status-offer-bg);
+  border: 1px solid var(--status-offer-border);
   border-radius: var(--radius-md);
   padding: 14px;
 }
 
 .rejection-form-box {
-  background-color: rgba(239, 68, 68, 0.05);
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background-color: var(--status-rejected-bg);
+  border: 1px solid var(--status-rejected-border);
   border-radius: var(--radius-md);
   padding: 14px;
 }
@@ -1788,13 +1789,13 @@ async function confirmDelete() {
 }
 
 .stage-section-icon.offer-icon {
-  background-color: rgba(16, 185, 129, 0.15);
-  color: #10b981;
+  background-color: var(--status-offer-bg);
+  color: var(--status-offer-text);
 }
 
 .stage-section-icon.rejection-icon {
-  background-color: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  background-color: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
 }
 
 .stage-section-text {

@@ -193,7 +193,7 @@ function formatActionLabel(act) {
 .chat-page {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 56px);
+  height: calc(100vh - var(--navbar-height));
   max-width: 900px;
   margin: 0 auto;
   width: 100%;
@@ -236,7 +236,7 @@ function formatActionLabel(act) {
 }
 
 .btn-new-chat:hover {
-  background-color: var(--bg-surface-hover, rgba(255, 255, 255, 0.05));
+  background-color: var(--bg-hover);
   border-color: var(--border-color);
   color: var(--text-primary);
 }
@@ -317,9 +317,9 @@ function formatActionLabel(act) {
 }
 
 .msg-user .message-bubble {
-  background-color: var(--primary);
-  color: #ffffff;
-  border: none;
+  background-color: var(--primary-subtle);
+  color: var(--primary);
+  border: 1px solid var(--primary);
 }
 
 .actions-chips {
@@ -351,6 +351,9 @@ function formatActionLabel(act) {
   align-items: center;
   gap: 8px;
   color: var(--text-secondary);
+  background-color: transparent !important;
+  border: 1px dashed var(--border-subtle);
+  box-shadow: none;
 }
 
 .starters-bar {
@@ -365,7 +368,7 @@ function formatActionLabel(act) {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-md);
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   font-size: 12px;
@@ -374,9 +377,9 @@ function formatActionLabel(act) {
 }
 
 .starter-chip:hover {
-  background-color: var(--bg-surface-hover);
+  background-color: var(--bg-hover);
   color: var(--text-main);
-  border-color: var(--border-subtle);
+  border-color: var(--primary);
 }
 
 .chat-input-bar {
@@ -393,6 +396,9 @@ function formatActionLabel(act) {
   resize: none;
   border-radius: var(--radius-md);
   font-size: 13px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
 }
 
 .btn-send {

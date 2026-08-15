@@ -342,7 +342,7 @@ const syncButtonLabel = computed => {
           <!-- Time window chips -->
           <div class="input-group">
             <label class="input-label">
-              <Calendar :size="12" style="display:inline;vertical-align:middle;margin-right:4px;" />
+              <Calendar :size="12" class="inline-icon" />
               Time Window
             </label>
             <div class="time-chips">
@@ -370,7 +370,7 @@ const syncButtonLabel = computed => {
           <!-- Keyword filter -->
           <div class="input-group">
             <label class="input-label">
-              <Filter :size="12" style="display:inline;vertical-align:middle;margin-right:4px;" />
+              <Filter :size="12" class="inline-icon" />
               Extra Keywords <span class="label-optional">(optional)</span>
             </label>
             <input
@@ -485,10 +485,10 @@ const syncButtonLabel = computed => {
   width: 100%;
   max-width: 580px;
   max-height: 92vh;
-  background-color: var(--bg-surface);
+  background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-xl);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -566,7 +566,7 @@ const syncButtonLabel = computed => {
 .tab-btn:hover { color: var(--text-main); }
 
 .tab-btn.active {
-  color: var(--text-main);
+  color: var(--primary);
   background-color: var(--bg-surface);
   border: 1px solid var(--border-subtle);
 }
@@ -599,6 +599,12 @@ const syncButtonLabel = computed => {
 
 .form-input, .form-textarea, .form-select {
   width: 100%;
+}
+
+.inline-icon {
+  display: inline;
+  vertical-align: middle;
+  margin-right: 4px;
 }
 
 .form-textarea {
@@ -634,7 +640,7 @@ const syncButtonLabel = computed => {
 
 .time-chip.active {
   border-color: var(--primary);
-  background-color: rgba(99, 102, 241, 0.1);
+  background-color: var(--primary-subtle);
   color: var(--primary);
   font-weight: 600;
 }
@@ -719,7 +725,7 @@ const syncButtonLabel = computed => {
 
 .dropzone.active {
   border-color: var(--primary);
-  background-color: var(--bg-elevated);
+  background-color: var(--primary-subtle);
 }
 
 .dropzone-icon { color: var(--primary); margin-bottom: 8px; }

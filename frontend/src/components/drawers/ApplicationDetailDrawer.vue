@@ -903,8 +903,8 @@ function formatDate(isoStr) {
   max-width: 620px;
   height: 100vh;
   background-color: var(--bg-surface);
-  border-left: 1px solid var(--border-color);
-  box-shadow: var(--shadow-lg);
+  border-left: 1px solid var(--card-border);
+  box-shadow: var(--shadow-xl);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -946,8 +946,9 @@ function formatDate(isoStr) {
 }
 
 .company-name {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
   font-size: 18px;
-  font-weight: 700;
   color: var(--text-main);
   line-height: 1.2;
 }
@@ -1051,9 +1052,9 @@ function formatDate(isoStr) {
   font-size: 11px;
   font-weight: 600;
   border-radius: 4px;
-  background-color: rgba(99, 102, 241, 0.12);
-  color: #6366f1;
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  background-color: var(--status-applied-bg);
+  color: var(--status-applied-text);
+  border: 1px solid var(--status-applied-border);
   font-family: var(--font-mono);
 }
 
@@ -1111,7 +1112,7 @@ function formatDate(isoStr) {
 }
 
 .tab-item.active {
-  color: var(--text-main);
+  color: var(--primary);
   border-bottom-color: var(--primary);
 }
 
@@ -1125,7 +1126,7 @@ function formatDate(isoStr) {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
 }
 
 .timeline-stream::before {
@@ -1156,9 +1157,9 @@ function formatDate(isoStr) {
 
 .timeline-card {
   flex: 1;
-  padding: 12px 16px;
+  padding: 10px 14px;
   border-radius: var(--radius-md);
-  background-color: var(--bg-card);
+  background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
 }
 
@@ -1281,8 +1282,9 @@ function formatDate(isoStr) {
 }
 
 .panel-header-title {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
   font-size: 14px;
-  font-weight: 700;
   color: var(--text-main);
 }
 
@@ -1445,14 +1447,14 @@ function formatDate(isoStr) {
   height: 7px;
   border-radius: 50%;
   background-color: var(--primary);
-  box-shadow: 0 0 0 rgba(99, 102, 241, 0.4);
+  box-shadow: 0 0 0 var(--primary-glow);
   animation: pulse-ring 2s infinite;
 }
 
 @keyframes pulse-ring {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.7); }
-  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(99, 102, 241, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 var(--primary-glow); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px transparent; }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 transparent; }
 }
 
 .latest-event-desc {
@@ -1480,7 +1482,7 @@ function formatDate(isoStr) {
   position: fixed;
   inset: 0;
   z-index: 500;
-  background-color: rgba(0, 0, 0, 0.6);
+  background-color: var(--bg-backdrop);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -1507,8 +1509,9 @@ function formatDate(isoStr) {
 }
 
 .inner-modal-title {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
   font-size: 15px;
-  font-weight: 700;
   color: var(--text-main);
   display: flex;
   align-items: center;
@@ -1551,7 +1554,7 @@ function formatDate(isoStr) {
 /* Transitions */
 .drawer-slide-enter-active,
 .drawer-slide-leave-active {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all var(--transition-spring);
 }
 
 .drawer-slide-enter-from,
@@ -1574,15 +1577,15 @@ function formatDate(isoStr) {
 
 /* Offer & Rejection Boxes */
 .offer-form-box {
-  background-color: rgba(16, 185, 129, 0.05);
-  border: 1px solid rgba(16, 185, 129, 0.2);
+  background-color: var(--status-offer-bg);
+  border: 1px solid var(--status-offer-border);
   border-radius: var(--radius-md);
   padding: 14px;
 }
 
 .rejection-form-box {
-  background-color: rgba(239, 68, 68, 0.05);
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background-color: var(--status-rejected-bg);
+  border: 1px solid var(--status-rejected-border);
   border-radius: var(--radius-md);
   padding: 14px;
 }
@@ -1605,13 +1608,13 @@ function formatDate(isoStr) {
 }
 
 .stage-section-icon.offer-icon {
-  background-color: rgba(16, 185, 129, 0.15);
-  color: #10b981;
+  background-color: var(--status-offer-bg);
+  color: var(--status-offer-text);
 }
 
 .stage-section-icon.rejection-icon {
-  background-color: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  background-color: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
 }
 
 .stage-section-text {
@@ -1620,8 +1623,9 @@ function formatDate(isoStr) {
 }
 
 .stage-section-title {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
   font-size: 13px;
-  font-weight: 700;
   color: var(--text-main);
 }
 

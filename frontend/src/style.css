@@ -1,118 +1,196 @@
 /* ==========================================================================
-   Modern Minimalist Slate Design System (Linear / Raycast inspired)
+   Job Tracker Design System — Midnight & Daylight
+   Two complete visual identities sharing one token architecture.
    ========================================================================== */
 
+/* --------------------------------------------------------------------------
+   Midnight Theme (Default) — Refined Dark Slate, Linear/Raycast Evolved
+   -------------------------------------------------------------------------- */
 :root {
-  /* Font Families */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* Typography */
+  --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-heading: 'DM Serif Display', Georgia, 'Times New Roman', serif;
   --font-mono: 'JetBrains Mono', monospace;
+  --font-tracking: -0.006em;
+  --font-heading-weight: 400;
 
-  /* Theme Tokens - Default Dark Mode (Deep Slate / Charcoal) */
-  --bg-app: #090d16;
-  --bg-sidebar: #0f1523;
-  --bg-surface: #141b2d;
-  --bg-surface-hover: #1b243b;
-  --bg-card: #141b2d;
-  --bg-card-hover: #1c263f;
-  --bg-elevated: #1e2842;
-  --bg-input: #0b101c;
-  --bg-backdrop: rgba(4, 7, 13, 0.75);
+  /* Backgrounds */
+  --bg-app: #0b0f19;
+  --bg-sidebar: #101524;
+  --bg-surface: #151c2e;
+  --bg-surface-hover: #1c2540;
+  --bg-card: #151c2e;
+  --bg-card-hover: #1e2845;
+  --bg-elevated: #202a48;
+  --bg-input: #0d1220;
+  --bg-backdrop: rgba(4, 7, 15, 0.78);
+  --bg-hover: #1c2540;
+  --bg-main: #151c2e;
 
-  --text-main: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --text-faint: #475569;
+  /* Text */
+  --text-main: #e8edf5;
+  --text-secondary: #8d9bb5;
+  --text-muted: #5e6e8a;
+  --text-faint: #3f4e68;
+  --text-primary: #60a5fa;
+  --text-tertiary: #4a5a74;
+  --text-success: #34d399;
+  --text-danger: #fb7185;
+  --text-warning: #fbbf24;
 
+  /* Borders */
   --border-color: #1e293b;
-  --border-subtle: #243048;
+  --border-subtle: #263050;
   --border-focus: #3b82f6;
 
+  /* Surface Treatment — Midnight uses borders, not shadows */
+  --card-border: 1px solid var(--border-color);
+  --card-shadow: none;
+  --card-hover-border: 1px solid var(--border-subtle);
+  --card-hover-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.3);
+
   /* Status Colors */
-  --status-applied-bg: rgba(99, 102, 241, 0.12);
+  --status-applied-bg: rgba(99, 102, 241, 0.10);
   --status-applied-text: #818cf8;
-  --status-applied-border: rgba(99, 102, 241, 0.3);
+  --status-applied-border: rgba(99, 102, 241, 0.24);
 
-  --status-assessment-bg: rgba(6, 182, 212, 0.12);
+  --status-assessment-bg: rgba(6, 182, 212, 0.10);
   --status-assessment-text: #22d3ee;
-  --status-assessment-border: rgba(6, 182, 212, 0.3);
+  --status-assessment-border: rgba(6, 182, 212, 0.24);
 
-  --status-interview-bg: rgba(245, 158, 11, 0.12);
+  --status-interview-bg: rgba(245, 158, 11, 0.10);
   --status-interview-text: #fbbf24;
-  --status-interview-border: rgba(245, 158, 11, 0.3);
+  --status-interview-border: rgba(245, 158, 11, 0.24);
 
-  --status-offer-bg: rgba(16, 185, 129, 0.12);
+  --status-offer-bg: rgba(16, 185, 129, 0.10);
   --status-offer-text: #34d399;
-  --status-offer-border: rgba(16, 185, 129, 0.3);
+  --status-offer-border: rgba(16, 185, 129, 0.24);
 
-  --status-rejected-bg: rgba(244, 63, 94, 0.12);
+  --status-rejected-bg: rgba(244, 63, 94, 0.10);
   --status-rejected-text: #fb7185;
-  --status-rejected-border: rgba(244, 63, 94, 0.3);
+  --status-rejected-border: rgba(244, 63, 94, 0.24);
 
+  /* Primary Accent */
   --primary: #3b82f6;
   --primary-hover: #2563eb;
-  --primary-glow: rgba(59, 130, 246, 0.25);
+  --primary-glow: rgba(59, 130, 246, 0.20);
+  --primary-subtle: rgba(59, 130, 246, 0.08);
+  --danger: #ef4444;
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  /* Radii — Tight, geometric, tool-like */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
   --radius-full: 9999px;
 
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.2);
-  --shadow-md: 0 4px 12px 0 rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 12px 32px -4px rgba(0, 0, 0, 0.5);
-  --shadow-glow: 0 0 20px -2px rgba(59, 130, 246, 0.3);
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.18);
+  --shadow-md: 0 3px 10px 0 rgba(0, 0, 0, 0.30);
+  --shadow-lg: 0 10px 28px -4px rgba(0, 0, 0, 0.45);
+  --shadow-xl: 0 20px 50px -8px rgba(0, 0, 0, 0.55);
+  --shadow-glow: 0 0 16px -2px rgba(59, 130, 246, 0.25);
 
+  /* Transitions */
   --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-smooth: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-spring: 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Layout */
+  --navbar-height: 48px;
 }
 
-/* Light Theme Override */
-html.light {
-  --bg-app: #f8fafc;
-  --bg-sidebar: #f1f5f9;
+
+/* --------------------------------------------------------------------------
+   Daylight Theme — Warm Light Studio, Notion/Stripe Inspired
+   -------------------------------------------------------------------------- */
+html.daylight {
+  /* Typography Overrides */
+  --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-heading: 'DM Serif Display', Georgia, 'Times New Roman', serif;
+  --font-tracking: -0.006em;
+  --font-heading-weight: 400;
+
+  /* Backgrounds — Warm cream canvas */
+  --bg-app: #faf8f5;
+  --bg-sidebar: #f4f1ec;
   --bg-surface: #ffffff;
-  --bg-surface-hover: #f1f5f9;
+  --bg-surface-hover: #f7f5f2;
   --bg-card: #ffffff;
-  --bg-card-hover: #f8fafc;
+  --bg-card-hover: #faf8f5;
   --bg-elevated: #ffffff;
-  --bg-input: #f1f5f9;
-  --bg-backdrop: rgba(15, 23, 42, 0.4);
+  --bg-input: #f4f1ec;
+  --bg-backdrop: rgba(20, 18, 14, 0.38);
+  --bg-hover: #f7f5f2;
+  --bg-main: #ffffff;
 
-  --text-main: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #64748b;
-  --text-faint: #94a3b8;
+  /* Text — Warm ink */
+  --text-main: #1a1a2e;
+  --text-secondary: #555770;
+  --text-muted: #7c7e92;
+  --text-faint: #a8aab8;
+  --text-primary: #4f46e5;
+  --text-tertiary: #9496a8;
+  --text-success: #059669;
+  --text-danger: #dc2626;
+  --text-warning: #d97706;
 
-  --border-color: #e2e8f0;
-  --border-subtle: #cbd5e1;
-  --border-focus: #2563eb;
+  /* Borders — Barely visible, shadows do the work */
+  --border-color: #e8e4de;
+  --border-subtle: #d6d1c8;
+  --border-focus: #4f46e5;
 
+  /* Surface Treatment — Daylight uses shadows, not borders */
+  --card-border: 1px solid transparent;
+  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+  --card-hover-border: 1px solid transparent;
+  --card-hover-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
+
+  /* Status Colors — Richer on light */
   --status-applied-bg: #eef2ff;
-  --status-applied-text: #4f46e5;
+  --status-applied-text: #4338ca;
   --status-applied-border: #c7d2fe;
 
   --status-assessment-bg: #ecfeff;
-  --status-assessment-text: #0891b2;
+  --status-assessment-text: #0e7490;
   --status-assessment-border: #a5f3fc;
 
-  --status-interview-bg: #fffbeb;
-  --status-interview-text: #d97706;
+  --status-interview-bg: #fef3c7;
+  --status-interview-text: #b45309;
   --status-interview-border: #fde68a;
 
   --status-offer-bg: #ecfdf5;
-  --status-offer-text: #059669;
+  --status-offer-text: #047857;
   --status-offer-border: #a7f3d0;
 
   --status-rejected-bg: #fff1f2;
-  --status-rejected-text: #e11d48;
+  --status-rejected-text: #be123c;
   --status-rejected-border: #fecdd3;
 
-  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+  /* Primary — Deep Indigo */
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-glow: rgba(79, 70, 229, 0.18);
+  --primary-subtle: rgba(79, 70, 229, 0.06);
+  --danger: #dc2626;
+
+  /* Radii — Generous, soft, approachable */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  /* Shadows — Refined for light surfaces */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 8px -1px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 10px 24px -4px rgba(0, 0, 0, 0.10);
+  --shadow-xl: 0 20px 40px -8px rgba(0, 0, 0, 0.12);
+  --shadow-glow: 0 0 16px -2px rgba(79, 70, 229, 0.18);
 }
 
-/* Reset & Base Elements */
+
+/* ==========================================================================
+   Reset & Base
+   ========================================================================== */
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -123,8 +201,10 @@ body {
   font-family: var(--font-sans);
   background-color: var(--bg-app);
   color: var(--text-main);
-  line-height: 1.5;
+  line-height: 1.55;
+  letter-spacing: var(--font-tracking);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
   overflow-x: hidden;
 }
@@ -149,14 +229,14 @@ input, select, textarea {
   background-color: var(--bg-input);
   border-radius: var(--radius-sm);
   padding: 8px 12px;
-  font-size: 14px;
+  font-size: 13px;
   outline: none;
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 input:focus, select:focus, textarea:focus {
   border-color: var(--border-focus);
-  box-shadow: 0 0 0 2px var(--primary-glow);
+  box-shadow: 0 0 0 3px var(--primary-glow);
 }
 
 .form-input, .form-select {
@@ -168,13 +248,19 @@ input:focus, select:focus, textarea:focus {
   background-color: var(--bg-card);
   color: var(--text-main);
   box-sizing: border-box;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.form-input:focus, .form-select:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--primary-glow);
 }
 
 .form-textarea {
   width: 100%;
   padding: 10px 12px;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.55;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
   background-color: var(--bg-card);
@@ -189,48 +275,76 @@ input:focus, select:focus, textarea:focus {
 .form-textarea:focus {
   outline: none;
   border-color: var(--border-focus);
-  box-shadow: 0 0 0 2px var(--primary-glow);
+  box-shadow: 0 0 0 3px var(--primary-glow);
 }
 
-/* Custom Scrollbars */
+
+/* ==========================================================================
+   Scrollbars
+   ========================================================================== */
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: var(--border-subtle);
   border-radius: var(--radius-full);
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
 
-/* Shared Utilities */
+html.daylight ::-webkit-scrollbar-track {
+  background: var(--bg-app);
+}
+
+html.daylight ::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+}
+
+
+/* ==========================================================================
+   Buttons — Tactile Press + Hover
+   ========================================================================== */
+
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 8px 14px;
+  gap: 6px;
+  padding: 7px 14px;
   font-size: 13px;
   font-weight: 500;
   border-radius: var(--radius-sm);
   transition: all var(--transition-fast);
   white-space: nowrap;
+  user-select: none;
+}
+
+.btn:active {
+  transform: scale(0.97);
 }
 
 .btn-primary {
   background-color: var(--primary);
-  color: #ffffff;
+  color: #fff;
   box-shadow: var(--shadow-sm);
 }
 
 .btn-primary:hover {
   background-color: var(--primary-hover);
   box-shadow: var(--shadow-glow);
+}
+
+.btn-primary:active {
+  transform: scale(0.96);
 }
 
 .btn-secondary {
@@ -261,20 +375,25 @@ input:focus, select:focus, textarea:focus {
 
 .btn-danger:hover {
   background-color: var(--status-rejected-text);
-  color: #ffffff;
+  color: #fff;
 }
 
-/* Badges */
+
+/* ==========================================================================
+   Badges — Status & Urgency
+   ========================================================================== */
+
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  font-size: 11px;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 10px;
   font-weight: 600;
   border-radius: var(--radius-full);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
+  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .badge-applied {
@@ -307,19 +426,61 @@ input:focus, select:focus, textarea:focus {
   border: 1px solid var(--status-rejected-border);
 }
 
-/* Animations */
+
+/* ==========================================================================
+   Animations & Keyframes
+   ========================================================================== */
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes pulseGlow {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  50%      { opacity: 0.5; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 var(--primary-glow);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(0, 0, 0, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+  }
+}
+
+@keyframes pulse-glow {
+  0% {
+    box-shadow: 0 0 0 0 var(--primary-glow);
+  }
+  70% {
+    box-shadow: 0 0 0 5px rgba(0, 0, 0, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+  }
 }
 
 .animate-fade-in {
   animation: fadeIn var(--transition-smooth) ease-out forwards;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.35s ease-out forwards;
 }
 
 .pulse-dot {
@@ -328,4 +489,120 @@ input:focus, select:focus, textarea:focus {
   border-radius: 50%;
   background-color: currentColor;
   animation: pulseGlow 2s infinite ease-in-out;
+}
+
+
+/* ==========================================================================
+   Skeleton Loading
+   ========================================================================== */
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-surface) 25%,
+    var(--bg-surface-hover) 50%,
+    var(--bg-surface) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+.skeleton-line {
+  height: 12px;
+  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+}
+
+.skeleton-line:last-child {
+  width: 60%;
+}
+
+.skeleton-circle {
+  border-radius: 50%;
+}
+
+.skeleton-card {
+  height: 120px;
+  border-radius: var(--radius-md);
+}
+
+
+/* ==========================================================================
+   Route Transitions
+   ========================================================================== */
+
+.route-fade-enter-active {
+  transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+}
+
+.route-fade-leave-active {
+  transition: opacity 0.12s ease-in;
+}
+
+.route-fade-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.route-fade-leave-to {
+  opacity: 0;
+}
+
+
+/* ==========================================================================
+   Staggered Card Entrance (use with inline --i custom property)
+   ========================================================================== */
+
+.stagger-enter {
+  animation: slideUp 0.3s ease-out forwards;
+  animation-delay: calc(var(--i, 0) * 0.04s);
+  opacity: 0;
+}
+
+
+/* ==========================================================================
+   Empty State Container
+   ========================================================================== */
+
+.empty-state-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 60px 24px;
+  text-align: center;
+}
+
+.empty-state-icon {
+  width: 64px;
+  height: 64px;
+  color: var(--text-faint);
+  opacity: 0.5;
+}
+
+.empty-state-title {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 18px;
+  color: var(--text-main);
+}
+
+.empty-state-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 340px;
+  line-height: 1.6;
+}
+
+
+/* ==========================================================================
+   Headings — Theme-Aware Typography
+   ========================================================================== */
+
+h1, h2, h3, .heading {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  letter-spacing: var(--font-tracking);
 }

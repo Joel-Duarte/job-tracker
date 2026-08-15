@@ -841,17 +841,18 @@ onMounted(async () => {
   gap: 6px;
   padding: 4px 12px;
   border-radius: var(--radius-full);
-  background-color: rgba(16, 185, 129, 0.1);
+  background-color: var(--status-offer-bg);
   color: var(--text-success);
-  border: 1px solid rgba(16, 185, 129, 0.25);
+  border: 1px solid var(--status-offer-border);
   font-size: 11px;
   font-weight: 600;
   margin-bottom: 8px;
 }
 
 .page-title {
+  font-family: var(--font-heading);
   font-size: 24px;
-  font-weight: 700;
+  font-weight: var(--font-heading-weight);
   color: var(--text-main);
 }
 
@@ -935,8 +936,8 @@ onMounted(async () => {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  background-color: rgba(59, 130, 246, 0.05);
-  border: 1px solid rgba(59, 130, 246, 0.18);
+  background-color: var(--primary-subtle);
+  border: 1px solid var(--primary);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
   font-size: 11px;
@@ -947,8 +948,8 @@ onMounted(async () => {
 .redaction-stats-pill {
   font-size: 11px;
   color: var(--text-success);
-  background-color: rgba(16, 185, 129, 0.06);
-  border: 1px solid rgba(16, 185, 129, 0.2);
+  background-color: var(--status-offer-bg);
+  border: 1px solid var(--status-offer-border);
   padding: 6px 10px;
   border-radius: var(--radius-sm);
 }
@@ -1049,13 +1050,13 @@ onMounted(async () => {
 
 .stepper-step.active .step-dot {
   background-color: var(--primary);
-  color: white;
+  color: #fff;
   border-color: var(--primary);
 }
 
 .stepper-step.complete .step-dot {
   background-color: var(--text-success);
-  color: white;
+  color: #fff;
   border-color: var(--text-success);
 }
 
@@ -1074,10 +1075,10 @@ onMounted(async () => {
 
 .hero-overview-card {
   background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
   padding: 24px;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--card-shadow);
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -1101,8 +1102,8 @@ onMounted(async () => {
   width: 48px;
   height: 48px;
   border-radius: var(--radius-md);
-  background-color: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.25);
+  background-color: var(--status-offer-bg);
+  border: 1px solid var(--status-offer-border);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1162,7 +1163,7 @@ onMounted(async () => {
 
 .step-btn:hover {
   background-color: var(--primary);
-  color: white;
+  color: #fff;
   border-color: var(--primary);
 }
 
@@ -1218,10 +1219,10 @@ onMounted(async () => {
 /* Content Cards */
 .content-card {
   background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
   padding: 20px;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--card-shadow);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -1274,7 +1275,7 @@ onMounted(async () => {
 
 .domain-card.is-muted {
   opacity: 0.6;
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: var(--bg-hover);
   border-style: dashed;
 }
 
@@ -1328,7 +1329,7 @@ onMounted(async () => {
 
 .step-btn-sm:hover {
   background-color: var(--primary);
-  color: white;
+  color: #fff;
 }
 
 .domain-years-val {
@@ -1355,7 +1356,7 @@ onMounted(async () => {
 
 .domain-toggle-btn.active {
   color: var(--text-success);
-  border-color: rgba(16, 185, 129, 0.3);
+  border-color: var(--status-offer-border);
 }
 
 .domain-toggle-btn.muted {
@@ -1422,8 +1423,8 @@ onMounted(async () => {
 }
 
 .comp-chip {
-  background-color: rgba(59, 130, 246, 0.08);
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  background-color: var(--primary-subtle);
+  border: 1px solid var(--primary);
   color: var(--primary);
   font-weight: 500;
 }

@@ -10,7 +10,11 @@ import ToastNotification from './components/common/ToastNotification.vue'
   <div class="app-layout">
     <AppNavbar />
     <main class="main-content">
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <transition name="route-fade" mode="out-in">
+          <component :is="Component" />
+        </transition>
+      </router-view>
     </main>
     <ApplicationDetailDrawer />
     <IngestModal />

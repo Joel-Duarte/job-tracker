@@ -516,17 +516,18 @@ onUnmounted(() => {
   gap: 6px;
   padding: 4px 12px;
   border-radius: var(--radius-full);
-  background-color: var(--status-assessment-bg);
-  color: var(--status-assessment-text);
-  border: 1px solid var(--status-assessment-border);
+  background-color: var(--primary-subtle);
+  color: var(--primary);
+  border: 1px solid var(--border-color);
   font-size: 11px;
   font-weight: 600;
   margin-bottom: 8px;
 }
 
 .page-title {
+  font-family: var(--font-heading);
   font-size: 24px;
-  font-weight: 700;
+  font-weight: var(--font-heading-weight);
   color: var(--text-main);
 }
 
@@ -559,19 +560,19 @@ onUnmounted(() => {
 
 .metric-card {
   background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
   padding: 14px 16px;
   display: flex;
   align-items: center;
   gap: 12px;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--card-shadow);
   transition: all var(--transition-fast);
 }
 
 .metric-card.highlight {
   border-color: var(--primary);
-  background-color: rgba(59, 130, 246, 0.04);
+  background-color: var(--primary-subtle);
 }
 
 .metric-icon {
@@ -584,23 +585,29 @@ onUnmounted(() => {
 }
 
 .metric-icon.active {
-  background-color: rgba(59, 130, 246, 0.12);
+  background-color: var(--primary-subtle);
   color: var(--primary);
 }
 
 .metric-icon.success {
-  background-color: rgba(16, 185, 129, 0.12);
+  background-color: var(--status-offer-bg);
   color: var(--text-success);
 }
 
 .metric-icon.danger {
-  background-color: rgba(239, 68, 68, 0.12);
+  background-color: var(--status-rejected-bg);
   color: var(--text-danger);
 }
 
 .metric-icon.neutral {
   background-color: var(--bg-elevated);
   color: var(--text-secondary);
+}
+
+.metric-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .metric-val {
@@ -627,22 +634,29 @@ onUnmounted(() => {
 
 .filter-pills {
   display: flex;
+  align-items: center;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
-  padding: 2px;
-  gap: 2px;
+  padding: 3px;
+  gap: 3px;
+  height: 36px;
+  box-sizing: border-box;
 }
 
 .filter-pill {
   border: none;
   background: transparent;
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
+  padding: 0 12px;
+  height: 100%;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
   color: var(--text-secondary);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  transition: all var(--transition-fast);
 }
 
 .filter-pill:hover {
@@ -652,6 +666,7 @@ onUnmounted(() => {
 .filter-pill.active {
   background-color: var(--bg-elevated);
   color: var(--text-main);
+  font-weight: 600;
   box-shadow: var(--shadow-sm);
 }
 
@@ -665,9 +680,16 @@ onUnmounted(() => {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
-  padding: 5px 8px;
-  font-size: 11px;
+  padding: 0 12px;
+  height: 36px;
+  font-size: 12px;
   color: var(--text-main);
+  box-sizing: border-box;
+  transition: border-color var(--transition-fast);
+}
+
+.form-select-sm:focus {
+  border-color: var(--border-focus);
 }
 
 .search-box {
@@ -678,7 +700,7 @@ onUnmounted(() => {
 
 .search-icon {
   position: absolute;
-  left: 8px;
+  left: 10px;
   color: var(--text-muted);
 }
 
@@ -686,16 +708,19 @@ onUnmounted(() => {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
-  padding: 5px 8px 5px 26px;
-  font-size: 11px;
+  padding: 0 12px 0 32px;
+  height: 36px;
+  font-size: 12px;
   color: var(--text-main);
-  width: 180px;
+  width: 200px;
+  box-sizing: border-box;
+  transition: all var(--transition-fast);
 }
 
 .search-input:focus {
   outline: none;
-  border-color: var(--primary);
-  width: 220px;
+  border-color: var(--border-focus);
+  width: 240px;
 }
 
 .task-list-grid {
@@ -706,10 +731,10 @@ onUnmounted(() => {
 
 .queue-task-card {
   background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
   padding: 16px 18px;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--card-shadow);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -759,15 +784,15 @@ onUnmounted(() => {
 }
 
 .type-job {
-  background-color: rgba(59, 130, 246, 0.08);
+  background-color: var(--primary-subtle);
   color: var(--primary);
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  border: 1px solid var(--primary);
 }
 
 .type-cv {
-  background-color: rgba(16, 185, 129, 0.08);
+  background-color: var(--status-offer-bg);
   color: var(--text-success);
-  border: 1px solid rgba(16, 185, 129, 0.2);
+  border: 1px solid var(--status-offer-border);
 }
 
 .task-title-text {
@@ -798,22 +823,22 @@ onUnmounted(() => {
 }
 
 .status-processing {
-  background-color: rgba(59, 130, 246, 0.12);
+  background-color: var(--primary-subtle);
   color: var(--primary);
 }
 
 .status-queued {
-  background-color: rgba(245, 158, 11, 0.12);
+  background-color: var(--status-interview-bg);
   color: var(--text-warning);
 }
 
 .status-completed {
-  background-color: rgba(16, 185, 129, 0.12);
+  background-color: var(--status-offer-bg);
   color: var(--text-success);
 }
 
 .status-failed {
-  background-color: rgba(239, 68, 68, 0.12);
+  background-color: var(--status-rejected-bg);
   color: var(--text-danger);
 }
 
@@ -836,7 +861,7 @@ onUnmounted(() => {
 
 .task-stepper-box {
   background-color: var(--bg-main);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   padding: 10px 14px;
 }
@@ -885,13 +910,13 @@ onUnmounted(() => {
 
 .pipe-step.active .step-num {
   background-color: var(--primary);
-  color: white;
+  color: #fff;
   border-color: var(--primary);
 }
 
 .pipe-step.complete .step-num {
   background-color: var(--text-success);
-  color: white;
+  color: #fff;
   border-color: var(--text-success);
 }
 
@@ -899,8 +924,8 @@ onUnmounted(() => {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  background-color: rgba(239, 68, 68, 0.06);
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background-color: var(--status-rejected-bg);
+  border: 1px solid var(--status-rejected-border);
   border-radius: var(--radius-sm);
   padding: 8px 12px;
   font-size: 12px;
@@ -911,8 +936,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background-color: rgba(16, 185, 129, 0.04);
-  border: 1px solid rgba(16, 185, 129, 0.18);
+  background-color: var(--status-offer-bg);
+  border: 1px solid var(--status-offer-border);
   border-radius: var(--radius-sm);
   padding: 8px 12px;
   flex-wrap: wrap;
@@ -931,12 +956,12 @@ onUnmounted(() => {
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 4px;
-  background-color: rgba(16, 185, 129, 0.12);
+  background-color: var(--status-offer-bg);
   color: var(--text-success);
 }
 
 .score-badge.type-cv {
-  background-color: rgba(59, 130, 246, 0.12);
+  background-color: var(--primary-subtle);
   color: var(--primary);
 }
 

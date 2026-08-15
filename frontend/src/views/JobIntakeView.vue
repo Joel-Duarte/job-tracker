@@ -769,9 +769,11 @@ onUnmounted(() => {
 }
 
 .page-title {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
   font-size: 24px;
-  font-weight: 700;
   color: var(--text-main);
+  letter-spacing: var(--font-tracking);
 }
 
 .page-subtitle {
@@ -789,7 +791,8 @@ onUnmounted(() => {
   padding: 12px 16px;
   border-radius: var(--radius-md);
   background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  border: var(--card-border);
+  box-shadow: var(--card-shadow);
   font-size: 12px;
   line-height: 1.5;
   color: var(--text-secondary);
@@ -798,14 +801,14 @@ onUnmounted(() => {
 
 .extension-config-card {
   background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  border: var(--card-border);
   border-radius: var(--radius-md);
+  box-shadow: var(--card-shadow);
   padding: 16px;
   margin-bottom: 18px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: var(--shadow-sm);
 }
 
 .card-top {
@@ -888,13 +891,13 @@ onUnmounted(() => {
 
 .intake-card {
   background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  border: var(--card-border);
   border-radius: var(--radius-md);
+  box-shadow: var(--card-shadow);
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  box-shadow: var(--shadow-md);
 }
 
 .input-section {
@@ -925,8 +928,8 @@ onUnmounted(() => {
 .linkedin-warning-card {
   margin-top: 6px;
   padding: 10px 14px;
-  background-color: rgba(245, 158, 11, 0.08);
-  border: 1px solid rgba(245, 158, 11, 0.25);
+  background-color: var(--status-interview-bg);
+  border: 1px solid var(--status-interview-border);
   border-radius: var(--radius-sm);
   display: flex;
   flex-direction: column;
@@ -996,8 +999,9 @@ onUnmounted(() => {
 }
 
 .queue-title {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
   font-size: 16px;
-  font-weight: 700;
   color: var(--text-main);
 }
 
@@ -1013,9 +1017,9 @@ onUnmounted(() => {
   justify-content: space-between;
   padding: 14px 18px;
   background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  border: var(--card-border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--card-shadow);
 }
 
 .task-card-main {
@@ -1096,16 +1100,16 @@ onUnmounted(() => {
 /* Review Card */
 .review-card {
   background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  border: var(--card-border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--card-shadow);
   overflow: hidden;
   transition: all var(--transition-fast);
 }
 
 .review-card.expanded {
-  box-shadow: var(--shadow-md);
-  border-color: var(--primary-subtle);
+  box-shadow: var(--card-hover-shadow);
+  border-color: var(--border-focus);
 }
 
 .review-header {
@@ -1325,8 +1329,9 @@ onUnmounted(() => {
 }
 
 .tailoring-strategy-card {
-  background-color: var(--bg-surface-elevated, var(--bg-surface));
-  border: 1px solid rgba(59, 130, 246, 0.25);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 0 0 1px var(--primary-glow);
   border-radius: var(--radius-sm);
   padding: 16px;
   display: flex;
