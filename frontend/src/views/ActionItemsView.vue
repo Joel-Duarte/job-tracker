@@ -231,7 +231,7 @@ onMounted(() => {
         <p class="page-subtitle">Track follow-ups, scheduled interview deadlines, and qualification tasks across all applications.</p>
       </div>
 
-      <button class="btn btn-primary" @click="openCreateModal()">
+      <button class="btn btn-secondary" @click="openCreateModal()">
         <Plus :size="16" />
         <span>New Action Item</span>
       </button>

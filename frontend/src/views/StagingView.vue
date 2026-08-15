@@ -303,7 +303,7 @@ async function dismissItem(item) {
   <div class="page-container">
     <!-- Header -->
     <div class="page-header">
-      <div>
+      <div class="header-text-center">
         <h1 class="page-title">Human-in-the-Loop Staging Queue</h1>
         <p class="page-subtitle">
           Review unmatched emails, resolve ambiguous job leads into new applications, or link them to existing pipeline records.
@@ -639,26 +639,40 @@ async function dismissItem(item) {
 
 .page-header {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  padding: 16px 24px;
+  text-align: center;
+  padding: 22px 24px 16px;
   background-color: var(--bg-sidebar);
   border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  gap: 14px;
+}
+
+.header-text-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 
 .page-title {
   font-family: var(--font-heading);
   font-weight: var(--font-heading-weight);
   letter-spacing: var(--font-tracking);
-  font-size: 20px;
+  font-size: 22px;
   color: var(--text-main);
   margin: 0;
+  text-align: center;
 }
 
 .page-subtitle {
   font-size: 13px;
   color: var(--text-secondary);
-  margin: 2px 0 0 0;
+  margin: 4px 0 0 0;
+  line-height: 1.5;
+  max-width: 680px;
+  text-align: center;
 }
 
 .filter-pills {
@@ -666,7 +680,9 @@ async function dismissItem(item) {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
-  padding: 2px;
+  padding: 3px;
+  gap: 3px;
+  justify-content: center;
 }
 
 .pill-btn {
