@@ -51,7 +51,25 @@ async def test_ai_provider_crud_and_masking(db_session: AsyncSession):
         assert patch_res.status_code == 200
         assert patch_res.json()["name"] == "Local LM Studio Updated"
 
+        # 4. List Models for Provider (Hybrid Discovery / Curated Fallback)
+        models_res = await ac.get(f"/api/v1/ai/providers/{provider_id}/models")
+        assert models_res.status_code == 200
+        models_data = models_res.json()
+        assert models_data["provider_id"] == provider_id
+        assert len(models_data["models"]) >= 1
+
+        # 5. Direct Provider Test Probe (with mocked model)
+        mock_chat = AsyncMock()
+        mock_chat.ainvoke.return_value = AIMessage(content="OK")
+        with patch("app.routers.ai_config.init_chat_model", return_value=mock_chat):
+            probe_res = await ac.post(f"/api/v1/ai/providers/{provider_id}/test")
+            assert probe_res.status_code == 200
+            probe_data = probe_res.json()
+            assert probe_data["status"] == "success"
+            assert probe_data["response"] == "OK"
+
     app.dependency_overrides.clear()
+
 
 
 @pytest.mark.asyncio
