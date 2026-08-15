@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useUIStore } from '../stores/uiStore'
 import { CandidateProfileAPI } from '../api/endpoints'
+import { scrubCVText } from '../utils/scrubber'
 import {
   ShieldCheck,
   Sparkles,
@@ -18,12 +19,17 @@ import {
   Edit3,
   Save,
   Copy,
+  Lock,
+  Shield,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
 
 const profile = ref(null)
 const rawCVInput = ref('')
+const activeInputTab = ref('raw') // 'raw' | 'preview'
+
+const localScrubResult = computed(() => scrubCVText(rawCVInput.value))
 
 function copyAnonymizedCV() {
   if (profile.value?.anonymized_text) {
@@ -123,21 +129,62 @@ onMounted(() => {
           <div class="box-header">
             <div class="box-title">
               <FileText :size="16" class="text-primary" />
-              <span>Paste Resume / CV Content</span>
+              <span>Resume / CV Content</span>
             </div>
-            <span class="text-xs text-muted">Full raw text</span>
+            
+            <!-- Input Tabs -->
+            <div class="input-tabs">
+              <button
+                class="tab-btn"
+                :class="{ active: activeInputTab === 'raw' }"
+                @click="activeInputTab = 'raw'"
+              >
+                Raw Input
+              </button>
+              <button
+                class="tab-btn"
+                :class="{ active: activeInputTab === 'preview' }"
+                @click="activeInputTab = 'preview'"
+              >
+                <Lock :size="12" />
+                <span>Local Scrubbed Preview</span>
+              </button>
+            </div>
           </div>
 
-          <p class="box-desc">
-            Paste your raw resume text here. The AI de-identification model scrubs identifying attributes (real name, addresses, specific past employers) and converts date ranges into years/months.
-          </p>
+          <!-- Privacy Shield Advisory Banner -->
+          <div class="privacy-shield-callout">
+            <div class="shield-callout-header">
+              <Shield :size="15" class="text-success flex-shrink-0" />
+              <div class="shield-callout-title">
+                <strong>Zero-Cloud PII Transmission:</strong> Emails, phones, links, and addresses are scrubbed locally on your device before sending to the AI model.
+              </div>
+            </div>
+            <div v-if="localScrubResult.stats.total > 0" class="shield-stats-badge">
+              🛡️ <strong>{{ localScrubResult.stats.total }}</strong> PII item(s) sanitized locally:
+              <span v-if="localScrubResult.stats.emails">{{ localScrubResult.stats.emails }} email(s) </span>
+              <span v-if="localScrubResult.stats.phones">{{ localScrubResult.stats.phones }} phone(s) </span>
+              <span v-if="localScrubResult.stats.urls">{{ localScrubResult.stats.urls }} link(s) </span>
+              <span v-if="localScrubResult.stats.addresses">{{ localScrubResult.stats.addresses }} address(es)</span>
+            </div>
+          </div>
 
+          <!-- Raw Input Tab -->
           <textarea
+            v-if="activeInputTab === 'raw'"
             v-model="rawCVInput"
             rows="14"
             class="form-textarea font-mono text-xs"
             placeholder="Paste your complete resume or CV text here..."
           ></textarea>
+
+          <!-- Local Scrubbed Preview Tab -->
+          <div
+            v-else
+            class="local-preview-box font-mono text-xs"
+          >
+            {{ localScrubResult.scrubbedText || 'Paste resume text to see live local sanitization preview...' }}
+          </div>
 
           <div class="box-actions">
             <button
@@ -326,6 +373,86 @@ onMounted(() => {
   justify-content: space-between;
   border-bottom: 1px solid var(--border-color);
   padding-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.input-tabs {
+  display: flex;
+  background-color: var(--bg-main);
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  gap: 2px;
+}
+
+.tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-xs, 4px);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.tab-btn:hover {
+  color: var(--text-main);
+}
+
+.tab-btn.active {
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  box-shadow: var(--shadow-sm);
+}
+
+.privacy-shield-callout {
+  background-color: rgba(16, 185, 129, 0.06);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shield-callout-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.shield-callout-title {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-main);
+}
+
+.shield-stats-badge {
+  font-size: 11px;
+  color: var(--text-success);
+  margin-left: 23px;
+  font-weight: 500;
+}
+
+.local-preview-box {
+  width: 100%;
+  min-height: 220px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 12px;
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-secondary);
+  line-height: 1.5;
 }
 
 .box-title {

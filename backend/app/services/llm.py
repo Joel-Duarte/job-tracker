@@ -175,10 +175,21 @@ async def assess_job_posting(
 async def anonymize_and_parse_cv(db: AsyncSession, raw_cv_text: str) -> CVAnonymizationResult:
     """
     De-identifies candidate resume:
-    - Scrubs real names, addresses, emails, phone numbers, and company names (replaces with industry/scale tags).
-    - Converts date ranges into relative duration windows.
+    - Runs local programmatic regex pre-scrubber on emails, phones, URLs, addresses, and candidate name.
+    - Sends pre-scrubbed text to LLM to convert dates to duration windows and replace companies with scale tags.
     - Extracts canonical technical skills, domain expertise, core competencies, and calculated total years of experience.
     """
+    from app.services.scrubber import programmatic_scrub_cv
+
+    pre_scrubbed_text, stats = programmatic_scrub_cv(raw_cv_text)
+    logger.info(
+        "Local PII pre-scrubbing complete before AI dispatch: %d emails, %d phones, %d urls, %d addresses redacted",
+        stats.get("emails", 0),
+        stats.get("phones", 0),
+        stats.get("urls", 0),
+        stats.get("addresses", 0),
+    )
+
     llm = await get_task_chat_model(db, task_type="EXTRACTION", temperature=0.2)
     structured_llm = llm.with_structured_output(CVAnonymizationResult)
     template_str = await get_prompt_template(db, "cv_anonymization")
@@ -193,7 +204,7 @@ async def anonymize_and_parse_cv(db: AsyncSession, raw_cv_text: str) -> CVAnonym
     ])
 
     chain = prompt | structured_llm
-    result = await chain.ainvoke({"resume_text": raw_cv_text})
+    result = await chain.ainvoke({"resume_text": pre_scrubbed_text})
     if isinstance(result, CVAnonymizationResult):
         return result
     return CVAnonymizationResult.model_validate(result)
