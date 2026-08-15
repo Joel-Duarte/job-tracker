@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
+import { ActionItemsAPI } from '../../api/endpoints'
 import {
   X,
   Building2,
@@ -16,6 +17,8 @@ import {
   Sparkles,
   Layers,
   CheckSquare,
+  Square,
+  Plus,
   Trash2,
   Send,
   Loader2,
@@ -28,6 +31,15 @@ const appStore = useApplicationsStore()
 const activeTab = ref('timeline') // 'timeline' | 'job_spec' | 'actions'
 const showDeleteConfirm = ref(false)
 const isDeleting = ref(false)
+
+// In-drawer Action Item creation state
+const showNewTaskForm = ref(false)
+const isCreatingDrawerTask = ref(false)
+const newDrawerTask = ref({
+  title: '',
+  urgency: 'MEDIUM',
+  due_date: '',
+})
 
 // Transition modal state
 const showTransitionModal = ref(false)
@@ -226,6 +238,51 @@ async function handleDeleteApplication() {
   }
 }
 
+async function handleCreateDrawerTask() {
+  if (!newDrawerTask.value.title.trim() || !appStore.selectedApplication) return
+  isCreatingDrawerTask.value = true
+  try {
+    const payload = {
+      application_id: appStore.selectedApplication.id,
+      title: newDrawerTask.value.title.trim(),
+      urgency: newDrawerTask.value.urgency,
+      status: 'PENDING',
+      due_date: newDrawerTask.value.due_date ? new Date(newDrawerTask.value.due_date).toISOString() : null,
+    }
+    await ActionItemsAPI.create(payload)
+    uiStore.showToast('Action item added', 'success')
+    newDrawerTask.value = { title: '', urgency: 'MEDIUM', due_date: '' }
+    showNewTaskForm.value = false
+    await appStore.fetchApplicationDetail(appStore.selectedApplication.id)
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to create action item', 'error')
+  } finally {
+    isCreatingDrawerTask.value = false
+  }
+}
+
+async function handleToggleDrawerTask(action) {
+  const newStatus = action.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED'
+  action.status = newStatus
+  try {
+    await ActionItemsAPI.update(action.id, { status: newStatus })
+    uiStore.showToast(newStatus === 'COMPLETED' ? 'Task completed' : 'Task marked pending', 'info')
+  } catch (err) {
+    action.status = newStatus === 'COMPLETED' ? 'PENDING' : 'COMPLETED'
+    uiStore.showToast('Failed to update task status', 'error')
+  }
+}
+
+async function handleDeleteDrawerTask(actionId) {
+  try {
+    await ActionItemsAPI.delete(actionId)
+    uiStore.showToast('Task removed', 'info')
+    await appStore.fetchApplicationDetail(appStore.selectedApplication.id)
+  } catch (err) {
+    uiStore.showToast('Failed to delete task', 'error')
+  }
+}
+
 function formatDate(isoStr) {
   if (!isoStr) return 'N/A'
   try {
@@ -382,7 +439,6 @@ function formatDate(isoStr) {
             </button>
 
             <button
-              v-if="appStore.selectedApplication.action_items?.length"
               class="tab-item"
               :class="{ active: activeTab === 'actions' }"
               @click="activeTab = 'actions'"
@@ -495,25 +551,103 @@ function formatDate(isoStr) {
 
             <!-- 3. ACTION ITEMS -->
             <div v-else-if="activeTab === 'actions'" class="action-items-panel">
+              <!-- Panel Header with Add Button -->
+              <div class="panel-header-row">
+                <span class="panel-header-title">Application Tasks</span>
+                <button
+                  class="btn btn-sm btn-secondary"
+                  @click="showNewTaskForm = !showNewTaskForm"
+                >
+                  <Plus :size="13" />
+                  <span>{{ showNewTaskForm ? 'Cancel' : 'Add Task' }}</span>
+                </button>
+              </div>
+
+              <!-- Inline Task Creation Form -->
+              <div v-if="showNewTaskForm" class="drawer-task-form">
+                <div class="form-group">
+                  <input
+                    v-model="newDrawerTask.title"
+                    type="text"
+                    class="form-input form-input-sm"
+                    placeholder="Task title (e.g. Prepare architecture notes, send follow-up...)"
+                    @keyup.enter="handleCreateDrawerTask"
+                  />
+                </div>
+                <div class="form-grid-2">
+                  <select v-model="newDrawerTask.urgency" class="form-select form-select-sm">
+                    <option value="HIGH">High Urgency</option>
+                    <option value="MEDIUM">Medium Urgency</option>
+                    <option value="LOW">Low Urgency</option>
+                  </select>
+                  <input
+                    v-model="newDrawerTask.due_date"
+                    type="datetime-local"
+                    class="form-input form-input-sm"
+                  />
+                </div>
+                <div class="form-actions-row">
+                  <button
+                    class="btn btn-sm btn-primary"
+                    :disabled="isCreatingDrawerTask || !newDrawerTask.title.trim()"
+                    @click="handleCreateDrawerTask"
+                  >
+                    <Loader2 v-if="isCreatingDrawerTask" class="animate-spin" :size="13" />
+                    <span>Save Task</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Task Cards List -->
               <div
                 v-for="action in appStore.selectedApplication.action_items || []"
                 :key="action.id"
                 class="action-item-card"
+                :class="{ 'is-completed': action.status === 'COMPLETED' }"
               >
-                <div class="action-header">
-                  <span
-                    class="urgency-badge"
-                    :class="`urgency-${action.urgency?.toLowerCase() || 'medium'}`"
-                  >
-                    {{ action.urgency || 'MEDIUM' }}
-                  </span>
-                  <span class="action-status">{{ action.status }}</span>
+                <!-- Complete Checkbox -->
+                <button
+                  class="drawer-checkbox-btn"
+                  @click="handleToggleDrawerTask(action)"
+                  title="Toggle completion"
+                >
+                  <CheckSquare v-if="action.status === 'COMPLETED'" :size="18" class="text-primary" />
+                  <Square v-else :size="18" class="text-muted" />
+                </button>
+
+                <div class="drawer-task-info">
+                  <div class="action-header">
+                    <span
+                      class="urgency-badge"
+                      :class="`urgency-${action.urgency?.toLowerCase() || 'medium'}`"
+                    >
+                      {{ action.urgency || 'MEDIUM' }}
+                    </span>
+                    <span class="action-status">{{ action.status }}</span>
+                  </div>
+                  <div class="action-title" :class="{ completed: action.status === 'COMPLETED' }">
+                    {{ action.title }}
+                  </div>
+                  <div v-if="action.due_date" class="action-due">
+                    <Calendar :size="12" />
+                    <span>Due: {{ formatDate(action.due_date) }}</span>
+                  </div>
                 </div>
-                <div class="action-title">{{ action.title }}</div>
-                <div v-if="action.due_date" class="action-due">
-                  <Calendar :size="13" />
-                  <span>Due: {{ formatDate(action.due_date) }}</span>
-                </div>
+
+                <button
+                  class="btn-icon text-danger"
+                  @click="handleDeleteDrawerTask(action.id)"
+                  title="Delete task"
+                >
+                  <Trash2 :size="13" />
+                </button>
+              </div>
+
+              <div
+                v-if="!appStore.selectedApplication.action_items?.length && !showNewTaskForm"
+                class="empty-state"
+              >
+                No action items recorded for this application. Click "Add Task" above to create one.
               </div>
             </div>
           </div>
@@ -1076,19 +1210,81 @@ function formatDate(isoStr) {
   border: 1px solid var(--border-color);
 }
 
-.action-item-card {
+.panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.panel-header-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.drawer-task-form {
   padding: 14px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.form-input-sm, .form-select-sm {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  color: var(--text-main);
+}
+
+.form-actions-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.action-item-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   margin-bottom: 10px;
+  transition: all var(--transition-fast);
+}
+
+.action-item-card.is-completed {
+  opacity: 0.6;
+}
+
+.drawer-checkbox-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.drawer-task-info {
+  flex: 1;
+  min-width: 0;
 }
 
 .action-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .urgency-badge {
@@ -1102,10 +1298,22 @@ function formatDate(isoStr) {
 .urgency-medium { background: var(--status-interview-bg); color: var(--status-interview-text); }
 .urgency-low { background: var(--status-applied-bg); color: var(--status-applied-text); }
 
+.action-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
 .action-title {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-main);
+  line-height: 1.3;
+}
+
+.action-title.completed {
+  text-decoration: line-through;
+  color: var(--text-muted);
 }
 
 .action-due {
@@ -1113,41 +1321,9 @@ function formatDate(isoStr) {
   align-items: center;
   gap: 6px;
   margin-top: 6px;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
-}
-
-.ai-snapshot-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.snapshot-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.snapshot-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.snapshot-description {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.snapshot-content {
-  padding: 16px;
-  border-radius: var(--radius-md);
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-color);
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--text-main);
+  font-family: var(--font-mono);
 }
 
 .header-actions {

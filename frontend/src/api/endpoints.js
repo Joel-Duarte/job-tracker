@@ -76,3 +76,10 @@ export const EmailAccountsAPI = {
   update: (id, data) => apiClient.patch(`/email_accounts/${id}`, data),
   delete: (id) => apiClient.delete(`/email_accounts/${id}`),
 }
+
+export const ActionItemsAPI = {
+  list: (params = {}) => apiClient.get('/action-items', { params }),
+  create: (data) => apiClient.post('/action-items', data),
+  update: (id, data) => apiClient.patch(`/action-items/${id}`, data),
+  delete: (id) => apiClient.delete(`/action-items/${id}`),
+}

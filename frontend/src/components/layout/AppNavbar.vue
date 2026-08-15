@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUIStore } from '../../stores/uiStore'
-import { StagingAPI } from '../../api/endpoints'
+import { StagingAPI, ActionItemsAPI } from '../../api/endpoints'
 import {
   Briefcase,
   Layers,
@@ -15,6 +15,7 @@ import {
   Sparkles,
   FileInput,
   UserCheck,
+  CheckSquare,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -22,19 +23,27 @@ const route = useRoute()
 const uiStore = useUIStore()
 
 const pendingStagingCount = ref(0)
+const pendingTasksCount = ref(0)
 
-async function fetchStagingCount() {
+async function fetchBadgeCounts() {
   try {
     const res = await StagingAPI.list({ status: 'PENDING', limit: 1 })
     pendingStagingCount.value = res.data.total || 0
   } catch (err) {
     // ignore
   }
+
+  try {
+    const resTasks = await ActionItemsAPI.list({ status: 'PENDING', limit: 1 })
+    pendingTasksCount.value = resTasks.data.pending_count || 0
+  } catch (err) {
+    // ignore
+  }
 }
 
 onMounted(() => {
-  fetchStagingCount()
-  setInterval(fetchStagingCount, 15000)
+  fetchBadgeCounts()
+  setInterval(fetchBadgeCounts, 15000)
 })
 </script>
 
@@ -56,6 +65,18 @@ onMounted(() => {
         >
           <Briefcase :size="16" />
           <span>Pipeline</span>
+        </router-link>
+
+        <router-link
+          to="/tasks"
+          class="nav-link"
+          :class="{ active: route.path === '/tasks' }"
+        >
+          <CheckSquare :size="16" />
+          <span>Tasks</span>
+          <span v-if="pendingTasksCount > 0" class="nav-badge">
+            {{ pendingTasksCount }}
+          </span>
         </router-link>
 
         <router-link
