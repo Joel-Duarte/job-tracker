@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Adjust imports based on your database session setup
 from app.core.database import get_db
 from app.models.applications import (
+    ActionItemModel,
     ApplicationEventModel,
     ApplicationModel,
     CompanyModel,
@@ -230,6 +231,19 @@ async def resolve_staging_item(
             source_channel="STAGING",
         )
         db.add(event)
+        await db.flush()
+
+        # Check if Action Item should be generated
+        action_text = payload.action or extracted.get("action_text") or (staged_item.email_subject if payload.action_required else None)
+        if (payload.action_required or extracted.get("action_required")) and action_text:
+            action_item = ActionItemModel(
+                application_id=application.id,
+                event_id=event.id,
+                title=str(action_text)[:250],
+                status="PENDING",
+                urgency="HIGH" if any(w in str(action_text).lower() for w in ["urgent", "deadline", "schedule", "asap"]) else "MEDIUM",
+            )
+            db.add(action_item)
 
         # Save IDs to variables before committing so we don't access expired ORM attributes
         target_app_id = application.id
