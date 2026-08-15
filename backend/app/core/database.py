@@ -144,6 +144,9 @@ async def ensure_db_schema() -> None:
             "ALTER TABLE IF EXISTS email_accounts ADD COLUMN IF NOT EXISTS sync_schedule_time VARCHAR(20) DEFAULT '09:00';",
             "ALTER TABLE IF EXISTS email_accounts ADD COLUMN IF NOT EXISTS sync_schedule_day VARCHAR(20) DEFAULT 'MON';",
             "ALTER TABLE IF EXISTS email_accounts ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ;",
+            "UPDATE email_accounts SET sync_interval = '1h' WHERE sync_interval IS NULL;",
+            "UPDATE email_accounts SET sync_schedule_time = '09:00' WHERE sync_schedule_time IS NULL;",
+            "UPDATE email_accounts SET sync_schedule_day = 'MON' WHERE sync_schedule_day IS NULL;",
 
             # email_staging_items
             "ALTER TABLE IF EXISTS email_staging_items ADD COLUMN IF NOT EXISTS email_account_id BIGINT;",

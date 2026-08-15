@@ -35,6 +35,9 @@ import {
   X,
   ExternalLink,
   Lock,
+  HelpCircle,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
@@ -65,28 +68,22 @@ const isBindingModalOpen = ref(false)
 const currentBindingTask = ref('EXTRACTION')
 const providerModels = ref([])
 const loadingModels = ref(false)
+const testingTask = ref(null)
+const testResult = ref(null)
 const bindingForm = ref({
   provider_id: null,
-  model_name: 'qwen3.5-4b',
+  model_name: '',
   temperature: 0.2,
-  max_tokens: 2000,
   embedding_dimensions: 768,
 })
-const testResult = ref(null)
-const testingTask = ref(null)
 
-// Prompts Management state
+// Prompt Templates state
 const promptsList = ref([])
 const loadingPrompts = ref(false)
-const selectedPromptName = ref('extraction')
+const selectedPromptName = ref('EXTRACTION')
 const currentPromptTemplate = ref('')
 const isSavingPrompt = ref(false)
 const isResettingPrompt = ref(false)
-
-// Email Accounts state
-const emailAccounts = ref([])
-const loadingAccounts = ref(false)
-const syncingAccount = ref(null)
 
 const TASKS = [
   {
@@ -406,7 +403,11 @@ async function triggerSync(account) {
 }
 
 // Email Account Management State & Handlers
+const emailAccounts = ref([])
+const loadingAccounts = ref(false)
+const syncingAccount = ref(null)
 const isEmailAccountModalOpen = ref(false)
+const showConnectionGuide = ref(false)
 const editingAccount = ref(null)
 const accountToDelete = ref(null)
 const showDeleteAccountModal = ref(false)
@@ -1306,6 +1307,108 @@ function formatLastSync(dateStr) {
             </div>
           </div>
 
+          <!-- Interactive Provider Connection Guide -->
+          <div class="connection-guide-accordion">
+            <button
+              type="button"
+              class="guide-toggle-header"
+              @click="showConnectionGuide = !showConnectionGuide"
+            >
+              <div class="guide-header-left">
+                <HelpCircle :size="15" class="text-primary" />
+                <span class="guide-toggle-title">
+                  Setup Guide: How to connect {{ emailAccountForm.provider_preset === 'gmail' ? 'Google Gmail' : emailAccountForm.provider_preset === 'outlook' ? 'Microsoft Outlook / 365' : 'Custom IMAP' }}
+                </span>
+              </div>
+              <component :is="showConnectionGuide ? ChevronUp : ChevronDown" :size="15" class="guide-arrow" />
+            </button>
+
+            <div v-if="showConnectionGuide" class="guide-content-body animate-fade-in">
+              <!-- Gmail Guide -->
+              <div v-if="emailAccountForm.provider_preset === 'gmail'" class="guide-steps-list">
+                <div class="guide-step-card">
+                  <span class="step-badge">Fastest</span>
+                  <div class="step-details">
+                    <strong>Option A: Google App Password (Recommended — 10 Seconds)</strong>
+                    <ol class="step-sublist">
+                      <li>Go to <a href="https://myaccount.google.com/security" target="_blank" rel="noopener" class="guide-link">Google Account Security <ExternalLink :size="10" /></a> and ensure <em>2-Step Verification</em> is ON.</li>
+                      <li>Visit <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" class="guide-link">Google App Passwords <ExternalLink :size="10" /></a>.</li>
+                      <li>Enter App name <code>Job Tracker</code> and click <em>Create</em>.</li>
+                      <li>Copy the 16-character password and paste it into the <em>App Password</em> field below.</li>
+                    </ol>
+                  </div>
+                </div>
+
+                <div class="guide-step-card">
+                  <span class="step-badge oauth">OAuth2</span>
+                  <div class="step-details">
+                    <strong>Option B: Google Cloud OAuth2 App (1-Click Login)</strong>
+                    <ol class="step-sublist">
+                      <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="guide-link">Google Cloud Console <ExternalLink :size="10" /></a>.</li>
+                      <li>Enable the <strong>Gmail API</strong> for your project.</li>
+                      <li>Configure <strong>OAuth Consent Screen</strong> (User Type: External) and add your email to Test Users.</li>
+                      <li>Create Credentials -> <strong>OAuth client ID</strong> -> Application type: <em>Web application</em>.</li>
+                      <li>Add Authorized Redirect URI: <code>http://localhost:8000/api/v1/email_accounts/oauth/callback</code></li>
+                      <li>Paste Client ID & Client Secret into OAuth fields.</li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Outlook Guide -->
+              <div v-else-if="emailAccountForm.provider_preset === 'outlook'" class="guide-steps-list">
+                <div class="guide-step-card">
+                  <span class="step-badge">Fastest</span>
+                  <div class="step-details">
+                    <strong>Option A: Microsoft App Password / IMAP</strong>
+                    <ol class="step-sublist">
+                      <li>Go to <a href="https://account.live.com/proofs/manage/additional" target="_blank" rel="noopener" class="guide-link">Microsoft Security Settings <ExternalLink :size="10" /></a>.</li>
+                      <li>Under <em>App passwords</em>, click <em>Create a new app password</em>.</li>
+                      <li>Paste the generated password into the <em>App Password</em> field below.</li>
+                    </ol>
+                  </div>
+                </div>
+
+                <div class="guide-step-card">
+                  <span class="step-badge oauth">OAuth2</span>
+                  <div class="step-details">
+                    <strong>Option B: Azure Portal OAuth2 (Microsoft Graph)</strong>
+                    <ol class="step-sublist">
+                      <li>Open <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener" class="guide-link">Azure App Registrations <ExternalLink :size="10" /></a>.</li>
+                      <li>Register a new app named <code>Job Tracker</code> (Supported account types: <em>Personal & Organizational</em>).</li>
+                      <li>Add Web Redirect URI: <code>http://localhost:8000/api/v1/email_accounts/oauth/callback</code>.</li>
+                      <li>Under <em>API Permissions</em>, add <code>Mail.Read</code>, <code>User.Read</code>, <code>offline_access</code>.</li>
+                      <li>Generate a secret under <em>Certificates & secrets</em>, and paste Client ID & Secret.</li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Custom IMAP Guide -->
+              <div v-else class="guide-steps-list">
+                <div class="guide-step-card">
+                  <span class="step-badge">iCloud</span>
+                  <div class="step-details">
+                    <strong>Apple iCloud Mail</strong>
+                    <p class="text-xs text-secondary mt-1">
+                      Host: <code>imap.mail.me.com</code> (Port 993). Generate an App-Specific Password at <a href="https://appleid.apple.com" target="_blank" rel="noopener" class="guide-link">appleid.apple.com <ExternalLink :size="10" /></a>.
+                    </p>
+                  </div>
+                </div>
+
+                <div class="guide-step-card">
+                  <span class="step-badge">IMAP</span>
+                  <div class="step-details">
+                    <strong>Fastmail / Yahoo / Private Mail Server</strong>
+                    <p class="text-xs text-secondary mt-1">
+                      Host: <code>imap.fastmail.com</code> or <code>imap.mail.yahoo.com</code> (Port 993). Use your mailbox login or App Password.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Account Name & Username -->
           <div class="form-row-2">
             <div class="input-group">
@@ -1352,8 +1455,44 @@ function formatLastSync(dateStr) {
             </button>
 
             <div class="oauth-optional-section mt-3">
-              <span class="text-xs text-muted">Custom OAuth App (Optional if set in .env):</span>
-              <div class="form-row-2 mt-1">
+              <span class="text-xs text-muted">Custom OAuth App:</span>
+
+              <!-- Provider-specific setup guide -->
+              <details class="oauth-guide-details">
+                <summary class="oauth-guide-summary">
+                  <HelpCircle :size="12" />
+                  <span>How to get your Client ID &amp; Secret</span>
+                  <ChevronDown :size="12" class="oauth-guide-chevron" />
+                </summary>
+
+                <!-- Gmail guide -->
+                <div v-if="emailAccountForm.provider_preset === 'gmail'" class="oauth-guide-body">
+                  <p class="oauth-guide-provider-label">Google Cloud Console (Gmail API)</p>
+                  <ol class="oauth-steps">
+                    <li>Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noopener" class="oauth-guide-link">console.cloud.google.com</a> and create or select a project.</li>
+                    <li>Navigate to <strong>APIs &amp; Services → Library</strong> and enable the <strong>Gmail API</strong>.</li>
+                    <li>Go to <strong>OAuth Consent Screen</strong> → choose <em>External</em> → add your Gmail address as a test user.</li>
+                    <li>Go to <strong>Credentials → Create Credentials → OAuth 2.0 Client ID</strong>, type: <em>Web Application</em>.</li>
+                    <li>Under <strong>Authorised Redirect URIs</strong> add:<br /><code class="oauth-redirect-uri">http://localhost:8000/api/v1/email_accounts/oauth/callback/google</code></li>
+                    <li>Copy the <strong>Client ID</strong> and <strong>Client Secret</strong> into the fields below.</li>
+                  </ol>
+                </div>
+
+                <!-- Outlook / Microsoft guide -->
+                <div v-else-if="emailAccountForm.provider_preset === 'outlook'" class="oauth-guide-body">
+                  <p class="oauth-guide-provider-label">Azure Portal (Microsoft Graph)</p>
+                  <ol class="oauth-steps">
+                    <li>Go to <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener" class="oauth-guide-link">portal.azure.com → App registrations</a> and click <strong>New registration</strong>.</li>
+                    <li>Under <strong>Redirect URIs</strong> (Web), add:<br /><code class="oauth-redirect-uri">http://localhost:8000/api/v1/email_accounts/oauth/callback/microsoft</code></li>
+                    <li>Go to <strong>API permissions → Add a permission → Microsoft Graph → Delegated</strong> and add <code>Mail.Read</code> and <code>offline_access</code>.</li>
+                    <li>Go to <strong>Certificates &amp; secrets → New client secret</strong>. Copy the secret <strong>Value</strong> (not the ID) immediately — it's only shown once.</li>
+                    <li>Copy the <strong>Application (client) ID</strong> from the app's Overview page.</li>
+                    <li>Paste both into the fields below.</li>
+                  </ol>
+                </div>
+              </details>
+
+              <div class="form-row-2 mt-2">
                 <input
                   v-model="emailAccountForm.client_id"
                   type="text"
@@ -2413,6 +2552,100 @@ function formatLastSync(dateStr) {
   line-height: 1.5;
 }
 
+.oauth-guide-details {
+  margin-top: 6px;
+  margin-bottom: 2px;
+}
+
+.oauth-guide-summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  padding: 4px 0;
+  transition: color var(--transition-fast);
+}
+
+.oauth-guide-summary::-webkit-details-marker {
+  display: none;
+}
+
+.oauth-guide-summary:hover {
+  color: var(--text-main);
+}
+
+.oauth-guide-chevron {
+  margin-left: auto;
+  transition: transform var(--transition-fast);
+}
+
+.oauth-guide-details[open] .oauth-guide-chevron {
+  transform: rotate(180deg);
+}
+
+.oauth-guide-body {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.oauth-guide-provider-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.oauth-steps {
+  padding-left: 16px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.oauth-steps li {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.oauth-steps li strong {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.oauth-guide-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.oauth-guide-link:hover {
+  text-decoration: underline;
+}
+
+.oauth-redirect-uri {
+  display: inline-block;
+  margin-top: 3px;
+  font-size: 10.5px;
+  padding: 2px 6px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  color: var(--text-main);
+  font-family: monospace;
+  word-break: break-all;
+}
+
 .btn-oauth-action {
   width: 100%;
   display: inline-flex;
@@ -2491,5 +2724,120 @@ function formatLastSync(dateStr) {
   border-color: var(--primary);
   color: var(--primary);
   font-weight: 700;
+}
+
+/* Provider Connection Guide Accordion */
+.connection-guide-accordion {
+  margin-top: 10px;
+  margin-bottom: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-surface);
+  overflow: hidden;
+}
+
+.guide-toggle-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  background-color: var(--bg-surface);
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.guide-toggle-header:hover {
+  background-color: var(--bg-surface-hover);
+}
+
+.guide-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guide-toggle-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.guide-arrow {
+  color: var(--text-muted);
+}
+
+.guide-content-body {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border-subtle);
+  background-color: var(--bg-canvas);
+}
+
+.guide-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.guide-step-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+}
+
+.step-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background-color: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.step-badge.oauth {
+  background-color: rgba(99, 102, 241, 0.15);
+  color: #6366f1;
+}
+
+.step-details {
+  font-size: 12px;
+  color: var(--text-main);
+  line-height: 1.4;
+}
+
+.step-sublist {
+  margin-top: 6px;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.step-sublist code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background-color: var(--bg-surface-hover);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--primary);
+}
+
+.guide-link {
+  color: var(--primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  text-decoration: underline;
 }
 </style>

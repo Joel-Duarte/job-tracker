@@ -753,7 +753,7 @@ function formatDate(isoStr) {
               </div>
 
               <div class="form-group">
-                <label class="form-label">Decision Deadline (Limit Date)</label>
+                <label class="form-label">Decision Deadline</label>
                 <DateTimePicker
                   v-model="transitionForm.decision_deadline"
                   type="date"

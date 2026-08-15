@@ -5,13 +5,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class EmailAccountBase(BaseModel):
     name: str = Field(..., examples=["Personal Gmail"], description="Display name for account")
-    auth_type: str = Field(default="IMAP", description="Auth type: 'IMAP', 'GMAIL_OAUTH', 'MS_GRAPH_OAUTH'")
+    auth_type: Optional[str] = Field(default="IMAP", description="Auth type: 'IMAP', 'GMAIL_OAUTH', 'MS_GRAPH_OAUTH'")
     username: str = Field(..., examples=["user@gmail.com"], description="Email or login username")
-    folder: str = Field(default="INBOX", examples=["INBOX"], description="Target mailbox folder")
+    folder: Optional[str] = Field(default="INBOX", examples=["INBOX"], description="Target mailbox folder")
     imap_host: Optional[str] = Field(default=None, examples=["imap.gmail.com"], description="IMAP server hostname")
     imap_port: Optional[int] = Field(default=993, examples=[993], description="IMAP SSL port")
-    is_active: bool = Field(default=True, description="Whether account is active for syncs")
-    sync_interval: str = Field(default="1h", description="Sync schedule interval: 'MANUAL', '15m', '1h', '6h', '24h', 'WEEKLY'")
+    is_active: Optional[bool] = Field(default=True, description="Whether account is active for syncs")
+    sync_interval: Optional[str] = Field(default="1h", description="Sync schedule interval: 'MANUAL', '15m', '1h', '6h', '24h', 'WEEKLY'")
     sync_schedule_time: Optional[str] = Field(default="09:00", description="24h time format HH:MM for daily/weekly sync")
     sync_schedule_day: Optional[str] = Field(default="MON", description="Day of week: 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'")
 

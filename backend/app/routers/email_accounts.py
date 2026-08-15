@@ -97,9 +97,23 @@ async def get_oauth_authorize_url(
 @router.get("", response_model=List[EmailAccountResponse])
 async def list_accounts(db: AsyncSession = Depends(get_db)):
     """List all configured email provider accounts."""
-    result = await db.execute(select(EmailAccountModel).order_by(EmailAccountModel.id))
-    accounts = result.scalars().all()
-    return accounts
+    try:
+        result = await db.execute(select(EmailAccountModel).order_by(EmailAccountModel.id))
+        accounts = result.scalars().all()
+        for acc in accounts:
+            if not getattr(acc, "sync_interval", None):
+                acc.sync_interval = "1h"
+            if not getattr(acc, "sync_schedule_time", None):
+                acc.sync_schedule_time = "09:00"
+            if not getattr(acc, "sync_schedule_day", None):
+                acc.sync_schedule_day = "MON"
+        return accounts
+    except Exception as e:
+        logger.error(f"Error listing email accounts: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list email accounts: {str(e)}",
+        )
 
 
 @router.get("/{account_id}", response_model=EmailAccountResponse)
@@ -115,6 +129,12 @@ async def get_account(account_id: int, db: AsyncSession = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Email account with ID {account_id} not found.",
         )
+    if not getattr(account, "sync_interval", None):
+        account.sync_interval = "1h"
+    if not getattr(account, "sync_schedule_time", None):
+        account.sync_schedule_time = "09:00"
+    if not getattr(account, "sync_schedule_day", None):
+        account.sync_schedule_day = "MON"
     return account
 
 
