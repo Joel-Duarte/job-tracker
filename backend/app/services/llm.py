@@ -37,9 +37,9 @@ async def extract_job_spec(
 ) -> ExtractedJobSpec:
     """
     Stage 1: Extracts structured job specs, responsibilities, requirements, and ATS keywords from raw webpage data.
-    Uses SCRAPER_PARSER task binding with temperature=0.0 and reasoning disabled.
+    Uses JD_EXTRACTION task binding with temperature=0.0 and reasoning disabled.
     """
-    llm = await get_task_chat_model(db, task_type="SCRAPER_PARSER", temperature=0.0)
+    llm = await get_task_chat_model(db, task_type="JD_EXTRACTION", temperature=0.0)
     structured_llm = llm.with_structured_output(ExtractedJobSpec)
     template_str = await get_prompt_template(db, "jd_extraction")
 

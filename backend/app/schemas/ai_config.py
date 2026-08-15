@@ -110,6 +110,7 @@ class DiscoveredModel(BaseModel):
     id: str
     name: str
     is_discovered: bool = True
+    is_embedding: bool = False
 
 
 class AIProviderModelsResponse(BaseModel):

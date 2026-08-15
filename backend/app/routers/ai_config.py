@@ -26,14 +26,66 @@ from app.schemas.ai_config import (
     mask_secret,
 )
 
+EMBEDDING_KEYWORDS = ("embed", "nomic", "bge", "minilm", "gte", "e5", "bert", "mxbai")
+
+
+def _is_embedding_model(model_name: str) -> bool:
+    low = model_name.lower()
+    return any(kw in low for kw in EMBEDDING_KEYWORDS)
+
+
 CURATED_MODELS: dict[str, list[str]] = {
-    "openai": ["gpt-4o-mini", "gpt-4o", "o3-mini", "text-embedding-3-small", "text-embedding-3-large"],
-    "anthropic": ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"],
-    "google_genai": ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash", "text-embedding-004"],
-    "gemini": ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash", "text-embedding-004"],
-    "ollama": ["llama3.2", "llama3.1", "qwen2.5", "mistral", "nomic-embed-text", "bge-m3"],
-    "openrouter": ["meta-llama/llama-3.3-70b-instruct", "anthropic/claude-3.5-sonnet", "openai/gpt-4o-mini"],
-    "custom": ["qwen3.5-4b", "llama3.1", "mistral-7b"],
+    "openai": [
+        "gpt-4o-mini",
+        "gpt-4o",
+        "o3-mini",
+        "text-embedding-3-small",
+        "text-embedding-3-large",
+        "text-embedding-ada-002",
+    ],
+    "anthropic": [
+        "claude-3-7-sonnet-20250219",
+        "claude-3-5-sonnet-20241022",
+        "claude-3-5-haiku-20241022",
+        "claude-3-opus-20240229",
+    ],
+    "google_genai": [
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "text-embedding-004",
+    ],
+    "gemini": [
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "text-embedding-004",
+    ],
+    "ollama": [
+        "llama3.2",
+        "llama3.1",
+        "qwen2.5",
+        "mistral",
+        "deepseek-r1",
+        "nomic-embed-text",
+        "bge-m3",
+        "all-minilm",
+        "mxbai-embed-large",
+    ],
+    "openrouter": [
+        "meta-llama/llama-3.3-70b-instruct",
+        "anthropic/claude-3.5-sonnet",
+        "openai/gpt-4o-mini",
+        "deepseek/deepseek-r1",
+    ],
+    "custom": [
+        "qwen3.5-4b",
+        "llama3.1",
+        "mistral-7b",
+        "nomic-embed-text",
+        "bge-m3",
+        "text-embedding-3-small",
+    ],
 }
 
 
@@ -73,13 +125,27 @@ async def _fetch_models_from_endpoint(provider: AIProviderModel) -> list[Discove
     for m in discovered:
         if m not in seen:
             seen.add(m)
-            models_out.append(DiscoveredModel(id=m, name=m, is_discovered=True))
+            models_out.append(
+                DiscoveredModel(
+                    id=m,
+                    name=m,
+                    is_discovered=True,
+                    is_embedding=_is_embedding_model(m),
+                )
+            )
 
     curated = CURATED_MODELS.get(p_type, CURATED_MODELS["custom"])
     for m in curated:
         if m not in seen:
             seen.add(m)
-            models_out.append(DiscoveredModel(id=m, name=m, is_discovered=False))
+            models_out.append(
+                DiscoveredModel(
+                    id=m,
+                    name=m,
+                    is_discovered=False,
+                    is_embedding=_is_embedding_model(m),
+                )
+            )
 
     return models_out
 

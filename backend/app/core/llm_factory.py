@@ -205,7 +205,7 @@ async def get_task_chat_model(
                     init_kwargs["api_key"] = api_key
                 if binding.top_p is not None:
                     init_kwargs["top_p"] = binding.top_p
-                if binding.max_tokens is not None:
+                if binding.max_tokens is not None and binding.max_tokens > 0:
                     init_kwargs["max_tokens"] = binding.max_tokens
 
                 extra = dict(binding.extra_kwargs or {})
@@ -218,6 +218,10 @@ async def get_task_chat_model(
                     elif provider_type == "anthropic":
                         budget = 1024 if reasoning == "low" else (2048 if reasoning == "medium" else 4096)
                         init_kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
+                        init_kwargs["temperature"] = 1.0
+                    elif provider_type in ("google_genai", "gemini"):
+                        budget = 1024 if reasoning == "low" else (2048 if reasoning == "medium" else 4096)
+                        init_kwargs.setdefault("extra_body", {})["thinking_config"] = {"thinking_budget": budget}
                 elif reasoning and reasoning.lower() == "none" and provider_type in ("openai", "openrouter"):
                     init_kwargs.setdefault("extra_body", {})["reasoning_effort"] = "none"
 
@@ -226,14 +230,16 @@ async def get_task_chat_model(
                     if k != "reasoning_effort":
                         init_kwargs[k] = v
 
-                init_kwargs.update(override_kwargs)
+                # Filter out max_tokens=None from override_kwargs if passed
+                clean_overrides = {k: v for k, v in override_kwargs.items() if not (k == "max_tokens" and v is None)}
+                init_kwargs.update(clean_overrides)
                 return init_chat_model(**init_kwargs)
         except Exception as err:
             logger.warning("Failed loading task binding '%s', falling back: %s", task_type, err)
 
     is_agent_flag = task_type in ("AGENT_REASONING",)
     default_temp = None
-    if task_type in ("SCRAPER_PARSER", "EXTRACTION"):
+    if task_type in ("JD_EXTRACTION", "EXTRACTION"):
         default_temp = 0.0
     elif task_type in ("ASSESSMENT",):
         default_temp = 0.2

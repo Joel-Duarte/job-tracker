@@ -69,6 +69,7 @@ const promptsList = ref([])
 const loadingStudio = ref(false)
 const selectedTaskKey = ref('JD_EXTRACTION')
 const studioProviderModels = ref([])
+const providerModelsCache = ref({})
 const loadingStudioModels = ref(false)
 const isSavingStudio = ref(false)
 const isResettingPrompt = ref(false)
@@ -82,6 +83,8 @@ const TASKS = [
     label: 'Job Spec Web Extraction',
     icon: 'Briefcase',
     recommendedTemp: 0.0,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
     hasPrompt: true,
     desc: 'Extracts structured job title, company, salary, and requirements from scraped web HTML / markdown.',
     variables: ['{raw_webpage_data}']
@@ -91,7 +94,9 @@ const TASKS = [
     promptKey: 'email_extraction',
     label: 'Email Metadata Extraction',
     icon: 'Mail',
-    recommendedTemp: 0.2,
+    recommendedTemp: 0.1,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
     hasPrompt: true,
     desc: 'Parses job details, dates, companies, and roles from emails into structured Pydantic schemas.',
     variables: ['{email_content}']
@@ -102,6 +107,8 @@ const TASKS = [
     label: 'Pre-Screen Match Audit & Tips',
     icon: 'Sparkles',
     recommendedTemp: 0.2,
+    recommendedReasoning: 'low',
+    recommendedMaxTokens: null,
     hasPrompt: true,
     desc: 'Computes deep semantic fit score, keyword matches/gaps, and strategic resume improvement suggestions.',
     variables: ['{job_description}', '{candidate_cv}', '{programmatic_baseline}']
@@ -112,6 +119,8 @@ const TASKS = [
     label: 'CV De-Identification & Skills',
     icon: 'ShieldCheck',
     recommendedTemp: 0.2,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
     hasPrompt: true,
     desc: 'Replaces companies with scale tags, transforms date windows into durations, and extracts canonical technical skills.',
     variables: ['{resume_text}']
@@ -122,6 +131,8 @@ const TASKS = [
     label: 'LangGraph Reasoning & Assistant',
     icon: 'Bot',
     recommendedTemp: 0.2,
+    recommendedReasoning: 'low',
+    recommendedMaxTokens: null,
     hasPrompt: true,
     desc: 'Evaluates fuzzy deduplication confidence and powers the interactive chat assistant.',
     variables: []
@@ -132,26 +143,20 @@ const TASKS = [
     label: 'Timeline Narrative Synthesizer',
     icon: 'Layers',
     recommendedTemp: 0.1,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
     hasPrompt: true,
     desc: 'Synthesizes chronologies and status updates into cohesive narrative snapshots for semantic vector search.',
     variables: ['{events_str}']
-  },
-  {
-    key: 'SCRAPER_PARSER',
-    promptKey: null,
-    label: 'Stealth Scraper DOM Parser',
-    icon: 'Globe',
-    recommendedTemp: 0.0,
-    hasPrompt: false,
-    desc: 'Parses raw Camoufox DOM captures into structured job spec markdown.',
-    variables: []
   },
   {
     key: 'EMBEDDING',
     promptKey: null,
     label: 'Vector Embeddings (pgvector)',
     icon: 'Cpu',
-    recommendedTemp: '768 dims',
+    recommendedTemp: null,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
     hasPrompt: false,
     desc: 'Generates 768-dimension dense vector representations for pgvector cosine similarity search.',
     variables: []
@@ -163,13 +168,37 @@ const activeTaskDef = computed(() => {
   return TASKS.find((t) => t.key === selectedTaskKey.value) || TASKS[0]
 })
 
+// Filtered models for current task (embedding models for EMBEDDING task, chat models for others)
+const filteredStudioModels = computed(() => {
+  const isEmbeddingTask = selectedTaskKey.value === 'EMBEDDING'
+  const allModels = studioProviderModels.value
+  if (!allModels || allModels.length === 0) return []
+
+  if (isEmbeddingTask) {
+    const embeddingModels = allModels.filter(
+      (m) => m.is_embedding || /embed|bge|nomic|minilm|gte|e5|bert|mxbai/i.test(m.id || m.name)
+    )
+    if (embeddingModels.length > 0) return embeddingModels
+    return [
+      { id: 'text-embedding-3-small', name: 'text-embedding-3-small', is_discovered: false, is_embedding: true },
+      { id: 'text-embedding-004', name: 'text-embedding-004', is_discovered: false, is_embedding: true },
+      { id: 'nomic-embed-text', name: 'nomic-embed-text', is_discovered: false, is_embedding: true },
+      { id: 'bge-m3', name: 'bge-m3', is_discovered: false, is_embedding: true },
+    ]
+  } else {
+    return allModels.filter(
+      (m) => !m.is_embedding && !/embed|bge|nomic|minilm|gte|e5|bert|mxbai/i.test(m.id || m.name)
+    )
+  }
+})
+
 // Unified form for currently selected task
 const studioForm = ref({
   provider_id: null,
   model_name: '',
   temperature: 0.2,
   reasoning_effort: 'none', // 'none' | 'low' | 'medium' | 'high'
-  max_tokens: 2000,
+  max_tokens: null,
   embedding_dimensions: 768,
   prompt_template: '',
 })
@@ -190,8 +219,8 @@ function syncStudioForm() {
   studioForm.value.provider_id = chosenProviderId
   studioForm.value.model_name = existingBinding?.model_name || (taskKey === 'EMBEDDING' ? 'nomic-embed-text' : 'qwen3.5-4b')
   studioForm.value.temperature = existingBinding?.temperature !== undefined ? existingBinding.temperature : defaultTemp
-  studioForm.value.reasoning_effort = existingBinding?.reasoning_effort || existingBinding?.extra_kwargs?.reasoning_effort || 'none'
-  studioForm.value.max_tokens = existingBinding?.max_tokens || 2000
+  studioForm.value.reasoning_effort = existingBinding?.reasoning_effort || existingBinding?.extra_kwargs?.reasoning_effort || taskDef.recommendedReasoning || 'none'
+  studioForm.value.max_tokens = existingBinding?.max_tokens || null
   studioForm.value.embedding_dimensions = existingBinding?.embedding_dimensions || (taskKey === 'EMBEDDING' ? 768 : null)
 
   // 2. Find prompt template if task supports prompts
@@ -211,15 +240,22 @@ function selectStudioTask(taskKey) {
   syncStudioForm()
 }
 
-async function fetchStudioModels(providerId) {
+async function fetchStudioModels(providerId, forceRefresh = false) {
   if (!providerId) {
     studioProviderModels.value = []
     return
   }
+  if (!forceRefresh && providerModelsCache.value[providerId]) {
+    studioProviderModels.value = providerModelsCache.value[providerId]
+    return
+  }
+
   loadingStudioModels.value = true
   try {
     const res = await AIConfigAPI.getProviderModels(providerId)
-    studioProviderModels.value = res.data?.models || []
+    const models = res.data?.models || []
+    providerModelsCache.value[providerId] = models
+    studioProviderModels.value = models
   } catch (err) {
     studioProviderModels.value = []
   } finally {
@@ -247,7 +283,7 @@ async function saveStudioTask() {
       model_name: studioForm.value.model_name.trim(),
       temperature: studioForm.value.temperature,
       reasoning_effort: studioForm.value.reasoning_effort,
-      max_tokens: studioForm.value.max_tokens || undefined,
+      max_tokens: studioForm.value.max_tokens ? Number(studioForm.value.max_tokens) : undefined,
       embedding_dimensions: taskKey === 'EMBEDDING' ? studioForm.value.embedding_dimensions : undefined,
       extra_kwargs: {
         reasoning_effort: studioForm.value.reasoning_effort,
@@ -266,6 +302,38 @@ async function saveStudioTask() {
     uiStore.showToast(err.message || 'Failed to save task configuration', 'error')
   } finally {
     isSavingStudio.value = false
+  }
+}
+
+async function resetStudioTaskToDefaults() {
+  const taskDef = activeTaskDef.value
+  const taskKey = selectedTaskKey.value
+
+  if (!confirm(`Reset '${taskDef.label}' parameters and prompt back to recommended factory defaults?`)) {
+    return
+  }
+
+  isResettingPrompt.value = true
+  try {
+    studioForm.value.temperature = typeof taskDef.recommendedTemp === 'number' ? taskDef.recommendedTemp : 0.2
+    studioForm.value.reasoning_effort = taskDef.recommendedReasoning || 'none'
+    studioForm.value.max_tokens = null
+    if (taskKey === 'EMBEDDING') {
+      studioForm.value.embedding_dimensions = 768
+      studioForm.value.model_name = 'nomic-embed-text'
+    }
+
+    if (taskDef.hasPrompt && taskDef.promptKey) {
+      const res = await PromptsAPI.reset(taskDef.promptKey)
+      studioForm.value.prompt_template = res.data.template
+      await loadPrompts()
+    }
+
+    uiStore.showToast(`Task '${taskDef.label}' reset to recommended defaults (click Save to persist)`, 'info')
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to reset task defaults', 'error')
+  } finally {
+    isResettingPrompt.value = false
   }
 }
 
@@ -745,7 +813,6 @@ onMounted(async () => {
             >
               <div class="task-nav-left">
                 <span class="task-nav-name">{{ t.label }}</span>
-                <span class="task-nav-key font-mono">{{ t.key }}</span>
               </div>
               <div class="task-nav-right">
                 <span
@@ -766,10 +833,17 @@ onMounted(async () => {
           <div class="studio-task-header">
             <div class="task-header-info">
               <div class="task-badge-row">
-                <span class="badge badge-applied font-mono">{{ activeTaskDef.key }}</span>
-                <span class="rec-temp-chip">
+                <span v-if="activeTaskDef.recommendedTemp !== null && typeof activeTaskDef.recommendedTemp === 'number'" class="rec-temp-chip">
                   <Thermometer :size="11" />
-                  <span>Recommended: {{ activeTaskDef.recommendedTemp }}</span>
+                  <span>Recommended Temp: {{ activeTaskDef.recommendedTemp }}</span>
+                </span>
+                <span v-else-if="activeTaskDef.key === 'EMBEDDING'" class="rec-temp-chip">
+                  <Cpu :size="11" />
+                  <span>Dense Vectors: 768 dimensions</span>
+                </span>
+                <span v-if="activeTaskDef.recommendedReasoning && activeTaskDef.recommendedReasoning !== 'none'" class="rec-reasoning-chip">
+                  <Zap :size="11" />
+                  <span>Recommended Reasoning: {{ activeTaskDef.recommendedReasoning }}</span>
                 </span>
               </div>
               <h2 class="task-header-title">{{ activeTaskDef.label }}</h2>
@@ -777,6 +851,16 @@ onMounted(async () => {
             </div>
 
             <div class="studio-header-actions">
+              <button
+                class="btn btn-ghost btn-sm text-secondary"
+                :disabled="isResettingPrompt"
+                @click="resetStudioTaskToDefaults"
+                title="Reset parameters and prompt back to task recommendations"
+              >
+                <RotateCcw :size="14" />
+                <span>Reset to Defaults</span>
+              </button>
+
               <button
                 class="btn btn-secondary btn-sm"
                 :disabled="testingStudioTask"
@@ -824,14 +908,22 @@ onMounted(async () => {
               <div class="input-group">
                 <div class="label-with-hint">
                   <label class="input-label">Model Identifier *</label>
-                  <span v-if="loadingStudioModels" class="text-xs text-muted font-mono flex items-center gap-1">
-                    <Loader2 class="animate-spin" :size="11" /> Discovering models...
-                  </span>
+                  <button
+                    type="button"
+                    class="btn-refresh-models"
+                    :disabled="loadingStudioModels || !studioForm.provider_id"
+                    @click="fetchStudioModels(studioForm.provider_id, true)"
+                    title="Refresh models from provider"
+                  >
+                    <Loader2 v-if="loadingStudioModels" class="animate-spin" :size="12" />
+                    <RefreshCw v-else :size="12" />
+                    <span>{{ loadingStudioModels ? 'Discovering...' : 'Refresh Models' }}</span>
+                  </button>
                 </div>
                 <input
                   v-model="studioForm.model_name"
                   type="text"
-                  placeholder="e.g. qwen3.5-4b, claude-3-5-sonnet-20241022"
+                  :placeholder="selectedTaskKey === 'EMBEDDING' ? 'e.g. text-embedding-3-small, nomic-embed-text' : 'e.g. qwen3.5-4b, claude-3-5-sonnet-20241022'"
                   class="form-input font-mono"
                   required
                 />
@@ -839,11 +931,13 @@ onMounted(async () => {
             </div>
 
             <!-- Discovered Model Suggestions Chips -->
-            <div v-if="studioProviderModels.length > 0" class="model-suggestions-box">
-              <span class="suggestions-label">Auto-Discovered Provider Models:</span>
+            <div v-if="filteredStudioModels.length > 0" class="model-suggestions-box">
+              <span class="suggestions-label">
+                {{ selectedTaskKey === 'EMBEDDING' ? 'Suggested Embedding Models:' : 'Provider Models:' }}
+              </span>
               <div class="suggestions-list">
                 <button
-                  v-for="m in studioProviderModels"
+                  v-for="m in filteredStudioModels"
                   :key="m.id"
                   type="button"
                   class="model-chip font-mono"
@@ -857,9 +951,26 @@ onMounted(async () => {
             </div>
 
             <!-- Parameters Grid (Temperature, Thinking Mode, Max Tokens) -->
-            <div class="form-grid-3 mt-4">
-              <!-- Temperature (if not EMBEDDING) -->
-              <div v-if="selectedTaskKey !== 'EMBEDDING'" class="input-group">
+            <div v-if="selectedTaskKey === 'EMBEDDING'" class="form-grid-2 mt-4">
+              <div class="input-group">
+                <label class="input-label">Embedding Dimensions</label>
+                <input
+                  v-model.number="studioForm.embedding_dimensions"
+                  type="number"
+                  placeholder="768"
+                  class="form-input font-mono"
+                />
+              </div>
+              <div class="input-group flex flex-col justify-end">
+                <span class="text-xs text-muted leading-relaxed">
+                  Vector representation size for <code>pgvector</code> similarity search (standard: 768 dimensions).
+                </span>
+              </div>
+            </div>
+
+            <div v-else class="form-grid-3 mt-4">
+              <!-- Temperature -->
+              <div class="input-group">
                 <div class="label-with-hint">
                   <label class="input-label">Sampling Temperature</label>
                   <span class="font-mono text-xs font-semibold text-primary">{{ studioForm.temperature }}</span>
@@ -871,17 +982,6 @@ onMounted(async () => {
                   min="0.0"
                   max="1.0"
                   class="form-range"
-                />
-              </div>
-
-              <!-- Embedding Dimensions (if EMBEDDING) -->
-              <div v-else class="input-group">
-                <label class="input-label">Embedding Dimensions</label>
-                <input
-                  v-model.number="studioForm.embedding_dimensions"
-                  type="number"
-                  placeholder="768"
-                  class="form-input font-mono"
                 />
               </div>
 
@@ -904,22 +1004,26 @@ onMounted(async () => {
 
               <!-- Max Tokens -->
               <div class="input-group">
-                <label class="input-label">Max Generation Tokens</label>
+                <div class="label-with-hint">
+                  <label class="input-label">Max Generation Tokens</label>
+                  <span class="text-xs text-muted">Optional</span>
+                </div>
                 <input
                   v-model.number="studioForm.max_tokens"
                   type="number"
                   step="256"
                   min="256"
-                  max="32000"
+                  max="64000"
+                  placeholder="Default (Unconstrained)"
                   class="form-input font-mono"
                 />
               </div>
             </div>
 
-            <div class="reasoning-info-callout">
+            <div v-if="selectedTaskKey !== 'EMBEDDING'" class="reasoning-info-callout">
               <Zap :size="13" class="text-primary flex-shrink-0" />
               <span>
-                <strong>Thinking Mode:</strong> Instructs reasoning models (e.g. DeepSeek-R1, OpenAI o1/o3-mini, Claude 3.7 Thinking) to execute extended chain-of-thought verification before answering. For high-speed structured extraction, leave as <code>None (Fast)</code>.
+                <strong>Thinking Mode &amp; Token Limits:</strong> Instructs reasoning models (e.g. DeepSeek-R1, OpenAI o1/o3-mini, Claude 3.7 Thinking, Gemini Thinking) to execute extended chain-of-thought verification. Leaving Max Tokens as <em>Default (Unconstrained)</em> ensures reasoning chains don't get truncated before output generation.
               </span>
             </div>
           </div>
@@ -1551,9 +1655,47 @@ onMounted(async () => {
   font-weight: 600;
   color: var(--text-secondary);
   background-color: var(--bg-elevated);
-  padding: 2px 6px;
+  padding: 2px 8px;
   border-radius: 4px;
   border: 1px solid var(--border-subtle);
+}
+
+.rec-reasoning-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #38bdf8;
+  background-color: rgba(56, 189, 248, 0.08);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+}
+
+.btn-refresh-models {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-refresh-models:hover:not(:disabled) {
+  background-color: var(--bg-elevated);
+  color: var(--text-main);
+  border-color: var(--border-subtle);
+}
+
+.btn-refresh-models:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .task-header-title {
