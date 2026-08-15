@@ -10,6 +10,7 @@ import {
   Trash2,
   Edit3,
   Play,
+  Check,
   CheckCircle,
   CheckCircle2,
   AlertCircle,
@@ -41,6 +42,10 @@ import {
   BrainCircuit,
   Bot,
   Briefcase,
+  Copy,
+  Eye,
+  EyeOff,
+  Info,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
@@ -511,6 +516,24 @@ const oauthConfig = ref({
   microsoft_redirect_uri: '',
 })
 
+const showOAuthGuide = ref(false)
+const showClientSecret = ref(false)
+const copiedRedirectUri = ref(false)
+
+async function copyRedirectUri(uri) {
+  if (!uri) return
+  try {
+    await navigator.clipboard.writeText(uri)
+    copiedRedirectUri.value = true
+    uiStore.showToast('Redirect URI copied to clipboard!', 'success')
+    setTimeout(() => {
+      copiedRedirectUri.value = false
+    }, 2500)
+  } catch {
+    uiStore.showToast('Could not copy to clipboard', 'error')
+  }
+}
+
 async function loadEmailAccounts() {
   loadingAccounts.value = true
   try {
@@ -733,6 +756,14 @@ async function confirmDeleteAccount() {
 }
 
 onMounted(async () => {
+  window.addEventListener('message', async (event) => {
+    if (event.data?.type === 'oauth_success') {
+      uiStore.showToast('Mailbox OAuth connected successfully!', 'success')
+      isEmailAccountModalOpen.value = false
+      await loadEmailAccounts()
+    }
+  })
+
   await Promise.all([
     loadProviders(),
     loadBindings(),
@@ -1220,12 +1251,11 @@ onMounted(async () => {
           </div>
 
           <div v-if="emailAccounts.length === 0" class="empty-state">
-            <Mail :size="32" class="empty-icon" />
-            <p>No email accounts connected yet.</p>
-            <button class="btn btn-primary btn-sm mt-2" @click="openAddEmailAccountModal">
-              <Plus :size="14" />
-              <span>Connect First Account</span>
-            </button>
+            <Mail :size="36" class="empty-icon text-muted mb-2" />
+            <h4 class="empty-title">No Mailboxes Connected</h4>
+            <p class="empty-desc">
+              Connect your Gmail, Outlook, or IMAP account using the <strong>Connect Account</strong> button above to automatically scan incoming recruitment communications and update your application pipeline.
+            </p>
           </div>
         </div>
       </div>
@@ -1373,6 +1403,7 @@ onMounted(async () => {
         </div>
 
         <div class="modal-body">
+          <!-- Step 1: Provider Presets -->
           <div class="input-group">
             <label class="input-label">Select Email Provider</label>
             <div class="provider-presets-grid">
@@ -1411,12 +1442,13 @@ onMounted(async () => {
                 <div class="preset-icon imap-icon"><Server :size="18" /></div>
                 <div class="preset-info">
                   <span class="preset-name">Custom IMAP</span>
-                  <span class="preset-sub">iCloud, Fastmail, Yahoo, etc.</span>
+                  <span class="preset-sub">iCloud, Fastmail, Yahoo</span>
                 </div>
               </button>
             </div>
           </div>
 
+          <!-- Step 2: Auth Method Toggle (if Gmail or Outlook) -->
           <div v-if="emailAccountForm.provider_preset !== 'custom'" class="input-group">
             <label class="input-label">Authentication Method</label>
             <div class="auth-method-toggle">
@@ -1441,25 +1473,231 @@ onMounted(async () => {
             </div>
           </div>
 
-          <div class="input-group">
-            <label class="input-label">Account Label *</label>
-            <input v-model="emailAccountForm.name" type="text" class="form-input" required />
-          </div>
+          <!-- OAuth2 Mode Fields & Guide -->
+          <template v-if="emailAccountForm.auth_method === 'oauth' && emailAccountForm.provider_preset !== 'custom'">
+            <!-- Authorized Redirect URI Box -->
+            <div class="oauth-redirect-box">
+              <div class="label-with-hint mb-1">
+                <span class="redirect-uri-label">Authorized Redirect URI (Copy to Console)</span>
+                <button
+                  type="button"
+                  class="btn-copy-uri"
+                  @click="copyRedirectUri(emailAccountForm.provider_preset === 'outlook' ? oauthConfig.microsoft_redirect_uri : oauthConfig.google_redirect_uri)"
+                >
+                  <Check v-if="copiedRedirectUri" :size="12" class="text-success" />
+                  <Copy v-else :size="12" />
+                  <span>{{ copiedRedirectUri ? 'Copied!' : 'Copy URI' }}</span>
+                </button>
+              </div>
+              <div class="uri-display font-mono">
+                {{ emailAccountForm.provider_preset === 'outlook' ? oauthConfig.microsoft_redirect_uri : oauthConfig.google_redirect_uri }}
+              </div>
+            </div>
 
-          <div class="input-group">
-            <label class="input-label">Email Address *</label>
-            <input v-model="emailAccountForm.username" type="email" placeholder="user@domain.com" class="form-input" required />
-          </div>
+            <!-- Collapsible OAuth Setup Guide -->
+            <div class="oauth-guide-card">
+              <button
+                type="button"
+                class="guide-toggle-header"
+                @click="showOAuthGuide = !showOAuthGuide"
+              >
+                <div class="flex items-center gap-2">
+                  <Info :size="14" class="text-primary" />
+                  <span class="font-semibold text-xs text-main">
+                    {{ emailAccountForm.provider_preset === 'gmail' ? 'Google Cloud OAuth Setup Guide' : 'Microsoft Entra ID / Azure OAuth Setup Guide' }}
+                  </span>
+                </div>
+                <component :is="showOAuthGuide ? ChevronUp : ChevronDown" :size="14" class="text-muted" />
+              </button>
 
-          <div v-if="emailAccountForm.auth_method === 'app_password'" class="input-group">
-            <label class="input-label">App Password *</label>
-            <input v-model="emailAccountForm.app_password" type="password" placeholder="••••••••••••••••" class="form-input" />
-          </div>
+              <div v-if="showOAuthGuide" class="guide-content animate-fade-in">
+                <ol v-if="emailAccountForm.provider_preset === 'gmail'" class="guide-steps-list">
+                  <li>
+                    Go to the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="guide-link">Google Cloud Console <ExternalLink :size="10" /></a> and create or select a project.
+                  </li>
+                  <li>Enable the <strong>Gmail API</strong> in APIs &amp; Services &gt; Library.</li>
+                  <li>In <strong>OAuth consent screen</strong>, select User Type: <em>External</em>, and add the scopes: <code>https://www.googleapis.com/auth/gmail.readonly</code> and <code>https://www.googleapis.com/auth/userinfo.email</code>.</li>
+                  <li>In <strong>Credentials</strong>, click <em>Create Credentials</em> &gt; <em>OAuth Client ID</em> (Application type: <strong>Web application</strong>).</li>
+                  <li>Add the <strong>Authorized Redirect URI</strong> displayed above, then copy your Client ID and Client Secret below.</li>
+                </ol>
 
-          <div class="modal-actions">
-            <button class="btn btn-secondary" @click="isEmailAccountModalOpen = false">Cancel</button>
-            <button class="btn btn-primary" @click="saveEmailAccount">{{ editingAccount ? 'Update Account' : 'Connect Account' }}</button>
-          </div>
+                <ol v-else class="guide-steps-list">
+                  <li>
+                    Open the <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener" class="guide-link">Azure Portal / Entra ID <ExternalLink :size="10" /></a> &gt; <strong>App registrations</strong> &gt; <strong>New registration</strong>.
+                  </li>
+                  <li>Set Supported account types to <em>Accounts in any organizational directory and personal Microsoft accounts</em>.</li>
+                  <li>Set Redirect URI Platform to <strong>Web</strong> and paste the Authorized Redirect URI shown above.</li>
+                  <li>Under <strong>API permissions</strong>, add Delegated permissions: <code>Mail.Read</code>, <code>User.Read</code>, and <code>offline_access</code>.</li>
+                  <li>Under <strong>Certificates &amp; secrets</strong>, generate a new Client Secret and paste the value below.</li>
+                </ol>
+              </div>
+            </div>
+
+            <!-- OAuth Form Fields -->
+            <div class="form-grid-2">
+              <div class="input-group">
+                <label class="input-label">Account Label *</label>
+                <input v-model="emailAccountForm.name" type="text" placeholder="e.g. Personal Gmail" class="form-input" required />
+              </div>
+
+              <div class="input-group">
+                <label class="input-label">Sync Interval</label>
+                <select v-model="emailAccountForm.sync_interval" class="form-input">
+                  <option value="15m">Every 15 minutes</option>
+                  <option value="30m">Every 30 minutes</option>
+                  <option value="1h">Every hour (Recommended)</option>
+                  <option value="6h">Every 6 hours</option>
+                  <option value="24h">Once a day</option>
+                  <option value="MANUAL">Manual Sync Only</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="input-group">
+              <label class="input-label">OAuth Client ID *</label>
+              <input
+                v-model="emailAccountForm.client_id"
+                type="text"
+                :placeholder="emailAccountForm.provider_preset === 'gmail' ? 'e.g. 12345-abc.apps.googleusercontent.com' : 'e.g. 00000000-0000-0000-0000-000000000000'"
+                class="form-input font-mono"
+                required
+              />
+            </div>
+
+            <div class="input-group">
+              <label class="input-label">OAuth Client Secret *</label>
+              <div class="input-with-action">
+                <input
+                  v-model="emailAccountForm.client_secret"
+                  :type="showClientSecret ? 'text' : 'password'"
+                  placeholder="Enter client secret"
+                  class="form-input font-mono flex-1"
+                  required
+                />
+                <button
+                  type="button"
+                  class="btn-input-action"
+                  @click="showClientSecret = !showClientSecret"
+                  tabindex="-1"
+                >
+                  <component :is="showClientSecret ? EyeOff : Eye" :size="14" />
+                </button>
+              </div>
+            </div>
+
+            <div class="input-group">
+              <div class="label-with-hint">
+                <label class="input-label">Email Address</label>
+                <span class="text-xs text-muted">Auto-resolved upon OAuth login</span>
+              </div>
+              <input
+                v-model="emailAccountForm.username"
+                type="email"
+                placeholder="Optional (populated automatically on sign in)"
+                class="form-input"
+              />
+            </div>
+
+            <div class="modal-actions mt-4">
+              <button class="btn btn-secondary" @click="isEmailAccountModalOpen = false">Cancel</button>
+              <button class="btn btn-secondary" :disabled="isSavingAccount" @click="saveEmailAccount">
+                <Save :size="14" />
+                <span>Save Credentials</span>
+              </button>
+              <button class="btn btn-primary" @click="startOAuthLogin(emailAccountForm.provider_preset)">
+                <Lock :size="14" />
+                <span>Authorize &amp; Connect Mailbox</span>
+              </button>
+            </div>
+          </template>
+
+          <!-- App Password / Direct IMAP Mode -->
+          <template v-else>
+            <div class="app-password-callout">
+              <Info :size="14" class="text-primary flex-shrink-0 mt-0.5" />
+              <div class="text-xs text-secondary leading-relaxed">
+                <span v-if="emailAccountForm.provider_preset === 'gmail'">
+                  Google requires an <strong>App Password</strong> if 2-Step Verification is enabled. Generate one at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" class="guide-link">Google Account Security <ExternalLink :size="10" /></a>.
+                </span>
+                <span v-else-if="emailAccountForm.provider_preset === 'outlook'">
+                  Microsoft accounts with 2FA require generating an App Password in your Microsoft Account Security settings.
+                </span>
+                <span v-else>
+                  Enter your standard IMAP host, port (default 993 SSL), and mailbox credentials.
+                </span>
+              </div>
+            </div>
+
+            <div class="form-grid-2">
+              <div class="input-group">
+                <label class="input-label">Account Label *</label>
+                <input v-model="emailAccountForm.name" type="text" placeholder="e.g. Work Mailbox" class="form-input" required />
+              </div>
+
+              <div class="input-group">
+                <label class="input-label">Email Address / Login *</label>
+                <input v-model="emailAccountForm.username" type="email" placeholder="user@domain.com" class="form-input" required />
+              </div>
+            </div>
+
+            <div class="input-group">
+              <label class="input-label">App Password / Password *</label>
+              <div class="input-with-action">
+                <input
+                  v-model="emailAccountForm.app_password"
+                  :type="showClientSecret ? 'text' : 'password'"
+                  placeholder="••••••••••••••••"
+                  class="form-input font-mono flex-1"
+                  required
+                />
+                <button
+                  type="button"
+                  class="btn-input-action"
+                  @click="showClientSecret = !showClientSecret"
+                  tabindex="-1"
+                >
+                  <component :is="showClientSecret ? EyeOff : Eye" :size="14" />
+                </button>
+              </div>
+            </div>
+
+            <div class="form-grid-3">
+              <div class="input-group">
+                <label class="input-label">IMAP Host *</label>
+                <input v-model="emailAccountForm.imap_host" type="text" placeholder="imap.gmail.com" class="form-input font-mono" required />
+              </div>
+
+              <div class="input-group">
+                <label class="input-label">IMAP Port *</label>
+                <input v-model.number="emailAccountForm.imap_port" type="number" placeholder="993" class="form-input font-mono" required />
+              </div>
+
+              <div class="input-group">
+                <label class="input-label">Mailbox Folder *</label>
+                <input v-model="emailAccountForm.folder" type="text" placeholder="INBOX" class="form-input font-mono" required />
+              </div>
+            </div>
+
+            <div class="input-group">
+              <label class="input-label">Sync Interval</label>
+              <select v-model="emailAccountForm.sync_interval" class="form-input">
+                <option value="15m">Every 15 minutes</option>
+                <option value="30m">Every 30 minutes</option>
+                <option value="1h">Every hour (Recommended)</option>
+                <option value="6h">Every 6 hours</option>
+                <option value="24h">Once a day</option>
+                <option value="MANUAL">Manual Sync Only</option>
+              </select>
+            </div>
+
+            <div class="modal-actions mt-4">
+              <button class="btn btn-secondary" @click="isEmailAccountModalOpen = false">Cancel</button>
+              <button class="btn btn-primary" :disabled="isSavingAccount" @click="saveEmailAccount">
+                <Save :size="14" />
+                <span>{{ editingAccount ? 'Update Account' : 'Save & Connect Account' }}</span>
+              </button>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -2274,8 +2512,191 @@ onMounted(async () => {
 .empty-state {
   grid-column: 1 / -1;
   text-align: center;
-  padding: 32px 16px;
+  padding: 40px 20px;
   color: var(--text-muted);
   font-size: 13px;
+  background-color: var(--bg-surface);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.empty-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+
+.empty-desc {
+  max-width: 480px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* OAuth & Modal Specific Controls */
+.oauth-redirect-box {
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
+.redirect-uri-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.btn-copy-uri {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-copy-uri:hover {
+  background-color: var(--bg-elevated);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.uri-display {
+  font-size: 11px;
+  color: var(--primary);
+  word-break: break-all;
+  user-select: all;
+  background-color: var(--bg-surface);
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+  margin-top: 4px;
+}
+
+.oauth-guide-card {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-main);
+  overflow: hidden;
+}
+
+.guide-toggle-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.guide-toggle-header:hover {
+  background-color: var(--bg-surface);
+}
+
+.guide-content {
+  padding: 10px 14px 14px;
+  border-top: 1px solid var(--border-subtle);
+  background-color: var(--bg-surface);
+}
+
+.guide-steps-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.guide-steps-list code {
+  font-family: monospace;
+  font-size: 10px;
+  background-color: var(--bg-main);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+}
+
+.guide-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.guide-link:hover {
+  color: var(--primary-hover, #60a5fa);
+}
+
+.input-with-action {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.btn-input-action {
+  position: absolute;
+  right: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+}
+
+.btn-input-action:hover {
+  color: var(--text-main);
+  background-color: var(--bg-surface);
+}
+
+.app-password-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background-color: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.form-grid-3 {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 600px) {
+  .form-grid-2, .form-grid-3 {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

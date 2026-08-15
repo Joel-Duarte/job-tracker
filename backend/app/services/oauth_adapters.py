@@ -17,6 +17,25 @@ class GmailOAuthAdapter:
     TOKEN_URL = "https://oauth2.googleapis.com/token"
 
     @classmethod
+    async def exchange_code_for_tokens(
+        cls, client_id: str, client_secret: str, code: str, redirect_uri: str
+    ) -> dict[str, Any]:
+        """Exchanges OAuth2 authorization code for access and refresh tokens."""
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                cls.TOKEN_URL,
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "code": code,
+                    "redirect_uri": redirect_uri,
+                    "grant_type": "authorization_code",
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    @classmethod
     async def refresh_access_token(
         cls, client_id: str, client_secret: str, refresh_token: str
     ) -> str:
@@ -120,6 +139,27 @@ class MicrosoftGraphAdapter:
 
     GRAPH_BASE = "https://graph.microsoft.com/v1.0"
     TOKEN_URL = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+
+    @classmethod
+    async def exchange_code_for_tokens(
+        cls, client_id: str, client_secret: str, code: str, redirect_uri: str, tenant_id: str = "common"
+    ) -> dict[str, Any]:
+        """Exchanges OAuth2 authorization code for access and refresh tokens with Microsoft."""
+        token_endpoint = cls.TOKEN_URL.format(tenant_id=tenant_id)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                token_endpoint,
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "code": code,
+                    "redirect_uri": redirect_uri,
+                    "grant_type": "authorization_code",
+                    "scope": "https://graph.microsoft.com/Mail.Read offline_access User.Read",
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()
 
     @classmethod
     async def refresh_access_token(

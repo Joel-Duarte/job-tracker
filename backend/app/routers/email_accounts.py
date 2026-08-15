@@ -1,7 +1,8 @@
 import logging
 import os
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from typing import Any, List, Optional
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,7 @@ from app.schemas.email_accounts import (
     EmailAccountResponse,
     EmailAccountUpdate,
 )
+from app.services.oauth_adapters import GmailOAuthAdapter, MicrosoftGraphAdapter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/email_accounts", tags=["Email Accounts"])
@@ -131,6 +133,166 @@ async def get_oauth_authorize_url(
         )
 
     raise HTTPException(status_code=400, detail=f"Unsupported OAuth provider: {provider}")
+
+
+@router.get("/oauth/callback/{provider}")
+async def oauth_callback(
+    provider: str,
+    request: Request,
+    code: str | None = Query(None),
+    error: str | None = Query(None),
+    state: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Handles OAuth authorization redirect callback from Google Gmail or Microsoft Graph."""
+    if error:
+        return Response(
+            content=f"""
+            <html>
+                <body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: #f8fafc;">
+                    <div style="text-align: center; background: #1e293b; padding: 32px 48px; border-radius: 12px; border: 1px solid #ef4444;">
+                        <h2 style="color: #ef4444; margin-bottom: 8px;">OAuth Authorization Failed</h2>
+                        <p style="color: #94a3b8; font-size: 14px;">{error}</p>
+                    </div>
+                </body>
+            </html>
+            """,
+            media_type="text/html",
+        )
+
+    if not code:
+        return Response(
+            content="<html><body><h3>OAuth Error: No authorization code received.</h3></body></html>",
+            media_type="text/html",
+        )
+
+    prov = provider.lower().strip()
+    base_url = _resolve_base_url(request)
+    redirect_uri = f"{base_url}/api/v1/email_accounts/oauth/callback/{prov}"
+
+    try:
+        if prov == "google":
+            client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID") or ""
+            client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET") or ""
+            tokens = await GmailOAuthAdapter.exchange_code_for_tokens(
+                client_id=client_id, client_secret=client_secret, code=code, redirect_uri=redirect_uri
+            )
+            access_token = tokens.get("access_token")
+            refresh_token = tokens.get("refresh_token")
+
+            # Fetch user email profile from Google
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                p_resp = await client.get(
+                    "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                p_data = p_resp.json() if p_resp.status_code == 200 else {}
+                email_address = p_data.get("emailAddress", "Google Account")
+
+            stmt = select(EmailAccountModel).where(
+                EmailAccountModel.username == email_address,
+                EmailAccountModel.auth_type == "GMAIL_OAUTH",
+            )
+            existing = (await db.execute(stmt)).scalar_one_or_none()
+            if not existing:
+                account = EmailAccountModel(
+                    name=f"Gmail ({email_address})",
+                    auth_type="GMAIL_OAUTH",
+                    username=email_address,
+                    folder="INBOX",
+                    access_token=access_token,
+                    refresh_token=refresh_token,
+                    client_id=client_id or None,
+                    client_secret=client_secret or None,
+                    is_active=True,
+                )
+                db.add(account)
+            else:
+                existing.access_token = access_token
+                if refresh_token:
+                    existing.refresh_token = refresh_token
+                existing.is_active = True
+
+            await db.commit()
+
+        elif prov in ["microsoft", "outlook"]:
+            client_id = os.getenv("MS_OAUTH_CLIENT_ID") or ""
+            client_secret = os.getenv("MS_OAUTH_CLIENT_SECRET") or ""
+            tokens = await MicrosoftGraphAdapter.exchange_code_for_tokens(
+                client_id=client_id, client_secret=client_secret, code=code, redirect_uri=redirect_uri
+            )
+            access_token = tokens.get("access_token")
+            refresh_token = tokens.get("refresh_token")
+
+            # Fetch user email profile from MS Graph
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                p_resp = await client.get(
+                    "https://graph.microsoft.com/v1.0/me",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                p_data = p_resp.json() if p_resp.status_code == 200 else {}
+                email_address = p_data.get("mail") or p_data.get("userPrincipalName") or "Outlook Account"
+
+            stmt = select(EmailAccountModel).where(
+                EmailAccountModel.username == email_address,
+                EmailAccountModel.auth_type == "MS_GRAPH_OAUTH",
+            )
+            existing = (await db.execute(stmt)).scalar_one_or_none()
+            if not existing:
+                account = EmailAccountModel(
+                    name=f"Outlook ({email_address})",
+                    auth_type="MS_GRAPH_OAUTH",
+                    username=email_address,
+                    folder="INBOX",
+                    access_token=access_token,
+                    refresh_token=refresh_token,
+                    client_id=client_id or None,
+                    client_secret=client_secret or None,
+                    is_active=True,
+                )
+                db.add(account)
+            else:
+                existing.access_token = access_token
+                if refresh_token:
+                    existing.refresh_token = refresh_token
+                existing.is_active = True
+
+            await db.commit()
+
+        return Response(
+            content="""
+            <html>
+                <body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: #f8fafc;">
+                    <div style="text-align: center; background: #1e293b; padding: 32px 48px; border-radius: 12px; border: 1px solid #334155;">
+                        <h2 style="color: #10b981; margin-bottom: 8px;">✓ Mailbox Connected Successfully!</h2>
+                        <p style="color: #94a3b8; font-size: 14px;">Sync authorization established. Closing window...</p>
+                        <script>
+                            if (window.opener) {
+                                window.opener.postMessage({ type: 'oauth_success' }, '*');
+                            }
+                            setTimeout(() => window.close(), 1200);
+                        </script>
+                    </div>
+                </body>
+            </html>
+            """,
+            media_type="text/html",
+        )
+    except Exception as err:
+        logger.error("OAuth callback exchange failed: %s", err, exc_info=True)
+        return Response(
+            content=f"""
+            <html>
+                <body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: #f8fafc;">
+                    <div style="text-align: center; background: #1e293b; padding: 32px 48px; border-radius: 12px; border: 1px solid #ef4444;">
+                        <h2 style="color: #ef4444; margin-bottom: 8px;">OAuth Exchange Failed</h2>
+                        <p style="color: #94a3b8; font-size: 14px;">{str(err)}</p>
+                    </div>
+                </body>
+            </html>
+            """,
+            media_type="text/html",
+        )
 
 
 @router.get("", response_model=List[EmailAccountResponse])
