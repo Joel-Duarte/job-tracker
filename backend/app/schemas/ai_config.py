@@ -89,3 +89,25 @@ class AITaskTestResponse(BaseModel):
     model_name: str
     base_url: Optional[str] = None
     response: str
+
+
+class AIProviderTestResponse(BaseModel):
+    status: str
+    provider_name: str
+    provider_type: str
+    base_url: Optional[str] = None
+    response: str
+
+
+class DiscoveredModel(BaseModel):
+    id: str
+    name: str
+    is_discovered: bool = True
+
+
+class AIProviderModelsResponse(BaseModel):
+    provider_id: int
+    provider_name: str
+    provider_type: str
+    models: list[DiscoveredModel]
+

@@ -9,16 +9,80 @@ from sqlalchemy.orm import joinedload
 from app.core.database import get_db
 from app.core.llm_factory import get_task_chat_model, get_task_embeddings_model
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
+import httpx
+from langchain.chat_models import init_chat_model
+from app.core.llm_factory import _clean_base_url, _resolve_provider
 from app.schemas.ai_config import (
     AIProviderCreate,
+    AIProviderModelsResponse,
     AIProviderRead,
+    AIProviderTestResponse,
     AIProviderUpdate,
     AITaskBindingCreate,
     AITaskBindingRead,
     AITaskBindingUpdate,
     AITaskTestResponse,
+    DiscoveredModel,
     mask_secret,
 )
+
+CURATED_MODELS: dict[str, list[str]] = {
+    "openai": ["gpt-4o-mini", "gpt-4o", "o3-mini", "text-embedding-3-small", "text-embedding-3-large"],
+    "anthropic": ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"],
+    "google_genai": ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash", "text-embedding-004"],
+    "gemini": ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash", "text-embedding-004"],
+    "ollama": ["llama3.2", "llama3.1", "qwen2.5", "mistral", "nomic-embed-text", "bge-m3"],
+    "openrouter": ["meta-llama/llama-3.3-70b-instruct", "anthropic/claude-3.5-sonnet", "openai/gpt-4o-mini"],
+    "custom": ["qwen3.5-4b", "llama3.1", "mistral-7b"],
+}
+
+
+async def _fetch_models_from_endpoint(provider: AIProviderModel) -> list[DiscoveredModel]:
+    p_type = provider.provider_type.lower()
+    base_url = _clean_base_url(provider.base_url)
+    discovered: list[str] = []
+
+    if base_url:
+        headers: dict[str, str] = {}
+        if provider.api_key:
+            headers["Authorization"] = f"Bearer {provider.api_key}"
+
+        async with httpx.AsyncClient(timeout=3.5) as client:
+            try:
+                if p_type == "ollama":
+                    url = f"{base_url}/api/tags" if not base_url.endswith("/api") else f"{base_url}/tags"
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        for m in data.get("models", []):
+                            if "name" in m:
+                                discovered.append(m["name"])
+                else:
+                    url = f"{base_url}/models" if not base_url.endswith("/models") else base_url
+                    resp = await client.get(url, headers=headers)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        for m in data.get("data", []):
+                            if "id" in m:
+                                discovered.append(m["id"])
+            except Exception as e:
+                logger.warning("Live model probe skipped/failed for provider '%s': %s", provider.name, e)
+
+    models_out: list[DiscoveredModel] = []
+    seen = set()
+    for m in discovered:
+        if m not in seen:
+            seen.add(m)
+            models_out.append(DiscoveredModel(id=m, name=m, is_discovered=True))
+
+    curated = CURATED_MODELS.get(p_type, CURATED_MODELS["custom"])
+    for m in curated:
+        if m not in seen:
+            seen.add(m)
+            models_out.append(DiscoveredModel(id=m, name=m, is_discovered=False))
+
+    return models_out
+
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +206,87 @@ async def delete_ai_provider(
     await db.delete(provider)
     await db.commit()
     return {"message": f"AI Provider '{provider.name}' deleted successfully."}
+
+
+@router.post("/providers/{provider_id}/test", response_model=AIProviderTestResponse)
+async def test_ai_provider(
+    provider_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> AIProviderTestResponse:
+    stmt = select(AIProviderModel).where(AIProviderModel.id == provider_id)
+    res = await db.execute(stmt)
+    provider = res.scalar_one_or_none()
+
+    if not provider:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"AI Provider with ID {provider_id} not found.",
+        )
+
+    # First check if there's an active binding using this provider
+    binding_stmt = select(AITaskBindingModel).where(AITaskBindingModel.provider_id == provider_id)
+    binding_res = await db.execute(binding_stmt)
+    binding = binding_res.scalars().first()
+
+    p_type = provider.provider_type.lower()
+    resolved_prov = _resolve_provider(p_type)
+    model_to_use = binding.model_name if binding else (CURATED_MODELS.get(p_type, ["gpt-4o-mini"])[0])
+    base_url = _clean_base_url(provider.base_url)
+    api_key = provider.api_key or "dummy-key"
+
+    try:
+        init_kwargs = {
+            "model": model_to_use,
+            "model_provider": resolved_prov,
+            "temperature": 0.0,
+            "max_tokens": 10,
+        }
+        if base_url:
+            init_kwargs["base_url"] = base_url
+        if api_key:
+            init_kwargs["api_key"] = api_key
+
+        model = init_chat_model(**init_kwargs)
+        response = await model.ainvoke([HumanMessage(content="Respond with 'OK' to verify connectivity.")])
+        content = response.content if isinstance(response.content, str) else str(response.content)
+
+        return AIProviderTestResponse(
+            status="success",
+            provider_name=provider.name,
+            provider_type=provider.provider_type,
+            base_url=provider.base_url,
+            response=content.strip(),
+        )
+    except Exception as err:
+        logger.error("Provider test probe failed for %s: %s", provider.name, err, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Provider probe failed for '{provider.name}' ({provider.provider_type}): {str(err)}",
+        )
+
+
+@router.get("/providers/{provider_id}/models", response_model=AIProviderModelsResponse)
+async def list_provider_models(
+    provider_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> AIProviderModelsResponse:
+    stmt = select(AIProviderModel).where(AIProviderModel.id == provider_id)
+    res = await db.execute(stmt)
+    provider = res.scalar_one_or_none()
+
+    if not provider:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"AI Provider with ID {provider_id} not found.",
+        )
+
+    models = await _fetch_models_from_endpoint(provider)
+    return AIProviderModelsResponse(
+        provider_id=provider.id,
+        provider_name=provider.name,
+        provider_type=provider.provider_type,
+        models=models,
+    )
 
 
 # ---------------------------------------------------------
