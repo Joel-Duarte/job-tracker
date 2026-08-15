@@ -16,6 +16,7 @@ import {
   UserCheck,
   CheckSquare,
   Cpu,
+  Mail,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -157,16 +158,16 @@ onMounted(() => {
         title="Ingest job URL or specification text for AI qualification"
       >
         <Sparkles :size="14" />
-        <span>+ Job Intake</span>
+        <span>Job Intake</span>
       </button>
 
       <button
-        class="btn btn-secondary btn-ingest"
+        class="btn btn-primary btn-ingest"
         @click="uiStore.openIngestModal"
-        title="Ingest raw email text or upload email files"
+        title="Sync email accounts, paste threads, or upload message files"
       >
-        <Plus :size="14" />
-        <span>+ Email Intake</span>
+        <Mail :size="14" />
+        <span>Email Intake</span>
       </button>
 
       <button

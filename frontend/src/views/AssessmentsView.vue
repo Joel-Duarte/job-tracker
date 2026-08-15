@@ -46,40 +46,13 @@ const uiStore = useUIStore()
 const appStore = useApplicationsStore()
 
 // Active Tab
-const activeTab = ref('ready') // 'ready' | 'intake' | 'queue' | 'passed'
+const activeTab = ref('ready') // 'ready' | 'queue' | 'passed'
 
 // Search & Filtering in Ready Reviews
 const searchQuery = ref('')
-const minFitFilter = ref(null) // null or number (0-100)
+const minFitFilter = ref(null) // null or number (40, 60, 80)
 const sortBy = ref('match_score') // 'match_score' | 'date_desc' | 'company'
 const passedTaskIds = ref(new Set(JSON.parse(localStorage.getItem('job_tracker_passed_assessments') || '[]')))
-
-// Form State for Intake
-const jobUrl = ref('')
-const jobText = ref('')
-const isEnqueuing = ref(false)
-const jdTextareaRef = ref(null)
-
-// LinkedIn Detection State
-const dismissedLinkedInUrl = ref('')
-const isLinkedInUrl = computed(() => {
-  if (!jobUrl.value) return false
-  const trimmed = jobUrl.value.trim().toLowerCase()
-  return trimmed.includes('linkedin.com') && dismissedLinkedInUrl.value !== trimmed
-})
-
-function dismissLinkedInWarning() {
-  dismissedLinkedInUrl.value = jobUrl.value.trim().toLowerCase()
-}
-
-function handlePasteTextInstead() {
-  dismissLinkedInWarning()
-  nextTick(() => {
-    if (jdTextareaRef.value) {
-      jdTextareaRef.value.focus()
-    }
-  })
-}
 
 // Queue & Tasks State
 const evaluationTasks = ref([])
@@ -87,12 +60,6 @@ const loadingEvaluations = ref(false)
 const expandedTaskIds = ref(new Set())
 const processingTaskIds = ref(new Set())
 let pollTimer = null
-
-// Extension Config State
-const copiedUrl = ref(false)
-const copiedJd = ref(false)
-const urlEndpoint = ref('Loading...')
-const jdEndpoint = ref('Loading...')
 
 // Computed Lists
 const activeQueueTasks = computed(() =>
@@ -162,34 +129,6 @@ const averageFitScore = computed(() => {
   return Math.round(total / readyEvaluations.value.length)
 })
 
-async function fetchExtensionConfig() {
-  try {
-    const res = await IntakeAPI.getExtensionConfig()
-    if (res.data?.url_endpoint) {
-      urlEndpoint.value = res.data.url_endpoint
-      jdEndpoint.value = res.data.jd_endpoint
-    }
-  } catch (err) {
-    const host = window.location.hostname || 'localhost'
-    const port = window.location.port === '5173' ? '8000' : window.location.port || '8000'
-    const proto = window.location.protocol || 'http:'
-    urlEndpoint.value = `${proto}//${host}:${port}/api/v1/intake/url`
-    jdEndpoint.value = `${proto}//${host}:${port}/api/v1/intake/jd`
-  }
-}
-
-function copyToClipboard(val, type) {
-  navigator.clipboard.writeText(val)
-  if (type === 'url') {
-    copiedUrl.value = true
-    setTimeout(() => { copiedUrl.value = false }, 2000)
-  } else {
-    copiedJd.value = true
-    setTimeout(() => { copiedJd.value = false }, 2000)
-  }
-  uiStore.showToast('Endpoint URL copied to clipboard!', 'info')
-}
-
 async function loadEvaluations(silent = false) {
   if (!silent) loadingEvaluations.value = true
   try {
@@ -199,35 +138,6 @@ async function loadEvaluations(silent = false) {
     if (!silent) uiStore.showToast(err.message, 'error')
   } finally {
     if (!silent) loadingEvaluations.value = false
-  }
-}
-
-async function enqueueLead() {
-  const urlVal = jobUrl.value.trim()
-  const textVal = jobText.value.trim()
-
-  if (!urlVal && !textVal) {
-    uiStore.showToast('Please enter a Job URL or paste job description text.', 'warning')
-    return
-  }
-
-  isEnqueuing.value = true
-  try {
-    const res = await IntakeAPI.enqueueAssessment({
-      url: urlVal || null,
-      text: textVal || null,
-    })
-
-    jobUrl.value = ''
-    jobText.value = ''
-
-    uiStore.showToast(`Lead '${res.data.title_hint}' enqueued for evaluation!`, 'success')
-    activeTab.value = 'queue'
-    await loadEvaluations(true)
-  } catch (err) {
-    uiStore.showToast(err.message, 'error')
-  } finally {
-    isEnqueuing.value = false
   }
 }
 
@@ -311,17 +221,17 @@ async function clearCompleted() {
 
 function getFitBadgeClass(score) {
   const num = Number(score)
-  if (num >= 85) return 'fit-elite'
-  if (num >= 70) return 'fit-high'
-  if (num >= 50) return 'fit-medium'
+  if (num >= 80) return 'fit-elite'
+  if (num >= 60) return 'fit-high'
+  if (num >= 40) return 'fit-medium'
   return 'fit-low'
 }
 
 function getFitLabel(score) {
   const num = Number(score)
-  if (num >= 85) return 'Elite Match'
-  if (num >= 70) return 'Strong Fit'
-  if (num >= 50) return 'Moderate Fit'
+  if (num >= 80) return 'Elite Match'
+  if (num >= 60) return 'Strong Fit'
+  if (num >= 40) return 'Moderate Fit'
   return 'Low Fit'
 }
 
@@ -358,7 +268,6 @@ function formatDate(isoStr) {
 
 onMounted(() => {
   loadEvaluations()
-  fetchExtensionConfig()
   pollTimer = setInterval(() => loadEvaluations(true), 4000)
 })
 
@@ -372,9 +281,9 @@ onUnmounted(() => {
     <!-- Header -->
     <div class="assessments-header">
       <div>
-        <h1 class="page-title">Assessments &amp; Lead Intake</h1>
+        <h1 class="page-title">Assessments &amp; AI Queue</h1>
         <p class="page-subtitle">
-          Pre-screen opportunities with AI qualification, review match insights, and choose which leads enter your active pipeline.
+          Pre-screen opportunities with AI qualification, track background processing, and decide which leads enter your active pipeline.
         </p>
       </div>
 
@@ -387,11 +296,6 @@ onUnmounted(() => {
         >
           <RefreshCw :class="{ 'animate-spin': loadingEvaluations }" :size="14" />
           <span>Refresh</span>
-        </button>
-
-        <button class="btn btn-primary btn-sm" @click="activeTab = 'intake'">
-          <Sparkles :size="14" />
-          <span>+ Ingest Job Lead</span>
         </button>
       </div>
     </div>
@@ -466,15 +370,6 @@ onUnmounted(() => {
 
         <button
           class="sub-nav-tab"
-          :class="{ active: activeTab === 'intake' }"
-          @click="activeTab = 'intake'"
-        >
-          <FileText :size="15" />
-          <span>New Job Intake</span>
-        </button>
-
-        <button
-          class="sub-nav-tab"
           :class="{ active: activeTab === 'queue' }"
           @click="activeTab = 'queue'"
         >
@@ -516,7 +411,7 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <!-- Match Score Quick Filter Chips -->
+        <!-- Match Score Quick Filter Chips matching 40 60 80 from Board -->
         <div class="fit-chips-group">
           <span class="fit-filter-label">Min Fit:</span>
           <button
@@ -528,17 +423,24 @@ onUnmounted(() => {
           </button>
           <button
             class="fit-chip"
-            :class="{ active: minFitFilter === 85 }"
-            @click="minFitFilter = minFitFilter === 85 ? null : 85"
+            :class="{ active: minFitFilter === 40 }"
+            @click="minFitFilter = minFitFilter === 40 ? null : 40"
           >
-            Elite 85%+
+            40%+
           </button>
           <button
             class="fit-chip"
-            :class="{ active: minFitFilter === 70 }"
-            @click="minFitFilter = minFitFilter === 70 ? null : 70"
+            :class="{ active: minFitFilter === 60 }"
+            @click="minFitFilter = minFitFilter === 60 ? null : 60"
           >
-            Strong 70%+
+            60%+
+          </button>
+          <button
+            class="fit-chip"
+            :class="{ active: minFitFilter === 80 }"
+            @click="minFitFilter = minFitFilter === 80 ? null : 80"
+          >
+            80%+
           </button>
         </div>
 
@@ -559,9 +461,9 @@ onUnmounted(() => {
         <p class="empty-state-desc">
           Ingest a job URL or paste a spec to receive a structured AI qualification assessment.
         </p>
-        <button class="btn btn-primary mt-3" @click="activeTab = 'intake'">
+        <button class="btn btn-primary mt-3" @click="uiStore.openJobIntakeModal">
           <Sparkles :size="14" />
-          <span>Ingest New Job</span>
+          <span>Ingest Job Lead</span>
         </button>
       </div>
 
@@ -730,120 +632,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- TAB 2: NEW JOB INTAKE -->
-    <div v-else-if="activeTab === 'intake'" class="tab-view animate-fade-in">
-      <div class="intake-form-card">
-        <div class="form-section-header">
-          <Sparkles :size="18" class="text-primary" />
-          <div>
-            <h2 class="section-title">Submit Job Lead for AI Pre-Screening</h2>
-            <p class="section-desc">
-              Paste a URL, copy/paste raw job requirements, or drop an email file. The AI de-identifies requirements, matches your candidate CV, and produces a complete fit dossier.
-            </p>
-          </div>
-        </div>
-
-        <form @submit.prevent="enqueueLead" class="intake-form">
-          <!-- Job URL Input -->
-          <div class="input-group">
-            <label class="input-label">Job Posting URL (Optional)</label>
-            <div class="input-with-icon">
-              <LinkIcon :size="16" class="field-icon" />
-              <input
-                v-model="jobUrl"
-                type="url"
-                placeholder="https://jobs.lever.co/... or https://boards.greenhouse.io/..."
-                class="form-input"
-              />
-            </div>
-          </div>
-
-          <!-- LinkedIn Anti-Scrape Warning Alert -->
-          <div v-if="isLinkedInUrl" class="advisory-box animate-fade-in">
-            <div class="advisory-icon text-warning">
-              <AlertTriangle :size="16" />
-            </div>
-            <div class="advisory-content">
-              <span class="advisory-title">LinkedIn Anti-Bot Wall Detected</span>
-              <p class="advisory-desc">
-                LinkedIn blocks automated scrapers without user authentication. For best results, <strong>copy the job text</strong> directly from LinkedIn and paste it into the box below.
-              </p>
-              <div class="advisory-actions">
-                <button type="button" class="btn btn-secondary btn-xs" @click="handlePasteTextInstead">
-                  Paste Text Instead
-                </button>
-                <button type="button" class="btn btn-ghost btn-xs text-muted" @click="dismissLinkedInWarning">
-                  Dismiss
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Raw Description Textarea -->
-          <div class="input-group mt-3">
-            <label class="input-label">Job Specification / Requirements Text</label>
-            <textarea
-              ref="jdTextareaRef"
-              v-model="jobText"
-              rows="7"
-              placeholder="Paste full job spec, responsibilities, required skills, and qualification text here..."
-              class="form-textarea font-mono"
-            ></textarea>
-          </div>
-
-          <div class="form-submit-row mt-4">
-            <button
-              type="submit"
-              class="btn btn-primary"
-              :disabled="isEnqueuing || (!jobUrl.trim() && !jobText.trim())"
-            >
-              <Loader2 v-if="isEnqueuing" class="animate-spin" :size="16" />
-              <Sparkles v-else :size="16" />
-              <span>{{ isEnqueuing ? 'Enqueuing...' : 'Enqueue for AI Evaluation' }}</span>
-            </button>
-          </div>
-        </form>
-      </div>
-
-      <!-- Extension & API Sync Helper Box -->
-      <div class="extension-helper-card mt-4">
-        <div class="helper-header">
-          <Puzzle :size="16" class="text-primary" />
-          <span class="helper-title">1-Click Browser Extension Ingestion</span>
-        </div>
-        <p class="helper-desc">
-          Send active job specs directly from Chrome/Firefox with our companion browser extension.
-        </p>
-
-        <div class="endpoints-grid mt-3">
-          <div class="endpoint-box">
-            <span class="endpoint-lbl">URL Ingest Endpoint:</span>
-            <div class="endpoint-val-row">
-              <code class="endpoint-code">{{ urlEndpoint }}</code>
-              <button class="btn btn-secondary btn-xs" @click="copyToClipboard(urlEndpoint, 'url')">
-                <Check v-if="copiedUrl" :size="12" class="text-success" />
-                <Copy v-else :size="12" />
-                <span>{{ copiedUrl ? 'Copied' : 'Copy' }}</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="endpoint-box">
-            <span class="endpoint-lbl">DOM / Card Ingest Endpoint:</span>
-            <div class="endpoint-val-row">
-              <code class="endpoint-code">{{ jdEndpoint }}</code>
-              <button class="btn btn-secondary btn-xs" @click="copyToClipboard(jdEndpoint, 'jd')">
-                <Check v-if="copiedJd" :size="12" class="text-success" />
-                <Copy v-else :size="12" />
-                <span>{{ copiedJd ? 'Copied' : 'Copy' }}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- TAB 3: BACKGROUND AI QUEUE -->
+    <!-- TAB 2: BACKGROUND AI QUEUE -->
     <div v-else-if="activeTab === 'queue'" class="tab-view animate-fade-in">
       <div class="queue-card">
         <div class="queue-card-header">

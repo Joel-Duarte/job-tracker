@@ -21,13 +21,13 @@ const uiStore = useUIStore()
 const appStore = useApplicationsStore()
 
 // ── tab state ────────────────────────────────────────────────
-const activeTab = ref('paste') // 'paste' | 'upload' | 'sync'
+const activeTab = ref('sync') // 'sync' | 'paste' | 'upload'
 
 // ── paste tab ────────────────────────────────────────────────
 const pasteText = ref('')
 const pasteSubject = ref('')
 
-// ── upload tab ───────────────────────────────────────────────
+// ── upload tab ───────────────────────────────
 const selectedFiles = ref([])
 const isDragging = ref(false)
 
@@ -82,6 +82,10 @@ async function loadEmailAccounts() {
     loadingAccounts.value = false
   }
 }
+
+onMounted(() => {
+  loadEmailAccounts()
+})
 
 function onTabChange(tab) {
   activeTab.value = tab
@@ -202,11 +206,11 @@ const syncButtonLabel = computed => {
       <div class="modal-header">
         <div class="modal-title-group">
           <div class="title-icon">
-            <Sparkles :size="18" />
+            <Mail :size="18" />
           </div>
           <div>
-            <h2 class="modal-title">Quick Ingest</h2>
-            <p class="modal-subtitle">Feed email text, files, or sync an account directly</p>
+            <h2 class="modal-title">Email Intake</h2>
+            <p class="modal-subtitle">Sync connected mailboxes, paste recruiter threads, or upload message files</p>
           </div>
         </div>
         <button class="btn-close" @click="close">
@@ -216,6 +220,10 @@ const syncButtonLabel = computed => {
 
       <!-- Tab Switcher -->
       <div class="tab-bar">
+        <button class="tab-btn" :class="{ active: activeTab === 'sync' }" @click="onTabChange('sync')">
+          <Mail :size="15" />
+          <span>Email Sync</span>
+        </button>
         <button class="tab-btn" :class="{ active: activeTab === 'paste' }" @click="onTabChange('paste')">
           <FileText :size="15" />
           <span>Paste Text</span>
@@ -223,10 +231,6 @@ const syncButtonLabel = computed => {
         <button class="tab-btn" :class="{ active: activeTab === 'upload' }" @click="onTabChange('upload')">
           <UploadCloud :size="15" />
           <span>Upload Files</span>
-        </button>
-        <button class="tab-btn" :class="{ active: activeTab === 'sync' }" @click="onTabChange('sync')">
-          <Mail :size="15" />
-          <span>Email Sync</span>
         </button>
       </div>
 
