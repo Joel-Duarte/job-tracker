@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+import logging
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
@@ -10,18 +12,22 @@ from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
     CompanyModel,
+    JobPostingModel,
 )
 from app.schemas.applications import (
+    AllowedApplicationStatus,
+    ApplicationByStatusResult,
     ApplicationDetailResponse,
     ApplicationListItem,
     ApplicationListResponse,
+    ApplicationTransitionRequest,
     ApplicationUpdate,
     CompanySummary,
     EventSummary,
 )
-
-from app.schemas.applications import AllowedApplicationStatus, ApplicationByStatusResult
 from app.services.llm import generate_and_save_application_embedding
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/applications", tags=["Applications"])
 
@@ -279,10 +285,11 @@ async def update_application(
     if app is None:
         raise HTTPException(status_code=404, detail="Application not found")
 
+    # Fast programmatic embedding refresh on manual update
     try:
-        await generate_and_save_application_embedding(db, app.id)
+        await generate_and_save_application_embedding(db, app.id, skip_llm_summary=True)
     except Exception as e:
-        print(f"[Warning] Failed to refresh embedding for Application ID {app.id}: {e}")
+        logger.warning("Failed to refresh embedding for Application ID %d: %s", app.id, e)
 
     latest_evt = app.events[0] if app.events else None
     has_action = any(e.email_action_required for e in app.events)
@@ -315,3 +322,162 @@ async def update_application(
         created_at=app.created_at,
         updated_at=app.updated_at,
     )
+
+
+@router.post(
+    "/{application_id}/transition",
+    response_model=ApplicationDetailResponse,
+    summary="Transition application pipeline status and record structured timeline event",
+)
+async def transition_application(
+    application_id: int,
+    payload: ApplicationTransitionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Transitions application to a new column/stage (e.g. TECHNICAL_INTERVIEW, OFFER, REJECTED)
+    and atomically creates a structured ApplicationEventModel and updates programmatic embeddings.
+    """
+    stmt = (
+        select(ApplicationModel)
+        .where(ApplicationModel.id == application_id)
+        .options(
+            joinedload(ApplicationModel.company),
+            selectinload(ApplicationModel.events),
+            selectinload(ApplicationModel.job_posting),
+        )
+    )
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+
+    if not app:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+
+    old_status = app.status
+    new_status = payload.status.value if hasattr(payload.status, "value") else str(payload.status)
+    app.status = new_status
+    now = datetime.now(timezone.utc)
+    app.last_activity_at = now
+
+    # Update JobPosting if offered salary provided
+    if payload.offered_salary is not None:
+        if app.job_posting:
+            app.job_posting.salary_min = payload.offered_salary
+            app.job_posting.salary_max = payload.offered_salary
+            if payload.currency:
+                app.job_posting.currency = payload.currency
+        else:
+            jp = JobPostingModel(
+                application_id=app.id,
+                job_url=app.job_url or f"app-{app.id}",
+                salary_min=payload.offered_salary,
+                salary_max=payload.offered_salary,
+                currency=payload.currency or "USD",
+            )
+            db.add(jp)
+
+    # Construct human-readable event summary
+    summary_parts = [f"Status changed from {old_status} to {new_status}."]
+    if payload.interview_stage:
+        summary_parts.append(f"Interview Phase: {payload.interview_stage}.")
+    if payload.offered_salary:
+        curr = payload.currency or "USD"
+        summary_parts.append(f"Offered Compensation: {payload.offered_salary:,.0f} {curr}.")
+    if payload.rejection_reason:
+        summary_parts.append(f"Rejection Reason: {payload.rejection_reason}.")
+    if payload.notes:
+        summary_parts.append(f"Notes: {payload.notes.strip()}")
+
+    summary_str = " ".join(summary_parts)
+
+    # Record programmatic timeline event
+    event = ApplicationEventModel(
+        email_application_id=app.id,
+        email_conversation_id=f"trans-conv-{app.id}",
+        email_event_type="STATUS_CHANGE",
+        email_status_after_event=new_status,
+        email_summary=summary_str,
+        email_received_at=now,
+        source_channel="MANUAL",
+        raw_payload=payload.model_dump(),
+    )
+    db.add(event)
+    await db.commit()
+
+    # Fast programmatic embedding update (no LLM call)
+    try:
+        await generate_and_save_application_embedding(db, app.id, skip_llm_summary=True)
+    except Exception as e:
+        logger.warning("Failed to refresh programmatic embedding for Application ID %d: %s", app.id, e)
+
+    # Reload application with updated relations
+    stmt_reload = (
+        select(ApplicationModel)
+        .where(ApplicationModel.id == application_id)
+        .options(
+            joinedload(ApplicationModel.company),
+            selectinload(ApplicationModel.events),
+            selectinload(ApplicationModel.job_posting),
+        )
+        .execution_options(populate_existing=True)
+    )
+    res_refreshed = await db.execute(stmt_reload)
+    app_refreshed = res_refreshed.scalar_one()
+
+    latest_evt = app_refreshed.events[0] if app_refreshed.events else event
+    has_action = any(e.email_action_required for e in app_refreshed.events)
+
+    return ApplicationDetailResponse(
+        id=app_refreshed.id,
+        company=CompanySummary(
+            id=app_refreshed.company.id,
+            name=app_refreshed.company.name,
+            domain=app_refreshed.company.domain,
+        ),
+        position=app_refreshed.position,
+        status=app_refreshed.status,
+        application_date=app_refreshed.application_date,
+        last_activity_at=app_refreshed.last_activity_at,
+        has_action_required=has_action,
+        latest_event=EventSummary(
+            id=latest_evt.id,
+            email_event_type=latest_evt.email_event_type,
+            email_subject=latest_evt.email_subject,
+            email_action_required=latest_evt.email_action_required,
+            email_action=latest_evt.email_action,
+            email_received_at=latest_evt.email_received_at,
+        )
+        if latest_evt
+        else None,
+        external_job_id=app_refreshed.external_job_id,
+        job_url=app_refreshed.job_url,
+        application_key=app_refreshed.application_key,
+        created_at=app_refreshed.created_at,
+        updated_at=app_refreshed.updated_at,
+    )
+
+
+@router.delete(
+    "/{application_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete an application from database",
+)
+async def delete_application(
+    application_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently deletes an application and its associated events, postings, and embeddings."""
+    stmt = select(ApplicationModel).where(ApplicationModel.id == application_id)
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+
+    if not app:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+
+    await db.delete(app)
+    await db.commit()
+    return {
+        "status": "success",
+        "message": f"Application {application_id} deleted successfully.",
+        "application_id": application_id,
+    }

@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useUIStore } from '../stores/uiStore'
 import {
@@ -14,10 +14,57 @@ import {
   Sparkles,
   Layers,
   ArrowUpDown,
+  Trash2,
+  X,
+  Send,
+  Loader2,
+  GripVertical,
 } from 'lucide-vue-next'
 
 const appStore = useApplicationsStore()
 const uiStore = useUIStore()
+
+// Drag & Drop State
+const draggedApp = ref(null)
+const dragOverCol = ref(null)
+
+// Transition Modal State
+const showTransitionModal = ref(false)
+const transitionApp = ref(null)
+const targetStatus = ref('')
+const isSubmittingTransition = ref(false)
+const transitionForm = ref({
+  interview_stage: 'Technical Round 1',
+  offered_salary: null,
+  currency: 'USD',
+  rejection_reason: 'Resume / Initial Screen',
+  notes: '',
+})
+
+// Delete Modal State
+const showDeleteModal = ref(false)
+const appToDelete = ref(null)
+const isDeleting = ref(false)
+
+const INTERVIEW_STAGES = [
+  'Recruiter Screen / Initial Chat',
+  'Online Assessment / Take-Home',
+  'Technical Round 1',
+  'System Design / Live Coding',
+  'Hiring Manager / Final Round',
+  'Custom / Other',
+]
+
+const REJECTION_REASONS = [
+  'Resume / Initial Screen',
+  'Assessment / Take-Home Test',
+  'Technical Round Fit',
+  'System Design / Culture Fit',
+  'Offer Declined by Candidate',
+  'Position Closed / Cancelled',
+  'Ghosted / No Response',
+  'Other',
+]
 
 onMounted(() => {
   appStore.fetchApplications()
@@ -47,6 +94,118 @@ function formatDate(isoStr) {
     })
   } catch {
     return isoStr
+  }
+}
+
+// Drag and Drop Handlers
+function onDragStart(app, event) {
+  draggedApp.value = app
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('text/plain', app.id.toString())
+}
+
+function onDragEnd() {
+  draggedApp.value = null
+  dragOverCol.value = null
+}
+
+function onDragOver(colKey, event) {
+  event.preventDefault()
+  dragOverCol.value = colKey
+  event.dataTransfer.dropEffect = 'move'
+}
+
+function onDragLeave(colKey) {
+  if (dragOverCol.value === colKey) {
+    dragOverCol.value = null
+  }
+}
+
+function onDrop(colKey, event) {
+  event.preventDefault()
+  dragOverCol.value = null
+  if (!draggedApp.value) return
+
+  const app = draggedApp.value
+  if (app.status === colKey) {
+    draggedApp.value = null
+    return
+  }
+
+  if (['TECHNICAL_INTERVIEW', 'OFFER', 'REJECTED'].includes(colKey)) {
+    openTransitionModal(app, colKey)
+  } else {
+    executeTransition(app.id, { status: colKey })
+  }
+  draggedApp.value = null
+}
+
+function openTransitionModal(app, colKey) {
+  transitionApp.value = app
+  targetStatus.value = colKey
+  transitionForm.value = {
+    interview_stage: 'Technical Round 1',
+    offered_salary: app.job_posting?.salary_max || null,
+    currency: app.job_posting?.currency || 'USD',
+    rejection_reason: 'Resume / Initial Screen',
+    notes: '',
+  }
+  showTransitionModal.value = true
+}
+
+async function executeTransition(appId, payload) {
+  try {
+    await appStore.transitionApplication(appId, payload)
+    uiStore.showToast(`Application moved to ${payload.status}`, 'success')
+  } catch (err) {
+    uiStore.showToast(err.message, 'error')
+  }
+}
+
+async function submitTransitionModal() {
+  if (!transitionApp.value) return
+  isSubmittingTransition.value = true
+  try {
+    const payload = {
+      status: targetStatus.value,
+      notes: transitionForm.value.notes || undefined,
+    }
+    if (targetStatus.value === 'TECHNICAL_INTERVIEW') {
+      payload.interview_stage = transitionForm.value.interview_stage
+    } else if (targetStatus.value === 'OFFER') {
+      payload.offered_salary = transitionForm.value.offered_salary ? Number(transitionForm.value.offered_salary) : undefined
+      payload.currency = transitionForm.value.currency
+    } else if (targetStatus.value === 'REJECTED') {
+      payload.rejection_reason = transitionForm.value.rejection_reason
+    }
+
+    await appStore.transitionApplication(transitionApp.value.id, payload)
+    uiStore.showToast(`Application moved to ${targetStatus.value}`, 'success')
+    showTransitionModal.value = false
+  } catch (err) {
+    uiStore.showToast(err.message, 'error')
+  } finally {
+    isSubmittingTransition.value = false
+  }
+}
+
+function openDeleteConfirm(app) {
+  appToDelete.value = app
+  showDeleteModal.value = true
+}
+
+async function confirmDelete() {
+  if (!appToDelete.value) return
+  isDeleting.value = true
+  try {
+    await appStore.deleteApplication(appToDelete.value.id)
+    uiStore.showToast('Application deleted', 'info')
+    showDeleteModal.value = false
+    appToDelete.value = null
+  } catch (err) {
+    uiStore.showToast(err.message, 'error')
+  } finally {
+    isDeleting.value = false
   }
 }
 </script>
@@ -119,12 +278,16 @@ function formatDate(isoStr) {
 
     <!-- MAIN VIEW AREA -->
     <div class="content-wrapper">
-      <!-- 1. KANBAN VIEW -->
+      <!-- 1. KANBAN VIEW (WITH DRAG & DROP) -->
       <div v-if="uiStore.viewMode === 'kanban'" class="kanban-board">
         <div
           v-for="col in appStore.STATUSES"
           :key="col.key"
           class="kanban-column"
+          :class="{ 'drag-over': dragOverCol === col.key }"
+          @dragover="onDragOver(col.key, $event)"
+          @dragleave="onDragLeave(col.key)"
+          @drop="onDrop(col.key, $event)"
         >
           <div class="column-header">
             <div class="column-title-group">
@@ -141,6 +304,10 @@ function formatDate(isoStr) {
               v-for="app in appStore.kanbanColumns[col.key] || []"
               :key="app.id"
               class="application-card"
+              :class="{ 'is-dragging': draggedApp?.id === app.id }"
+              draggable="true"
+              @dragstart="onDragStart(app, $event)"
+              @dragend="onDragEnd"
               @click="uiStore.openDetail(app.id)"
             >
               <div class="card-header">
@@ -148,14 +315,25 @@ function formatDate(isoStr) {
                   <Building2 :size="14" class="company-icon" />
                   <span>{{ app.company?.name || 'Company' }}</span>
                 </div>
-                <span class="card-date">{{ formatDate(app.last_activity_at || app.application_date) }}</span>
+                <div class="card-header-actions" @click.stop>
+                  <span class="card-date">{{ formatDate(app.last_activity_at || app.application_date) }}</span>
+                  <button
+                    class="card-action-btn"
+                    title="Delete application"
+                    @click="openDeleteConfirm(app)"
+                  >
+                    <Trash2 :size="13" />
+                  </button>
+                </div>
               </div>
 
               <div class="card-position">
                 {{ app.position || 'Position Not Specified' }}
               </div>
 
+              <!-- Latest Event Summary Pill -->
               <div v-if="app.latest_event?.email_summary" class="card-summary">
+                <span class="summary-prefix">{{ app.latest_event.email_event_type }}:</span>
                 {{ app.latest_event.email_summary }}
               </div>
 
@@ -164,8 +342,8 @@ function formatDate(isoStr) {
                   <AlertCircle :size="12" />
                   <span>Action Needed</span>
                 </div>
-                <div class="card-arrow">
-                  <ChevronRight :size="14" />
+                <div class="card-drag-hint">
+                  <GripVertical :size="14" />
                 </div>
               </div>
             </div>
@@ -175,7 +353,7 @@ function formatDate(isoStr) {
               v-if="!appStore.kanbanColumns[col.key]?.length"
               class="column-empty"
             >
-              No applications
+              Drop applications here
             </div>
           </div>
         </div>
@@ -235,12 +413,19 @@ function formatDate(isoStr) {
                 <span v-else class="text-muted text-xs">—</span>
               </td>
 
-              <td class="text-right" @click.stop>
+              <td class="text-right cell-actions" @click.stop>
                 <button
                   class="btn btn-secondary btn-sm"
                   @click="uiStore.openDetail(app.id)"
                 >
                   View Details
+                </button>
+                <button
+                  class="btn btn-danger-subtle btn-sm"
+                  title="Delete Application"
+                  @click="openDeleteConfirm(app)"
+                >
+                  <Trash2 :size="13" />
                 </button>
               </td>
             </tr>
@@ -254,6 +439,129 @@ function formatDate(isoStr) {
         </table>
       </div>
     </div>
+
+    <!-- DRAG-AND-DROP TRANSITION MODAL -->
+    <Transition name="fade">
+      <div v-if="showTransitionModal" class="inner-modal-backdrop" @click.self="showTransitionModal = false">
+        <div class="inner-modal-box">
+          <div class="inner-modal-header">
+            <div class="inner-modal-title">
+              <span>Move {{ transitionApp?.company?.name }} to {{ targetStatus.replace('_', ' ') }}</span>
+            </div>
+            <button class="btn-close" @click="showTransitionModal = false">
+              <X :size="16" />
+            </button>
+          </div>
+
+          <div class="inner-modal-body">
+            <!-- Interview Stage Selection -->
+            <div v-if="targetStatus === 'TECHNICAL_INTERVIEW'" class="form-group">
+              <label class="form-label">Interview Phase / Sub-Stage</label>
+              <select v-model="transitionForm.interview_stage" class="form-select">
+                <option v-for="stage in INTERVIEW_STAGES" :key="stage" :value="stage">
+                  {{ stage }}
+                </option>
+              </select>
+            </div>
+
+            <!-- Offer Compensation Input -->
+            <div v-if="targetStatus === 'OFFER'" class="form-group">
+              <label class="form-label">Offered Compensation / Salary</label>
+              <div class="salary-input-row">
+                <input
+                  v-model="transitionForm.offered_salary"
+                  type="number"
+                  placeholder="e.g. 185000"
+                  class="form-input"
+                />
+                <select v-model="transitionForm.currency" class="form-select currency-select">
+                  <option value="USD">USD ($)</option>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="GBP">GBP (£)</option>
+                  <option value="CAD">CAD ($)</option>
+                  <option value="CHF">CHF</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Rejection Reason Selection -->
+            <div v-if="targetStatus === 'REJECTED'" class="form-group">
+              <label class="form-label">Rejection Reason</label>
+              <select v-model="transitionForm.rejection_reason" class="form-select">
+                <option v-for="reason in REJECTION_REASONS" :key="reason" :value="reason">
+                  {{ reason }}
+                </option>
+              </select>
+            </div>
+
+            <!-- Optional Notes -->
+            <div class="form-group">
+              <label class="form-label">Context / Notes (Optional)</label>
+              <textarea
+                v-model="transitionForm.notes"
+                rows="3"
+                placeholder="Add quick notes about feedback, interviewers, or timeline..."
+                class="form-textarea text-xs"
+              ></textarea>
+            </div>
+          </div>
+
+          <div class="inner-modal-footer">
+            <button class="btn btn-secondary" @click="showTransitionModal = false">Cancel</button>
+            <button
+              class="btn btn-primary"
+              :disabled="isSubmittingTransition"
+              @click="submitTransitionModal"
+            >
+              <Loader2 v-if="isSubmittingTransition" class="animate-spin" :size="15" />
+              <Send v-else :size="15" />
+              <span>Confirm & Record Event</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- DELETE CONFIRMATION MODAL -->
+    <Transition name="fade">
+      <div v-if="showDeleteModal" class="inner-modal-backdrop" @click.self="showDeleteModal = false">
+        <div class="inner-modal-box modal-danger">
+          <div class="inner-modal-header">
+            <div class="inner-modal-title text-danger">
+              <Trash2 :size="18" />
+              <span>Delete Job Application?</span>
+            </div>
+            <button class="btn-close" @click="showDeleteModal = false">
+              <X :size="16" />
+            </button>
+          </div>
+
+          <div class="inner-modal-body">
+            <p class="modal-warn-text">
+              Are you sure you want to permanently delete the application for
+              <strong>{{ appToDelete?.position }}</strong> at
+              <strong>{{ appToDelete?.company?.name }}</strong>?
+            </p>
+            <p class="text-xs text-muted">
+              This will permanently remove the application record, timeline events, and vector embeddings.
+            </p>
+          </div>
+
+          <div class="inner-modal-footer">
+            <button class="btn btn-secondary" @click="showDeleteModal = false">Cancel</button>
+            <button
+              class="btn btn-danger"
+              :disabled="isDeleting"
+              @click="confirmDelete"
+            >
+              <Loader2 v-if="isDeleting" class="animate-spin" :size="15" />
+              <Trash2 v-else :size="15" />
+              <span>{{ isDeleting ? 'Deleting...' : 'Permanently Delete' }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -618,18 +926,171 @@ function formatDate(isoStr) {
   font-weight: 600;
 }
 
-.btn-sm {
-  padding: 4px 10px;
-  font-size: 12px;
+.cell-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
-.text-right {
-  text-align: right;
-}
-
-.table-empty {
-  text-align: center;
-  padding: 40px;
+.btn-danger-subtle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
+  background-color: transparent;
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
+}
+
+.btn-danger-subtle:hover {
+  background-color: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+  border-color: var(--status-rejected-border);
+}
+
+.card-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: all var(--transition-fast);
+}
+
+.application-card:hover .card-action-btn {
+  opacity: 1;
+}
+
+.card-action-btn:hover {
+  background-color: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+}
+
+.card-drag-hint {
+  color: var(--text-muted);
+  opacity: 0.4;
+  margin-left: auto;
+  cursor: grab;
+}
+
+.application-card {
+  cursor: grab;
+}
+
+.application-card:active {
+  cursor: grabbing;
+}
+
+.application-card.is-dragging {
+  opacity: 0.4;
+  transform: scale(0.98);
+  border-style: dashed;
+}
+
+.kanban-column.drag-over {
+  border-color: var(--primary);
+  background-color: var(--bg-surface-hover);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.summary-prefix {
+  font-weight: 600;
+  color: var(--text-main);
+  margin-right: 4px;
+}
+
+/* INNER MODALS */
+.inner-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.inner-modal-box {
+  width: 100%;
+  max-width: 440px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+}
+
+.inner-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.inner-modal-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inner-modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.inner-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  background-color: var(--bg-sidebar);
+  border-top: 1px solid var(--border-color);
+}
+
+.salary-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.currency-select {
+  width: 120px;
+}
+
+.modal-warn-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-main);
+  margin-bottom: 8px;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>

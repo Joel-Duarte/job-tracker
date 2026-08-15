@@ -107,9 +107,23 @@ class ApplicationByStatusResult(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ApplicationTransitionRequest(BaseModel):
+    status: AllowedApplicationStatus = Field(..., description="Target pipeline status")
+    interview_stage: Optional[str] = Field(None, description="Specific interview phase e.g. Screening, Take-Home, System Design, Final Round")
+    offered_salary: Optional[float] = Field(None, description="Offered compensation")
+    currency: Optional[str] = Field("USD", description="Currency code for offered compensation")
+    rejection_reason: Optional[str] = Field(None, description="Reason for rejection")
+    notes: Optional[str] = Field(None, description="Additional notes or context for transition")
+
+
 class ApplicationUpdate(BaseModel):
     position: Optional[str] = Field(None, description="Updated job title/position name")
-    status: Optional[str] = Field(None, description="Updated status, e.g., APPLIED, INTERVIEW, REJECTED")
+    status: Optional[str] = Field(None, description="Updated status, e.g., APPLIED, TECHNICAL_INTERVIEW, OFFER, REJECTED")
     job_url: Optional[str] = Field(None, description="URL to the job posting")
     external_job_id: Optional[str] = Field(None, description="External reference ID for the listing")
     company_id: Optional[int] = Field(None, description="Reassign to another company ID if needed")
+    interview_stage: Optional[str] = Field(None, description="Interview sub-stage")
+    offered_salary: Optional[float] = Field(None, description="Offered compensation")
+    currency: Optional[str] = Field("USD", description="Currency code")
+    rejection_reason: Optional[str] = Field(None, description="Rejection reason")
+    notes: Optional[str] = Field(None, description="Transition notes")

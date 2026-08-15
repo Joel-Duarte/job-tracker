@@ -137,9 +137,9 @@ async def persist_or_stage_job_assessment(
     await db.refresh(app_record)
     await db.refresh(event)
 
-    # 6. Generate Vector Embedding
+    # 6. Generate Vector Embedding (Fast programmatic embedding without LLM summarization)
     try:
-        await generate_and_save_application_embedding(db, app_record.id)
+        await generate_and_save_application_embedding(db, app_record.id, skip_llm_summary=True)
     except Exception as err:
         logger.warning("Vector embedding generation deferred for Application %d: %s", app_record.id, err)
 

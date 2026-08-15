@@ -99,6 +99,38 @@ export const useApplicationsStore = defineStore('applications', () => {
     }
   }
 
+  async function transitionApplication(applicationId, transitionData) {
+    try {
+      const res = await ApplicationsAPI.transition(applicationId, transitionData)
+      const updated = res.data
+      const idx = applications.value.findIndex((a) => a.id === applicationId)
+      if (idx !== -1) {
+        applications.value[idx] = { ...applications.value[idx], ...updated }
+      }
+      if (selectedApplication.value && selectedApplication.value.id === applicationId) {
+        selectedApplication.value = { ...selectedApplication.value, ...updated }
+      }
+      return updated
+    } catch (err) {
+      error.value = err.message
+      throw err
+    }
+  }
+
+  async function deleteApplication(applicationId) {
+    try {
+      await ApplicationsAPI.delete(applicationId)
+      applications.value = applications.value.filter((a) => a.id !== applicationId)
+      total.value = Math.max(0, total.value - 1)
+      if (selectedApplication.value && selectedApplication.value.id === applicationId) {
+        selectedApplication.value = null
+      }
+    } catch (err) {
+      error.value = err.message
+      throw err
+    }
+  }
+
   return {
     applications,
     total,
@@ -114,5 +146,7 @@ export const useApplicationsStore = defineStore('applications', () => {
     fetchApplications,
     fetchApplicationDetail,
     updateStatus,
+    transitionApplication,
+    deleteApplication,
   }
 })

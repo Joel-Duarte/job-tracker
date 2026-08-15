@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
 import {
@@ -16,12 +16,49 @@ import {
   Sparkles,
   Layers,
   CheckSquare,
+  Trash2,
+  Send,
+  Loader2,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
 
 const activeTab = ref('timeline') // 'timeline' | 'job_spec' | 'actions' | 'embedding'
+const showDeleteConfirm = ref(false)
+const isDeleting = ref(false)
+
+// Transition modal state
+const showTransitionModal = ref(false)
+const isSubmittingTransition = ref(false)
+const transitionTargetStatus = ref('')
+const transitionForm = ref({
+  interview_stage: 'Technical Round 1',
+  offered_salary: null,
+  currency: 'USD',
+  rejection_reason: 'Resume / Initial Screen',
+  notes: '',
+})
+
+const INTERVIEW_STAGES = [
+  'Recruiter Screen / Initial Chat',
+  'Online Assessment / Take-Home',
+  'Technical Round 1',
+  'System Design / Live Coding',
+  'Hiring Manager / Final Round',
+  'Custom / Other',
+]
+
+const REJECTION_REASONS = [
+  'Resume / Initial Screen',
+  'Assessment / Take-Home Test',
+  'Technical Round Fit',
+  'System Design / Culture Fit',
+  'Offer Declined by Candidate',
+  'Position Closed / Cancelled',
+  'Ghosted / No Response',
+  'Other',
+]
 
 watch(
   () => uiStore.activeDetailId,
@@ -33,18 +70,84 @@ watch(
   { immediate: true }
 )
 
+const latestEvent = computed(() => {
+  const events = appStore.selectedApplication?.events
+  if (!events || events.length === 0) return null
+  return events[events.length - 1]
+})
+
 function close() {
   uiStore.closeDetail()
 }
 
-async function handleStatusChange(e) {
+function handleStatusSelect(e) {
   const newStatus = e.target.value
+  if (!appStore.selectedApplication || newStatus === appStore.selectedApplication.status) return
+
+  if (['TECHNICAL_INTERVIEW', 'OFFER', 'REJECTED'].includes(newStatus)) {
+    transitionTargetStatus.value = newStatus
+    transitionForm.value = {
+      interview_stage: 'Technical Round 1',
+      offered_salary: appStore.selectedApplication.job_posting?.salary_max || null,
+      currency: appStore.selectedApplication.job_posting?.currency || 'USD',
+      rejection_reason: 'Resume / Initial Screen',
+      notes: '',
+    }
+    showTransitionModal.value = true
+  } else {
+    executeDirectTransition(newStatus)
+  }
+}
+
+async function executeDirectTransition(status) {
   if (!appStore.selectedApplication) return
   try {
-    await appStore.updateStatus(appStore.selectedApplication.id, newStatus)
-    uiStore.showToast(`Updated status to ${newStatus}`, 'success')
+    await appStore.transitionApplication(appStore.selectedApplication.id, { status })
+    uiStore.showToast(`Updated status to ${status}`, 'success')
   } catch (err) {
     uiStore.showToast(err.message, 'error')
+  }
+}
+
+async function confirmTransitionSubmit() {
+  if (!appStore.selectedApplication) return
+  isSubmittingTransition.value = true
+  try {
+    const payload = {
+      status: transitionTargetStatus.value,
+      notes: transitionForm.value.notes || undefined,
+    }
+    if (transitionTargetStatus.value === 'TECHNICAL_INTERVIEW') {
+      payload.interview_stage = transitionForm.value.interview_stage
+    } else if (transitionTargetStatus.value === 'OFFER') {
+      payload.offered_salary = transitionForm.value.offered_salary ? Number(transitionForm.value.offered_salary) : undefined
+      payload.currency = transitionForm.value.currency
+    } else if (transitionTargetStatus.value === 'REJECTED') {
+      payload.rejection_reason = transitionForm.value.rejection_reason
+    }
+
+    await appStore.transitionApplication(appStore.selectedApplication.id, payload)
+    uiStore.showToast(`Application transitioned to ${transitionTargetStatus.value}`, 'success')
+    showTransitionModal.value = false
+  } catch (err) {
+    uiStore.showToast(err.message, 'error')
+  } finally {
+    isSubmittingTransition.value = false
+  }
+}
+
+async function handleDeleteApplication() {
+  if (!appStore.selectedApplication) return
+  isDeleting.value = true
+  try {
+    await appStore.deleteApplication(appStore.selectedApplication.id)
+    uiStore.showToast('Application deleted successfully', 'info')
+    showDeleteConfirm.value = false
+    close()
+  } catch (err) {
+    uiStore.showToast(err.message, 'error')
+  } finally {
+    isDeleting.value = false
   }
 }
 
@@ -90,9 +193,18 @@ function formatDate(isoStr) {
               </div>
             </div>
 
-            <button class="btn-close" @click="close">
-              <X :size="18" />
-            </button>
+            <div class="header-actions">
+              <button
+                class="btn-icon-danger"
+                title="Delete Application"
+                @click="showDeleteConfirm = true"
+              >
+                <Trash2 :size="16" />
+              </button>
+              <button class="btn-close" @click="close">
+                <X :size="18" />
+              </button>
+            </div>
           </div>
 
           <!-- Metadata & Status Bar -->
@@ -103,8 +215,9 @@ function formatDate(isoStr) {
                 :value="appStore.selectedApplication.status"
                 class="status-select"
                 :class="`status-${appStore.selectedApplication.status?.toLowerCase()}`"
-                @change="handleStatusChange"
+                @change="handleStatusSelect"
               >
+                <option value="ASSESSMENT">AI Assessment</option>
                 <option value="APPLIED">Applied</option>
                 <option value="ONLINE_ASSESSMENT">Online Assessment</option>
                 <option value="TECHNICAL_INTERVIEW">Technical Interview</option>
@@ -128,6 +241,26 @@ function formatDate(isoStr) {
               <ExternalLink :size="14" />
               <span>Job Link</span>
             </a>
+          </div>
+
+          <!-- LATEST EVENT HIGHLIGHT BANNER -->
+          <div v-if="latestEvent" class="latest-event-banner">
+            <div class="latest-event-header">
+              <div class="latest-event-badge">
+                <span class="pulsing-dot"></span>
+                <span>LATEST ACTIVITY • {{ formatDate(latestEvent.email_received_at || latestEvent.created_at) }}</span>
+              </div>
+              <span class="badge" :class="`badge-${(latestEvent.email_status_after_event || appStore.selectedApplication.status || 'applied').toLowerCase()}`">
+                {{ latestEvent.email_event_type }}
+              </span>
+            </div>
+            <div class="latest-event-desc">
+              {{ latestEvent.email_summary || latestEvent.email_subject || 'Application updated.' }}
+            </div>
+            <div v-if="latestEvent.email_action_required" class="latest-action-badge">
+              <AlertCircle :size="13" />
+              <span>Action Required: {{ latestEvent.email_action || 'Response pending' }}</span>
+            </div>
           </div>
 
           <!-- Nav Tabs -->
@@ -298,13 +431,136 @@ function formatDate(isoStr) {
                 <span class="snapshot-title">Synthesized Narrative Snapshot</span>
               </div>
               <p class="snapshot-description">
-                This narrative is synthesized by the LLM summarizer and embedded as a 768-dimension vector in pgvector for semantic search.
+                This narrative snapshot is embedded as a 768-dimension vector in pgvector for semantic vector search.
               </p>
               <div class="snapshot-content">
                 {{ appStore.selectedApplication.embedding_record?.content || 'No vector embedding narrative generated yet.' }}
               </div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  </Transition>
+
+  <!-- TRANSITION POPUP MODAL -->
+  <Transition name="fade">
+    <div v-if="showTransitionModal" class="inner-modal-backdrop" @click.self="showTransitionModal = false">
+      <div class="inner-modal-box">
+        <div class="inner-modal-header">
+          <div class="inner-modal-title">
+            <span>Move to {{ transitionTargetStatus.replace('_', ' ') }}</span>
+          </div>
+          <button class="btn-close" @click="showTransitionModal = false">
+            <X :size="16" />
+          </button>
+        </div>
+
+        <div class="inner-modal-body">
+          <!-- Interview Stage Selection -->
+          <div v-if="transitionTargetStatus === 'TECHNICAL_INTERVIEW'" class="form-group">
+            <label class="form-label">Interview Phase / Sub-Stage</label>
+            <select v-model="transitionForm.interview_stage" class="form-select">
+              <option v-for="stage in INTERVIEW_STAGES" :key="stage" :value="stage">
+                {{ stage }}
+              </option>
+            </select>
+          </div>
+
+          <!-- Offer Compensation Input -->
+          <div v-if="transitionTargetStatus === 'OFFER'" class="form-group">
+            <label class="form-label">Offered Compensation / Salary</label>
+            <div class="salary-input-row">
+              <input
+                v-model="transitionForm.offered_salary"
+                type="number"
+                placeholder="e.g. 185000"
+                class="form-input"
+              />
+              <select v-model="transitionForm.currency" class="form-select currency-select">
+                <option value="USD">USD ($)</option>
+                <option value="EUR">EUR (€)</option>
+                <option value="GBP">GBP (£)</option>
+                <option value="CAD">CAD ($)</option>
+                <option value="CHF">CHF</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Rejection Reason Selection -->
+          <div v-if="transitionTargetStatus === 'REJECTED'" class="form-group">
+            <label class="form-label">Rejection Reason</label>
+            <select v-model="transitionForm.rejection_reason" class="form-select">
+              <option v-for="reason in REJECTION_REASONS" :key="reason" :value="reason">
+                {{ reason }}
+              </option>
+            </select>
+          </div>
+
+          <!-- Optional Notes -->
+          <div class="form-group">
+            <label class="form-label">Additional Context / Notes (Optional)</label>
+            <textarea
+              v-model="transitionForm.notes"
+              rows="3"
+              placeholder="Add quick notes about feedback, interviewers, or timeline..."
+              class="form-textarea text-xs"
+            ></textarea>
+          </div>
+        </div>
+
+        <div class="inner-modal-footer">
+          <button class="btn btn-secondary" @click="showTransitionModal = false">Cancel</button>
+          <button
+            class="btn btn-primary"
+            :disabled="isSubmittingTransition"
+            @click="confirmTransitionSubmit"
+          >
+            <Loader2 v-if="isSubmittingTransition" class="animate-spin" :size="15" />
+            <Send v-else :size="15" />
+            <span>Update & Record Event</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </Transition>
+
+  <!-- DELETE CONFIRMATION MODAL -->
+  <Transition name="fade">
+    <div v-if="showDeleteConfirm" class="inner-modal-backdrop" @click.self="showDeleteConfirm = false">
+      <div class="inner-modal-box modal-danger">
+        <div class="inner-modal-header">
+          <div class="inner-modal-title text-danger">
+            <Trash2 :size="18" />
+            <span>Delete Job Application?</span>
+          </div>
+          <button class="btn-close" @click="showDeleteConfirm = false">
+            <X :size="16" />
+          </button>
+        </div>
+
+        <div class="inner-modal-body">
+          <p class="modal-warn-text">
+            Are you sure you want to permanently delete the application for
+            <strong>{{ appStore.selectedApplication?.position }}</strong> at
+            <strong>{{ appStore.selectedApplication?.company?.name }}</strong>?
+          </p>
+          <p class="text-xs text-muted">
+            This will permanently remove all associated timeline events, job postings, action items, and embeddings from the database.
+          </p>
+        </div>
+
+        <div class="inner-modal-footer">
+          <button class="btn btn-secondary" @click="showDeleteConfirm = false">Cancel</button>
+          <button
+            class="btn btn-danger"
+            :disabled="isDeleting"
+            @click="handleDeleteApplication"
+          >
+            <Loader2 v-if="isDeleting" class="animate-spin" :size="15" />
+            <Trash2 v-else :size="15" />
+            <span>{{ isDeleting ? 'Deleting...' : 'Permanently Delete' }}</span>
+          </button>
         </div>
       </div>
     </div>
@@ -696,6 +952,165 @@ function formatDate(isoStr) {
   color: var(--text-main);
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-icon-danger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.btn-icon-danger:hover {
+  background-color: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+}
+
+/* LATEST EVENT HIGHLIGHT BANNER */
+.latest-event-banner {
+  margin: 16px 24px 0 24px;
+  padding: 14px 16px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.latest-event-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.latest-event-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+  letter-spacing: 0.5px;
+}
+
+.pulsing-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--primary);
+  box-shadow: 0 0 0 rgba(99, 102, 241, 0.4);
+  animation: pulse-ring 2s infinite;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(99, 102, 241, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+}
+
+.latest-event-desc {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-main);
+}
+
+.latest-action-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background-color: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+  font-size: 11px;
+  font-weight: 600;
+  width: fit-content;
+  margin-top: 4px;
+}
+
+/* INNER MODALS */
+.inner-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.inner-modal-box {
+  width: 100%;
+  max-width: 440px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+}
+
+.inner-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.inner-modal-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inner-modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.inner-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  background-color: var(--bg-sidebar);
+  border-top: 1px solid var(--border-color);
+}
+
+.salary-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.currency-select {
+  width: 120px;
+}
+
+.modal-warn-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-main);
+  margin-bottom: 8px;
+}
+
 /* Transitions */
 .drawer-slide-enter-active,
 .drawer-slide-leave-active {
@@ -706,5 +1121,15 @@ function formatDate(isoStr) {
 .drawer-slide-leave-to {
   opacity: 0;
   transform: translateX(100%);
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>
