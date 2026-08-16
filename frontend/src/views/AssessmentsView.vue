@@ -158,6 +158,7 @@ async function markAsApplied(task) {
 
   try {
     const res = await IntakeAPI.confirmAssessment({
+      application_id: result.application_id, // Added application_id to link the record
       company: result.company || task.title_hint || 'Company',
       position: result.position || 'Software Engineer',
       status: 'APPLIED',

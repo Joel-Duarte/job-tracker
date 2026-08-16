@@ -221,6 +221,15 @@ onUnmounted(() => {
             <UserCheck :size="12" />
             <span>CV Extractions</span>
           </button>
+          <!-- NEW: Vector Embeddings Filter -->
+          <button
+            class="type-pill"
+            :class="{ active: typeFilter === 'EMBEDDING' }"
+            @click="typeFilter = 'EMBEDDING'"
+          >
+            <Layers :size="12" />
+            <span>Vector Embeddings</span>
+          </button>
         </div>
 
         <!-- Actions: Search, Refresh, Clear Completed -->
@@ -283,10 +292,14 @@ onUnmounted(() => {
               <span class="task-id-tag">#{{ task.id }}</span>
               <span
                 class="task-type-tag"
-                :class="task.task_type === 'CV_EXTRACTION' ? 'type-cv' : 'type-job'"
+                :class="{
+                  'type-cv': task.task_type === 'CV_EXTRACTION',
+                  'type-job': task.task_type === 'JOB_ASSESSMENT' || !task.task_type,
+                  'type-embedding': task.task_type === 'EMBEDDING'
+                }"
               >
-                <component :is="task.task_type === 'CV_EXTRACTION' ? UserCheck : Briefcase" :size="12" />
-                <span>{{ task.task_type === 'CV_EXTRACTION' ? 'CV Profile Extraction' : 'Job Assessment' }}</span>
+                <component :is="task.task_type === 'CV_EXTRACTION' ? UserCheck : (task.task_type === 'EMBEDDING' ? Layers : Briefcase)" :size="12" />
+                <span>{{ task.task_type === 'CV_EXTRACTION' ? 'CV Profile Extraction' : (task.task_type === 'EMBEDDING' ? 'Vector Embedding' : 'Job Assessment') }}</span>
               </span>
               <span class="task-title-text" :title="task.title_hint || task.job_url">
                 {{ task.title_hint || task.job_url || `Task #${task.id}` }}
@@ -338,7 +351,7 @@ onUnmounted(() => {
           <!-- DEDICATED PIPELINE STEPPERS -->
           <div class="task-pipeline-container">
             <!-- 1. JOB ASSESSMENT STEPPER (5 Stages) -->
-            <div v-if="task.task_type !== 'CV_EXTRACTION'" class="pipeline-stepper job-stepper">
+            <div v-if="task.task_type !== 'CV_EXTRACTION' && task.task_type !== 'EMBEDDING'" class="pipeline-stepper job-stepper">
               <div
                 class="stepper-node"
                 :class="{
@@ -395,7 +408,7 @@ onUnmounted(() => {
             </div>
 
             <!-- 2. CV EXTRACTION STEPPER (4 Stages) -->
-            <div v-else class="pipeline-stepper cv-stepper">
+            <div v-else-if="task.task_type === 'CV_EXTRACTION'" class="pipeline-stepper cv-stepper">
               <div
                 class="stepper-node"
                 :class="{
@@ -439,8 +452,43 @@ onUnmounted(() => {
                 <span class="node-label">CV Profile Ready</span>
               </div>
             </div>
-          </div>
 
+            <!-- 3. EMBEDDING STEPPER (3 Stages) -->
+            <div v-else-if="task.task_type === 'EMBEDDING'" class="pipeline-stepper embedding-stepper">
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'QUEUED',
+                  done: ['EMBEDDING', 'COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">1</div>
+                <span class="node-label">Queued</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'EMBEDDING',
+                  done: ['COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">2</div>
+                <span class="node-label">Embedding Generation</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">3</div>
+                <span class="node-label">Vector Saved</span>
+              </div>
+            </div>
+          </div>
+          
           <!-- Error Alert Banner with 1-Click Retry -->
           <div v-if="task.error_message" class="task-error-box">
             <div class="error-msg-left">
@@ -461,7 +509,7 @@ onUnmounted(() => {
           <!-- Result Footer & Contextual Actions -->
           <div v-else-if="task.status === 'COMPLETED' && task.result_json" class="task-card-footer">
             <!-- Job Assessment Context -->
-            <template v-if="task.task_type !== 'CV_EXTRACTION'">
+            <template v-if="task.task_type !== 'CV_EXTRACTION' && task.task_type !== 'EMBEDDING'">
               <div class="footer-left">
                 <span v-if="task.result_json.match_score !== undefined || task.result_json.fit_score !== undefined" class="score-badge">
                   {{ task.result_json.match_score ?? task.result_json.fit_score }}% Match
@@ -483,7 +531,7 @@ onUnmounted(() => {
             </template>
 
             <!-- CV Extraction Context -->
-            <template v-else>
+            <template v-else-if="task.task_type === 'CV_EXTRACTION'">
               <div class="footer-left">
                 <span class="badge-cv-ready">
                   <ShieldCheck :size="12" />
@@ -502,6 +550,15 @@ onUnmounted(() => {
                   <UserCheck :size="12" />
                   <span>View Profile &rarr;</span>
                 </router-link>
+              </div>
+            </template>
+            <!-- Embedding Context -->
+            <template v-else-if="task.task_type === 'EMBEDDING'">
+              <div class="footer-left">
+                <span class="badge-cv-ready">
+                  <Layers :size="12" />
+                  <span>Vector Embedding Generated</span>
+                </span>
               </div>
             </template>
           </div>
@@ -778,6 +835,12 @@ onUnmounted(() => {
   background-color: var(--status-offer-bg);
   color: var(--status-offer-text);
   border: 1px solid var(--status-offer-border);
+}
+
+.task-type-tag.type-embedding {
+  background-color: var(--primary-subtle);
+  color: var(--primary);
+  border: 1px solid var(--primary-glow);
 }
 
 .task-title-text {

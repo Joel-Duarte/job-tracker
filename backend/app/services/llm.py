@@ -371,15 +371,16 @@ async def async_enqueue_application_embedding(
 ) -> None:
     """
     Non-blocking background worker task to generate and save application vector embeddings.
-    Uses an isolated AsyncSessionLocal and ProviderConcurrencyManager so that local/cloud providers
-    never get overwhelmed or have in-flight LLM requests interrupted.
+    Tracks state in IntakeEvaluationTaskModel and uses Priority 2 in the ConcurrencyManager.
     """
     from app.core.database import AsyncSessionLocal
     from app.core.ai_queue import concurrency_manager
     from app.models.ai_providers import AITaskBindingModel, AIProviderModel
+    from app.models.applications import IntakeEvaluationTaskModel # Check this import path
 
     provider_id = None
     max_concurrency = 1
+    task_id = None
 
     async with AsyncSessionLocal() as session:
         try:
@@ -400,14 +401,45 @@ async def async_enqueue_application_embedding(
         except Exception as err:
             logger.debug("Could not resolve EMBEDDING provider binding: %s", err)
 
-    async with concurrency_manager.acquire(provider_id, max_concurrency):
-        async with AsyncSessionLocal() as session:
+        # 1. Create Queued Task Record
+        new_task = IntakeEvaluationTaskModel(
+            task_type="EMBEDDING",
+            status="QUEUED",
+            stage="QUEUED",
+            title_hint=f"Application {application_id} Vector Embedding"
+        )
+        session.add(new_task)
+        await session.commit()
+        task_id = new_task.id
+
+    # 2. Acquire Priority 2 Slot
+    async with concurrency_manager.acquire(provider_id, max_concurrency, priority=2):
+        async with AsyncSessionLocal() as processing_session:
+            # 3. Update to Processing
+            db_task = await processing_session.get(IntakeEvaluationTaskModel, task_id)
+            if db_task:
+                db_task.status = "PROCESSING"
+                db_task.stage = "EMBEDDING"
+                await processing_session.commit()
+
             try:
                 await generate_and_save_application_embedding(
-                    session,
+                    processing_session,
                     application_id=application_id,
                     skip_llm_summary=skip_llm_summary,
                 )
                 logger.info("Background vector embedding updated for Application ID %d", application_id)
+                
+                # 4. On Success: Complete
+                if db_task:
+                    db_task.status = "COMPLETED"
+                    db_task.stage = "COMPLETE"
+                    await processing_session.commit()
             except Exception as err:
                 logger.warning("Background vector embedding failed for Application ID %d: %s", application_id, err)
+                
+                # 5. On Failure
+                if db_task:
+                    db_task.status = "FAILED"
+                    db_task.error_message = str(err)
+                    await processing_session.commit()

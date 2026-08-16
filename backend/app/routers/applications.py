@@ -50,7 +50,7 @@ async def list_applications(
     company_id: Optional[int] = Query(None, description="Filter by company ID"),
     sort_by: str = Query("last_activity_at", pattern="^(last_activity_at|application_date|created_at)$"),
     order: str = Query("desc", pattern="^(asc|desc)$"),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
