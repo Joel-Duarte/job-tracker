@@ -77,6 +77,12 @@ if [ "$RESET_DB" = true ]; then
   fi
 fi
 
+# Ensure .env exists with sensible defaults
+if [ ! -f .env ] && [ -f .env.example ]; then
+  echo "📝 Creating initial .env from .env.example..."
+  cp .env.example .env
+fi
+
 echo "🚀 Starting Job Tracker in LIVE DEVELOPMENT mode..."
 echo " - Frontend (Vite HMR):   http://localhost:5173"
 echo " - Backend API (Proxied):  http://localhost:5173/api"

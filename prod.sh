@@ -101,6 +101,12 @@ if [ "$RESET_DB" = true ]; then
   fi
 fi
 
+# Ensure .env exists with sensible defaults
+if [ ! -f .env ] && [ -f .env.example ]; then
+  echo "📝 Creating initial .env from .env.example..."
+  cp .env.example .env
+fi
+
 echo "🚀 Starting Job Tracker in PERMANENT PRODUCTION mode..."
 echo " - Frontend: Production Nginx SPA & Reverse Proxy (http://localhost:4173)"
 echo " - Backend:  FastAPI Production Workers (http://localhost:8008)"
