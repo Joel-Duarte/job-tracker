@@ -1,16 +1,21 @@
 import logging
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
+from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.database import get_db
-from app.core.llm_factory import get_task_chat_model, get_task_embeddings_model
+from app.core.llm_factory import (
+    _clean_base_url,
+    _resolve_provider,
+    get_task_chat_model,
+    get_task_embeddings_model,
+)
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
-import httpx
-from langchain.chat_models import init_chat_model
-from app.core.llm_factory import _clean_base_url, _resolve_provider
 from app.schemas.ai_config import (
     AIProviderCreate,
     AIProviderModelsResponse,
@@ -593,5 +598,5 @@ async def test_ai_task_binding(
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Task binding test failed for '{task_type_norm}' ({provider.provider_type} / {binding.model_name}): {str(err)}",
+            detail=f"Task binding test failed for '{task_type_norm}' ({provider.provider_type} / {binding.model_name}): {err!s}",
         )

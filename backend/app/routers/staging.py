@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
 import logging
-from typing import Optional
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/staging", tags=["staging"])
 
 @router.get("", response_model=StagingPaginationResponse)
 async def list_staging_items(
-    status_filter: Optional[str] = Query(default="PENDING", alias="status"),
+    status_filter: str | None = Query(default="PENDING", alias="status"),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -247,8 +247,7 @@ async def resolve_staging_item(
             email_sender=staged_item.email_sender,
             email_sender_name=staged_item.email_sender_name,
             email_subject=staged_item.email_subject,
-            email_received_at=staged_item.email_received_at
-            or datetime.now(timezone.utc),
+            email_received_at=staged_item.email_received_at or datetime.now(UTC),
             email_event_type=payload.event_type or "PRE_APPLICATION_ASSESSMENT",
             email_status_after_event=application.status,
             email_summary=summary_val,
@@ -298,7 +297,7 @@ async def resolve_staging_item(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to resolve staging item: {str(e)}",
+            detail=f"Failed to resolve staging item: {e!s}",
         )
 
     # Isolated embedding block after successful commit

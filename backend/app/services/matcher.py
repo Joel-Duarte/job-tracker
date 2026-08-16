@@ -1,5 +1,5 @@
 import re
-from typing import List, Tuple
+
 from rapidfuzz import fuzz
 
 SKILL_ALIASES = {
@@ -47,7 +47,7 @@ def _normalize_token(token: str) -> str:
 
 
 def compute_programmatic_skill_match(
-    candidate_skills: List[str],
+    candidate_skills: list[str],
     jd_text: str,
     fuzzy_threshold: float = 85.0,
 ) -> dict:
@@ -69,7 +69,7 @@ def compute_programmatic_skill_match(
     jd_lower = jd_text.lower()
     normalized_candidate = {s: _normalize_token(s) for s in candidate_skills}
 
-    matching_skills: List[str] = []
+    matching_skills: list[str] = []
 
     # Extract word tokens and multi-word line segments from JD
     jd_words = set(re.findall(r"\b[a-zA-Z0-9\+\#\/\.\-]+\b", jd_lower))

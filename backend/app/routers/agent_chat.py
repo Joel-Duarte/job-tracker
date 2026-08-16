@@ -1,10 +1,11 @@
 import json
 import logging
-from typing import Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Any
+
+from fastapi import APIRouter, Depends
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from app.core.database import get_db
 from app.core.llm_factory import get_task_chat_model
@@ -22,12 +23,12 @@ class ChatMessage(BaseModel):
 
 
 class AgentChatRequest(BaseModel):
-    messages: List[ChatMessage] = Field(..., min_length=1)
+    messages: list[ChatMessage] = Field(..., min_length=1)
 
 
 class AgentChatResponse(BaseModel):
     reply: str
-    actions_performed: List[dict[str, Any]] = Field(default_factory=list)
+    actions_performed: list[dict[str, Any]] = Field(default_factory=list)
 
 
 @router.post("/chat", response_model=AgentChatResponse)

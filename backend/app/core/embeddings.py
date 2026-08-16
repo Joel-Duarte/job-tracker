@@ -1,4 +1,5 @@
 import logging
+
 from fastapi import HTTPException, status
 
 from app.core.llm_factory import get_embeddings_model
@@ -17,5 +18,5 @@ async def generate_query_embedding(text: str) -> list[float]:
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to generate search query embedding: {str(err)}",
+            detail=f"Failed to generate search query embedding: {err!s}",
         )

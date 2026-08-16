@@ -1,5 +1,6 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -24,7 +25,7 @@ class CVAnonymizationResult(BaseModel):
     anonymized_resume: str = Field(
         description="De-identified resume text with names, addresses, emails, and specific company names scrubbed, and dates converted to duration windows."
     )
-    extracted_skills: List[str] = Field(
+    extracted_skills: list[str] = Field(
         default_factory=list,
         description="Canonical technical skills, libraries, frameworks, tools, and methodologies extracted from the CV.",
     )
@@ -32,15 +33,15 @@ class CVAnonymizationResult(BaseModel):
         default=0.0,
         description="Calculated total cumulative professional experience in years.",
     )
-    domain_expertise: List[str] = Field(
+    domain_expertise: list[str] = Field(
         default_factory=list,
         description="Industry domain tags (e.g. 'Fintech', 'Distributed Systems', 'Cloud Infrastructure', 'E-commerce').",
     )
-    domain_breakdown: List[DomainExperienceItem] = Field(
+    domain_breakdown: list[DomainExperienceItem] = Field(
         default_factory=list,
         description="Granular domain and specialization experience breakdown with estimated durations.",
     )
-    core_competencies: List[str] = Field(
+    core_competencies: list[str] = Field(
         default_factory=list,
         description="Top 4-6 standout professional strengths and core competencies.",
     )
@@ -56,25 +57,25 @@ class CandidateCVSaveRequest(BaseModel):
 
 
 class CandidateCVUpdateRequest(BaseModel):
-    anonymized_text: Optional[str] = None
-    extracted_skills: Optional[List[str]] = None
-    years_of_experience: Optional[float] = None
-    domain_expertise: Optional[List[str]] = None
-    domain_experience: Optional[List[DomainExperienceItem]] = None
-    core_competencies: Optional[List[str]] = None
-    summary: Optional[str] = None
+    anonymized_text: str | None = None
+    extracted_skills: list[str] | None = None
+    years_of_experience: float | None = None
+    domain_expertise: list[str] | None = None
+    domain_experience: list[DomainExperienceItem] | None = None
+    core_competencies: list[str] | None = None
+    summary: str | None = None
 
 
 class CandidateCVResponse(BaseModel):
     id: int
     raw_text: str
-    anonymized_text: Optional[str] = None
-    extracted_skills: List[str] = Field(default_factory=list)
-    years_of_experience: Optional[float] = None
-    domain_expertise: List[str] = Field(default_factory=list)
-    domain_experience: List[DomainExperienceItem] = Field(default_factory=list)
-    core_competencies: List[str] = Field(default_factory=list)
-    summary: Optional[str] = None
+    anonymized_text: str | None = None
+    extracted_skills: list[str] = Field(default_factory=list)
+    years_of_experience: float | None = None
+    domain_expertise: list[str] = Field(default_factory=list)
+    domain_experience: list[DomainExperienceItem] = Field(default_factory=list)
+    core_competencies: list[str] = Field(default_factory=list)
+    summary: str | None = None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -87,10 +88,10 @@ class CVTaskStatusResponse(BaseModel):
     task_type: str = "CV_EXTRACTION"
     status: str
     stage: str
-    error_message: Optional[str] = None
-    profile_id: Optional[int] = None
+    error_message: str | None = None
+    profile_id: int | None = None
     created_at: datetime
-    completed_at: Optional[datetime] = None
-    result: Optional[Dict[str, Any]] = None
+    completed_at: datetime | None = None
+    result: dict[str, Any] | None = None
 
     model_config = ConfigDict(from_attributes=True)

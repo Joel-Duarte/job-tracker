@@ -1,7 +1,8 @@
 import base64
-from datetime import datetime, timezone
 import logging
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
+
 import httpx
 
 from app.schemas.intake import EmailPayload
@@ -58,10 +59,10 @@ class GmailOAuthAdapter:
     async def fetch_messages_delta(
         cls,
         access_token: str,
-        history_id: Optional[str] = None,
+        history_id: str | None = None,
         max_results: int = 50,
         query: str = "label:INBOX",
-    ) -> tuple[list[EmailPayload], Optional[str]]:
+    ) -> tuple[list[EmailPayload], str | None]:
         """
         Fetches new or changed messages incrementally using Gmail history ID or message list.
         Returns a tuple of (emails_list, new_history_id).
@@ -206,9 +207,9 @@ class MicrosoftGraphAdapter:
     async def fetch_messages_delta(
         cls,
         access_token: str,
-        delta_link: Optional[str] = None,
+        delta_link: str | None = None,
         max_results: int = 50,
-    ) -> tuple[list[EmailPayload], Optional[str]]:
+    ) -> tuple[list[EmailPayload], str | None]:
         """
         Fetches new or changed messages incrementally using Microsoft Graph delta sync.
         Returns a tuple of (emails_list, next_delta_link).
@@ -239,7 +240,7 @@ class MicrosoftGraphAdapter:
                 body_content = body_obj.get("content", "")
 
                 received_str = item.get("receivedDateTime")
-                received_at = datetime.now(timezone.utc)
+                received_at = datetime.now(UTC)
                 if received_str:
                     try:
                         received_at = datetime.fromisoformat(

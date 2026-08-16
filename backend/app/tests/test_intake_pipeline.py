@@ -1,17 +1,19 @@
-import pytest
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
+
+import pytest
 from sqlalchemy import select
-from datetime import datetime, timezone
+
 from app.models.applications import (
-    CompanyModel,
-    ApplicationModel,
     ApplicationEventModel,
+    ApplicationModel,
+    CompanyModel,
     OtherEventModel,
 )
+from app.schemas.intake import EmailPayload, ExtractedEmailInfo
+from app.services.email_fetcher import fetch_emails_from_account
 from app.services.intake import process_email_batch_sequential
 from app.services.task_tracker import task_tracker
-from app.services.email_fetcher import fetch_emails_from_account
-from app.schemas.intake import EmailPayload, ExtractedEmailInfo
 
 
 @pytest.mark.asyncio
@@ -95,7 +97,7 @@ async def test_deduplication_and_update_existing_application(
     # --- Step 2: Second Email for Same Role (Status: REJECTED) ---
     second_email = EmailPayload(
         conversation_id="msg-stripe-1002",
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
         subject="Application Status Update - Stripe",
         body="Unfortunately, we decided to proceed with another candidate.",
     )
@@ -142,7 +144,7 @@ async def test_process_non_job_email(db_session):
     """Test that emails without structured job/company info log to OtherEventModel."""
     newsletter_email = EmailPayload(
         conversation_id="news-123",
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
         subject="Weekly Tech Newsletter",
         body="Here are the top stories in tech this week...",
     )
@@ -181,7 +183,7 @@ async def test_mock_imap_email_fetching(sample_email_account):
         mock_sync_fetch.return_value = [
             EmailPayload(
                 conversation_id="mock-1",
-                received_at=datetime.now(timezone.utc),
+                received_at=datetime.now(UTC),
                 subject="Test Subject",
                 body="Test Body",
             )

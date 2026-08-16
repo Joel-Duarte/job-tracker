@@ -1,4 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from langchain_core.runnables import RunnableLambda
 from sqlalchemy.ext.asyncio import AsyncSession

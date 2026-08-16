@@ -1,7 +1,8 @@
-from datetime import datetime, timezone
 import logging
-from typing import Any, Optional
 import uuid
+from datetime import UTC, datetime
+from typing import Any
+
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,8 +22,8 @@ logger = logging.getLogger(__name__)
 async def persist_or_stage_job_assessment(
     db: AsyncSession,
     assessment: JobAssessmentResult,
-    raw_text: Optional[str] = None,
-    job_url: Optional[str] = None,
+    raw_text: str | None = None,
+    job_url: str | None = None,
     force_new: bool = False,
     target_status: str = "ASSESSMENT",
 ) -> dict[str, Any]:
@@ -98,7 +99,7 @@ async def persist_or_stage_job_assessment(
         await db.flush()
 
     # 3. Create Application
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     app_record = ApplicationModel(
         company_id=company.id,
         position=position_name,

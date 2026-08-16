@@ -1,5 +1,6 @@
 import logging
 from typing import Any
+
 from langchain.chat_models import init_chat_model
 from langchain.embeddings import init_embeddings
 from langchain_core.embeddings import Embeddings
@@ -39,8 +40,7 @@ def _clean_base_url(url: str | None) -> str | None:
     if not url:
         return None
     url = url.rstrip("/")
-    if url.endswith("/embeddings"):
-        url = url[: -len("/embeddings")]
+    url = url.removesuffix("/embeddings")
     return url
 
 
@@ -242,8 +242,7 @@ async def get_task_chat_model(
                         )
                         if current_max <= budget:
                             init_kwargs["max_tokens"] = budget + 1024
-                            if "max_tokens" in override_kwargs:
-                                del override_kwargs["max_tokens"]
+                            override_kwargs.pop("max_tokens", None)
                     elif provider_type in ("google_genai", "gemini"):
                         budget = (
                             1024

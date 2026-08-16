@@ -1,6 +1,6 @@
-from datetime import date, datetime, timezone
 import logging
-from typing import List, Optional
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,7 +33,6 @@ from app.schemas.applications import (
 from app.services.interview_guide import clear_interview_guide, generate_interview_guide
 from app.services.llm import (
     async_enqueue_application_embedding,
-    generate_and_save_application_embedding,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,14 +46,14 @@ router = APIRouter(prefix="/applications", tags=["Applications"])
     summary="List applications with filtering and search",
 )
 async def list_applications(
-    q: Optional[str] = Query(None, description="Search position or company name"),
-    status_filter: Optional[str] = Query(
+    q: str | None = Query(None, description="Search position or company name"),
+    status_filter: str | None = Query(
         None, alias="status", description="Filter by status"
     ),
-    action_required: Optional[bool] = Query(
+    action_required: bool | None = Query(
         None, description="Filter by pending action required"
     ),
-    company_id: Optional[int] = Query(None, description="Filter by company ID"),
+    company_id: int | None = Query(None, description="Filter by company ID"),
     sort_by: str = Query(
         "last_activity_at", pattern="^(last_activity_at|application_date|created_at)$"
     ),
@@ -196,7 +195,7 @@ async def list_applications(
 
 @router.get(
     "/by-status",
-    response_model=List[ApplicationByStatusResult],
+    response_model=list[ApplicationByStatusResult],
     summary="Get applications matching a specific status with event metrics",
 )
 async def get_applications_by_status(
@@ -459,7 +458,7 @@ async def transition_application(
         else str(payload.status)
     )
     app.status = new_status
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     app.last_activity_at = now
 
     event_time = now
@@ -521,7 +520,7 @@ async def transition_application(
         )
         # Create decision deadline Action Item
         deadline_dt = datetime.combine(
-            payload.decision_deadline, datetime.min.time(), tzinfo=timezone.utc
+            payload.decision_deadline, datetime.min.time(), tzinfo=UTC
         )
         action_item = ActionItemModel(
             application_id=app.id,
@@ -536,7 +535,7 @@ async def transition_application(
             f"Rejection Date: {payload.rejection_date.strftime('%b %d, %Y')}."
         )
         event_time = datetime.combine(
-            payload.rejection_date, datetime.min.time(), tzinfo=timezone.utc
+            payload.rejection_date, datetime.min.time(), tzinfo=UTC
         )
     if payload.rejection_reason:
         summary_parts.append(f"Rejection Reason: {payload.rejection_reason}.")

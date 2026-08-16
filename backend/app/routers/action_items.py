@@ -1,6 +1,6 @@
 import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +11,6 @@ from app.models.applications import (
     ActionItemModel,
     ApplicationEventModel,
     ApplicationModel,
-    CompanyModel,
 )
 from app.schemas.action_items import (
     ActionItemCreate,
@@ -33,7 +32,7 @@ def compute_live_urgency(item: ActionItemModel) -> str:
         return item.manual_urgency_override.upper()
 
     if item.due_date:
-        time_diff = item.due_date - datetime.now(timezone.utc)
+        time_diff = item.due_date - datetime.now(UTC)
         hours_diff = time_diff.total_seconds() / 3600
 
         if hours_diff < 24:
@@ -52,15 +51,15 @@ def compute_live_urgency(item: ActionItemModel) -> str:
     summary="List action items with filters and metrics",
 )
 async def list_action_items(
-    status_filter: Optional[str] = Query(
+    status_filter: str | None = Query(
         None,
         alias="status",
         description="Filter by status (PENDING, COMPLETED, DISMISSED)",
     ),
-    urgency: Optional[str] = Query(
+    urgency: str | None = Query(
         None, description="Filter by urgency (HIGH, MEDIUM, LOW)"
     ),
-    application_id: Optional[int] = Query(
+    application_id: int | None = Query(
         None, description="Filter by specific application ID"
     ),
     limit: int = Query(50, ge=1, le=200, description="Max items to return"),
@@ -302,7 +301,7 @@ async def update_action_item(
             "action_item_id": item.id,
             "title": item.title,
             "urgency": item.urgency,
-            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": datetime.now(UTC).isoformat(),
         }
         if app and app.status == "TECHNICAL_INTERVIEW":
             payload_data["interview_stage"] = "Task Completed / Awaiting Response"
@@ -313,7 +312,7 @@ async def update_action_item(
             email_event_type="ACTION_ITEM_COMPLETED",
             email_status_after_event=app.status if app else None,
             email_summary=f"Completed action item: {item.title}. Awaiting response.",
-            email_received_at=datetime.now(timezone.utc),
+            email_received_at=datetime.now(UTC),
             source_channel="MANUAL",
             raw_payload=payload_data,
         )

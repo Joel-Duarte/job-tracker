@@ -1,5 +1,6 @@
 import logging
 from typing import Literal
+
 from langgraph.graph import END, START, StateGraph
 
 from app.schemas.graph_state import JobTrackerState

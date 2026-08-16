@@ -1,5 +1,4 @@
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +17,7 @@ router = APIRouter(prefix="/events", tags=["Events"])
 
 @router.get(
     "/applications/{application_id}",
-    response_model=List[ApplicationEventDetail],
+    response_model=list[ApplicationEventDetail],
     summary="Get all email events for a specific application",
 )
 async def list_application_events(
@@ -36,7 +35,7 @@ async def list_application_events(
 
 @router.get(
     "/action-required",
-    response_model=List[ActionItemSummary],
+    response_model=list[ActionItemSummary],
     summary="Get all pending action items across application and other events",
 )
 async def list_action_required_events(db: AsyncSession = Depends(get_db)):
@@ -95,11 +94,11 @@ async def list_action_required_events(db: AsyncSession = Depends(get_db)):
 
 @router.get(
     "/other",
-    response_model=List[OtherEventDetail],
+    response_model=list[OtherEventDetail],
     summary="List non-application related email events",
 )
 async def list_other_events(
-    email_type: Optional[str] = Query(
+    email_type: str | None = Query(
         None, description="Filter by non-application email type"
     ),
     limit: int = Query(20, ge=1, le=100),

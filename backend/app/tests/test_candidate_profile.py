@@ -1,10 +1,10 @@
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-
 from app.main import app
 from app.schemas.candidate_profile import CVAnonymizationResult
 from app.services.matcher import compute_programmatic_skill_match

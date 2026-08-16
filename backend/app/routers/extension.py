@@ -1,11 +1,10 @@
-from datetime import datetime, timezone
 import hashlib
 import logging
 import re
-from typing import Any
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status
-import httpx
+from datetime import UTC, datetime
+
+from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -74,7 +73,7 @@ async def clip_job_url(
     email_payload = EmailPayload(
         conversation_id=conv_id,
         message_id=msg_id,
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
         subject=f"Job Clip: {payload.url}",
         body=page_text[:15000],  # Guard token length
     )
@@ -137,7 +136,7 @@ async def clip_job_pre_extracted(
     app_res = await db.execute(app_stmt)
     application = app_res.scalar_one_or_none()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if not application:
         application = ApplicationModel(
             company_id=company.id,

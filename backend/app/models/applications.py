@@ -1,5 +1,6 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
+
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
@@ -26,7 +27,7 @@ class CompanyModel(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     name_normalized: Mapped[str] = mapped_column(Text, nullable=False)
-    domain: Mapped[Optional[str]] = mapped_column(Text)
+    domain: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -34,7 +35,7 @@ class CompanyModel(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
-    applications: Mapped[List["ApplicationModel"]] = relationship(
+    applications: Mapped[list["ApplicationModel"]] = relationship(
         back_populates="company"
     )
 
@@ -59,29 +60,25 @@ class ApplicationModel(Base):
         ForeignKey("email_companies.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    position: Mapped[Optional[str]] = mapped_column(Text)
-    position_normalized: Mapped[Optional[str]] = mapped_column(Text)
-    external_job_id: Mapped[Optional[str]] = mapped_column(Text)
-    job_url: Mapped[Optional[str]] = mapped_column(Text)
-    application_key: Mapped[Optional[str]] = mapped_column(Text)
+    position: Mapped[str | None] = mapped_column(Text)
+    position_normalized: Mapped[str | None] = mapped_column(Text)
+    external_job_id: Mapped[str | None] = mapped_column(Text)
+    job_url: Mapped[str | None] = mapped_column(Text)
+    application_key: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="APPLIED")
-    application_date: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True)
-    )
-    last_activity_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True)
-    )
-    interview_guide_html: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    interview_guide_language: Mapped[Optional[str]] = mapped_column(
+    application_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    interview_guide_html: Mapped[str | None] = mapped_column(Text, nullable=True)
+    interview_guide_language: Mapped[str | None] = mapped_column(
         Text, nullable=True, default="en"
     )
-    interview_guide_generated_at: Mapped[Optional[datetime]] = mapped_column(
+    interview_guide_generated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    interview_guide_preferences: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+    interview_guide_preferences: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB, nullable=True
     )
-    match_analysis_payload: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+    match_analysis_payload: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -92,7 +89,7 @@ class ApplicationModel(Base):
     )
 
     company: Mapped["CompanyModel"] = relationship(back_populates="applications")
-    events: Mapped[List["ApplicationEventModel"]] = relationship(
+    events: Mapped[list["ApplicationEventModel"]] = relationship(
         back_populates="application",
         cascade="all, delete-orphan",
         order_by="desc(ApplicationEventModel.email_received_at)",
@@ -110,7 +107,7 @@ class ApplicationModel(Base):
         cascade="all, delete-orphan",
     )
 
-    action_items: Mapped[List["ActionItemModel"]] = relationship(
+    action_items: Mapped[list["ActionItemModel"]] = relationship(
         back_populates="application",
         cascade="all, delete-orphan",
     )
@@ -133,34 +130,32 @@ class ApplicationEventModel(Base):
         ForeignKey("email_applications.id", ondelete="CASCADE"),
         nullable=False,
     )
-    email_message_id: Mapped[Optional[str]] = mapped_column(Text, unique=True)
-    email_internet_message_id: Mapped[Optional[str]] = mapped_column(Text, unique=True)
-    email_conversation_id: Mapped[Optional[str]] = mapped_column(Text)
-    email_sender: Mapped[Optional[str]] = mapped_column(Text)
-    email_sender_name: Mapped[Optional[str]] = mapped_column(Text)
-    email_subject: Mapped[Optional[str]] = mapped_column(Text)
-    email_received_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True)
-    )
+    email_message_id: Mapped[str | None] = mapped_column(Text, unique=True)
+    email_internet_message_id: Mapped[str | None] = mapped_column(Text, unique=True)
+    email_conversation_id: Mapped[str | None] = mapped_column(Text)
+    email_sender: Mapped[str | None] = mapped_column(Text)
+    email_sender_name: Mapped[str | None] = mapped_column(Text)
+    email_subject: Mapped[str | None] = mapped_column(Text)
+    email_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     email_event_type: Mapped[str] = mapped_column(Text, nullable=False)
-    email_status_after_event: Mapped[Optional[str]] = mapped_column(Text)
-    email_summary: Mapped[Optional[str]] = mapped_column(Text)
+    email_status_after_event: Mapped[str | None] = mapped_column(Text)
+    email_summary: Mapped[str | None] = mapped_column(Text)
     email_action_required: Mapped[bool] = mapped_column(
         Boolean, server_default=text("false")
     )
-    email_action: Mapped[Optional[str]] = mapped_column(Text)
-    email_raw_body: Mapped[Optional[str]] = mapped_column(Text)
+    email_action: Mapped[str | None] = mapped_column(Text)
+    email_raw_body: Mapped[str | None] = mapped_column(Text)
 
     source_channel: Mapped[str] = mapped_column(
         Text, nullable=False, server_default="EMAIL"
     )
-    raw_payload: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 
     application: Mapped["ApplicationModel"] = relationship(back_populates="events")
-    action_items: Mapped[List["ActionItemModel"]] = relationship(
+    action_items: Mapped[list["ActionItemModel"]] = relationship(
         back_populates="event",
         cascade="all, delete-orphan",
     )
@@ -177,21 +172,21 @@ class JobPostingModel(Base):
     __tablename__ = "job_postings"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    application_id: Mapped[Optional[int]] = mapped_column(
+    application_id: Mapped[int | None] = mapped_column(
         BigInteger,
         ForeignKey("email_applications.id", ondelete="CASCADE"),
         nullable=True,
     )
     job_url: Mapped[str] = mapped_column(Text, nullable=False)
-    description_markdown: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    salary_min: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    salary_max: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    currency: Mapped[Optional[str]] = mapped_column(Text, server_default="USD")
-    location: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    work_model: Mapped[Optional[str]] = mapped_column(
+    description_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
+    salary_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    salary_max: Mapped[float | None] = mapped_column(Float, nullable=True)
+    currency: Mapped[str | None] = mapped_column(Text, server_default="USD")
+    location: Mapped[str | None] = mapped_column(Text, nullable=True)
+    work_model: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )  # Remote, Hybrid, Onsite
-    required_skills: Mapped[List[str]] = mapped_column(
+    required_skills: Mapped[list[str]] = mapped_column(
         JSONB, server_default=text("'[]'::jsonb")
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -215,28 +210,28 @@ class ActionItemModel(Base):
     __tablename__ = "action_items"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    application_id: Mapped[Optional[int]] = mapped_column(
+    application_id: Mapped[int | None] = mapped_column(
         BigInteger,
         ForeignKey("email_applications.id", ondelete="CASCADE"),
         nullable=True,
     )
-    event_id: Mapped[Optional[int]] = mapped_column(
+    event_id: Mapped[int | None] = mapped_column(
         BigInteger,
         ForeignKey("email_application_events.id", ondelete="SET NULL"),
         nullable=True,
     )
     title: Mapped[str] = mapped_column(Text, nullable=False)
-    due_date: Mapped[Optional[datetime]] = mapped_column(
+    due_date: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     status: Mapped[str] = mapped_column(
         Text, nullable=False, server_default="PENDING"
     )  # PENDING, COMPLETED, DISMISSED
-    action_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    urgency: Mapped[Optional[str]] = mapped_column(
+    action_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    urgency: Mapped[str | None] = mapped_column(
         Text, server_default="MEDIUM"
     )  # HIGH, MEDIUM, LOW
-    manual_urgency_override: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    manual_urgency_override: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -267,11 +262,11 @@ class ApplicationEmbeddingModel(Base):
         primary_key=True,
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    metadata_: Mapped[Dict[str, Any]] = mapped_column(
+    metadata_: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")
     )
 
-    embedding: Mapped[List[float]] = mapped_column(Vector(768), nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(768), nullable=False)
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -295,23 +290,21 @@ class OtherEventModel(Base):
     __tablename__ = "email_other_events"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    email_message_id: Mapped[Optional[str]] = mapped_column(Text, unique=True)
-    email_internet_message_id: Mapped[Optional[str]] = mapped_column(Text, unique=True)
-    email_conversation_id: Mapped[Optional[str]] = mapped_column(Text)
-    email_sender: Mapped[Optional[str]] = mapped_column(Text)
-    email_sender_name: Mapped[Optional[str]] = mapped_column(Text)
-    email_subject: Mapped[Optional[str]] = mapped_column(Text)
-    email_received_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True)
-    )
+    email_message_id: Mapped[str | None] = mapped_column(Text, unique=True)
+    email_internet_message_id: Mapped[str | None] = mapped_column(Text, unique=True)
+    email_conversation_id: Mapped[str | None] = mapped_column(Text)
+    email_sender: Mapped[str | None] = mapped_column(Text)
+    email_sender_name: Mapped[str | None] = mapped_column(Text)
+    email_subject: Mapped[str | None] = mapped_column(Text)
+    email_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     email_type: Mapped[str] = mapped_column(Text, nullable=False)
-    company: Mapped[Optional[str]] = mapped_column(Text)
-    event_type: Mapped[Optional[str]] = mapped_column(Text)
-    status: Mapped[Optional[str]] = mapped_column(Text)
+    company: Mapped[str | None] = mapped_column(Text)
+    event_type: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str | None] = mapped_column(Text)
     action_required: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
-    action: Mapped[Optional[str]] = mapped_column(Text)
-    summary: Mapped[Optional[str]] = mapped_column(Text)
-    raw_body: Mapped[Optional[str]] = mapped_column(Text)
+    action: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[str | None] = mapped_column(Text)
+    raw_body: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

@@ -1,19 +1,18 @@
-import pytest
 from unittest.mock import AsyncMock, patch
-from sqlalchemy import select
+
+import pytest
+
 from app.models.applications import (
-    CompanyModel,
-    ApplicationModel,
-    ApplicationEventModel,
     ActionItemModel,
+    ApplicationModel,
+    CompanyModel,
 )
 from app.services.agent_tools import (
-    execute_semantic_vector_search,
-    execute_list_applications,
-    execute_get_application_details,
-    execute_update_application_status,
-    execute_get_action_items,
     create_agent_tools,
+    execute_get_action_items,
+    execute_get_application_details,
+    execute_list_applications,
+    execute_update_application_status,
 )
 
 

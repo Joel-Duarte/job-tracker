@@ -1,9 +1,9 @@
-from contextlib import asynccontextmanager
 import logging
-from fastapi import Depends, FastAPI, Response, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from contextlib import asynccontextmanager
 
-from app.core.database import check_db_connection, ensure_db_schema, get_db
+from fastapi import FastAPI, Response, status
+
+from app.core.database import check_db_connection, ensure_db_schema
 from app.routers import (
     action_items,
     admin,

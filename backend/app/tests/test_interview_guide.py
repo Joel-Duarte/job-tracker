@@ -1,6 +1,6 @@
-import pytest
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,14 +8,11 @@ from app.core.database import get_db
 from app.main import app
 from app.models.applications import ApplicationModel, CompanyModel, JobPostingModel
 from app.models.candidate_profile import CandidateCVModel
-from app.schemas.applications import GenerateInterviewGuideRequest
 from app.services.interview_guide_graph import (
     InterviewGuideState,
-    build_interview_guide_graph,
     extractor_node,
     should_continue_sections,
 )
-from app.services.interview_guide import generate_interview_guide, clear_interview_guide
 
 
 @pytest.mark.asyncio

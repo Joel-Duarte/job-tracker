@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 # --- Nested Response Schemas ---
@@ -9,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class CompanySummary(BaseModel):
     id: int
     name: str
-    domain: Optional[str] = None
+    domain: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -17,11 +18,11 @@ class CompanySummary(BaseModel):
 class EventSummary(BaseModel):
     id: int
     email_event_type: str
-    email_subject: Optional[str] = None
+    email_subject: str | None = None
     email_action_required: bool
-    email_action: Optional[str] = None
-    email_received_at: Optional[datetime] = None
-    raw_payload: Optional[dict] = None
+    email_action: str | None = None
+    email_received_at: datetime | None = None
+    raw_payload: dict | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -32,31 +33,31 @@ class EventSummary(BaseModel):
 class ApplicationListItem(BaseModel):
     id: int
     company: CompanySummary
-    position: Optional[str] = None
+    position: str | None = None
     status: str
-    application_date: Optional[datetime] = None
-    last_activity_at: Optional[datetime] = None
+    application_date: datetime | None = None
+    last_activity_at: datetime | None = None
     has_action_required: bool = False
     has_interview_guide: bool = False
-    match_score: Optional[int] = None
-    match_analysis_payload: Optional[dict[str, Any]] = None
-    latest_event: Optional[EventSummary] = None
-    nearest_due_date: Optional[datetime] = None
+    match_score: int | None = None
+    match_analysis_payload: dict[str, Any] | None = None
+    latest_event: EventSummary | None = None
+    nearest_due_date: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class JobPostingDetail(BaseModel):
     id: int
-    title: Optional[str] = None
-    description_markdown: Optional[str] = None
-    location: Optional[str] = None
-    work_model: Optional[str] = None
-    salary_min: Optional[int] = None
-    salary_max: Optional[int] = None
-    currency: Optional[str] = "USD"
-    required_skills: Optional[List[str]] = []
-    source_url: Optional[str] = None
+    title: str | None = None
+    description_markdown: str | None = None
+    location: str | None = None
+    work_model: str | None = None
+    salary_min: int | None = None
+    salary_max: int | None = None
+    currency: str | None = "USD"
+    required_skills: list[str] | None = []
+    source_url: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -65,8 +66,8 @@ class ActionItemDetail(BaseModel):
     id: int
     title: str
     status: str
-    urgency: Optional[str] = "MEDIUM"
-    due_date: Optional[datetime] = None
+    urgency: str | None = "MEDIUM"
+    due_date: datetime | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -74,51 +75,51 @@ class ActionItemDetail(BaseModel):
 
 class ApplicationEventDetail(BaseModel):
     id: int
-    email_message_id: Optional[str] = None
-    email_conversation_id: Optional[str] = None
-    email_sender: Optional[str] = None
-    email_sender_name: Optional[str] = None
-    email_subject: Optional[str] = None
-    email_received_at: Optional[datetime] = None
+    email_message_id: str | None = None
+    email_conversation_id: str | None = None
+    email_sender: str | None = None
+    email_sender_name: str | None = None
+    email_subject: str | None = None
+    email_received_at: datetime | None = None
     email_event_type: str
-    email_status_after_event: Optional[str] = None
-    email_summary: Optional[str] = None
+    email_status_after_event: str | None = None
+    email_summary: str | None = None
     email_action_required: bool = False
-    email_action: Optional[str] = None
-    email_raw_body: Optional[str] = None
-    raw_payload: Optional[dict] = None
+    email_action: str | None = None
+    email_raw_body: str | None = None
+    raw_payload: dict | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class ApplicationListResponse(BaseModel):
-    items: List[ApplicationListItem]
+    items: list[ApplicationListItem]
     total: int
     limit: int
     offset: int
 
 
 class ApplicationDetailResponse(ApplicationListItem):
-    external_job_id: Optional[str] = None
-    job_url: Optional[str] = None
-    application_key: Optional[str] = None
-    interview_guide_html: Optional[str] = None
-    interview_guide_language: Optional[str] = "en"
-    interview_guide_generated_at: Optional[datetime] = None
-    interview_guide_preferences: Optional[dict] = None
+    external_job_id: str | None = None
+    job_url: str | None = None
+    application_key: str | None = None
+    interview_guide_html: str | None = None
+    interview_guide_language: str | None = "en"
+    interview_guide_generated_at: datetime | None = None
+    interview_guide_preferences: dict | None = None
     created_at: datetime
     updated_at: datetime
-    events: List[ApplicationEventDetail] = []
-    job_posting: Optional[JobPostingDetail] = None
-    action_items: List[ActionItemDetail] = []
+    events: list[ApplicationEventDetail] = []
+    job_posting: JobPostingDetail | None = None
+    action_items: list[ActionItemDetail] = []
 
 
 class GenerateInterviewGuideRequest(BaseModel):
     language: str = Field(
         "en", description="Output language code e.g. en, pt, es, de, fr, it, nl"
     )
-    selected_sections: List[str] = Field(
+    selected_sections: list[str] = Field(
         default_factory=lambda: [
             "role_company_brief",
             "strategic_fit_pitch",
@@ -138,16 +139,14 @@ class GenerateInterviewGuideRequest(BaseModel):
 
 
 class ApplicationFilterParams(BaseModel):
-    q: Optional[str] = Field(
-        None, description="Search term for position or company name"
-    )
-    status: Optional[str] = Field(
+    q: str | None = Field(None, description="Search term for position or company name")
+    status: str | None = Field(
         None, description="Filter by application status (e.g., APPLIED, INTERVIEW)"
     )
-    action_required: Optional[bool] = Field(
+    action_required: bool | None = Field(
         None, description="Filter applications with pending action items"
     )
-    company_id: Optional[int] = Field(None, description="Filter by specific company ID")
+    company_id: int | None = Field(None, description="Filter by specific company ID")
     sort_by: str = Field(
         "last_activity_at",
         description="Sort field: last_activity_at, application_date, status",
@@ -169,64 +168,62 @@ class AllowedApplicationStatus(str, Enum):
 class ApplicationByStatusResult(BaseModel):
     application_id: int
     company: str
-    position: Optional[str] = None
+    position: str | None = None
     status: str
     application_updated: datetime
     event_count: int
-    latest_email: Optional[datetime] = None
+    latest_email: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class ApplicationTransitionRequest(BaseModel):
     status: AllowedApplicationStatus = Field(..., description="Target pipeline status")
-    interview_stage: Optional[str] = Field(
+    interview_stage: str | None = Field(
         None,
         description="Specific interview phase e.g. Screening, Take-Home, System Design, Final Round",
     )
-    scheduled_at: Optional[datetime] = Field(
+    scheduled_at: datetime | None = Field(
         None, description="Interview scheduled date & time"
     )
-    offered_salary: Optional[float] = Field(None, description="Offered compensation")
-    currency: Optional[str] = Field(
+    offered_salary: float | None = Field(None, description="Offered compensation")
+    currency: str | None = Field(
         "USD", description="Currency code for offered compensation"
     )
-    offer_received_date: Optional[date] = Field(
+    offer_received_date: date | None = Field(
         None, description="Date offer package was received"
     )
-    decision_deadline: Optional[date] = Field(
+    decision_deadline: date | None = Field(
         None, description="Decision deadline date to respond/accept offer"
     )
-    rejection_date: Optional[date] = Field(
+    rejection_date: date | None = Field(
         None, description="Date rejection notice was received"
     )
-    rejection_reason: Optional[str] = Field(None, description="Reason for rejection")
-    notes: Optional[str] = Field(
+    rejection_reason: str | None = Field(None, description="Reason for rejection")
+    notes: str | None = Field(
         None, description="Additional notes or context for transition"
     )
 
 
 class ApplicationUpdate(BaseModel):
-    position: Optional[str] = Field(None, description="Updated job title/position name")
-    status: Optional[str] = Field(
+    position: str | None = Field(None, description="Updated job title/position name")
+    status: str | None = Field(
         None,
         description="Updated status, e.g., APPLIED, TECHNICAL_INTERVIEW, OFFER, REJECTED",
     )
-    job_url: Optional[str] = Field(None, description="URL to the job posting")
-    external_job_id: Optional[str] = Field(
+    job_url: str | None = Field(None, description="URL to the job posting")
+    external_job_id: str | None = Field(
         None, description="External reference ID for the listing"
     )
-    company_id: Optional[int] = Field(
+    company_id: int | None = Field(
         None, description="Reassign to another company ID if needed"
     )
-    interview_stage: Optional[str] = Field(None, description="Interview sub-stage")
-    scheduled_at: Optional[datetime] = Field(
-        None, description="Scheduled interview time"
-    )
-    offered_salary: Optional[float] = Field(None, description="Offered compensation")
-    currency: Optional[str] = Field("USD", description="Currency code")
-    offer_received_date: Optional[date] = Field(None, description="Date offer received")
-    decision_deadline: Optional[date] = Field(None, description="Decision deadline")
-    rejection_date: Optional[date] = Field(None, description="Rejection date")
-    rejection_reason: Optional[str] = Field(None, description="Rejection reason")
-    notes: Optional[str] = Field(None, description="Transition notes")
+    interview_stage: str | None = Field(None, description="Interview sub-stage")
+    scheduled_at: datetime | None = Field(None, description="Scheduled interview time")
+    offered_salary: float | None = Field(None, description="Offered compensation")
+    currency: str | None = Field("USD", description="Currency code")
+    offer_received_date: date | None = Field(None, description="Date offer received")
+    decision_deadline: date | None = Field(None, description="Decision deadline")
+    rejection_date: date | None = Field(None, description="Rejection date")
+    rejection_reason: str | None = Field(None, description="Rejection reason")
+    notes: str | None = Field(None, description="Transition notes")

@@ -1,14 +1,14 @@
+from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.models.applications import (
+    ActionItemModel,
+    ApplicationEmbeddingModel,
+    ApplicationEventModel,
+    ApplicationModel,
     Base,
     CompanyModel,
-    ApplicationModel,
     JobPostingModel,
-    ApplicationEventModel,
-    ApplicationEmbeddingModel,
-    ActionItemModel,
     OtherEventModel,
 )
-from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.models.candidate_profile import CandidateCVModel
 from app.models.email_accounts import EmailAccountModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel

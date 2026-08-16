@@ -1,12 +1,11 @@
-from datetime import datetime, timezone
 import email
-from email import policy
-from email.utils import parsedate_to_datetime
 import hashlib
 import io
 import logging
-from typing import Any
 import uuid
+from datetime import UTC, datetime
+from email import policy
+from email.utils import parsedate_to_datetime
 
 from app.schemas.intake import EmailPayload
 
@@ -45,13 +44,13 @@ def parse_eml(content: bytes) -> EmailPayload:
     conversation_id = msg.get("Thread-Topic") or msg.get("In-Reply-To") or message_id
 
     # Parse date
-    received_at = datetime.now(timezone.utc)
+    received_at = datetime.now(UTC)
     date_header = msg.get("Date")
     if date_header:
         try:
             parsed_dt = parsedate_to_datetime(date_header)
             if parsed_dt.tzinfo is None:
-                parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+                parsed_dt = parsed_dt.replace(tzinfo=UTC)
             received_at = parsed_dt
         except Exception:
             pass
@@ -65,18 +64,14 @@ def parse_eml(content: bytes) -> EmailPayload:
             content_type = part.get_content_type()
             content_disposition = str(part.get("Content-Disposition", ""))
 
-            if content_type == "text/plain" and "attachment" not in content_disposition:
-                payload = part.get_payload(decode=True)
-                if payload:
-                    body_parts.append(
-                        payload.decode(
-                            part.get_content_charset() or "utf-8", errors="replace"
-                        )
-                    )
-            elif (
-                content_type == "text/html"
-                and not body_parts
+            if (
+                content_type == "text/plain"
                 and "attachment" not in content_disposition
+                or (
+                    content_type == "text/html"
+                    and not body_parts
+                    and "attachment" not in content_disposition
+                )
             ):
                 payload = part.get_payload(decode=True)
                 if payload:
@@ -126,9 +121,9 @@ def parse_msg(content: bytes) -> EmailPayload:
     message_id = msg.messageId or f"msg-{uuid.uuid4().hex[:12]}"
     conversation_id = msg.conversationTopic or message_id
 
-    received_at = msg.date or datetime.now(timezone.utc)
+    received_at = msg.date or datetime.now(UTC)
     if received_at.tzinfo is None:
-        received_at = received_at.replace(tzinfo=timezone.utc)
+        received_at = received_at.replace(tzinfo=UTC)
 
     body = msg.body or msg.htmlBody or ""
     if isinstance(body, bytes):
@@ -200,7 +195,7 @@ def parse_txt(content: bytes, filename: str = "upload.txt") -> EmailPayload:
     return EmailPayload(
         conversation_id=f"conv-{content_hash}",
         message_id=msg_id,
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
         subject=subject,
         body=body,
     )

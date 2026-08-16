@@ -3,9 +3,7 @@ import time
 import uuid
 from collections import namedtuple
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import text, select
+from sqlalchemy import select
 
 from app.models.processed_email import ProcessedEmailModel
 

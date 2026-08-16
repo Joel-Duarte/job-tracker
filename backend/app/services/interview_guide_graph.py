@@ -1,5 +1,6 @@
 import logging
-from typing import Any, List, Optional, TypedDict
+from typing import Any, TypedDict
+
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import END, START, StateGraph
 
@@ -46,12 +47,12 @@ class InterviewGuideState(TypedDict):
     jd_text: str
     company_name: str
     position: str
-    company_context: List[str]
-    target_sections: List[str]
+    company_context: list[str]
+    target_sections: list[str]
     current_section_index: int
-    completed_sections: List[str]
+    completed_sections: list[str]
     language: str
-    error: Optional[str]
+    error: str | None
     db_session: Any
 
 
@@ -168,8 +169,7 @@ async def section_generator_node(state: InterviewGuideState) -> dict[str, Any]:
                 clean_html = clean_html[7:]
             elif clean_html.startswith("```"):
                 clean_html = clean_html[3:]
-            if clean_html.endswith("```"):
-                clean_html = clean_html[:-3]
+            clean_html = clean_html.removesuffix("```")
             section_html = clean_html.strip()
         else:
             section_html = f"<div class='guide-section'><h2>{section_desc.splitlines()[0]}</h2><p>Tailored preparation for {company_name} - {position}.</p></div>"

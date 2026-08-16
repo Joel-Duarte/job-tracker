@@ -1,5 +1,6 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
+
 import pytest
 from sqlalchemy import select
 
@@ -25,7 +26,7 @@ async def test_low_confidence_email_routed_to_staging(db_session):
 
     staged_email = EmailPayload(
         conversation_id="conv-staging-101",
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
         subject="Interview Invitation - Mystery Startup",
         body="We would love to chat about your application.",
     )
@@ -112,7 +113,7 @@ async def test_resolve_staged_item_and_generate_embeddings(db_session):
     staged_item = StagingItemModel(
         email_conversation_id="conv-resolve-202",
         email_subject="Follow up regarding Backend Role",
-        email_received_at=datetime.now(timezone.utc),
+        email_received_at=datetime.now(UTC),
         email_raw_body="Thanks for applying to Acme Corp!",
         extracted_data={"company": "Acme", "position": "Backend Dev"},
         match_score=0.45,

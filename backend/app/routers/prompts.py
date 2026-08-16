@@ -1,5 +1,5 @@
-from datetime import datetime, timezone
-from typing import List
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,7 @@ from app.schemas.prompts import PromptResponse, PromptUpdateRequest
 router = APIRouter(prefix="/prompts", tags=["Prompts"])
 
 
-@router.get("", response_model=List[PromptResponse])
+@router.get("", response_model=list[PromptResponse])
 async def list_prompts(db: AsyncSession = Depends(get_db)):
     """List all available system prompts."""
     result = await db.execute(select(PromptModel).order_by(PromptModel.name))
@@ -28,7 +28,7 @@ async def list_prompts(db: AsyncSession = Depends(get_db)):
                 PromptResponse(
                     name=name,
                     template=DEFAULT_PROMPTS[name],
-                    updated_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(UTC),
                 )
             )
 
@@ -51,7 +51,7 @@ async def get_prompt(name: str, db: AsyncSession = Depends(get_db)):
         return PromptResponse(
             name=name,
             template=DEFAULT_PROMPTS[name],
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
 
     return prompt

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -174,4 +175,3 @@ async def delete_cv_profile(
 
     await db.delete(profile)
     await db.commit()
-    return None

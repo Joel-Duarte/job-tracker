@@ -1,14 +1,14 @@
 import logging
 from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, select, text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
-    CompanyModel,
     OtherEventModel,
 )
 

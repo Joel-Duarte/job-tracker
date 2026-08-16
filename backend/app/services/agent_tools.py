@@ -1,19 +1,20 @@
 import logging
-from typing import Any, List, Optional
+from typing import Any
+
+from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload, joinedload
-from langchain_core.tools import tool, StructuredTool
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.models.applications import (
-    ApplicationModel,
-    CompanyModel,
-    ApplicationEventModel,
     ActionItemModel,
     ApplicationEmbeddingModel,
+    ApplicationEventModel,
+    ApplicationModel,
+    CompanyModel,
 )
-from app.services.llm import generate_embedding, generate_and_save_application_embedding
+from app.services.llm import generate_and_save_application_embedding, generate_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ class SemanticSearchInput(BaseModel):
 
 
 class ListApplicationsInput(BaseModel):
-    status: Optional[str] = Field(
+    status: str | None = Field(
         default=None,
         description="Filter by status: APPLIED, TECHNICAL_INTERVIEW, OFFER, REJECTED, ASSESSMENT.",
     )
@@ -55,14 +56,14 @@ class UpdateStatusInput(BaseModel):
     new_status: str = Field(
         description="New status: APPLIED, TECHNICAL_INTERVIEW, OFFER, REJECTED, or ASSESSMENT."
     )
-    notes: Optional[str] = Field(
+    notes: str | None = Field(
         default=None,
         description="Optional explanation or reason for the status change.",
     )
 
 
 class ActionItemsInput(BaseModel):
-    urgency: Optional[str] = Field(
+    urgency: str | None = Field(
         default=None, description="Optional urgency filter: HIGH, MEDIUM, or LOW."
     )
 
@@ -112,7 +113,7 @@ async def execute_semantic_vector_search(
 
 async def execute_list_applications(
     db: AsyncSession,
-    status: Optional[str] = None,
+    status: str | None = None,
     action_required_only: bool = False,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
@@ -220,7 +221,7 @@ async def execute_update_application_status(
     db: AsyncSession,
     company_name: str,
     new_status: str,
-    notes: Optional[str] = None,
+    notes: str | None = None,
 ) -> dict[str, Any]:
     """Updates an application status in the database and updates vector embeddings."""
     valid_statuses = [
@@ -283,7 +284,7 @@ async def execute_update_application_status(
 
 
 async def execute_get_action_items(
-    db: AsyncSession, urgency: Optional[str] = None
+    db: AsyncSession, urgency: str | None = None
 ) -> list[dict[str, Any]]:
     """Fetches pending action items and deadlines."""
     stmt = (
@@ -326,7 +327,7 @@ def create_agent_tools(db: AsyncSession) -> list[StructuredTool]:
         return json.dumps(res, indent=2)
 
     async def _list_apps(
-        status: Optional[str] = None,
+        status: str | None = None,
         action_required_only: bool = False,
         limit: int = 20,
     ) -> str:
@@ -338,14 +339,14 @@ def create_agent_tools(db: AsyncSession) -> list[StructuredTool]:
         return json.dumps(res, indent=2)
 
     async def _update_status(
-        company_name: str, new_status: str, notes: Optional[str] = None
+        company_name: str, new_status: str, notes: str | None = None
     ) -> str:
         res = await execute_update_application_status(
             db, company_name, new_status, notes
         )
         return json.dumps(res, indent=2)
 
-    async def _action_items(urgency: Optional[str] = None) -> str:
+    async def _action_items(urgency: str | None = None) -> str:
         res = await execute_get_action_items(db, urgency)
         return json.dumps(res, indent=2)
 

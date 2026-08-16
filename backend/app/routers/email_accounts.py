@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Any, List, Optional
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel
@@ -39,7 +39,7 @@ def _resolve_base_url(request: Request) -> str:
 
 class OAuthUrlResponse(BaseModel):
     provider: str
-    auth_url: Optional[str] = None
+    auth_url: str | None = None
     client_id_configured: bool
     redirect_uri: str
     message: str
@@ -66,8 +66,8 @@ async def get_oauth_config(request: Request):
 async def get_oauth_authorize_url(
     request: Request,
     provider: str = Query(..., description="Provider: 'google' or 'microsoft'"),
-    client_id: Optional[str] = Query(None, description="Custom OAuth Client ID"),
-    redirect_uri: Optional[str] = Query(
+    client_id: str | None = Query(None, description="Custom OAuth Client ID"),
+    redirect_uri: str | None = Query(
         None,
         description="Redirect URI (optional, auto-derived from host / PUBLIC_API_URL)",
     ),
@@ -303,7 +303,7 @@ async def oauth_callback(
                 <body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: #f8fafc;">
                     <div style="text-align: center; background: #1e293b; padding: 32px 48px; border-radius: 12px; border: 1px solid #ef4444;">
                         <h2 style="color: #ef4444; margin-bottom: 8px;">OAuth Exchange Failed</h2>
-                        <p style="color: #94a3b8; font-size: 14px;">{str(err)}</p>
+                        <p style="color: #94a3b8; font-size: 14px;">{err!s}</p>
                     </div>
                 </body>
             </html>
@@ -312,7 +312,7 @@ async def oauth_callback(
         )
 
 
-@router.get("", response_model=List[EmailAccountResponse])
+@router.get("", response_model=list[EmailAccountResponse])
 async def list_accounts(db: AsyncSession = Depends(get_db)):
     """List all configured email provider accounts."""
     try:
@@ -329,10 +329,10 @@ async def list_accounts(db: AsyncSession = Depends(get_db)):
                 acc.sync_schedule_day = "MON"
         return accounts
     except Exception as e:
-        logger.error(f"Error listing email accounts: {str(e)}", exc_info=True)
+        logger.error(f"Error listing email accounts: {e!s}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list email accounts: {str(e)}",
+            detail=f"Failed to list email accounts: {e!s}",
         )
 
 
@@ -375,10 +375,10 @@ async def create_account(
         return account
     except Exception as e:
         await db.rollback()
-        logger.error(f"Error creating email account: {str(e)}", exc_info=True)
+        logger.error(f"Error creating email account: {e!s}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to create email account: {str(e)}",
+            detail=f"Failed to create email account: {e!s}",
         )
 
 
@@ -410,12 +410,10 @@ async def update_account(
         return account
     except Exception as e:
         await db.rollback()
-        logger.error(
-            f"Error updating email account {account_id}: {str(e)}", exc_info=True
-        )
+        logger.error(f"Error updating email account {account_id}: {e!s}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to update email account: {str(e)}",
+            detail=f"Failed to update email account: {e!s}",
         )
 
 
@@ -435,4 +433,3 @@ async def delete_account(account_id: int, db: AsyncSession = Depends(get_db)):
 
     await db.delete(account)
     await db.commit()
-    return None

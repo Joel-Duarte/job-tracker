@@ -1,10 +1,9 @@
 import asyncio
-from datetime import datetime, timezone
 import email
-from email.header import decode_header
 import imaplib
 import logging
-from typing import List, Optional, Tuple
+from datetime import datetime
+from email.header import decode_header
 
 from app.models.email_accounts import EmailAccountModel
 from app.schemas.intake import EmailPayload
@@ -28,8 +27,8 @@ def _clean_header(header_value: str) -> str:
 
 
 def _fetch_imap_emails_sync(
-    account: EmailAccountModel, since_date: Optional[datetime] = None
-) -> List[EmailPayload]:
+    account: EmailAccountModel, since_date: datetime | None = None
+) -> list[EmailPayload]:
     """Synchronous worker that performs actual IMAP connection and retrieval."""
     if not account.imap_host or not account.app_password:
         logger.warning("IMAP host or password missing for account %s", account.id)
@@ -99,8 +98,8 @@ def _fetch_imap_emails_sync(
 
 
 async def fetch_emails_from_account(
-    account: EmailAccountModel, since_date: Optional[datetime] = None
-) -> Tuple[List[EmailPayload], Optional[str]]:
+    account: EmailAccountModel, since_date: datetime | None = None
+) -> tuple[list[EmailPayload], str | None]:
     """
     Fetches emails using either modern OAuth adapters (Google Workspace, Microsoft Graph)
     or basic-auth IMAP fallback. Returns (emails, new_sync_cursor).

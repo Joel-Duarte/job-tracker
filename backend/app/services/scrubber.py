@@ -1,5 +1,4 @@
 import re
-from typing import Dict, Tuple
 
 # Pre-compiled Regex patterns for high-speed local PII sanitization
 EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b")
@@ -24,7 +23,7 @@ ADDRESS_LINE_PREFIX_PATTERN = re.compile(
 )
 
 
-def programmatic_scrub_cv(raw_text: str) -> Tuple[str, Dict[str, int]]:
+def programmatic_scrub_cv(raw_text: str) -> tuple[str, dict[str, int]]:
     """
     Programmatically sanitizes direct PII (emails, phone numbers, profile URLs, physical addresses)
     locally using regular expressions before any text is dispatched to external LLM models.

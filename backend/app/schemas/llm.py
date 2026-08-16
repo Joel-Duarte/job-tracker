@@ -1,32 +1,27 @@
-from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
 class EmailExtractionResult(BaseModel):
     email_type: str = Field(description="Type/category of the email")
-    company: Optional[str] = Field(default=None, description="Company name if present")
+    company: str | None = Field(default=None, description="Company name if present")
     position: str = Field(description="Job position or title")
-    external_job_id: Optional[str] = Field(
+    external_job_id: str | None = Field(
         default=None, description="External job/requisition ID"
     )
-    job_url: Optional[str] = Field(default=None, description="URL to the job listing")
-    event_type: Optional[str] = Field(
+    job_url: str | None = Field(default=None, description="URL to the job listing")
+    event_type: str | None = Field(
         default=None, description="Event type, e.g., INTERVIEW_INVITE"
     )
-    status: Optional[str] = Field(default=None, description="Application status")
+    status: str | None = Field(default=None, description="Application status")
     action_required: bool = Field(description="Whether user action is required")
-    action: Optional[str] = Field(
-        default=None, description="Action details if required"
-    )
+    action: str | None = Field(default=None, description="Action details if required")
     summary: str = Field(description="Brief summary of the email body")
 
 
 class ApplicationSummaryResult(BaseModel):
     snapshot: str = Field(description="Full text snapshot of application history")
     current_stage: str = Field(description="Current stage e.g., REJECTED, APPLIED")
-    next_action: Optional[str] = Field(
-        default=None, description="Next action item if any"
-    )
+    next_action: str | None = Field(default=None, description="Next action item if any")
 
 
 class ExtractedJobSpec(BaseModel):
@@ -57,11 +52,11 @@ class ExtractedJobSpec(BaseModel):
         default="Not Specified",
         description="Key technical requirements, years of experience, education, and required qualifications",
     )
-    ats_keywords: List[str] = Field(
+    ats_keywords: list[str] = Field(
         default_factory=list,
         description="Critical technical and domain ATS keywords for candidate matching",
     )
-    raw_markdown_summary: Optional[str] = Field(
+    raw_markdown_summary: str | None = Field(
         default=None, description="Clean formatted markdown overview of the role"
     )
 
@@ -87,30 +82,30 @@ class ImpactReframingItem(BaseModel):
 
 
 class ResumeTailoringStrategy(BaseModel):
-    vocabulary_translation: List[VocabularyTranslationItem] = Field(
+    vocabulary_translation: list[VocabularyTranslationItem] = Field(
         default_factory=list,
         description="List of exact synonym vocabulary replacements",
     )
-    impact_reframing: List[ImpactReframingItem] = Field(
+    impact_reframing: list[ImpactReframingItem] = Field(
         default_factory=list,
         description="List of bullet point rewrites adding metrics and aligning with JD action verbs",
     )
-    structural_adjustments: List[str] = Field(
+    structural_adjustments: list[str] = Field(
         default_factory=list,
         description="Section ordering, emphasis, or layout adjustments to optimize profile clarity",
     )
 
 
 class OptimizationGaps(BaseModel):
-    missing_completely: List[str] = Field(
+    missing_completely: list[str] = Field(
         default_factory=list,
         description="Mandatory JD terms entirely absent from CV (acknowledged gap, not hallucinated)",
     )
-    vocabulary_mismatches: List[str] = Field(
+    vocabulary_mismatches: list[str] = Field(
         default_factory=list,
         description="Skills present in CV under a different term (e.g. Node vs Node.js, Postgres vs PostgreSQL)",
     )
-    experience_mismatch: Optional[str] = Field(
+    experience_mismatch: str | None = Field(
         default=None, description="Years of experience or seniority level delta if any"
     )
 
@@ -120,7 +115,7 @@ class HardMatches(BaseModel):
         default="0/10",
         description="Match rate of core mandatory skills found (e.g. '8/10 core skills found')",
     )
-    top_alignment: List[str] = Field(
+    top_alignment: list[str] = Field(
         default_factory=list,
         description="Top 3 candidate skills that best align with must-haves in the JD",
     )
@@ -137,39 +132,39 @@ class JobAssessmentResult(BaseModel):
         default="",
         description="2-sentence overview defining the profile-to-JD delta gap",
     )
-    hard_matches: Optional[HardMatches] = Field(
+    hard_matches: HardMatches | None = Field(
         default=None, description="Core hard keyword matches and top aligned skills"
     )
-    optimization_gaps: Optional[OptimizationGaps] = Field(
+    optimization_gaps: OptimizationGaps | None = Field(
         default=None, description="Strict terminology mismatches and experience delta"
     )
-    tailoring_strategy: Optional[ResumeTailoringStrategy] = Field(
+    tailoring_strategy: ResumeTailoringStrategy | None = Field(
         default=None, description="Step-by-step resume tailoring recommendations"
     )
-    markdown_report: Optional[str] = Field(
+    markdown_report: str | None = Field(
         default=None, description="Full structured Markdown audit report"
     )
-    matching_skills: List[str] = Field(
+    matching_skills: list[str] = Field(
         default_factory=list, description="List of matching skills / strengths"
     )
-    missing_skills: List[str] = Field(
+    missing_skills: list[str] = Field(
         default_factory=list, description="List of missing skills or requirements"
     )
-    pros: List[str] = Field(
+    pros: list[str] = Field(
         default_factory=list, description="Key advantages / pros of this role"
     )
-    cons: List[str] = Field(
+    cons: list[str] = Field(
         default_factory=list, description="Potential caveats or drawbacks"
     )
-    salary_min: Optional[float] = Field(
+    salary_min: float | None = Field(
         default=None, description="Minimum compensation if mentioned"
     )
-    salary_max: Optional[float] = Field(
+    salary_max: float | None = Field(
         default=None, description="Maximum compensation if mentioned"
     )
-    currency: Optional[str] = Field(default="USD", description="Salary currency")
-    location: Optional[str] = Field(default=None, description="Job location")
-    work_model: Optional[str] = Field(
+    currency: str | None = Field(default="USD", description="Salary currency")
+    location: str | None = Field(default=None, description="Job location")
+    work_model: str | None = Field(
         default=None, description="Remote, Hybrid, or Onsite"
     )
     recommendation: str = Field(

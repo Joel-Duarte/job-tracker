@@ -1,4 +1,3 @@
-from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,7 +12,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "DEBUG"
 
     # Public exposed API base URL (for Docker port forwarding or reverse proxy)
-    PUBLIC_API_URL: Optional[str] = None
+    PUBLIC_API_URL: str | None = None
 
     # Camofox Browser Automation Server URL
     CAMOUFOX_ENDPOINT: str = "http://localhost:9377"

@@ -1,6 +1,7 @@
 import json
 import logging
-from typing import Any, List, Optional
+from typing import Any
+
 from langchain_core.prompts import ChatPromptTemplate
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,8 +9,6 @@ from sqlalchemy.orm import selectinload
 
 from app.core.llm_factory import (
     get_active_llm_config_dict,
-    get_chat_model,
-    get_embeddings_model,
     get_task_chat_model,
     get_task_embeddings_model,
 )
@@ -74,9 +73,9 @@ async def extract_job_spec(
 async def extract_email_info(
     db: AsyncSession,
     email_content: str,
-    sender: Optional[str] = None,
-    subject: Optional[str] = None,
-    date: Optional[str] = None,
+    sender: str | None = None,
+    subject: str | None = None,
+    date: str | None = None,
 ) -> EmailExtractionResult:
     """Extracts structured job application metadata from email body using LangChain EXTRACTION model."""
     llm = await get_task_chat_model(db, task_type="EXTRACTION", temperature=0.1)
@@ -112,9 +111,9 @@ Email Body:
 async def assess_job_posting(
     db: AsyncSession,
     job_description: str,
-    candidate_skills: Optional[List[str]] = None,
-    candidate_cv: Optional[str] = None,
-    candidate_domain_breakdown: Optional[str] = None,
+    candidate_skills: list[str] | None = None,
+    candidate_cv: str | None = None,
+    candidate_domain_breakdown: str | None = None,
     programmatic_baseline: int = 0,
 ) -> JobAssessmentResult:
     """
@@ -440,9 +439,9 @@ async def async_enqueue_application_embedding(
     Non-blocking background worker task to generate and save application vector embeddings.
     Tracks state in IntakeEvaluationTaskModel and uses Priority 2 in the ConcurrencyManager.
     """
-    from app.core.database import AsyncSessionLocal
     from app.core.ai_queue import concurrency_manager
-    from app.models.ai_providers import AITaskBindingModel, AIProviderModel
+    from app.core.database import AsyncSessionLocal
+    from app.models.ai_providers import AIProviderModel, AITaskBindingModel
     from app.models.applications import (
         IntakeEvaluationTaskModel,
     )  # Check this import path

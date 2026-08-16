@@ -1,8 +1,8 @@
-import asyncio
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
+
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ai_queue import ProviderConcurrencyManager
@@ -10,7 +10,6 @@ from app.core.database import get_db
 from app.main import app
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.models.applications import (
-    ApplicationEventModel,
     ApplicationModel,
     CompanyModel,
     JobPostingModel,
@@ -19,7 +18,6 @@ from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.models.staging import StagingItemModel
 from app.schemas.llm import ExtractedJobSpec, JobAssessmentResult
 from app.services.evaluation_worker import process_evaluation_task
-from sqlalchemy import select
 
 
 @pytest.mark.asyncio

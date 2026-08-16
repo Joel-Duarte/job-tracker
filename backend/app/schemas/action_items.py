@@ -1,65 +1,65 @@
 from datetime import datetime
-from typing import List, Optional
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class ActionItemCreate(BaseModel):
-    application_id: Optional[int] = Field(
+    application_id: int | None = Field(
         None, description="Associated job application ID"
     )
     title: str = Field(
         ..., min_length=1, max_length=500, description="Task title / action description"
     )
-    due_date: Optional[datetime] = Field(
+    due_date: datetime | None = Field(
         None, description="Due date and time for the task"
     )
-    urgency: Optional[str] = Field(
+    urgency: str | None = Field(
         "MEDIUM", description="Urgency level: HIGH, MEDIUM, LOW"
     )
-    status: Optional[str] = Field(
+    status: str | None = Field(
         "PENDING", description="Task status: PENDING, COMPLETED, DISMISSED"
     )
-    action_url: Optional[str] = Field(
+    action_url: str | None = Field(
         None, description="Optional direct link related to the task"
     )
 
 
 class ActionItemUpdate(BaseModel):
-    title: Optional[str] = Field(None, min_length=1, max_length=500)
-    due_date: Optional[datetime] = None
-    urgency: Optional[str] = Field(None, description="HIGH, MEDIUM, LOW")
-    status: Optional[str] = Field(None, description="PENDING, COMPLETED, DISMISSED")
-    action_url: Optional[str] = None
+    title: str | None = Field(None, min_length=1, max_length=500)
+    due_date: datetime | None = None
+    urgency: str | None = Field(None, description="HIGH, MEDIUM, LOW")
+    status: str | None = Field(None, description="PENDING, COMPLETED, DISMISSED")
+    action_url: str | None = None
 
 
 class UrgencyOverrideUpdate(BaseModel):
-    manual_urgency: Optional[str] = Field(
+    manual_urgency: str | None = Field(
         None, description="HIGH, MEDIUM, LOW, or null to reset to auto"
     )
 
 
 class ActionItemResponse(BaseModel):
     id: int
-    application_id: Optional[int] = None
-    event_id: Optional[int] = None
+    application_id: int | None = None
+    event_id: int | None = None
     title: str
-    due_date: Optional[datetime] = None
+    due_date: datetime | None = None
     status: str
-    action_url: Optional[str] = None
+    action_url: str | None = None
     urgency: str
-    manual_urgency_override: Optional[str] = None
+    manual_urgency_override: str | None = None
     created_at: datetime
     updated_at: datetime
     # Joined application metadata
-    company_name: Optional[str] = None
-    position: Optional[str] = None
-    application_status: Optional[str] = None
+    company_name: str | None = None
+    position: str | None = None
+    application_status: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class ActionItemListResponse(BaseModel):
-    items: List[ActionItemResponse]
+    items: list[ActionItemResponse]
     total: int
     pending_count: int
     high_urgency_count: int

@@ -1,14 +1,15 @@
 import json
-import pytest
+from unittest.mock import patch
+
 import httpx
-from unittest.mock import AsyncMock, patch
+import pytest
 
 from app.services.scraper import (
-    clean_extracted_text,
-    scrape_job_url,
+    ScrapedJobContent,
     _scrape_via_camofox,
     _scrape_via_http_fallback,
-    ScrapedJobContent,
+    clean_extracted_text,
+    scrape_job_url,
 )
 
 

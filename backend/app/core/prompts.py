@@ -1,5 +1,6 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models.prompts import PromptModel
 
 DEFAULT_PROMPTS = {

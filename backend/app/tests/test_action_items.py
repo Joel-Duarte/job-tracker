@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -40,7 +41,7 @@ async def test_action_items_crud_and_filtering(db_session):
         create_payload_1 = {
             "application_id": application.id,
             "title": "Prepare system design diagrams for Linear architecture round",
-            "due_date": datetime(2026, 8, 22, 14, 0, tzinfo=timezone.utc).isoformat(),
+            "due_date": datetime(2026, 8, 22, 14, 0, tzinfo=UTC).isoformat(),
             "urgency": "HIGH",
             "status": "PENDING",
         }

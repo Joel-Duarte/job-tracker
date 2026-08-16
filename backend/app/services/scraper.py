@@ -1,9 +1,9 @@
 import asyncio
 import logging
 import re
-from typing import Optional
-from bs4 import BeautifulSoup
+
 import httpx
+from bs4 import BeautifulSoup
 from pydantic import BaseModel
 
 from app.core.config import settings
@@ -130,11 +130,11 @@ def clean_extracted_text(raw_text: str, max_chars: int = 15000) -> str:
 
 async def _scrape_via_camofox(
     url: str, timeout_seconds: float = 25.0
-) -> Optional[ScrapedJobContent]:
+) -> ScrapedJobContent | None:
     """Scrapes a URL using the running Camofox browser automation server."""
     base_url = settings.CAMOUFOX_ENDPOINT.rstrip("/")
     user_id = "job-tracker"
-    tab_id: Optional[str] = None
+    tab_id: str | None = None
 
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
@@ -243,7 +243,7 @@ async def _scrape_via_http_fallback(
         title = soup.title.string if soup.title else ""
         main_el = soup.find(
             ["main", "article", "div"],
-            class_=re.compile(r"job|posting|description", re.I),
+            class_=re.compile(r"job|posting|description", re.IGNORECASE),
         )
         raw_text = (
             main_el.get_text(separator="\n")

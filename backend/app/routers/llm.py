@@ -1,5 +1,6 @@
 import logging
 from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
@@ -219,5 +220,5 @@ async def test_llm_connection(db: AsyncSession = Depends(get_db)) -> dict[str, A
         logger.error("LLM Connection Test Failed: %s", err, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to connect to provider '{cfg.get('provider_name')}' using model '{cfg.get('model_name')}' at '{cfg.get('api_base')}': {str(err)}",
+            detail=f"Failed to connect to provider '{cfg.get('provider_name')}' using model '{cfg.get('model_name')}' at '{cfg.get('api_base')}': {err!s}",
         )

@@ -1,5 +1,6 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
+
 import pytest
 from fastapi import BackgroundTasks
 from sqlalchemy import select
@@ -18,14 +19,14 @@ async def test_sync_email_account_keyword_prefilter(
     job_email = EmailPayload(
         message_id="msg-job-001",
         conversation_id="conv-job-001",
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
         subject="Your Application for Software Engineer",
         body="Thank you for applying. We are reviewing your application.",
     )
     spam_email = EmailPayload(
         message_id="msg-spam-002",
         conversation_id="conv-spam-002",
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
         subject="50% off shoes today only!",
         body="Check out our summer sale on running shoes.",
     )
@@ -63,7 +64,7 @@ async def test_sync_email_account_custom_keywords(
     custom_email = EmailPayload(
         message_id="msg-custom-003",
         conversation_id="conv-custom-003",
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
         subject="Take-home coding challenge instructions",
         body="Please complete the take-home project within 48 hours.",
     )
@@ -105,7 +106,7 @@ async def test_sync_email_account_deduplication(
     seen_email = EmailPayload(
         message_id="msg-already-seen-004",
         conversation_id="conv-seen-004",
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
         subject="Previous interview confirmation",
         body="Interview details.",
     )

@@ -1,8 +1,8 @@
 import asyncio
 import heapq
-from contextlib import asynccontextmanager
 import logging
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
 
