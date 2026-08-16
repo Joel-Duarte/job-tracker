@@ -3,7 +3,16 @@ import hashlib
 import logging
 from typing import Any, Optional
 import uuid
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 import httpx
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -11,7 +20,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
-from app.models.applications import ApplicationEventModel, ApplicationModel, CompanyModel, JobPostingModel
+from app.models.applications import (
+    ApplicationEventModel,
+    ApplicationModel,
+    CompanyModel,
+    JobPostingModel,
+)
 from app.models.email_accounts import EmailAccountModel
 from app.models.processed_email import ProcessedEmailModel
 from app.schemas.intake import (
@@ -26,7 +40,10 @@ from app.schemas.intake import (
 from app.schemas.llm import JobAssessmentResult
 from app.services.email_fetcher import fetch_emails_from_account
 from app.services.file_parser import parse_uploaded_file
-from app.services.intake import process_email_batch_sequential, process_single_email_graph
+from app.services.intake import (
+    process_email_batch_sequential,
+    process_single_email_graph,
+)
 from app.services.llm import assess_job_posting, generate_and_save_application_embedding
 from app.services.scraper import scrape_job_url
 from app.services.task_tracker import task_tracker
@@ -75,8 +92,13 @@ async def intake_extension_url(
         assess_req = AssessJobRequest(url=payload.url, text=payload.title)
         return await assess_job_lead(assess_req, db=db)
     except Exception as err:
-        logger.warning("Direct extension URL scrape failed for %s: %s. Routing to staging queue.", payload.url, err)
+        logger.warning(
+            "Direct extension URL scrape failed for %s: %s. Routing to staging queue.",
+            payload.url,
+            err,
+        )
         from app.models.staging import StagingItemModel
+
         staging_item = StagingItemModel(
             email_subject=payload.title or f"Extension URL Lead: {payload.url[:60]}",
             email_raw_body=f"URL: {payload.url}\nTitle: {payload.title or 'N/A'}",
@@ -94,7 +116,6 @@ async def intake_extension_url(
             "message": f"Automated scrape was protected or unavailable for '{payload.url}'. Saved to Staging Queue for review.",
             "url": payload.url,
         }
-
 
 
 @router.post("/jd", response_model=JobAssessmentResult, status_code=status.HTTP_200_OK)
@@ -130,7 +151,9 @@ async def intake_extension_jd_elements(
         return snippets
 
     extracted_lines = _extract_all_text(payload)
-    combined_text = "\n".join([line.strip() for line in extracted_lines if line.strip()])
+    combined_text = "\n".join(
+        [line.strip() for line in extracted_lines if line.strip()]
+    )
 
     if not combined_text:
         raise HTTPException(
@@ -145,21 +168,38 @@ async def intake_extension_jd_elements(
 # Built-in job-signal keywords always applied as a subject/body pre-filter before any LLM call.
 # User-supplied keywords in SyncFolderRequest.keyword_filter are merged on top of these.
 BUILT_IN_JOB_KEYWORDS: list[str] = [
-    "application", "interview", "offer", "position", "role",
-    "recruiter", "hiring", "rejected", "opportunity", "assessment",
-    "screening", "shortlisted", "candidate", "apply", "applied",
-    "job", "vacancy", "invitation", "congratulations",
+    "application",
+    "interview",
+    "offer",
+    "position",
+    "role",
+    "recruiter",
+    "hiring",
+    "rejected",
+    "opportunity",
+    "assessment",
+    "screening",
+    "shortlisted",
+    "candidate",
+    "apply",
+    "applied",
+    "job",
+    "vacancy",
+    "invitation",
+    "congratulations",
 ]
 
 
 class SyncFolderRequest(BaseModel):
-    account_id: int = Field(description="ID of the configured EmailAccountModel to sync")
+    account_id: int = Field(
+        description="ID of the configured EmailAccountModel to sync"
+    )
     folder: Optional[str] = Field(default=None)
     since_date: Optional[datetime] = Field(default=None)
     keyword_filter: list[str] = Field(
         default_factory=list,
         description="Extra keywords merged with built-in job keywords for subject/body pre-filter. "
-                    "An email must match at least one keyword to be sent to the AI pipeline.",
+        "An email must match at least one keyword to be sent to the AI pipeline.",
     )
 
 
@@ -213,7 +253,9 @@ def _format_graph_result(result: dict[str, Any]) -> IntakeResultResponse:
     )
 
 
-@router.post("/paste", response_model=IntakeResultResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/paste", response_model=IntakeResultResponse, status_code=status.HTTP_200_OK
+)
 async def intake_pasted_text(
     payload: PasteIntakeRequest,
     db: AsyncSession = Depends(get_db),
@@ -249,9 +291,13 @@ async def intake_pasted_text(
     return _format_graph_result(result)
 
 
-@router.post("/upload", response_model=list[IntakeResultResponse], status_code=status.HTTP_200_OK)
+@router.post(
+    "/upload", response_model=list[IntakeResultResponse], status_code=status.HTTP_200_OK
+)
 async def intake_uploaded_files(
-    files: list[UploadFile] = File(..., description="Uploaded .eml, .msg, or .txt files"),
+    files: list[UploadFile] = File(
+        ..., description="Uploaded .eml, .msg, or .txt files"
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> list[IntakeResultResponse]:
     """Ingests drag-and-drop uploaded email files (.eml, .msg, .txt)."""
@@ -274,7 +320,9 @@ async def intake_uploaded_files(
             graph_res = await process_single_email_graph(db, email_payload)
             results.append(_format_graph_result(graph_res))
         except Exception as err:
-            logger.error("Failed processing uploaded file '%s': %s", filename, err, exc_info=True)
+            logger.error(
+                "Failed processing uploaded file '%s': %s", filename, err, exc_info=True
+            )
             results.append(
                 IntakeResultResponse(
                     status="error",
@@ -286,7 +334,9 @@ async def intake_uploaded_files(
     return results
 
 
-@router.post("/assess-job", response_model=JobAssessmentResult, status_code=status.HTTP_200_OK)
+@router.post(
+    "/assess-job", response_model=JobAssessmentResult, status_code=status.HTTP_200_OK
+)
 async def assess_job_lead(
     payload: AssessJobRequest,
     db: AsyncSession = Depends(get_db),
@@ -295,6 +345,7 @@ async def assess_job_lead(
     content = payload.text
     if not content and payload.raw_html:
         from app.routers.extension import _extract_text_from_html
+
         content = _extract_text_from_html(payload.raw_html)
 
     if not content and payload.url:
@@ -312,7 +363,6 @@ async def assess_job_lead(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Please provide a valid job description text, raw HTML DOM, or reachable URL.",
         )
-
 
     # 1. Fetch candidate's active CV skills if available
     from app.models.candidate_profile import CandidateCVModel
@@ -345,13 +395,16 @@ async def assess_job_lead(
         db,
         content,
         candidate_skills=candidate_skills,
-        candidate_cv=active_cv.anonymized_text or active_cv.raw_text if active_cv else None,
+        candidate_cv=active_cv.anonymized_text or active_cv.raw_text
+        if active_cv
+        else None,
         candidate_domain_breakdown=active_domains_str,
         programmatic_baseline=match_info.get("programmatic_score", 0),
     )
 
     # Automatically persist to database or stage if duplicate
     from app.services.job_saver import persist_or_stage_job_assessment
+
     await persist_or_stage_job_assessment(
         db=db,
         assessment=assessment,
@@ -364,7 +417,11 @@ async def assess_job_lead(
     return assessment
 
 
-@router.post("/confirm-assessment", response_model=IntakeResultResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/confirm-assessment",
+    response_model=IntakeResultResponse,
+    status_code=status.HTTP_200_OK,
+)
 async def confirm_job_assessment(
     payload: ConfirmAssessmentRequest,
     background_tasks: BackgroundTasks,
@@ -418,7 +475,9 @@ async def confirm_job_assessment(
         app_record.last_activity_at = now
 
     # 3. Job Posting Record
-    jp_stmt = select(JobPostingModel).where(JobPostingModel.application_id == app_record.id)
+    jp_stmt = select(JobPostingModel).where(
+        JobPostingModel.application_id == app_record.id
+    )
     jp_res = await db.execute(jp_stmt)
     job_posting = jp_res.scalar_one_or_none()
 
@@ -468,7 +527,10 @@ async def confirm_job_assessment(
     # 5. Generate Vector Embedding in isolated background task (Deferred if still in ASSESSMENT stage)
     if app_record.status != "ASSESSMENT":
         from app.services.llm import async_enqueue_application_embedding
-        background_tasks.add_task(async_enqueue_application_embedding, app_record.id, skip_llm_summary=True)
+
+        background_tasks.add_task(
+            async_enqueue_application_embedding, app_record.id, skip_llm_summary=True
+        )
 
     return IntakeResultResponse(
         status="success",
@@ -482,7 +544,9 @@ async def confirm_job_assessment(
     )
 
 
-@router.post("/sync-account", response_model=TaskResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/sync-account", response_model=TaskResponse, status_code=status.HTTP_202_ACCEPTED
+)
 async def sync_email_account(
     payload: SyncFolderRequest,
     background_tasks: BackgroundTasks,
@@ -508,11 +572,14 @@ async def sync_email_account(
         )
 
     # --- Step 1: Fetch from provider ---
-    raw_emails, next_cursor = await fetch_emails_from_account(account, since_date=payload.since_date)
+    raw_emails, next_cursor = await fetch_emails_from_account(
+        account, since_date=payload.since_date
+    )
     scanned_count = len(raw_emails)
     logger.info(
         "sync_email_account: account_id=%s fetched %d emails from provider",
-        payload.account_id, scanned_count,
+        payload.account_id,
+        scanned_count,
     )
 
     if next_cursor:
@@ -521,7 +588,9 @@ async def sync_email_account(
         await db.commit()
 
     if scanned_count == 0:
-        task_id = task_tracker.create_task(total_emails=0, account_id=payload.account_id)
+        task_id = task_tracker.create_task(
+            total_emails=0, account_id=payload.account_id
+        )
         task_tracker.complete_task(task_id)
         return TaskResponse(
             task_id=task_id,
@@ -530,23 +599,32 @@ async def sync_email_account(
         )
 
     # --- Step 2 + 3: Unified dedup + keyword pre-filter ---
-    all_keywords = BUILT_IN_JOB_KEYWORDS + [kw.strip().lower() for kw in payload.keyword_filter if kw.strip()]
+    all_keywords = BUILT_IN_JOB_KEYWORDS + [
+        kw.strip().lower() for kw in payload.keyword_filter if kw.strip()
+    ]
     skipped_duplicates = 0
     filtered_out_count = 0
     to_process: list = []
+
+    # Batch deduplication query
+    mids = [email.message_id for email in raw_emails if email.message_id]
+    existing_mids = set()
+    if mids:
+        existing_rows = await db.execute(
+            select(ProcessedEmailModel.message_id).where(
+                ProcessedEmailModel.message_id.in_(mids)
+            )
+        )
+        existing_mids = set(existing_rows.scalars().all())
 
     for email in raw_emails:
         mid = email.message_id
 
         # Dedup: skip any message_id already seen (any status)
-        if mid:
-            existing = (await db.execute(
-                select(ProcessedEmailModel.id).where(ProcessedEmailModel.message_id == mid)
-            )).scalar_one_or_none()
-            if existing is not None:
-                skipped_duplicates += 1
-                logger.debug("sync dedup skip: message_id=%s", mid)
-                continue
+        if mid and mid in existing_mids:
+            skipped_duplicates += 1
+            logger.debug("sync dedup skip: message_id=%s", mid)
+            continue
 
         # Keyword pre-filter: check subject + first 500 chars of body
         haystack = f"{email.subject or ''} {(email.body or '')[:500]}".lower()
@@ -554,21 +632,26 @@ async def sync_email_account(
             filtered_out_count += 1
             logger.debug(
                 "sync keyword filter: message_id=%s subject=%r skipped (no job keyword match)",
-                mid, email.subject,
+                mid,
+                email.subject,
             )
             # Persist filtered_out so this ID is never re-evaluated
             if mid:
                 try:
-                    db.add(ProcessedEmailModel(
-                        message_id=mid,
-                        account_id=payload.account_id,
-                        status="filtered_out",
-                        subject=(email.subject or "")[:500],
-                    ))
+                    db.add(
+                        ProcessedEmailModel(
+                            message_id=mid,
+                            account_id=payload.account_id,
+                            status="filtered_out",
+                            subject=(email.subject or "")[:500],
+                        )
+                    )
                     await db.commit()
                 except Exception:
                     await db.rollback()
-                    logger.warning("Failed to persist filtered_out record for message_id=%s", mid)
+                    logger.warning(
+                        "Failed to persist filtered_out record for message_id=%s", mid
+                    )
             continue
 
         to_process.append(email)
@@ -576,10 +659,16 @@ async def sync_email_account(
     matched_count = len(to_process)
     logger.info(
         "sync_email_account: account_id=%s scanned=%d duplicates=%d filtered_out=%d to_process=%d",
-        payload.account_id, scanned_count, skipped_duplicates, filtered_out_count, matched_count,
+        payload.account_id,
+        scanned_count,
+        skipped_duplicates,
+        filtered_out_count,
+        matched_count,
     )
 
-    task_id = task_tracker.create_task(total_emails=matched_count, account_id=payload.account_id)
+    task_id = task_tracker.create_task(
+        total_emails=matched_count, account_id=payload.account_id
+    )
 
     if matched_count == 0:
         task_tracker.complete_task(task_id)
@@ -672,7 +761,11 @@ from app.schemas.intake import EnqueueAssessmentRequest, IntakeEvaluationTaskRes
 from app.services.evaluation_worker import process_evaluation_task
 
 
-@router.post("/enqueue-assessment", response_model=IntakeEvaluationTaskResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/enqueue-assessment",
+    response_model=IntakeEvaluationTaskResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 async def enqueue_job_assessment(
     payload: EnqueueAssessmentRequest,
     background_tasks: BackgroundTasks,
@@ -717,7 +810,11 @@ async def enqueue_job_assessment(
     return task_record
 
 
-@router.get("/evaluations", response_model=list[IntakeEvaluationTaskResponse], status_code=status.HTTP_200_OK)
+@router.get(
+    "/evaluations",
+    response_model=list[IntakeEvaluationTaskResponse],
+    status_code=status.HTTP_200_OK,
+)
 async def list_evaluation_tasks(
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
@@ -756,6 +853,7 @@ async def clear_completed_evaluations(
 ):
     """Clears all completed or failed evaluation tasks from the queue history."""
     from sqlalchemy import delete
+
     stmt = delete(IntakeEvaluationTaskModel).where(
         IntakeEvaluationTaskModel.status.in_(["COMPLETED", "FAILED", "CANCELLED"])
     )
@@ -764,7 +862,11 @@ async def clear_completed_evaluations(
     return {"status": "success", "cleared_count": result.rowcount}
 
 
-@router.post("/evaluations/{task_id}/retry", response_model=IntakeEvaluationTaskResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/evaluations/{task_id}/retry",
+    response_model=IntakeEvaluationTaskResponse,
+    status_code=status.HTTP_200_OK,
+)
 async def retry_evaluation_task(
     task_id: int,
     background_tasks: BackgroundTasks,
