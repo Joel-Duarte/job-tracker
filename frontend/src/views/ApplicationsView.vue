@@ -44,7 +44,7 @@ const activeGuideAppId = ref(null)
 
 function openInterviewGuide(appId) {
   activeGuideAppId.value = appId
-  uiStore.openDetail(appId)
+  uiStore.openDetail(appId, 'guide')
 }
 
 // Drag & Drop State

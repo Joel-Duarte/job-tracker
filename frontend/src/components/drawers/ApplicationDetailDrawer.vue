@@ -1,6 +1,7 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
 import { ActionItemsAPI, ApplicationsAPI } from '../../api/endpoints'
@@ -38,7 +39,7 @@ const uiStore = useUIStore()
 const router = useRouter()
 const appStore = useApplicationsStore()
 
-const activeTab = ref('timeline') // 'timeline' | 'job_spec' | 'actions' | 'guide'
+const { detailActiveTab: activeTab } = storeToRefs(uiStore) // 'timeline' | 'job_spec' | 'actions' | 'guide'
 const showDeleteConfirm = ref(false)
 const isDeleting = ref(false)
 
@@ -905,9 +906,12 @@ function formatDate(isoStr) {
               </div>
 
               <!-- GUIDE READER (When guide exists) -->
-              <div v-else-if="appStore.selectedApplication.interview_guide_html" class="guide-preview-card animate-fade-in">
-                <div class="guide-preview-topbar">
-                  <div class="guide-meta-left">
+              <div v-else-if="appStore.selectedApplication.interview_guide_html" class="guide-empty-state animate-fade-in">
+                <div class="guide-empty-icon" style="background-color: var(--status-offer-bg); color: var(--status-offer-text); border-color: var(--status-offer-border);">
+                  <BookOpen :size="32" />
+                </div>
+                <h4 class="guide-empty-title">Interview Guide is Ready</h4>
+                <div class="guide-meta-left" style="margin-bottom: 8px;">
                     <span class="guide-lang-badge">
                       <Globe :size="12" />
                       <span>{{ appStore.selectedApplication.interview_guide_language?.toUpperCase() || 'EN' }}</span>
@@ -915,29 +919,27 @@ function formatDate(isoStr) {
                     <span v-if="appStore.selectedApplication.interview_guide_generated_at" class="guide-meta-time">
                       Generated {{ formatDate(appStore.selectedApplication.interview_guide_generated_at) }}
                     </span>
-                  </div>
-                  <div class="guide-meta-actions">
-                    <button
-                      class="btn btn-primary btn-sm"
-                      @click="openGuideInNewTab"
-                    >
-                      <BookOpen :size="13" />
-                      <span>Open Full Reader</span>
-                    </button>
-                    <button
-                      class="btn btn-secondary btn-sm"
-                      title="Re-configure or regenerate"
-                      @click="showConfigPanel = true"
-                    >
-                      <RotateCcw :size="13" />
-                    </button>
-                  </div>
                 </div>
-
-                <div
-                  class="drawer-guide-content guide-article"
-                  v-html="appStore.selectedApplication.interview_guide_html"
-                ></div>
+                <p class="guide-empty-desc">
+                  Your tactical interview playbook is ready. Open it in the full reader to view, print, or copy the content.
+                </p>
+                <div class="guide-meta-actions" style="display: flex; gap: 8px; margin-top: 8px;">
+                  <button
+                    class="btn btn-primary"
+                    @click="openGuideInNewTab"
+                  >
+                    <BookOpen :size="15" />
+                    <span>Open Full Reader</span>
+                  </button>
+                  <button
+                    class="btn btn-secondary"
+                    title="Re-configure or regenerate"
+                    @click="showConfigPanel = true"
+                  >
+                    <RotateCcw :size="15" />
+                    <span>Regenerate</span>
+                  </button>
+                </div>
               </div>
 
               <!-- Empty State / No Guide Yet -->
