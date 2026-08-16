@@ -2,9 +2,9 @@ name: Frontend CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "master" ]
 
 jobs:
   build:
@@ -29,6 +29,12 @@ jobs:
     - name: Install dependencies
       # Using npm install because package-lock.json might not exist or might be out of sync
       run: npm install
+      
+    - name: Check code formatting and linting
+      run: npm run lint --if-present
 
+    - name: Run unit tests
+      run: npm run test:unit --if-present
+    
     - name: Run Build
       run: npm run build
