@@ -188,8 +188,8 @@ const REJECTION_REASONS = [
 
 
 watch(
-  () => activeTab.value,
-  (newTab) => {
+  () => [activeTab.value, appStore.selectedApplication?.id],
+  ([newTab, _]) => {
     if (newTab === 'guide' && appStore.selectedApplication) {
       if (appStore.selectedApplication.interview_guide_language) {
         selectedLanguage.value = appStore.selectedApplication.interview_guide_language
@@ -202,7 +202,8 @@ watch(
       }
       showConfigPanel.value = !appStore.selectedApplication.interview_guide_html
     }
-  }
+  },
+  { immediate: true }
 )
 
 watch(
@@ -1708,7 +1709,7 @@ function formatDate(isoStr) {
 
 /* LATEST EVENT HIGHLIGHT BANNER */
 .latest-event-banner {
-  margin: 16px 24px 0 24px;
+  margin: 16px 24px 16px 24px;
   padding: 14px 16px;
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
