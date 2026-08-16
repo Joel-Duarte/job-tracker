@@ -41,9 +41,7 @@ onMounted(async () => {
   }
 })
 
-function handlePrint() {
-  window.print()
-}
+
 
 function handleCopy() {
   if (!application.value?.interview_guide_html) return
@@ -115,10 +113,7 @@ function formatLanguageName(code) {
         </div>
 
         <div class="header-actions">
-          <button class="btn btn-secondary" @click="handlePrint">
-            <Printer :size="16" />
-            <span>Print / PDF</span>
-          </button>
+
           <button class="btn btn-secondary" @click="handleCopy">
             <component :is="hasCopied ? Check : Copy" :size="16" :class="{ 'text-success': hasCopied }" />
             <span>{{ hasCopied ? 'Copied' : 'Copy' }}</span>
@@ -327,20 +322,5 @@ function formatLanguageName(code) {
 }
 
 /* Print Overrides */
-@media print {
-  body {
-    background-color: #fff;
-  }
-  .print-hide {
-    display: none !important;
-  }
-  .guide-paper {
-    border: none !important;
-    padding: 0 !important;
-    box-shadow: none !important;
-  }
-  .guide-article :deep(*) {
-    color: #000000 !important;
-  }
-}
+
 </style>

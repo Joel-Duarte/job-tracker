@@ -37,6 +37,9 @@ import {
   Ban,
   Briefcase,
   BookOpen,
+  MessageSquare,
+  ExternalLink,
+  PenLine,
 } from 'lucide-vue-next'
 
 const appStore = useApplicationsStore()
@@ -647,7 +650,7 @@ async function confirmDelete() {
               v-for="app in appStore.kanbanColumns[col.key] || []"
               :key="app.id"
               class="application-card"
-              :class="{ 'is-dragging': draggedApp?.id === app.id }"
+              :class="[{ 'is-dragging': draggedApp?.id === app.id }, app.has_action_required ? 'action-required-card' : '']"
               draggable="true"
               @dragstart="onDragStart(app, $event)"
               @dragend="onDragEnd"
@@ -773,10 +776,12 @@ async function confirmDelete() {
                 <!-- Utility Buttons -->
                 <a v-if="app.job_posting?.source_url || app.job_url" :href="app.job_posting?.source_url || app.job_url" target="_blank" rel="noopener noreferrer" class="btn-action-chip" title="View Job Post">
                   <ExternalLink :size="11" />
+                  <span>View Post</span>
                 </a>
 
                 <button class="btn-action-chip" @click="openLogActivityModal(app.id)" title="Log Activity">
-                  <MessageSquare :size="11" />
+                  <PenLine :size="11" />
+                  <span>Log Activity</span>
                 </button>
 
                 <button v-if="app.action_items?.length" class="btn-action-chip text-warning" @click="uiStore.openDetail(app.id, 'actions')" title="View Action Items">
@@ -2308,6 +2313,11 @@ async function confirmDelete() {
 
 .btn-analysis:hover {
   box-shadow: 0 0 4px var(--status-offer-border);
+}
+
+
+.action-required-card {
+  border-left: 3px solid var(--status-rejected-border);
 }
 
 </style>

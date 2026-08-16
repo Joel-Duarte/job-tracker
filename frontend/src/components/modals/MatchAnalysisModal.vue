@@ -62,6 +62,24 @@ async function loadApplication() {
   }
 }
 
+const parsedTailoringStrategy = computed(() => {
+  if (!analysisData.value?.tailoring_strategy) return null
+  try {
+    const raw = analysisData.value.tailoring_strategy
+    if (typeof raw === 'object') return raw // already parsed
+    // Attempt to parse string to JSON
+    // Clean up markdown block format if LLM returned it in ```json blocks
+    let cleaned = raw.trim()
+    if (cleaned.startsWith('```json')) cleaned = cleaned.replace(/^```json/, '')
+    if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```/, '')
+    if (cleaned.endsWith('```')) cleaned = cleaned.replace(/```$/, '')
+    return JSON.parse(cleaned)
+  } catch (err) {
+    console.error("Failed to parse tailoring strategy JSON:", err)
+    return null
+  }
+})
+
 const analysisData = computed(() => {
   if (!application.value) return null
   return application.value.latest_event?.raw_payload || {}
@@ -128,7 +146,53 @@ function getFitBadgeClass(score) {
             </div>
             <div class="analysis-section" v-if="analysisData.tailoring_strategy">
                <h3 class="section-title"><Sparkles :size="15" /> Tailoring Strategy</h3>
-               <p class="section-text">{{ analysisData.tailoring_strategy }}</p>
+
+               <div v-if="parsedTailoringStrategy" class="tailoring-parsed">
+                 <!-- Impact Reframing -->
+                 <div v-if="parsedTailoringStrategy.impact_reframing?.length" class="tailoring-block">
+                   <h4 class="tailoring-subtitle">Impact Reframing</h4>
+                   <div v-for="(item, i) in parsedTailoringStrategy.impact_reframing" :key="i" class="reframing-card">
+                     <div class="reframing-reason">{{ item.reason }}</div>
+                     <div class="reframing-before">
+                       <span class="reframing-label">Before:</span>
+                       <span class="reframing-text">{{ item.bullet_point }}</span>
+                     </div>
+                     <div class="reframing-after">
+                       <span class="reframing-label">After:</span>
+                       <span class="reframing-text">{{ item.suggested_rewrite }}</span>
+                     </div>
+                   </div>
+                 </div>
+
+                 <!-- Structural Adjustments -->
+                 <div v-if="parsedTailoringStrategy.structural_adjustments?.length" class="tailoring-block">
+                   <h4 class="tailoring-subtitle">Structural Adjustments</h4>
+                   <ul class="structural-list">
+                     <li v-for="(adj, i) in parsedTailoringStrategy.structural_adjustments" :key="i">
+                       <CheckCircle2 :size="13" class="text-primary mt-0.5" />
+                       <span>{{ adj }}</span>
+                     </li>
+                   </ul>
+                 </div>
+
+                 <!-- Vocabulary Translation -->
+                 <div v-if="parsedTailoringStrategy.vocabulary_translation?.length" class="tailoring-block">
+                   <h4 class="tailoring-subtitle">Vocabulary Mapping</h4>
+                   <div class="vocab-grid">
+                     <div v-for="(vocab, i) in parsedTailoringStrategy.vocabulary_translation" :key="i" class="vocab-card">
+                       <div class="vocab-flow">
+                         <span class="vocab-cv">{{ vocab.cv_term }}</span>
+                         <span class="vocab-arrow">➔</span>
+                         <span class="vocab-jd">{{ vocab.jd_term }}</span>
+                       </div>
+                       <div class="vocab-desc">{{ vocab.replacement_guidance }}</div>
+                     </div>
+                   </div>
+                 </div>
+               </div>
+
+               <!-- Fallback if JSON parse fails -->
+               <p v-else class="section-text fallback-text">{{ analysisData.tailoring_strategy }}</p>
             </div>
           </div>
 
@@ -211,4 +275,156 @@ function getFitBadgeClass(score) {
 .skill-tag { padding: 4px 8px; font-size: 12px; font-weight: 500; border-radius: var(--radius-sm); border: 1px solid var(--border-color); }
 .skill-tag.match { background-color: var(--status-offer-bg); color: var(--status-offer-text); border-color: var(--status-offer-border); }
 .skill-tag.miss { background-color: var(--status-rejected-bg); color: var(--status-rejected-text); border-color: var(--status-rejected-border); }
+
+.tailoring-parsed {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.tailoring-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tailoring-subtitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.8;
+  margin: 0 0 4px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 4px;
+}
+
+.reframing-card {
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reframing-reason {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background-color: var(--bg-surface);
+  display: inline-flex;
+  padding: 2px 6px;
+  border-radius: 4px;
+  width: fit-content;
+  margin-bottom: 2px;
+}
+
+.reframing-before, .reframing-after {
+  font-size: 12px;
+  line-height: 1.4;
+  display: flex;
+  gap: 6px;
+}
+
+.reframing-before {
+  color: var(--status-rejected-text);
+  opacity: 0.9;
+}
+
+.reframing-after {
+  color: var(--status-offer-text);
+  font-weight: 500;
+}
+
+.reframing-label {
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.reframing-before .reframing-text {
+  text-decoration: line-through;
+}
+
+.structural-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.structural-list li {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.vocab-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.vocab-card {
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vocab-flow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.vocab-cv {
+  color: var(--text-muted);
+  background-color: var(--bg-surface);
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-decoration: line-through;
+}
+
+.vocab-arrow {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.vocab-jd {
+  color: var(--primary);
+  background-color: var(--primary-subtle);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.vocab-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin-top: 4px;
+}
+
+.fallback-text {
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background-color: var(--bg-app);
+  padding: 10px;
+  border-radius: var(--radius-sm);
+}
+
 </style>
