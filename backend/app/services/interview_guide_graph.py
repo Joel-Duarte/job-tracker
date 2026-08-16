@@ -97,11 +97,13 @@ async def web_researcher_node(state: InterviewGuideState) -> dict[str, Any]:
 async def section_generator_node(state: InterviewGuideState) -> dict[str, Any]:
     """Generates the clean semantic HTML for the current section in the queue."""
     target_sections = state.get("target_sections", [])
+    order_mapping = {key: i for i, key in enumerate(SECTION_DESCRIPTIONS.keys())}
+    target_sections = sorted(target_sections, key=lambda x: order_mapping.get(x, 999))
     idx = state.get("current_section_index", 0)
     completed = list(state.get("completed_sections", []))
 
     if idx >= len(target_sections):
-        return {"current_section_index": idx + 1}
+        return {"current_section_index": idx + 1, "target_sections": target_sections}
 
     section_key = target_sections[idx]
     section_desc = SECTION_DESCRIPTIONS.get(section_key, f"Section: {section_key}")
@@ -160,12 +162,15 @@ async def section_generator_node(state: InterviewGuideState) -> dict[str, Any]:
     return {
         "completed_sections": completed,
         "current_section_index": idx + 1,
+        "target_sections": target_sections,
     }
 
 
 def should_continue_sections(state: InterviewGuideState) -> str:
     """Routes back to section_generator_node if more sections remain."""
     target_sections = state.get("target_sections", [])
+    order_mapping = {key: i for i, key in enumerate(SECTION_DESCRIPTIONS.keys())}
+    target_sections = sorted(target_sections, key=lambda x: order_mapping.get(x, 999))
     idx = state.get("current_section_index", 0)
     if idx < len(target_sections):
         return "section_generator"
