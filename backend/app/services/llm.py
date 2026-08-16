@@ -1,6 +1,7 @@
 import json
 import logging
-from typing import Any, List, Optional
+from typing import Any
+
 from langchain_core.prompts import ChatPromptTemplate
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,21 +42,28 @@ async def extract_job_spec(
     structured_llm = llm.with_structured_output(ExtractedJobSpec)
     template_str = await get_prompt_template(db, "jd_extraction")
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", (
-            "You are an expert recruitment data analyst. "
-            "Extract essential job details from raw scraped webpage markdown text or pasted specs. "
-            "Disregard navigation, cookie popups, footers, headers, ads, or legal notices. "
-            "If no job vacancy is found, set job_found to false and leave fields as 'Not Specified'."
-        )),
-        ("human", template_str),
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                (
+                    "You are an expert recruitment data analyst. "
+                    "Extract essential job details from raw scraped webpage markdown text or pasted specs. "
+                    "Disregard navigation, cookie popups, footers, headers, ads, or legal notices. "
+                    "If no job vacancy is found, set job_found to false and leave fields as 'Not Specified'."
+                ),
+            ),
+            ("human", template_str),
+        ]
+    )
 
     chain = prompt | structured_llm
-    result = await chain.ainvoke({
-        "raw_webpage_data": raw_webpage_data,
-        "email_content": raw_webpage_data,
-    })
+    result = await chain.ainvoke(
+        {
+            "raw_webpage_data": raw_webpage_data,
+            "email_content": raw_webpage_data,
+        }
+    )
 
     if not isinstance(result, ExtractedJobSpec):
         result = ExtractedJobSpec.model_validate(result)
@@ -65,9 +73,9 @@ async def extract_job_spec(
 async def extract_email_info(
     db: AsyncSession,
     email_content: str,
-    sender: Optional[str] = None,
-    subject: Optional[str] = None,
-    date: Optional[str] = None,
+    sender: str | None = None,
+    subject: str | None = None,
+    date: str | None = None,
 ) -> EmailExtractionResult:
     """Extracts structured job application metadata from email body using LangChain EXTRACTION model."""
     llm = await get_task_chat_model(db, task_type="EXTRACTION", temperature=0.1)
@@ -76,17 +84,22 @@ async def extract_email_info(
 
     formatted_content = email_content
     if sender or subject or date:
-        formatted_content = f"""From: {sender or 'Not specified'}
-Date: {date or 'Not specified'}
-Subject: {subject or 'Not specified'}
+        formatted_content = f"""From: {sender or "Not specified"}
+Date: {date or "Not specified"}
+Subject: {subject or "Not specified"}
 
 Email Body:
 {email_content}"""
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are an information extraction engine for recruitment emails. Return only valid structured data."),
-        ("human", template_str),
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "You are an information extraction engine for recruitment emails. Return only valid structured data.",
+            ),
+            ("human", template_str),
+        ]
+    )
 
     chain = prompt | structured_llm
     result = await chain.ainvoke({"email_content": formatted_content})
@@ -98,9 +111,9 @@ Email Body:
 async def assess_job_posting(
     db: AsyncSession,
     job_description: str,
-    candidate_skills: Optional[List[str]] = None,
-    candidate_cv: Optional[str] = None,
-    candidate_domain_breakdown: Optional[str] = None,
+    candidate_skills: list[str] | None = None,
+    candidate_cv: str | None = None,
+    candidate_domain_breakdown: str | None = None,
     programmatic_baseline: int = 0,
 ) -> JobAssessmentResult:
     """
@@ -113,27 +126,41 @@ async def assess_job_posting(
 
     cv_text = candidate_cv
     if not cv_text:
-        skills_str = ", ".join(candidate_skills) if candidate_skills else "General Full-Stack / Software Engineering Profile"
+        skills_str = (
+            ", ".join(candidate_skills)
+            if candidate_skills
+            else "General Full-Stack / Software Engineering Profile"
+        )
         cv_text = f"Candidate Technical Skills:\n{skills_str}"
 
-    domain_text = candidate_domain_breakdown or "General / Full-Stack Experience (No active domain constraints)"
+    domain_text = (
+        candidate_domain_breakdown
+        or "General / Full-Stack Experience (No active domain constraints)"
+    )
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", (
-            "You are an expert technical resume writer and career coach. "
-            "Perform a granular, data-driven audit of the candidate's resume against the job description. "
-            "Never suggest skills not in the CV. Translate exact vocabulary synonyms, quantify match rate, and reframe bullet points."
-        )),
-        ("human", template_str),
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                (
+                    "You are an expert technical resume writer and career coach. "
+                    "Perform a granular, data-driven audit of the candidate's resume against the job description. "
+                    "Never suggest skills not in the CV. Translate exact vocabulary synonyms, quantify match rate, and reframe bullet points."
+                ),
+            ),
+            ("human", template_str),
+        ]
+    )
 
     chain = prompt | structured_llm
-    result = await chain.ainvoke({
-        "job_description": job_description,
-        "candidate_cv": cv_text,
-        "candidate_domain_breakdown": domain_text,
-        "programmatic_baseline": str(programmatic_baseline),
-    })
+    result = await chain.ainvoke(
+        {
+            "job_description": job_description,
+            "candidate_cv": cv_text,
+            "candidate_domain_breakdown": domain_text,
+            "programmatic_baseline": str(programmatic_baseline),
+        }
+    )
 
     if not isinstance(result, JobAssessmentResult):
         result = JobAssessmentResult.model_validate(result)
@@ -146,7 +173,9 @@ async def assess_job_posting(
             f"# Job Match Analysis: {result.fit_score}%",
             "",
             "## 📊 Match Summary",
-            result.match_summary or result.summary or "Evaluation completed against candidate profile.",
+            result.match_summary
+            or result.summary
+            or "Evaluation completed against candidate profile.",
             "",
             "## ✅ Hard Matches (Your Strengths)",
             f"* **Keyword Match Rate:** {result.hard_matches.keyword_match_rate if result.hard_matches else f'{len(result.matching_skills)} core skills found'}",
@@ -156,28 +185,42 @@ async def assess_job_posting(
         ]
         if result.optimization_gaps:
             if result.optimization_gaps.missing_completely:
-                report_lines.append(f"* **Missing Completely:** {', '.join(result.optimization_gaps.missing_completely)}")
+                report_lines.append(
+                    f"* **Missing Completely:** {', '.join(result.optimization_gaps.missing_completely)}"
+                )
             if result.optimization_gaps.vocabulary_mismatches:
-                report_lines.append(f"* **Vocabulary Mismatches:** {', '.join(result.optimization_gaps.vocabulary_mismatches)}")
+                report_lines.append(
+                    f"* **Vocabulary Mismatches:** {', '.join(result.optimization_gaps.vocabulary_mismatches)}"
+                )
             if result.optimization_gaps.experience_mismatch:
-                report_lines.append(f"* **Experience Delta:** {result.optimization_gaps.experience_mismatch}")
+                report_lines.append(
+                    f"* **Experience Delta:** {result.optimization_gaps.experience_mismatch}"
+                )
         elif result.missing_skills:
-            report_lines.append(f"* **Missing Requirements:** {', '.join(result.missing_skills)}")
+            report_lines.append(
+                f"* **Missing Requirements:** {', '.join(result.missing_skills)}"
+            )
 
-        report_lines.extend([
-            "",
-            "## 💡 Step-by-Step Resume Tailoring Strategy",
-        ])
+        report_lines.extend(
+            [
+                "",
+                "## 💡 Step-by-Step Resume Tailoring Strategy",
+            ]
+        )
         if result.tailoring_strategy:
             if result.tailoring_strategy.vocabulary_translation:
                 report_lines.append("### Vocabulary Translation:")
                 for vt in result.tailoring_strategy.vocabulary_translation:
-                    report_lines.append(f"* Swap **'{vt.cv_term}'** → **'{vt.jd_term}'**: {vt.replacement_guidance}")
+                    report_lines.append(
+                        f"* Swap **'{vt.cv_term}'** → **'{vt.jd_term}'**: {vt.replacement_guidance}"
+                    )
             if result.tailoring_strategy.impact_reframing:
                 report_lines.append("### Impact Reframing:")
                 for ir in result.tailoring_strategy.impact_reframing:
                     report_lines.append(f"* **Original:** {ir.bullet_point}")
-                    report_lines.append(f"  **Suggested Rewrite:** {ir.suggested_rewrite}")
+                    report_lines.append(
+                        f"  **Suggested Rewrite:** {ir.suggested_rewrite}"
+                    )
                     report_lines.append(f"  *Rationale:* {ir.reason}")
             if result.tailoring_strategy.structural_adjustments:
                 report_lines.append("### Structural Adjustments:")
@@ -188,7 +231,9 @@ async def assess_job_posting(
     return result
 
 
-async def anonymize_and_parse_cv(db: AsyncSession, raw_cv_text: str) -> CVAnonymizationResult:
+async def anonymize_and_parse_cv(
+    db: AsyncSession, raw_cv_text: str
+) -> CVAnonymizationResult:
     """
     De-identifies candidate resume:
     - Runs local programmatic regex pre-scrubber on emails, phones, URLs, addresses, and candidate name.
@@ -210,14 +255,19 @@ async def anonymize_and_parse_cv(db: AsyncSession, raw_cv_text: str) -> CVAnonym
     structured_llm = llm.with_structured_output(CVAnonymizationResult)
     template_str = await get_prompt_template(db, "cv_anonymization")
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", (
-            "You are an expert resume privacy officer and talent analyst. "
-            "Completely de-identify the candidate resume: redact contacts and real names, convert dates to relative duration windows, "
-            "and replace company names with industry/scale tags while extracting canonical skills, domain expertise, and core competencies."
-        )),
-        ("human", template_str),
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                (
+                    "You are an expert resume privacy officer and talent analyst. "
+                    "Completely de-identify the candidate resume: redact contacts and real names, convert dates to relative duration windows, "
+                    "and replace company names with industry/scale tags while extracting canonical skills, domain expertise, and core competencies."
+                ),
+            ),
+            ("human", template_str),
+        ]
+    )
 
     chain = prompt | structured_llm
     result = await chain.ainvoke({"resume_text": pre_scrubbed_text})
@@ -235,10 +285,12 @@ async def summarize_application_status(
     events_str = json.dumps(events_timeline, indent=2)
     template_str = await get_prompt_template(db, "summarization")
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You summarize job application timelines for embeddings."),
-        ("human", template_str),
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", "You summarize job application timelines for embeddings."),
+            ("human", template_str),
+        ]
+    )
 
     chain = prompt | structured_llm
     result = await chain.ainvoke({"events_str": events_str})
@@ -269,7 +321,9 @@ async def generate_embedding(db: AsyncSession, text_input: str) -> list[float]:
         if doc_vectors and len(doc_vectors) > 0 and len(doc_vectors[0]) > 0:
             return doc_vectors[0]
     except Exception as doc_err:
-        logger.debug("aembed_documents attempt failed, trying aembed_query: %s", doc_err)
+        logger.debug(
+            "aembed_documents attempt failed, trying aembed_query: %s", doc_err
+        )
 
     return await embeddings.aembed_query(cleaned_text)
 
@@ -301,13 +355,17 @@ async def generate_and_save_application_embedding(
     date_str = (
         application.application_date.strftime("%Y-%m-%d")
         if application.application_date
-        else (application.created_at.strftime("%Y-%m-%d") if application.created_at else "Recent")
+        else (
+            application.created_at.strftime("%Y-%m-%d")
+            if application.created_at
+            else "Recent"
+        )
     )
 
     # Resolve latest timeline event
     sorted_events = sorted(
         application.events or [],
-        key=lambda e: (e.email_received_at or e.id or 0),
+        key=lambda e: e.email_received_at or e.id or 0,
         reverse=True,
     )
     latest_event = sorted_events[0] if sorted_events else None
@@ -318,10 +376,18 @@ async def generate_and_save_application_embedding(
         else date_str
     )
     evt_type = latest_event.email_event_type if latest_event else "INITIAL_APPLICATION"
-    evt_summary = latest_event.email_summary if (latest_event and latest_event.email_summary) else "Application recorded."
+    evt_summary = (
+        latest_event.email_summary
+        if (latest_event and latest_event.email_summary)
+        else "Application recorded."
+    )
     action_info = (
         f"\nAction Required: {latest_event.email_action}"
-        if (latest_event and latest_event.email_action_required and latest_event.email_action)
+        if (
+            latest_event
+            and latest_event.email_action_required
+            and latest_event.email_action
+        )
         else ""
     )
 
@@ -343,7 +409,9 @@ async def generate_and_save_application_embedding(
         "company": comp_name,
         "position": application.position,
         "status": application.status,
-        "updated_at": application.updated_at.isoformat() if application.updated_at else None,
+        "updated_at": application.updated_at.isoformat()
+        if application.updated_at
+        else None,
     }
 
     if not embedding_record:
@@ -371,10 +439,12 @@ async def async_enqueue_application_embedding(
     Non-blocking background worker task to generate and save application vector embeddings.
     Tracks state in IntakeEvaluationTaskModel and uses Priority 2 in the ConcurrencyManager.
     """
-    from app.core.database import AsyncSessionLocal
     from app.core.ai_queue import concurrency_manager
-    from app.models.ai_providers import AITaskBindingModel, AIProviderModel
-    from app.models.applications import IntakeEvaluationTaskModel # Check this import path
+    from app.core.database import AsyncSessionLocal
+    from app.models.ai_providers import AIProviderModel, AITaskBindingModel
+    from app.models.applications import (
+        IntakeEvaluationTaskModel,
+    )  # Check this import path
 
     provider_id = None
     max_concurrency = 1
@@ -384,7 +454,10 @@ async def async_enqueue_application_embedding(
         try:
             binding_stmt = (
                 select(AITaskBindingModel, AIProviderModel)
-                .join(AIProviderModel, AITaskBindingModel.provider_id == AIProviderModel.id)
+                .join(
+                    AIProviderModel,
+                    AITaskBindingModel.provider_id == AIProviderModel.id,
+                )
                 .where(
                     AITaskBindingModel.task_type == "EMBEDDING",
                     AITaskBindingModel.is_active,
@@ -404,7 +477,7 @@ async def async_enqueue_application_embedding(
             task_type="EMBEDDING",
             status="QUEUED",
             stage="QUEUED",
-            title_hint=f"Application {application_id} Vector Embedding"
+            title_hint=f"Application {application_id} Vector Embedding",
         )
         session.add(new_task)
         await session.commit()
@@ -426,16 +499,23 @@ async def async_enqueue_application_embedding(
                     application_id=application_id,
                     skip_llm_summary=skip_llm_summary,
                 )
-                logger.info("Background vector embedding updated for Application ID %d", application_id)
-                
+                logger.info(
+                    "Background vector embedding updated for Application ID %d",
+                    application_id,
+                )
+
                 # 4. On Success: Complete
                 if db_task:
                     db_task.status = "COMPLETED"
                     db_task.stage = "COMPLETE"
                     await processing_session.commit()
             except Exception as err:
-                logger.warning("Background vector embedding failed for Application ID %d: %s", application_id, err)
-                
+                logger.warning(
+                    "Background vector embedding failed for Application ID %d: %s",
+                    application_id,
+                    err,
+                )
+
                 # 5. On Failure
                 if db_task:
                     db_task.status = "FAILED"

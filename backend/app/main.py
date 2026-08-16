@@ -1,6 +1,7 @@
-from contextlib import asynccontextmanager
 import logging
 from fastapi import FastAPI, Response, status
+
+from contextlib import asynccontextmanager
 
 from app.core.database import check_db_connection, ensure_db_schema
 from app.routers import (
@@ -29,12 +30,12 @@ async def lifespan(app: FastAPI):
     # Executed on startup
     logger.info("Checking database connection...")
     is_connected = await check_db_connection()
-    
+
     if is_connected:
         print("\n==================================================")
         print(" SUCCESS: Database connection established!")
         print("==================================================\n")
-        
+
         # Verify schema exists or create tables and indexes
         await ensure_db_schema()
 
@@ -78,6 +79,7 @@ app.include_router(prompts.router, prefix="/api/v1")
 app.include_router(email_accounts.router, prefix="/api/v1")
 app.include_router(staging.router, prefix="/api/v1")
 app.include_router(llm.router, prefix="/api/v1")
+
 
 @app.get("/health", tags=["Health"])
 async def health_check(response: Response):

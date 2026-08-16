@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 import logging
-from typing import List, Optional
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,7 +32,9 @@ from app.schemas.applications import (
     JobPostingDetail,
 )
 from app.services.interview_guide import clear_interview_guide, generate_interview_guide
-from app.services.llm import async_enqueue_application_embedding
+from app.services.llm import (
+    async_enqueue_application_embedding,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +47,17 @@ router = APIRouter(prefix="/applications", tags=["Applications"])
     summary="List applications with filtering and search",
 )
 async def list_applications(
-    q: Optional[str] = Query(None, description="Search position or company name"),
-    status_filter: Optional[str] = Query(None, alias="status", description="Filter by status"),
-    action_required: Optional[bool] = Query(None, description="Filter by pending action required"),
-    company_id: Optional[int] = Query(None, description="Filter by company ID"),
-    sort_by: str = Query("last_activity_at", pattern="^(last_activity_at|application_date|created_at)$"),
+    q: str | None = Query(None, description="Search position or company name"),
+    status_filter: str | None = Query(
+        None, alias="status", description="Filter by status"
+    ),
+    action_required: bool | None = Query(
+        None, description="Filter by pending action required"
+    ),
+    company_id: int | None = Query(None, description="Filter by company ID"),
+    sort_by: str = Query(
+        "last_activity_at", pattern="^(last_activity_at|application_date|created_at)$"
+    ),
     order: str = Query("desc", pattern="^(asc|desc)$"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -86,9 +95,8 @@ async def list_applications(
             select(ApplicationEventModel.email_application_id)
             .where(ApplicationEventModel.email_action_required)
         )
-        action_item_subq = (
-            select(ActionItemModel.application_id)
-            .where(ActionItemModel.status == "PENDING")
+        action_item_subq = select(ActionItemModel.application_id).where(
+            ActionItemModel.status == "PENDING"
         )
         if action_required:
             stmt = stmt.where(
@@ -126,7 +134,8 @@ async def list_applications(
 
         # Compute nearest pending due date across action items & payload deadlines
         due_dates = [
-            a.due_date for a in (app.action_items or [])
+            a.due_date
+            for a in (app.action_items or [])
             if a.status == "PENDING" and a.due_date is not None
         ]
         if latest_evt and latest_evt.raw_payload:
@@ -141,7 +150,7 @@ async def list_applications(
 
         # Compute match score from assessment event payload
         match_score = None
-        for evt in (app.events or []):
+        for evt in app.events or []:
             if evt.raw_payload and isinstance(evt.raw_payload, dict):
                 score_val = (
                     evt.raw_payload.get("match_score")
@@ -158,7 +167,9 @@ async def list_applications(
         items.append(
             ApplicationListItem(
                 id=app.id,
-                company=CompanySummary(id=app.company.id, name=app.company.name, domain=app.company.domain),
+                company=CompanySummary(
+                    id=app.company.id, name=app.company.name, domain=app.company.domain
+                ),
                 position=app.position,
                 status=app.status,
                 application_date=app.application_date,
@@ -183,9 +194,10 @@ async def list_applications(
 
     return ApplicationListResponse(items=items, total=total, limit=limit, offset=offset)
 
+
 @router.get(
     "/by-status",
-    response_model=List[ApplicationByStatusResult],
+    response_model=list[ApplicationByStatusResult],
     summary="Get applications matching a specific status with event metrics",
 )
 async def get_applications_by_status(
@@ -245,6 +257,7 @@ async def get_applications_by_status(
         for row in rows
     ]
 
+
 @router.get(
     "/{application_id}",
     response_model=ApplicationDetailResponse,
@@ -265,11 +278,13 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
     app = result.scalars().first()
 
     if not app:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
+        )
 
     sorted_events = sorted(
         app.events or [],
-        key=lambda e: (e.email_received_at or e.created_at),
+        key=lambda e: e.email_received_at or e.created_at,
         reverse=True,
     )
     latest_evt = sorted_events[0] if sorted_events else None
@@ -277,7 +292,9 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
 
     return ApplicationDetailResponse(
         id=app.id,
-        company=CompanySummary(id=app.company.id, name=app.company.name, domain=app.company.domain),
+        company=CompanySummary(
+            id=app.company.id, name=app.company.name, domain=app.company.domain
+        ),
         position=app.position,
         status=app.status,
         application_date=app.application_date,
@@ -304,9 +321,14 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
         created_at=app.created_at,
         updated_at=app.updated_at,
         events=[ApplicationEventDetail.model_validate(e) for e in sorted_events],
-        job_posting=JobPostingDetail.model_validate(app.job_posting) if app.job_posting else None,
-        action_items=[ActionItemDetail.model_validate(a) for a in (app.action_items or [])],
+        job_posting=JobPostingDetail.model_validate(app.job_posting)
+        if app.job_posting
+        else None,
+        action_items=[
+            ActionItemDetail.model_validate(a) for a in (app.action_items or [])
+        ],
     )
+
 
 @router.patch(
     "/{application_id}",
@@ -362,7 +384,9 @@ async def update_application(
 
     # Enqueue non-blocking background embedding generation (only if active stage, not ASSESSMENT)
     if app.status != "ASSESSMENT":
-        background_tasks.add_task(async_enqueue_application_embedding, app.id, skip_llm_summary=True)
+        background_tasks.add_task(
+            async_enqueue_application_embedding, app.id, skip_llm_summary=True
+        )
 
     latest_evt = app.events[0] if app.events else None
     has_action = any(e.email_action_required for e in app.events)
@@ -425,12 +449,18 @@ async def transition_application(
     app = res.scalar_one_or_none()
 
     if not app:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
+        )
 
     old_status = app.status
-    new_status = payload.status.value if hasattr(payload.status, "value") else str(payload.status)
+    new_status = (
+        payload.status.value
+        if hasattr(payload.status, "value")
+        else str(payload.status)
+    )
     app.status = new_status
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     app.last_activity_at = now
 
     event_time = now
@@ -457,7 +487,9 @@ async def transition_application(
     if payload.interview_stage:
         summary_parts.append(f"Interview Phase: {payload.interview_stage}.")
     if payload.scheduled_at:
-        summary_parts.append(f"Scheduled: {payload.scheduled_at.strftime('%b %d, %Y %I:%M %p')}.")
+        summary_parts.append(
+            f"Scheduled: {payload.scheduled_at.strftime('%b %d, %Y %I:%M %p')}."
+        )
         # Create reminder Action Item
         action_item = ActionItemModel(
             application_id=app.id,
@@ -477,13 +509,21 @@ async def transition_application(
 
     if payload.offered_salary:
         curr = payload.currency or "USD"
-        summary_parts.append(f"Offered Compensation: {payload.offered_salary:,.0f} {curr}.")
+        summary_parts.append(
+            f"Offered Compensation: {payload.offered_salary:,.0f} {curr}."
+        )
     if payload.offer_received_date:
-        summary_parts.append(f"Offer Received: {payload.offer_received_date.strftime('%b %d, %Y')}.")
+        summary_parts.append(
+            f"Offer Received: {payload.offer_received_date.strftime('%b %d, %Y')}."
+        )
     if payload.decision_deadline:
-        summary_parts.append(f"Decision Deadline: {payload.decision_deadline.strftime('%b %d, %Y')}.")
+        summary_parts.append(
+            f"Decision Deadline: {payload.decision_deadline.strftime('%b %d, %Y')}."
+        )
         # Create decision deadline Action Item
-        deadline_dt = datetime.combine(payload.decision_deadline, datetime.min.time(), tzinfo=timezone.utc)
+        deadline_dt = datetime.combine(
+            payload.decision_deadline, datetime.min.time(), tzinfo=UTC
+        )
         action_item = ActionItemModel(
             application_id=app.id,
             title=f"Respond to Offer: {app.company.name}",
@@ -493,8 +533,12 @@ async def transition_application(
         db.add(action_item)
 
     if payload.rejection_date:
-        summary_parts.append(f"Rejection Date: {payload.rejection_date.strftime('%b %d, %Y')}.")
-        event_time = datetime.combine(payload.rejection_date, datetime.min.time(), tzinfo=timezone.utc)
+        summary_parts.append(
+            f"Rejection Date: {payload.rejection_date.strftime('%b %d, %Y')}."
+        )
+        event_time = datetime.combine(
+            payload.rejection_date, datetime.min.time(), tzinfo=UTC
+        )
     if payload.rejection_reason:
         summary_parts.append(f"Rejection Reason: {payload.rejection_reason}.")
     if payload.notes:
@@ -518,7 +562,9 @@ async def transition_application(
 
     # Enqueue non-blocking background embedding generation (only if active stage, not ASSESSMENT)
     if new_status != "ASSESSMENT":
-        background_tasks.add_task(async_enqueue_application_embedding, app.id, skip_llm_summary=True)
+        background_tasks.add_task(
+            async_enqueue_application_embedding, app.id, skip_llm_summary=True
+        )
 
     # Reload application with updated relations
     stmt_reload = (
@@ -537,7 +583,7 @@ async def transition_application(
 
     sorted_events = sorted(
         app_refreshed.events or [],
-        key=lambda e: (e.email_received_at or e.created_at),
+        key=lambda e: e.email_received_at or e.created_at,
         reverse=True,
     )
     latest_evt = sorted_events[0] if sorted_events else event
@@ -571,8 +617,13 @@ async def transition_application(
         created_at=app_refreshed.created_at,
         updated_at=app_refreshed.updated_at,
         events=[ApplicationEventDetail.model_validate(e) for e in sorted_events],
-        job_posting=JobPostingDetail.model_validate(app_refreshed.job_posting) if app_refreshed.job_posting else None,
-        action_items=[ActionItemDetail.model_validate(a) for a in (app_refreshed.action_items or [])],
+        job_posting=JobPostingDetail.model_validate(app_refreshed.job_posting)
+        if app_refreshed.job_posting
+        else None,
+        action_items=[
+            ActionItemDetail.model_validate(a)
+            for a in (app_refreshed.action_items or [])
+        ],
     )
 
 
@@ -591,7 +642,9 @@ async def delete_application(
     app = res.scalar_one_or_none()
 
     if not app:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
+        )
 
     await db.delete(app)
     await db.commit()
@@ -619,7 +672,9 @@ async def generate_app_interview_guide(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(val_err))
     except Exception as exc:
         logger.error("Failed to generate interview guide: %s", exc, exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+        )
 
 
 @router.delete(
@@ -638,4 +693,6 @@ async def clear_app_interview_guide(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(val_err))
     except Exception as exc:
         logger.error("Failed to clear interview guide: %s", exc, exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+        )

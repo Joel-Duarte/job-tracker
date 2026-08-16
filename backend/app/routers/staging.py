@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
 import logging
-from typing import Optional
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/staging", tags=["staging"])
 
 @router.get("", response_model=StagingPaginationResponse)
 async def list_staging_items(
-    status_filter: Optional[str] = Query(default="PENDING", alias="status"),
+    status_filter: str | None = Query(default="PENDING", alias="status"),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -45,9 +45,7 @@ async def list_staging_items(
     total = total_res.scalar_one()
 
     query = (
-        query.order_by(StagingItemModel.created_at.desc())
-        .offset(offset)
-        .limit(limit)
+        query.order_by(StagingItemModel.created_at.desc()).offset(offset).limit(limit)
     )
     result = await db.execute(query)
     db_items = result.scalars().all()
@@ -102,7 +100,9 @@ async def resolve_staging_item(
 
     try:
         application = None
-        effective_company = (payload.company_name or payload.company or "Unknown Company").strip()
+        effective_company = (
+            payload.company_name or payload.company or "Unknown Company"
+        ).strip()
         company_norm = effective_company.lower()
         position_norm = payload.position.strip().lower()
 
@@ -166,21 +166,42 @@ async def resolve_staging_item(
         extracted = (
             staged_item.extracted_data
             if isinstance(staged_item.extracted_data, dict)
-            else (staged_item.extracted_data.model_dump() if hasattr(staged_item.extracted_data, "model_dump") else {})
+            else (
+                staged_item.extracted_data.model_dump()
+                if hasattr(staged_item.extracted_data, "model_dump")
+                else {}
+            )
         )
 
         desc_md = payload.description_markdown or staged_item.email_raw_body
-        salary_min = payload.salary_min if payload.salary_min is not None else extracted.get("salary_min")
-        salary_max = payload.salary_max if payload.salary_max is not None else extracted.get("salary_max")
+        salary_min = (
+            payload.salary_min
+            if payload.salary_min is not None
+            else extracted.get("salary_min")
+        )
+        salary_max = (
+            payload.salary_max
+            if payload.salary_max is not None
+            else extracted.get("salary_max")
+        )
         currency = payload.currency or extracted.get("currency", "USD")
         location = payload.location or extracted.get("location")
         work_model = payload.work_model or extracted.get("work_model")
-        skills = payload.required_skills or extracted.get("required_skills") or list(
-            dict.fromkeys((extracted.get("matching_skills") or []) + (extracted.get("missing_skills") or []))
+        skills = (
+            payload.required_skills
+            or extracted.get("required_skills")
+            or list(
+                dict.fromkeys(
+                    (extracted.get("matching_skills") or [])
+                    + (extracted.get("missing_skills") or [])
+                )
+            )
         )
 
         # Upsert JobPostingModel
-        jp_stmt = select(JobPostingModel).where(JobPostingModel.application_id == application.id)
+        jp_stmt = select(JobPostingModel).where(
+            JobPostingModel.application_id == application.id
+        )
         jp_res = await db.execute(jp_stmt)
         job_posting = jp_res.scalar_one_or_none()
 
@@ -212,15 +233,21 @@ async def resolve_staging_item(
                 job_posting.required_skills = skills
 
         # Create Timeline Event
-        summary_val = payload.summary or extracted.get("summary") or staged_item.email_subject or f"Staged item resolved for {payload.position} at {effective_company}."
+        summary_val = (
+            payload.summary
+            or extracted.get("summary")
+            or staged_item.email_subject
+            or f"Staged item resolved for {payload.position} at {effective_company}."
+        )
         event = ApplicationEventModel(
             email_application_id=application.id,
             email_message_id=staged_item.email_message_id,
-            email_conversation_id=staged_item.email_conversation_id or f"stage-conv-{staged_item.id}",
+            email_conversation_id=staged_item.email_conversation_id
+            or f"stage-conv-{staged_item.id}",
             email_sender=staged_item.email_sender,
             email_sender_name=staged_item.email_sender_name,
             email_subject=staged_item.email_subject,
-            email_received_at=staged_item.email_received_at or datetime.now(timezone.utc),
+            email_received_at=staged_item.email_received_at or datetime.now(UTC),
             email_event_type=payload.event_type or "PRE_APPLICATION_ASSESSMENT",
             email_status_after_event=application.status,
             email_summary=summary_val,
@@ -234,14 +261,25 @@ async def resolve_staging_item(
         await db.flush()
 
         # Check if Action Item should be generated
-        action_text = payload.action or extracted.get("action_text") or (staged_item.email_subject if payload.action_required else None)
-        if (payload.action_required or extracted.get("action_required")) and action_text:
+        action_text = (
+            payload.action
+            or extracted.get("action_text")
+            or (staged_item.email_subject if payload.action_required else None)
+        )
+        if (
+            payload.action_required or extracted.get("action_required")
+        ) and action_text:
             action_item = ActionItemModel(
                 application_id=application.id,
                 event_id=event.id,
                 title=str(action_text)[:250],
                 status="PENDING",
-                urgency="HIGH" if any(w in str(action_text).lower() for w in ["urgent", "deadline", "schedule", "asap"]) else "MEDIUM",
+                urgency="HIGH"
+                if any(
+                    w in str(action_text).lower()
+                    for w in ["urgent", "deadline", "schedule", "asap"]
+                )
+                else "MEDIUM",
             )
             db.add(action_item)
 
@@ -259,14 +297,16 @@ async def resolve_staging_item(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to resolve staging item: {str(e)}",
+            detail=f"Failed to resolve staging item: {e!s}",
         )
 
     # Isolated embedding block after successful commit
     try:
         await generate_and_save_application_embedding(db, target_app_id)
     except Exception as e:
-        logger.warning("Failed to generate embedding for Application ID %d: %s", target_app_id, e)
+        logger.warning(
+            "Failed to generate embedding for Application ID %d: %s", target_app_id, e
+        )
 
     return {
         "status": "success",

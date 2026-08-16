@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
@@ -81,7 +82,7 @@ def mock_job_email_payload():
     """Provides sample job application email payload."""
     return EmailPayload(
         conversation_id="msg-stripe-1001",
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
         subject="Interview Invitation - Senior Backend Engineer",
         body="Hi developer, we loved your profile and want to invite you to an interview at Stripe.",
     )

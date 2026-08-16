@@ -118,7 +118,7 @@ async def generate_interview_guide(
     # 5. Persist to Postgres
     application.interview_guide_html = combined_html
     application.interview_guide_language = request.language
-    application.interview_guide_generated_at = datetime.now(timezone.utc)
+    application.interview_guide_generated_at = datetime.now(UTC)
     application.interview_guide_preferences = request.model_dump()
 
     await db.commit()

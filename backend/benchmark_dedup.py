@@ -11,9 +11,11 @@ from app.models.processed_email import ProcessedEmailModel
 # To make it simple and self-contained, we'll setup a small in-memory SQLite for async,
 # but since the project probably uses postgres based on previous logs, we'll mock the db.execute part to measure the overhead of looping vs batching.
 
+
 class MockResult:
     def scalar_one_or_none(self):
         return None
+
 
 class MockDB:
     async def execute(self, stmt):
@@ -21,7 +23,9 @@ class MockDB:
         await asyncio.sleep(0.0001)
         return MockResult()
 
+
 MockEmail = namedtuple("MockEmail", ["message_id", "subject", "body"])
+
 
 async def benchmark_n_plus_one(db, raw_emails):
     start = time.perf_counter()
@@ -29,13 +33,18 @@ async def benchmark_n_plus_one(db, raw_emails):
     for email in raw_emails:
         mid = email.message_id
         if mid:
-            existing = (await db.execute(
-                select(ProcessedEmailModel.id).where(ProcessedEmailModel.message_id == mid)
-            )).scalar_one_or_none()
+            existing = (
+                await db.execute(
+                    select(ProcessedEmailModel.id).where(
+                        ProcessedEmailModel.message_id == mid
+                    )
+                )
+            ).scalar_one_or_none()
             if existing is not None:
                 skipped_duplicates += 1
     end = time.perf_counter()
     return end - start
+
 
 async def benchmark_batch(db, raw_emails):
     start = time.perf_counter()
@@ -45,9 +54,11 @@ async def benchmark_batch(db, raw_emails):
     if mids:
         # simulate a single batched query
         await db.execute(
-            select(ProcessedEmailModel.id).where(ProcessedEmailModel.message_id.in_(mids))
+            select(ProcessedEmailModel.id).where(
+                ProcessedEmailModel.message_id.in_(mids)
+            )
         )
-        existing_mids = set() # mock empty result
+        existing_mids = set()  # mock empty result
 
         for email in raw_emails:
             if email.message_id in existing_mids:
@@ -55,6 +66,7 @@ async def benchmark_batch(db, raw_emails):
 
     end = time.perf_counter()
     return end - start
+
 
 async def run_benchmark():
     db = MockDB()
@@ -75,6 +87,7 @@ async def run_benchmark():
     if batch_time > 0:
         speedup = n_plus_one_time / batch_time
         print(f"Speedup: {speedup:.2f}x")
+
 
 if __name__ == "__main__":
     asyncio.run(run_benchmark())

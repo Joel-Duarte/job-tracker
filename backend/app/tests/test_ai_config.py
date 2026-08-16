@@ -1,4 +1,5 @@
 from unittest.mock import AsyncMock, patch
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from langchain_core.messages import AIMessage
@@ -6,11 +7,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.main import app
 from app.core.database import get_db
 from app.core.llm_factory import get_task_chat_model
+from app.main import app
 from app.models.ai_providers import AIProviderModel
-from app.models.applications import ActionItemModel, ApplicationModel, CompanyModel, JobPostingModel
+from app.models.applications import (
+    ActionItemModel,
+    ApplicationModel,
+    CompanyModel,
+    JobPostingModel,
+)
 
 
 @pytest.mark.asyncio
@@ -69,7 +75,6 @@ async def test_ai_provider_crud_and_masking(db_session: AsyncSession):
             assert "OK" in probe_data["response"]
 
     app.dependency_overrides.clear()
-
 
 
 @pytest.mark.asyncio

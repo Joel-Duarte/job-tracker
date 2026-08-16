@@ -1,7 +1,9 @@
 import logging
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
 from app.core.config import settings
 from app.models.applications import Base
 
@@ -77,8 +79,9 @@ async def check_db_connection() -> bool:
         logger.error(f"Database connection check failed: {e}")
         return False
 
+
 async def ensure_db_schema() -> None:
-    """Ensures required extensions exist, provisions any missing database tables 
+    """Ensures required extensions exist, provisions any missing database tables
     from metadata, ensures all expected columns exist on existing tables, and seeds default prompt entries.
     """
     # Import all models to ensure complete metadata registration
@@ -102,14 +105,12 @@ async def ensure_db_schema() -> None:
             "ALTER TABLE IF EXISTS ai_providers ADD COLUMN IF NOT EXISTS base_url TEXT;",
             "ALTER TABLE IF EXISTS ai_providers ADD COLUMN IF NOT EXISTS provider_type TEXT NOT NULL DEFAULT 'openai';",
             "ALTER TABLE IF EXISTS ai_providers ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;",
-
             # ai_task_bindings
             "ALTER TABLE IF EXISTS ai_task_bindings ADD COLUMN IF NOT EXISTS max_tokens INTEGER;",
             "ALTER TABLE IF EXISTS ai_task_bindings ADD COLUMN IF NOT EXISTS top_p FLOAT;",
             "ALTER TABLE IF EXISTS ai_task_bindings ADD COLUMN IF NOT EXISTS embedding_dimensions INTEGER;",
             "ALTER TABLE IF EXISTS ai_task_bindings ADD COLUMN IF NOT EXISTS extra_kwargs JSONB DEFAULT '{}'::jsonb;",
             "ALTER TABLE IF EXISTS ai_task_bindings ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;",
-
             # email_applications
             "ALTER TABLE IF EXISTS email_applications ADD COLUMN IF NOT EXISTS position_normalized TEXT;",
             "ALTER TABLE IF EXISTS email_applications ADD COLUMN IF NOT EXISTS external_job_id TEXT;",
@@ -122,7 +123,6 @@ async def ensure_db_schema() -> None:
             "ALTER TABLE IF EXISTS email_applications ADD COLUMN IF NOT EXISTS interview_guide_language TEXT DEFAULT 'en';",
             "ALTER TABLE IF EXISTS email_applications ADD COLUMN IF NOT EXISTS interview_guide_generated_at TIMESTAMPTZ;",
             "ALTER TABLE IF EXISTS email_applications ADD COLUMN IF NOT EXISTS interview_guide_preferences JSONB;",
-
             # job_postings
             "ALTER TABLE IF EXISTS job_postings ADD COLUMN IF NOT EXISTS description_markdown TEXT;",
             "ALTER TABLE IF EXISTS job_postings ADD COLUMN IF NOT EXISTS salary_min FLOAT;",
@@ -131,7 +131,6 @@ async def ensure_db_schema() -> None:
             "ALTER TABLE IF EXISTS job_postings ADD COLUMN IF NOT EXISTS location TEXT;",
             "ALTER TABLE IF EXISTS job_postings ADD COLUMN IF NOT EXISTS work_model TEXT;",
             "ALTER TABLE IF EXISTS job_postings ADD COLUMN IF NOT EXISTS required_skills JSONB DEFAULT '[]'::jsonb;",
-
             # email_application_events
             "ALTER TABLE IF EXISTS email_application_events ADD COLUMN IF NOT EXISTS email_message_id TEXT;",
             "ALTER TABLE IF EXISTS email_application_events ADD COLUMN IF NOT EXISTS email_internet_message_id TEXT;",
@@ -148,7 +147,6 @@ async def ensure_db_schema() -> None:
             "ALTER TABLE IF EXISTS email_application_events ADD COLUMN IF NOT EXISTS email_raw_body TEXT;",
             "ALTER TABLE IF EXISTS email_application_events ADD COLUMN IF NOT EXISTS source_channel TEXT NOT NULL DEFAULT 'EMAIL';",
             "ALTER TABLE IF EXISTS email_application_events ADD COLUMN IF NOT EXISTS raw_payload JSONB;",
-
             # candidate_cvs
             "ALTER TABLE IF EXISTS candidate_cvs ADD COLUMN IF NOT EXISTS anonymized_text TEXT;",
             "ALTER TABLE IF EXISTS candidate_cvs ADD COLUMN IF NOT EXISTS extracted_skills JSONB DEFAULT '[]'::jsonb;",
@@ -156,7 +154,6 @@ async def ensure_db_schema() -> None:
             "ALTER TABLE IF EXISTS candidate_cvs ADD COLUMN IF NOT EXISTS domain_expertise JSONB DEFAULT '[]'::jsonb;",
             "ALTER TABLE IF EXISTS candidate_cvs ADD COLUMN IF NOT EXISTS summary TEXT;",
             "ALTER TABLE IF EXISTS candidate_cvs ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;",
-
             # intake_evaluation_tasks
             "ALTER TABLE IF EXISTS intake_evaluation_tasks ADD COLUMN IF NOT EXISTS job_url TEXT;",
             "ALTER TABLE IF EXISTS intake_evaluation_tasks ADD COLUMN IF NOT EXISTS raw_text TEXT;",
@@ -166,7 +163,6 @@ async def ensure_db_schema() -> None:
             "ALTER TABLE IF EXISTS intake_evaluation_tasks ADD COLUMN IF NOT EXISTS error_message TEXT;",
             "ALTER TABLE IF EXISTS intake_evaluation_tasks ADD COLUMN IF NOT EXISTS result_json JSONB;",
             "ALTER TABLE IF EXISTS intake_evaluation_tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;",
-
             # email_accounts
             "ALTER TABLE IF EXISTS email_accounts ADD COLUMN IF NOT EXISTS auth_type VARCHAR(50) NOT NULL DEFAULT 'IMAP';",
             "ALTER TABLE IF EXISTS email_accounts ADD COLUMN IF NOT EXISTS imap_host VARCHAR(255);",
@@ -186,7 +182,6 @@ async def ensure_db_schema() -> None:
             "UPDATE email_accounts SET sync_interval = '1h' WHERE sync_interval IS NULL;",
             "UPDATE email_accounts SET sync_schedule_time = '09:00' WHERE sync_schedule_time IS NULL;",
             "UPDATE email_accounts SET sync_schedule_day = 'MON' WHERE sync_schedule_day IS NULL;",
-
             # email_staging_items
             "ALTER TABLE IF EXISTS email_staging_items ADD COLUMN IF NOT EXISTS email_account_id BIGINT;",
             "ALTER TABLE IF EXISTS email_staging_items ADD COLUMN IF NOT EXISTS email_message_id TEXT;",
@@ -211,4 +206,5 @@ async def ensure_db_schema() -> None:
     # 4. Seed default prompts into email_prompts table if missing
     async with AsyncSessionLocal() as session:
         from app.core.prompts import seed_default_prompts
+
         await seed_default_prompts(session)

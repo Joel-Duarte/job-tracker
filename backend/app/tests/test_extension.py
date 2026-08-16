@@ -1,12 +1,17 @@
 from unittest.mock import AsyncMock, patch
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.main import app
 from app.core.database import get_db
-from app.models.applications import ApplicationEventModel, ApplicationModel, CompanyModel
+from app.main import app
+from app.models.applications import (
+    ApplicationEventModel,
+    ApplicationModel,
+    CompanyModel,
+)
 from app.schemas.intake import ExtractedEmailInfo
 from app.schemas.llm import JobAssessmentResult
 
@@ -15,7 +20,10 @@ from app.schemas.llm import JobAssessmentResult
 async def test_extension_clip_job_direct(db_session: AsyncSession):
     app.dependency_overrides[get_db] = lambda: db_session
 
-    with patch("app.routers.extension.generate_and_save_application_embedding", new_callable=AsyncMock) as mock_emb:
+    with patch(
+        "app.routers.extension.generate_and_save_application_embedding",
+        new_callable=AsyncMock,
+    ) as mock_emb:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             res = await ac.post(
@@ -39,17 +47,25 @@ async def test_extension_clip_job_direct(db_session: AsyncSession):
         assert data["application_id"] is not None
 
         # Verify DB records
-        comp_res = await db_session.execute(select(CompanyModel).where(CompanyModel.name_normalized == "anthropic"))
+        comp_res = await db_session.execute(
+            select(CompanyModel).where(CompanyModel.name_normalized == "anthropic")
+        )
         company = comp_res.scalar_one_or_none()
         assert company is not None
 
-        app_res = await db_session.execute(select(ApplicationModel).where(ApplicationModel.id == data["application_id"]))
+        app_res = await db_session.execute(
+            select(ApplicationModel).where(
+                ApplicationModel.id == data["application_id"]
+            )
+        )
         application = app_res.scalar_one_or_none()
         assert application is not None
         assert application.job_url == "https://anthropic.com/careers/123"
 
         event_res = await db_session.execute(
-            select(ApplicationEventModel).where(ApplicationEventModel.email_application_id == application.id)
+            select(ApplicationEventModel).where(
+                ApplicationEventModel.email_application_id == application.id
+            )
         )
         event = event_res.scalar_one_or_none()
         assert event is not None
@@ -75,8 +91,15 @@ async def test_extension_clip_url_pipeline(db_session: AsyncSession):
         action=None,
     )
 
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract, \
-         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock):
+    with (
+        patch(
+            "app.services.intake.extract_email_info", new_callable=AsyncMock
+        ) as mock_extract,
+        patch(
+            "app.services.graph_nodes.generate_and_save_application_embedding",
+            new_callable=AsyncMock,
+        ),
+    ):
         mock_extract.return_value = mock_extracted
 
         transport = ASGITransport(app=app)
@@ -121,7 +144,9 @@ async def test_extension_intake_url_and_jd_routes(db_session: AsyncSession):
         summary="Strong profile match for distributed systems.",
     )
 
-    with patch("app.routers.intake.assess_job_posting", new_callable=AsyncMock) as mock_assess:
+    with patch(
+        "app.routers.intake.assess_job_posting", new_callable=AsyncMock
+    ) as mock_assess:
         mock_assess.return_value = mock_assessment
 
         transport = ASGITransport(app=app)
@@ -147,7 +172,11 @@ async def test_extension_intake_url_and_jd_routes(db_session: AsyncSession):
                     "type": "group",
                     "title": "Job Requirements",
                     "children": [
-                        {"id": "elem-1", "type": "card", "text": "Datadog is seeking Senior Systems Engineers with Python and Go experience."}
+                        {
+                            "id": "elem-1",
+                            "type": "card",
+                            "text": "Datadog is seeking Senior Systems Engineers with Python and Go experience.",
+                        }
                     ],
                 },
             )

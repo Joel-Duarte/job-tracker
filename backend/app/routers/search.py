@@ -1,6 +1,5 @@
-from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -10,18 +9,18 @@ from app.models.applications import (
     ApplicationModel,
     CompanyModel,
 )
-from app.schemas.search import SemanticSearchResult, CompanySearchResult
+from app.schemas.search import CompanySearchResult, SemanticSearchResult
 
 router = APIRouter(prefix="/search", tags=["Search"])
 
 
 @router.get(
     "/companies",
-    response_model=List[CompanySearchResult],
+    response_model=list[CompanySearchResult],
     summary="Search or list companies",
 )
 async def search_companies(
-    q: Optional[str] = Query(None, description="Fuzzy match company name"),
+    q: str | None = Query(None, description="Fuzzy match company name"),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
@@ -56,7 +55,7 @@ async def search_companies(
 
 @router.get(
     "/semantic",
-    response_model=List[SemanticSearchResult],
+    response_model=list[SemanticSearchResult],
     summary="Semantic vector search across applications",
 )
 async def semantic_search(

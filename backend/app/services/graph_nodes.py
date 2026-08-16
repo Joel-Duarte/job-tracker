@@ -1,11 +1,13 @@
 import logging
 from datetime import datetime
 from typing import Any
+
 from langchain_core.runnables import RunnableConfig
 from rapidfuzz import fuzz
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import app.services.llm as llm_service
 from app.core.config import settings
 from app.models.applications import (
     ApplicationEventModel,
@@ -17,7 +19,6 @@ from app.models.processed_email import ProcessedEmailModel
 from app.models.staging import StagingItemModel
 from app.schemas.graph_state import JobTrackerState
 from app.services.llm import generate_and_save_application_embedding
-import app.services.llm as llm_service
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,9 @@ def _get_db(config: RunnableConfig) -> AsyncSession:
     configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
     db = configurable.get("db")
     if db is None:
-        raise ValueError("Database session 'db' must be provided in LangGraph config['configurable'].")
+        raise ValueError(
+            "Database session 'db' must be provided in LangGraph config['configurable']."
+        )
     return db
 
 
@@ -51,15 +54,20 @@ async def _upsert_processed_email(
     if not message_id:
         return
     try:
-        db.add(ProcessedEmailModel(
-            message_id=message_id,
-            status=status,
-            subject=(subject or "")[:500] if subject else None,
-        ))
+        db.add(
+            ProcessedEmailModel(
+                message_id=message_id,
+                status=status,
+                subject=(subject or "")[:500] if subject else None,
+            )
+        )
         await db.commit()
     except Exception:
         await db.rollback()
-        logger.debug("processed_email_ids: insert skipped (likely duplicate) for message_id=%s", message_id)
+        logger.debug(
+            "processed_email_ids: insert skipped (likely duplicate) for message_id=%s",
+            message_id,
+        )
 
 
 async def is_email_already_processed(db: AsyncSession, message_id: str | None) -> bool:
@@ -67,7 +75,9 @@ async def is_email_already_processed(db: AsyncSession, message_id: str | None) -
     with fallback to legacy event tables for existing/historical records."""
     if not message_id:
         return False
-    stmt = select(ProcessedEmailModel.id).where(ProcessedEmailModel.message_id == message_id)
+    stmt = select(ProcessedEmailModel.id).where(
+        ProcessedEmailModel.message_id == message_id
+    )
     if (await db.execute(stmt)).scalar_one_or_none() is not None:
         return True
 
@@ -104,7 +114,10 @@ async def extraction_node(
 
     # Resolve extract_email_info dynamically so module mocks in tests are respected
     import app.services.intake as intake_mod
-    extract_fn = getattr(intake_mod, "extract_email_info", llm_service.extract_email_info)
+
+    extract_fn = getattr(
+        intake_mod, "extract_email_info", llm_service.extract_email_info
+    )
 
     try:
         extracted = await extract_fn(
@@ -118,7 +131,11 @@ async def extraction_node(
         # Fallback for mock callables that only accept (db, body)
         extracted = await extract_fn(db, body)
 
-    extracted_dict = extracted.model_dump() if hasattr(extracted, "model_dump") else extracted.__dict__
+    extracted_dict = (
+        extracted.model_dump()
+        if hasattr(extracted, "model_dump")
+        else extracted.__dict__
+    )
 
     email_type = str(extracted_dict.get("email_type") or "").upper()
     pos = extracted_dict.get("position")
@@ -186,7 +203,9 @@ async def fuzzy_match_node(
         }
 
     # Match application under matched company
-    app_stmt = select(ApplicationModel).where(ApplicationModel.company_id == best_company.id)
+    app_stmt = select(ApplicationModel).where(
+        ApplicationModel.company_id == best_company.id
+    )
     app_res = await db.execute(app_stmt)
     applications = app_res.scalars().all()
 
@@ -282,11 +301,14 @@ async def scrape_enrich_node(
         logger.info("External job URL detected: %s. Scrape hook triggered.", job_url)
         try:
             from app.services.scraper import scrape_job_url
+
             scraped = await scrape_job_url(job_url)
             if scraped.text:
                 scraped_text = scraped.text
         except Exception as err:
-            logger.warning("Scrape enrich node encountered error for %s: %s", job_url, err)
+            logger.warning(
+                "Scrape enrich node encountered error for %s: %s", job_url, err
+            )
     return {"scraped_spec": scraped_text}
 
 
@@ -329,7 +351,11 @@ async def db_commit_node(
 
     application_id = state.get("application_id")
     pos_raw = state.get("position_name") or extracted.get("position")
-    position = "Applicant / Open Role" if (not pos_raw or pos_raw == "unknownPosition") else pos_raw
+    position = (
+        "Applicant / Open Role"
+        if (not pos_raw or pos_raw == "unknownPosition")
+        else pos_raw
+    )
 
     raw_status = str(extracted.get("status") or "APPLIED").upper()
     stage_mapping = {
@@ -410,7 +436,9 @@ async def summarize_embed_node(
 
     if application_id:
         # Only synthesize and save embeddings if the application has moved beyond ASSESSMENT
-        app_stmt = select(ApplicationModel.status).where(ApplicationModel.id == application_id)
+        app_stmt = select(ApplicationModel.status).where(
+            ApplicationModel.id == application_id
+        )
         app_res = await db.execute(app_stmt)
         app_status = app_res.scalar_one_or_none()
 
@@ -419,7 +447,11 @@ async def summarize_embed_node(
                 await generate_and_save_application_embedding(db, application_id)
                 return {"embedding_created": True}
             except Exception as err:
-                logger.warning("Embedding synthesis deferred for application %s: %s", application_id, err)
+                logger.warning(
+                    "Embedding synthesis deferred for application %s: %s",
+                    application_id,
+                    err,
+                )
         else:
             return {"embedding_created": False, "reason": "assessment_status"}
 

@@ -1,5 +1,5 @@
-from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
     POSTGRES_USER: str = "postgres"
@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "DEBUG"
 
     # Public exposed API base URL (for Docker port forwarding or reverse proxy)
-    PUBLIC_API_URL: Optional[str] = None
+    PUBLIC_API_URL: str | None = None
 
     # Camofox Browser Automation Server URL
     CAMOUFOX_ENDPOINT: str = "http://localhost:9377"
@@ -25,11 +25,13 @@ class Settings(BaseSettings):
 
     LLM_PROVIDER_NAME: str = "openai"  # Options: "custom", "openai", "anthropic", etc.
     LLM_API_BASE: str = "http://localhost:1234/v1"
-    LLM_API_KEY: str = "lm-1234"  # LM Studio ignores key value, but client requires non-empty string
+    LLM_API_KEY: str = (
+        "lm-1234"  # LM Studio ignores key value, but client requires non-empty string
+    )
     LLM_MODEL_NAME: str = "qwen/qwen3.5-9b"
 
     STAGING_MATCH_THRESHOLD: float = 0.75
-    
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

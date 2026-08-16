@@ -1,33 +1,55 @@
-import pytest
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
+
+import pytest
 from sqlalchemy import select
-from datetime import datetime, timezone
-from app.models.applications import CompanyModel, ApplicationModel, ApplicationEventModel, OtherEventModel
+
+from app.models.applications import (
+    ApplicationEventModel,
+    ApplicationModel,
+    CompanyModel,
+    OtherEventModel,
+)
+from app.schemas.intake import EmailPayload, ExtractedEmailInfo
+from app.services.email_fetcher import fetch_emails_from_account
 from app.services.intake import process_email_batch_sequential
 from app.services.task_tracker import task_tracker
-from app.services.email_fetcher import fetch_emails_from_account
-from app.schemas.intake import EmailPayload, ExtractedEmailInfo
 
 
 @pytest.mark.asyncio
-async def test_process_new_job_application(db_session, mock_job_email_payload, mock_extracted_job_info):
+async def test_process_new_job_application(
+    db_session, mock_job_email_payload, mock_extracted_job_info
+):
     """Test that a new job email correctly creates a Company, Application, and Event record."""
     task_id = task_tracker.create_task(total_emails=1)
 
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract, \
-         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock):
+    with (
+        patch(
+            "app.services.intake.extract_email_info", new_callable=AsyncMock
+        ) as mock_extract,
+        patch(
+            "app.services.graph_nodes.generate_and_save_application_embedding",
+            new_callable=AsyncMock,
+        ),
+    ):
         mock_extract.return_value = mock_extracted_job_info
 
-        await process_email_batch_sequential(db_session, [mock_job_email_payload], task_id)
+        await process_email_batch_sequential(
+            db_session, [mock_job_email_payload], task_id
+        )
 
     # 1. Verify Company Creation
-    company_res = await db_session.execute(select(CompanyModel).where(CompanyModel.name_normalized == "stripe"))
+    company_res = await db_session.execute(
+        select(CompanyModel).where(CompanyModel.name_normalized == "stripe")
+    )
     company = company_res.scalar_one_or_none()
     assert company is not None
     assert company.name == "Stripe"
 
     # 2. Verify Application Creation
-    app_res = await db_session.execute(select(ApplicationModel).where(ApplicationModel.company_id == company.id))
+    app_res = await db_session.execute(
+        select(ApplicationModel).where(ApplicationModel.company_id == company.id)
+    )
     application = app_res.scalar_one_or_none()
     assert application is not None
     assert application.position == "Senior Backend Engineer"
@@ -35,7 +57,9 @@ async def test_process_new_job_application(db_session, mock_job_email_payload, m
 
     # 3. Verify Timeline Event
     event_res = await db_session.execute(
-        select(ApplicationEventModel).where(ApplicationEventModel.email_application_id == application.id)
+        select(ApplicationEventModel).where(
+            ApplicationEventModel.email_application_id == application.id
+        )
     )
     event = event_res.scalar_one_or_none()
     assert event is not None
@@ -49,20 +73,31 @@ async def test_process_new_job_application(db_session, mock_job_email_payload, m
 
 
 @pytest.mark.asyncio
-async def test_deduplication_and_update_existing_application(db_session, mock_job_email_payload, mock_extracted_job_info):
+async def test_deduplication_and_update_existing_application(
+    db_session, mock_job_email_payload, mock_extracted_job_info
+):
     """Test that multiple emails for the same company/position update existing records without creating duplicates."""
     task_id_1 = task_tracker.create_task(total_emails=1)
-    
+
     # --- Step 1: Initial Email (Status: INTERVIEW) ---
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract, \
-         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock):
+    with (
+        patch(
+            "app.services.intake.extract_email_info", new_callable=AsyncMock
+        ) as mock_extract,
+        patch(
+            "app.services.graph_nodes.generate_and_save_application_embedding",
+            new_callable=AsyncMock,
+        ),
+    ):
         mock_extract.return_value = mock_extracted_job_info
-        await process_email_batch_sequential(db_session, [mock_job_email_payload], task_id_1)
+        await process_email_batch_sequential(
+            db_session, [mock_job_email_payload], task_id_1
+        )
 
     # --- Step 2: Second Email for Same Role (Status: REJECTED) ---
     second_email = EmailPayload(
         conversation_id="msg-stripe-1002",
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
         subject="Application Status Update - Stripe",
         body="Unfortunately, we decided to proceed with another candidate.",
     )
@@ -77,11 +112,17 @@ async def test_deduplication_and_update_existing_application(db_session, mock_jo
     )
 
     task_id_2 = task_tracker.create_task(total_emails=1)
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract, \
-         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock):
+    with (
+        patch(
+            "app.services.intake.extract_email_info", new_callable=AsyncMock
+        ) as mock_extract,
+        patch(
+            "app.services.graph_nodes.generate_and_save_application_embedding",
+            new_callable=AsyncMock,
+        ),
+    ):
         mock_extract.return_value = second_extracted
         await process_email_batch_sequential(db_session, [second_email], task_id_2)
-
 
     # --- Verification ---
     # Total companies must still be 1
@@ -103,7 +144,7 @@ async def test_process_non_job_email(db_session):
     """Test that emails without structured job/company info log to OtherEventModel."""
     newsletter_email = EmailPayload(
         conversation_id="news-123",
-        received_at=datetime.now(timezone.utc),
+        received_at=datetime.now(UTC),
         subject="Weekly Tech Newsletter",
         body="Here are the top stories in tech this week...",
     )
@@ -117,7 +158,9 @@ async def test_process_non_job_email(db_session):
     )
 
     task_id = task_tracker.create_task(total_emails=1)
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract:
+    with patch(
+        "app.services.intake.extract_email_info", new_callable=AsyncMock
+    ) as mock_extract:
         mock_extract.return_value = non_job_extracted
         await process_email_batch_sequential(db_session, [newsletter_email], task_id)
 
@@ -140,7 +183,7 @@ async def test_mock_imap_email_fetching(sample_email_account):
         mock_sync_fetch.return_value = [
             EmailPayload(
                 conversation_id="mock-1",
-                received_at=datetime.now(timezone.utc),
+                received_at=datetime.now(UTC),
                 subject="Test Subject",
                 body="Test Body",
             )
@@ -150,4 +193,3 @@ async def test_mock_imap_email_fetching(sample_email_account):
         assert len(emails) == 1
         assert emails[0].subject == "Test Subject"
         mock_sync_fetch.assert_called_once()
-

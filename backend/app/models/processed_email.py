@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,7 +21,9 @@ class ProcessedEmailModel(Base):
     """
 
     __tablename__ = "processed_email_ids"
-    __table_args__ = (UniqueConstraint("message_id", name="uq_processed_email_message_id"),)
+    __table_args__ = (
+        UniqueConstraint("message_id", name="uq_processed_email_message_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     message_id: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
@@ -34,6 +37,6 @@ class ProcessedEmailModel(Base):
     subject: Mapped[str | None] = mapped_column(String(500), nullable=True)
     processed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         nullable=False,
     )

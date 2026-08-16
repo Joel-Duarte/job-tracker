@@ -8,6 +8,7 @@ export const useUIStore = defineStore('ui', () => {
   const isJobIntakeModalOpen = ref(false)
   const isCommandPaletteOpen = ref(false)
   const activeDetailId = ref(null)
+  const detailActiveTab = ref('timeline')
 
   // Notification Toast
   const toast = ref({
@@ -194,8 +195,9 @@ export const useUIStore = defineStore('ui', () => {
     isIngestModalOpen.value = false
   }
 
-  function openDetail(id) {
+  function openDetail(id, tab = 'timeline') {
     activeDetailId.value = id
+    detailActiveTab.value = tab
   }
 
   function closeDetail() {
@@ -275,6 +277,7 @@ export const useUIStore = defineStore('ui', () => {
     isJobIntakeModalOpen,
     isCommandPaletteOpen,
     activeDetailId,
+    detailActiveTab,
     intakeQueue,
     isQueueDrawerOpen,
     toast,

@@ -18,10 +18,12 @@ router = APIRouter(prefix="/events", tags=["Events"])
 
 @router.get(
     "/applications/{application_id}",
-    response_model=List[ApplicationEventDetail],
+    response_model=list[ApplicationEventDetail],
     summary="Get all email events for a specific application",
 )
-async def list_application_events(application_id: int, db: AsyncSession = Depends(get_db)):
+async def list_application_events(
+    application_id: int, db: AsyncSession = Depends(get_db)
+):
     """Returns chronologically ordered email events associated with a job application."""
     stmt = (
         select(ApplicationEventModel)
@@ -34,7 +36,7 @@ async def list_application_events(application_id: int, db: AsyncSession = Depend
 
 @router.get(
     "/action-required",
-    response_model=List[ActionItemSummary],
+    response_model=list[ActionItemSummary],
     summary="Get all pending action items across application and other events",
 )
 async def list_action_required_events(db: AsyncSession = Depends(get_db)):
@@ -44,7 +46,10 @@ async def list_action_required_events(db: AsyncSession = Depends(get_db)):
     # 1. Fetch pending application events
     app_stmt = (
         select(ApplicationEventModel, ApplicationModel, CompanyModel)
-        .join(ApplicationModel, ApplicationEventModel.email_application_id == ApplicationModel.id)
+        .join(
+            ApplicationModel,
+            ApplicationEventModel.email_application_id == ApplicationModel.id,
+        )
         .join(CompanyModel, ApplicationModel.company_id == CompanyModel.id)
         .where(ApplicationEventModel.email_action_required)
         .order_by(ApplicationEventModel.email_received_at.desc())
@@ -90,11 +95,13 @@ async def list_action_required_events(db: AsyncSession = Depends(get_db)):
 
 @router.get(
     "/other",
-    response_model=List[OtherEventDetail],
+    response_model=list[OtherEventDetail],
     summary="List non-application related email events",
 )
 async def list_other_events(
-    email_type: Optional[str] = Query(None, description="Filter by non-application email type"),
+    email_type: str | None = Query(
+        None, description="Filter by non-application email type"
+    ),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -104,7 +111,11 @@ async def list_other_events(
     if email_type:
         stmt = stmt.where(OtherEventModel.email_type == email_type)
 
-    stmt = stmt.order_by(OtherEventModel.email_received_at.desc()).limit(limit).offset(offset)
+    stmt = (
+        stmt.order_by(OtherEventModel.email_received_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
     result = await db.execute(stmt)
     return result.scalars().all()
 
@@ -136,4 +147,8 @@ async def resolve_event_action(
         event.action_required = payload.action_required
 
     await db.commit()
-    return {"status": "success", "event_id": event_id, "action_required": payload.action_required}
+    return {
+        "status": "success",
+        "event_id": event_id,
+        "action_required": payload.action_required,
+    }

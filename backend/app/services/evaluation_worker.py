@@ -15,7 +15,6 @@ from app.services.llm import (
     extract_job_spec,
 )
 from app.services.matcher import compute_programmatic_skill_match
-
 from app.services.scraper import scrape_job_url
 
 logger = logging.getLogger(__name__)
@@ -30,7 +29,7 @@ async def _execute_cv_extraction_steps(
             task.status = "FAILED"
             task.stage = "FAILED"
             task.error_message = "EMPTY_CV: Provided CV text is empty."
-            task.completed_at = datetime.now(timezone.utc)
+            task.completed_at = datetime.now(UTC)
             await db.commit()
             return
 
@@ -101,7 +100,7 @@ async def _execute_cv_extraction_steps(
             "domain_experience_count": len(raw_breakdown),
             "summary": cv_record.summary,
         }
-        task.completed_at = datetime.now(timezone.utc)
+        task.completed_at = datetime.now(UTC)
         await db.commit()
         logger.info(
             "CV extraction task %d completed. Active profile ID: %d",
@@ -114,7 +113,7 @@ async def _execute_cv_extraction_steps(
         task.status = "FAILED"
         task.stage = "FAILED"
         task.error_message = str(err)
-        task.completed_at = datetime.now(timezone.utc)
+        task.completed_at = datetime.now(UTC)
         await db.commit()
 
 
@@ -138,7 +137,7 @@ async def _execute_evaluation_steps(
             task.status = "FAILED"
             task.stage = "FAILED"
             task.error_message = "SCRAPE_FAILED: Unable to scrape job portal automatically. Please provide job description text."
-            task.completed_at = datetime.now(timezone.utc)
+            task.completed_at = datetime.now(UTC)
             await db.commit()
             return
 
@@ -151,7 +150,7 @@ async def _execute_evaluation_steps(
             task.status = "FAILED"
             task.stage = "FAILED"
             task.error_message = "NO_JOB_FOUND: The scraped page or input text did not contain an active job description or vacancy."
-            task.completed_at = datetime.now(timezone.utc)
+            task.completed_at = datetime.now(UTC)
             await db.commit()
             return
 
@@ -215,7 +214,7 @@ async def _execute_evaluation_steps(
         result_payload["save_status"] = save_result.get("status")
         task.result_json = result_payload
         task.title_hint = f"{assessment.company} - {assessment.position}"
-        task.completed_at = datetime.now(timezone.utc)
+        task.completed_at = datetime.now(UTC)
         await db.commit()
         logger.info(
             "Intake evaluation task %d completed for '%s' (saved: %s, app_id: %s, staged_id: %s)",
@@ -233,7 +232,7 @@ async def _execute_evaluation_steps(
         task.status = "FAILED"
         task.stage = "FAILED"
         task.error_message = str(err)
-        task.completed_at = datetime.now(timezone.utc)
+        task.completed_at = datetime.now(UTC)
         await db.commit()
 
 

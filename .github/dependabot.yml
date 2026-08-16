@@ -1,0 +1,49 @@
+version: 2
+updates: 
+  # Maintain dependencies for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    # Group all actions together so you get 1 PR instead of 4
+    groups:
+      github-actions-deps:
+        patterns:
+          - "*" 
+
+  # Maintain dependencies for the Frontend (Node.js/npm)
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    open-pull-requests-limit: 10
+    # Group dev dependencies like Vite together, while keeping runtime apps separate if preferred
+    groups:
+      frontend-tooling:
+        patterns:
+          - "vite*"
+          - "@vitejs/*"
+          - "esbuild" 
+
+  # Maintain dependencies for the Backend (Python/uv/pip)
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    open-pull-requests-limit: 10
+    # Group backend utilities together
+    groups:
+      backend-servers:
+        patterns:
+          - "uvicorn*"
+          - "fastapi*"
+          - "pydantic*"

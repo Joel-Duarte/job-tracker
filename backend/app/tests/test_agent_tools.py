@@ -1,12 +1,11 @@
-import pytest
 from unittest.mock import AsyncMock, patch
 from app.models.applications import CompanyModel, ApplicationModel, ActionItemModel
 from app.services.agent_tools import (
-    execute_list_applications,
+  create_agent_tools,
+  execute_list_applications,
     execute_get_application_details,
+    execute_list_applications,
     execute_update_application_status,
-    execute_get_action_items,
-    create_agent_tools,
 )
 
 
@@ -53,7 +52,10 @@ async def test_agent_tools_execution(db_session):
     assert any(a["title"] == "Schedule Recruiter Chat" for a in actions_res)
 
     # 5. Test Update Status Tool
-    with patch("app.services.agent_tools.generate_and_save_application_embedding", new_callable=AsyncMock):
+    with patch(
+        "app.services.agent_tools.generate_and_save_application_embedding",
+        new_callable=AsyncMock,
+    ):
         update_res = await execute_update_application_status(
             db_session,
             company_name="Stripe",

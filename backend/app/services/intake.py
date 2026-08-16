@@ -1,4 +1,5 @@
 import logging
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.graph_state import JobTrackerState
@@ -73,7 +74,7 @@ async def process_email_batch_sequential(
                 )
         except Exception as err:
             await db.rollback()
-            error_msg = f"Failed processing email '{email.subject}': {str(err)}"
+            error_msg = f"Failed processing email '{email.subject}': {err!s}"
             logger.error(error_msg, exc_info=True)
             task_tracker.record_item_failure(task_id=task_id, error_msg=error_msg)
 

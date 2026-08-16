@@ -1,12 +1,18 @@
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.main import app
-from app.models.applications import ApplicationEventModel, ApplicationModel, CompanyModel, JobPostingModel
+from app.models.applications import (
+    ApplicationEventModel,
+    ApplicationModel,
+    CompanyModel,
+    JobPostingModel,
+)
 
 
 @pytest.mark.asyncio
@@ -14,7 +20,9 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
     app.dependency_overrides[get_db] = lambda: db_session
 
     # 1. Seed Company and Application
-    company = CompanyModel(name="Linear Labs", name_normalized="linear labs", domain="linear.app")
+    company = CompanyModel(
+        name="Linear Labs", name_normalized="linear labs", domain="linear.app"
+    )
     db_session.add(company)
     await db_session.flush()
 
@@ -66,7 +74,9 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
             assert data["status"] == "OFFER"
 
         # Check job_posting in DB was updated with salary
-        jp_stmt = select(JobPostingModel).where(JobPostingModel.application_id == application.id)
+        jp_stmt = select(JobPostingModel).where(
+            JobPostingModel.application_id == application.id
+        )
         jp_res = await db_session.execute(jp_stmt)
         jp = jp_res.scalar_one_or_none()
         assert jp is not None
@@ -88,7 +98,9 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
             assert data["status"] == "REJECTED"
 
         # 5. Verify timeline events count in DB
-        events_stmt = select(ApplicationEventModel).where(ApplicationEventModel.email_application_id == application.id)
+        events_stmt = select(ApplicationEventModel).where(
+            ApplicationEventModel.email_application_id == application.id
+        )
         events_res = await db_session.execute(events_stmt)
         events = events_res.scalars().all()
         assert len(events) == 3

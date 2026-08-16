@@ -1,16 +1,18 @@
 import asyncio
 import heapq
-from contextlib import asynccontextmanager
 import logging
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
+
 
 class PrioritySemaphore:
     """
     A semaphore that grants locks based on priority.
     Waiters with a lower priority number execute first.
     """
+
     def __init__(self, value: int = 1):
         self._value = value
         self._waiters = []
@@ -22,12 +24,12 @@ class PrioritySemaphore:
             if self._value > 0:
                 self._value -= 1
                 return True
-            
+
             fut = asyncio.Future()
             self._count += 1
             # heapq sorts by first element (priority), then insertion order (self._count)
             heapq.heappush(self._waiters, (priority, self._count, fut))
-        
+
         try:
             await fut
             return True
@@ -62,7 +64,9 @@ class ProviderConcurrencyManager:
         self._lock = asyncio.Lock()
         self._default_semaphore = PrioritySemaphore(5)
 
-    async def get_semaphore(self, provider_id: int | None, max_concurrency: int = 1) -> PrioritySemaphore:
+    async def get_semaphore(
+        self, provider_id: int | None, max_concurrency: int = 1
+    ) -> PrioritySemaphore:
         if provider_id is None:
             return self._default_semaphore
 
@@ -72,7 +76,7 @@ class ProviderConcurrencyManager:
                 curr_limit, sem = self._semaphores[provider_id]
                 if curr_limit == limit:
                     return sem
-                
+
                 logger.info(
                     "Updating concurrency pool for provider %d from %d to %d",
                     provider_id,
@@ -80,7 +84,7 @@ class ProviderConcurrencyManager:
                     limit,
                 )
                 # Adjust limits for the updated provider pool
-                sem._value += (limit - curr_limit)
+                sem._value += limit - curr_limit
                 self._semaphores[provider_id] = (limit, sem)
                 return sem
 
@@ -89,13 +93,16 @@ class ProviderConcurrencyManager:
             return sem
 
     @asynccontextmanager
-    async def acquire(self, provider_id: int | None, max_concurrency: int = 1, priority: int = 1) -> AsyncGenerator[None, None]:
+    async def acquire(
+        self, provider_id: int | None, max_concurrency: int = 1, priority: int = 1
+    ) -> AsyncGenerator[None, None]:
         sem = await self.get_semaphore(provider_id, max_concurrency)
         await sem.acquire(priority=priority)
         try:
             yield
         finally:
             await sem.release()
+
 
 # Global singleton instance
 concurrency_manager = ProviderConcurrencyManager()

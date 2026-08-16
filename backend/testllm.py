@@ -1,6 +1,7 @@
 import asyncio
-from app.services.llm import extract_email_info, summarize_application_status
+
 from app.core.database import AsyncSessionLocal
+from app.services.llm import extract_email_info, summarize_application_status
 
 
 async def test_extraction():

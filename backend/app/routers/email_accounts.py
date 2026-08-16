@@ -39,7 +39,7 @@ def _resolve_base_url(request: Request) -> str:
 
 class OAuthUrlResponse(BaseModel):
     provider: str
-    auth_url: Optional[str] = None
+    auth_url: str | None = None
     client_id_configured: bool
     redirect_uri: str
     message: str
@@ -66,16 +66,21 @@ async def get_oauth_config(request: Request):
 async def get_oauth_authorize_url(
     request: Request,
     provider: str = Query(..., description="Provider: 'google' or 'microsoft'"),
-    client_id: Optional[str] = Query(None, description="Custom OAuth Client ID"),
-    redirect_uri: Optional[str] = Query(None, description="Redirect URI (optional, auto-derived from host / PUBLIC_API_URL)"),
+    client_id: str | None = Query(None, description="Custom OAuth Client ID"),
+    redirect_uri: str | None = Query(
+        None,
+        description="Redirect URI (optional, auto-derived from host / PUBLIC_API_URL)",
+    ),
 ):
     """Returns OAuth2 authorization URL for Google Gmail or Microsoft 365."""
     prov = provider.lower().strip()
     base_url = _resolve_base_url(request)
-    
+
     # Auto-resolve redirect URI if not explicitly passed
-    effective_redirect_uri = redirect_uri or f"{base_url}/api/v1/email_accounts/oauth/callback/{prov}"
-    
+    effective_redirect_uri = (
+        redirect_uri or f"{base_url}/api/v1/email_accounts/oauth/callback/{prov}"
+    )
+
     if prov == "google":
         resolved_client_id = client_id or os.getenv("GOOGLE_OAUTH_CLIENT_ID")
         if resolved_client_id:
@@ -132,7 +137,9 @@ async def get_oauth_authorize_url(
             message="No Microsoft Client ID configured. You can use App Password or IMAP for instant connection.",
         )
 
-    raise HTTPException(status_code=400, detail=f"Unsupported OAuth provider: {provider}")
+    raise HTTPException(
+        status_code=400, detail=f"Unsupported OAuth provider: {provider}"
+    )
 
 
 @router.get("/oauth/callback/{provider}")
@@ -175,7 +182,10 @@ async def oauth_callback(
             client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID") or ""
             client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET") or ""
             tokens = await GmailOAuthAdapter.exchange_code_for_tokens(
-                client_id=client_id, client_secret=client_secret, code=code, redirect_uri=redirect_uri
+                client_id=client_id,
+                client_secret=client_secret,
+                code=code,
+                redirect_uri=redirect_uri,
             )
             access_token = tokens.get("access_token")
             refresh_token = tokens.get("refresh_token")
@@ -219,7 +229,10 @@ async def oauth_callback(
             client_id = os.getenv("MS_OAUTH_CLIENT_ID") or ""
             client_secret = os.getenv("MS_OAUTH_CLIENT_SECRET") or ""
             tokens = await MicrosoftGraphAdapter.exchange_code_for_tokens(
-                client_id=client_id, client_secret=client_secret, code=code, redirect_uri=redirect_uri
+                client_id=client_id,
+                client_secret=client_secret,
+                code=code,
+                redirect_uri=redirect_uri,
             )
             access_token = tokens.get("access_token")
             refresh_token = tokens.get("refresh_token")
@@ -231,7 +244,11 @@ async def oauth_callback(
                     headers={"Authorization": f"Bearer {access_token}"},
                 )
                 p_data = p_resp.json() if p_resp.status_code == 200 else {}
-                email_address = p_data.get("mail") or p_data.get("userPrincipalName") or "Outlook Account"
+                email_address = (
+                    p_data.get("mail")
+                    or p_data.get("userPrincipalName")
+                    or "Outlook Account"
+                )
 
             stmt = select(EmailAccountModel).where(
                 EmailAccountModel.username == email_address,
@@ -286,7 +303,7 @@ async def oauth_callback(
                 <body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: #f8fafc;">
                     <div style="text-align: center; background: #1e293b; padding: 32px 48px; border-radius: 12px; border: 1px solid #ef4444;">
                         <h2 style="color: #ef4444; margin-bottom: 8px;">OAuth Exchange Failed</h2>
-                        <p style="color: #94a3b8; font-size: 14px;">{str(err)}</p>
+                        <p style="color: #94a3b8; font-size: 14px;">{err!s}</p>
                     </div>
                 </body>
             </html>
@@ -295,11 +312,13 @@ async def oauth_callback(
         )
 
 
-@router.get("", response_model=List[EmailAccountResponse])
+@router.get("", response_model=list[EmailAccountResponse])
 async def list_accounts(db: AsyncSession = Depends(get_db)):
     """List all configured email provider accounts."""
     try:
-        result = await db.execute(select(EmailAccountModel).order_by(EmailAccountModel.id))
+        result = await db.execute(
+            select(EmailAccountModel).order_by(EmailAccountModel.id)
+        )
         accounts = result.scalars().all()
         for acc in accounts:
             if not getattr(acc, "sync_interval", None):
@@ -310,10 +329,10 @@ async def list_accounts(db: AsyncSession = Depends(get_db)):
                 acc.sync_schedule_day = "MON"
         return accounts
     except Exception as e:
-        logger.error(f"Error listing email accounts: {str(e)}", exc_info=True)
+        logger.error(f"Error listing email accounts: {e!s}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list email accounts: {str(e)}",
+            detail=f"Failed to list email accounts: {e!s}",
         )
 
 
@@ -339,7 +358,9 @@ async def get_account(account_id: int, db: AsyncSession = Depends(get_db)):
     return account
 
 
-@router.post("", response_model=EmailAccountResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=EmailAccountResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_account(
     payload: EmailAccountCreate,
     db: AsyncSession = Depends(get_db),
@@ -354,10 +375,10 @@ async def create_account(
         return account
     except Exception as e:
         await db.rollback()
-        logger.error(f"Error creating email account: {str(e)}", exc_info=True)
+        logger.error(f"Error creating email account: {e!s}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to create email account: {str(e)}",
+            detail=f"Failed to create email account: {e!s}",
         )
 
 
@@ -389,10 +410,10 @@ async def update_account(
         return account
     except Exception as e:
         await db.rollback()
-        logger.error(f"Error updating email account {account_id}: {str(e)}", exc_info=True)
+        logger.error(f"Error updating email account {account_id}: {e!s}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to update email account: {str(e)}",
+            detail=f"Failed to update email account: {e!s}",
         )
 
 
@@ -412,4 +433,3 @@ async def delete_account(account_id: int, db: AsyncSession = Depends(get_db)):
 
     await db.delete(account)
     await db.commit()
-    return None

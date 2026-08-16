@@ -1,5 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -80,13 +82,18 @@ async def test_generate_and_clear_interview_guide_endpoint(db_session: AsyncSess
     await db_session.commit()
 
     from langchain_core.messages import AIMessage
-    ai_msg = AIMessage(content="<h2>1. Role & Company Brief</h2><p>Stripe is scaling payments.</p>")
+
+    ai_msg = AIMessage(
+        content="<h2>1. Role & Company Brief</h2><p>Stripe is scaling payments.</p>"
+    )
     mock_llm = MagicMock()
     mock_llm.invoke.return_value = ai_msg
     mock_llm.ainvoke = AsyncMock(return_value=ai_msg)
     mock_llm.return_value = ai_msg
 
-    with patch("app.services.interview_guide_graph.get_task_chat_model", new_callable=AsyncMock) as mock_get_llm:
+    with patch(
+        "app.services.interview_guide_graph.get_task_chat_model", new_callable=AsyncMock
+    ) as mock_get_llm:
         mock_get_llm.return_value = mock_llm
 
         transport = ASGITransport(app=app)
@@ -97,7 +104,9 @@ async def test_generate_and_clear_interview_guide_endpoint(db_session: AsyncSess
                 "selected_sections": ["role_company_brief"],
                 "recursion_limit": 15,
             }
-            res = await client.post(f"/api/v1/applications/{application.id}/interview-guide", json=payload)
+            res = await client.post(
+                f"/api/v1/applications/{application.id}/interview-guide", json=payload
+            )
             assert res.status_code == 200, res.text
             data = res.json()
             assert data["has_interview_guide"] is True
@@ -109,11 +118,15 @@ async def test_generate_and_clear_interview_guide_endpoint(db_session: AsyncSess
             list_res = await client.get("/api/v1/applications")
             assert list_res.status_code == 200
             list_data = list_res.json()
-            app_item = next(item for item in list_data["items"] if item["id"] == application.id)
+            app_item = next(
+                item for item in list_data["items"] if item["id"] == application.id
+            )
             assert app_item["has_interview_guide"] is True
 
             # 3. Clear Guide
-            del_res = await client.delete(f"/api/v1/applications/{application.id}/interview-guide")
+            del_res = await client.delete(
+                f"/api/v1/applications/{application.id}/interview-guide"
+            )
             assert del_res.status_code == 200
             cleared_data = del_res.json()
             assert cleared_data["has_interview_guide"] is False

@@ -1,8 +1,9 @@
-from datetime import datetime, timezone
 import hashlib
 import logging
-from typing import Any, Optional
 import uuid
+from datetime import UTC, datetime
+from typing import Any
+
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -74,10 +75,10 @@ async def get_extension_config(request: Request):
 
 
 class ExtensionUrlDirectPayload(BaseModel):
-    type: Optional[str] = "URL_DIRECT_SEND"
+    type: str | None = "URL_DIRECT_SEND"
     url: str
-    title: Optional[str] = None
-    timestamp: Optional[str] = None
+    title: str | None = None
+    timestamp: str | None = None
 
 
 @router.post("/url", status_code=status.HTTP_200_OK)
@@ -192,8 +193,8 @@ class SyncFolderRequest(BaseModel):
     account_id: int = Field(
         description="ID of the configured EmailAccountModel to sync"
     )
-    folder: Optional[str] = Field(default=None)
-    since_date: Optional[datetime] = Field(default=None)
+    folder: str | None = Field(default=None)
+    since_date: datetime | None = Field(default=None)
     keyword_filter: list[str] = Field(
         default_factory=list,
         description="Extra keywords merged with built-in job keywords for subject/body pre-filter. "
@@ -275,7 +276,7 @@ async def intake_pasted_text(
     content_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:16]
     msg_id = payload.message_id or f"paste-{content_hash}"
     conv_id = payload.conversation_id or f"conv-{content_hash}"
-    received_at = payload.received_at or datetime.now(timezone.utc)
+    received_at = payload.received_at or datetime.now(UTC)
 
     email_payload = EmailPayload(
         conversation_id=conv_id,
@@ -327,7 +328,7 @@ async def intake_uploaded_files(
                 IntakeResultResponse(
                     status="error",
                     route="error",
-                    message=f"Failed to parse file '{filename}': {str(err)}",
+                    message=f"Failed to parse file '{filename}': {err!s}",
                 )
             )
 
@@ -426,7 +427,7 @@ async def confirm_job_assessment(
     """Commits an assessed job lead to the application pipeline in ASSESSMENT or APPLIED status."""
     comp_norm = payload.company.strip().lower()
     position_norm = payload.position.strip().lower()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # 1. Company
     stmt = select(CompanyModel).where(CompanyModel.name_normalized == comp_norm)
@@ -460,6 +461,7 @@ async def confirm_job_assessment(
             job_url=payload.job_url,
             application_date=now,
             last_activity_at=now,
+            match_analysis_payload=payload.match_analysis_payload,
         )
         db.add(app_record)
         await db.flush()
@@ -469,6 +471,8 @@ async def confirm_job_assessment(
         if payload.job_url and not app_record.job_url:
             app_record.job_url = payload.job_url
         app_record.last_activity_at = now
+        if payload.match_analysis_payload:
+            app_record.match_analysis_payload = payload.match_analysis_payload
 
     # 3. Job Posting Record
     jp_stmt = select(JobPostingModel).where(
@@ -580,7 +584,7 @@ async def sync_email_account(
 
     if next_cursor:
         account.sync_cursor = next_cursor
-        account.last_synced_at = datetime.now(timezone.utc)
+        account.last_synced_at = datetime.now(UTC)
         await db.commit()
 
     if scanned_count == 0:
@@ -717,7 +721,7 @@ async def intake_direct_raw_email(
     db: AsyncSession = Depends(get_db),
 ):
     """Directly ingests a raw email payload for immediate testing."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     conv_id = payload.conversation_id or f"test-conv-{uuid.uuid4().hex[:8]}"
     msg_id = payload.message_id or f"test-msg-{uuid.uuid4().hex[:8]}"
     received_at = payload.received_at or now
@@ -884,7 +888,7 @@ async def retry_evaluation_task(
     task.error_message = None
     task.result_json = None
     task.completed_at = None
-    task.created_at = datetime.now(timezone.utc)
+    task.created_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(task)
 
