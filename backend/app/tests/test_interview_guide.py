@@ -1,6 +1,9 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.database import get_db
 from app.main import app
 from app.models.applications import ApplicationModel, CompanyModel, JobPostingModel
@@ -10,8 +13,6 @@ from app.services.interview_guide_graph import (
     extractor_node,
     should_continue_sections,
 )
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @pytest.mark.asyncio

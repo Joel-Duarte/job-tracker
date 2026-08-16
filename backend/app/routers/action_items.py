@@ -1,6 +1,11 @@
 import logging
 from datetime import UTC, datetime
 
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from sqlalchemy import case, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
+
 from app.core.database import get_db
 from app.models.applications import (
     ActionItemModel,
@@ -15,10 +20,6 @@ from app.schemas.action_items import (
     UrgencyOverrideUpdate,
 )
 from app.services.llm import async_enqueue_application_embedding
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import case, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 
 logger = logging.getLogger(__name__)
 

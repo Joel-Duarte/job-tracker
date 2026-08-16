@@ -1,13 +1,14 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models.applications import ApplicationModel, CompanyModel, OtherEventModel
 from app.models.staging import StagingItemModel
 from app.schemas.graph_state import JobTrackerState
 from app.schemas.intake import ExtractedEmailInfo
 from app.services.intake_graph import intake_graph
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @pytest.mark.asyncio

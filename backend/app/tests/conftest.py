@@ -2,12 +2,13 @@ from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
-from app.core.database import Base
-from app.models.email_accounts import EmailAccountModel
-from app.schemas.intake import EmailPayload, ExtractedEmailInfo
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.postgres import PostgresContainer
+
+from app.core.database import Base
+from app.models.email_accounts import EmailAccountModel
+from app.schemas.intake import EmailPayload, ExtractedEmailInfo
 
 
 @pytest.fixture(scope="session")

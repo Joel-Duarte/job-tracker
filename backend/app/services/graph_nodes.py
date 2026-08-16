@@ -2,6 +2,11 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
+from rapidfuzz import fuzz
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 import app.services.llm as llm_service
 from app.core.config import settings
 from app.models.applications import (
@@ -14,10 +19,6 @@ from app.models.processed_email import ProcessedEmailModel
 from app.models.staging import StagingItemModel
 from app.schemas.graph_state import JobTrackerState
 from app.services.llm import generate_and_save_application_embedding
-from langchain_core.runnables import RunnableConfig
-from rapidfuzz import fuzz
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 

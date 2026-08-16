@@ -1,3 +1,7 @@
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.database import get_db
 from app.models.applications import (
     ApplicationEventModel,
@@ -7,9 +11,6 @@ from app.models.applications import (
 )
 from app.schemas.applications import ApplicationEventDetail
 from app.schemas.events import ActionItemSummary, OtherEventDetail, ResolveActionRequest
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/events", tags=["Events"])
 

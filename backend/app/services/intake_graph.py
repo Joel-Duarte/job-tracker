@@ -1,6 +1,8 @@
 import logging
 from typing import Literal
 
+from langgraph.graph import END, START, StateGraph
+
 from app.schemas.graph_state import JobTrackerState
 from app.services.graph_nodes import (
     db_commit_node,
@@ -11,7 +13,6 @@ from app.services.graph_nodes import (
     staging_node,
     summarize_embed_node,
 )
-from langgraph.graph import END, START, StateGraph
 
 logger = logging.getLogger(__name__)
 

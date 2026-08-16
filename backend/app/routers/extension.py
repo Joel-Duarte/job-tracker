@@ -4,6 +4,10 @@ import re
 import uuid
 from datetime import UTC, datetime
 
+from fastapi import APIRouter, Depends, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.database import get_db
 from app.models.applications import (
     ApplicationEventModel,
@@ -15,9 +19,6 @@ from app.schemas.extension import ClipJobRequest, ClipUrlRequest, ExtensionClipR
 from app.schemas.intake import EmailPayload
 from app.services.intake import process_single_email_graph
 from app.services.llm import generate_and_save_application_embedding
-from fastapi import APIRouter, Depends, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 

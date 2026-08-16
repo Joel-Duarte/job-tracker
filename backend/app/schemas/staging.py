@@ -1,8 +1,9 @@
 from datetime import datetime
 from typing import Any
 
-from app.schemas.intake import ExtractedEmailInfo
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.schemas.intake import ExtractedEmailInfo
 
 
 class StagingItemRead(BaseModel):

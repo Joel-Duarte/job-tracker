@@ -1,7 +1,8 @@
 import asyncio
 
-from app.core.config import settings
 from sqlalchemy.ext.asyncio import create_async_engine
+
+from app.core.config import settings
 
 
 async def run():

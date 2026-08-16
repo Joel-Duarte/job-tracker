@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+
 from app.models.email_accounts import EmailAccountModel
 from app.services.email_fetcher import fetch_emails_from_account
 from app.services.oauth_adapters import GmailOAuthAdapter, MicrosoftGraphAdapter

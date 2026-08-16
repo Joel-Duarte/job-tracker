@@ -1,13 +1,14 @@
 import logging
 from datetime import UTC, datetime
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
 from app.models.applications import ApplicationModel
 from app.models.candidate_profile import CandidateCVModel
 from app.schemas.applications import GenerateInterviewGuideRequest
 from app.services.interview_guide_graph import interview_guide_graph
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 logger = logging.getLogger(__name__)
 

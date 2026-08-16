@@ -1,7 +1,8 @@
 import logging
 
-from app.core.llm_factory import get_embeddings_model
 from fastapi import HTTPException, status
+
+from app.core.llm_factory import get_embeddings_model
 
 logger = logging.getLogger(__name__)
 

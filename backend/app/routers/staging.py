@@ -1,6 +1,10 @@
 import logging
 from datetime import UTC, datetime
 
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 # Adjust imports based on your database session setup
 from app.core.database import get_db
 from app.models.applications import (
@@ -17,9 +21,6 @@ from app.schemas.staging import (
     StagingPaginationResponse,
 )
 from app.services.llm import generate_and_save_application_embedding
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 

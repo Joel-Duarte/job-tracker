@@ -2,6 +2,10 @@ import asyncio
 import logging
 from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.database import get_db
 from app.models.candidate_profile import CandidateCVModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
@@ -12,9 +16,6 @@ from app.schemas.candidate_profile import (
     CVTaskStatusResponse,
 )
 from app.services.evaluation_worker import process_evaluation_task
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 

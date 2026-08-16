@@ -1,6 +1,13 @@
 import logging
 
 import httpx
+from fastapi import APIRouter, Depends, HTTPException, status
+from langchain.chat_models import init_chat_model
+from langchain_core.messages import HumanMessage
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
+
 from app.core.database import get_db
 from app.core.llm_factory import (
     _clean_base_url,
@@ -21,12 +28,6 @@ from app.schemas.ai_config import (
     DiscoveredModel,
     mask_secret,
 )
-from fastapi import APIRouter, Depends, HTTPException, status
-from langchain.chat_models import init_chat_model
-from langchain_core.messages import HumanMessage
-from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 
 EMBEDDING_KEYWORDS = ("embed", "nomic", "bge", "minilm", "gte", "e5", "bert", "mxbai")
 

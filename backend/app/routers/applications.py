@@ -1,6 +1,11 @@
 import logging
 from datetime import UTC, datetime
 
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from sqlalchemy import func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
+
 from app.core.database import get_db
 from app.models.applications import (
     ActionItemModel,
@@ -29,10 +34,6 @@ from app.services.interview_guide import clear_interview_guide, generate_intervi
 from app.services.llm import (
     async_enqueue_application_embedding,
 )
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import func, or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
 
 logger = logging.getLogger(__name__)
 

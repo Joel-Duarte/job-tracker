@@ -1,15 +1,16 @@
 import logging
 from typing import Literal
 
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.database import get_db
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
     OtherEventModel,
 )
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 

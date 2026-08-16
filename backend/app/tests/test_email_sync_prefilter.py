@@ -2,12 +2,13 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from app.models.processed_email import ProcessedEmailModel
-from app.routers.intake import SyncFolderRequest, sync_email_account
-from app.schemas.intake import EmailPayload
 from fastapi import BackgroundTasks
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.processed_email import ProcessedEmailModel
+from app.routers.intake import SyncFolderRequest, sync_email_account
+from app.schemas.intake import EmailPayload
 
 
 @pytest.mark.asyncio

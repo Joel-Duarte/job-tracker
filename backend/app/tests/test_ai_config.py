@@ -1,6 +1,12 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from httpx import ASGITransport, AsyncClient
+from langchain_core.messages import AIMessage
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
 from app.core.database import get_db
 from app.core.llm_factory import get_task_chat_model
 from app.main import app
@@ -11,11 +17,6 @@ from app.models.applications import (
     CompanyModel,
     JobPostingModel,
 )
-from httpx import ASGITransport, AsyncClient
-from langchain_core.messages import AIMessage
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 
 @pytest.mark.asyncio

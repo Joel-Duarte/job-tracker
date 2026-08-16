@@ -1,3 +1,7 @@
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.database import get_db
 from app.core.embeddings import generate_query_embedding
 from app.models.applications import (
@@ -6,9 +10,6 @@ from app.models.applications import (
     CompanyModel,
 )
 from app.schemas.search import CompanySearchResult, SemanticSearchResult
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/search", tags=["Search"])
 
