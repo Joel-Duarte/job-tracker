@@ -40,19 +40,9 @@ async function loadApplication() {
   try {
     const res = await ApplicationsAPI.get(props.applicationId)
     application.value = res.data
-    if (!application.value.latest_event || !application.value.latest_event.raw_payload) {
-      // Look through events to find the assessment payload if latest is not assessment
-      let found = false
-      for (const ev of application.value.events) {
-        if (ev.email_event_type === 'PRE_APPLICATION_ASSESSMENT' && ev.raw_payload) {
-          application.value.latest_event = ev
-          found = true
-          break
-        }
-      }
-      if (!found && !application.value.match_score) {
-          error.value = 'No structured match analysis data found for this application.'
-      }
+
+    if (!application.value.match_analysis_payload) {
+      error.value = 'No structured match analysis data found for this application.'
     }
   } catch (err) {
     error.value = 'Failed to load application details.'
@@ -82,7 +72,7 @@ const parsedTailoringStrategy = computed(() => {
 
 const analysisData = computed(() => {
   if (!application.value) return null
-  return application.value.latest_event?.raw_payload || {}
+  return application.value.match_analysis_payload || null
 })
 
 const matchScore = computed(() => {

@@ -121,6 +121,9 @@ async def persist_or_stage_job_assessment(
     )
     db.add(job_posting)
 
+    # Save assessment payload directly to application row
+    app_record.match_analysis_payload = assessment.model_dump()
+
     # 5. Create Assessment Timeline Event
     event = ApplicationEventModel(
         email_application_id=app_record.id,
