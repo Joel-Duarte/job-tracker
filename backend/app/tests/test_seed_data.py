@@ -115,15 +115,40 @@ async def test_seed_development_dataset_populates_all_entities_without_embedding
     ).scalar_one()
     assert embeddings_count == 0
 
+    # 6. Verify dossier information (match_analysis_payload) on applications
+    apps_list = (await db_session.execute(select(ApplicationModel))).scalars().all()
+    for a in apps_list:
+        assert a.match_analysis_payload is not None
+        assert "fit_score" in a.match_analysis_payload
+        assert "hard_matches" in a.match_analysis_payload
+        assert "tailoring_strategy" in a.match_analysis_payload
+        assert "pros" in a.match_analysis_payload
+        assert "cons" in a.match_analysis_payload
+
+    # 7. Verify completed intake evaluation tasks contain full dossiers
+    completed_task = (
+        (
+            await db_session.execute(
+                select(IntakeEvaluationTaskModel).where(
+                    IntakeEvaluationTaskModel.status == "COMPLETED"
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert completed_task is not None
+    assert completed_task.result_json is not None
+    assert "fit_score" in completed_task.result_json
+    assert "tailoring_strategy" in completed_task.result_json
+
 
 @pytest.mark.asyncio
 async def test_admin_seed_demo_data_endpoint(db_session: AsyncSession):
     app.dependency_overrides[get_db] = lambda: db_session
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(
-        transport=transport, base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
         # First call seeds successfully
         resp = await client.post("/api/v1/admin/seed-demo-data")
         assert resp.status_code == 201

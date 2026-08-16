@@ -22,6 +22,341 @@ from app.models.staging import StagingItemModel
 logger = logging.getLogger(__name__)
 
 
+def build_stripe_dossier() -> dict:
+    return {
+        "company": "Stripe",
+        "position": "Senior Backend Engineer - Global Payments",
+        "fit_score": 94,
+        "programmatic_match_score": 90,
+        "fit_tier": "STRONG_MATCH",
+        "match_summary": (
+            "Exceptional alignment with candidate's 8+ years scaling high-throughput Python/FastAPI distributed systems, "
+            "PostgreSQL transactional consistency, and Kafka streaming pipelines."
+        ),
+        "hard_matches": {
+            "keyword_match_rate": "9/10 core skills found",
+            "top_alignment": [
+                "Python & FastAPI Backend Architecture",
+                "PostgreSQL Transaction Isolation & Concurrency",
+                "Kafka Distributed Event Streaming",
+            ],
+        },
+        "optimization_gaps": {
+            "missing_completely": [
+                "Direct ISO 20022 / SWIFT interbank settlement protocol experience"
+            ],
+            "vocabulary_mismatches": [
+                "Ledger Consistency (used 'billing reconciliation' in CV vs 'double-entry ledger' in JD)"
+            ],
+            "experience_mismatch": None,
+        },
+        "tailoring_strategy": {
+            "vocabulary_translation": [
+                {
+                    "jd_term": "Double-entry ledger infrastructure",
+                    "cv_term": "Payment reconciliation pipelines",
+                    "replacement_guidance": "Explicitly highlight double-entry bookkeeping and exact-once transactional semantics.",
+                },
+                {
+                    "jd_term": "Asynchronous idempotency keys",
+                    "cv_term": "Deduplicated API requests",
+                    "replacement_guidance": "Use standard fintech terminology: 'Idempotency key management with Redis distributed locks'.",
+                },
+            ],
+            "impact_reframing": [
+                {
+                    "bullet_point": "Scaled payment settlement pipelines to 45,000 req/sec at CloudTech.",
+                    "suggested_rewrite": "Architected zero-downtime distributed payment settlement engine handling 45k req/sec with 99.999% SLA across multi-region PostgreSQL clusters.",
+                    "reason": "Emphasizes reliability SLAs and distributed database resilience required for Stripe's tier-1 payment services.",
+                }
+            ],
+            "structural_adjustments": [
+                "Elevate the CloudTech payment settlement section to the top of the Experience section.",
+                "Group Kafka, Redis, and PostgreSQL under a dedicated 'Distributed Data Primitives' skill category.",
+            ],
+        },
+        "matching_skills": [
+            "Python",
+            "FastAPI",
+            "PostgreSQL",
+            "Distributed Systems",
+            "Kafka",
+            "Redis",
+            "Docker",
+            "Kubernetes",
+            "AWS",
+            "System Design",
+        ],
+        "missing_skills": ["ISO 20022", "Financial Ledger Auditing"],
+        "pros": [
+            "Industry-leading compensation package ($195k-$245k + top-tier equity)",
+            "World-class distributed systems engineering culture and tooling",
+            "High leverage and direct business impact on global commerce",
+        ],
+        "cons": [
+            "High-stakes on-call rotation with strict latency SLAs",
+            "High technical complexity across cross-border acquiring networks",
+        ],
+        "salary_min": 195000.0,
+        "salary_max": 245000.0,
+        "currency": "USD",
+        "location": "Remote (North America / Europe)",
+        "work_model": "Remote",
+        "recommendation": "APPLY_STRONGLY",
+        "summary": "Outstanding candidate-job match. Highly recommended to pursue through immediate recruiter interview scheduling.",
+    }
+
+
+def build_linear_dossier() -> dict:
+    return {
+        "company": "Linear",
+        "position": "Staff Systems & Sync Engineer",
+        "fit_score": 89,
+        "programmatic_match_score": 85,
+        "fit_tier": "STRONG_MATCH",
+        "match_summary": (
+            "Strong match across distributed state synchronization, PostgreSQL performance, and real-time backend architecture. "
+            "Candidate's deep systems background directly translates to local-first client sync."
+        ),
+        "hard_matches": {
+            "keyword_match_rate": "8/10 core skills found",
+            "top_alignment": [
+                "Distributed Systems & State Synchronization",
+                "PostgreSQL Performance & Index Tuning",
+                "TypeScript / Node.js High-Concurrency Backends",
+            ],
+        },
+        "optimization_gaps": {
+            "missing_completely": ["CRDT implementation experience in production"],
+            "vocabulary_mismatches": [
+                "Real-time sync (used 'event streaming' vs 'delta-based state reconciliation')"
+            ],
+            "experience_mismatch": None,
+        },
+        "tailoring_strategy": {
+            "vocabulary_translation": [
+                {
+                    "jd_term": "Local-first client state sync",
+                    "cv_term": "Optimistic UI and real-time backend events",
+                    "replacement_guidance": "Frame experience around offline delta sync protocols and conflict resolution algorithms.",
+                }
+            ],
+            "impact_reframing": [
+                {
+                    "bullet_point": "Built async ingestion engines and PostgreSQL partitioned storage at DataSphere.",
+                    "suggested_rewrite": "Engineered low-latency async state synchronization engine utilizing PostgreSQL JSONB and WebSocket subscriptions, reducing client round-trip latency to <15ms.",
+                    "reason": "Highlights speed and latency metrics that align directly with Linear's brand of instantaneous responsiveness.",
+                }
+            ],
+            "structural_adjustments": [
+                "Add a 'Sync & Concurrency Patterns' bullet point to the core competencies summary.",
+            ],
+        },
+        "matching_skills": [
+            "TypeScript",
+            "PostgreSQL",
+            "Distributed Systems",
+            "Redis",
+            "System Design",
+            "Docker",
+        ],
+        "missing_skills": ["CRDTs", "SQLite/Wasm Client Storage"],
+        "pros": [
+            "Exceptionally high product quality standard and engineering autonomy",
+            "Pure remote-first work culture with low meeting overhead",
+            "Competitive staff-level compensation ($210k - $275k)",
+        ],
+        "cons": [
+            "Small team requiring strong cross-functional ownership from protocol to UI",
+        ],
+        "salary_min": 210000.0,
+        "salary_max": 275000.0,
+        "currency": "USD",
+        "location": "Remote (Global)",
+        "work_model": "Remote",
+        "recommendation": "APPLY_STRONGLY",
+        "summary": "Excellent fit for Staff Systems role. Technical interview preparation should focus on synchronization architecture.",
+    }
+
+
+def build_figma_dossier() -> dict:
+    return {
+        "company": "Figma",
+        "position": "Principal Platform Engineer",
+        "fit_score": 86,
+        "programmatic_match_score": 80,
+        "fit_tier": "STRONG_MATCH",
+        "match_summary": (
+            "Strong platform match with deep Kubernetes, distributed compute, and systems expertise. "
+            "Candidate has extensive scale experience to support Figma multiplayer canvas infrastructure."
+        ),
+        "hard_matches": {
+            "keyword_match_rate": "8/10 core skills found",
+            "top_alignment": [
+                "Cloud-Native Kubernetes & Platform Engineering",
+                "High-Concurrency Go and Systems Architecture",
+                "Multi-Tenant Distributed Compute Clustering",
+            ],
+        },
+        "optimization_gaps": {
+            "missing_completely": ["C++ Canvas Engine Rendering"],
+            "vocabulary_mismatches": ["Rust/WASM runtime bridge"],
+            "experience_mismatch": None,
+        },
+        "tailoring_strategy": {
+            "vocabulary_translation": [
+                {
+                    "jd_term": "Multiplayer state synchronization",
+                    "cv_term": "Distributed consensus and stream processing",
+                    "replacement_guidance": "Frame data streams as real-time collaborative document mutations.",
+                }
+            ],
+            "impact_reframing": [
+                {
+                    "bullet_point": "Managed platform infrastructure across multi-region Kubernetes clusters.",
+                    "suggested_rewrite": "Architected resilient multi-cluster Kubernetes platform supporting 10M+ daily active sessions with automated traffic failover and zero packet loss.",
+                    "reason": "Demonstrates the massive scale demanded by Figma's global collaborative user base.",
+                }
+            ],
+            "structural_adjustments": [
+                "Highlight Go, Kubernetes, and WebAssembly in the top technical summary.",
+            ],
+        },
+        "matching_skills": [
+            "Go",
+            "Kubernetes",
+            "Distributed Systems",
+            "AWS",
+            "Docker",
+            "PostgreSQL",
+        ],
+        "missing_skills": ["Rust WebAssembly Compilation", "C++"],
+        "pros": [
+            "Lucrative offer package ($285k base + $140k/yr equity)",
+            "Industry-defining collaborative creative suite platform",
+            "High-caliber platform engineering organization",
+        ],
+        "cons": [
+            "Complex legacy C++ engine interfaces alongside modern Rust/WASM stacks",
+        ],
+        "salary_min": 240000.0,
+        "salary_max": 310000.0,
+        "currency": "USD",
+        "location": "San Francisco, CA / Remote",
+        "work_model": "Hybrid",
+        "recommendation": "APPLY_STRONGLY",
+        "summary": "Outstanding offer secured. Evaluation shows strong technical alignment and compelling career growth.",
+    }
+
+
+def build_datadog_dossier() -> dict:
+    return {
+        "company": "Datadog",
+        "position": "Senior Software Engineer - Distributed Tracing",
+        "fit_score": 84,
+        "programmatic_match_score": 82,
+        "fit_tier": "STRONG_MATCH",
+        "match_summary": (
+            "Solid match for APM ingest and distributed tracing pipelines. "
+            "Candidate's Go/Python streaming background aligns with high-scale telemetry ingestion."
+        ),
+        "hard_matches": {
+            "keyword_match_rate": "8/10 core skills found",
+            "top_alignment": [
+                "Go & Python High-Performance Backends",
+                "Kafka High-Throughput Ingestion Pipelines",
+                "Distributed Systems Reliability",
+            ],
+        },
+        "optimization_gaps": {
+            "missing_completely": ["eBPF kernel telemetry probing"],
+            "vocabulary_mismatches": ["OpenTelemetry span instrumentation"],
+            "experience_mismatch": None,
+        },
+        "tailoring_strategy": {
+            "vocabulary_translation": [
+                {
+                    "jd_term": "Distributed trace propagation",
+                    "cv_term": "Correlation ID request tracing",
+                    "replacement_guidance": "Use W3C Trace Context and OpenTelemetry terminology.",
+                }
+            ],
+            "impact_reframing": [],
+            "structural_adjustments": [],
+        },
+        "matching_skills": [
+            "Go",
+            "Python",
+            "Kafka",
+            "Redis",
+            "Distributed Systems",
+            "Kubernetes",
+        ],
+        "missing_skills": ["eBPF", "OpenTelemetry SDK internals"],
+        "pros": [
+            "Market leader in cloud observability with massive dataset scale",
+            "Strong engineering focus on low-level Linux and memory efficiency",
+        ],
+        "cons": [
+            "Heavy operational footprint and continuous telemetry data pressure",
+        ],
+        "salary_min": 185000.0,
+        "salary_max": 235000.0,
+        "currency": "USD",
+        "location": "New York, NY / Remote",
+        "work_model": "Hybrid",
+        "recommendation": "APPLY",
+        "summary": "High alignment on backend ingest pipelines. Online assessment sent to evaluate algorithms and concurrency.",
+    }
+
+
+def build_airbnb_dossier() -> dict:
+    return {
+        "company": "Airbnb",
+        "position": "Senior Platform Engineer",
+        "fit_score": 78,
+        "programmatic_match_score": 75,
+        "fit_tier": "MODERATE_MATCH",
+        "match_summary": (
+            "Good core platform background, but role requires heavy JVM/Java ecosystem experience "
+            "which is a slight delta from candidate's Python/Go focus."
+        ),
+        "hard_matches": {
+            "keyword_match_rate": "6/10 core skills found",
+            "top_alignment": [
+                "Kubernetes & Cloud Infrastructure Platform",
+                "AWS Infrastructure as Code & Terraform",
+            ],
+        },
+        "optimization_gaps": {
+            "missing_completely": ["Java / Spring Boot Microservices Platform"],
+            "vocabulary_mismatches": [],
+            "experience_mismatch": "Position prioritized internal JVM platform specialists",
+        },
+        "tailoring_strategy": {
+            "vocabulary_translation": [],
+            "impact_reframing": [],
+            "structural_adjustments": [],
+        },
+        "matching_skills": [
+            "Kubernetes",
+            "AWS",
+            "Docker",
+            "Distributed Systems",
+        ],
+        "missing_skills": ["Java", "Spring Boot", "Spinnaker"],
+        "pros": ["Strong brand, generous travel benefits"],
+        "cons": ["Heavy legacy JVM platform stack"],
+        "salary_min": 190000.0,
+        "salary_max": 240000.0,
+        "currency": "USD",
+        "location": "San Francisco, CA / Remote",
+        "work_model": "Remote",
+        "recommendation": "CAUTION",
+        "summary": "Application closed following internal candidate selection.",
+    }
+
+
 async def is_database_empty(session: AsyncSession) -> bool:
     """Checks if the database has zero applications and companies."""
     count_apps = (
@@ -37,13 +372,13 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
     """
     Populates a rich, multi-domain mock development dataset covering all application features:
     - 1 Active Candidate CV Profile
-    - 5 Companies & Applications with diverse recruitment statuses
+    - 5 Companies & Applications with diverse statuses and full candidate dossiers
     - 5 Linked Job Postings with salaries, skills, and descriptions
     - 9 Timeline Application Events
-    - 4 Action Items with varying urgencies and deadlines
+    - 5 Action Items with varying urgencies and deadlines
     - 3 Non-Job 'Other' Recruitment & Tech Events
     - 3 Ambiguous Staging Queue Leads for triage
-    - 3 Persisted Intake AI Evaluation Tasks
+    - 3 Persisted Intake AI Evaluation Tasks with complete dossier results
     - 3 AI Providers & default Task Bindings
     - 2 Connected Email Accounts
 
@@ -122,13 +457,12 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
     stats["candidate_cvs"] = 1
 
     # -------------------------------------------------------------------------
-    # 2. Companies & Applications
+    # 2. Companies & Applications (with Match Analysis Dossiers)
     # -------------------------------------------------------------------------
 
     # --- Company 1: Stripe (Status: APPLIED) ---
-    stripe = CompanyModel(
-        name="Stripe", name_normalized="stripe", domain="stripe.com"
-    )
+    stripe_dossier = build_stripe_dossier()
+    stripe = CompanyModel(name="Stripe", name_normalized="stripe", domain="stripe.com")
     session.add(stripe)
     await session.flush()
 
@@ -141,6 +475,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         status="APPLIED",
         application_date=now - timedelta(days=4),
         last_activity_at=now - timedelta(days=1),
+        match_analysis_payload=stripe_dossier,
     )
     session.add(app_stripe)
     await session.flush()
@@ -220,9 +555,8 @@ Stripe is looking for a Senior Backend Engineer to join our Core Payments Infras
     session.add(action_stripe)
 
     # --- Company 2: Linear (Status: TECHNICAL_INTERVIEW) ---
-    linear = CompanyModel(
-        name="Linear", name_normalized="linear", domain="linear.app"
-    )
+    linear_dossier = build_linear_dossier()
+    linear = CompanyModel(name="Linear", name_normalized="linear", domain="linear.app")
     session.add(linear)
     await session.flush()
 
@@ -254,6 +588,7 @@ Stripe is looking for a Senior Backend Engineer to join our Core Payments Infras
         last_activity_at=now - timedelta(hours=14),
         interview_guide_html=guide_html,
         interview_guide_generated_at=now - timedelta(hours=10),
+        match_analysis_payload=linear_dossier,
     )
     session.add(app_linear)
     await session.flush()
@@ -330,6 +665,7 @@ Linear is building the future of software project management with instantaneous 
     session.add(action_linear)
 
     # --- Company 3: Figma (Status: OFFER) ---
+    figma_dossier = build_figma_dossier()
     figma = CompanyModel(name="Figma", name_normalized="figma", domain="figma.com")
     session.add(figma)
     await session.flush()
@@ -343,6 +679,7 @@ Linear is building the future of software project management with instantaneous 
         status="OFFER",
         application_date=now - timedelta(days=25),
         last_activity_at=now - timedelta(hours=6),
+        match_analysis_payload=figma_dossier,
     )
     session.add(app_figma)
     await session.flush()
@@ -414,6 +751,7 @@ Help Figma scale multiplayer collaborative canvas technology to hundreds of mill
     session.add(action_figma)
 
     # --- Company 4: Datadog (Status: ONLINE_ASSESSMENT) ---
+    datadog_dossier = build_datadog_dossier()
     datadog = CompanyModel(
         name="Datadog", name_normalized="datadog", domain="datadoghq.com"
     )
@@ -429,6 +767,7 @@ Help Figma scale multiplayer collaborative canvas technology to hundreds of mill
         status="ONLINE_ASSESSMENT",
         application_date=now - timedelta(days=5),
         last_activity_at=now - timedelta(days=2),
+        match_analysis_payload=datadog_dossier,
     )
     session.add(app_datadog)
     await session.flush()
@@ -488,9 +827,8 @@ Datadog is looking for a Senior Software Engineer to build high-scale APM ingest
     session.add(action_datadog)
 
     # --- Company 5: Airbnb (Status: REJECTED) ---
-    airbnb = CompanyModel(
-        name="Airbnb", name_normalized="airbnb", domain="airbnb.com"
-    )
+    airbnb_dossier = build_airbnb_dossier()
+    airbnb = CompanyModel(name="Airbnb", name_normalized="airbnb", domain="airbnb.com")
     session.add(airbnb)
     await session.flush()
 
@@ -503,6 +841,7 @@ Datadog is looking for a Senior Software Engineer to build high-scale APM ingest
         status="REJECTED",
         application_date=now - timedelta(days=20),
         last_activity_at=now - timedelta(days=6),
+        match_analysis_payload=airbnb_dossier,
     )
     session.add(app_airbnb)
     await session.flush()
@@ -654,7 +993,7 @@ Datadog is looking for a Senior Software Engineer to build high-scale APM ingest
     stats["staging_items"] = 3
 
     # -------------------------------------------------------------------------
-    # 5. Intake Evaluation Tasks (Persisted AI Queue)
+    # 5. Intake Evaluation Tasks (Persisted AI Queue with Dossier Results)
     # -------------------------------------------------------------------------
     task_1 = IntakeEvaluationTaskModel(
         task_type="JOB_ASSESSMENT",
@@ -662,25 +1001,7 @@ Datadog is looking for a Senior Software Engineer to build high-scale APM ingest
         title_hint="Stripe - Senior Backend Engineer",
         status="COMPLETED",
         stage="COMPLETE",
-        result_json={
-            "company": "Stripe",
-            "position": "Senior Backend Engineer - Global Payments",
-            "fit_score": 92,
-            "programmatic_match_score": 88,
-            "fit_tier": "STRONG_MATCH",
-            "match_summary": "Exceptional fit with candidate's 8+ years of Python, PostgreSQL, and distributed financial architecture.",
-            "salary_range": "$195,000 - $245,000 USD",
-            "location_type": "Remote",
-            "key_requirements_met": [
-                "Python & FastAPI proficiency",
-                "PostgreSQL transaction optimization",
-                "Kafka event streaming architecture",
-                "High-throughput transactional API design",
-            ],
-            "potential_gaps": [
-                "Prior direct experience with multi-currency banking rails"
-            ],
-        },
+        result_json=stripe_dossier,
         created_at=now - timedelta(days=4),
         completed_at=now - timedelta(days=4, minutes=-2),
     )
@@ -690,21 +1011,7 @@ Datadog is looking for a Senior Software Engineer to build high-scale APM ingest
         title_hint="Linear - Staff Systems & Sync Engineer",
         status="COMPLETED",
         stage="COMPLETE",
-        result_json={
-            "company": "Linear",
-            "position": "Staff Systems & Sync Engineer",
-            "fit_score": 88,
-            "programmatic_match_score": 85,
-            "fit_tier": "STRONG_MATCH",
-            "match_summary": "Strong alignment in distributed synchronization and real-time state management.",
-            "salary_range": "$210,000 - $275,000 USD",
-            "location_type": "Remote",
-            "key_requirements_met": [
-                "TypeScript & Node.js backend systems",
-                "PostgreSQL performance & GiST indexing",
-                "Redis pub/sub & low-latency caching",
-            ],
-        },
+        result_json=linear_dossier,
         created_at=now - timedelta(days=12),
         completed_at=now - timedelta(days=12, minutes=-3),
     )
@@ -826,9 +1133,7 @@ async def maybe_seed_dev_data(session_factory) -> bool:
     async with session_factory() as session:
         empty = await is_database_empty(session)
         if not empty:
-            logger.info(
-                "Database already contains data. Skipping initial mock seed."
-            )
+            logger.info("Database already contains data. Skipping initial mock seed.")
             return False
 
         logger.info(
