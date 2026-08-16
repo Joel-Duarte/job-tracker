@@ -44,8 +44,9 @@ async def test_scrape_via_camofox_success():
         # Mock /tabs/open
         open_resp = httpx.Response(200, json={"ok": True, "tabId": "tab-1234"})
         # Mock /tabs/tab-1234/evaluate
+        expand_resp = httpx.Response(200, json={"ok": True, "result": "true"})
         eval_resp = httpx.Response(200, json={"ok": True, "result": fake_eval_payload})
-        mock_post.side_effect = [open_resp, eval_resp]
+        mock_post.side_effect = [open_resp, expand_resp, eval_resp]
 
         # Mock DELETE /tabs/tab-1234
         mock_delete.return_value = httpx.Response(200, json={"ok": True})
