@@ -627,7 +627,7 @@ onUnmounted(() => {
               >
                 <Loader2 v-if="processingTaskIds.has(task.id)" class="animate-spin" :size="14" />
                 <ArrowRight v-else :size="14" />
-                <span>Mark as Applied &rarr;</span>
+                <span>Mark as Applied</span>
               </button>
             </div>
           </div>

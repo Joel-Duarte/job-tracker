@@ -229,7 +229,7 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
         if not task or task.status == "CANCELLED":
             return
         task.status = "PROCESSING"
-        task.stage = "FETCHING"
+        task.stage = "SCRUBBING" if task.task_type == "CV_EXTRACTION" else "FETCHING"
         await db.commit()
         await _execute_evaluation_steps(task, db)
         return
@@ -239,8 +239,8 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
         res = await session.execute(stmt)
         task = res.scalar_one_or_none()
 
-        if not task:
-            logger.warning("Intake task %d not found for processing", task_id)
+        if not task or task.status == "CANCELLED":
+            logger.warning("Intake task %d not found or cancelled", task_id)
             return
 
         # 1. Resolve Provider and Concurrency Limit for EXTRACTION / AGENT_REASONING
@@ -257,14 +257,15 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
         provider_id = row[1].id if row else None
         max_concurrency = row[1].max_concurrency if row else 1
 
-        task.status = "PROCESSING"
-        task.stage = "FETCHING"
-        await session.commit()
-
     # 2. Acquire Provider Semaphore to prevent local VRAM thrashing
     async with concurrency_manager.acquire(provider_id, max_concurrency):
         async with AsyncSessionLocal() as session:
             task = await session.get(IntakeEvaluationTaskModel, task_id)
             if not task or task.status == "CANCELLED":
                 return
+
+            task.status = "PROCESSING"
+            task.stage = "SCRUBBING" if task.task_type == "CV_EXTRACTION" else "FETCHING"
+            await session.commit()
+
             await _execute_evaluation_steps(task, session)

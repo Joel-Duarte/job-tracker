@@ -371,17 +371,43 @@ async def async_enqueue_application_embedding(
 ) -> None:
     """
     Non-blocking background worker task to generate and save application vector embeddings.
-    Uses an isolated AsyncSessionLocal so that it can run safely in BackgroundTasks without blocking HTTP response.
+    Uses an isolated AsyncSessionLocal and ProviderConcurrencyManager so that local/cloud providers
+    never get overwhelmed or have in-flight LLM requests interrupted.
     """
     from app.core.database import AsyncSessionLocal
+    from app.core.ai_queue import concurrency_manager
+    from app.models.ai_providers import AITaskBindingModel, AIProviderModel
+
+    provider_id = None
+    max_concurrency = 1
 
     async with AsyncSessionLocal() as session:
         try:
-            await generate_and_save_application_embedding(
-                session,
-                application_id=application_id,
-                skip_llm_summary=skip_llm_summary,
+            binding_stmt = (
+                select(AITaskBindingModel, AIProviderModel)
+                .join(AIProviderModel, AITaskBindingModel.provider_id == AIProviderModel.id)
+                .where(
+                    AITaskBindingModel.task_type == "EMBEDDING",
+                    AITaskBindingModel.is_active == True,
+                    AIProviderModel.is_active == True,
+                )
             )
-            logger.info("Background vector embedding updated for Application ID %d", application_id)
+            binding_res = await session.execute(binding_stmt)
+            row = binding_res.first()
+            if row:
+                provider_id = row[1].id
+                max_concurrency = row[1].max_concurrency or 1
         except Exception as err:
-            logger.warning("Background vector embedding failed for Application ID %d: %s", application_id, err)
+            logger.debug("Could not resolve EMBEDDING provider binding: %s", err)
+
+    async with concurrency_manager.acquire(provider_id, max_concurrency):
+        async with AsyncSessionLocal() as session:
+            try:
+                await generate_and_save_application_embedding(
+                    session,
+                    application_id=application_id,
+                    skip_llm_summary=skip_llm_summary,
+                )
+                logger.info("Background vector embedding updated for Application ID %d", application_id)
+            except Exception as err:
+                logger.warning("Background vector embedding failed for Application ID %d: %s", application_id, err)

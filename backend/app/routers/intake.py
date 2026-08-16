@@ -367,6 +367,7 @@ async def assess_job_lead(
 @router.post("/confirm-assessment", response_model=IntakeResultResponse, status_code=status.HTTP_200_OK)
 async def confirm_job_assessment(
     payload: ConfirmAssessmentRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> IntakeResultResponse:
     """Commits an assessed job lead to the application pipeline in ASSESSMENT or APPLIED status."""
@@ -464,12 +465,10 @@ async def confirm_job_assessment(
     await db.refresh(app_record)
     await db.refresh(event)
 
-    # 5. Generate Vector Embedding (Deferred if still in ASSESSMENT stage)
+    # 5. Generate Vector Embedding in isolated background task (Deferred if still in ASSESSMENT stage)
     if app_record.status != "ASSESSMENT":
-        try:
-            await generate_and_save_application_embedding(db, app_record.id, skip_llm_summary=True)
-        except Exception as err:
-            logger.warning("Vector embedding generation deferred: %s", err)
+        from app.services.llm import async_enqueue_application_embedding
+        background_tasks.add_task(async_enqueue_application_embedding, app_record.id, skip_llm_summary=True)
 
     return IntakeResultResponse(
         status="success",
