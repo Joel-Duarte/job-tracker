@@ -1,9 +1,8 @@
 from contextlib import asynccontextmanager
 import logging
-from fastapi import Depends, FastAPI, Response, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import FastAPI, Response, status
 
-from app.core.database import check_db_connection, ensure_db_schema, get_db
+from app.core.database import check_db_connection, ensure_db_schema
 from app.routers import (
     action_items,
     admin,
@@ -38,6 +37,12 @@ async def lifespan(app: FastAPI):
         
         # Verify schema exists or create tables and indexes
         await ensure_db_schema()
+
+        # Initialize the checkpointer pool and tables
+        from app.core.database import checkpointer_pool, postgres_saver
+        logger.info("Opening LangGraph checkpointer pool...")
+        await checkpointer_pool.open()
+        await postgres_saver.setup()
     else:
         print("\n==================================================")
         print(" ERROR: Could not connect to the database!")
@@ -47,8 +52,9 @@ async def lifespan(app: FastAPI):
     yield
     # Executed on shutdown
     logger.info("Shutting down application and disposing connection pools...")
-    from app.core.database import engine
+    from app.core.database import engine, checkpointer_pool
     await engine.dispose()
+    await checkpointer_pool.close()
 
 
 app = FastAPI(

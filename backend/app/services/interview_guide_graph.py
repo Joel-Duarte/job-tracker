@@ -193,7 +193,8 @@ def build_interview_guide_graph():
         END: END,
     })
 
-    return workflow.compile()
+    from app.core.database import postgres_saver
+    return workflow.compile(checkpointer=postgres_saver)
 
 
 interview_guide_graph = build_interview_guide_graph()

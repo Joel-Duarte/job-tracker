@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.database import get_db
-from app.models.applications import ActionItemModel, ApplicationEventModel, ApplicationModel, CompanyModel
+from app.models.applications import ActionItemModel, ApplicationEventModel, ApplicationModel
 from app.schemas.action_items import (
     ActionItemCreate,
     ActionItemListResponse,

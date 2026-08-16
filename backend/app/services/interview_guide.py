@@ -1,6 +1,5 @@
 import logging
 from datetime import datetime, timezone
-from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -108,7 +107,7 @@ async def generate_interview_guide(
 
     final_state = await interview_guide_graph.ainvoke(
         initial_state,
-        config={"recursion_limit": recursion_limit},
+        config={"recursion_limit": recursion_limit, "configurable": {"thread_id": str(application_id)}},
     )
 
     completed_sections = final_state.get("completed_sections", [])

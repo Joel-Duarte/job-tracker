@@ -62,7 +62,8 @@ def build_intake_graph():
     builder.add_conditional_edges("db_commit", route_after_commit)
     builder.add_edge("summarize_embed", END)
 
-    return builder.compile()
+    from app.core.database import postgres_saver
+    return builder.compile(checkpointer=postgres_saver)
 
 
 intake_graph = build_intake_graph()

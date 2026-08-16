@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 import email
 from email.header import decode_header
 import imaplib

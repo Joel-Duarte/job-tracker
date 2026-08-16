@@ -13,13 +13,12 @@ from fastapi import (
     UploadFile,
     status,
 )
-import httpx
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.database import AsyncSessionLocal, get_db
+from app.core.database import get_db
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
@@ -32,7 +31,6 @@ from app.schemas.intake import (
     AssessJobRequest,
     ConfirmAssessmentRequest,
     DirectEmailIntakeRequest,
-    EmailBatchIntakeRequest,
     EmailPayload,
     IntakeResultResponse,
     PasteIntakeRequest,
@@ -44,7 +42,7 @@ from app.services.intake import (
     process_email_batch_sequential,
     process_single_email_graph,
 )
-from app.services.llm import assess_job_posting, generate_and_save_application_embedding
+from app.services.llm import assess_job_posting
 from app.services.scraper import scrape_job_url
 from app.services.task_tracker import task_tracker
 
@@ -287,7 +285,8 @@ async def intake_pasted_text(
         body=raw_text,
     )
 
-    result = await process_single_email_graph(db, email_payload)
+    task_id = str(uuid.uuid4())
+    result = await process_single_email_graph(db, email_payload, task_id)
     return _format_graph_result(result)
 
 
@@ -317,7 +316,8 @@ async def intake_uploaded_files(
                 continue
 
             email_payload = parse_uploaded_file(filename, content)
-            graph_res = await process_single_email_graph(db, email_payload)
+            task_id = str(uuid.uuid4())
+            graph_res = await process_single_email_graph(db, email_payload, task_id)
             results.append(_format_graph_result(graph_res))
         except Exception as err:
             logger.error(

@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 import logging
 from typing import List, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
@@ -31,7 +31,7 @@ from app.schemas.applications import (
     JobPostingDetail,
 )
 from app.services.interview_guide import clear_interview_guide, generate_interview_guide
-from app.services.llm import async_enqueue_application_embedding, generate_and_save_application_embedding
+from app.services.llm import async_enqueue_application_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ async def list_applications(
     if action_required is not None:
         event_subq = (
             select(ApplicationEventModel.email_application_id)
-            .where(ApplicationEventModel.email_action_required == True)
+            .where(ApplicationEventModel.email_action_required)
         )
         action_item_subq = (
             select(ActionItemModel.application_id)

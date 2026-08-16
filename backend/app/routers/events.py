@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,7 +46,7 @@ async def list_action_required_events(db: AsyncSession = Depends(get_db)):
         select(ApplicationEventModel, ApplicationModel, CompanyModel)
         .join(ApplicationModel, ApplicationEventModel.email_application_id == ApplicationModel.id)
         .join(CompanyModel, ApplicationModel.company_id == CompanyModel.id)
-        .where(ApplicationEventModel.email_action_required == True)
+        .where(ApplicationEventModel.email_action_required)
         .order_by(ApplicationEventModel.email_received_at.desc())
     )
     app_result = await db.execute(app_stmt)
@@ -67,7 +67,7 @@ async def list_action_required_events(db: AsyncSession = Depends(get_db)):
     # 2. Fetch pending other events
     other_stmt = (
         select(OtherEventModel)
-        .where(OtherEventModel.action_required == True)
+        .where(OtherEventModel.action_required)
         .order_by(OtherEventModel.email_received_at.desc())
     )
     other_result = await db.execute(other_stmt)

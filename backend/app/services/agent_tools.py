@@ -1,10 +1,10 @@
 import logging
-from typing import Any, List, Optional
+from typing import Any, Optional
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload
-from langchain_core.tools import tool, StructuredTool
+from langchain_core.tools import StructuredTool
 
 from app.models.applications import (
     ApplicationModel,

@@ -8,8 +8,6 @@ from sqlalchemy.orm import selectinload
 
 from app.core.llm_factory import (
     get_active_llm_config_dict,
-    get_chat_model,
-    get_embeddings_model,
     get_task_chat_model,
     get_task_embeddings_model,
 )
@@ -389,8 +387,8 @@ async def async_enqueue_application_embedding(
                 .join(AIProviderModel, AITaskBindingModel.provider_id == AIProviderModel.id)
                 .where(
                     AITaskBindingModel.task_type == "EMBEDDING",
-                    AITaskBindingModel.is_active == True,
-                    AIProviderModel.is_active == True,
+                    AITaskBindingModel.is_active,
+                    AIProviderModel.is_active,
                 )
             )
             binding_res = await session.execute(binding_stmt)

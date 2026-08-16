@@ -3,9 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.graph_state import JobTrackerState
 from app.schemas.intake import EmailPayload
-from app.services.graph_nodes import is_email_already_processed
 from app.services.intake_graph import intake_graph
-from app.services.llm import extract_email_info
 from app.services.task_tracker import task_tracker
 
 logger = logging.getLogger(__name__)
@@ -14,6 +12,7 @@ logger = logging.getLogger(__name__)
 async def process_single_email_graph(
     db: AsyncSession,
     email: EmailPayload,
+    task_id: str,
 ) -> JobTrackerState:
     """Executes the LangGraph StateGraph pipeline for a single email payload."""
     received_at_str = (
@@ -24,8 +23,10 @@ async def process_single_email_graph(
         else None
     )
 
+    message_id = getattr(email, "message_id", None)
+
     state_input: JobTrackerState = {
-        "message_id": getattr(email, "message_id", None),
+        "message_id": message_id,
         "conversation_id": email.conversation_id,
         "sender": getattr(email, "sender", None),
         "subject": email.subject,
@@ -33,9 +34,12 @@ async def process_single_email_graph(
         "received_at": received_at_str,
     }
 
+    # Use a combined thread_id so each email gets a unique pipeline checkpoint thread
+    thread_id = f"{task_id}_{message_id}" if message_id else task_id
+
     result = await intake_graph.ainvoke(
         state_input,
-        config={"configurable": {"db": db}},
+        config={"configurable": {"db": db, "thread_id": thread_id}},
     )
     return result
 
@@ -54,7 +58,7 @@ async def process_email_batch_sequential(
         )
 
         try:
-            result = await process_single_email_graph(db, email)
+            result = await process_single_email_graph(db, email, task_id)
 
             if result.get("is_duplicate"):
                 logger.info("Skipped duplicate email: '%s'", email.subject)

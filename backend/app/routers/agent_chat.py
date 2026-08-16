@@ -1,7 +1,7 @@
 import json
 import logging
-from typing import Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Any, List
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage

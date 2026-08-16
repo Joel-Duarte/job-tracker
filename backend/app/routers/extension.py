@@ -2,10 +2,8 @@ from datetime import datetime, timezone
 import hashlib
 import logging
 import re
-from typing import Any
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status
-import httpx
+from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,7 +65,10 @@ async def clip_job_url(
         body=page_text[:15000],  # Guard token length
     )
 
-    graph_res = await process_single_email_graph(db, email_payload)
+    # For ad-hoc extension submissions, generate a simple uuid task_id
+    task_id = str(uuid.uuid4())
+
+    graph_res = await process_single_email_graph(db, email_payload, task_id)
 
     if graph_res.get("staging_item_id"):
         return ExtensionClipResponse(

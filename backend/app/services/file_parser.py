@@ -5,7 +5,6 @@ from email.utils import parsedate_to_datetime
 import hashlib
 import io
 import logging
-from typing import Any
 import uuid
 
 from app.schemas.intake import EmailPayload
@@ -40,7 +39,7 @@ def parse_eml(content: bytes) -> EmailPayload:
     msg = email.message_from_bytes(content, policy=policy.default)
 
     subject = msg.get("Subject", "No Subject").strip()
-    sender = msg.get("From", "").strip()
+    msg.get("From", "").strip()
     message_id = msg.get("Message-ID", f"eml-{uuid.uuid4().hex[:12]}").strip()
     conversation_id = msg.get("Thread-Topic") or msg.get("In-Reply-To") or message_id
 

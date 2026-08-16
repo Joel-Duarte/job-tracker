@@ -5,6 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.config import settings
 from app.models.applications import Base
 
+from psycopg_pool import AsyncConnectionPool
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
 logger = logging.getLogger(__name__)
 
 engine = create_async_engine(
@@ -20,6 +23,38 @@ AsyncSessionLocal = async_sessionmaker(
     autocommit=False,
     autoflush=False,
 )
+
+# Setup Postgres checkpointer for LangGraph
+db_url = settings.get_database_url().replace("+asyncpg", "")
+
+checkpointer_pool = AsyncConnectionPool(
+    conninfo=db_url,
+    max_size=10,
+    kwargs={"autocommit": True, "prepare_threshold": 0},
+    open=False  # Do not open immediately, wait for async loop
+)
+
+class LazyAsyncPostgresSaver(AsyncPostgresSaver):
+    def __init__(self, pool):
+        # We delay init because AsyncPostgresSaver calls asyncio.get_running_loop() which fails on import
+        self.conn = pool
+        self.is_setup = False
+        self._lock = None
+
+    @property
+    def lock(self):
+        import asyncio
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
+
+    async def setup(self) -> None:
+        import asyncio
+        if not hasattr(self, 'loop') or self.loop is None:
+            self.loop = asyncio.get_running_loop()
+        await super().setup()
+
+postgres_saver = LazyAsyncPostgresSaver(checkpointer_pool)
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
