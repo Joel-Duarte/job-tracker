@@ -1,9 +1,9 @@
 from contextlib import asynccontextmanager
 import logging
-from fastapi import Depends, FastAPI, Response, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import FastAPI, Response, status
 
-from app.core.database import check_db_connection, ensure_db_schema, get_db
+from app.core.database import check_db_connection, ensure_db_schema
+from app.services.mcp_server import mcp_server
 from app.routers import (
     action_items,
     admin,
@@ -56,6 +56,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Mount MCP Server app
+app.mount("/mcp", mcp_server.sse_app(sse_path="/sse", message_path="/messages/"))
 
 # Register routers
 app.include_router(intake.router, prefix="/api/v1")

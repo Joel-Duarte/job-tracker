@@ -1,5 +1,3 @@
-import asyncio
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -9,7 +7,7 @@ from app.core.ai_queue import ProviderConcurrencyManager
 from app.core.database import get_db
 from app.main import app
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
-from app.models.applications import ApplicationEventModel, ApplicationModel, CompanyModel, JobPostingModel
+from app.models.applications import ApplicationModel, CompanyModel, JobPostingModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.models.staging import StagingItemModel
 from app.schemas.llm import ExtractedJobSpec, JobAssessmentResult
@@ -260,7 +258,7 @@ async def test_retry_evaluation_task(db_session: AsyncSession):
     await db_session.refresh(task)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        with patch("app.routers.intake.process_evaluation_task") as mock_proc:
+        with patch("app.routers.intake.process_evaluation_task"):
             res = await ac.post(f"/api/v1/intake/evaluations/{task.id}/retry")
             assert res.status_code == 200
             data = res.json()

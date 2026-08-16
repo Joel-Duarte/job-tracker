@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.config import settings
+from app.core.mcp_context import mcp_session_var
+from app.core.mcp_chat_model import MCPChatModel
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +104,10 @@ async def get_chat_model(
     **override_kwargs: Any,
 ) -> BaseChatModel:
     """Fallback initialization of LangChain BaseChatModel from legacy/env config."""
+    # If we are currently running within an MCP session, use the MCP client as provider.
+    if mcp_session_var.get() is not None:
+        return MCPChatModel()
+
     cfg = await get_active_llm_config_dict(db)
 
     provider = _resolve_provider(cfg.get("provider_name"))
@@ -172,6 +178,10 @@ async def get_task_chat_model(
     Dynamically loads and initializes a LangChain BaseChatModel based on task binding configuration.
     Cascades gracefully to legacy/env config if task binding is not configured.
     """
+    # If we are currently running within an MCP session, use the MCP client as provider.
+    if mcp_session_var.get() is not None:
+        return MCPChatModel()
+
     if db is not None:
         try:
             from app.models.ai_providers import AITaskBindingModel
