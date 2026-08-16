@@ -39,7 +39,6 @@ import {
   Archive,
   RotateCcw,
   CheckSquare,
-  BookOpen,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -54,7 +53,6 @@ const searchQuery = ref('')
 const minFitFilter = ref(null) // null or number (40, 60, 80)
 const sortBy = ref('match_score') // 'match_score' | 'date_desc' | 'company'
 const passedTaskIds = ref(new Set(JSON.parse(localStorage.getItem('job_tracker_passed_assessments') || '[]')))
-const appliedTasksMap = ref(JSON.parse(localStorage.getItem('job_tracker_applied_assessments') || '{}'))
 
 // Queue & Tasks State
 const evaluationTasks = ref([])
@@ -75,54 +73,11 @@ const allCompletedTasks = computed(() =>
 )
 
 const readyEvaluations = computed(() => {
-  return allCompletedTasks.value.filter((t) => !passedTaskIds.value.has(String(t.id)) && !appliedTasksMap.value[t.id])
-})
-
-const appliedEvaluations = computed(() => {
-  return allCompletedTasks.value.filter((t) => !!appliedTasksMap.value[t.id])
+  return allCompletedTasks.value.filter((t) => !passedTaskIds.value.has(String(t.id)))
 })
 
 const passedEvaluations = computed(() => {
   return allCompletedTasks.value.filter((t) => passedTaskIds.value.has(String(t.id)))
-})
-
-const sortedFilteredAppliedEvaluations = computed(() => {
-  let list = [...appliedEvaluations.value]
-
-  // Search filter
-  if (searchQuery.value.trim()) {
-    const q = searchQuery.value.toLowerCase()
-    list = list.filter((t) => {
-      const res = t.result_json || {}
-      const comp = (res.company || t.title_hint || '').toLowerCase()
-      const pos = (res.position || '').toLowerCase()
-      const skills = (res.matching_skills || []).concat(res.missing_skills || []).join(' ').toLowerCase()
-      return comp.includes(q) || pos.includes(q) || skills.includes(q)
-    })
-  }
-
-  // Min Fit filter
-  if (minFitFilter.value !== null) {
-    list = list.filter((t) => {
-      const score = t.result_json?.match_score ?? t.result_json?.fit_score ?? 0
-      return score >= minFitFilter.value
-    })
-  }
-
-  // Sorting
-  return list.sort((a, b) => {
-    if (sortBy.value === 'match_score') {
-      const scoreA = a.result_json?.match_score ?? a.result_json?.fit_score ?? 0
-      const scoreB = b.result_json?.match_score ?? b.result_json?.fit_score ?? 0
-      return scoreB - scoreA
-    }
-    if (sortBy.value === 'company') {
-      const compA = a.result_json?.company || a.title_hint || ''
-      const compB = b.result_json?.company || b.title_hint || ''
-      return compA.localeCompare(compB)
-    }
-    return new Date(b.created_at) - new Date(a.created_at)
-  })
 })
 
 const filteredReadyEvaluations = computed(() => {
@@ -223,17 +178,9 @@ async function markAsApplied(task) {
     uiStore.showToast(`'${res.data.company}' successfully added to Applications (Applied)!`, 'success')
     appStore.fetchApplications()
 
-    // Keep the task but mark it as applied locally
-    appliedTasksMap.value[task.id] = res.data.application_id || res.data.id || null
-    if (!appliedTasksMap.value[task.id] && res.data) {
-       // fallback if backend returned something else
-       appliedTasksMap.value[task.id] = true
-    }
-    localStorage.setItem('job_tracker_applied_assessments', JSON.stringify(appliedTasksMap.value))
-
-    // Do NOT delete the evaluation so it shows in the Applied tab
-    // await IntakeAPI.deleteEvaluation(task.id)
-    // await loadEvaluations(true)
+    // Dismiss evaluated task
+    await IntakeAPI.deleteEvaluation(task.id)
+    await loadEvaluations(true)
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to mark as applied', 'error')
   } finally {
@@ -251,22 +198,6 @@ function restorePassed(task) {
   passedTaskIds.value.delete(String(task.id))
   localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
   uiStore.showToast(`Restored '${task.result_json?.company || task.title_hint}' to Ready Reviews`, 'success')
-}
-
-async function revertApplied(task) {
-  // We only remove from local map to send it back to Ready for review
-  delete appliedTasksMap.value[task.id]
-  localStorage.setItem('job_tracker_applied_assessments', JSON.stringify(appliedTasksMap.value))
-  uiStore.showToast('Restored to Ready for Review', 'info')
-}
-
-async function openPrepGuide(task) {
-  const appId = appliedTasksMap.value[task.id]
-  if (appId && appId !== true) {
-    uiStore.openDetail(appId, 'guide')
-  } else {
-    uiStore.showToast('Application ID missing for this lead.', 'error')
-  }
 }
 
 async function deleteEvaluation(taskId) {
@@ -412,20 +343,6 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div
-        class="stat-card"
-        :class="{ active: activeTab === 'applied' }"
-        @click="activeTab = 'applied'"
-      >
-        <div class="stat-icon fit-icon" style="background-color: var(--status-interview-bg); color: var(--status-interview-text);">
-          <Briefcase :size="18" />
-        </div>
-        <div class="stat-info">
-          <span class="stat-val">{{ appliedEvaluations.length }}</span>
-          <span class="stat-lbl">Active / Applied</span>
-        </div>
-      </div>
-
       <router-link
         to="/queue"
         class="stat-card queue-stat-card"
@@ -469,18 +386,6 @@ onUnmounted(() => {
 
         <button
           class="sub-nav-tab"
-          :class="{ active: activeTab === 'applied' }"
-          @click="activeTab = 'applied'"
-        >
-          <Briefcase :size="15" />
-          <span>Active Pipeline</span>
-          <span v-if="appliedEvaluations.length > 0" class="tab-counter-badge">
-            {{ appliedEvaluations.length }}
-          </span>
-        </button>
-
-        <button
-          class="sub-nav-tab"
           :class="{ active: activeTab === 'passed' }"
           @click="activeTab = 'passed'"
         >
@@ -493,8 +398,8 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- TAB 1 & 2: READY or APPLIED EVALUATIONS -->
-    <div v-if="activeTab === 'ready' || activeTab === 'applied'" class="tab-view animate-fade-in">
+    <!-- TAB 1: READY EVALUATIONS -->
+    <div v-if="activeTab === 'ready'" class="tab-view animate-fade-in">
       <!-- Toolbar Filter Bar -->
       <div class="eval-filter-toolbar">
         <div class="search-box">
@@ -554,11 +459,11 @@ onUnmounted(() => {
       </div>
 
       <!-- Evaluations Grid -->
-      <div v-if="(activeTab === 'ready' ? filteredReadyEvaluations : sortedFilteredAppliedEvaluations).length === 0" class="empty-state-box">
+      <div v-if="filteredReadyEvaluations.length === 0" class="empty-state-box">
         <Sparkles :size="40" class="empty-state-icon" />
-        <h3 class="empty-state-title">{{ activeTab === 'ready' ? 'No assessments ready for review' : 'No applied jobs found' }}</h3>
+        <h3 class="empty-state-title">No assessments ready for review</h3>
         <p class="empty-state-desc">
-          {{ activeTab === 'ready' ? 'Ingest a job URL or paste a spec to receive a structured AI qualification assessment.' : 'Jobs you mark as applied from the Ready for Review tab will appear here.' }}
+          Ingest a job URL or paste a spec to receive a structured AI qualification assessment.
         </p>
         <button class="btn btn-primary mt-3" @click="uiStore.openJobIntakeModal">
           <Sparkles :size="14" />
@@ -568,7 +473,7 @@ onUnmounted(() => {
 
       <div v-else class="eval-cards-grid">
         <div
-          v-for="task in (activeTab === 'ready' ? filteredReadyEvaluations : sortedFilteredAppliedEvaluations)"
+          v-for="task in filteredReadyEvaluations"
           :key="task.id"
           class="eval-card"
           :class="{ expanded: expandedTaskIds.has(task.id) }"
