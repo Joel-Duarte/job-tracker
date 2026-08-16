@@ -4,9 +4,9 @@ set -e
 # Repository Root
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-RUN_ALL_DOCKER=false
-if [[ "$1" == "--docker" || "$1" == "--all" ]]; then
-  RUN_ALL_DOCKER=true
+FAST_MODE=false
+if [[ "$1" == "--fast" || "$1" == "--no-docker" || "$1" == "--skip-docker" ]]; then
+  FAST_MODE=true
 fi
 
 echo "==========================================="
@@ -22,13 +22,13 @@ echo ">> 2. Backend: Linting with Ruff..."
 (cd "$REPO_ROOT/backend" && uv run ruff check .)
 
 echo ""
-if [ "$RUN_ALL_DOCKER" = true ]; then
-  echo ">> 3. Backend: Running full pytest suite (including Docker / Testcontainers)..."
-  (cd "$REPO_ROOT/backend" && uv run pytest)
-else
+if [ "$FAST_MODE" = true ]; then
   echo ">> 3. Backend: Running fast pytest suite (excluding Docker)..."
-  echo "   (Tip: Pass './scripts/pre-commit.sh --docker' to run full containerized tests)"
   (cd "$REPO_ROOT/backend" && uv run pytest -m "not docker")
+else
+  echo ">> 3. Backend: Running full pytest suite (including PostgreSQL / Testcontainers)..."
+  echo "   (Tip: Pass './scripts/pre-commit.sh --fast' to skip container/db tests during quick local checks)"
+  (cd "$REPO_ROOT/backend" && uv run pytest)
 fi
 
 echo ""

@@ -43,10 +43,10 @@ class FallbackPostgresConnection:
 @pytest.fixture(scope="session")
 def postgres_container():
     """
-    Provides a PostgreSQL connection URL for tests with three-tier fallback:
+    Provides a PostgreSQL connection URL for tests with a four-tier resolution hierarchy:
     1. Explicit TEST_DATABASE_URL environment variable.
     2. Ephemeral Testcontainer (pgvector/pgvector:pg16) if Docker daemon is accessible.
-    3. Running local dev container on localhost:54320 (from ./dev.sh).
+    3. Running local database container on localhost (port from POSTGRES_PORT or 54320).
     4. Graceful skip if neither Docker nor a local PostgreSQL database is reachable.
     """
     # 1. Check for explicit test database URL
@@ -63,18 +63,18 @@ def postgres_container():
             yield postgres
             return
     except Exception as container_err:
-        # 3. Fall back to running development database on port 54320 if accessible
-        if is_port_open("localhost", 54320):
-            dev_db_url = (
-                "postgresql+asyncpg://postgres:postgres@localhost:54320/postgres"
-            )
+        # 3. Fall back to running development database container if accessible
+        local_port = int(os.environ.get("POSTGRES_PORT", 54320))
+        if is_port_open("localhost", local_port):
+            dev_db_url = f"postgresql+asyncpg://postgres:postgres@localhost:{local_port}/postgres"
             yield FallbackPostgresConnection(dev_db_url)
             return
 
         # 4. Gracefully skip with clear, actionable explanation
         pytest.skip(
-            f"Docker daemon not accessible ({container_err}) and no PostgreSQL found on localhost:54320. "
-            "To run tests, start Docker, run './dev.sh', or run pure unit tests with 'pytest -m \"not docker\"'."
+            f"Docker daemon not accessible ({container_err}) and no PostgreSQL found on localhost:{local_port}. "
+            "To run tests, start Docker (or run 'docker compose up -d db'), run './dev.sh', "
+            "or run pure unit tests with 'pytest -m \"not docker\"'."
         )
 
 
