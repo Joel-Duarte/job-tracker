@@ -116,6 +116,7 @@ class ConfirmAssessmentRequest(BaseModel):
     location: Optional[str] = Field(default=None)
     work_model: Optional[str] = Field(default=None)
     required_skills: List[str] = Field(default_factory=list)
+    match_analysis_payload: Optional[Dict[str, Any]] = Field(default=None)
 
 
 class IntakeResultResponse(BaseModel):

@@ -407,6 +407,7 @@ async def confirm_job_assessment(
             job_url=payload.job_url,
             application_date=now,
             last_activity_at=now,
+            match_analysis_payload=payload.match_analysis_payload,
         )
         db.add(app_record)
         await db.flush()
@@ -416,6 +417,8 @@ async def confirm_job_assessment(
         if payload.job_url and not app_record.job_url:
             app_record.job_url = payload.job_url
         app_record.last_activity_at = now
+        if payload.match_analysis_payload:
+            app_record.match_analysis_payload = payload.match_analysis_payload
 
     # 3. Job Posting Record
     jp_stmt = select(JobPostingModel).where(JobPostingModel.application_id == app_record.id)

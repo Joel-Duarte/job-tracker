@@ -177,7 +177,7 @@ function getAppMatchScore(app) {
   if (app.match_score !== undefined && app.match_score !== null) {
     return Number(app.match_score)
   }
-  const payload = app.latest_event?.raw_payload || {}
+  const payload = app.match_analysis_payload || {}
   const score = payload.match_score ?? payload.fit_score ?? payload.overall_fit_score
   if (score !== undefined && score !== null) {
     return Number(score)
@@ -760,7 +760,7 @@ async function confirmDelete() {
                 </template>
 
                 <!-- Match Analysis Button -->
-                <template v-if="['ASSESSMENT', 'APPLIED'].includes(app.status) && (app.match_score !== null || app.latest_event?.raw_payload?.match_score)">
+                <template v-if="['ASSESSMENT', 'APPLIED'].includes(app.status) && (app.match_score !== null || app.match_analysis_payload?.match_score)">
                   <button class="btn-action-chip btn-analysis" @click="openMatchAnalysisModal(app.id)" title="View Match Breakdown">
                     <Sparkles :size="11" />
                     <span>View Assessment</span>

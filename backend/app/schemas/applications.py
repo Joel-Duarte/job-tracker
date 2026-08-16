@@ -37,6 +37,7 @@ class ApplicationListItem(BaseModel):
     has_action_required: bool = False
     has_interview_guide: bool = False
     match_score: Optional[int] = None
+    match_analysis_payload: Optional[Dict[str, Any]] = None
     latest_event: Optional[EventSummary] = None
     nearest_due_date: Optional[datetime] = None
 

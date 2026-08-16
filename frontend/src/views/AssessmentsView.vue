@@ -275,6 +275,7 @@ async function markAsApplied(task) {
         ...(result.matching_skills || []),
         ...(result.missing_skills || []),
       ],
+      match_analysis_payload: result,
     })
 
     uiStore.showToast(`'${res.data.company}' successfully added to Applications (Applied)!`, 'success')
