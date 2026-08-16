@@ -2,11 +2,6 @@ import logging
 import os
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from pydantic import BaseModel
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.email_accounts import EmailAccountModel
@@ -16,6 +11,10 @@ from app.schemas.email_accounts import (
     EmailAccountUpdate,
 )
 from app.services.oauth_adapters import GmailOAuthAdapter, MicrosoftGraphAdapter
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/email_accounts", tags=["Email Accounts"])

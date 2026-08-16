@@ -3,9 +3,8 @@ import time
 import uuid
 from collections import namedtuple
 
-from sqlalchemy import select
-
 from app.models.processed_email import ProcessedEmailModel
+from sqlalchemy import select
 
 # Assuming we have a way to connect to a test database or just mock the DB execution
 # To make it simple and self-contained, we'll setup a small in-memory SQLite for async,

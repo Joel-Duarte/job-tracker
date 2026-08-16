@@ -1,11 +1,10 @@
 from datetime import datetime
 from typing import Any
 
+from app.models.applications import Base
 from sqlalchemy import BigInteger, DateTime, Float, Index, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-
-from app.models.applications import Base
 
 
 class StagingItemModel(Base):

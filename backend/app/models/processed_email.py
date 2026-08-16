@@ -1,9 +1,8 @@
 from datetime import UTC, datetime
 
+from app.models.applications import Base
 from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
-
-from app.models.applications import Base
 
 
 class ProcessedEmailModel(Base):

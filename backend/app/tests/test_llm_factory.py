@@ -1,9 +1,6 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from langchain_core.runnables import RunnableLambda
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.llm_factory import (
     _clean_base_url,
     _resolve_provider,
@@ -23,6 +20,8 @@ from app.services.llm import (
     extract_job_spec,
     summarize_application_status,
 )
+from langchain_core.runnables import RunnableLambda
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def test_resolve_provider_and_clean_url():

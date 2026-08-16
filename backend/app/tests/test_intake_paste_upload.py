@@ -2,13 +2,12 @@ import io
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.database import get_db
 from app.main import app
 from app.schemas.intake import ExtractedEmailInfo
 from app.services.file_parser import parse_eml, parse_txt
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def test_parse_eml_and_ics():

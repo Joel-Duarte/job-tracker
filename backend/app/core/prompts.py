@@ -1,7 +1,6 @@
+from app.models.prompts import PromptModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.models.prompts import PromptModel
 
 DEFAULT_PROMPTS = {
     "jd_extraction": (

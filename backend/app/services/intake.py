@@ -1,11 +1,10 @@
 import logging
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.schemas.graph_state import JobTrackerState
 from app.schemas.intake import EmailPayload
 from app.services.intake_graph import intake_graph
 from app.services.task_tracker import task_tracker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 

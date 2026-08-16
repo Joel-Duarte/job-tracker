@@ -1,9 +1,6 @@
 import logging
 from datetime import UTC, datetime
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.ai_queue import concurrency_manager
 from app.core.database import AsyncSessionLocal
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
@@ -17,6 +14,8 @@ from app.services.llm import (
 )
 from app.services.matcher import compute_programmatic_skill_match
 from app.services.scraper import scrape_job_url
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 

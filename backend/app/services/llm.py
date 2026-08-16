@@ -2,11 +2,6 @@ import json
 import logging
 from typing import Any
 
-from langchain_core.prompts import ChatPromptTemplate
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-
 from app.core.llm_factory import (
     get_active_llm_config_dict,
     get_task_chat_model,
@@ -21,6 +16,10 @@ from app.schemas.llm import (
     ExtractedJobSpec,
     JobAssessmentResult,
 )
+from langchain_core.prompts import ChatPromptTemplate
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 logger = logging.getLogger(__name__)
 

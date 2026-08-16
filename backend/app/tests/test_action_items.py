@@ -1,11 +1,10 @@
 from datetime import UTC, datetime
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-
 from app.core.database import get_db
 from app.main import app
 from app.models.applications import ApplicationModel, CompanyModel
+from httpx import ASGITransport, AsyncClient
 
 
 @pytest.mark.asyncio

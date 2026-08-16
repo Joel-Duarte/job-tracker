@@ -3,9 +3,6 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
@@ -15,6 +12,8 @@ from app.models.applications import (
 from app.models.staging import StagingItemModel
 from app.schemas.llm import JobAssessmentResult
 from app.services.llm import generate_and_save_application_embedding
+from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 

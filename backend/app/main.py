@@ -1,8 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Response, status
-
 from app.core.database import check_db_connection, ensure_db_schema
 from app.routers import (
     action_items,
@@ -20,6 +18,7 @@ from app.routers import (
     search,
     staging,
 )
+from fastapi import FastAPI, Response, status
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

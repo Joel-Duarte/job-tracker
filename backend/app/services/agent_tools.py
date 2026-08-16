@@ -1,12 +1,6 @@
 import logging
 from typing import Any
 
-from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, Field
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload
-
 from app.models.applications import (
     ActionItemModel,
     ApplicationEmbeddingModel,
@@ -15,6 +9,11 @@ from app.models.applications import (
     CompanyModel,
 )
 from app.services.llm import generate_and_save_application_embedding, generate_embedding
+from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 
 logger = logging.getLogger(__name__)
 

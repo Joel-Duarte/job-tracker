@@ -1,6 +1,7 @@
 import logging
 from typing import Any
 
+from app.core.config import settings
 from langchain.chat_models import init_chat_model
 from langchain.embeddings import init_embeddings
 from langchain_core.embeddings import Embeddings
@@ -8,8 +9,6 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
-
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 

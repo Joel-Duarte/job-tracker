@@ -2,8 +2,6 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import select
-
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
@@ -14,6 +12,7 @@ from app.schemas.intake import EmailPayload, ExtractedEmailInfo
 from app.services.email_fetcher import fetch_emails_from_account
 from app.services.intake import process_email_batch_sequential
 from app.services.task_tracker import task_tracker
+from sqlalchemy import select
 
 
 @pytest.mark.asyncio

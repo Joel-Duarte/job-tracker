@@ -3,7 +3,6 @@ from unittest.mock import patch
 
 import httpx
 import pytest
-
 from app.services.scraper import (
     ScrapedJobContent,
     _scrape_via_camofox,
