@@ -12,8 +12,16 @@ from app.core.llm_factory import (
 )
 from app.core.prompts import seed_default_prompts
 from app.models.llm import LLMConfigModel
-from app.schemas.llm import ApplicationSummaryResult, EmailExtractionResult, ExtractedJobSpec
-from app.services.llm import extract_email_info, extract_job_spec, summarize_application_status
+from app.schemas.llm import (
+    ApplicationSummaryResult,
+    EmailExtractionResult,
+    ExtractedJobSpec,
+)
+from app.services.llm import (
+    extract_email_info,
+    extract_job_spec,
+    summarize_application_status,
+)
 
 
 def test_resolve_provider_and_clean_url():
@@ -23,7 +31,10 @@ def test_resolve_provider_and_clean_url():
     assert _resolve_provider("gemini") == "google_genai"
     assert _resolve_provider(None) == "openai"
 
-    assert _clean_base_url("http://localhost:1234/v1/embeddings") == "http://localhost:1234/v1"
+    assert (
+        _clean_base_url("http://localhost:1234/v1/embeddings")
+        == "http://localhost:1234/v1"
+    )
     assert _clean_base_url("http://localhost:1234/v1/") == "http://localhost:1234/v1"
     assert _clean_base_url(None) is None
 
@@ -85,10 +96,14 @@ async def test_extract_email_info_runnable(db_session: AsyncSession):
 
     with patch("app.services.llm.get_task_chat_model") as mock_get_chat:
         mock_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = RunnableLambda(AsyncMock(return_value=mock_result))
+        mock_llm.with_structured_output.return_value = RunnableLambda(
+            AsyncMock(return_value=mock_result)
+        )
         mock_get_chat.return_value = mock_llm
 
-        res = await extract_email_info(db_session, "Thanks for applying to Acme Corp as Python Engineer.")
+        res = await extract_email_info(
+            db_session, "Thanks for applying to Acme Corp as Python Engineer."
+        )
         assert res.company == "Acme Corp"
         assert res.position == "Python Engineer"
         assert res.status == "APPLIED"
@@ -111,10 +126,14 @@ async def test_extract_job_spec_runnable(db_session: AsyncSession):
 
     with patch("app.services.llm.get_task_chat_model") as mock_get_chat:
         mock_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = RunnableLambda(AsyncMock(return_value=mock_spec))
+        mock_llm.with_structured_output.return_value = RunnableLambda(
+            AsyncMock(return_value=mock_spec)
+        )
         mock_get_chat.return_value = mock_llm
 
-        res = await extract_job_spec(db_session, "Stripe is hiring a Senior Staff Backend Engineer...")
+        res = await extract_job_spec(
+            db_session, "Stripe is hiring a Senior Staff Backend Engineer..."
+        )
         assert res.job_found is True
         assert res.company == "Stripe"
         assert res.position == "Senior Staff Backend Engineer"
@@ -133,7 +152,9 @@ async def test_summarize_application_status_runnable(db_session: AsyncSession):
 
     with patch("app.services.llm.get_task_chat_model") as mock_get_chat:
         mock_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = RunnableLambda(AsyncMock(return_value=mock_summary))
+        mock_llm.with_structured_output.return_value = RunnableLambda(
+            AsyncMock(return_value=mock_summary)
+        )
         mock_get_chat.return_value = mock_llm
 
         timeline = [{"event_type": "INTERVIEW_INVITE", "date": "2026-07-25"}]
@@ -186,7 +207,9 @@ async def test_assess_job_posting_runnable(db_session: AsyncSession):
                     reason="Adds concrete throughput metrics and mirrors JD action verbs.",
                 )
             ],
-            structural_adjustments=["Move distributed systems certifications to top of technical summary."],
+            structural_adjustments=[
+                "Move distributed systems certifications to top of technical summary."
+            ],
         ),
         matching_skills=["Python", "PostgreSQL", "Distributed Systems"],
         missing_skills=["Rust"],
@@ -197,7 +220,9 @@ async def test_assess_job_posting_runnable(db_session: AsyncSession):
 
     with patch("app.services.llm.get_task_chat_model") as mock_get_chat:
         mock_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = RunnableLambda(AsyncMock(return_value=mock_assessment))
+        mock_llm.with_structured_output.return_value = RunnableLambda(
+            AsyncMock(return_value=mock_assessment)
+        )
         mock_get_chat.return_value = mock_llm
 
         res = await assess_job_posting(
@@ -213,4 +238,3 @@ async def test_assess_job_posting_runnable(db_session: AsyncSession):
         assert res.hard_matches.keyword_match_rate == "8/10 core skills found"
         assert len(res.tailoring_strategy.vocabulary_translation) == 1
         assert "Job Match Analysis" in res.markdown_report
-

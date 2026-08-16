@@ -1,6 +1,7 @@
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 class Settings(BaseSettings):
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = "postgres"
@@ -25,11 +26,13 @@ class Settings(BaseSettings):
 
     LLM_PROVIDER_NAME: str = "openai"  # Options: "custom", "openai", "anthropic", etc.
     LLM_API_BASE: str = "http://localhost:1234/v1"
-    LLM_API_KEY: str = "lm-1234"  # LM Studio ignores key value, but client requires non-empty string
+    LLM_API_KEY: str = (
+        "lm-1234"  # LM Studio ignores key value, but client requires non-empty string
+    )
     LLM_MODEL_NAME: str = "qwen/qwen3.5-9b"
 
     STAGING_MATCH_THRESHOLD: float = 0.75
-    
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

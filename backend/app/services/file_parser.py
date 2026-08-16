@@ -68,12 +68,28 @@ def parse_eml(content: bytes) -> EmailPayload:
             if content_type == "text/plain" and "attachment" not in content_disposition:
                 payload = part.get_payload(decode=True)
                 if payload:
-                    body_parts.append(payload.decode(part.get_content_charset() or "utf-8", errors="replace"))
-            elif content_type == "text/html" and not body_parts and "attachment" not in content_disposition:
+                    body_parts.append(
+                        payload.decode(
+                            part.get_content_charset() or "utf-8", errors="replace"
+                        )
+                    )
+            elif (
+                content_type == "text/html"
+                and not body_parts
+                and "attachment" not in content_disposition
+            ):
                 payload = part.get_payload(decode=True)
                 if payload:
-                    body_parts.append(payload.decode(part.get_content_charset() or "utf-8", errors="replace"))
-            elif content_type == "text/calendar" or part.get_filename() and part.get_filename().endswith(".ics"):
+                    body_parts.append(
+                        payload.decode(
+                            part.get_content_charset() or "utf-8", errors="replace"
+                        )
+                    )
+            elif (
+                content_type == "text/calendar"
+                or part.get_filename()
+                and part.get_filename().endswith(".ics")
+            ):
                 raw_ics = part.get_payload(decode=True)
                 if raw_ics:
                     ics_summary = _extract_ics_summary(raw_ics)
@@ -82,7 +98,9 @@ def parse_eml(content: bytes) -> EmailPayload:
     else:
         payload = msg.get_payload(decode=True)
         if payload:
-            body_parts.append(payload.decode(msg.get_content_charset() or "utf-8", errors="replace"))
+            body_parts.append(
+                payload.decode(msg.get_content_charset() or "utf-8", errors="replace")
+            )
 
     full_body = "\n".join(body_parts).strip() if body_parts else msg.get_payload() or ""
     if isinstance(full_body, list):
@@ -119,7 +137,11 @@ def parse_msg(content: bytes) -> EmailPayload:
     ics_parts: list[str] = []
     if hasattr(msg, "attachments"):
         for att in msg.attachments:
-            if hasattr(att, "longFilename") and att.longFilename and att.longFilename.endswith(".ics"):
+            if (
+                hasattr(att, "longFilename")
+                and att.longFilename
+                and att.longFilename.endswith(".ics")
+            ):
                 ics_summary = _extract_ics_summary(att.data)
                 if ics_summary:
                     ics_parts.append(ics_summary)
@@ -151,7 +173,11 @@ def parse_txt(content: bytes, filename: str = "upload.txt") -> EmailPayload:
             lower = line.lower()
             if lower.startswith("subject:"):
                 subject = line.split(":", 1)[1].strip()
-            elif lower.startswith("from:") or lower.startswith("date:") or lower.startswith("to:"):
+            elif (
+                lower.startswith("from:")
+                or lower.startswith("date:")
+                or lower.startswith("to:")
+            ):
                 continue
             elif line.strip() == "":
                 in_headers = False

@@ -47,7 +47,9 @@ async def chat_with_agent(
     try:
         model_with_tools = chat_model.bind_tools(tools)
     except Exception as bind_err:
-        logger.warning("Native tool binding not available, using raw model: %s", bind_err)
+        logger.warning(
+            "Native tool binding not available, using raw model: %s", bind_err
+        )
         model_with_tools = chat_model
 
     last_user_msg = payload.messages[-1].content.strip()
@@ -73,37 +75,62 @@ async def chat_with_agent(
 
             tool_calls = getattr(response, "tool_calls", None)
             if not tool_calls:
-                reply_content = response.content if isinstance(response.content, str) else str(response.content)
+                reply_content = (
+                    response.content
+                    if isinstance(response.content, str)
+                    else str(response.content)
+                )
                 break
 
             for tc in tool_calls:
-                tool_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
-                tool_args = tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {})
-                tool_id = tc.get("id", f"call_{turn}") if isinstance(tc, dict) else getattr(tc, "id", f"call_{turn}")
+                tool_name = (
+                    tc.get("name")
+                    if isinstance(tc, dict)
+                    else getattr(tc, "name", None)
+                )
+                tool_args = (
+                    tc.get("args", {})
+                    if isinstance(tc, dict)
+                    else getattr(tc, "args", {})
+                )
+                tool_id = (
+                    tc.get("id", f"call_{turn}")
+                    if isinstance(tc, dict)
+                    else getattr(tc, "id", f"call_{turn}")
+                )
 
                 selected_tool = tool_map.get(tool_name)
                 if selected_tool:
                     try:
                         tool_result = await selected_tool.ainvoke(tool_args)
                         parsed_res = tool_result
-                        if isinstance(tool_result, str) and (tool_result.strip().startswith("{") or tool_result.strip().startswith("[")):
+                        if isinstance(tool_result, str) and (
+                            tool_result.strip().startswith("{")
+                            or tool_result.strip().startswith("[")
+                        ):
                             try:
                                 parsed_res = json.loads(tool_result)
                             except Exception:
                                 parsed_res = tool_result
 
-                        actions_performed.append({
-                            "action": tool_name,
-                            "args": tool_args,
-                            "result": parsed_res,
-                        })
+                        actions_performed.append(
+                            {
+                                "action": tool_name,
+                                "args": tool_args,
+                                "result": parsed_res,
+                            }
+                        )
                     except Exception as err:
                         logger.error("Error executing tool %s: %s", tool_name, err)
                         tool_result = json.dumps({"error": str(err)})
                 else:
-                    tool_result = json.dumps({"error": f"Tool '{tool_name}' not available."})
+                    tool_result = json.dumps(
+                        {"error": f"Tool '{tool_name}' not available."}
+                    )
 
-                messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_id))
+                messages.append(
+                    ToolMessage(content=str(tool_result), tool_call_id=tool_id)
+                )
 
         except Exception as err:
             logger.error("Agent chat generation error on turn %d: %s", turn, err)

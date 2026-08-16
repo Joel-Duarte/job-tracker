@@ -110,7 +110,12 @@ async def fetch_emails_from_account(
     if auth_type == "GMAIL_OAUTH":
         token = account.access_token
         # Try refreshing token if refresh token and credentials are present
-        if not token and account.refresh_token and account.client_id and account.client_secret:
+        if (
+            not token
+            and account.refresh_token
+            and account.client_id
+            and account.client_secret
+        ):
             try:
                 token = await GmailOAuthAdapter.refresh_access_token(
                     account.client_id, account.client_secret, account.refresh_token
@@ -120,7 +125,9 @@ async def fetch_emails_from_account(
                 logger.error("Failed refreshing Gmail access token: %s", err)
 
         if not token:
-            logger.warning("No valid access token for Gmail OAuth account %s", account.id)
+            logger.warning(
+                "No valid access token for Gmail OAuth account %s", account.id
+            )
             return [], None
 
         query_str = f"label:{account.folder or 'INBOX'}"
@@ -136,7 +143,12 @@ async def fetch_emails_from_account(
 
     elif auth_type == "MS_GRAPH_OAUTH":
         token = account.access_token
-        if not token and account.refresh_token and account.client_id and account.client_secret:
+        if (
+            not token
+            and account.refresh_token
+            and account.client_id
+            and account.client_secret
+        ):
             try:
                 token = await MicrosoftGraphAdapter.refresh_access_token(
                     account.client_id, account.client_secret, account.refresh_token
@@ -146,7 +158,9 @@ async def fetch_emails_from_account(
                 logger.error("Failed refreshing MS Graph access token: %s", err)
 
         if not token:
-            logger.warning("No valid access token for MS Graph OAuth account %s", account.id)
+            logger.warning(
+                "No valid access token for MS Graph OAuth account %s", account.id
+            )
             return [], None
 
         return await MicrosoftGraphAdapter.fetch_messages_delta(

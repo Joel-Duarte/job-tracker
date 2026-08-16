@@ -74,7 +74,9 @@ def compute_programmatic_skill_match(
     # Extract word tokens and multi-word line segments from JD
     jd_words = set(re.findall(r"\b[a-zA-Z0-9\+\#\/\.\-]+\b", jd_lower))
     jd_words_normalized = {_normalize_token(w) for w in jd_words}
-    jd_phrases = [p.strip() for p in re.split(r"[\n,;•·\-–—]+", jd_lower) if len(p.strip()) >= 3]
+    jd_phrases = [
+        p.strip() for p in re.split(r"[\n,;•·\-–—]+", jd_lower) if len(p.strip()) >= 3
+    ]
 
     for orig_skill, norm_skill in normalized_candidate.items():
         if not norm_skill:

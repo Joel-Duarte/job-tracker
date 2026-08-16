@@ -20,7 +20,9 @@ class ProcessedEmailModel(Base):
     """
 
     __tablename__ = "processed_email_ids"
-    __table_args__ = (UniqueConstraint("message_id", name="uq_processed_email_message_id"),)
+    __table_args__ = (
+        UniqueConstraint("message_id", name="uq_processed_email_message_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     message_id: Mapped[str] = mapped_column(String(512), nullable=False, index=True)

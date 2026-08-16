@@ -2,9 +2,7 @@ import re
 from typing import Dict, Tuple
 
 # Pre-compiled Regex patterns for high-speed local PII sanitization
-EMAIL_PATTERN = re.compile(
-    r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"
-)
+EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b")
 
 PHONE_PATTERN = re.compile(
     r"(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{2,4}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{3,9}\b"
@@ -36,16 +34,32 @@ def programmatic_scrub_cv(raw_text: str) -> Tuple[str, Dict[str, int]]:
         - stats: dict counting redacted items per category
     """
     if not raw_text or not raw_text.strip():
-        return raw_text, {"emails": 0, "phones": 0, "urls": 0, "addresses": 0, "header_name": 0}
+        return raw_text, {
+            "emails": 0,
+            "phones": 0,
+            "urls": 0,
+            "addresses": 0,
+            "header_name": 0,
+        }
 
     stats = {"emails": 0, "phones": 0, "urls": 0, "addresses": 0, "header_name": 0}
     lines = raw_text.splitlines()
 
     # 1. First line candidate name heuristic (if short and not a section heading)
     excluded_headings = {
-        "summary", "profile", "objective", "experience", "education",
-        "skills", "projects", "work history", "technical skills",
-        "certifications", "about me", "curriculum vitae", "resume",
+        "summary",
+        "profile",
+        "objective",
+        "experience",
+        "education",
+        "skills",
+        "projects",
+        "work history",
+        "technical skills",
+        "certifications",
+        "about me",
+        "curriculum vitae",
+        "resume",
     }
 
     if lines:
@@ -60,7 +74,9 @@ def programmatic_scrub_cv(raw_text: str) -> Tuple[str, Dict[str, int]]:
                 len(first_line) <= 45
                 and first_line_lower not in excluded_headings
                 and not any(first_line_lower.startswith(h) for h in excluded_headings)
-                and not any(char in first_line for char in [":", ";", "{", "}", "#", "/"])
+                and not any(
+                    char in first_line for char in [":", ";", "{", "}", "#", "/"]
+                )
             ):
                 lines[first_line_idx] = "[Candidate Name]"
                 stats["header_name"] += 1

@@ -9,7 +9,12 @@ from app.core.ai_queue import ProviderConcurrencyManager
 from app.core.database import get_db
 from app.main import app
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
-from app.models.applications import ApplicationEventModel, ApplicationModel, CompanyModel, JobPostingModel
+from app.models.applications import (
+    ApplicationEventModel,
+    ApplicationModel,
+    CompanyModel,
+    JobPostingModel,
+)
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.models.staging import StagingItemModel
 from app.schemas.llm import ExtractedJobSpec, JobAssessmentResult
@@ -111,8 +116,16 @@ async def test_intake_queue_endpoints_and_worker(db_session: AsyncSession):
             ats_keywords=["Python", "SQL"],
         )
 
-        with patch("app.services.evaluation_worker.extract_job_spec", new=AsyncMock(return_value=mock_job_spec)), \
-             patch("app.services.evaluation_worker.assess_job_posting", new=AsyncMock(return_value=mock_assessment)):
+        with (
+            patch(
+                "app.services.evaluation_worker.extract_job_spec",
+                new=AsyncMock(return_value=mock_job_spec),
+            ),
+            patch(
+                "app.services.evaluation_worker.assess_job_posting",
+                new=AsyncMock(return_value=mock_assessment),
+            ),
+        ):
             await process_evaluation_task(task_id, db=db_session)
 
         # 5. Verify task is marked COMPLETED in database
@@ -131,7 +144,9 @@ async def test_intake_queue_endpoints_and_worker(db_session: AsyncSession):
         assert app_res.status == "ASSESSMENT"
         assert app_res.position == "Staff Backend Engineer"
 
-        jp_stmt = select(JobPostingModel).where(JobPostingModel.application_id == app_id)
+        jp_stmt = select(JobPostingModel).where(
+            JobPostingModel.application_id == app_id
+        )
         jp_res = await db_session.execute(jp_stmt)
         jp = jp_res.scalar_one_or_none()
         assert jp is not None
@@ -204,8 +219,16 @@ async def test_intake_queue_duplicate_staging_and_resolution(db_session: AsyncSe
             ats_keywords=["Python", "LLM"],
         )
 
-        with patch("app.services.evaluation_worker.extract_job_spec", new=AsyncMock(return_value=mock_job_spec)), \
-             patch("app.services.evaluation_worker.assess_job_posting", new=AsyncMock(return_value=mock_assessment)):
+        with (
+            patch(
+                "app.services.evaluation_worker.extract_job_spec",
+                new=AsyncMock(return_value=mock_job_spec),
+            ),
+            patch(
+                "app.services.evaluation_worker.assess_job_posting",
+                new=AsyncMock(return_value=mock_assessment),
+            ),
+        ):
             await process_evaluation_task(task_id, db=db_session)
 
         # 3. Verify task stage is STAGED_DUPLICATE
@@ -237,7 +260,17 @@ async def test_intake_queue_duplicate_staging_and_resolution(db_session: AsyncSe
         assert new_app_id != app_orig.id
 
         # Verify two distinct applications now exist
-        all_apps = (await db_session.execute(select(ApplicationModel).where(ApplicationModel.company_id == comp.id))).scalars().all()
+        all_apps = (
+            (
+                await db_session.execute(
+                    select(ApplicationModel).where(
+                        ApplicationModel.company_id == comp.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
         assert len(all_apps) == 2
 
     app.dependency_overrides.clear()
@@ -259,7 +292,9 @@ async def test_retry_evaluation_task(db_session: AsyncSession):
     await db_session.commit()
     await db_session.refresh(task)
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
         with patch("app.routers.intake.process_evaluation_task") as mock_proc:
             res = await ac.post(f"/api/v1/intake/evaluations/{task.id}/retry")
             assert res.status_code == 200

@@ -11,7 +11,9 @@ from app.models.applications import ApplicationModel, CompanyModel
 async def test_action_items_crud_and_filtering(db_session):
     app.dependency_overrides[get_db] = lambda: db_session
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
         # 1. Create a company and application
         company = CompanyModel(
             name="Linear Orbit Inc.",
@@ -92,7 +94,9 @@ async def test_action_items_crud_and_filtering(db_session):
         assert app_res.status_code == 200
         app_data = app_res.json()
         completed_events = [
-            e for e in app_data["events"] if e["email_event_type"] == "ACTION_ITEM_COMPLETED"
+            e
+            for e in app_data["events"]
+            if e["email_event_type"] == "ACTION_ITEM_COMPLETED"
         ]
         assert len(completed_events) >= 1
         assert "Completed action item:" in completed_events[0]["email_summary"]

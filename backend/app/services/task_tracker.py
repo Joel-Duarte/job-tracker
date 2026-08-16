@@ -25,7 +25,9 @@ class TaskTracker:
         }
         return task_id
 
-    def update_progress_before_item(self, task_id: str, current_index: int, subject: str):
+    def update_progress_before_item(
+        self, task_id: str, current_index: int, subject: str
+    ):
         if task_id in self._tasks:
             task = self._tasks[task_id]
             task["current_index"] = current_index

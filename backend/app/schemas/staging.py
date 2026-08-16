@@ -20,7 +20,8 @@ class StagingItemRead(BaseModel):
     email_raw_body: Optional[str] = None
 
     extracted_data: Dict[str, Any] | ExtractedEmailInfo = Field(
-        ..., description="The structured data extracted by the LLM or pre-screen assessment"
+        ...,
+        description="The structured data extracted by the LLM or pre-screen assessment",
     )
     match_score: Optional[float] = Field(
         default=None, description="Confidence score from fuzzy matching (0.0 to 1.0)"
@@ -52,9 +53,7 @@ class StagingItemResolve(BaseModel):
     company: Optional[str] = Field(
         default=None, description="Alternative field for company name."
     )
-    position: str = Field(
-        ..., description="Corrected or confirmed position title."
-    )
+    position: str = Field(..., description="Corrected or confirmed position title.")
     status: Optional[str] = Field(
         default="ASSESSMENT",
         description="Normalized application status: 'ASSESSMENT', 'APPLIED', 'INTERVIEW', 'OFFER', 'REJECTED'.",

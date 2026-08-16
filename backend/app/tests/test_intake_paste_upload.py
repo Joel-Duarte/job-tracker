@@ -8,7 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app
 from app.core.database import get_db
-from app.models.applications import ApplicationEventModel, ApplicationModel, CompanyModel
+from app.models.applications import (
+    ApplicationEventModel,
+    ApplicationModel,
+    CompanyModel,
+)
 from app.schemas.intake import ExtractedEmailInfo
 from app.services.file_parser import parse_eml, parse_txt, parse_uploaded_file
 
@@ -74,8 +78,15 @@ async def test_intake_paste_endpoint(db_session: AsyncSession):
         action=None,
     )
 
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract, \
-         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock):
+    with (
+        patch(
+            "app.services.intake.extract_email_info", new_callable=AsyncMock
+        ) as mock_extract,
+        patch(
+            "app.services.graph_nodes.generate_and_save_application_embedding",
+            new_callable=AsyncMock,
+        ),
+    ):
         mock_extract.return_value = extracted
 
         transport = ASGITransport(app=app)
@@ -122,8 +133,15 @@ Content-Type: text/plain; charset="utf-8"
 
 Thanks for applying to Palantir for Forward Deployed Engineer."""
 
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract, \
-         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock):
+    with (
+        patch(
+            "app.services.intake.extract_email_info", new_callable=AsyncMock
+        ) as mock_extract,
+        patch(
+            "app.services.graph_nodes.generate_and_save_application_embedding",
+            new_callable=AsyncMock,
+        ),
+    ):
         mock_extract.return_value = extracted
 
         transport = ASGITransport(app=app)

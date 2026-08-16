@@ -11,7 +11,14 @@ from app.services.matcher import compute_programmatic_skill_match
 
 
 def test_programmatic_skill_matcher_aliases_and_ratios():
-    candidate_skills = ["Python", "PostgreSQL", "Kubernetes", "Docker", "FastAPI", "Kafka"]
+    candidate_skills = [
+        "Python",
+        "PostgreSQL",
+        "Kubernetes",
+        "Docker",
+        "FastAPI",
+        "Kafka",
+    ]
     jd_text = (
         "We are looking for a Senior Engineer with deep knowledge of Python, Postgres, "
         "and k8s container orchestration. Must build high-throughput FastAPI backend services "
@@ -45,18 +52,28 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
             "Staff Engineer at [Fintech Enterprise] (4 years)\n"
             "Built distributed billing pipelines using Python, FastAPI, PostgreSQL, and AWS."
         ),
-        extracted_skills=["Python", "FastAPI", "PostgreSQL", "AWS", "Distributed Systems"],
+        extracted_skills=[
+            "Python",
+            "FastAPI",
+            "PostgreSQL",
+            "AWS",
+            "Distributed Systems",
+        ],
         total_years_experience=6.0,
         domain_expertise=["Fintech", "Distributed Systems"],
         domain_breakdown=[
-            DomainExperienceItem(domain="Distributed Systems", years=5.0, is_active=True),
+            DomainExperienceItem(
+                domain="Distributed Systems", years=5.0, is_active=True
+            ),
             DomainExperienceItem(domain="Fintech", years=3.5, is_active=True),
         ],
         core_competencies=["Distributed Billing Pipelines", "High-Throughput APIs"],
         summary="Experienced Staff Engineer with fintech and distributed systems expertise.",
     )
 
-    with patch("app.services.evaluation_worker.anonymize_and_parse_cv", new_callable=AsyncMock) as mock_anonymize:
+    with patch(
+        "app.services.evaluation_worker.anonymize_and_parse_cv", new_callable=AsyncMock
+    ) as mock_anonymize:
         mock_anonymize.return_value = mock_anonymized
 
         transport = ASGITransport(app=app)
@@ -70,6 +87,7 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
 
             # Process task in test session
             from app.services.evaluation_worker import process_evaluation_task
+
             await process_evaluation_task(task_id, db=db_session)
 
             # 2. Check Task Status
@@ -87,11 +105,16 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
             assert "Python" in active_data["extracted_skills"]
             assert active_data["years_of_experience"] == 6.0
             assert len(active_data["domain_experience"]) == 2
-            assert active_data["domain_experience"][0]["domain"] == "Distributed Systems"
+            assert (
+                active_data["domain_experience"][0]["domain"] == "Distributed Systems"
+            )
             assert active_data["domain_experience"][0]["years"] == 5.0
             assert active_data["domain_experience"][0]["is_active"] is True
             assert "[Fintech Enterprise]" in active_data["anonymized_text"]
-            assert active_data["core_competencies"] == ["Distributed Billing Pipelines", "High-Throughput APIs"]
+            assert active_data["core_competencies"] == [
+                "Distributed Billing Pipelines",
+                "High-Throughput APIs",
+            ]
 
             # 4. Patch CV (years_of_experience & domain_experience active/mute)
             patch_resp = await client.patch(
@@ -101,7 +124,11 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
                     "anonymized_text": "Updated Custom Sanitized CV",
                     "core_competencies": ["Distributed Systems", "Cloud Architecture"],
                     "domain_experience": [
-                        {"domain": "Distributed Systems", "years": 5.5, "is_active": True},
+                        {
+                            "domain": "Distributed Systems",
+                            "years": 5.5,
+                            "is_active": True,
+                        },
                         {"domain": "Fintech", "years": 3.5, "is_active": False},
                         {"domain": "Cloud & DevOps", "years": 2.0, "is_active": True},
                     ],
@@ -124,4 +151,3 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
             assert get_after_del.json() is None
 
     app.dependency_overrides.clear()
-

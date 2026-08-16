@@ -11,7 +11,9 @@ from app.schemas.intake import EmailPayload
 
 
 @pytest.mark.asyncio
-async def test_sync_email_account_keyword_prefilter(db_session: AsyncSession, sample_email_account):
+async def test_sync_email_account_keyword_prefilter(
+    db_session: AsyncSession, sample_email_account
+):
     """Test that sync_email_account skips non-job emails and writes filtered_out records."""
     job_email = EmailPayload(
         message_id="msg-job-001",
@@ -30,7 +32,9 @@ async def test_sync_email_account_keyword_prefilter(db_session: AsyncSession, sa
 
     bg_tasks = BackgroundTasks()
 
-    with patch("app.routers.intake.fetch_emails_from_account", new_callable=AsyncMock) as mock_fetch:
+    with patch(
+        "app.routers.intake.fetch_emails_from_account", new_callable=AsyncMock
+    ) as mock_fetch:
         mock_fetch.return_value = ([job_email, spam_email], None)
 
         req = SyncFolderRequest(account_id=sample_email_account.id)
@@ -42,7 +46,9 @@ async def test_sync_email_account_keyword_prefilter(db_session: AsyncSession, sa
         assert res.skipped_duplicates == 0
 
     # Verify spam_email has been persisted as filtered_out
-    stmt = select(ProcessedEmailModel).where(ProcessedEmailModel.message_id == "msg-spam-002")
+    stmt = select(ProcessedEmailModel).where(
+        ProcessedEmailModel.message_id == "msg-spam-002"
+    )
     filtered_rec = (await db_session.execute(stmt)).scalar_one_or_none()
     assert filtered_rec is not None
     assert filtered_rec.status == "filtered_out"
@@ -50,7 +56,9 @@ async def test_sync_email_account_keyword_prefilter(db_session: AsyncSession, sa
 
 
 @pytest.mark.asyncio
-async def test_sync_email_account_custom_keywords(db_session: AsyncSession, sample_email_account):
+async def test_sync_email_account_custom_keywords(
+    db_session: AsyncSession, sample_email_account
+):
     """Test that custom keyword filter in SyncFolderRequest matches non-standard job terms."""
     custom_email = EmailPayload(
         message_id="msg-custom-003",
@@ -62,7 +70,9 @@ async def test_sync_email_account_custom_keywords(db_session: AsyncSession, samp
 
     bg_tasks = BackgroundTasks()
 
-    with patch("app.routers.intake.fetch_emails_from_account", new_callable=AsyncMock) as mock_fetch:
+    with patch(
+        "app.routers.intake.fetch_emails_from_account", new_callable=AsyncMock
+    ) as mock_fetch:
         mock_fetch.return_value = ([custom_email], None)
 
         req = SyncFolderRequest(
@@ -77,7 +87,9 @@ async def test_sync_email_account_custom_keywords(db_session: AsyncSession, samp
 
 
 @pytest.mark.asyncio
-async def test_sync_email_account_deduplication(db_session: AsyncSession, sample_email_account):
+async def test_sync_email_account_deduplication(
+    db_session: AsyncSession, sample_email_account
+):
     """Test that already processed emails in ProcessedEmailModel are skipped without re-evaluating."""
     # Pre-seed a processed email
     db_session.add(
@@ -100,7 +112,9 @@ async def test_sync_email_account_deduplication(db_session: AsyncSession, sample
 
     bg_tasks = BackgroundTasks()
 
-    with patch("app.routers.intake.fetch_emails_from_account", new_callable=AsyncMock) as mock_fetch:
+    with patch(
+        "app.routers.intake.fetch_emails_from_account", new_callable=AsyncMock
+    ) as mock_fetch:
         mock_fetch.return_value = ([seen_email], None)
 
         req = SyncFolderRequest(account_id=sample_email_account.id)

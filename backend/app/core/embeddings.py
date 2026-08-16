@@ -12,7 +12,9 @@ async def generate_query_embedding(text: str) -> list[float]:
         embeddings = await get_embeddings_model()
         return await embeddings.aembed_query(text)
     except Exception as err:
-        logger.error("Failed to generate search query embedding: %s", err, exc_info=True)
+        logger.error(
+            "Failed to generate search query embedding: %s", err, exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Failed to generate search query embedding: {str(err)}",

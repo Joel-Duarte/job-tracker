@@ -78,11 +78,21 @@ async def web_researcher_node(state: InterviewGuideState) -> dict[str, Any]:
 
     try:
         if db:
-            llm = await get_task_chat_model(db, task_type="INTERVIEW_GUIDE", temperature=0.3)
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", "You are an executive research analyst. Extract key business priorities, culture traits, and technical stack details from this job spec and company."),
-                ("human", f"Target Company: {company}\n\nJob Details:\n{jd_text[:3000]}"),
-            ])
+            llm = await get_task_chat_model(
+                db, task_type="INTERVIEW_GUIDE", temperature=0.3
+            )
+            prompt = ChatPromptTemplate.from_messages(
+                [
+                    (
+                        "system",
+                        "You are an executive research analyst. Extract key business priorities, culture traits, and technical stack details from this job spec and company.",
+                    ),
+                    (
+                        "human",
+                        f"Target Company: {company}\n\nJob Details:\n{jd_text[:3000]}",
+                    ),
+                ]
+            )
             chain = prompt | llm
             res = await chain.ainvoke({})
             content = res.content if hasattr(res, "content") else res
@@ -118,28 +128,37 @@ async def section_generator_node(state: InterviewGuideState) -> dict[str, Any]:
     section_html = ""
     try:
         if db:
-            llm = await get_task_chat_model(db, task_type="INTERVIEW_GUIDE", temperature=0.4)
+            llm = await get_task_chat_model(
+                db, task_type="INTERVIEW_GUIDE", temperature=0.4
+            )
             template_str = await get_prompt_template(db, "interview_guide")
 
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", template_str),
-                ("human", (
-                    f"Generate the following section in {language}:\n\n"
-                    f"{section_desc}\n\n"
-                    "Remember to output ONLY valid, clean HTML tags (e.g. <h2>, <p>, <strong>, <ul>, <li>, <blockquote>) with zero markdown code blocks or wrapper backticks."
-                )),
-            ])
+            prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("system", template_str),
+                    (
+                        "human",
+                        (
+                            f"Generate the following section in {language}:\n\n"
+                            f"{section_desc}\n\n"
+                            "Remember to output ONLY valid, clean HTML tags (e.g. <h2>, <p>, <strong>, <ul>, <li>, <blockquote>) with zero markdown code blocks or wrapper backticks."
+                        ),
+                    ),
+                ]
+            )
 
             chain = prompt | llm
-            res = await chain.ainvoke({
-                "language": language,
-                "company_name": company_name,
-                "position": position,
-                "company_context": company_context,
-                "jd_text": jd_text[:4000],
-                "cv_text": cv_text[:4000],
-                "target_section": section_desc,
-            })
+            res = await chain.ainvoke(
+                {
+                    "language": language,
+                    "company_name": company_name,
+                    "position": position,
+                    "company_context": company_context,
+                    "jd_text": jd_text[:4000],
+                    "cv_text": cv_text[:4000],
+                    "target_section": section_desc,
+                }
+            )
 
             content = res.content if hasattr(res, "content") else res
             raw_html = content if isinstance(content, str) else str(content)
@@ -188,10 +207,14 @@ def build_interview_guide_graph():
     workflow.add_edge(START, "extractor")
     workflow.add_edge("extractor", "web_researcher")
     workflow.add_edge("web_researcher", "section_generator")
-    workflow.add_conditional_edges("section_generator", should_continue_sections, {
-        "section_generator": "section_generator",
-        END: END,
-    })
+    workflow.add_conditional_edges(
+        "section_generator",
+        should_continue_sections,
+        {
+            "section_generator": "section_generator",
+            END: END,
+        },
+    )
 
     return workflow.compile()
 

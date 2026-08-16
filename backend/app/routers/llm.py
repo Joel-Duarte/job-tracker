@@ -34,25 +34,41 @@ class LLMConfigRead(BaseModel):
     agent_max_tokens: int | None = None
     agent_max_recursions: int
     is_active: bool = True
-    source: str = Field(description="Indicates whether config comes from 'database' or '.env'")
+    source: str = Field(
+        description="Indicates whether config comes from 'database' or '.env'"
+    )
 
 
 class LLMConfigUpdate(BaseModel):
     provider_name: str | None = Field(default=None, description="Name of the provider")
-    api_base: str | None = Field(default=None, description="Custom base URL for the LLM API")
-    api_key: str | None = Field(default=None, description="API key if required by provider")
+    api_base: str | None = Field(
+        default=None, description="Custom base URL for the LLM API"
+    )
+    api_key: str | None = Field(
+        default=None, description="API key if required by provider"
+    )
     model_name: str | None = Field(default=None, description="Primary model identifier")
-    embedding_model_name: str | None = Field(default=None, description="Embedding model identifier")
-    temperature: float | None = Field(default=None, description="Primary model temperature")
+    embedding_model_name: str | None = Field(
+        default=None, description="Embedding model identifier"
+    )
+    temperature: float | None = Field(
+        default=None, description="Primary model temperature"
+    )
     top_k: int | None = Field(default=None, description="Primary model top_k")
     top_p: float | None = Field(default=None, description="Primary model top_p")
     max_tokens: int | None = Field(default=None, description="Primary model max tokens")
-    agent_model_name: str | None = Field(default=None, description="Agent specific model identifier")
-    agent_temperature: float | None = Field(default=None, description="Agent temperature")
+    agent_model_name: str | None = Field(
+        default=None, description="Agent specific model identifier"
+    )
+    agent_temperature: float | None = Field(
+        default=None, description="Agent temperature"
+    )
     agent_top_k: int | None = Field(default=None, description="Agent top_k")
     agent_top_p: float | None = Field(default=None, description="Agent top_p")
     agent_max_tokens: int | None = Field(default=None, description="Agent max tokens")
-    agent_max_recursions: int | None = Field(default=None, description="Agent max recursions")
+    agent_max_recursions: int | None = Field(
+        default=None, description="Agent max recursions"
+    )
 
 
 @router.get("", response_model=LLMConfigRead)
@@ -121,7 +137,9 @@ async def update_llm_config(
             api_base=update_data.get("api_base", settings.LLM_API_BASE),
             api_key=update_data.get("api_key", settings.LLM_API_KEY),
             model_name=update_data.get("model_name", settings.LLM_MODEL_NAME),
-            embedding_model_name=update_data.get("embedding_model_name", settings.EMBEDDING_MODEL_NAME),
+            embedding_model_name=update_data.get(
+                "embedding_model_name", settings.EMBEDDING_MODEL_NAME
+            ),
             temperature=update_data.get("temperature", 0.7),
             top_k=update_data.get("top_k", 50),
             top_p=update_data.get("top_p", 1.0),
@@ -169,7 +187,9 @@ async def reset_llm_config_to_env(db: AsyncSession = Depends(get_db)) -> dict[st
     stmt = delete(LLMConfigModel)
     await db.execute(stmt)
     await db.commit()
-    return {"message": "LLM configuration reset to .env fallback settings successfully."}
+    return {
+        "message": "LLM configuration reset to .env fallback settings successfully."
+    }
 
 
 @router.post("/test")
@@ -178,8 +198,14 @@ async def test_llm_connection(db: AsyncSession = Depends(get_db)) -> dict[str, A
 
     try:
         chat_model = await get_chat_model(db, max_tokens=10)
-        response = await chat_model.ainvoke([HumanMessage(content="Respond with 'OK' to verify connectivity.")])
-        content = response.content if isinstance(response.content, str) else str(response.content)
+        response = await chat_model.ainvoke(
+            [HumanMessage(content="Respond with 'OK' to verify connectivity.")]
+        )
+        content = (
+            response.content
+            if isinstance(response.content, str)
+            else str(response.content)
+        )
 
         return {
             "status": "success",

@@ -4,12 +4,24 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ActionItemCreate(BaseModel):
-    application_id: Optional[int] = Field(None, description="Associated job application ID")
-    title: str = Field(..., min_length=1, max_length=500, description="Task title / action description")
-    due_date: Optional[datetime] = Field(None, description="Due date and time for the task")
-    urgency: Optional[str] = Field("MEDIUM", description="Urgency level: HIGH, MEDIUM, LOW")
-    status: Optional[str] = Field("PENDING", description="Task status: PENDING, COMPLETED, DISMISSED")
-    action_url: Optional[str] = Field(None, description="Optional direct link related to the task")
+    application_id: Optional[int] = Field(
+        None, description="Associated job application ID"
+    )
+    title: str = Field(
+        ..., min_length=1, max_length=500, description="Task title / action description"
+    )
+    due_date: Optional[datetime] = Field(
+        None, description="Due date and time for the task"
+    )
+    urgency: Optional[str] = Field(
+        "MEDIUM", description="Urgency level: HIGH, MEDIUM, LOW"
+    )
+    status: Optional[str] = Field(
+        "PENDING", description="Task status: PENDING, COMPLETED, DISMISSED"
+    )
+    action_url: Optional[str] = Field(
+        None, description="Optional direct link related to the task"
+    )
 
 
 class ActionItemUpdate(BaseModel):
@@ -21,7 +33,9 @@ class ActionItemUpdate(BaseModel):
 
 
 class UrgencyOverrideUpdate(BaseModel):
-    manual_urgency: Optional[str] = Field(None, description="HIGH, MEDIUM, LOW, or null to reset to auto")
+    manual_urgency: Optional[str] = Field(
+        None, description="HIGH, MEDIUM, LOW, or null to reset to auto"
+    )
 
 
 class ActionItemResponse(BaseModel):

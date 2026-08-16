@@ -6,7 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.main import app
-from app.models.applications import ApplicationEmbeddingModel, ApplicationEventModel, ApplicationModel, CompanyModel, JobPostingModel
+from app.models.applications import (
+    ApplicationEmbeddingModel,
+    ApplicationEventModel,
+    ApplicationModel,
+    CompanyModel,
+    JobPostingModel,
+)
 
 
 @pytest.mark.asyncio
@@ -14,7 +20,9 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
     app.dependency_overrides[get_db] = lambda: db_session
 
     # 1. Seed Company and Application
-    company = CompanyModel(name="Linear Labs", name_normalized="linear labs", domain="linear.app")
+    company = CompanyModel(
+        name="Linear Labs", name_normalized="linear labs", domain="linear.app"
+    )
     db_session.add(company)
     await db_session.flush()
 
@@ -32,7 +40,10 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # 2. Transition to TECHNICAL_INTERVIEW with interview stage and scheduled_at
-        with patch("app.routers.applications.async_enqueue_application_embedding", new_callable=AsyncMock) as mock_embed:
+        with patch(
+            "app.routers.applications.async_enqueue_application_embedding",
+            new_callable=AsyncMock,
+        ) as mock_embed:
             resp = await client.post(
                 f"/api/v1/applications/{application.id}/transition",
                 json={
@@ -49,7 +60,10 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
             assert data["latest_event"]["email_event_type"] == "STATUS_CHANGE"
 
         # 3. Transition to OFFER with offered salary, offer_received_date, and decision_deadline
-        with patch("app.routers.applications.async_enqueue_application_embedding", new_callable=AsyncMock) as mock_embed:
+        with patch(
+            "app.routers.applications.async_enqueue_application_embedding",
+            new_callable=AsyncMock,
+        ) as mock_embed:
             resp = await client.post(
                 f"/api/v1/applications/{application.id}/transition",
                 json={
@@ -66,14 +80,19 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
             assert data["status"] == "OFFER"
 
         # Check job_posting in DB was updated with salary
-        jp_stmt = select(JobPostingModel).where(JobPostingModel.application_id == application.id)
+        jp_stmt = select(JobPostingModel).where(
+            JobPostingModel.application_id == application.id
+        )
         jp_res = await db_session.execute(jp_stmt)
         jp = jp_res.scalar_one_or_none()
         assert jp is not None
         assert jp.salary_min == 210000
 
         # 4. Transition to REJECTED with rejection reason and rejection_date
-        with patch("app.routers.applications.async_enqueue_application_embedding", new_callable=AsyncMock) as mock_embed:
+        with patch(
+            "app.routers.applications.async_enqueue_application_embedding",
+            new_callable=AsyncMock,
+        ) as mock_embed:
             resp = await client.post(
                 f"/api/v1/applications/{application.id}/transition",
                 json={
@@ -88,7 +107,9 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
             assert data["status"] == "REJECTED"
 
         # 5. Verify timeline events count in DB
-        events_stmt = select(ApplicationEventModel).where(ApplicationEventModel.email_application_id == application.id)
+        events_stmt = select(ApplicationEventModel).where(
+            ApplicationEventModel.email_application_id == application.id
+        )
         events_res = await db_session.execute(events_stmt)
         events = events_res.scalars().all()
         assert len(events) == 3

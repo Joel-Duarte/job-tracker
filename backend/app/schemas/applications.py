@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # --- Nested Response Schemas ---
 
+
 class CompanySummary(BaseModel):
     id: int
     name: str
@@ -26,6 +27,7 @@ class EventSummary(BaseModel):
 
 
 # --- Main Application Response Schemas ---
+
 
 class ApplicationListItem(BaseModel):
     id: int
@@ -113,7 +115,9 @@ class ApplicationDetailResponse(ApplicationListItem):
 
 
 class GenerateInterviewGuideRequest(BaseModel):
-    language: str = Field("en", description="Output language code e.g. en, pt, es, de, fr, it, nl")
+    language: str = Field(
+        "en", description="Output language code e.g. en, pt, es, de, fr, it, nl"
+    )
     selected_sections: List[str] = Field(
         default_factory=lambda: [
             "role_company_brief",
@@ -125,17 +129,29 @@ class GenerateInterviewGuideRequest(BaseModel):
         ],
         description="Target sections to generate in the guide",
     )
-    recursion_limit: int = Field(25, ge=5, le=100, description="LangGraph execution recursion limit")
+    recursion_limit: int = Field(
+        25, ge=5, le=100, description="LangGraph execution recursion limit"
+    )
 
 
 # --- Query Filter Schema ---
 
+
 class ApplicationFilterParams(BaseModel):
-    q: Optional[str] = Field(None, description="Search term for position or company name")
-    status: Optional[str] = Field(None, description="Filter by application status (e.g., APPLIED, INTERVIEW)")
-    action_required: Optional[bool] = Field(None, description="Filter applications with pending action items")
+    q: Optional[str] = Field(
+        None, description="Search term for position or company name"
+    )
+    status: Optional[str] = Field(
+        None, description="Filter by application status (e.g., APPLIED, INTERVIEW)"
+    )
+    action_required: Optional[bool] = Field(
+        None, description="Filter applications with pending action items"
+    )
     company_id: Optional[int] = Field(None, description="Filter by specific company ID")
-    sort_by: str = Field("last_activity_at", description="Sort field: last_activity_at, application_date, status")
+    sort_by: str = Field(
+        "last_activity_at",
+        description="Sort field: last_activity_at, application_date, status",
+    )
     order: str = Field("desc", description="Sort order: asc or desc")
     limit: int = Field(20, ge=1, le=100, description="Pagination limit")
     offset: int = Field(0, ge=0, description="Pagination offset")
@@ -164,25 +180,49 @@ class ApplicationByStatusResult(BaseModel):
 
 class ApplicationTransitionRequest(BaseModel):
     status: AllowedApplicationStatus = Field(..., description="Target pipeline status")
-    interview_stage: Optional[str] = Field(None, description="Specific interview phase e.g. Screening, Take-Home, System Design, Final Round")
-    scheduled_at: Optional[datetime] = Field(None, description="Interview scheduled date & time")
+    interview_stage: Optional[str] = Field(
+        None,
+        description="Specific interview phase e.g. Screening, Take-Home, System Design, Final Round",
+    )
+    scheduled_at: Optional[datetime] = Field(
+        None, description="Interview scheduled date & time"
+    )
     offered_salary: Optional[float] = Field(None, description="Offered compensation")
-    currency: Optional[str] = Field("USD", description="Currency code for offered compensation")
-    offer_received_date: Optional[date] = Field(None, description="Date offer package was received")
-    decision_deadline: Optional[date] = Field(None, description="Decision deadline date to respond/accept offer")
-    rejection_date: Optional[date] = Field(None, description="Date rejection notice was received")
+    currency: Optional[str] = Field(
+        "USD", description="Currency code for offered compensation"
+    )
+    offer_received_date: Optional[date] = Field(
+        None, description="Date offer package was received"
+    )
+    decision_deadline: Optional[date] = Field(
+        None, description="Decision deadline date to respond/accept offer"
+    )
+    rejection_date: Optional[date] = Field(
+        None, description="Date rejection notice was received"
+    )
     rejection_reason: Optional[str] = Field(None, description="Reason for rejection")
-    notes: Optional[str] = Field(None, description="Additional notes or context for transition")
+    notes: Optional[str] = Field(
+        None, description="Additional notes or context for transition"
+    )
 
 
 class ApplicationUpdate(BaseModel):
     position: Optional[str] = Field(None, description="Updated job title/position name")
-    status: Optional[str] = Field(None, description="Updated status, e.g., APPLIED, TECHNICAL_INTERVIEW, OFFER, REJECTED")
+    status: Optional[str] = Field(
+        None,
+        description="Updated status, e.g., APPLIED, TECHNICAL_INTERVIEW, OFFER, REJECTED",
+    )
     job_url: Optional[str] = Field(None, description="URL to the job posting")
-    external_job_id: Optional[str] = Field(None, description="External reference ID for the listing")
-    company_id: Optional[int] = Field(None, description="Reassign to another company ID if needed")
+    external_job_id: Optional[str] = Field(
+        None, description="External reference ID for the listing"
+    )
+    company_id: Optional[int] = Field(
+        None, description="Reassign to another company ID if needed"
+    )
     interview_stage: Optional[str] = Field(None, description="Interview sub-stage")
-    scheduled_at: Optional[datetime] = Field(None, description="Scheduled interview time")
+    scheduled_at: Optional[datetime] = Field(
+        None, description="Scheduled interview time"
+    )
     offered_salary: Optional[float] = Field(None, description="Offered compensation")
     currency: Optional[str] = Field("USD", description="Currency code")
     offer_received_date: Optional[date] = Field(None, description="Date offer received")

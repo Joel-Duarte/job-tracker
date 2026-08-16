@@ -29,9 +29,7 @@ async def test_gmail_oauth_adapter_incremental_sync():
                 200,
                 json={
                     "historyId": "999888",
-                    "history": [
-                        {"messagesAdded": [{"message": {"id": "msg_001"}}]}
-                    ],
+                    "history": [{"messagesAdded": [{"message": {"id": "msg_001"}}]}],
                 },
             )
         elif "/messages/msg_001?format=raw" in url:
@@ -42,7 +40,9 @@ async def test_gmail_oauth_adapter_incremental_sync():
         return httpx.Response(404)
 
     transport = httpx.MockTransport(mock_handler)
-    with patch("httpx.AsyncClient", return_value=httpx.AsyncClient(transport=transport)):
+    with patch(
+        "httpx.AsyncClient", return_value=httpx.AsyncClient(transport=transport)
+    ):
         emails, next_history_id = await GmailOAuthAdapter.fetch_messages_delta(
             access_token="fake-gmail-token",
             history_id="111222",
@@ -68,7 +68,10 @@ async def test_ms_graph_adapter_delta_sync():
                         "conversationId": "ms_conv_abc",
                         "subject": "Microsoft Offer Letter",
                         "receivedDateTime": "2026-08-01T15:30:00Z",
-                        "body": {"contentType": "text", "content": "Congratulations on your offer!"},
+                        "body": {
+                            "contentType": "text",
+                            "content": "Congratulations on your offer!",
+                        },
                     },
                     {
                         "id": "ms_msg_deleted",
@@ -79,7 +82,9 @@ async def test_ms_graph_adapter_delta_sync():
         )
 
     transport = httpx.MockTransport(mock_handler)
-    with patch("httpx.AsyncClient", return_value=httpx.AsyncClient(transport=transport)):
+    with patch(
+        "httpx.AsyncClient", return_value=httpx.AsyncClient(transport=transport)
+    ):
         emails, next_delta = await MicrosoftGraphAdapter.fetch_messages_delta(
             access_token="fake-ms-token",
             delta_link=None,
@@ -103,7 +108,9 @@ async def test_fetch_emails_from_account_oauth_dispatch():
         sync_cursor="12345",
     )
 
-    with patch.object(GmailOAuthAdapter, "fetch_messages_delta", new_callable=AsyncMock) as mock_gmail:
+    with patch.object(
+        GmailOAuthAdapter, "fetch_messages_delta", new_callable=AsyncMock
+    ) as mock_gmail:
         mock_gmail.return_value = ([], "67890")
         emails, cursor = await fetch_emails_from_account(gmail_account)
         assert cursor == "67890"

@@ -3,7 +3,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy import select
 
-from app.models.applications import ApplicationEventModel, ApplicationModel, CompanyModel
+from app.models.applications import (
+    ApplicationEventModel,
+    ApplicationModel,
+    CompanyModel,
+)
 from app.models.staging import StagingItemModel
 from app.schemas.intake import EmailPayload, ExtractedEmailInfo
 from app.schemas.staging import StagingItemResolve
@@ -38,7 +42,9 @@ async def test_low_confidence_email_routed_to_staging(db_session):
 
     task_id = task_tracker.create_task(total_emails=1)
 
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract:
+    with patch(
+        "app.services.intake.extract_email_info", new_callable=AsyncMock
+    ) as mock_extract:
         mock_extract.return_value = low_confidence_extracted
         await process_email_batch_sequential(db_session, [staged_email], task_id)
 
@@ -48,7 +54,9 @@ async def test_low_confidence_email_routed_to_staging(db_session):
 
     # 2. Verify Item was stored in Staging Queue
     staging_res = await db_session.execute(
-        select(StagingItemModel).where(StagingItemModel.email_conversation_id == "conv-staging-101")
+        select(StagingItemModel).where(
+            StagingItemModel.email_conversation_id == "conv-staging-101"
+        )
     )
     staged_item = staging_res.scalar_one_or_none()
     assert staged_item is not None
@@ -57,7 +65,9 @@ async def test_low_confidence_email_routed_to_staging(db_session):
 
 
 @pytest.mark.asyncio
-async def test_duplicate_email_deduplication(db_session, mock_job_email_payload, mock_extracted_job_info):
+async def test_duplicate_email_deduplication(
+    db_session, mock_job_email_payload, mock_extracted_job_info
+):
     """Test that an email with an identical message_id is skipped if already present in event/staging tables."""
     duplicate_payload = EmailPayload(
         conversation_id=mock_job_email_payload.conversation_id,
@@ -70,19 +80,25 @@ async def test_duplicate_email_deduplication(db_session, mock_job_email_payload,
     task_id_1 = task_tracker.create_task(total_emails=1)
     task_id_2 = task_tracker.create_task(total_emails=1)
 
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract, \
-         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock):
+    with (
+        patch(
+            "app.services.intake.extract_email_info", new_callable=AsyncMock
+        ) as mock_extract,
+        patch(
+            "app.services.graph_nodes.generate_and_save_application_embedding",
+            new_callable=AsyncMock,
+        ),
+    ):
         mock_extract.return_value = mock_extracted_job_info
 
         # Pass 1: Ingests email
         await process_email_batch_sequential(db_session, [duplicate_payload], task_id_1)
-        
+
         # Pass 2: Identical duplicate email should be skipped
         await process_email_batch_sequential(db_session, [duplicate_payload], task_id_2)
 
         # Extraction should only be called ONCE (during Pass 1)
         assert mock_extract.call_count == 1
-
 
     # Verify only 1 timeline event exists in DB
     events = (await db_session.execute(select(ApplicationEventModel))).scalars().all()
@@ -116,10 +132,15 @@ async def test_resolve_staged_item_and_generate_embeddings(db_session):
     )
 
     # Mock embedding function to prevent real API calls during test
-    with patch("app.services.llm.generate_and_save_application_embedding", new_callable=AsyncMock) as mock_gen_emb:
+    with patch(
+        "app.services.llm.generate_and_save_application_embedding",
+        new_callable=AsyncMock,
+    ) as mock_gen_emb:
         # Replicate resolution logic
         company_norm = resolve_payload.company_name.strip().lower()
-        company = CompanyModel(name=resolve_payload.company_name, name_normalized=company_norm)
+        company = CompanyModel(
+            name=resolve_payload.company_name, name_normalized=company_norm
+        )
         db_session.add(company)
         await db_session.flush()
 

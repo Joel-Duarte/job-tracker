@@ -35,12 +35,17 @@ def test_clean_extracted_text():
 
 @pytest.mark.asyncio
 async def test_scrape_via_camofox_success():
-    fake_eval_payload = json.dumps({
-        "title": "Senior Python Engineer at Stripe",
-        "text": "Job Description:\nWe are hiring a Senior Python Engineer to work on core payment systems."
-    })
+    fake_eval_payload = json.dumps(
+        {
+            "title": "Senior Python Engineer at Stripe",
+            "text": "Job Description:\nWe are hiring a Senior Python Engineer to work on core payment systems.",
+        }
+    )
 
-    with patch("httpx.AsyncClient.post") as mock_post, patch("httpx.AsyncClient.delete") as mock_delete:
+    with (
+        patch("httpx.AsyncClient.post") as mock_post,
+        patch("httpx.AsyncClient.delete") as mock_delete,
+    ):
         # Mock /tabs/open
         open_resp = httpx.Response(200, json={"ok": True, "tabId": "tab-1234"})
         # Mock /tabs/tab-1234/evaluate
@@ -65,10 +70,13 @@ async def test_scrape_via_camofox_success():
 
 @pytest.mark.asyncio
 async def test_scrape_via_camofox_tab_open_failure_triggers_fallback():
-    with patch("httpx.AsyncClient.post") as mock_post, patch("app.services.scraper._scrape_via_http_fallback") as mock_http:
+    with (
+        patch("httpx.AsyncClient.post") as mock_post,
+        patch("app.services.scraper._scrape_via_http_fallback") as mock_http,
+    ):
         # Mock Camofox failure
         mock_post.return_value = httpx.Response(500, text="Internal Server Error")
-        
+
         # Mock HTTP fallback
         mock_http.return_value = ScrapedJobContent(
             title="Frontend Developer",
@@ -124,7 +132,8 @@ async def test_scrape_job_url_normalizes_url_scheme():
     with patch("app.services.scraper._scrape_via_camofox") as mock_camofox:
         mock_camofox.return_value = ScrapedJobContent(
             title="DevOps Engineer",
-            text="Valid description with more than 100 characters to pass the length check. " * 3,
+            text="Valid description with more than 100 characters to pass the length check. "
+            * 3,
             source_url="https://company.com/jobs/1",
             scraped_via="camofox",
         )

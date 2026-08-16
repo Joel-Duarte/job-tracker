@@ -22,13 +22,17 @@ def route_after_dedupe(state: JobTrackerState) -> Literal["extraction", "__end__
     return "extraction"
 
 
-def route_after_extraction(state: JobTrackerState) -> Literal["fuzzy_match", "db_commit"]:
+def route_after_extraction(
+    state: JobTrackerState,
+) -> Literal["fuzzy_match", "db_commit"]:
     if not state.get("is_application"):
         return "db_commit"
     return "fuzzy_match"
 
 
-def route_after_fuzzy_match(state: JobTrackerState) -> Literal["staging", "scrape_enrich", "db_commit"]:
+def route_after_fuzzy_match(
+    state: JobTrackerState,
+) -> Literal["staging", "scrape_enrich", "db_commit"]:
     if state.get("route") == "staging":
         return "staging"
     if state.get("job_url"):

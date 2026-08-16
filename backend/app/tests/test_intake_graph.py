@@ -55,7 +55,9 @@ async def test_graph_non_application_flow(db_session: AsyncSession):
         action=None,
     )
 
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract:
+    with patch(
+        "app.services.intake.extract_email_info", new_callable=AsyncMock
+    ) as mock_extract:
         mock_extract.return_value = non_job_extracted
 
         result = await intake_graph.ainvoke(
@@ -66,7 +68,11 @@ async def test_graph_non_application_flow(db_session: AsyncSession):
         assert result.get("is_application") is False
         assert result.get("event_id") is not None
 
-    other_res = await db_session.execute(select(OtherEventModel).where(OtherEventModel.email_message_id == "msg-news-102"))
+    other_res = await db_session.execute(
+        select(OtherEventModel).where(
+            OtherEventModel.email_message_id == "msg-news-102"
+        )
+    )
     assert other_res.scalar_one_or_none() is not None
 
 
@@ -90,8 +96,15 @@ async def test_graph_high_confidence_application_flow(db_session: AsyncSession):
         action=None,
     )
 
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract, \
-         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock) as mock_emb:
+    with (
+        patch(
+            "app.services.intake.extract_email_info", new_callable=AsyncMock
+        ) as mock_extract,
+        patch(
+            "app.services.graph_nodes.generate_and_save_application_embedding",
+            new_callable=AsyncMock,
+        ) as mock_emb,
+    ):
         mock_extract.return_value = extracted
 
         result = await intake_graph.ainvoke(
@@ -104,7 +117,9 @@ async def test_graph_high_confidence_application_flow(db_session: AsyncSession):
         assert result.get("application_id") is not None
         assert result.get("event_id") is not None
 
-    app_res = await db_session.execute(select(ApplicationModel).where(ApplicationModel.id == result["application_id"]))
+    app_res = await db_session.execute(
+        select(ApplicationModel).where(ApplicationModel.id == result["application_id"])
+    )
     app = app_res.scalar_one_or_none()
     assert app is not None
     assert app.position == "Backend Developer"
@@ -136,7 +151,9 @@ async def test_graph_low_confidence_staging_flow(db_session: AsyncSession):
         action="Reply with dates.",
     )
 
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract:
+    with patch(
+        "app.services.intake.extract_email_info", new_callable=AsyncMock
+    ) as mock_extract:
         mock_extract.return_value = extracted
 
         result = await intake_graph.ainvoke(
@@ -188,8 +205,15 @@ async def test_graph_single_company_auto_link(db_session: AsyncSession):
         action="Schedule interview.",
     )
 
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract, \
-         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock):
+    with (
+        patch(
+            "app.services.intake.extract_email_info", new_callable=AsyncMock
+        ) as mock_extract,
+        patch(
+            "app.services.graph_nodes.generate_and_save_application_embedding",
+            new_callable=AsyncMock,
+        ),
+    ):
         mock_extract.return_value = extracted
 
         result = await intake_graph.ainvoke(
@@ -242,8 +266,15 @@ async def test_graph_multiple_company_disambiguation(db_session: AsyncSession):
         action=None,
     )
 
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract, \
-         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock):
+    with (
+        patch(
+            "app.services.intake.extract_email_info", new_callable=AsyncMock
+        ) as mock_extract,
+        patch(
+            "app.services.graph_nodes.generate_and_save_application_embedding",
+            new_callable=AsyncMock,
+        ),
+    ):
         mock_extract.return_value = extracted_sre
 
         result = await intake_graph.ainvoke(
@@ -271,7 +302,9 @@ async def test_graph_multiple_company_disambiguation(db_session: AsyncSession):
         action=None,
     )
 
-    with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract:
+    with patch(
+        "app.services.intake.extract_email_info", new_callable=AsyncMock
+    ) as mock_extract:
         mock_extract.return_value = extracted_ambig
 
         result = await intake_graph.ainvoke(

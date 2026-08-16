@@ -79,8 +79,14 @@ class GmailOAuthAdapter:
             if history_id:
                 try:
                     hist_url = f"{cls.GMAIL_API_BASE}/history"
-                    params = {"startHistoryId": history_id, "maxResults": max_results, "historyTypes": "messageAdded"}
-                    hist_resp = await client.get(hist_url, headers=headers, params=params)
+                    params = {
+                        "startHistoryId": history_id,
+                        "maxResults": max_results,
+                        "historyTypes": "messageAdded",
+                    }
+                    hist_resp = await client.get(
+                        hist_url, headers=headers, params=params
+                    )
                     if hist_resp.status_code == 200:
                         hist_data = hist_resp.json()
                         new_history_id = hist_data.get("historyId", history_id)
@@ -90,7 +96,10 @@ class GmailOAuthAdapter:
                                 if msg_id and msg_id not in message_ids:
                                     message_ids.append(msg_id)
                     else:
-                        logger.warning("History ID expired or invalid (%s), falling back to query.", hist_resp.status_code)
+                        logger.warning(
+                            "History ID expired or invalid (%s), falling back to query.",
+                            hist_resp.status_code,
+                        )
                         history_id = None
                 except Exception as err:
                     logger.warning("Gmail history query error: %s", err)
@@ -107,7 +116,9 @@ class GmailOAuthAdapter:
                     message_ids.append(msg_item["id"])
 
                 # Get latest user profile historyId
-                profile_resp = await client.get(f"{cls.GMAIL_API_BASE}/profile", headers=headers)
+                profile_resp = await client.get(
+                    f"{cls.GMAIL_API_BASE}/profile", headers=headers
+                )
                 if profile_resp.status_code == 200:
                     new_history_id = profile_resp.json().get("historyId")
 
@@ -142,7 +153,12 @@ class MicrosoftGraphAdapter:
 
     @classmethod
     async def exchange_code_for_tokens(
-        cls, client_id: str, client_secret: str, code: str, redirect_uri: str, tenant_id: str = "common"
+        cls,
+        client_id: str,
+        client_secret: str,
+        code: str,
+        redirect_uri: str,
+        tenant_id: str = "common",
     ) -> dict[str, Any]:
         """Exchanges OAuth2 authorization code for access and refresh tokens with Microsoft."""
         token_endpoint = cls.TOKEN_URL.format(tenant_id=tenant_id)
@@ -163,7 +179,11 @@ class MicrosoftGraphAdapter:
 
     @classmethod
     async def refresh_access_token(
-        cls, client_id: str, client_secret: str, refresh_token: str, tenant_id: str = "common"
+        cls,
+        client_id: str,
+        client_secret: str,
+        refresh_token: str,
+        tenant_id: str = "common",
     ) -> str:
         """Refreshes expired OAuth2 access token with Microsoft identity platform."""
         token_endpoint = cls.TOKEN_URL.format(tenant_id=tenant_id)
@@ -199,7 +219,9 @@ class MicrosoftGraphAdapter:
             "Prefer": f"odata.maxpagesize={max_results}",
         }
 
-        request_url = delta_link or f"{cls.GRAPH_BASE}/me/mailFolders('Inbox')/messages/delta"
+        request_url = (
+            delta_link or f"{cls.GRAPH_BASE}/me/mailFolders('Inbox')/messages/delta"
+        )
 
         async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.get(request_url, headers=headers)
@@ -220,7 +242,9 @@ class MicrosoftGraphAdapter:
                 received_at = datetime.now(timezone.utc)
                 if received_str:
                     try:
-                        received_at = datetime.fromisoformat(received_str.replace("Z", "+00:00"))
+                        received_at = datetime.fromisoformat(
+                            received_str.replace("Z", "+00:00")
+                        )
                     except Exception:
                         pass
 

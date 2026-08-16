@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["Deletion Operations"])
 
+
 @router.delete(
     "/reset-database",
     status_code=status.HTTP_200_OK,
@@ -53,6 +54,7 @@ async def reset_database(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to reset database.",
         )
+
 
 @router.delete(
     "/applications/{application_id}",
@@ -119,8 +121,8 @@ async def delete_event(
         .limit(1)
     )
     latest_event_id = (await db.execute(latest_event_query)).scalar_one_or_none()
-    
-    is_latest_event = (latest_event_id == event_id)
+
+    is_latest_event = latest_event_id == event_id
 
     # Perform Event Delete
     await db.delete(event)
@@ -140,16 +142,22 @@ async def delete_event(
 
         if new_latest_event:
             # TODO: Trigger re-indexing of the embedding for this application based on the new latest event
-            logger.info(f"Latest event deleted for App {app_id}. Triggering re-indexing.")
+            logger.info(
+                f"Latest event deleted for App {app_id}. Triggering re-indexing."
+            )
             embedding_reindexed = True
         else:
             # If NO events remain for this application, drop its vector embedding
             await db.execute(
-                text("DELETE FROM email_application_embeddings WHERE email_application_id = :app_id"),
-                {"app_id": app_id}
+                text(
+                    "DELETE FROM email_application_embeddings WHERE email_application_id = :app_id"
+                ),
+                {"app_id": app_id},
             )
             await db.commit()
-            logger.info(f"No events remaining for App {app_id}. Deleted embedding record.")
+            logger.info(
+                f"No events remaining for App {app_id}. Deleted embedding record."
+            )
 
     return {
         "status": "success",

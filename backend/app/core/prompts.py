@@ -251,7 +251,10 @@ async def seed_default_prompts(session: AsyncSession) -> None:
 
         if not existing:
             session.add(PromptModel(name=prompt_name, template=default_template))
-        elif prompt_name == "cv_anonymization" and ("{'domain'}" in (existing.template or "") or "{'domain" in (existing.template or "")):
+        elif prompt_name == "cv_anonymization" and (
+            "{'domain'}" in (existing.template or "")
+            or "{'domain" in (existing.template or "")
+        ):
             # Auto-heal legacy prompt with unescaped braces
             existing.template = default_template
 
@@ -265,7 +268,9 @@ async def get_prompt_template(session: AsyncSession, prompt_name: str) -> str:
     template = result.scalar_one_or_none()
 
     if template:
-        if prompt_name == "cv_anonymization" and ("{'domain'}" in template or "{'domain" in template):
+        if prompt_name == "cv_anonymization" and (
+            "{'domain'}" in template or "{'domain" in template
+        ):
             return DEFAULT_PROMPTS["cv_anonymization"]
         return template
 

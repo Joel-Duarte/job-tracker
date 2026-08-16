@@ -10,7 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.applications import ApplicationEventModel, ApplicationModel, CompanyModel, JobPostingModel
+from app.models.applications import (
+    ApplicationEventModel,
+    ApplicationModel,
+    CompanyModel,
+    JobPostingModel,
+)
 from app.schemas.extension import ClipJobRequest, ClipUrlRequest, ExtensionClipResponse
 from app.schemas.intake import EmailPayload
 from app.services.intake import process_single_email_graph
@@ -24,9 +29,13 @@ router = APIRouter(prefix="/extension", tags=["Browser Extension"])
 def _extract_text_from_html(html_content: str) -> str:
     """Strips HTML tags and extracts visible text content."""
     # Remove script and style elements
-    cleaned = re.sub(r"<(script|style)[^>]*>[\s\S]*?</\1>", " ", html_content, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"<(script|style)[^>]*>[\s\S]*?</\1>", " ", html_content, flags=re.IGNORECASE
+    )
     # Replace block tags with newlines
-    cleaned = re.sub(r"<(p|div|br|h[1-6]|li|tr)[^>]*>", "\n", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"<(p|div|br|h[1-6]|li|tr)[^>]*>", "\n", cleaned, flags=re.IGNORECASE
+    )
     # Strip remaining HTML tags
     cleaned = re.sub(r"<[^>]+>", " ", cleaned)
     # Normalize whitespace
@@ -34,7 +43,9 @@ def _extract_text_from_html(html_content: str) -> str:
     return "\n".join(lines)
 
 
-@router.post("/clip-url", response_model=ExtensionClipResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/clip-url", response_model=ExtensionClipResponse, status_code=status.HTTP_200_OK
+)
 async def clip_job_url(
     payload: ClipUrlRequest,
     db: AsyncSession = Depends(get_db),
@@ -49,6 +60,7 @@ async def clip_job_url(
         page_text = _extract_text_from_html(payload.raw_html)
     else:
         from app.services.scraper import scrape_job_url
+
         scraped = await scrape_job_url(payload.url)
         page_text = scraped.text or f"Job Posting URL: {payload.url}"
 
@@ -90,7 +102,9 @@ async def clip_job_url(
     )
 
 
-@router.post("/clip-job", response_model=ExtensionClipResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/clip-job", response_model=ExtensionClipResponse, status_code=status.HTTP_200_OK
+)
 async def clip_job_pre_extracted(
     payload: ClipJobRequest,
     db: AsyncSession = Depends(get_db),
@@ -142,7 +156,9 @@ async def clip_job_pre_extracted(
             application.job_url = payload.url
 
     # Upsert Job Posting
-    jp_stmt = select(JobPostingModel).where(JobPostingModel.application_id == application.id)
+    jp_stmt = select(JobPostingModel).where(
+        JobPostingModel.application_id == application.id
+    )
     jp_res = await db.execute(jp_stmt)
     job_posting = jp_res.scalar_one_or_none()
 
@@ -163,7 +179,9 @@ async def clip_job_pre_extracted(
 
     # Create timeline event
     conv_id = f"ext-clip-{uuid.uuid4().hex[:12]}"
-    summary_text = f"Clipped job posting from browser: {payload.position} at {payload.company}."
+    summary_text = (
+        f"Clipped job posting from browser: {payload.position} at {payload.company}."
+    )
     if payload.location:
         summary_text += f" Location: {payload.location}."
     if payload.salary:
@@ -189,7 +207,9 @@ async def clip_job_pre_extracted(
     try:
         await generate_and_save_application_embedding(db, application.id)
     except Exception as err:
-        logger.warning("Embedding deferred for clipped application %s: %s", application.id, err)
+        logger.warning(
+            "Embedding deferred for clipped application %s: %s", application.id, err
+        )
 
     return ExtensionClipResponse(
         status="success",
