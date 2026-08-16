@@ -1,12 +1,14 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
-import { ActionItemsAPI } from '../../api/endpoints'
+import { ActionItemsAPI, ApplicationsAPI } from '../../api/endpoints'
 import DateTimePicker from '../common/DateTimePicker.vue'
-import InterviewGuideModal from '../modals/InterviewGuideModal.vue'
+
 import {
-  X,
+  X, Check,
   Building2,
   ExternalLink,
   Calendar,
@@ -34,12 +36,13 @@ import {
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
+const router = useRouter()
 const appStore = useApplicationsStore()
 
-const activeTab = ref('timeline') // 'timeline' | 'job_spec' | 'actions' | 'guide'
+const { detailActiveTab: activeTab } = storeToRefs(uiStore) // 'timeline' | 'job_spec' | 'actions' | 'guide'
 const showDeleteConfirm = ref(false)
 const isDeleting = ref(false)
-const showInterviewGuideModal = ref(false)
+
 
 // In-drawer Action Item creation state
 const showNewTaskForm = ref(false)
@@ -66,6 +69,102 @@ const transitionForm = ref({
   notes: '',
 })
 
+
+// Interview Guide state
+const isGenerating = ref(false)
+const showConfigPanel = ref(false)
+const showAdvanced = ref(false)
+
+const selectedLanguage = ref('en')
+const recursionLimit = ref(25)
+const selectedSections = ref([
+  'role_company_brief',
+  'strategic_fit_pitch',
+  'star_stories',
+  'question_defenses',
+  'interviewer_questions',
+  'prep_checklist',
+])
+
+const ALL_SECTIONS = [
+  { id: 'role_company_brief', label: 'Role & Company Brief', desc: 'Culture signals, engineering priorities & team context' },
+  { id: 'strategic_fit_pitch', label: 'Strategic Fit & Elevator Pitch', desc: '60-90s tailored introduction hook & overlap highlights' },
+  { id: 'star_stories', label: 'Tailored STAR Stories', desc: '3-4 metric-driven STAR stories tailored to job requirements' },
+  { id: 'question_defenses', label: 'Behavioral & Technical Question Defenses', desc: 'Top domain questions & gap mitigation talking points' },
+  { id: 'interviewer_questions', label: 'High-Leverage Questions to Ask', desc: 'Smart questions for recruiter & technical hiring rounds' },
+  { id: 'prep_checklist', label: 'Final Pre-Interview Checklist', desc: 'Critical morning-of review items & strategy recap' },
+]
+
+const LANGUAGES = [
+  { code: 'en', label: 'English' },
+  { code: 'pt', label: 'Português (Portuguese)' },
+  { code: 'es', label: 'Español (Spanish)' },
+  { code: 'de', label: 'Deutsch (German)' },
+  { code: 'fr', label: 'Français (French)' },
+  { code: 'it', label: 'Italiano (Italian)' },
+  { code: 'nl', label: 'Nederlands (Dutch)' },
+]
+
+function toggleSection(sectionId) {
+  const idx = selectedSections.value.indexOf(sectionId)
+  if (idx > -1) {
+    if (selectedSections.value.length === 1) {
+      uiStore.showToast('At least one section must be selected', 'warning')
+      return
+    }
+    selectedSections.value.splice(idx, 1)
+  } else {
+    selectedSections.value.push(sectionId)
+  }
+}
+
+function selectAllSections() {
+  selectedSections.value = ALL_SECTIONS.map((s) => s.id)
+}
+
+async function handleGenerateGuide() {
+  if (selectedSections.value.length === 0) {
+    uiStore.showToast('Please select at least one section to generate', 'warning')
+    return
+  }
+
+  isGenerating.value = true
+  try {
+    const payload = {
+      language: selectedLanguage.value,
+      selected_sections: selectedSections.value,
+      recursion_limit: Number(recursionLimit.value) || 25,
+    }
+    const res = await ApplicationsAPI.generateInterviewGuide(appStore.selectedApplication.id, payload)
+    appStore.selectedApplication = res.data
+    showConfigPanel.value = false
+    uiStore.showToast('Interview Preparation Guide generated successfully!', 'success')
+    appStore.fetchApplications()
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to generate interview guide', 'error')
+  } finally {
+    isGenerating.value = false
+  }
+}
+
+async function handleClearGuide() {
+  if (!confirm('Are you sure you want to clear this interview preparation guide?')) return
+  try {
+    const res = await ApplicationsAPI.clearInterviewGuide(appStore.selectedApplication.id)
+    appStore.selectedApplication = res.data
+    showConfigPanel.value = true
+    uiStore.showToast('Interview guide cleared', 'info')
+    appStore.fetchApplications()
+  } catch (err) {
+    uiStore.showToast('Failed to clear interview guide', 'error')
+  }
+}
+
+function openGuideInNewTab() {
+  const routeData = router.resolve({ name: 'InterviewGuide', params: { id: appStore.selectedApplication.id } })
+  window.open(routeData.href, '_blank')
+}
+
 const INTERVIEW_STAGES = [
   'Interview Requested / Scheduling',
   'Recruiter Screen / Initial Chat',
@@ -87,6 +186,26 @@ const REJECTION_REASONS = [
   'Other',
 ]
 
+
+watch(
+  () => [activeTab.value, appStore.selectedApplication?.id],
+  ([newTab, _]) => {
+    if (newTab === 'guide' && appStore.selectedApplication) {
+      if (appStore.selectedApplication.interview_guide_language) {
+        selectedLanguage.value = appStore.selectedApplication.interview_guide_language
+      }
+      if (appStore.selectedApplication.interview_guide_preferences?.selected_sections) {
+        selectedSections.value = appStore.selectedApplication.interview_guide_preferences.selected_sections
+      }
+      if (appStore.selectedApplication.interview_guide_preferences?.recursion_limit) {
+        recursionLimit.value = appStore.selectedApplication.interview_guide_preferences.recursion_limit
+      }
+      showConfigPanel.value = !appStore.selectedApplication.interview_guide_html
+    }
+  },
+  { immediate: true }
+)
+
 watch(
   () => uiStore.activeDetailId,
   (newId) => {
@@ -96,6 +215,91 @@ watch(
   },
   { immediate: true }
 )
+
+
+const parsedJobSpecSections = computed(() => {
+  const md = appStore.selectedApplication?.job_posting?.description_markdown || ''
+  if (!md) return []
+
+  let cleaned = md.split(/(?:---|\*\*\*)\s*\n*AI Candidate Fit/i)[0]
+  cleaned = cleaned.split(/##\s*AI Candidate Fit/i)[0]
+
+  const lines = cleaned.split('\n')
+  const sections = []
+  let currentSection = { title: 'Overview', content: [] }
+
+  for (const line of lines) {
+    const headerMatch = line.match(/^(#{1,3})\s+(.*)$/)
+    if (headerMatch) {
+      if (currentSection.content.length > 0 || currentSection.title !== 'Overview') {
+        sections.push({ title: currentSection.title, content: currentSection.content.join('\n').trim() })
+      }
+      currentSection = { title: headerMatch[2], content: [] }
+    } else {
+      currentSection.content.push(line)
+    }
+  }
+  if (currentSection.content.length > 0) {
+    sections.push({ title: currentSection.title, content: currentSection.content.join('\n').trim() })
+  }
+
+  return sections.filter(s => s.content || s.title !== 'Overview')
+})
+
+function renderMarkdownText(text) {
+  let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>')
+
+  const lines = html.split('\n')
+  let inList = false
+  let out = []
+
+  for (const line of lines) {
+    const bulletMatch = line.match(/^[\-\*]\s+(.*)$/)
+    if (bulletMatch) {
+      if (!inList) {
+        inList = true
+        out.push('<ul class="jd-list">')
+      }
+      out.push(`<li>${bulletMatch[1]}</li>`)
+    } else {
+      if (inList) {
+        inList = false
+        out.push('</ul>')
+      }
+      out.push(line)
+    }
+  }
+  if (inList) out.push('</ul>')
+
+  return out.join('\n').replace(/\n/g, '<br>').replace(/<br><ul/g, '<ul').replace(/\/ul><br>/g, '</ul>')
+}
+
+
+function handleStatusSelect(e) {
+  const newStatus = e.target.value
+  if (!appStore.selectedApplication || newStatus === appStore.selectedApplication.status) return
+
+  if (['TECHNICAL_INTERVIEW', 'OFFER', 'REJECTED'].includes(newStatus)) {
+    transitionTargetStatus.value = newStatus
+    const today = new Date().toISOString().substring(0, 10)
+    transitionForm.value = {
+      interview_stage: 'Interview Requested / Scheduling',
+      scheduled_at: '',
+      offered_salary: appStore.selectedApplication.job_posting?.salary_max || null,
+      currency: uiStore.defaultCurrency || 'USD',
+      offer_received_date: today,
+      decision_deadline: '',
+      rejection_date: today,
+      rejection_reason: 'Resume / Initial Screen',
+      notes: '',
+    }
+    showTransitionModal.value = true
+  } else {
+    executeDirectTransition(newStatus)
+  }
+}
 
 const latestEvent = computed(() => {
   const events = appStore.selectedApplication?.events
@@ -171,29 +375,7 @@ function openEditModal() {
   showTransitionModal.value = true
 }
 
-function handleStatusSelect(e) {
-  const newStatus = e.target.value
-  if (!appStore.selectedApplication || newStatus === appStore.selectedApplication.status) return
 
-  if (['TECHNICAL_INTERVIEW', 'OFFER', 'REJECTED'].includes(newStatus)) {
-    transitionTargetStatus.value = newStatus
-    const today = new Date().toISOString().substring(0, 10)
-    transitionForm.value = {
-      interview_stage: 'Interview Requested / Scheduling',
-      scheduled_at: '',
-      offered_salary: appStore.selectedApplication.job_posting?.salary_max || null,
-      currency: uiStore.defaultCurrency || 'USD',
-      offer_received_date: today,
-      decision_deadline: '',
-      rejection_date: today,
-      rejection_reason: 'Resume / Initial Screen',
-      notes: '',
-    }
-    showTransitionModal.value = true
-  } else {
-    executeDirectTransition(newStatus)
-  }
-}
 
 async function executeDirectTransition(status) {
   if (!appStore.selectedApplication) return
@@ -574,12 +756,12 @@ function formatDate(isoStr) {
                 </div>
               </div>
 
-              <!-- Job Markdown Text -->
-              <div
-                v-if="appStore.selectedApplication.job_posting?.description_markdown"
-                class="job-description-raw"
-              >
-                {{ appStore.selectedApplication.job_posting.description_markdown }}
+              <!-- Job Structured Spec -->
+              <div v-if="parsedJobSpecSections.length > 0" class="job-structured-spec">
+                <div v-for="(sec, idx) in parsedJobSpecSections" :key="idx" class="job-spec-section">
+                  <h3 class="job-spec-header">{{ sec.title }}</h3>
+                  <div class="job-spec-body" v-html="renderMarkdownText(sec.content)"></div>
+                </div>
               </div>
             </div>
 
@@ -685,11 +867,115 @@ function formatDate(isoStr) {
               </div>
             </div>
 
+
             <!-- 4. INTERVIEW PREPARATION GUIDE TAB -->
             <div v-if="activeTab === 'guide'" class="guide-tab-panel animate-fade-in">
-              <div v-if="appStore.selectedApplication.interview_guide_html" class="guide-preview-card">
-                <div class="guide-preview-topbar">
-                  <div class="guide-meta-left">
+
+              <!-- GENERATION RUNNING STATE -->
+              <div v-if="isGenerating" class="state-container generating-state">
+                <div class="pulse-glow-ring">
+                  <Sparkles :size="36" class="text-primary animate-pulse" />
+                </div>
+                <h3 class="generating-title">Synthesizing Interview Guide</h3>
+                <p class="generating-desc">
+                  LangGraph agent is cross-referencing your CV skills, analyzing job requirements, and formulating tailored STAR defenses...
+                </p>
+                <div class="generating-steps">
+                  <div class="gen-step complete">
+                    <Check :size="14" />
+                    <span>Extracted role &amp; candidate baseline</span>
+                  </div>
+                  <div class="gen-step active">
+                    <Loader2 :size="14" class="animate-spin" />
+                    <span>Compiling company signals &amp; domain questions</span>
+                  </div>
+                  <div class="gen-step pending">
+                    <Layers :size="14" />
+                    <span>Drafting STAR story blueprints &amp; checklist</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- CONFIGURATION PANEL (If no guide or user clicked Re-configure) -->
+              <div v-else-if="showConfigPanel" class="config-panel animate-fade-in">
+                <div class="config-card">
+                  <div class="config-header">
+                    <div class="config-title">
+                      <Sparkles :size="16" class="text-primary" />
+                      <span>Configure Guide Generation</span>
+                    </div>
+                    <button
+                      v-if="appStore.selectedApplication.interview_guide_html"
+                      class="btn btn-ghost btn-xs text-secondary"
+                      @click="showConfigPanel = false"
+                    >
+                      Back to Generated Guide
+                    </button>
+                  </div>
+
+                  <!-- Language & Target Controls -->
+                  <div class="config-grid">
+                    <div class="input-group">
+                      <label class="input-label">
+                        <Globe :size="13" />
+                        <span>Output Language</span>
+                      </label>
+                      <select v-model="selectedLanguage" class="form-input">
+                        <option v-for="lang in LANGUAGES" :key="lang.code" :value="lang.code">
+                          {{ lang.label }}
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <!-- Modular Section Checkboxes -->
+                  <div class="sections-picker-group">
+                    <div class="sections-picker-header">
+                      <label class="input-label">Select Guide Modules ({{ selectedSections.length }}/{{ ALL_SECTIONS.length }})</label>
+                      <button type="button" class="btn-text-link" @click="selectAllSections">
+                        Select All
+                      </button>
+                    </div>
+
+                    <div class="sections-grid">
+                      <div
+                        v-for="sec in ALL_SECTIONS"
+                        :key="sec.id"
+                        class="section-checkbox-card"
+                        :class="{ active: selectedSections.includes(sec.id) }"
+                        @click="toggleSection(sec.id)"
+                      >
+                        <div class="checkbox-indicator">
+                          <Check v-if="selectedSections.includes(sec.id)" :size="12" />
+                        </div>
+                        <div class="section-info">
+                          <span class="sec-label">{{ sec.label }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Generate Button -->
+                  <div class="config-actions">
+                    <button
+                      class="btn btn-primary btn-generate"
+                      :disabled="selectedSections.length === 0"
+                      @click="handleGenerateGuide"
+                    >
+                      <Sparkles :size="16" />
+                      <span>{{ appStore.selectedApplication.interview_guide_html ? 'Regenerate Interview Guide' : 'Generate Interview Guide' }}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- GUIDE READER (When guide exists) -->
+              <div v-else-if="appStore.selectedApplication.interview_guide_html" class="guide-empty-state animate-fade-in">
+                <div class="guide-empty-icon" style="background-color: var(--status-offer-bg); color: var(--status-offer-text); border-color: var(--status-offer-border);">
+                  <BookOpen :size="32" />
+                </div>
+                <h4 class="guide-empty-title">Interview Guide is Ready</h4>
+                <div class="guide-meta-left" style="margin-bottom: 8px;">
                     <span class="guide-lang-badge">
                       <Globe :size="12" />
                       <span>{{ appStore.selectedApplication.interview_guide_language?.toUpperCase() || 'EN' }}</span>
@@ -697,29 +983,27 @@ function formatDate(isoStr) {
                     <span v-if="appStore.selectedApplication.interview_guide_generated_at" class="guide-meta-time">
                       Generated {{ formatDate(appStore.selectedApplication.interview_guide_generated_at) }}
                     </span>
-                  </div>
-                  <div class="guide-meta-actions">
-                    <button
-                      class="btn btn-primary btn-sm"
-                      @click="showInterviewGuideModal = true"
-                    >
-                      <BookOpen :size="13" />
-                      <span>Open Full Reader &amp; Print</span>
-                    </button>
-                    <button
-                      class="btn btn-secondary btn-sm"
-                      title="Re-configure or regenerate"
-                      @click="showInterviewGuideModal = true"
-                    >
-                      <RotateCcw :size="13" />
-                    </button>
-                  </div>
                 </div>
-
-                <div
-                  class="drawer-guide-content guide-article"
-                  v-html="appStore.selectedApplication.interview_guide_html"
-                ></div>
+                <p class="guide-empty-desc">
+                  Your tactical interview playbook is ready. Open it in the full reader to view, print, or copy the content.
+                </p>
+                <div class="guide-meta-actions" style="display: flex; gap: 8px; margin-top: 8px;">
+                  <button
+                    class="btn btn-primary"
+                    @click="openGuideInNewTab"
+                  >
+                    <BookOpen :size="15" />
+                    <span>Open Full Reader</span>
+                  </button>
+                  <button
+                    class="btn btn-secondary"
+                    title="Re-configure or regenerate"
+                    @click="showConfigPanel = true"
+                  >
+                    <RotateCcw :size="15" />
+                    <span>Regenerate</span>
+                  </button>
+                </div>
               </div>
 
               <!-- Empty State / No Guide Yet -->
@@ -733,10 +1017,10 @@ function formatDate(isoStr) {
                 </p>
                 <button
                   class="btn btn-primary"
-                  @click="showInterviewGuideModal = true"
+                  @click="showConfigPanel = true"
                 >
                   <Sparkles :size="15" />
-                  <span>Generate Interview Guide</span>
+                  <span>Configure & Generate</span>
                 </button>
               </div>
             </div>
@@ -957,14 +1241,7 @@ function formatDate(isoStr) {
     </div>
   </Transition>
 
-  <!-- INTERVIEW PREPARATION GUIDE MODAL -->
-  <InterviewGuideModal
-    :is-open="showInterviewGuideModal"
-    :application-id="appStore.selectedApplication?.id"
-    @close="showInterviewGuideModal = false"
-    @updated="appStore.fetchApplication(appStore.selectedApplication?.id); appStore.fetchApplications()"
-  />
-</template>
+  </template>
 
 <style scoped>
 .drawer-overlay {
@@ -972,9 +1249,10 @@ function formatDate(isoStr) {
   inset: 0;
   z-index: 400;
   background-color: var(--bg-backdrop);
-  backdrop-filter: blur(2px);
+  backdrop-filter: blur(4px);
   display: flex;
   justify-content: flex-end;
+  transition: backdrop-filter 0.3s ease;
 }
 
 .drawer-panel {
@@ -1494,7 +1772,7 @@ function formatDate(isoStr) {
 
 /* LATEST EVENT HIGHLIGHT BANNER */
 .latest-event-banner {
-  margin: 16px 24px 0 24px;
+  margin: 16px 24px 16px 24px;
   padding: 14px 16px;
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
@@ -1951,4 +2229,259 @@ function formatDate(isoStr) {
   line-height: 1.5;
   margin: 0 0 8px 0;
 }
+
+/* Drawer Guide Styles */
+.state-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 380px;
+  gap: 16px;
+  text-align: center;
+  padding: 24px;
+}
+.generating-state {
+  max-width: 520px;
+  margin: 0 auto;
+}
+.pulse-glow-ring {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background-color: var(--primary-subtle);
+  border: 2px solid var(--primary-glow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 24px var(--primary-glow);
+}
+.generating-title {
+  font-family: var(--font-heading);
+  font-size: 20px;
+  color: var(--text-main);
+  margin: 0;
+}
+.generating-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+.generating-steps {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.gen-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.gen-step.complete {
+  color: var(--text-success);
+  border-color: var(--status-offer-border);
+}
+.gen-step.active {
+  color: var(--primary);
+  border-color: var(--primary-glow);
+  font-weight: 500;
+}
+.config-panel {
+  max-width: 100%;
+}
+.config-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.config-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.config-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+.config-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+.sections-picker-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sections-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.btn-text-link {
+  font-size: 12px;
+  color: var(--primary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.btn-text-link:hover {
+  text-decoration: underline;
+}
+.sections-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.section-checkbox-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+.section-checkbox-card:hover {
+  border-color: var(--border-focus);
+}
+.section-checkbox-card.active {
+  border-color: var(--primary);
+  background-color: var(--primary-subtle);
+}
+.checkbox-indicator {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.section-checkbox-card.active .checkbox-indicator {
+  border-color: var(--primary);
+  background-color: var(--primary);
+  color: #fff;
+}
+.section-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sec-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.config-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+.btn-generate {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  font-weight: 600;
+}
+
+
+.job-structured-spec {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  background-color: var(--bg-card);
+  padding: 20px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.job-spec-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.job-spec-header {
+  font-family: var(--font-heading);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 4px;
+}
+
+.job-spec-body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.job-spec-body :deep(strong) {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.job-spec-body :deep(em) {
+  font-style: italic;
+}
+
+.job-spec-body :deep(.jd-list) {
+  margin: 6px 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.job-spec-body :deep(.jd-list li) {
+  list-style-type: disc;
+}
+
+
+.status-badge-static {
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status-badge-static.status-applied { color: var(--status-applied-text); border-color: var(--status-applied-border); background-color: var(--status-applied-bg); }
+.status-badge-static.status-interview, .status-badge-static.status-technical_interview { color: var(--status-interview-text); border-color: var(--status-interview-border); background-color: var(--status-interview-bg); }
+.status-badge-static.status-offer { color: var(--status-offer-text); border-color: var(--status-offer-border); background-color: var(--status-offer-bg); }
+.status-badge-static.status-rejected { color: var(--status-rejected-text); border-color: var(--status-rejected-border); background-color: var(--status-rejected-bg); }
+.status-badge-static.status-assessment { color: var(--status-assessment-text); border-color: var(--status-assessment-border); background-color: var(--status-assessment-bg); }
+
 </style>

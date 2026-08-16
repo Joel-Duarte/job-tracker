@@ -28,6 +28,68 @@ const jobText = ref('')
 const isEnqueuing = ref(false)
 const jdTextareaRef = ref(null)
 
+const showBulkLinkedInPrompt = ref(false)
+const parsedBulkUrls = ref([])
+const linkedInUrlsInBulk = ref([])
+
+function extractUrls(text) {
+  const urlRegex = /(https?:\/\/[^\s,]+)/g
+  const matches = text.match(urlRegex) || []
+  // Remove trailing quotes or common punctuation from urls
+  return [...new Set(matches.map(u => u.replace(/[.,;'"]+$/, '')))]
+}
+
+function handleBulkPromptDecision(skipLinkedIn) {
+  let urlsToProcess = [...parsedBulkUrls.value]
+
+  if (skipLinkedIn) {
+    urlsToProcess = urlsToProcess.filter(u => !u.toLowerCase().includes('linkedin.com'))
+    const liText = linkedInUrlsInBulk.value.join('\n')
+    navigator.clipboard.writeText(liText)
+    uiStore.showToast(`${linkedInUrlsInBulk.value.length} LinkedIn URLs copied to clipboard!`, 'info')
+  }
+
+  showBulkLinkedInPrompt.value = false
+  executeEnqueue(urlsToProcess, null)
+}
+
+async function executeEnqueue(urls, textVal) {
+  isEnqueuing.value = true
+  let successCount = 0
+  let failCount = 0
+
+  try {
+    if (urls && urls.length > 0) {
+      for (const u of urls) {
+        try {
+          await IntakeAPI.enqueueAssessment({ url: u, text: null })
+          successCount++
+        } catch(e) {
+          failCount++
+        }
+      }
+      if (successCount > 0) {
+        uiStore.showToast(`Enqueued ${successCount} job(s) for AI assessment!` + (failCount ? ` (${failCount} failed)` : ''), 'success')
+      } else if (failCount > 0) {
+        uiStore.showToast(`Failed to enqueue jobs.`, 'error')
+      }
+    } else if (textVal) {
+      const res = await IntakeAPI.enqueueAssessment({ url: null, text: textVal })
+      uiStore.showToast(`Lead '${res.data.title_hint}' enqueued for AI assessment!`, 'success')
+    }
+
+    jobUrl.value = ''
+    jobText.value = ''
+    uiStore.closeJobIntakeModal()
+    router.push('/assessments')
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to enqueue job lead', 'error')
+  } finally {
+    isEnqueuing.value = false
+  }
+}
+
+
 // Extension tokens
 const copiedUrl = ref(false)
 const copiedJd = ref(false)
@@ -88,33 +150,42 @@ async function submitJobIntake() {
   const urlVal = jobUrl.value.trim()
   const textVal = jobText.value.trim()
 
-  if (activeTab.value === 'url' && !urlVal) {
-    uiStore.showToast('Please enter a valid Job Posting URL', 'warning')
-    return
-  }
-  if (activeTab.value === 'jd' && !textVal) {
-    uiStore.showToast('Please paste the job description text', 'warning')
-    return
-  }
+  if (activeTab.value === 'url') {
+    if (!urlVal) {
+      uiStore.showToast('Please enter valid Job Posting URL(s)', 'warning')
+      return
+    }
 
-  isEnqueuing.value = true
-  try {
-    const res = await IntakeAPI.enqueueAssessment({
-      url: activeTab.value === 'url' ? urlVal : null,
-      text: activeTab.value === 'jd' ? textVal : null,
-    })
+    const urls = extractUrls(urlVal)
+    if (urls.length === 0) {
+      uiStore.showToast('No valid URLs found in the input.', 'warning')
+      return
+    }
 
-    uiStore.showToast(`Lead '${res.data.title_hint}' enqueued for AI assessment!`, 'success')
-    jobUrl.value = ''
-    jobText.value = ''
-    uiStore.closeJobIntakeModal()
+    if (urls.length > 1) {
+      // Bulk submission logic
+      const liUrls = urls.filter(u => u.toLowerCase().includes('linkedin.com'))
+      if (liUrls.length > 0) {
+        parsedBulkUrls.value = urls
+        linkedInUrlsInBulk.value = liUrls
+        showBulkLinkedInPrompt.value = true
+        return // Wait for user decision
+      }
 
-    // Navigate to Assessments view
-    router.push('/assessments')
-  } catch (err) {
-    uiStore.showToast(err.message || 'Failed to enqueue job lead', 'error')
-  } finally {
-    isEnqueuing.value = false
+      // No LinkedIn urls, proceed bulk
+      executeEnqueue(urls, null)
+      return
+    }
+
+    // Single URL submission
+    executeEnqueue([urls[0]], null)
+
+  } else if (activeTab.value === 'jd') {
+    if (!textVal) {
+      uiStore.showToast('Please paste the job description text', 'warning')
+      return
+    }
+    executeEnqueue(null, textVal)
   }
 }
 
@@ -182,19 +253,46 @@ onMounted(() => {
         <!-- Tab 1: Job URL -->
         <div v-if="activeTab === 'url'" class="tab-content animate-fade-in">
           <div class="input-group">
-            <label class="input-label">Job Posting URL</label>
-            <div class="input-with-icon">
-              <LinkIcon :size="16" class="field-icon" />
-              <input
+            <label class="input-label">Job Posting URL(s)</label>
+            <div class="input-with-icon-top">
+              <LinkIcon :size="16" class="field-icon-top" />
+              <textarea
                 v-model="jobUrl"
-                type="url"
-                placeholder="https://jobs.lever.co/... or https://boards.greenhouse.io/..."
-                class="form-input"
+                rows="4"
+                placeholder="https://jobs.lever.co/...
+Or paste multiple URLs separated by newlines to bulk add!"
+                class="form-input form-textarea-top"
                 autofocus
-                @keydown.enter="submitJobIntake"
-              />
+                @keydown.enter.ctrl="submitJobIntake"
+                @keydown.enter.meta="submitJobIntake"
+              ></textarea>
             </div>
-            <span class="field-hint">Supports Greenhouse, Lever, Ashby, Workday, Indeed, and company career pages.</span>
+            <span class="field-hint">Supports single URLs or bulk lists. Press Ctrl+Enter to submit.</span>
+          </div>
+
+          <!-- Bulk LinkedIn Prompt Modal inside Modal -->
+          <div v-if="showBulkLinkedInPrompt" class="advisory-box animate-fade-in mt-3" style="background-color: var(--status-rejected-bg); border-color: var(--status-rejected-border); flex-direction: column; gap: 8px;">
+            <div style="display: flex; gap: 12px;">
+                <div class="advisory-icon text-warning">
+                  <AlertTriangle :size="16" />
+                </div>
+                <div class="advisory-content" style="flex: 1;">
+                  <span class="advisory-title" style="color: var(--status-rejected-text);">Bulk Add: LinkedIn Links Detected</span>
+                  <p class="advisory-desc" style="color: var(--status-rejected-text);">
+                    You are trying to bulk add {{ parsedBulkUrls.length }} URLs, which includes {{ linkedInUrlsInBulk.length }} LinkedIn link(s).
+                    LinkedIn aggressively blocks automated scrapers.
+                  </p>
+                </div>
+            </div>
+            <div class="advisory-actions" style="justify-content: flex-end; width: 100%;">
+              <button type="button" class="btn btn-secondary btn-sm" @click="handleBulkPromptDecision(true)">
+                <Copy :size="14" />
+                <span>Copy LinkedIn links & Skip them</span>
+              </button>
+              <button type="button" class="btn btn-danger-subtle btn-sm" style="border-color: var(--status-rejected-border); background-color: var(--bg-surface);" @click="handleBulkPromptDecision(false)">
+                <span>Process all anyway</span>
+              </button>
+            </div>
           </div>
 
           <!-- LinkedIn Anti-Scrape Warning Alert -->
@@ -570,4 +668,37 @@ onMounted(() => {
   border-top: 1px solid var(--border-color);
   background-color: var(--bg-surface);
 }
+
+.input-with-icon-top {
+  position: relative;
+  display: flex;
+}
+.field-icon-top {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  color: var(--text-muted);
+}
+.form-textarea-top {
+  padding-left: 36px;
+  width: 100%;
+  resize: vertical;
+}
+.btn-danger-subtle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  background-color: transparent;
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
+}
+.btn-danger-subtle:hover {
+  background-color: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+  border-color: var(--status-rejected-border);
+}
+
 </style>

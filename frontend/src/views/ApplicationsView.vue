@@ -3,7 +3,9 @@ import { ref, onMounted } from 'vue'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useUIStore } from '../stores/uiStore'
 import DateTimePicker from '../components/common/DateTimePicker.vue'
-import InterviewGuideModal from '../components/modals/InterviewGuideModal.vue'
+import InterviewReaderModal from '../components/modals/InterviewReaderModal.vue'
+import MatchAnalysisModal from '../components/modals/MatchAnalysisModal.vue'
+import LogActivityModal from '../components/modals/LogActivityModal.vue'
 import {
   Search,
   Kanban,
@@ -35,18 +37,42 @@ import {
   Ban,
   Briefcase,
   BookOpen,
+  MessageSquare,
+  ExternalLink,
+  PenLine,
 } from 'lucide-vue-next'
 
 const appStore = useApplicationsStore()
 const uiStore = useUIStore()
 
 // Interview Guide Modal State
-const isInterviewGuideOpen = ref(false)
 const activeGuideAppId = ref(null)
 
 function openInterviewGuide(appId) {
-  activeGuideAppId.value = appId
-  isInterviewGuideOpen.value = true
+  uiStore.openDetail(appId, 'guide')
+}
+
+
+// Modal States
+const isReaderModalOpen = ref(false)
+const readerAppId = ref(null)
+function openInterviewReaderModal(appId) {
+  readerAppId.value = appId
+  isReaderModalOpen.value = true
+}
+
+const isAnalysisModalOpen = ref(false)
+const analysisAppId = ref(null)
+function openMatchAnalysisModal(appId) {
+  analysisAppId.value = appId
+  isAnalysisModalOpen.value = true
+}
+
+const isLogModalOpen = ref(false)
+const logAppId = ref(null)
+function openLogActivityModal(appId) {
+  logAppId.value = appId
+  isLogModalOpen.value = true
 }
 
 // Drag & Drop State
@@ -624,7 +650,7 @@ async function confirmDelete() {
               v-for="app in appStore.kanbanColumns[col.key] || []"
               :key="app.id"
               class="application-card"
-              :class="{ 'is-dragging': draggedApp?.id === app.id }"
+              :class="[{ 'is-dragging': draggedApp?.id === app.id }, app.has_action_required ? 'action-required-card' : '']"
               draggable="true"
               @dragstart="onDragStart(app, $event)"
               @dragend="onDragEnd"
@@ -648,18 +674,12 @@ async function confirmDelete() {
                   <span class="card-date">{{ formatDate(app.last_activity_at || app.application_date) }}</span>
                   <button
                     class="card-action-btn quick-reject-btn"
-                    title="Quick reject & move to archive"
-                    @click="quickRejectApp(app)"
+                    title="Reject / Archive"
+                    @click="openTransitionModal(app, 'REJECTED')"
                   >
-                    <Ban :size="13" />
+                    <Archive :size="13" />
                   </button>
-                  <button
-                    class="card-action-btn"
-                    title="Delete application"
-                    @click="openDeleteConfirm(app)"
-                  >
-                    <Trash2 :size="13" />
-                  </button>
+
                 </div>
               </div>
 
@@ -718,21 +738,49 @@ async function confirmDelete() {
                 </div>
               </div>
 
-              <!-- Interview Preparation Guide Chip (Technical Interview Column) -->
-              <div
-                v-if="['TECHNICAL_INTERVIEW', 'ONLINE_ASSESSMENT'].includes(app.status)"
-                class="card-guide-row"
-                @click.stop
-              >
-                <button
-                  class="btn-interview-guide-chip"
-                  :class="{ 'has-guide': app.has_interview_guide }"
-                  title="Open AI Interview Preparation Guide"
-                  @click="openInterviewGuide(app.id)"
-                >
-                  <BookOpen :size="11" />
-                  <span>{{ app.has_interview_guide ? 'Guide Ready' : 'Interview Prep' }}</span>
-                  <Sparkles v-if="!app.has_interview_guide" :size="10" />
+              <!-- Action Buttons Row -->
+              <div class="card-actions-row" @click.stop>
+                <!-- Interview Guide Buttons -->
+                <template v-if="['TECHNICAL_INTERVIEW', 'ONLINE_ASSESSMENT'].includes(app.status)">
+                  <template v-if="app.has_interview_guide">
+                    <button class="btn-action-chip btn-guide-ready" @click="openInterviewReaderModal(app.id)" title="Open Full-Screen Reader">
+                      <BookOpen :size="11" />
+                      <span>Guide Ready</span>
+                    </button>
+                    <button class="btn-action-chip" @click="openInterviewGuide(app.id)" title="Regenerate Guide">
+                      <RotateCcw :size="11" />
+                    </button>
+                  </template>
+                  <template v-else>
+                    <button class="btn-action-chip" @click="openInterviewGuide(app.id)" title="Generate Interview Prep">
+                      <Sparkles :size="11" />
+                      <span>Interview Prep</span>
+                    </button>
+                  </template>
+                </template>
+
+                <!-- Match Analysis Button -->
+                <template v-if="['ASSESSMENT', 'APPLIED'].includes(app.status) && (app.match_score !== null || app.latest_event?.raw_payload?.match_score)">
+                  <button class="btn-action-chip btn-analysis" @click="openMatchAnalysisModal(app.id)" title="View Match Breakdown">
+                    <Sparkles :size="11" />
+                    <span>View Assessment</span>
+                  </button>
+                </template>
+
+                <!-- Utility Buttons -->
+                <a v-if="app.job_posting?.source_url || app.job_url" :href="app.job_posting?.source_url || app.job_url" target="_blank" rel="noopener noreferrer" class="btn-action-chip" title="View Job Post">
+                  <ExternalLink :size="11" />
+                  <span>View Post</span>
+                </a>
+
+                <button class="btn-action-chip" @click="openLogActivityModal(app.id)" title="Log Activity">
+                  <PenLine :size="11" />
+                  <span>Log Activity</span>
+                </button>
+
+                <button v-if="app.action_items?.length" class="btn-action-chip text-warning" @click="uiStore.openDetail(app.id, 'actions')" title="View Action Items">
+                  <CheckSquare :size="11" />
+                  <span>{{ app.action_items.length }} Due</span>
                 </button>
               </div>
 
@@ -742,11 +790,7 @@ async function confirmDelete() {
                 {{ app.latest_event.email_summary }}
               </div>
 
-              <!-- Action Required Flag -->
-              <div v-if="app.has_action_required" class="card-action-flag">
-                <AlertCircle :size="12" />
-                <span>Action Required</span>
-              </div>
+
             </div>
 
             <!-- Empty Column State -->
@@ -880,10 +924,10 @@ async function confirmDelete() {
                 </button>
                 <button
                   class="btn btn-secondary btn-sm"
-                  title="Quick reject & move to archive"
-                  @click="quickRejectApp(app)"
+                  title="Reject / Archive"
+                  @click="openTransitionModal(app, 'REJECTED')"
                 >
-                  <Ban :size="13" />
+                  <Archive :size="13" />
                   <span>Reject</span>
                 </button>
                 <button
@@ -892,13 +936,7 @@ async function confirmDelete() {
                 >
                   Details
                 </button>
-                <button
-                  class="btn btn-danger-subtle btn-sm"
-                  title="Delete Application"
-                  @click="openDeleteConfirm(app)"
-                >
-                  <Trash2 :size="13" />
-                </button>
+
               </td>
             </tr>
 
@@ -962,9 +1000,7 @@ async function confirmDelete() {
               <div class="form-group">
                 <label class="form-label">Offered Compensation / Annual Base</label>
                 <div class="salary-input-group">
-                  <div class="currency-prefix-box">
-                    <DollarSign :size="14" class="text-muted" />
-                  </div>
+
                   <input
                     v-model="transitionForm.offered_salary"
                     type="number"
@@ -1122,12 +1158,23 @@ async function confirmDelete() {
         </div>
       </div>
     </Transition>
+    <!-- NEW MODALS -->
+    <InterviewReaderModal
+      :is-open="isReaderModalOpen"
+      :application-id="readerAppId"
+      @close="isReaderModalOpen = false"
+    />
 
-    <!-- INTERVIEW PREPARATION GUIDE MODAL -->
-    <InterviewGuideModal
-      :is-open="isInterviewGuideOpen"
-      :application-id="activeGuideAppId"
-      @close="isInterviewGuideOpen = false"
+    <MatchAnalysisModal
+      :is-open="isAnalysisModalOpen"
+      :application-id="analysisAppId"
+      @close="isAnalysisModalOpen = false"
+    />
+
+    <LogActivityModal
+      :is-open="isLogModalOpen"
+      :application-id="logAppId"
+      @close="isLogModalOpen = false"
       @updated="appStore.fetchApplications()"
     />
   </div>
@@ -2199,4 +2246,60 @@ async function confirmDelete() {
 .fade-leave-to {
   opacity: 0;
 }
+
+.card-actions-row {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.btn-action-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-decoration: none;
+}
+
+.btn-action-chip:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background-color: var(--primary-subtle);
+  transform: translateY(-1px);
+}
+
+.btn-guide-ready {
+  background-color: var(--primary-subtle);
+  color: var(--primary);
+  border-color: var(--primary-glow);
+}
+
+.btn-guide-ready:hover {
+  box-shadow: 0 0 8px var(--primary-glow);
+}
+
+.btn-analysis {
+  color: var(--status-offer-text);
+  border-color: var(--status-offer-border);
+  background-color: var(--status-offer-bg);
+}
+
+.btn-analysis:hover {
+  box-shadow: 0 0 4px var(--status-offer-border);
+}
+
+
+.action-required-card {
+  border-left: 3px solid var(--status-rejected-border);
+}
+
 </style>

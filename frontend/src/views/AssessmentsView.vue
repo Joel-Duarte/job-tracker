@@ -50,7 +50,31 @@ const activeTab = ref('ready') // 'ready' | 'queue' | 'passed'
 
 // Search & Filtering in Ready Reviews
 const searchQuery = ref('')
-const minFitFilter = ref(null) // null or number (40, 60, 80)
+const minFitFilter = ref(null)
+const maxMatchFilter = ref(100)
+
+const tailoringStrategyCache = new Map()
+const parsedTailoringStrategy = (task) => {
+  if (!task.result_json?.tailoring_strategy) return null
+  if (tailoringStrategyCache.has(task.id)) return tailoringStrategyCache.get(task.id)
+  try {
+    const raw = task.result_json.tailoring_strategy
+    let parsed = null
+    if (typeof raw === 'object') parsed = raw
+    else {
+      let cleaned = raw.trim()
+      if (cleaned.startsWith('```json')) cleaned = cleaned.replace(/^```json/, '')
+      if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```/, '')
+      if (cleaned.endsWith('```')) cleaned = cleaned.replace(/```$/, '')
+      parsed = JSON.parse(cleaned)
+    }
+    tailoringStrategyCache.set(task.id, parsed)
+    return parsed
+  } catch (err) {
+    return null
+  }
+}
+ // null or number (40, 60, 80)
 const sortBy = ref('match_score') // 'match_score' | 'date_desc' | 'company'
 const passedTaskIds = ref(new Set(JSON.parse(localStorage.getItem('job_tracker_passed_assessments') || '[]')))
 
@@ -62,6 +86,75 @@ const processingTaskIds = ref(new Set())
 let pollTimer = null
 
 // Computed Lists
+const selectedTaskIds = ref(new Set())
+function toggleTaskSelection(taskId) {
+  if (selectedTaskIds.value.has(taskId)) {
+    selectedTaskIds.value.delete(taskId)
+  } else {
+    selectedTaskIds.value.add(taskId)
+  }
+}
+function selectAllVisibleTasks() {
+  const visibleTasks = filteredReadyEvaluations.value
+  if (selectedTaskIds.value.size === visibleTasks.length) {
+    selectedTaskIds.value.clear()
+  } else {
+    visibleTasks.forEach(t => selectedTaskIds.value.add(t.id))
+  }
+}
+
+async function bulkMarkAsApplied() {
+  const tasksToApply = filteredReadyEvaluations.value.filter(t => selectedTaskIds.value.has(t.id))
+  if (!tasksToApply.length) return
+
+  // We process them sequentially
+  let successCount = 0
+  for (const task of tasksToApply) {
+    if (!task.result_json) continue
+    processingTaskIds.value.add(task.id)
+    try {
+      const result = task.result_json
+      const res = await IntakeAPI.confirmAssessment({
+        application_id: result.application_id,
+        company: result.company || task.title_hint || 'Company',
+        position: result.position || 'Software Engineer',
+        status: 'APPLIED',
+        job_url: task.job_url || null,
+        description_markdown: task.raw_text || result.summary || '',
+        salary_min: result.salary_min,
+        salary_max: result.salary_max,
+        currency: result.currency || 'USD',
+        location: result.location,
+        work_model: result.work_model,
+        required_skills: [...(result.matching_skills || []), ...(result.missing_skills || [])],
+      })
+      await IntakeAPI.deleteEvaluation(task.id)
+      successCount++
+    } catch (err) {
+      console.error("Failed to apply task", task.id, err)
+    } finally {
+      processingTaskIds.value.delete(task.id)
+    }
+  }
+
+  uiStore.showToast(`Successfully moved ${successCount} leads to Applications (Applied)`, 'success')
+  selectedTaskIds.value.clear()
+  appStore.fetchApplications()
+  await loadEvaluations(true)
+}
+
+async function bulkArchive() {
+  const tasksToArchive = filteredReadyEvaluations.value.filter(t => selectedTaskIds.value.has(t.id))
+  if (!tasksToArchive.length) return
+
+  for (const task of tasksToArchive) {
+    passedTaskIds.value.add(String(task.id))
+  }
+  localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
+  uiStore.showToast(`Archived ${tasksToArchive.length} evaluations.`, 'info')
+  selectedTaskIds.value.clear()
+}
+
 const activeQueueTasks = computed(() =>
   evaluationTasks.value.filter((t) => ['QUEUED', 'PROCESSING'].includes(t.status))
 )
@@ -101,6 +194,15 @@ const filteredReadyEvaluations = computed(() => {
     list = list.filter((t) => {
       const score = t.result_json?.match_score ?? t.result_json?.fit_score ?? 0
       return Number(score) >= targetMin
+    })
+  }
+
+  // Max Fit % filter
+  if (maxMatchFilter.value !== null && maxMatchFilter.value < 100) {
+    const targetMax = Number(maxMatchFilter.value)
+    list = list.filter((t) => {
+      const score = t.result_json?.match_score ?? t.result_json?.fit_score ?? 0
+      return Number(score) <= targetMax
     })
   }
 
@@ -402,6 +504,7 @@ onUnmounted(() => {
     <div v-if="activeTab === 'ready'" class="tab-view animate-fade-in">
       <!-- Toolbar Filter Bar -->
       <div class="eval-filter-toolbar">
+        <input type="checkbox" class="form-checkbox" style="margin-right: 8px;" @change="selectAllVisibleTasks" :checked="selectedTaskIds.size > 0 && selectedTaskIds.size === filteredReadyEvaluations.length" title="Select All Visible" />
         <div class="search-box">
           <Search :size="15" class="text-muted" />
           <input
@@ -448,6 +551,14 @@ onUnmounted(() => {
           </button>
         </div>
 
+        <div class="max-fit-group">
+          <span class="fit-filter-label">Max Fit:</span>
+          <button class="fit-chip" :class="{ active: maxMatchFilter === 100 }" @click="maxMatchFilter = 100">All</button>
+          <button class="fit-chip" :class="{ active: maxMatchFilter === 60 }" @click="maxMatchFilter = 60">&lt;60%</button>
+          <button class="fit-chip" :class="{ active: maxMatchFilter === 40 }" @click="maxMatchFilter = 40">&lt;40%</button>
+          <button class="fit-chip" :class="{ active: maxMatchFilter === 20 }" @click="maxMatchFilter = 20">&lt;20%</button>
+        </div>
+
         <div class="sort-select-wrapper">
           <span class="sort-label">Sort:</span>
           <select v-model="sortBy" class="sort-select">
@@ -480,7 +591,9 @@ onUnmounted(() => {
         >
           <!-- Card Header Row -->
           <div class="eval-card-header">
-            <div class="eval-title-group">
+            <div class="eval-title-group" style="flex-direction: row; align-items: flex-start; gap: 12px;">
+              <input type="checkbox" class="form-checkbox mt-1" :checked="selectedTaskIds.has(task.id)" @change="toggleTaskSelection(task.id)" />
+              <div>
               <div class="company-badge-line">
                 <span class="eval-company">{{ task.result_json?.company || task.title_hint || 'Target Company' }}</span>
                 <span v-if="task.job_url" class="eval-url-link">
@@ -492,6 +605,7 @@ onUnmounted(() => {
                 </span>
               </div>
               <h2 class="eval-role">{{ task.result_json?.position || 'Software Engineer' }}</h2>
+              </div>
             </div>
 
             <!-- Fit Score Gauge -->
@@ -561,7 +675,7 @@ onUnmounted(() => {
 
             <!-- Skills Matrix -->
             <div class="skills-matrix">
-              <div v-if="task.result_json?.matching_skills?.length" class="skills-group">
+              <div v-if="task.result_json?.matching_skills?.length" class="skills-group" style="background-color: var(--status-offer-bg); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--status-offer-border);">
                 <span class="group-title text-success">Matching CV Skills ({{ task.result_json.matching_skills.length }}):</span>
                 <div class="skill-tags">
                   <span v-for="s in task.result_json.matching_skills" :key="s" class="skill-tag match-tag">
@@ -571,7 +685,7 @@ onUnmounted(() => {
                 </div>
               </div>
 
-              <div v-if="task.result_json?.missing_skills?.length" class="skills-group">
+              <div v-if="task.result_json?.missing_skills?.length" class="skills-group" style="background-color: var(--status-rejected-bg); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--status-rejected-border);">
                 <span class="group-title text-warning">Missing / Required Skills ({{ task.result_json.missing_skills.length }}):</span>
                 <div class="skill-tags">
                   <span v-for="s in task.result_json.missing_skills" :key="s" class="skill-tag gap-tag">
@@ -583,11 +697,56 @@ onUnmounted(() => {
 
             <!-- Resume Tailoring Strategy -->
             <div v-if="task.result_json?.tailoring_strategy" class="tailoring-card">
-              <div class="tailoring-header">
+              <div class="tailoring-header" style="margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle);">
                 <Sparkles :size="14" class="text-primary" />
                 <span>Recommended Resume Tailoring Strategy</span>
               </div>
-              <p class="tailoring-text">{{ task.result_json.tailoring_strategy }}</p>
+
+              <div v-if="parsedTailoringStrategy(task)" class="tailoring-parsed">
+                 <!-- Impact Reframing -->
+                 <div v-if="parsedTailoringStrategy(task).impact_reframing?.length" class="tailoring-block">
+                   <h4 class="tailoring-subtitle">Impact Reframing</h4>
+                   <div v-for="(item, i) in parsedTailoringStrategy(task).impact_reframing" :key="i" class="reframing-card">
+                     <div class="reframing-reason">{{ item.reason }}</div>
+                     <div class="reframing-before">
+                       <span class="reframing-label">Before:</span>
+                       <span class="reframing-text">{{ item.bullet_point }}</span>
+                     </div>
+                     <div class="reframing-after">
+                       <span class="reframing-label">After:</span>
+                       <span class="reframing-text">{{ item.suggested_rewrite }}</span>
+                     </div>
+                   </div>
+                 </div>
+
+                 <!-- Structural Adjustments -->
+                 <div v-if="parsedTailoringStrategy(task).structural_adjustments?.length" class="tailoring-block">
+                   <h4 class="tailoring-subtitle">Structural Adjustments</h4>
+                   <ul class="structural-list">
+                     <li v-for="(adj, i) in parsedTailoringStrategy(task).structural_adjustments" :key="i">
+                       <CheckCircle2 :size="13" class="text-primary mt-0.5" />
+                       <span>{{ adj }}</span>
+                     </li>
+                   </ul>
+                 </div>
+
+                 <!-- Vocabulary Translation -->
+                 <div v-if="parsedTailoringStrategy(task).vocabulary_translation?.length" class="tailoring-block">
+                   <h4 class="tailoring-subtitle">Vocabulary Mapping</h4>
+                   <div class="vocab-grid">
+                     <div v-for="(vocab, i) in parsedTailoringStrategy(task).vocabulary_translation" :key="i" class="vocab-card">
+                       <div class="vocab-flow">
+                         <span class="vocab-cv">{{ vocab.cv_term }}</span>
+                         <span class="vocab-arrow">➔</span>
+                         <span class="vocab-jd">{{ vocab.jd_term }}</span>
+                       </div>
+                       <div class="vocab-desc">{{ vocab.replacement_guidance }}</div>
+                     </div>
+                   </div>
+                 </div>
+               </div>
+
+              <p v-else class="tailoring-text">{{ task.result_json.tailoring_strategy }}</p>
             </div>
           </div>
 
@@ -680,6 +839,26 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+    <!-- Batch Actions Floating Bar -->
+    <Transition name="slide-up">
+      <div v-if="selectedTaskIds.size > 0" class="batch-actions-bar">
+        <div class="batch-info">
+          <span class="batch-count">{{ selectedTaskIds.size }} Selected</span>
+          <button class="btn btn-ghost btn-sm" @click="selectedTaskIds.clear()">Clear</button>
+        </div>
+        <div class="batch-buttons">
+          <button class="btn btn-secondary btn-sm" @click="bulkArchive">
+            <Archive :size="14" />
+            <span>Discard / Archive</span>
+          </button>
+          <button class="btn btn-primary btn-sm" @click="bulkMarkAsApplied">
+            <CheckCircle :size="14" />
+            <span>Mark as Applied</span>
+          </button>
+        </div>
+      </div>
+    </Transition>
+
   </div>
 </template>
 
@@ -1556,4 +1735,106 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
 }
+
+.tailoring-parsed { display: flex; flex-direction: column; gap: 16px; margin-top: 4px; }
+.tailoring-block { display: flex; flex-direction: column; gap: 8px; }
+.tailoring-subtitle { font-size: 13px; font-weight: 700; color: var(--text-main); text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.8; margin: 0 0 4px 0; border-bottom: 1px solid var(--border-subtle); padding-bottom: 4px; }
+.reframing-card { background-color: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.reframing-reason { font-size: 11px; font-weight: 600; color: var(--text-muted); background-color: var(--bg-surface); display: inline-flex; padding: 2px 6px; border-radius: 4px; width: fit-content; margin-bottom: 2px; }
+.reframing-before, .reframing-after { font-size: 12px; line-height: 1.4; display: flex; gap: 6px; }
+.reframing-before { color: var(--status-rejected-text); opacity: 0.9; }
+.reframing-after { color: var(--status-offer-text); font-weight: 500; }
+.reframing-label { font-weight: 700; flex-shrink: 0; }
+.reframing-before .reframing-text { text-decoration: line-through; }
+.structural-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.structural-list li { font-size: 12px; color: var(--text-secondary); line-height: 1.4; display: flex; align-items: flex-start; gap: 6px; }
+.vocab-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.vocab-card { background-color: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 10px; display: flex; flex-direction: column; gap: 4px; }
+.vocab-flow { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+.vocab-cv { color: var(--text-muted); background-color: var(--bg-surface); padding: 2px 6px; border-radius: 4px; text-decoration: line-through; }
+.vocab-arrow { color: var(--text-secondary); font-size: 10px; }
+.vocab-jd { color: var(--primary); background-color: var(--primary-subtle); padding: 2px 6px; border-radius: 4px; }
+.vocab-desc { font-size: 11px; color: var(--text-secondary); line-height: 1.4; margin-top: 4px; }
+
+
+.max-fit-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.range-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.range-slider {
+  width: 80px;
+  accent-color: var(--primary);
+}
+
+.range-val {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-main);
+  min-width: 3ch;
+}
+
+.form-checkbox {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.batch-actions-bar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 24px;
+  z-index: 100;
+}
+
+.batch-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.batch-count {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.batch-buttons {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  transform: translate(-50%, 100%);
+  opacity: 0;
+}
+
 </style>
