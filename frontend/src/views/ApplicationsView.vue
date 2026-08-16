@@ -741,7 +741,7 @@ async function confirmDelete() {
               <!-- Action Buttons Row -->
               <div class="card-actions-row" @click.stop>
                 <!-- Interview Guide Buttons -->
-                <template v-if="['TECHNICAL_INTERVIEW', 'ONLINE_ASSESSMENT'].includes(app.status)">
+                <template v-if="!['REJECTED', 'OFFER'].includes(app.status)">
                   <template v-if="app.has_interview_guide">
                     <button class="btn-action-chip btn-guide-ready" @click="openInterviewReaderModal(app.id)" title="Open Full-Screen Reader">
                       <BookOpen :size="11" />
@@ -760,7 +760,7 @@ async function confirmDelete() {
                 </template>
 
                 <!-- Match Analysis Button -->
-                <template v-if="['ASSESSMENT', 'APPLIED'].includes(app.status) && (app.match_score !== null || app.match_analysis_payload?.match_score)">
+                <template v-if="app.match_score !== null || app.match_analysis_payload?.match_score">
                   <button class="btn-action-chip btn-analysis" @click="openMatchAnalysisModal(app.id)" title="View Match Breakdown">
                     <Sparkles :size="11" />
                     <span>View Assessment</span>

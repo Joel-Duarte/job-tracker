@@ -42,6 +42,7 @@ const resolveForm = ref({
   position: '',
   status: 'APPLIED',
   job_url: '',
+  description_markdown: '',
   event_type: 'APPLICATION_CONFIRMATION',
   summary: '',
   action_required: false,
@@ -240,6 +241,7 @@ async function submitResolution() {
         position: resolveForm.value.position.trim(),
         status: resolveForm.value.status,
         job_url: resolveForm.value.job_url.trim() || null,
+        description_markdown: resolveForm.value.description_markdown.trim() || null,
         event_type: resolveForm.value.event_type,
         summary: resolveForm.value.summary.trim() || null,
         action_required: resolveForm.value.action_required,
@@ -278,9 +280,15 @@ async function submitResolution() {
       )
     }
 
+    const resolvedMode = resolutionMode.value
+    const resolvedAppId = selectedExistingAppId.value
+
     resolvingItem.value = null
     fetchStagingItems()
     appStore.fetchApplications()
+    if (resolvedMode === 'link' && resolvedAppId) {
+      appStore.fetchApplicationDetail(resolvedAppId)
+    }
   } catch (err) {
     uiStore.showToast(err.message, 'error')
   } finally {
@@ -526,20 +534,29 @@ async function dismissItem(item) {
               </div>
             </div>
 
-            <!-- Optional Job URL Scraping Field -->
-            <div class="input-group">
-              <label class="input-label flex items-center justify-between">
-                <span>Job Posting URL (Optional)</span>
-                <span class="text-xs text-muted">Paste to auto-scrape full job specs &amp; skills</span>
-              </label>
-              <div class="input-with-icon">
-                <LinkIcon :size="15" class="field-icon" />
-                <input
-                  v-model="resolveForm.job_url"
-                  type="url"
-                  placeholder="https://jobs.lever.co/... or https://boards.greenhouse.io/..."
+            <div class="form-grid-2">
+              <div class="input-group">
+                <label class="input-label">Job Posting URL</label>
+                <div class="input-with-icon">
+                  <LinkIcon :size="15" class="field-icon" />
+                  <input
+                    v-model="resolveForm.job_url"
+                    type="url"
+                    placeholder="https://jobs.lever.co/..."
+                    class="form-input"
+                  />
+                </div>
+              </div>
+
+              <div class="input-group">
+                <label class="input-label">Raw Job Description</label>
+                <textarea
+                  v-model="resolveForm.description_markdown"
                   class="form-input"
-                />
+                  rows="3"
+                  placeholder="Paste full text or markdown job specs..."
+                  style="resize: vertical; min-height: 36px;"
+                ></textarea>
               </div>
             </div>
 
@@ -910,9 +927,73 @@ async function dismissItem(item) {
 }
 
 /* MODAL STYLES */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: var(--bg-backdrop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
 .modal-lg {
   max-width: 640px;
   width: 90%;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.modal-title {
+  font-family: var(--font-heading);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.modal-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 4px 0 0 0;
+}
+
+.modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  flex-shrink: 0;
 }
 
 .modal-title-group {
