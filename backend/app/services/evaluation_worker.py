@@ -12,7 +12,11 @@ from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.models.candidate_profile import CandidateCVModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.services.job_saver import persist_or_stage_job_assessment
-from app.services.llm import anonymize_and_parse_cv, assess_job_posting, extract_job_spec
+from app.services.llm import (
+    anonymize_and_parse_cv,
+    assess_job_posting,
+    extract_job_spec,
+)
 from app.services.matcher import compute_programmatic_skill_match
 
 from app.services.scraper import scrape_job_url
@@ -20,7 +24,9 @@ from app.services.scraper import scrape_job_url
 logger = logging.getLogger(__name__)
 
 
-async def _execute_cv_extraction_steps(task: IntakeEvaluationTaskModel, db: AsyncSession) -> None:
+async def _execute_cv_extraction_steps(
+    task: IntakeEvaluationTaskModel, db: AsyncSession
+) -> None:
     try:
         raw_text = task.raw_text
         if not raw_text or not raw_text.strip():
@@ -45,11 +51,11 @@ async def _execute_cv_extraction_steps(task: IntakeEvaluationTaskModel, db: Asyn
         task.stage = "SAVING"
         await db.commit()
 
-        # Deactivate previous active profiles
-        stmt_deact = select(CandidateCVModel).where(CandidateCVModel.is_active == True)
-        res = await db.execute(stmt_deact)
-        for p in res.scalars().all():
-            p.is_active = False
+        # Delete previous active profiles
+        from sqlalchemy import delete
+
+        stmt_delete = delete(CandidateCVModel)
+        await db.execute(stmt_delete)
 
         # Build domain_experience list of dicts
         raw_breakdown = [
@@ -60,7 +66,14 @@ async def _execute_cv_extraction_steps(task: IntakeEvaluationTaskModel, db: Asyn
             raw_breakdown = [
                 {
                     "domain": d,
-                    "years": max(1.0, round(anonymized_result.total_years_experience / max(1, len(anonymized_result.domain_expertise)), 1)),
+                    "years": max(
+                        1.0,
+                        round(
+                            anonymized_result.total_years_experience
+                            / max(1, len(anonymized_result.domain_expertise)),
+                            1,
+                        ),
+                    ),
                     "is_active": True,
                 }
                 for d in anonymized_result.domain_expertise
@@ -93,7 +106,11 @@ async def _execute_cv_extraction_steps(task: IntakeEvaluationTaskModel, db: Asyn
         }
         task.completed_at = datetime.now(timezone.utc)
         await db.commit()
-        logger.info("CV extraction task %d completed. Active profile ID: %d", task.id, cv_record.id)
+        logger.info(
+            "CV extraction task %d completed. Active profile ID: %d",
+            task.id,
+            cv_record.id,
+        )
 
     except Exception as err:
         logger.error("Failed processing CV task %d: %s", task.id, err, exc_info=True)
@@ -104,7 +121,9 @@ async def _execute_cv_extraction_steps(task: IntakeEvaluationTaskModel, db: Asyn
         await db.commit()
 
 
-async def _execute_evaluation_steps(task: IntakeEvaluationTaskModel, db: AsyncSession) -> None:
+async def _execute_evaluation_steps(
+    task: IntakeEvaluationTaskModel, db: AsyncSession
+) -> None:
     if task.task_type == "CV_EXTRACTION":
         await _execute_cv_extraction_steps(task, db)
         return
@@ -121,9 +140,7 @@ async def _execute_evaluation_steps(task: IntakeEvaluationTaskModel, db: AsyncSe
         if not content or not content.strip():
             task.status = "FAILED"
             task.stage = "FAILED"
-            task.error_message = (
-                "SCRAPE_FAILED: Unable to scrape job portal automatically. Please provide job description text."
-            )
+            task.error_message = "SCRAPE_FAILED: Unable to scrape job portal automatically. Please provide job description text."
             task.completed_at = datetime.now(timezone.utc)
             await db.commit()
             return
@@ -136,16 +153,14 @@ async def _execute_evaluation_steps(task: IntakeEvaluationTaskModel, db: AsyncSe
         if not job_spec.job_found:
             task.status = "FAILED"
             task.stage = "FAILED"
-            task.error_message = (
-                "NO_JOB_FOUND: The scraped page or input text did not contain an active job description or vacancy."
-            )
+            task.error_message = "NO_JOB_FOUND: The scraped page or input text did not contain an active job description or vacancy."
             task.completed_at = datetime.now(timezone.utc)
             await db.commit()
             return
 
         # Stage 3: CV Keyword Overlap Matching
         task.stage = "MATCHING"
-        cv_stmt = select(CandidateCVModel).where(CandidateCVModel.is_active == True).order_by(CandidateCVModel.id.desc())
+        cv_stmt = select(CandidateCVModel).limit(1)
         cv_res = await db.execute(cv_stmt)
         active_cv = cv_res.scalars().first()
         candidate_skills = active_cv.extracted_skills if active_cv else []
@@ -174,7 +189,9 @@ async def _execute_evaluation_steps(task: IntakeEvaluationTaskModel, db: AsyncSe
             db,
             content,
             candidate_skills=candidate_skills,
-            candidate_cv=active_cv.anonymized_text or active_cv.raw_text if active_cv else None,
+            candidate_cv=active_cv.anonymized_text or active_cv.raw_text
+            if active_cv
+            else None,
             candidate_domain_breakdown=active_domains_str,
             programmatic_baseline=match_info.get("programmatic_score", 0),
         )
@@ -191,7 +208,9 @@ async def _execute_evaluation_steps(task: IntakeEvaluationTaskModel, db: AsyncSe
 
         # Completed Successfully
         task.status = "COMPLETED"
-        task.stage = "STAGED_DUPLICATE" if save_result.get("is_duplicate") else "COMPLETE"
+        task.stage = (
+            "STAGED_DUPLICATE" if save_result.get("is_duplicate") else "COMPLETE"
+        )
         result_payload = assessment.model_dump()
         result_payload["application_id"] = save_result.get("application_id")
         result_payload["staging_item_id"] = save_result.get("staging_item_id")
@@ -211,7 +230,9 @@ async def _execute_evaluation_steps(task: IntakeEvaluationTaskModel, db: AsyncSe
         )
 
     except Exception as err:
-        logger.error("Failed processing intake task %d: %s", task.id, err, exc_info=True)
+        logger.error(
+            "Failed processing intake task %d: %s", task.id, err, exc_info=True
+        )
         task.status = "FAILED"
         task.stage = "FAILED"
         task.error_message = str(err)
@@ -235,7 +256,9 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
         return
 
     async with AsyncSessionLocal() as session:
-        stmt = select(IntakeEvaluationTaskModel).where(IntakeEvaluationTaskModel.id == task_id)
+        stmt = select(IntakeEvaluationTaskModel).where(
+            IntakeEvaluationTaskModel.id == task_id
+        )
         res = await session.execute(stmt)
         task = res.scalar_one_or_none()
 
@@ -244,12 +267,14 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
             return
 
         # 1. Resolve Provider and Concurrency Limit for EXTRACTION / AGENT_REASONING
-        binding_stmt = select(AITaskBindingModel, AIProviderModel).join(
-            AIProviderModel, AITaskBindingModel.provider_id == AIProviderModel.id
-        ).where(
-            AITaskBindingModel.task_type.in_(["EXTRACTION", "AGENT_REASONING"]),
-            AITaskBindingModel.is_active == True,
-            AIProviderModel.is_active == True,
+        binding_stmt = (
+            select(AITaskBindingModel, AIProviderModel)
+            .join(AIProviderModel, AITaskBindingModel.provider_id == AIProviderModel.id)
+            .where(
+                AITaskBindingModel.task_type.in_(["EXTRACTION", "AGENT_REASONING"]),
+                AITaskBindingModel.is_active == True,
+                AIProviderModel.is_active == True,
+            )
         )
         binding_res = await session.execute(binding_stmt)
         row = binding_res.first()
@@ -265,7 +290,9 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
                 return
 
             task.status = "PROCESSING"
-            task.stage = "SCRUBBING" if task.task_type == "CV_EXTRACTION" else "FETCHING"
+            task.stage = (
+                "SCRUBBING" if task.task_type == "CV_EXTRACTION" else "FETCHING"
+            )
             await session.commit()
 
             await _execute_evaluation_steps(task, session)
