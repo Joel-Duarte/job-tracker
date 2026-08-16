@@ -1,10 +1,11 @@
+import os
+import socket
 from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from testcontainers.postgres import PostgresContainer
 
 import app.models  # noqa: F401
 from app.core.database import Base
@@ -12,11 +13,69 @@ from app.models.email_accounts import EmailAccountModel
 from app.schemas.intake import EmailPayload, ExtractedEmailInfo
 
 
+def is_port_open(host: str, port: int, timeout: float = 1.0) -> bool:
+    """Checks if a TCP port is open and listening."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except (OSError, TimeoutError):
+        return False
+
+
+def pytest_collection_modifyitems(items):
+    """Automatically marks tests requiring db_session or postgres_container with 'docker'."""
+    for item in items:
+        fixture_names = getattr(item, "fixturenames", [])
+        if "db_session" in fixture_names or "postgres_container" in fixture_names:
+            item.add_marker(pytest.mark.docker)
+
+
+class FallbackPostgresConnection:
+    """Mock connection provider wrapping an existing PostgreSQL database instance."""
+
+    def __init__(self, url: str):
+        self.url = url
+
+    def get_connection_url(self) -> str:
+        return self.url
+
+
 @pytest.fixture(scope="session")
 def postgres_container():
-    """Spins up a temporary Postgres container with pgvector for testing."""
-    with PostgresContainer("pgvector/pgvector:pg16") as postgres:
-        yield postgres
+    """
+    Provides a PostgreSQL connection URL for tests with three-tier fallback:
+    1. Explicit TEST_DATABASE_URL environment variable.
+    2. Ephemeral Testcontainer (pgvector/pgvector:pg16) if Docker daemon is accessible.
+    3. Running local dev container on localhost:54320 (from ./dev.sh).
+    4. Graceful skip if neither Docker nor a local PostgreSQL database is reachable.
+    """
+    # 1. Check for explicit test database URL
+    test_db_env = os.environ.get("TEST_DATABASE_URL")
+    if test_db_env:
+        yield FallbackPostgresConnection(test_db_env)
+        return
+
+    # 2. Try Testcontainers (standard isolated container per test session)
+    try:
+        from testcontainers.postgres import PostgresContainer
+
+        with PostgresContainer("pgvector/pgvector:pg16") as postgres:
+            yield postgres
+            return
+    except Exception as container_err:
+        # 3. Fall back to running development database on port 54320 if accessible
+        if is_port_open("localhost", 54320):
+            dev_db_url = (
+                "postgresql+asyncpg://postgres:postgres@localhost:54320/postgres"
+            )
+            yield FallbackPostgresConnection(dev_db_url)
+            return
+
+        # 4. Gracefully skip with clear, actionable explanation
+        pytest.skip(
+            f"Docker daemon not accessible ({container_err}) and no PostgreSQL found on localhost:54320. "
+            "To run tests, start Docker, run './dev.sh', or run pure unit tests with 'pytest -m \"not docker\"'."
+        )
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -26,8 +85,10 @@ async def db_session(postgres_container):
 
     if "postgresql+psycopg2://" in raw_url:
         async_url = raw_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
-    else:
+    elif "postgresql://" in raw_url and "postgresql+asyncpg://" not in raw_url:
         async_url = raw_url.replace("postgresql://", "postgresql+asyncpg://")
+    else:
+        async_url = raw_url
 
     engine = create_async_engine(async_url, echo=False)
 

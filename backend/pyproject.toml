@@ -41,6 +41,9 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = "."
 asyncio_mode = "auto"
+markers = [
+    "docker: marks tests requiring Docker or a live PostgreSQL database",
+]
 
 [tool.ruff]
 line-length = 88
