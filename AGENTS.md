@@ -33,9 +33,16 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - `email_fetcher.py`: Connects to IMAP or OAuth to pull recruitment emails, deduplicating via `message_id`.
   - `evaluation_worker.py`: Background worker for processing async evaluations in a 4-stage pipeline.
 
-### Infrastructure
-- Docker Compose is used for local development, managing `db` (Postgres), `scraper` (Camofox), `backend`, and `frontend`.
-- Development scripts (`dev.sh`) orchestrate starting up components.
+### Infrastructure & Development Startup
+- **Local Development:** Run `./dev.sh` (or `./dev.sh --reset` to wipe and restart). This spins up `db` (PostgreSQL), `scraper` (Camofox), `backend` (FastAPI), and `frontend` (Vite dev server) using `docker-compose.dev.yml`.
+- **Automatic Mock Dataset Seeding:** When `./dev.sh` or a clean database boots in development mode (`ENVIRONMENT=development` or `SEED_DEV_DATA=true`), the backend automatically populates a comprehensive, domain-tailored mock dataset:
+  - 1 Active Candidate CV profile (Staff Distributed Systems Engineer)
+  - 5 Applications across statuses (`APPLIED`, `TECHNICAL_INTERVIEW`, `OFFER`, `ONLINE_ASSESSMENT`, `REJECTED`) with full candidate dossiers and match analysis payloads (`Stripe`, `Linear`, `Figma`, `Datadog`, `Airbnb`)
+  - 5 Job Postings with salaries, ATS skills, and markdown descriptions
+  - 8 Application Timeline Events and 5 Action Items with varying deadlines/urgencies
+  - 3 Staging Queue items for triage and 3 Intake AI evaluation tasks
+  - 3 AI Providers / Task Bindings and 2 Email accounts
+- **Production Mode:** Run `./prod.sh` (using `docker-compose.yml` with `ENVIRONMENT=production`). Seed data is strictly skipped in production.
 
 ## Core Domains & Data Models
 - **Applications:** `ApplicationModel` linked to `CompanyModel`. Tracks status (`APPLIED`, `TECHNICAL_INTERVIEW`, `OFFER`, `REJECTED`, `ASSESSMENT`), dates, and linked timeline events.
