@@ -41,14 +41,20 @@ async def generate_interview_guide(
     position = application.position or "Target Role"
 
     # 2. Fetch Active Candidate Profile
-    cv_stmt = select(CandidateCVModel).where(CandidateCVModel.is_active.is_(True)).order_by(CandidateCVModel.updated_at.desc())
+    cv_stmt = select(CandidateCVModel).limit(1)
     cv_res = await db.execute(cv_stmt)
     active_cv = cv_res.scalars().first()
 
     cv_text = ""
     if active_cv:
         skills_str = ", ".join(active_cv.extracted_skills or [])
-        domain_str = ", ".join([f"{d.get('domain')} ({d.get('years')} yrs)" for d in (active_cv.domain_experience or []) if d.get("is_active", True)])
+        domain_str = ", ".join(
+            [
+                f"{d.get('domain')} ({d.get('years')} yrs)"
+                for d in (active_cv.domain_experience or [])
+                if d.get("is_active", True)
+            ]
+        )
         cv_text = (
             f"Candidate Summary: {active_cv.summary or 'Experienced professional'}\n"
             f"Core Technical Skills: {skills_str}\n"
@@ -70,7 +76,9 @@ async def generate_interview_guide(
         )
     else:
         # Fallback to recent event summaries or title
-        event_notes = " | ".join([e.email_summary for e in application.events if e.email_summary])
+        event_notes = " | ".join(
+            [e.email_summary for e in application.events if e.email_summary]
+        )
         jd_text = f"Position: {position} at {company_name}.\nRecent Communications & Timeline: {event_notes or 'Active recruitment process.'}"
 
     # 4. Prepare Initial State & Invoke LangGraph
@@ -120,7 +128,9 @@ async def generate_interview_guide(
     return application
 
 
-async def clear_interview_guide(db: AsyncSession, application_id: int) -> ApplicationModel:
+async def clear_interview_guide(
+    db: AsyncSession, application_id: int
+) -> ApplicationModel:
     """Clears the existing interview guide for an application."""
     stmt = (
         select(ApplicationModel)

@@ -368,11 +368,7 @@ async def assess_job_lead(
     from app.models.candidate_profile import CandidateCVModel
     from app.services.matcher import compute_programmatic_skill_match
 
-    cv_stmt = (
-        select(CandidateCVModel)
-        .where(CandidateCVModel.is_active == True)
-        .order_by(CandidateCVModel.id.desc())
-    )
+    cv_stmt = select(CandidateCVModel).limit(1)
     cv_res = await db.execute(cv_stmt)
     active_cv = cv_res.scalars().first()
 

@@ -24,15 +24,17 @@ router = APIRouter(prefix="/profile/cv", tags=["Candidate CV Profile"])
 @router.get("", response_model=Optional[CandidateCVResponse])
 async def get_active_cv_profile(db: AsyncSession = Depends(get_db)):
     """Retrieves the active candidate CV profile and extracted skills."""
-    stmt = select(CandidateCVModel).limit(1)
+    stmt = (
+        select(CandidateCVModel)
+        .where(CandidateCVModel.is_active == True)
+        .order_by(CandidateCVModel.id.desc())
+    )
     res = await db.execute(stmt)
     profile = res.scalars().first()
     return profile
 
 
-@router.post(
-    "", response_model=CVTaskStatusResponse, status_code=status.HTTP_202_ACCEPTED
-)
+@router.post("", response_model=CVTaskStatusResponse, status_code=status.HTTP_202_ACCEPTED)
 async def enqueue_cv_profile_processing(
     payload: CandidateCVSaveRequest,
     db: AsyncSession = Depends(get_db),
