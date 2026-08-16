@@ -77,7 +77,7 @@ async def list_action_items(
     live_urgency_expr = func.coalesce(
         ActionItemModel.manual_urgency_override,
         case(
-            (ActionItemModel.due_date == None, ActionItemModel.urgency),
+            (ActionItemModel.due_date.is_(None), ActionItemModel.urgency),
             (
                 func.extract("epoch", ActionItemModel.due_date - func.now()) / 3600
                 < 24,

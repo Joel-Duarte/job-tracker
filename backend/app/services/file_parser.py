@@ -163,7 +163,7 @@ def parse_txt(content: bytes, filename: str = "upload.txt") -> EmailPayload:
     in_headers = True
 
     # Simple check for basic header block
-    for idx, line in enumerate(lines):
+    for line in lines:
         if in_headers:
             lower = line.lower()
             if lower.startswith("subject:"):

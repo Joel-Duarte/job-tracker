@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -22,7 +21,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/profile/cv", tags=["Candidate CV Profile"])
 
 
-@router.get("", response_model=Optional[CandidateCVResponse])
+@router.get("", response_model=CandidateCVResponse | None)
 async def get_active_cv_profile(db: AsyncSession = Depends(get_db)):
     """Retrieves the active candidate CV profile and extracted skills."""
     stmt = select(CandidateCVModel).limit(1)

@@ -16,3 +16,23 @@ from app.models.llm import LLMConfigModel
 from app.models.processed_email import ProcessedEmailModel
 from app.models.prompts import PromptModel
 from app.models.staging import StagingItemModel
+
+__all__ = [
+    "AIProviderModel",
+    "AITaskBindingModel",
+    "ActionItemModel",
+    "ApplicationEmbeddingModel",
+    "ApplicationEventModel",
+    "ApplicationModel",
+    "Base",
+    "CandidateCVModel",
+    "CompanyModel",
+    "EmailAccountModel",
+    "IntakeEvaluationTaskModel",
+    "JobPostingModel",
+    "LLMConfigModel",
+    "OtherEventModel",
+    "ProcessedEmailModel",
+    "PromptModel",
+    "StagingItemModel",
+]

@@ -27,17 +27,21 @@ from app.models.applications import (
     JobPostingModel,
 )
 from app.models.email_accounts import EmailAccountModel
+from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.models.processed_email import ProcessedEmailModel
 from app.schemas.intake import (
     AssessJobRequest,
     ConfirmAssessmentRequest,
     DirectEmailIntakeRequest,
     EmailPayload,
+    EnqueueAssessmentRequest,
+    IntakeEvaluationTaskResponse,
     IntakeResultResponse,
     PasteIntakeRequest,
 )
 from app.schemas.llm import JobAssessmentResult
 from app.services.email_fetcher import fetch_emails_from_account
+from app.services.evaluation_worker import process_evaluation_task
 from app.services.file_parser import parse_uploaded_file
 from app.services.intake import (
     process_email_batch_sequential,
@@ -755,10 +759,6 @@ async def intake_direct_raw_email(
 # =========================================================================
 # ASYNC INTAKE EVALUATION QUEUE & PERSISTENCE ENDPOINTS
 # =========================================================================
-
-from app.models.intake_tasks import IntakeEvaluationTaskModel
-from app.schemas.intake import EnqueueAssessmentRequest, IntakeEvaluationTaskResponse
-from app.services.evaluation_worker import process_evaluation_task
 
 
 @router.post(

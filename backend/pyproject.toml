@@ -40,3 +40,11 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = "."
 asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501", "B008", "B904"]  # E501 handled by formatter, B008/B904 for FastAPI conventions

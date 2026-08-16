@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -156,7 +156,7 @@ class ApplicationFilterParams(BaseModel):
     offset: int = Field(0, ge=0, description="Pagination offset")
 
 
-class AllowedApplicationStatus(str, Enum):
+class AllowedApplicationStatus(StrEnum):
     ASSESSMENT = "ASSESSMENT"
     APPLIED = "APPLIED"
     ONLINE_ASSESSMENT = "ONLINE_ASSESSMENT"
