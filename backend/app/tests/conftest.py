@@ -6,6 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.postgres import PostgresContainer
 
+import app.models  # noqa: F401
 from app.core.database import Base
 from app.models.email_accounts import EmailAccountModel
 from app.schemas.intake import EmailPayload, ExtractedEmailInfo
@@ -39,20 +40,38 @@ async def db_session(postgres_container):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    session_factory = async_sessionmaker(
+        engine, expire_on_commit=False, class_=AsyncSession
+    )
 
     # Initialize checkpointer pool pointing to test container
-    from app.core.database import checkpointer_pool, postgres_saver
+    from psycopg_pool import AsyncConnectionPool
+
+    import app.core.database as db_module
+
     sync_url = async_url.replace("+asyncpg", "")
-    checkpointer_pool.conninfo = sync_url
-    await checkpointer_pool.open()
-    await postgres_saver.setup()
+    test_pool = AsyncConnectionPool(
+        conninfo=sync_url,
+        max_size=10,
+        kwargs={"autocommit": True, "prepare_threshold": 0},
+        open=False,
+    )
+    await test_pool.open(wait=True)
+    orig_engine = db_module.engine
+    orig_session_local = db_module.AsyncSessionLocal
+    db_module.engine = engine
+    db_module.AsyncSessionLocal = session_factory
+    db_module.checkpointer_pool = test_pool
+    db_module.postgres_saver.conn = test_pool
+    await db_module.postgres_saver.setup()
 
     async with session_factory() as session:
         yield session
 
-    # Drop tables after test run
-    await checkpointer_pool.close()
+    # Clean up test pool and drop tables after test run
+    db_module.engine = orig_engine
+    db_module.AsyncSessionLocal = orig_session_local
+    await test_pool.close()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
 

@@ -40,7 +40,10 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # 2. Transition to TECHNICAL_INTERVIEW with interview stage and scheduled_at
-        with patch("app.routers.applications.async_enqueue_application_embedding", new_callable=AsyncMock):
+        with patch(
+            "app.routers.applications.async_enqueue_application_embedding",
+            new_callable=AsyncMock,
+        ):
             resp = await client.post(
                 f"/api/v1/applications/{application.id}/transition",
                 json={
@@ -57,7 +60,10 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
             assert data["latest_event"]["email_event_type"] == "STATUS_CHANGE"
 
         # 3. Transition to OFFER with offered salary, offer_received_date, and decision_deadline
-        with patch("app.routers.applications.async_enqueue_application_embedding", new_callable=AsyncMock):
+        with patch(
+            "app.routers.applications.async_enqueue_application_embedding",
+            new_callable=AsyncMock,
+        ):
             resp = await client.post(
                 f"/api/v1/applications/{application.id}/transition",
                 json={
@@ -83,7 +89,10 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
         assert jp.salary_min == 210000
 
         # 4. Transition to REJECTED with rejection reason and rejection_date
-        with patch("app.routers.applications.async_enqueue_application_embedding", new_callable=AsyncMock):
+        with patch(
+            "app.routers.applications.async_enqueue_application_embedding",
+            new_callable=AsyncMock,
+        ):
             resp = await client.post(
                 f"/api/v1/applications/{application.id}/transition",
                 json={

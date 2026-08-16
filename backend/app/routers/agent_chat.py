@@ -1,6 +1,7 @@
 import json
 import logging
-from typing import Any, List
+from typing import Any
+
 from fastapi import APIRouter, Depends
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, Field

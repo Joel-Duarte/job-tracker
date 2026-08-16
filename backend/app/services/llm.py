@@ -442,9 +442,7 @@ async def async_enqueue_application_embedding(
     from app.core.ai_queue import concurrency_manager
     from app.core.database import AsyncSessionLocal
     from app.models.ai_providers import AIProviderModel, AITaskBindingModel
-    from app.models.applications import (
-        IntakeEvaluationTaskModel,
-    )  # Check this import path
+    from app.models.intake_tasks import IntakeEvaluationTaskModel
 
     provider_id = None
     max_concurrency = 1

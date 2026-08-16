@@ -1,5 +1,6 @@
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -92,7 +93,6 @@ async def generate_interview_guide(
         "completed_sections": [],
         "language": request.language,
         "error": None,
-        "db_session": db,
     }
 
     recursion_limit = max(5, min(request.recursion_limit, 100))
@@ -107,7 +107,10 @@ async def generate_interview_guide(
 
     final_state = await interview_guide_graph.ainvoke(
         initial_state,
-        config={"recursion_limit": recursion_limit, "configurable": {"thread_id": str(application_id)}},
+        config={
+            "recursion_limit": recursion_limit,
+            "configurable": {"db": db, "thread_id": str(application_id)},
+        },
     )
 
     completed_sections = final_state.get("completed_sections", [])

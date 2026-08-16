@@ -1,5 +1,6 @@
 import base64
 from unittest.mock import AsyncMock, patch
+
 import httpx
 import pytest
 

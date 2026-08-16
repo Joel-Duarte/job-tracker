@@ -1,8 +1,11 @@
 from unittest.mock import AsyncMock, patch
-from app.models.applications import CompanyModel, ApplicationModel, ActionItemModel
+
+import pytest
+
+from app.models.applications import ActionItemModel, ApplicationModel, CompanyModel
 from app.services.agent_tools import (
-  create_agent_tools,
-  execute_list_applications,
+    create_agent_tools,
+    execute_get_action_items,
     execute_get_application_details,
     execute_list_applications,
     execute_update_application_status,

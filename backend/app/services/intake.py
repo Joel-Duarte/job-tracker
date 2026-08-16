@@ -5,9 +5,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.graph_state import JobTrackerState
 from app.schemas.intake import EmailPayload
 from app.services.intake_graph import intake_graph
+from app.services.llm import extract_email_info
 from app.services.task_tracker import task_tracker
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "extract_email_info",
+    "process_email_batch_sequential",
+    "process_single_email_graph",
+]
 
 
 async def process_single_email_graph(

@@ -2,6 +2,7 @@ import logging
 from typing import Any, TypedDict
 
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
 from app.core.llm_factory import get_task_chat_model
@@ -53,7 +54,6 @@ class InterviewGuideState(TypedDict):
     completed_sections: list[str]
     language: str
     error: str | None
-    db_session: Any
 
 
 async def extractor_node(state: InterviewGuideState) -> dict[str, Any]:
@@ -68,14 +68,20 @@ async def extractor_node(state: InterviewGuideState) -> dict[str, Any]:
     }
 
 
-async def web_researcher_node(state: InterviewGuideState) -> dict[str, Any]:
+async def web_researcher_node(
+    state: InterviewGuideState, config: RunnableConfig | None = None
+) -> dict[str, Any]:
     """
     Gathers company context, cultural signals, and technical stack background.
     Uses LLM synthesis with web search context resilience.
     """
     company = state.get("company_name", "Target Company")
     jd_text = state.get("jd_text", "")
-    db = state.get("db_session")
+    db = (
+        config.get("configurable", {}).get("db")
+        if config and "configurable" in config
+        else None
+    )
 
     try:
         if db:
@@ -105,7 +111,9 @@ async def web_researcher_node(state: InterviewGuideState) -> dict[str, Any]:
     return {"company_context": [f"Company overview based on job spec for {company}."]}
 
 
-async def section_generator_node(state: InterviewGuideState) -> dict[str, Any]:
+async def section_generator_node(
+    state: InterviewGuideState, config: RunnableConfig | None = None
+) -> dict[str, Any]:
     """Generates the clean semantic HTML for the current section in the queue."""
     target_sections = state.get("target_sections", [])
     order_mapping = {key: i for i, key in enumerate(SECTION_DESCRIPTIONS.keys())}
@@ -124,7 +132,11 @@ async def section_generator_node(state: InterviewGuideState) -> dict[str, Any]:
     company_context = "\n".join(state.get("company_context", []))
     jd_text = state.get("jd_text", "")
     cv_text = state.get("cv_text", "")
-    db = state.get("db_session")
+    db = (
+        config.get("configurable", {}).get("db")
+        if config and "configurable" in config
+        else None
+    )
 
     section_html = ""
     try:
@@ -217,6 +229,7 @@ def build_interview_guide_graph():
     )
 
     from app.core.database import postgres_saver
+
     return workflow.compile(checkpointer=postgres_saver)
 
 

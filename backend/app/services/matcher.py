@@ -1,5 +1,5 @@
 import re
-from typing import List
+
 from rapidfuzz import fuzz
 
 SKILL_ALIASES = {

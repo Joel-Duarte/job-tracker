@@ -290,7 +290,9 @@ async def test_retry_evaluation_task(db_session: AsyncSession):
     await db_session.commit()
     await db_session.refresh(task)
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
         with patch("app.routers.intake.process_evaluation_task"):
             res = await ac.post(f"/api/v1/intake/evaluations/{task.id}/retry")
             assert res.status_code == 200

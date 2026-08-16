@@ -1,14 +1,14 @@
 import logging
 from collections.abc import AsyncGenerator
 
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver, Capabilities
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from psycopg_pool import AsyncConnectionPool
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
 from app.models.applications import Base
-
-from psycopg_pool import AsyncConnectionPool
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 logger = logging.getLogger(__name__)
 
@@ -33,28 +33,86 @@ checkpointer_pool = AsyncConnectionPool(
     conninfo=db_url,
     max_size=10,
     kwargs={"autocommit": True, "prepare_threshold": 0},
-    open=False  # Do not open immediately, wait for async loop
+    open=False,  # Do not open immediately, wait for async loop
 )
 
+
 class LazyAsyncPostgresSaver(AsyncPostgresSaver):
-    def __init__(self, pool):
-        # We delay init because AsyncPostgresSaver calls asyncio.get_running_loop() which fails on import
+    def __init__(self, pool, pipe=None, serde=None):
+        # Delay full loop binding because AsyncPostgresSaver calls asyncio.get_running_loop() on import
         self.conn = pool
+        self.pipe = pipe
+        self.serde = serde or JsonPlusSerializer()
         self.is_setup = False
         self._lock = None
+        self._lock_loop = None
+        self._loop = None
+        self._supports_pipeline = None
 
     @property
     def lock(self):
         import asyncio
-        if self._lock is None:
+
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        if self._lock is None or self._lock_loop != current_loop:
             self._lock = asyncio.Lock()
+            self._lock_loop = current_loop
         return self._lock
 
-    async def setup(self) -> None:
+    @property
+    def loop(self):
         import asyncio
-        if not hasattr(self, 'loop') or self.loop is None:
+
+        try:
+            return asyncio.get_running_loop()
+        except RuntimeError:
+            return self._loop
+
+    @loop.setter
+    def loop(self, value):
+        self._loop = value
+
+    @property
+    def supports_pipeline(self):
+        if self._supports_pipeline is None:
+            self._supports_pipeline = Capabilities().has_pipeline()
+        return self._supports_pipeline
+
+    def _ensure_thread_id(self, config: dict) -> dict:
+        if config is not None:
+            configurable = config.setdefault("configurable", {})
+            if "thread_id" not in configurable:
+                configurable["thread_id"] = "default"
+        return config
+
+    async def aget_tuple(self, config):
+        self._ensure_thread_id(config)
+        return await super().aget_tuple(config)
+
+    async def aput(self, config, checkpoint, metadata, new_versions):
+        self._ensure_thread_id(config)
+        return await super().aput(config, checkpoint, metadata, new_versions)
+
+    async def aput_writes(self, config, writes, task_id, task_path=""):
+        self._ensure_thread_id(config)
+        return await super().aput_writes(config, writes, task_id, task_path)
+
+    async def alist(self, config, *, filter=None, before=None, limit=None):
+        self._ensure_thread_id(config)
+        return await super().alist(config, filter=filter, before=before, limit=limit)
+
+    async def setup(self) -> None:
+        if not hasattr(self, "loop") or self.loop is None:
+            import asyncio
+
             self.loop = asyncio.get_running_loop()
         await super().setup()
+        self.is_setup = True
+
 
 postgres_saver = LazyAsyncPostgresSaver(checkpointer_pool)
 
@@ -155,6 +213,7 @@ async def ensure_db_schema() -> None:
             "ALTER TABLE IF EXISTS candidate_cvs ADD COLUMN IF NOT EXISTS summary TEXT;",
             "ALTER TABLE IF EXISTS candidate_cvs ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;",
             # intake_evaluation_tasks
+            "ALTER TABLE IF EXISTS intake_evaluation_tasks ADD COLUMN IF NOT EXISTS task_type TEXT NOT NULL DEFAULT 'JOB_ASSESSMENT';",
             "ALTER TABLE IF EXISTS intake_evaluation_tasks ADD COLUMN IF NOT EXISTS job_url TEXT;",
             "ALTER TABLE IF EXISTS intake_evaluation_tasks ADD COLUMN IF NOT EXISTS raw_text TEXT;",
             "ALTER TABLE IF EXISTS intake_evaluation_tasks ADD COLUMN IF NOT EXISTS title_hint TEXT NOT NULL DEFAULT 'Job Lead';",

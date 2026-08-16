@@ -68,6 +68,7 @@ def build_intake_graph():
     builder.add_edge("summarize_embed", END)
 
     from app.core.database import postgres_saver
+
     return builder.compile(checkpointer=postgres_saver)
 
 

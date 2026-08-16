@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 import logging
 from datetime import UTC, datetime
 
@@ -91,9 +90,8 @@ async def list_applications(
         stmt = stmt.where(ApplicationModel.company_id == company_id)
 
     if action_required is not None:
-        event_subq = (
-            select(ApplicationEventModel.email_application_id)
-            .where(ApplicationEventModel.email_action_required)
+        event_subq = select(ApplicationEventModel.email_application_id).where(
+            ApplicationEventModel.email_action_required
         )
         action_item_subq = select(ActionItemModel.application_id).where(
             ActionItemModel.status == "PENDING"

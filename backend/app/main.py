@@ -1,7 +1,7 @@
 import logging
-from fastapi import FastAPI, Response, status
-
 from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Response, status
 
 from app.core.database import check_db_connection, ensure_db_schema
 from app.routers import (
@@ -41,6 +41,7 @@ async def lifespan(app: FastAPI):
 
         # Initialize the checkpointer pool and tables
         from app.core.database import checkpointer_pool, postgres_saver
+
         logger.info("Opening LangGraph checkpointer pool...")
         await checkpointer_pool.open()
         await postgres_saver.setup()
@@ -53,7 +54,8 @@ async def lifespan(app: FastAPI):
     yield
     # Executed on shutdown
     logger.info("Shutting down application and disposing connection pools...")
-    from app.core.database import engine, checkpointer_pool
+    from app.core.database import checkpointer_pool, engine
+
     await engine.dispose()
     await checkpointer_pool.close()
 
