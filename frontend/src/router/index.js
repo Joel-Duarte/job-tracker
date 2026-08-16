@@ -7,6 +7,7 @@ import CandidateProfileView from '../views/CandidateProfileView.vue'
 import AgentChatView from '../views/AgentChatView.vue'
 import StagingView from '../views/StagingView.vue'
 import SettingsView from '../views/SettingsView.vue'
+import InterviewGuideView from '../views/InterviewGuideView.vue'
 
 const routes = [
   {
@@ -49,6 +50,11 @@ const routes = [
     path: '/settings',
     name: 'Settings',
     component: SettingsView,
+  },
+  {
+    path: '/guide/:id',
+    name: 'InterviewGuide',
+    component: InterviewGuideView,
   },
 ]
 

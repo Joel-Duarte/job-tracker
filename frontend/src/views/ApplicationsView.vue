@@ -3,7 +3,6 @@ import { ref, onMounted } from 'vue'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useUIStore } from '../stores/uiStore'
 import DateTimePicker from '../components/common/DateTimePicker.vue'
-import InterviewGuideModal from '../components/modals/InterviewGuideModal.vue'
 import {
   Search,
   Kanban,
@@ -41,12 +40,11 @@ const appStore = useApplicationsStore()
 const uiStore = useUIStore()
 
 // Interview Guide Modal State
-const isInterviewGuideOpen = ref(false)
 const activeGuideAppId = ref(null)
 
 function openInterviewGuide(appId) {
   activeGuideAppId.value = appId
-  isInterviewGuideOpen.value = true
+  uiStore.openDetail(appId)
 }
 
 // Drag & Drop State
@@ -1123,13 +1121,7 @@ async function confirmDelete() {
       </div>
     </Transition>
 
-    <!-- INTERVIEW PREPARATION GUIDE MODAL -->
-    <InterviewGuideModal
-      :is-open="isInterviewGuideOpen"
-      :application-id="activeGuideAppId"
-      @close="isInterviewGuideOpen = false"
-      @updated="appStore.fetchApplications()"
-    />
+
   </div>
 </template>
 
