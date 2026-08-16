@@ -7,6 +7,8 @@ set -e
 RESET_DB=false
 RESET_ONLY=false
 STOP_ONLY=false
+STATUS_ONLY=false
+LOGS_ONLY=false
 DOCKER_ARGS=()
 
 # Parse arguments
@@ -25,6 +27,14 @@ while [[ $# -gt 0 ]]; do
       STOP_ONLY=true
       shift
       ;;
+    --status|-s)
+      STATUS_ONLY=true
+      shift
+      ;;
+    --logs|-l)
+      LOGS_ONLY=true
+      shift
+      ;;
     --help|-h)
       echo "Job Tracker - Production Launcher"
       echo ""
@@ -34,12 +44,21 @@ while [[ $# -gt 0 ]]; do
       echo "  --reset, --clean, -r, --reset-db   Wipe PostgreSQL database & application data, then start fresh"
       echo "  --reset-only                       Wipe database & data volumes without restarting containers"
       echo "  --down, --stop                     Stop running production containers"
+      echo "  --status, -s                       Show status of production containers"
+      echo "  --logs, -l                         View / follow production logs"
       echo "  --help, -h                         Show this help message"
       echo ""
+      echo "Persistence & Boot Behavior:"
+      echo "  Containers run permanently with 'restart: unless-stopped'."
+      echo "  They will automatically start on PC/system boot whenever the Docker service runs."
+      echo "  Containers will only stop when you explicitly run './prod.sh --down'."
+      echo ""
       echo "Examples:"
-      echo "  ./prod.sh                          # Normal start in background (preserves DB data)"
-      echo "  ./prod.sh --reset                  # Reset DB data and start fresh"
+      echo "  ./prod.sh                          # Normal permanent start in background (preserves DB data)"
+      echo "  ./prod.sh --status                 # Check container status"
+      echo "  ./prod.sh --logs                   # Tail logs from all containers"
       echo "  ./prod.sh --down                   # Stop production containers"
+      echo "  ./prod.sh --reset                  # Reset DB data and start fresh"
       exit 0
       ;;
     *)
@@ -49,10 +68,22 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [ "$STATUS_ONLY" = true ]; then
+  echo "📊 Production Container Status:"
+  docker compose ps
+  exit 0
+fi
+
+if [ "$LOGS_ONLY" = true ]; then
+  echo "📋 Streaming Production Container Logs (Ctrl+C to exit)..."
+  docker compose logs -f "${DOCKER_ARGS[@]}"
+  exit 0
+fi
+
 if [ "$STOP_ONLY" = true ]; then
   echo "🛑 Stopping Job Tracker production containers..."
   docker compose down
-  echo "✅ Containers stopped."
+  echo "✅ Containers stopped. (Will NOT restart on PC boot until started again)"
   exit 0
 fi
 
@@ -70,11 +101,28 @@ if [ "$RESET_DB" = true ]; then
   fi
 fi
 
-echo "🚀 Starting Job Tracker in PRODUCTION mode..."
+echo "🚀 Starting Job Tracker in PERMANENT PRODUCTION mode..."
 echo " - Frontend: Production Nginx SPA & Reverse Proxy (http://localhost:4173)"
 echo " - Backend:  FastAPI Production Workers (http://localhost:8008)"
-echo " - Database: PostgreSQL + pgvector (localhost:54320, data persisted)"
-echo " - Scraper:  Camofox Automation (http://localhost:9355)"
+echo " - Database: PostgreSQL 16 + pgvector (localhost:54320, data persisted)"
+echo " - Scraper:  Camofox Automation Server (http://localhost:9377)"
 echo ""
 
 docker compose up -d --build "${DOCKER_ARGS[@]}"
+
+echo ""
+echo "================================================================================"
+echo " ✅ Job Tracker is running permanently in the background!"
+echo "--------------------------------------------------------------------------------"
+echo " 🔄 Auto-Start Policy: restart: unless-stopped"
+echo "    - Containers will automatically start on PC boot whenever Docker is active."
+echo "    - Containers will only stop if you explicitly run './prod.sh --down'."
+echo ""
+echo " 🌐 Web Application: http://localhost:4173"
+echo " 📚 API Docs:        http://localhost:8008/docs"
+echo ""
+echo " 💡 Quick Management Commands:"
+echo "    ./prod.sh --status    # Check running services"
+echo "    ./prod.sh --logs      # View live logs"
+echo "    ./prod.sh --down      # Stop containers"
+echo "================================================================================"

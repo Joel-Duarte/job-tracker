@@ -42,7 +42,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - 8 Application Timeline Events and 5 Action Items with varying deadlines/urgencies
   - 3 Staging Queue items for triage and 3 Intake AI evaluation tasks
   - 3 AI Providers / Task Bindings and 2 Email accounts
-- **Production Mode:** Run `./prod.sh` (using `docker-compose.yml` with `ENVIRONMENT=production`). Seed data is strictly skipped in production.
+- **Production Mode:** Run `./prod.sh` (using `docker-compose.yml` with `ENVIRONMENT=production`). All services run permanently in the background with `restart: unless-stopped`, meaning they automatically auto-start on PC/system boot whenever the Docker daemon starts and only stop when explicitly taken down (`./prod.sh --down`). Seed data is strictly skipped in production.
 
 ## Core Domains & Data Models
 - **Applications:** `ApplicationModel` linked to `CompanyModel`. Tracks status (`APPLIED`, `TECHNICAL_INTERVIEW`, `OFFER`, `REJECTED`, `ASSESSMENT`), dates, and linked timeline events.
