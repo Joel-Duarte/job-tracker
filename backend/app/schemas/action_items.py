@@ -20,6 +20,10 @@ class ActionItemUpdate(BaseModel):
     action_url: Optional[str] = None
 
 
+class UrgencyOverrideUpdate(BaseModel):
+    manual_urgency: Optional[str] = Field(None, description="HIGH, MEDIUM, LOW, or null to reset to auto")
+
+
 class ActionItemResponse(BaseModel):
     id: int
     application_id: Optional[int] = None
@@ -29,6 +33,7 @@ class ActionItemResponse(BaseModel):
     status: str
     action_url: Optional[str] = None
     urgency: str
+    manual_urgency_override: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     # Joined application metadata

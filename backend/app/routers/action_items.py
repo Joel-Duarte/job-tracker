@@ -13,12 +13,32 @@ from app.schemas.action_items import (
     ActionItemListResponse,
     ActionItemResponse,
     ActionItemUpdate,
+    UrgencyOverrideUpdate,
 )
 from app.services.llm import async_enqueue_application_embedding
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/action-items", tags=["Action Items"])
+
+
+def compute_live_urgency(item: ActionItemModel) -> str:
+    """Computes dynamic urgency based on manual override or due_date proximity."""
+    if item.manual_urgency_override:
+        return item.manual_urgency_override.upper()
+
+    if item.due_date:
+        time_diff = item.due_date - datetime.now(timezone.utc)
+        hours_diff = time_diff.total_seconds() / 3600
+
+        if hours_diff < 24:
+            return "HIGH"
+        elif hours_diff <= 72:
+            return "MEDIUM"
+        else:
+            return "LOW"
+
+    return item.urgency or "MEDIUM"
 
 
 @router.get("", response_model=ActionItemListResponse, summary="List action items with filters and metrics")
@@ -31,11 +51,28 @@ async def list_action_items(
     db: AsyncSession = Depends(get_db),
 ):
     """Fetches action items ordered by urgency and due date, joined with application and company metadata."""
+    # Dynamic urgency SQL expression
+    # 1. manual_urgency_override if not null
+    # 2. else if due_date < 24h -> HIGH
+    # 3. else if due_date <= 72h -> MEDIUM
+    # 4. else if due_date -> LOW
+    # 5. else default urgency
+
+    live_urgency_expr = func.coalesce(
+        ActionItemModel.manual_urgency_override,
+        case(
+            (ActionItemModel.due_date == None, ActionItemModel.urgency),
+            (func.extract('epoch', ActionItemModel.due_date - func.now()) / 3600 < 24, "HIGH"),
+            (func.extract('epoch', ActionItemModel.due_date - func.now()) / 3600 <= 72, "MEDIUM"),
+            else_="LOW"
+        )
+    )
+
     # Metrics query across all items (or scoped to application if filtered)
     metrics_stmt = select(
         func.count().label("total"),
         func.count(case((ActionItemModel.status == "PENDING", 1))).label("pending"),
-        func.count(case(((ActionItemModel.status == "PENDING") & (ActionItemModel.urgency == "HIGH"), 1))).label("high_urgency"),
+        func.count(case(((ActionItemModel.status == "PENDING") & (live_urgency_expr == "HIGH"), 1))).label("high_urgency"),
         func.count(case((ActionItemModel.status == "COMPLETED", 1))).label("completed"),
     )
     if application_id:
@@ -57,14 +94,14 @@ async def list_action_items(
     if status_filter:
         stmt = stmt.where(ActionItemModel.status == status_filter.upper())
     if urgency:
-        stmt = stmt.where(ActionItemModel.urgency == urgency.upper())
+        stmt = stmt.where(live_urgency_expr == urgency.upper())
     if application_id:
         stmt = stmt.where(ActionItemModel.application_id == application_id)
 
     # Order: PENDING first, then HIGH urgency, then nearest due date, then newest
     stmt = stmt.order_by(
         case((ActionItemModel.status == "PENDING", 0), else_=1),
-        case((ActionItemModel.urgency == "HIGH", 0), (ActionItemModel.urgency == "MEDIUM", 1), else_=2),
+        case((live_urgency_expr == "HIGH", 0), (live_urgency_expr == "MEDIUM", 1), else_=2),
         ActionItemModel.due_date.asc().nulls_last(),
         ActionItemModel.created_at.desc(),
     )
@@ -89,7 +126,8 @@ async def list_action_items(
                 due_date=item.due_date,
                 status=item.status,
                 action_url=item.action_url,
-                urgency=item.urgency or "MEDIUM",
+                urgency=compute_live_urgency(item),
+                manual_urgency_override=item.manual_urgency_override,
                 created_at=item.created_at,
                 updated_at=item.updated_at,
                 company_name=company_name,
@@ -156,7 +194,8 @@ async def create_action_item(
         due_date=action_item.due_date,
         status=action_item.status,
         action_url=action_item.action_url,
-        urgency=action_item.urgency,
+        urgency=compute_live_urgency(action_item),
+        manual_urgency_override=action_item.manual_urgency_override,
         created_at=action_item.created_at,
         updated_at=action_item.updated_at,
         company_name=company_name,
@@ -240,7 +279,63 @@ async def update_action_item(
         due_date=item.due_date,
         status=item.status,
         action_url=item.action_url,
-        urgency=item.urgency,
+        urgency=compute_live_urgency(item),
+        manual_urgency_override=item.manual_urgency_override,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+        company_name=company_name,
+        position=position,
+        application_status=app_status,
+    )
+
+
+@router.put("/{action_item_id}/urgency", response_model=ActionItemResponse, summary="Set manual urgency override")
+async def override_action_item_urgency(
+    action_item_id: int,
+    payload: UrgencyOverrideUpdate,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """Sets or clears a manual urgency override on an action item."""
+    stmt = (
+        select(ActionItemModel)
+        .where(ActionItemModel.id == action_item_id)
+        .options(
+            joinedload(ActionItemModel.application).joinedload(ApplicationModel.company),
+        )
+    )
+    result = await db.execute(stmt)
+    item = result.scalars().first()
+
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action item not found")
+
+    if payload.manual_urgency:
+        item.manual_urgency_override = payload.manual_urgency.upper()
+    else:
+        item.manual_urgency_override = None
+
+    await db.commit()
+    await db.refresh(item)
+
+    if item.application_id:
+        background_tasks.add_task(async_enqueue_application_embedding, item.application_id, skip_llm_summary=True)
+
+    app = item.application
+    company_name = app.company.name if app and app.company else None
+    position = app.position if app else None
+    app_status = app.status if app else None
+
+    return ActionItemResponse(
+        id=item.id,
+        application_id=item.application_id,
+        event_id=item.event_id,
+        title=item.title,
+        due_date=item.due_date,
+        status=item.status,
+        action_url=item.action_url,
+        urgency=compute_live_urgency(item),
+        manual_urgency_override=item.manual_urgency_override,
         created_at=item.created_at,
         updated_at=item.updated_at,
         company_name=company_name,

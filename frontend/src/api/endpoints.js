@@ -89,5 +89,6 @@ export const ActionItemsAPI = {
   list: (params = {}) => apiClient.get('/action-items', { params }),
   create: (data) => apiClient.post('/action-items', data),
   update: (id, data) => apiClient.patch(`/action-items/${id}`, data),
+  updateUrgency: (id, manual_urgency) => apiClient.put(`/action-items/${id}/urgency`, { manual_urgency }),
   delete: (id) => apiClient.delete(`/action-items/${id}`),
 }

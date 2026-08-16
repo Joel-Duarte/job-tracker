@@ -33,8 +33,17 @@ const metrics = ref({
   completed: 0,
 })
 
-const filterTab = ref('PENDING') // 'ALL' | 'PENDING' | 'HIGH' | 'COMPLETED'
+const filterTab = ref('PENDING') // 'ALL' | 'PENDING' | 'URGENCY' | 'COMPLETED'
 const applicationsList = ref([])
+
+// Filters for Urgency tab
+const urgencyFilters = ref({
+  HIGH: false,
+  MEDIUM: false,
+  LOW: false
+})
+
+const activeUrgencyDropdown = ref(null)
 
 // Modal state
 const showModal = ref(false)
@@ -59,8 +68,7 @@ async function fetchActionItems() {
       params.status = 'PENDING'
     } else if (filterTab.value === 'COMPLETED') {
       params.status = 'COMPLETED'
-    } else if (filterTab.value === 'HIGH') {
-      params.urgency = 'HIGH'
+    } else if (filterTab.value === 'URGENCY') {
       params.status = 'PENDING'
     }
 
@@ -216,9 +224,58 @@ function isOverdue(isoStr, status) {
   return new Date(isoStr) < new Date()
 }
 
+async function setManualUrgency(item, level) {
+  try {
+    const res = await ActionItemsAPI.updateUrgency(item.id, level)
+    const updated = res.data
+    item.urgency = updated.urgency
+    item.manual_urgency_override = updated.manual_urgency_override
+    activeUrgencyDropdown.value = null
+
+    // Re-fetch to update metrics and potentially re-sort
+    await fetchActionItems()
+    uiStore.showToast(`Urgency updated to ${level || 'Auto'}`, 'success')
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to update urgency', 'error')
+  }
+}
+
+function toggleUrgencyFilter(level) {
+  urgencyFilters.value[level] = !urgencyFilters.value[level]
+}
+
+const displayedTasks = computed(() => {
+  let tasks = actionItems.value
+
+  if (filterTab.value === 'URGENCY') {
+    const activeFilters = Object.entries(urgencyFilters.value)
+      .filter(([_, isActive]) => isActive)
+      .map(([level, _]) => level)
+
+    if (activeFilters.length > 0) {
+      tasks = tasks.filter(t => activeFilters.includes(t.urgency))
+    }
+  }
+
+  return tasks
+})
+
+// Close dropdowns when clicking outside
+function closeDropdowns(e) {
+  if (!e.target.closest('.urgency-dropdown-wrapper')) {
+    activeUrgencyDropdown.value = null
+  }
+}
+
 onMounted(() => {
+  document.addEventListener('click', closeDropdowns)
   fetchActionItems()
   fetchApplicationsForSelector()
+})
+
+import { onUnmounted } from 'vue'
+onUnmounted(() => {
+  document.removeEventListener('click', closeDropdowns)
 })
 </script>
 
@@ -255,15 +312,15 @@ onMounted(() => {
 
       <div
         class="metric-card"
-        :class="{ active: filterTab === 'HIGH' }"
-        @click="filterTab = 'HIGH'; fetchActionItems()"
+        :class="{ active: filterTab === 'URGENCY' }"
+        @click="filterTab = 'URGENCY'; fetchActionItems()"
       >
         <div class="metric-icon high-icon">
           <AlertCircle :size="20" />
         </div>
         <div class="metric-info">
           <span class="metric-val">{{ metrics.high_urgency }}</span>
-          <span class="metric-lbl">High Urgency</span>
+          <span class="metric-lbl">Urgency</span>
         </div>
       </div>
 
@@ -294,10 +351,10 @@ onMounted(() => {
         </button>
         <button
           class="filter-tab"
-          :class="{ active: filterTab === 'HIGH' }"
-          @click="filterTab = 'HIGH'; fetchActionItems()"
+          :class="{ active: filterTab === 'URGENCY' }"
+          @click="filterTab = 'URGENCY'; fetchActionItems()"
         >
-          High Urgency
+          Urgency
         </button>
         <button
           class="filter-tab"
@@ -318,12 +375,19 @@ onMounted(() => {
 
     <!-- Task List -->
     <div class="tasks-container">
+      <div v-if="filterTab === 'URGENCY'" class="urgency-filters">
+        <span class="filter-label">Filter:</span>
+        <button class="chip" :class="{ active: urgencyFilters.LOW }" @click="toggleUrgencyFilter('LOW')">🟢 Low</button>
+        <button class="chip" :class="{ active: urgencyFilters.MEDIUM }" @click="toggleUrgencyFilter('MEDIUM')">🟡 Medium</button>
+        <button class="chip" :class="{ active: urgencyFilters.HIGH }" @click="toggleUrgencyFilter('HIGH')">🔴 High</button>
+      </div>
+
       <div v-if="isLoading" class="loading-state">
         <Loader2 class="animate-spin" :size="24" />
         <span>Loading action items...</span>
       </div>
 
-      <div v-else-if="actionItems.length === 0" class="empty-tasks empty-state-box">
+      <div v-else-if="displayedTasks.length === 0" class="empty-tasks empty-state-box">
         <CheckCircle2 :size="44" class="empty-state-icon" />
         <h3 class="empty-state-title">No action items in this view</h3>
         <p class="empty-state-desc">All caught up! Create a new action item or link one from your application pipeline.</p>
@@ -335,10 +399,13 @@ onMounted(() => {
 
       <div v-else class="task-list">
         <div
-          v-for="item in actionItems"
+          v-for="item in displayedTasks"
           :key="item.id"
           class="task-row"
-          :class="{ 'is-completed': item.status === 'COMPLETED' }"
+          :class="[
+            { 'is-completed': item.status === 'COMPLETED' },
+            `urgency-border-${item.urgency?.toLowerCase() || 'medium'}`
+          ]"
         >
           <!-- Complete Checkbox -->
           <button
@@ -358,10 +425,25 @@ onMounted(() => {
                 {{ item.title }}
               </span>
 
-              <!-- Urgency Pill -->
-              <span class="urgency-pill" :class="`urgency-${item.urgency?.toLowerCase() || 'medium'}`">
-                {{ item.urgency || 'MEDIUM' }}
-              </span>
+              <!-- Urgency Dropdown -->
+              <div class="urgency-dropdown-wrapper" @click.stop>
+                <button
+                  class="urgency-pill dropdown-trigger"
+                  :class="`urgency-${item.urgency?.toLowerCase() || 'medium'}`"
+                  @click="activeUrgencyDropdown === item.id ? activeUrgencyDropdown = null : activeUrgencyDropdown = item.id"
+                >
+                  {{ item.urgency || 'MEDIUM' }}
+                  <span v-if="item.manual_urgency_override" class="override-indicator">*</span>
+                </button>
+
+                <div v-if="activeUrgencyDropdown === item.id" class="urgency-dropdown">
+                  <button class="dropdown-item" @click="setManualUrgency(item, 'HIGH')">High</button>
+                  <button class="dropdown-item" @click="setManualUrgency(item, 'MEDIUM')">Medium</button>
+                  <button class="dropdown-item" @click="setManualUrgency(item, 'LOW')">Low</button>
+                  <div class="dropdown-divider"></div>
+                  <button class="dropdown-item text-muted" @click="setManualUrgency(item, null)">Reset to Auto</button>
+                </div>
+              </div>
             </div>
 
             <!-- Meta details (Company, Application, Due Date) -->
@@ -682,7 +764,20 @@ onMounted(() => {
   gap: 14px;
   padding: 14px 20px;
   border-bottom: 1px solid var(--border-color);
+  border-left: 4px solid transparent;
   transition: background-color var(--transition-fast);
+}
+
+.urgency-border-high {
+  border-left-color: var(--status-rejected-border);
+}
+
+.urgency-border-medium {
+  border-left-color: var(--status-interview-border);
+}
+
+.urgency-border-low {
+  border-left-color: var(--status-applied-border);
 }
 
 .task-row:last-child {
@@ -757,6 +852,98 @@ onMounted(() => {
   background-color: var(--status-applied-bg);
   color: var(--status-applied-text);
   border: 1px solid var(--status-applied-border);
+}
+
+.urgency-dropdown-wrapper {
+  position: relative;
+}
+
+.dropdown-trigger {
+  cursor: pointer;
+  background: none;
+}
+
+.dropdown-trigger:hover {
+  opacity: 0.8;
+}
+
+.override-indicator {
+  margin-left: 2px;
+  font-weight: bold;
+}
+
+.urgency-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  z-index: 10;
+  min-width: 120px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+
+.dropdown-item {
+  padding: 6px 12px;
+  font-size: 12px;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-main);
+  transition: background-color var(--transition-fast);
+}
+
+.dropdown-item:hover {
+  background-color: var(--bg-card);
+}
+
+.dropdown-divider {
+  height: 1px;
+  background-color: var(--border-color);
+  margin: 4px 0;
+}
+
+.urgency-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+}
+
+.filter-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.chip {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.chip:hover {
+  border-color: var(--text-secondary);
+}
+
+.chip.active {
+  background-color: var(--primary-subtle);
+  border-color: var(--primary);
+  color: var(--primary);
+  font-weight: 600;
 }
 
 .task-meta {
