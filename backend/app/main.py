@@ -39,6 +39,12 @@ async def lifespan(app: FastAPI):
         # Verify schema exists or create tables and indexes
         await ensure_db_schema()
 
+        # Seed mock development dataset if started in development mode on clean database
+        from app.core.database import AsyncSessionLocal
+        from app.services.seed_data import maybe_seed_dev_data
+
+        await maybe_seed_dev_data(AsyncSessionLocal)
+
         # Initialize the checkpointer pool and tables
         from app.core.database import checkpointer_pool, postgres_saver
 

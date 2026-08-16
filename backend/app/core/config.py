@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "DEBUG"
+    SEED_DEV_DATA: bool = False
 
     # Public exposed API base URL (for Docker port forwarding or reverse proxy)
     PUBLIC_API_URL: str | None = None

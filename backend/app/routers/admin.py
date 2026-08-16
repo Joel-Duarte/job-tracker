@@ -11,6 +11,7 @@ from app.models.applications import (
     ApplicationModel,
     OtherEventModel,
 )
+from app.services.seed_data import is_database_empty, seed_development_dataset
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,9 @@ async def reset_database(
             text(
                 "TRUNCATE TABLE email_companies, email_applications, "
                 "email_application_events, email_application_embeddings, "
-                "email_other_events RESTART IDENTITY CASCADE;"
+                "email_other_events, action_items, job_postings, "
+                "candidate_cvs, email_staging_items, intake_evaluation_tasks "
+                "RESTART IDENTITY CASCADE;"
             )
         )
         await db.commit()
@@ -54,6 +57,35 @@ async def reset_database(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to reset database.",
         )
+
+
+@router.post(
+    "/seed-demo-data",
+    status_code=status.HTTP_201_CREATED,
+    summary="Seed mock development dataset",
+)
+async def seed_demo_data(
+    force: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Populates the database with rich mock development data.
+    If database is not empty, requires force=true to proceed.
+    """
+    if not force:
+        empty = await is_database_empty(db)
+        if not empty:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Database is not empty. Pass force=true to seed anyway.",
+            )
+
+    stats = await seed_development_dataset(db)
+    return {
+        "status": "success",
+        "message": "Mock development dataset seeded successfully.",
+        "seeded_counts": stats,
+    }
 
 
 @router.delete(
