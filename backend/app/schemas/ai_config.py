@@ -12,11 +12,21 @@ def mask_secret(secret: str | None) -> str | None:
 
 
 class AIProviderCreate(BaseModel):
-    name: str = Field(..., description="Human-readable provider label e.g. 'Local LM Studio', 'Anthropic Claude'")
-    provider_type: str = Field(..., description="Provider identifier: 'openai', 'anthropic', 'ollama', 'google_genai', 'openrouter', 'custom'")
-    base_url: Optional[str] = Field(default=None, description="Base API URL e.g. 'http://192.168.1.187:1234/v1'")
+    name: str = Field(
+        ...,
+        description="Human-readable provider label e.g. 'Local LM Studio', 'Anthropic Claude'",
+    )
+    provider_type: str = Field(
+        ...,
+        description="Provider identifier: 'openai', 'anthropic', 'ollama', 'google_genai', 'openrouter', 'custom'",
+    )
+    base_url: Optional[str] = Field(
+        default=None, description="Base API URL e.g. 'http://192.168.1.187:1234/v1'"
+    )
     api_key: Optional[str] = Field(default=None, description="API key if required")
-    max_concurrency: int = Field(default=1, ge=1, le=50, description="Max parallel AI requests to this provider")
+    max_concurrency: int = Field(
+        default=1, ge=1, le=50, description="Max parallel AI requests to this provider"
+    )
     is_active: bool = Field(default=True)
 
 
@@ -43,12 +53,16 @@ class AIProviderRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-
 class AITaskBindingCreate(BaseModel):
     provider_id: int = Field(..., description="ID of the AIProviderModel to bind to")
-    model_name: str = Field(..., description="Model identifier e.g. 'qwen3.5-4b', 'claude-3-5-sonnet-20241022'")
+    model_name: str = Field(
+        ...,
+        description="Model identifier e.g. 'qwen3.5-4b', 'claude-3-5-sonnet-20241022'",
+    )
     temperature: float = Field(default=0.2, description="Sampling temperature")
-    reasoning_effort: Optional[str] = Field(default="none", description="Thinking mode: 'none', 'low', 'medium', 'high'")
+    reasoning_effort: Optional[str] = Field(
+        default="none", description="Thinking mode: 'none', 'low', 'medium', 'high'"
+    )
     max_tokens: Optional[int] = Field(default=None)
     top_p: Optional[float] = Field(default=None)
     embedding_dimensions: Optional[int] = Field(default=None)
@@ -111,6 +125,7 @@ class DiscoveredModel(BaseModel):
     name: str
     is_discovered: bool = True
     is_embedding: bool = False
+    is_reasoning: bool = False
 
 
 class AIProviderModelsResponse(BaseModel):
@@ -118,4 +133,3 @@ class AIProviderModelsResponse(BaseModel):
     provider_name: str
     provider_type: str
     models: list[DiscoveredModel]
-

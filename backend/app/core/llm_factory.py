@@ -40,7 +40,7 @@ def _clean_base_url(url: str | None) -> str | None:
         return None
     url = url.rstrip("/")
     if url.endswith("/embeddings"):
-        url = url[:-len("/embeddings")]
+        url = url[: -len("/embeddings")]
     return url
 
 
@@ -61,12 +61,14 @@ async def get_active_llm_config_dict(db: AsyncSession | None = None) -> dict[str
                     "api_base": db_config.api_base,
                     "api_key": db_config.api_key,
                     "model_name": db_config.model_name,
-                    "embedding_model_name": db_config.embedding_model_name or settings.EMBEDDING_MODEL_NAME,
+                    "embedding_model_name": db_config.embedding_model_name
+                    or settings.EMBEDDING_MODEL_NAME,
                     "temperature": db_config.temperature,
                     "top_k": db_config.top_k,
                     "top_p": db_config.top_p,
                     "max_tokens": db_config.max_tokens,
-                    "agent_model_name": db_config.agent_model_name or db_config.model_name,
+                    "agent_model_name": db_config.agent_model_name
+                    or db_config.model_name,
                     "agent_temperature": db_config.agent_temperature,
                     "agent_top_k": db_config.agent_top_k,
                     "agent_top_p": db_config.agent_top_p,
@@ -106,7 +108,9 @@ async def get_chat_model(
 
     provider = _resolve_provider(cfg.get("provider_name"))
     model = cfg.get("agent_model_name") if is_agent else cfg.get("model_name")
-    temperature = cfg.get("agent_temperature") if is_agent else cfg.get("temperature", 0.7)
+    temperature = (
+        cfg.get("agent_temperature") if is_agent else cfg.get("temperature", 0.7)
+    )
     api_base = _clean_base_url(cfg.get("api_base"))
     api_key = cfg.get("api_key") or "dummy-key"
     top_p = cfg.get("agent_top_p") if is_agent else cfg.get("top_p")
@@ -214,16 +218,41 @@ async def get_task_chat_model(
                 # Configure reasoning / thinking mode across model families
                 if reasoning and reasoning.lower() != "none":
                     if provider_type in ("openai", "openrouter"):
-                        init_kwargs.setdefault("extra_body", {})["reasoning_effort"] = reasoning.lower()
+                        init_kwargs.setdefault("extra_body", {})["reasoning_effort"] = (
+                            reasoning.lower()
+                        )
                     elif provider_type == "anthropic":
-                        budget = 1024 if reasoning == "low" else (2048 if reasoning == "medium" else 4096)
-                        init_kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
+                        budget = (
+                            1024
+                            if reasoning == "low"
+                            else (2048 if reasoning == "medium" else 4096)
+                        )
+                        init_kwargs["thinking"] = {
+                            "type": "enabled",
+                            "budget_tokens": budget,
+                        }
                         init_kwargs["temperature"] = 1.0
+
+                        # Anthropic requires max_tokens > budget_tokens
+                        current_max = (
+                            init_kwargs.get("max_tokens")
+                            or override_kwargs.get("max_tokens")
+                            or binding.max_tokens
+                            or 0
+                        )
+                        if current_max <= budget:
+                            init_kwargs["max_tokens"] = budget + 1024
+                            if "max_tokens" in override_kwargs:
+                                del override_kwargs["max_tokens"]
                     elif provider_type in ("google_genai", "gemini"):
-                        budget = 1024 if reasoning == "low" else (2048 if reasoning == "medium" else 4096)
-                        init_kwargs.setdefault("extra_body", {})["thinking_config"] = {"thinking_budget": budget}
-                elif reasoning and reasoning.lower() == "none" and provider_type in ("openai", "openrouter"):
-                    init_kwargs.setdefault("extra_body", {})["reasoning_effort"] = "none"
+                        budget = (
+                            1024
+                            if reasoning == "low"
+                            else (2048 if reasoning == "medium" else 4096)
+                        )
+                        init_kwargs.setdefault("extra_body", {})["thinking_config"] = {
+                            "thinking_budget": budget
+                        }
 
                 # Apply remaining extra kwargs if provided
                 for k, v in extra.items():
@@ -231,11 +260,17 @@ async def get_task_chat_model(
                         init_kwargs[k] = v
 
                 # Filter out max_tokens=None from override_kwargs if passed
-                clean_overrides = {k: v for k, v in override_kwargs.items() if not (k == "max_tokens" and v is None)}
+                clean_overrides = {
+                    k: v
+                    for k, v in override_kwargs.items()
+                    if not (k == "max_tokens" and v is None)
+                }
                 init_kwargs.update(clean_overrides)
                 return init_chat_model(**init_kwargs)
         except Exception as err:
-            logger.warning("Failed loading task binding '%s', falling back: %s", task_type, err)
+            logger.warning(
+                "Failed loading task binding '%s', falling back: %s", task_type, err
+            )
 
     is_agent_flag = task_type in ("AGENT_REASONING",)
     default_temp = None
@@ -295,6 +330,8 @@ async def get_task_embeddings_model(
                 init_kwargs.update(override_kwargs)
                 return init_embeddings(**init_kwargs)
         except Exception as err:
-            logger.warning("Failed loading EMBEDDING task binding, falling back: %s", err)
+            logger.warning(
+                "Failed loading EMBEDDING task binding, falling back: %s", err
+            )
 
     return await get_embeddings_model(db, **override_kwargs)

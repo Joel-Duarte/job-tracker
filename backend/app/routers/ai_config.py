@@ -1,5 +1,4 @@
 import logging
-from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from langchain_core.messages import HumanMessage
 from sqlalchemy import delete, select
@@ -20,7 +19,6 @@ from app.schemas.ai_config import (
     AIProviderUpdate,
     AITaskBindingCreate,
     AITaskBindingRead,
-    AITaskBindingUpdate,
     AITaskTestResponse,
     DiscoveredModel,
     mask_secret,
@@ -32,6 +30,11 @@ EMBEDDING_KEYWORDS = ("embed", "nomic", "bge", "minilm", "gte", "e5", "bert", "m
 def _is_embedding_model(model_name: str) -> bool:
     low = model_name.lower()
     return any(kw in low for kw in EMBEDDING_KEYWORDS)
+
+
+def _is_reasoning_model(model_name: str) -> bool:
+    low = model_name.lower()
+    return "think" in low or "reason" in low or "-r1" in low
 
 
 CURATED_MODELS: dict[str, list[str]] = {
@@ -89,7 +92,9 @@ CURATED_MODELS: dict[str, list[str]] = {
 }
 
 
-async def _fetch_models_from_endpoint(provider: AIProviderModel) -> list[DiscoveredModel]:
+async def _fetch_models_from_endpoint(
+    provider: AIProviderModel,
+) -> list[DiscoveredModel]:
     p_type = provider.provider_type.lower()
     base_url = _clean_base_url(provider.base_url)
     discovered: list[str] = []
@@ -102,7 +107,11 @@ async def _fetch_models_from_endpoint(provider: AIProviderModel) -> list[Discove
         async with httpx.AsyncClient(timeout=3.5) as client:
             try:
                 if p_type == "ollama":
-                    url = f"{base_url}/api/tags" if not base_url.endswith("/api") else f"{base_url}/tags"
+                    url = (
+                        f"{base_url}/api/tags"
+                        if not base_url.endswith("/api")
+                        else f"{base_url}/tags"
+                    )
                     resp = await client.get(url)
                     if resp.status_code == 200:
                         data = resp.json()
@@ -110,7 +119,11 @@ async def _fetch_models_from_endpoint(provider: AIProviderModel) -> list[Discove
                             if "name" in m:
                                 discovered.append(m["name"])
                 else:
-                    url = f"{base_url}/models" if not base_url.endswith("/models") else base_url
+                    url = (
+                        f"{base_url}/models"
+                        if not base_url.endswith("/models")
+                        else base_url
+                    )
                     resp = await client.get(url, headers=headers)
                     if resp.status_code == 200:
                         data = resp.json()
@@ -118,7 +131,11 @@ async def _fetch_models_from_endpoint(provider: AIProviderModel) -> list[Discove
                             if "id" in m:
                                 discovered.append(m["id"])
             except Exception as e:
-                logger.warning("Live model probe skipped/failed for provider '%s': %s", provider.name, e)
+                logger.warning(
+                    "Live model probe skipped/failed for provider '%s': %s",
+                    provider.name,
+                    e,
+                )
 
     models_out: list[DiscoveredModel] = []
     seen = set()
@@ -131,6 +148,7 @@ async def _fetch_models_from_endpoint(provider: AIProviderModel) -> list[Discove
                     name=m,
                     is_discovered=True,
                     is_embedding=_is_embedding_model(m),
+                    is_reasoning=_is_reasoning_model(m),
                 )
             )
 
@@ -144,6 +162,7 @@ async def _fetch_models_from_endpoint(provider: AIProviderModel) -> list[Discove
                     name=m,
                     is_discovered=False,
                     is_embedding=_is_embedding_model(m),
+                    is_reasoning=_is_reasoning_model(m),
                 )
             )
 
@@ -195,6 +214,7 @@ def _to_binding_read(b: AITaskBindingModel) -> AITaskBindingRead:
 # AI Providers
 # ---------------------------------------------------------
 
+
 @router.get("/providers", response_model=list[AIProviderRead])
 async def list_ai_providers(db: AsyncSession = Depends(get_db)) -> list[AIProviderRead]:
     stmt = select(AIProviderModel).order_by(AIProviderModel.id.asc())
@@ -203,7 +223,9 @@ async def list_ai_providers(db: AsyncSession = Depends(get_db)) -> list[AIProvid
     return [_to_provider_read(p) for p in providers]
 
 
-@router.post("/providers", response_model=AIProviderRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/providers", response_model=AIProviderRead, status_code=status.HTTP_201_CREATED
+)
 async def create_ai_provider(
     payload: AIProviderCreate,
     db: AsyncSession = Depends(get_db),
@@ -213,7 +235,9 @@ async def create_ai_provider(
         provider_type=payload.provider_type.strip().lower(),
         base_url=payload.base_url.strip() if payload.base_url else None,
         api_key=payload.api_key.strip() if payload.api_key else None,
-        max_concurrency=payload.max_concurrency if payload.max_concurrency is not None else 1,
+        max_concurrency=payload.max_concurrency
+        if payload.max_concurrency is not None
+        else 1,
         is_active=payload.is_active,
     )
     db.add(provider)
@@ -240,7 +264,9 @@ async def update_ai_provider(
 
     data = payload.model_dump(exclude_unset=True)
     for field, val in data.items():
-        if field in ("name", "provider_type", "base_url", "api_key") and isinstance(val, str):
+        if field in ("name", "provider_type", "base_url", "api_key") and isinstance(
+            val, str
+        ):
             val = val.strip() or None
         setattr(provider, field, val)
 
@@ -265,7 +291,9 @@ async def delete_ai_provider(
         )
 
     # Check for active task bindings
-    binding_check = select(AITaskBindingModel).where(AITaskBindingModel.provider_id == provider_id)
+    binding_check = select(AITaskBindingModel).where(
+        AITaskBindingModel.provider_id == provider_id
+    )
     bindings = (await db.execute(binding_check)).scalars().all()
     if bindings:
         bound_tasks = [b.task_type for b in bindings]
@@ -295,7 +323,9 @@ async def test_ai_provider(
         )
 
     # 1. Check if there's an active binding using this provider
-    binding_stmt = select(AITaskBindingModel).where(AITaskBindingModel.provider_id == provider_id)
+    binding_stmt = select(AITaskBindingModel).where(
+        AITaskBindingModel.provider_id == provider_id
+    )
     binding_res = await db.execute(binding_stmt)
     binding = binding_res.scalars().first()
 
@@ -329,8 +359,14 @@ async def test_ai_provider(
             init_kwargs["api_key"] = api_key
 
         model = init_chat_model(**init_kwargs)
-        response = await model.ainvoke([HumanMessage(content="Respond with 'OK' to verify connectivity.")])
-        content = response.content if isinstance(response.content, str) else str(response.content)
+        response = await model.ainvoke(
+            [HumanMessage(content="Respond with 'OK' to verify connectivity.")]
+        )
+        content = (
+            response.content
+            if isinstance(response.content, str)
+            else str(response.content)
+        )
 
         return AIProviderTestResponse(
             status="success",
@@ -342,7 +378,11 @@ async def test_ai_provider(
     except Exception as err:
         err_str = str(err)
         # Check if the server is online but responded that no model is loaded or requested model is missing
-        if "No models loaded" in err_str or "no model loaded" in err_str.lower() or "does not exist" in err_str.lower():
+        if (
+            "No models loaded" in err_str
+            or "no model loaded" in err_str.lower()
+            or "does not exist" in err_str.lower()
+        ):
             if live_models:
                 models_hint = f"Discovered models on server: {', '.join(live_models)}."
             else:
@@ -356,12 +396,13 @@ async def test_ai_provider(
                 response=f"Endpoint reached ({models_hint})",
             )
 
-        logger.error("Provider test probe failed for %s: %s", provider.name, err, exc_info=True)
+        logger.error(
+            "Provider test probe failed for %s: %s", provider.name, err, exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Provider probe failed for '{provider.name}' ({provider.provider_type}): {err_str}",
         )
-
 
 
 @router.get("/providers/{provider_id}/models", response_model=AIProviderModelsResponse)
@@ -392,8 +433,11 @@ async def list_provider_models(
 # Task Bindings
 # ---------------------------------------------------------
 
+
 @router.get("/bindings", response_model=list[AITaskBindingRead])
-async def list_ai_task_bindings(db: AsyncSession = Depends(get_db)) -> list[AITaskBindingRead]:
+async def list_ai_task_bindings(
+    db: AsyncSession = Depends(get_db),
+) -> list[AITaskBindingRead]:
     stmt = (
         select(AITaskBindingModel)
         .options(joinedload(AITaskBindingModel.provider))
@@ -404,7 +448,11 @@ async def list_ai_task_bindings(db: AsyncSession = Depends(get_db)) -> list[AITa
     return [_to_binding_read(b) for b in bindings]
 
 
-@router.put("/bindings/{task_type}", response_model=AITaskBindingRead, status_code=status.HTTP_200_OK)
+@router.put(
+    "/bindings/{task_type}",
+    response_model=AITaskBindingRead,
+    status_code=status.HTTP_200_OK,
+)
 async def set_ai_task_binding(
     task_type: str,
     payload: AITaskBindingCreate,
@@ -422,7 +470,9 @@ async def set_ai_task_binding(
             detail=f"AI Provider with ID {payload.provider_id} not found.",
         )
 
-    stmt = select(AITaskBindingModel).where(AITaskBindingModel.task_type == task_type_norm)
+    stmt = select(AITaskBindingModel).where(
+        AITaskBindingModel.task_type == task_type_norm
+    )
     res = await db.execute(stmt)
     binding = res.scalar_one_or_none()
 
@@ -465,7 +515,9 @@ async def delete_ai_task_binding(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     task_type_norm = task_type.strip().upper()
-    stmt = delete(AITaskBindingModel).where(AITaskBindingModel.task_type == task_type_norm)
+    stmt = delete(AITaskBindingModel).where(
+        AITaskBindingModel.task_type == task_type_norm
+    )
     res = await db.execute(stmt)
     await db.commit()
 
@@ -515,9 +567,17 @@ async def test_ai_task_binding(
                 response=f"Generated embedding vector of dimension {len(vector)}.",
             )
         else:
-            chat_model = await get_task_chat_model(db, task_type=task_type_norm, max_tokens=15)
-            response = await chat_model.ainvoke([HumanMessage(content="Respond with 'OK' to verify connectivity.")])
-            content = response.content if isinstance(response.content, str) else str(response.content)
+            chat_model = await get_task_chat_model(
+                db, task_type=task_type_norm, max_tokens=15
+            )
+            response = await chat_model.ainvoke(
+                [HumanMessage(content="Respond with 'OK' to verify connectivity.")]
+            )
+            content = (
+                response.content
+                if isinstance(response.content, str)
+                else str(response.content)
+            )
             return AITaskTestResponse(
                 status="success",
                 task_type=task_type_norm,
@@ -528,7 +588,9 @@ async def test_ai_task_binding(
                 response=content.strip(),
             )
     except Exception as err:
-        logger.error("Task binding test failed for %s: %s", task_type_norm, err, exc_info=True)
+        logger.error(
+            "Task binding test failed for %s: %s", task_type_norm, err, exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Task binding test failed for '{task_type_norm}' ({provider.provider_type} / {binding.model_name}): {str(err)}",
