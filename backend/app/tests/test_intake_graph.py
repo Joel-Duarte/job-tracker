@@ -91,7 +91,7 @@ async def test_graph_high_confidence_application_flow(db_session: AsyncSession):
     )
 
     with patch("app.services.intake.extract_email_info", new_callable=AsyncMock) as mock_extract, \
-         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock):
+         patch("app.services.graph_nodes.generate_and_save_application_embedding", new_callable=AsyncMock) as mock_emb:
         mock_extract.return_value = extracted
 
         result = await intake_graph.ainvoke(

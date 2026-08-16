@@ -8,8 +8,8 @@ from sqlalchemy.orm import selectinload
 
 from app.main import app
 from app.core.database import get_db
-from app.core.llm_factory import get_task_chat_model
-from app.models.ai_providers import AIProviderModel
+from app.core.llm_factory import get_task_chat_model, get_task_embeddings_model
+from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.models.applications import ActionItemModel, ApplicationModel, CompanyModel, JobPostingModel
 
 

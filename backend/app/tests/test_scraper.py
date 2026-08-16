@@ -1,7 +1,7 @@
 import json
 import pytest
 import httpx
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from app.services.scraper import (
     clean_extracted_text,

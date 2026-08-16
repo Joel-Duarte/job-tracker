@@ -1,13 +1,16 @@
+from datetime import datetime, timezone
 import io
 from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app
 from app.core.database import get_db
+from app.models.applications import ApplicationEventModel, ApplicationModel, CompanyModel
 from app.schemas.intake import ExtractedEmailInfo
-from app.services.file_parser import parse_eml, parse_txt
+from app.services.file_parser import parse_eml, parse_txt, parse_uploaded_file
 
 
 def test_parse_eml_and_ics():

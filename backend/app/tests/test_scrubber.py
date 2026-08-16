@@ -1,3 +1,4 @@
+import pytest
 from app.services.scrubber import programmatic_scrub_cv
 
 

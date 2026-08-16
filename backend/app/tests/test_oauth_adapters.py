@@ -1,5 +1,6 @@
 import base64
-from unittest.mock import AsyncMock, patch
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
