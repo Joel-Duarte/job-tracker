@@ -541,18 +541,12 @@ function formatDate(isoStr) {
             <div class="status-control-group">
               <div class="status-control">
                 <label class="status-label">Status</label>
-                <select
-                  :value="appStore.selectedApplication.status"
-                  class="status-select"
+                <div
+                  class="status-badge-static"
                   :class="`status-${appStore.selectedApplication.status?.toLowerCase()}`"
-                  @change="handleStatusSelect"
                 >
-                  <option value="ASSESSMENT">AI Assessment</option>
-                  <option value="APPLIED">Applied</option>
-                  <option value="TECHNICAL_INTERVIEW">Interview</option>
-                  <option value="OFFER">Offer</option>
-                  <option value="REJECTED">Rejected</option>
-                </select>
+                  {{ appStore.selectedApplication.status?.replace('_', ' ') }}
+                </div>
               </div>
 
               <!-- Interactive Sub-Status Pill with Edit Trigger -->
