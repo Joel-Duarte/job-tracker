@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 # --- Nested Response Schemas ---
@@ -37,7 +37,7 @@ class ApplicationListItem(BaseModel):
     has_action_required: bool = False
     has_interview_guide: bool = False
     match_score: Optional[int] = None
-    match_analysis_payload: Optional[Dict[str, Any]] = None
+    match_analysis_payload: Optional[dict[str, Any]] = None
     latest_event: Optional[EventSummary] = None
     nearest_due_date: Optional[datetime] = None
 
