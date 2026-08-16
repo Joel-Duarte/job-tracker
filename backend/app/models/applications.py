@@ -169,6 +169,7 @@ class ActionItemModel(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="PENDING")  # PENDING, COMPLETED, DISMISSED
     action_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     urgency: Mapped[Optional[str]] = mapped_column(Text, server_default="MEDIUM")  # HIGH, MEDIUM, LOW
+    manual_urgency_override: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
