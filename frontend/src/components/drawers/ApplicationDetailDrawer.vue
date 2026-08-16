@@ -277,30 +277,17 @@ function renderMarkdownText(text) {
 }
 
 
-const primaryActionText = computed(() => {
-  const status = appStore.selectedApplication?.status
-  if (status === 'ASSESSMENT') return 'Mark as Applied'
-  if (status === 'APPLIED') return 'Move to Interview'
-  if (status === 'TECHNICAL_INTERVIEW') return 'Log Next Round'
-  if (status === 'OFFER') return 'Update Offer'
-  if (status === 'REJECTED') return 'Update Rejection'
-  return 'Update Status'
-})
+function handleStatusSelect(e) {
+  const newStatus = e.target.value
+  if (!appStore.selectedApplication || newStatus === appStore.selectedApplication.status) return
 
-function handlePrimaryActionClick() {
-  const app = appStore.selectedApplication
-  if (!app) return
-
-  if (app.status === 'ASSESSMENT') {
-    executeDirectTransition('APPLIED')
-  } else if (app.status === 'APPLIED') {
-    // Open modal to transition to technical interview
-    transitionTargetStatus.value = 'TECHNICAL_INTERVIEW'
+  if (['TECHNICAL_INTERVIEW', 'OFFER', 'REJECTED'].includes(newStatus)) {
+    transitionTargetStatus.value = newStatus
     const today = new Date().toISOString().substring(0, 10)
     transitionForm.value = {
       interview_stage: 'Interview Requested / Scheduling',
       scheduled_at: '',
-      offered_salary: app.job_posting?.salary_max || null,
+      offered_salary: appStore.selectedApplication.job_posting?.salary_max || null,
       currency: uiStore.defaultCurrency || 'USD',
       offer_received_date: today,
       decision_deadline: '',
@@ -310,16 +297,8 @@ function handlePrimaryActionClick() {
     }
     showTransitionModal.value = true
   } else {
-    // Open edit modal for the current status (e.g. logging next round for interview)
-    openEditModal()
+    executeDirectTransition(newStatus)
   }
-}
-
-function getStatusDisplay(status) {
-  if (status === 'ASSESSMENT') return 'AI Assessment'
-  if (status === 'TECHNICAL_INTERVIEW') return 'Interview'
-  if (!status) return 'Applied'
-  return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase()
 }
 
 const latestEvent = computed(() => {
@@ -561,16 +540,19 @@ function formatDate(isoStr) {
           <div class="status-bar">
             <div class="status-control-group">
               <div class="status-control">
-                <div
-                  class="status-badge-static"
-                  :class="`status-${appStore.selectedApplication.status?.toLowerCase() || 'applied'}`"
+                <label class="status-label">Status</label>
+                <select
+                  :value="appStore.selectedApplication.status"
+                  class="status-select"
+                  :class="`status-${appStore.selectedApplication.status?.toLowerCase()}`"
+                  @change="handleStatusSelect"
                 >
-                  {{ getStatusDisplay(appStore.selectedApplication.status) }}
-                </div>
-
-                <button class="btn btn-primary btn-sm" @click="handlePrimaryActionClick">
-                  {{ primaryActionText }}
-                </button>
+                  <option value="ASSESSMENT">AI Assessment</option>
+                  <option value="APPLIED">Applied</option>
+                  <option value="TECHNICAL_INTERVIEW">Interview</option>
+                  <option value="OFFER">Offer</option>
+                  <option value="REJECTED">Rejected</option>
+                </select>
               </div>
 
               <!-- Interactive Sub-Status Pill with Edit Trigger -->

@@ -101,24 +101,11 @@ function getFitBadgeClass(score) {
 <template>
   <div v-if="isOpen" class="modal-backdrop" @click.self="emit('close')">
     <div class="modal-card animate-fade-in analysis-modal-container">
-      <div class="modal-header">
-        <div class="header-main-info">
-          <div class="header-title-row">
-            <h2 class="modal-title">AI Match Assessment</h2>
-            <span v-if="application?.company?.name" class="company-tag">
-              <Building2 :size="12" />
-              <span>{{ application.company.name }}</span>
-            </span>
-            <span v-if="application?.position" class="position-tag">
-              <Briefcase :size="12" />
-              <span>{{ application.position }}</span>
-            </span>
-          </div>
-        </div>
+      <div class="modal-header" style="justify-content: flex-end; padding: 12px 16px; border-bottom: none;">
         <button class="btn-close" @click="emit('close')"><X :size="18" /></button>
       </div>
 
-      <div class="modal-body-scroll">
+      <div class="modal-body-scroll" style="padding-top: 0;">
         <div v-if="isLoading" class="state-container">
           <Loader2 class="animate-spin text-primary" :size="32" />
           <span>Loading analysis...</span>
@@ -130,90 +117,95 @@ function getFitBadgeClass(score) {
         </div>
 
         <div v-else-if="analysisData" class="analysis-content">
-          <!-- Overall Match Score -->
-          <div class="score-card" :class="getFitBadgeClass(matchScore)">
-            <div class="score-header">
-              <Sparkles :size="24" />
-              <div class="score-number">{{ matchScore }}%</div>
+          <!-- Hero Header like Dossier -->
+          <div class="eval-card-header">
+            <div class="eval-title-group">
+              <div class="company-badge-line">
+                <span class="eval-company">{{ application?.company?.name || 'Target Company' }}</span>
+              </div>
+              <h2 class="eval-role">{{ application?.position || 'Software Engineer' }}</h2>
             </div>
-            <div class="score-label">Overall Match Fit</div>
+
+            <!-- Fit Score Gauge -->
+            <div class="eval-fit-container">
+              <div class="fit-gauge" :class="getFitBadgeClass(matchScore)">
+                <span class="fit-val">{{ matchScore }}%</span>
+                <span class="fit-lbl">{{ getFitLabel(matchScore) }}</span>
+              </div>
+            </div>
           </div>
 
-          <div class="analysis-grid">
-            <div class="analysis-section" v-if="analysisData.summary">
-               <h3 class="section-title"><FileText :size="15" /> Executive Summary</h3>
-               <p class="section-text">{{ analysisData.summary }}</p>
-            </div>
-            <div class="analysis-section" v-if="analysisData.tailoring_strategy">
-               <h3 class="section-title"><Sparkles :size="15" /> Tailoring Strategy</h3>
-
-               <div v-if="parsedTailoringStrategy" class="tailoring-parsed">
-                 <!-- Impact Reframing -->
-                 <div v-if="parsedTailoringStrategy.impact_reframing?.length" class="tailoring-block">
-                   <h4 class="tailoring-subtitle">Impact Reframing</h4>
-                   <div v-for="(item, i) in parsedTailoringStrategy.impact_reframing" :key="i" class="reframing-card">
-                     <div class="reframing-reason">{{ item.reason }}</div>
-                     <div class="reframing-before">
-                       <span class="reframing-label">Before:</span>
-                       <span class="reframing-text">{{ item.bullet_point }}</span>
-                     </div>
-                     <div class="reframing-after">
-                       <span class="reframing-label">After:</span>
-                       <span class="reframing-text">{{ item.suggested_rewrite }}</span>
-                     </div>
-                   </div>
-                 </div>
-
-                 <!-- Structural Adjustments -->
-                 <div v-if="parsedTailoringStrategy.structural_adjustments?.length" class="tailoring-block">
-                   <h4 class="tailoring-subtitle">Structural Adjustments</h4>
-                   <ul class="structural-list">
-                     <li v-for="(adj, i) in parsedTailoringStrategy.structural_adjustments" :key="i">
-                       <CheckCircle2 :size="13" class="text-primary mt-0.5" />
-                       <span>{{ adj }}</span>
-                     </li>
-                   </ul>
-                 </div>
-
-                 <!-- Vocabulary Translation -->
-                 <div v-if="parsedTailoringStrategy.vocabulary_translation?.length" class="tailoring-block">
-                   <h4 class="tailoring-subtitle">Vocabulary Mapping</h4>
-                   <div class="vocab-grid">
-                     <div v-for="(vocab, i) in parsedTailoringStrategy.vocabulary_translation" :key="i" class="vocab-card">
-                       <div class="vocab-flow">
-                         <span class="vocab-cv">{{ vocab.cv_term }}</span>
-                         <span class="vocab-arrow">➔</span>
-                         <span class="vocab-jd">{{ vocab.jd_term }}</span>
-                       </div>
-                       <div class="vocab-desc">{{ vocab.replacement_guidance }}</div>
-                     </div>
-                   </div>
-                 </div>
-               </div>
-
-               <!-- Fallback if JSON parse fails -->
-               <p v-else class="section-text fallback-text">{{ analysisData.tailoring_strategy }}</p>
-            </div>
+          <div class="analysis-section" v-if="analysisData.summary">
+             <h3 class="section-title"><FileText :size="15" /> Executive Summary</h3>
+             <p class="section-text">{{ analysisData.summary }}</p>
           </div>
 
           <div class="skills-grid">
             <div class="skills-card matching" v-if="analysisData.matching_skills?.length">
-               <h3 class="skills-title"><CheckCircle2 :size="15" /> Matching Skills</h3>
+               <h3 class="skills-title"><CheckCircle2 :size="15" /> Strategic Match Pros</h3>
                <div class="skills-list">
                  <span v-for="skill in analysisData.matching_skills" :key="skill" class="skill-tag match">{{ skill }}</span>
                </div>
             </div>
             <div class="skills-card missing" v-if="analysisData.missing_skills?.length">
-               <h3 class="skills-title"><AlertTriangle :size="15" /> Missing Skills / Gaps</h3>
+               <h3 class="skills-title"><AlertTriangle :size="15" /> Missing Gaps & Considerations</h3>
                <div class="skills-list">
                  <span v-for="skill in analysisData.missing_skills" :key="skill" class="skill-tag miss">{{ skill }}</span>
                </div>
             </div>
           </div>
 
-          <div class="analysis-section" v-if="analysisData.gap_mitigation" style="margin-top: 16px;">
+          <div class="analysis-section gap-card" v-if="analysisData.gap_mitigation">
              <h3 class="section-title text-warning"><AlertTriangle :size="15" /> Gap Mitigation Plan</h3>
              <p class="section-text">{{ analysisData.gap_mitigation }}</p>
+          </div>
+
+          <!-- Tailoring Strategy -->
+          <div class="analysis-section" v-if="analysisData.tailoring_strategy">
+             <h3 class="section-title"><Sparkles :size="15" /> Recommended Resume Tailoring Strategy</h3>
+
+             <div v-if="parsedTailoringStrategy" class="tailoring-parsed">
+               <div v-if="parsedTailoringStrategy.impact_reframing?.length" class="tailoring-block">
+                 <h4 class="tailoring-subtitle">Impact Reframing</h4>
+                 <div v-for="(item, i) in parsedTailoringStrategy.impact_reframing" :key="i" class="reframing-card">
+                   <div class="reframing-reason">{{ item.reason }}</div>
+                   <div class="reframing-before">
+                     <span class="reframing-label">Before:</span>
+                     <span class="reframing-text">{{ item.bullet_point }}</span>
+                   </div>
+                   <div class="reframing-after">
+                     <span class="reframing-label">After:</span>
+                     <span class="reframing-text">{{ item.suggested_rewrite }}</span>
+                   </div>
+                 </div>
+               </div>
+
+               <div v-if="parsedTailoringStrategy.structural_adjustments?.length" class="tailoring-block">
+                 <h4 class="tailoring-subtitle">Structural Adjustments</h4>
+                 <ul class="structural-list">
+                   <li v-for="(adj, i) in parsedTailoringStrategy.structural_adjustments" :key="i">
+                     <CheckCircle2 :size="13" class="text-primary mt-0.5" />
+                     <span>{{ adj }}</span>
+                   </li>
+                 </ul>
+               </div>
+
+               <div v-if="parsedTailoringStrategy.vocabulary_translation?.length" class="tailoring-block">
+                 <h4 class="tailoring-subtitle">Vocabulary Mapping</h4>
+                 <div class="vocab-grid">
+                   <div v-for="(vocab, i) in parsedTailoringStrategy.vocabulary_translation" :key="i" class="vocab-card">
+                     <div class="vocab-flow">
+                       <span class="vocab-cv">{{ vocab.cv_term }}</span>
+                       <span class="vocab-arrow">➔</span>
+                       <span class="vocab-jd">{{ vocab.jd_term }}</span>
+                     </div>
+                     <div class="vocab-desc">{{ vocab.replacement_guidance }}</div>
+                   </div>
+                 </div>
+               </div>
+             </div>
+
+             <p v-else class="section-text fallback-text">{{ analysisData.tailoring_strategy }}</p>
           </div>
         </div>
       </div>
@@ -425,6 +417,100 @@ function getFitBadgeClass(score) {
   background-color: var(--bg-app);
   padding: 10px;
   border-radius: var(--radius-sm);
+}
+
+
+.eval-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: var(--bg-surface);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  margin: -24px -24px 20px -24px;
+}
+
+.eval-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.company-badge-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.eval-company {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.eval-role {
+  font-family: var(--font-heading);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.eval-fit-container {
+  flex-shrink: 0;
+}
+
+.fit-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 4px solid var(--border-color);
+  background-color: var(--bg-card);
+}
+
+.fit-gauge.fit-elite { border-color: var(--status-offer-border); color: var(--status-offer-text); background-color: var(--status-offer-bg); }
+.fit-gauge.fit-high { border-color: var(--status-applied-border); color: var(--status-applied-text); background-color: var(--status-applied-bg); }
+.fit-gauge.fit-medium { border-color: var(--status-interview-border); color: var(--status-interview-text); background-color: var(--status-interview-bg); }
+.fit-gauge.fit-low { border-color: var(--border-subtle); color: var(--text-muted); background-color: var(--bg-surface); }
+
+.fit-val {
+  font-size: 20px;
+  font-weight: 800;
+  font-family: var(--font-heading);
+  line-height: 1;
+}
+
+.fit-lbl {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  opacity: 0.9;
+  margin-top: 2px;
+  text-align: center;
+}
+
+.skills-card.matching {
+  background-color: var(--status-offer-bg);
+  border-color: var(--status-offer-border);
+}
+
+.skills-card.missing {
+  background-color: var(--status-rejected-bg);
+  border-color: var(--status-rejected-border);
+}
+
+.gap-card {
+  background-color: var(--status-interview-bg);
+  border-color: var(--status-interview-border);
 }
 
 </style>

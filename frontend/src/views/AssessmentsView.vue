@@ -553,10 +553,10 @@ onUnmounted(() => {
 
         <div class="max-fit-group">
           <span class="fit-filter-label">Max Fit:</span>
-          <div class="range-wrapper">
-            <input type="range" v-model="maxMatchFilter" min="0" max="100" step="5" class="range-slider" />
-            <span class="range-val">{{ maxMatchFilter }}%</span>
-          </div>
+          <button class="fit-chip" :class="{ active: maxMatchFilter === 100 }" @click="maxMatchFilter = 100">All</button>
+          <button class="fit-chip" :class="{ active: maxMatchFilter === 60 }" @click="maxMatchFilter = 60">&lt;60%</button>
+          <button class="fit-chip" :class="{ active: maxMatchFilter === 40 }" @click="maxMatchFilter = 40">&lt;40%</button>
+          <button class="fit-chip" :class="{ active: maxMatchFilter === 20 }" @click="maxMatchFilter = 20">&lt;20%</button>
         </div>
 
         <div class="sort-select-wrapper">

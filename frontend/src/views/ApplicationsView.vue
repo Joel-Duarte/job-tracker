@@ -674,18 +674,12 @@ async function confirmDelete() {
                   <span class="card-date">{{ formatDate(app.last_activity_at || app.application_date) }}</span>
                   <button
                     class="card-action-btn quick-reject-btn"
-                    title="Quick reject & move to archive"
-                    @click="quickRejectApp(app)"
+                    title="Reject / Archive"
+                    @click="openTransitionModal(app, 'REJECTED')"
                   >
-                    <Ban :size="13" />
+                    <Archive :size="13" />
                   </button>
-                  <button
-                    class="card-action-btn"
-                    title="Delete application"
-                    @click="openDeleteConfirm(app)"
-                  >
-                    <Trash2 :size="13" />
-                  </button>
+
                 </div>
               </div>
 
@@ -930,10 +924,10 @@ async function confirmDelete() {
                 </button>
                 <button
                   class="btn btn-secondary btn-sm"
-                  title="Quick reject & move to archive"
-                  @click="quickRejectApp(app)"
+                  title="Reject / Archive"
+                  @click="openTransitionModal(app, 'REJECTED')"
                 >
-                  <Ban :size="13" />
+                  <Archive :size="13" />
                   <span>Reject</span>
                 </button>
                 <button
@@ -942,13 +936,7 @@ async function confirmDelete() {
                 >
                   Details
                 </button>
-                <button
-                  class="btn btn-danger-subtle btn-sm"
-                  title="Delete Application"
-                  @click="openDeleteConfirm(app)"
-                >
-                  <Trash2 :size="13" />
-                </button>
+
               </td>
             </tr>
 
@@ -1012,9 +1000,7 @@ async function confirmDelete() {
               <div class="form-group">
                 <label class="form-label">Offered Compensation / Annual Base</label>
                 <div class="salary-input-group">
-                  <div class="currency-prefix-box">
-                    <DollarSign :size="14" class="text-muted" />
-                  </div>
+
                   <input
                     v-model="transitionForm.offered_salary"
                     type="number"
