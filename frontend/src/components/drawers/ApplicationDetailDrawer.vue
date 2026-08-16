@@ -216,6 +216,112 @@ watch(
   { immediate: true }
 )
 
+
+const parsedJobSpecSections = computed(() => {
+  const md = appStore.selectedApplication?.job_posting?.description_markdown || ''
+  if (!md) return []
+
+  let cleaned = md.split(/(?:---|\*\*\*)\s*\n*AI Candidate Fit/i)[0]
+  cleaned = cleaned.split(/##\s*AI Candidate Fit/i)[0]
+
+  const lines = cleaned.split('\n')
+  const sections = []
+  let currentSection = { title: 'Overview', content: [] }
+
+  for (const line of lines) {
+    const headerMatch = line.match(/^(#{1,3})\s+(.*)$/)
+    if (headerMatch) {
+      if (currentSection.content.length > 0 || currentSection.title !== 'Overview') {
+        sections.push({ title: currentSection.title, content: currentSection.content.join('\n').trim() })
+      }
+      currentSection = { title: headerMatch[2], content: [] }
+    } else {
+      currentSection.content.push(line)
+    }
+  }
+  if (currentSection.content.length > 0) {
+    sections.push({ title: currentSection.title, content: currentSection.content.join('\n').trim() })
+  }
+
+  return sections.filter(s => s.content || s.title !== 'Overview')
+})
+
+function renderMarkdownText(text) {
+  let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>')
+
+  const lines = html.split('\n')
+  let inList = false
+  let out = []
+
+  for (const line of lines) {
+    const bulletMatch = line.match(/^[\-\*]\s+(.*)$/)
+    if (bulletMatch) {
+      if (!inList) {
+        inList = true
+        out.push('<ul class="jd-list">')
+      }
+      out.push(`<li>${bulletMatch[1]}</li>`)
+    } else {
+      if (inList) {
+        inList = false
+        out.push('</ul>')
+      }
+      out.push(line)
+    }
+  }
+  if (inList) out.push('</ul>')
+
+  return out.join('\n').replace(/\n/g, '<br>').replace(/<br><ul/g, '<ul').replace(/\/ul><br>/g, '</ul>')
+}
+
+
+const primaryActionText = computed(() => {
+  const status = appStore.selectedApplication?.status
+  if (status === 'ASSESSMENT') return 'Mark as Applied'
+  if (status === 'APPLIED') return 'Move to Interview'
+  if (status === 'TECHNICAL_INTERVIEW') return 'Log Next Round'
+  if (status === 'OFFER') return 'Update Offer'
+  if (status === 'REJECTED') return 'Update Rejection'
+  return 'Update Status'
+})
+
+function handlePrimaryActionClick() {
+  const app = appStore.selectedApplication
+  if (!app) return
+
+  if (app.status === 'ASSESSMENT') {
+    executeDirectTransition('APPLIED')
+  } else if (app.status === 'APPLIED') {
+    // Open modal to transition to technical interview
+    transitionTargetStatus.value = 'TECHNICAL_INTERVIEW'
+    const today = new Date().toISOString().substring(0, 10)
+    transitionForm.value = {
+      interview_stage: 'Interview Requested / Scheduling',
+      scheduled_at: '',
+      offered_salary: app.job_posting?.salary_max || null,
+      currency: uiStore.defaultCurrency || 'USD',
+      offer_received_date: today,
+      decision_deadline: '',
+      rejection_date: today,
+      rejection_reason: 'Resume / Initial Screen',
+      notes: '',
+    }
+    showTransitionModal.value = true
+  } else {
+    // Open edit modal for the current status (e.g. logging next round for interview)
+    openEditModal()
+  }
+}
+
+function getStatusDisplay(status) {
+  if (status === 'ASSESSMENT') return 'AI Assessment'
+  if (status === 'TECHNICAL_INTERVIEW') return 'Interview'
+  if (!status) return 'Applied'
+  return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase()
+}
+
 const latestEvent = computed(() => {
   const events = appStore.selectedApplication?.events
   if (!events || events.length === 0) return null
@@ -290,29 +396,7 @@ function openEditModal() {
   showTransitionModal.value = true
 }
 
-function handleStatusSelect(e) {
-  const newStatus = e.target.value
-  if (!appStore.selectedApplication || newStatus === appStore.selectedApplication.status) return
 
-  if (['TECHNICAL_INTERVIEW', 'OFFER', 'REJECTED'].includes(newStatus)) {
-    transitionTargetStatus.value = newStatus
-    const today = new Date().toISOString().substring(0, 10)
-    transitionForm.value = {
-      interview_stage: 'Interview Requested / Scheduling',
-      scheduled_at: '',
-      offered_salary: appStore.selectedApplication.job_posting?.salary_max || null,
-      currency: uiStore.defaultCurrency || 'USD',
-      offer_received_date: today,
-      decision_deadline: '',
-      rejection_date: today,
-      rejection_reason: 'Resume / Initial Screen',
-      notes: '',
-    }
-    showTransitionModal.value = true
-  } else {
-    executeDirectTransition(newStatus)
-  }
-}
 
 async function executeDirectTransition(status) {
   if (!appStore.selectedApplication) return
@@ -477,19 +561,16 @@ function formatDate(isoStr) {
           <div class="status-bar">
             <div class="status-control-group">
               <div class="status-control">
-                <label class="status-label">Status</label>
-                <select
-                  :value="appStore.selectedApplication.status"
-                  class="status-select"
-                  :class="`status-${appStore.selectedApplication.status?.toLowerCase()}`"
-                  @change="handleStatusSelect"
+                <div
+                  class="status-badge-static"
+                  :class="`status-${appStore.selectedApplication.status?.toLowerCase() || 'applied'}`"
                 >
-                  <option value="ASSESSMENT">AI Assessment</option>
-                  <option value="APPLIED">Applied</option>
-                  <option value="TECHNICAL_INTERVIEW">Interview</option>
-                  <option value="OFFER">Offer</option>
-                  <option value="REJECTED">Rejected</option>
-                </select>
+                  {{ getStatusDisplay(appStore.selectedApplication.status) }}
+                </div>
+
+                <button class="btn btn-primary btn-sm" @click="handlePrimaryActionClick">
+                  {{ primaryActionText }}
+                </button>
               </div>
 
               <!-- Interactive Sub-Status Pill with Edit Trigger -->
@@ -693,12 +774,12 @@ function formatDate(isoStr) {
                 </div>
               </div>
 
-              <!-- Job Markdown Text -->
-              <div
-                v-if="appStore.selectedApplication.job_posting?.description_markdown"
-                class="job-description-raw"
-              >
-                {{ appStore.selectedApplication.job_posting.description_markdown }}
+              <!-- Job Structured Spec -->
+              <div v-if="parsedJobSpecSections.length > 0" class="job-structured-spec">
+                <div v-for="(sec, idx) in parsedJobSpecSections" :key="idx" class="job-spec-section">
+                  <h3 class="job-spec-header">{{ sec.title }}</h3>
+                  <div class="job-spec-body" v-html="renderMarkdownText(sec.content)"></div>
+                </div>
               </div>
             </div>
 
@@ -2348,5 +2429,77 @@ function formatDate(isoStr) {
   padding: 10px 20px;
   font-weight: 600;
 }
+
+
+.job-structured-spec {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  background-color: var(--bg-card);
+  padding: 20px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.job-spec-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.job-spec-header {
+  font-family: var(--font-heading);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 4px;
+}
+
+.job-spec-body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.job-spec-body :deep(strong) {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.job-spec-body :deep(em) {
+  font-style: italic;
+}
+
+.job-spec-body :deep(.jd-list) {
+  margin: 6px 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.job-spec-body :deep(.jd-list li) {
+  list-style-type: disc;
+}
+
+
+.status-badge-static {
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status-badge-static.status-applied { color: var(--status-applied-text); border-color: var(--status-applied-border); background-color: var(--status-applied-bg); }
+.status-badge-static.status-interview, .status-badge-static.status-technical_interview { color: var(--status-interview-text); border-color: var(--status-interview-border); background-color: var(--status-interview-bg); }
+.status-badge-static.status-offer { color: var(--status-offer-text); border-color: var(--status-offer-border); background-color: var(--status-offer-bg); }
+.status-badge-static.status-rejected { color: var(--status-rejected-text); border-color: var(--status-rejected-border); background-color: var(--status-rejected-bg); }
+.status-badge-static.status-assessment { color: var(--status-assessment-text); border-color: var(--status-assessment-border); background-color: var(--status-assessment-bg); }
 
 </style>

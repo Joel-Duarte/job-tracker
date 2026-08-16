@@ -796,11 +796,7 @@ async function confirmDelete() {
                 {{ app.latest_event.email_summary }}
               </div>
 
-              <!-- Action Required Flag -->
-              <div v-if="app.has_action_required" class="card-action-flag">
-                <AlertCircle :size="12" />
-                <span>Action Required</span>
-              </div>
+
             </div>
 
             <!-- Empty Column State -->
