@@ -39,13 +39,20 @@ async def db_session(postgres_container):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    session_factory = async_sessionmaker(
-        engine, expire_on_commit=False, class_=AsyncSession
-    )
+    session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+    # Initialize checkpointer pool pointing to test container
+    from app.core.database import checkpointer_pool, postgres_saver
+    sync_url = async_url.replace("+asyncpg", "")
+    checkpointer_pool.conninfo = sync_url
+    await checkpointer_pool.open()
+    await postgres_saver.setup()
+
     async with session_factory() as session:
         yield session
 
     # Drop tables after test run
+    await checkpointer_pool.close()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
 

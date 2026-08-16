@@ -50,7 +50,7 @@ async def get_active_llm_config_dict(db: AsyncSession | None = None) -> dict[str
         try:
             from app.models.llm import LLMConfigModel
 
-            stmt = select(LLMConfigModel).where(LLMConfigModel.is_active == True)
+            stmt = select(LLMConfigModel).where(LLMConfigModel.is_active)
             res = await db.execute(stmt)
             db_config = res.scalar_one_or_none()
 
@@ -185,7 +185,7 @@ async def get_task_chat_model(
                 .options(joinedload(AITaskBindingModel.provider))
                 .where(
                     AITaskBindingModel.task_type == task_type,
-                    AITaskBindingModel.is_active == True,
+                    AITaskBindingModel.is_active,
                 )
             )
             res = await db.execute(stmt)
@@ -301,7 +301,7 @@ async def get_task_embeddings_model(
                 .options(joinedload(AITaskBindingModel.provider))
                 .where(
                     AITaskBindingModel.task_type == "EMBEDDING",
-                    AITaskBindingModel.is_active == True,
+                    AITaskBindingModel.is_active,
                 )
             )
             res = await db.execute(stmt)

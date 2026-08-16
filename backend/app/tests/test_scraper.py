@@ -2,7 +2,7 @@ import json
 from unittest.mock import patch
 
 import httpx
-import pytest
+from unittest.mock import patch
 
 from app.services.scraper import (
     ScrapedJobContent,

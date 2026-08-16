@@ -286,7 +286,8 @@ async def intake_pasted_text(
         body=raw_text,
     )
 
-    result = await process_single_email_graph(db, email_payload)
+    task_id = str(uuid.uuid4())
+    result = await process_single_email_graph(db, email_payload, task_id)
     return _format_graph_result(result)
 
 
@@ -316,7 +317,8 @@ async def intake_uploaded_files(
                 continue
 
             email_payload = parse_uploaded_file(filename, content)
-            graph_res = await process_single_email_graph(db, email_payload)
+            task_id = str(uuid.uuid4())
+            graph_res = await process_single_email_graph(db, email_payload, task_id)
             results.append(_format_graph_result(graph_res))
         except Exception as err:
             logger.error(

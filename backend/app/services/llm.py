@@ -460,8 +460,8 @@ async def async_enqueue_application_embedding(
                 )
                 .where(
                     AITaskBindingModel.task_type == "EMBEDDING",
-                    AITaskBindingModel.is_active == True,
-                    AIProviderModel.is_active == True,
+                    AITaskBindingModel.is_active,
+                    AIProviderModel.is_active,
                 )
             )
             binding_res = await session.execute(binding_stmt)

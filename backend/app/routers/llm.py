@@ -74,7 +74,7 @@ class LLMConfigUpdate(BaseModel):
 
 @router.get("", response_model=LLMConfigRead)
 async def get_current_llm_config(db: AsyncSession = Depends(get_db)) -> Any:
-    stmt = select(LLMConfigModel).where(LLMConfigModel.is_active == True)
+    stmt = select(LLMConfigModel).where(LLMConfigModel.is_active)
     res = await db.execute(stmt)
     db_config = res.scalar_one_or_none()
 
@@ -126,7 +126,7 @@ async def update_llm_config(
     payload: LLMConfigUpdate,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    stmt = select(LLMConfigModel).where(LLMConfigModel.is_active == True)
+    stmt = select(LLMConfigModel).where(LLMConfigModel.is_active)
     res = await db.execute(stmt)
     db_config = res.scalar_one_or_none()
 

@@ -1,6 +1,5 @@
+from datetime import datetime, timezone
 import logging
-from datetime import UTC, datetime
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -269,8 +268,8 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
             .join(AIProviderModel, AITaskBindingModel.provider_id == AIProviderModel.id)
             .where(
                 AITaskBindingModel.task_type.in_(["EXTRACTION", "AGENT_REASONING"]),
-                AITaskBindingModel.is_active == True,
-                AIProviderModel.is_active == True,
+                AITaskBindingModel.is_active,
+                AIProviderModel.is_active,
             )
         )
         binding_res = await session.execute(binding_stmt)
