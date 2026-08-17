@@ -52,6 +52,16 @@ async def lifespan(app: FastAPI):
         logger.info("Opening LangGraph checkpointer pool...")
         await checkpointer_pool.open()
         await postgres_saver.setup()
+
+        # Start the background worker for staleness archiver
+        import asyncio
+
+        from app.services.staleness_archiver import staleness_archiver_worker
+
+        # Store the task in app state so we can cancel it later
+        app.state.archiver_task = asyncio.create_task(
+            staleness_archiver_worker(AsyncSessionLocal)
+        )
     else:
         print("\n==================================================")
         print(" ERROR: Could not connect to the database!")
@@ -61,6 +71,12 @@ async def lifespan(app: FastAPI):
     yield
     # Executed on shutdown
     logger.info("Shutting down application and disposing connection pools...")
+
+    # Cancel the archiver background task
+    archiver_task = getattr(app.state, "archiver_task", None)
+    if archiver_task:
+        archiver_task.cancel()
+
     from app.core.database import checkpointer_pool, engine
 
     await engine.dispose()

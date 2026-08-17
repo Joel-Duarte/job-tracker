@@ -231,6 +231,20 @@ export const useUIStore = defineStore('ui', () => {
     intakeQueue.value = intakeQueue.value.filter(t => t.status === 'running')
   }
 
+  // Auto-Archiver Preferences
+  const autoArchiveEnabled = ref(localStorage.getItem('jt_auto_archive_enabled') !== 'false')
+  const autoArchiveDays = ref(parseInt(localStorage.getItem('jt_auto_archive_days') || '30'))
+
+  function setAutoArchiveEnabled(enabled) {
+    autoArchiveEnabled.value = enabled
+    localStorage.setItem('jt_auto_archive_enabled', enabled)
+  }
+
+  function setAutoArchiveDays(days) {
+    autoArchiveDays.value = days
+    localStorage.setItem('jt_auto_archive_days', days)
+  }
+
   // Currency Preference
   const defaultCurrency = ref(localStorage.getItem('jt_currency') || 'USD')
   const SUPPORTED_CURRENCIES = [
@@ -287,6 +301,10 @@ export const useUIStore = defineStore('ui', () => {
     toggleTheme,
     setViewMode,
     setDefaultCurrency,
+    autoArchiveEnabled,
+    autoArchiveDays,
+    setAutoArchiveEnabled,
+    setAutoArchiveDays,
     openIngestModal,
     closeIngestModal,
     openJobIntakeModal,
