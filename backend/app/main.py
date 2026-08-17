@@ -9,6 +9,7 @@ from app.routers import (
     admin,
     agent_chat,
     ai_config,
+    analytics,
     applications,
     candidate_profile,
     email_accounts,
@@ -87,6 +88,7 @@ app.include_router(prompts.router, prefix="/api/v1")
 app.include_router(email_accounts.router, prefix="/api/v1")
 app.include_router(staging.router, prefix="/api/v1")
 app.include_router(llm.router, prefix="/api/v1")
+app.include_router(analytics.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["Health"])
