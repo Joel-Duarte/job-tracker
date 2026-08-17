@@ -1,9 +1,5 @@
 import apiClient from './client'
 
-export const AnalyticsAPI = {
-  getOverview: (params = {}) => apiClient.get('/analytics/overview', { params }),
-}
-
 export const ApplicationsAPI = {
   list: (params = {}) => apiClient.get('/applications', { params }),
   get: (id) => apiClient.get(`/applications/${id}`),
@@ -66,6 +62,8 @@ export const SearchAPI = {
 }
 
 export const AIConfigAPI = {
+  getGlobalSettings: () => apiClient.get('/ai/global-settings'),
+  updateGlobalSettings: (data) => apiClient.patch('/ai/global-settings', data),
   listProviders: () => apiClient.get('/ai/providers'),
   createProvider: (data) => apiClient.post('/ai/providers', data),
   updateProvider: (id, data) => apiClient.patch(`/ai/providers/${id}`, data),

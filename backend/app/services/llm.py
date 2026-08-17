@@ -439,6 +439,14 @@ async def async_enqueue_application_embedding(
     Non-blocking background worker task to generate and save application vector embeddings.
     Tracks state in IntakeEvaluationTaskModel and uses Priority 2 in the ConcurrencyManager.
     """
+    from app.core.config_manager import get_setting
+
+    if not get_setting("ENABLE_EMBEDDINGS", True):
+        logger.debug(
+            f"Skipping vector embedding for app {application_id} (Embeddings Disabled)"
+        )
+        return
+
     from app.core.ai_queue import concurrency_manager
     from app.core.database import AsyncSessionLocal
     from app.models.ai_providers import AIProviderModel, AITaskBindingModel

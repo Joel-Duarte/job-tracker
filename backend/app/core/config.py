@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     CAMOUFOX_ENDPOINT: str = "http://localhost:9377"
 
     # Embedding Service Configuration
+    ENABLE_EMBEDDINGS: bool = True
     EMBEDDING_API_URL: str = "http://localhost:1234/v1/embeddings"
     EMBEDDING_API_KEY: str = ""
     EMBEDDING_MODEL_NAME: str = "nomic-embed-text-v2-moe"

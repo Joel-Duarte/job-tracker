@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.config_manager import load_settings, save_settings
 from app.core.database import get_db
 from app.core.llm_factory import (
     _clean_base_url,
@@ -28,6 +29,7 @@ from app.schemas.ai_config import (
     DiscoveredModel,
     mask_secret,
 )
+from app.schemas.global_settings import GlobalSettingsRead, GlobalSettingsUpdate
 
 EMBEDDING_KEYWORDS = ("embed", "nomic", "bge", "minilm", "gte", "e5", "bert", "mxbai")
 
@@ -102,7 +104,7 @@ async def _fetch_models_from_endpoint(
 ) -> list[DiscoveredModel]:
     p_type = provider.provider_type.lower()
     base_url = _clean_base_url(provider.base_url)
-    discovered: list[str] = []
+    discovered: list[dict] = []
 
     if base_url:
         headers: dict[str, str] = {}
@@ -122,7 +124,15 @@ async def _fetch_models_from_endpoint(
                         data = resp.json()
                         for m in data.get("models", []):
                             if "name" in m:
-                                discovered.append(m["name"])
+                                is_emb = _is_embedding_model(m["name"])
+                                if (
+                                    "details" in m
+                                    and m["details"].get("family") == "bert"
+                                ):
+                                    is_emb = True
+                                discovered.append(
+                                    {"id": m["name"], "is_embedding": is_emb}
+                                )
                 else:
                     url = (
                         f"{base_url}/models"
@@ -134,7 +144,16 @@ async def _fetch_models_from_endpoint(
                         data = resp.json()
                         for m in data.get("data", []):
                             if "id" in m:
-                                discovered.append(m["id"])
+                                is_emb = _is_embedding_model(m["id"])
+                                # Check for capability flags common in LM Studio or vLLM
+                                if (
+                                    m.get("type") == "embeddings"
+                                    or m.get("object") == "embedding"
+                                ):
+                                    is_emb = True
+                                discovered.append(
+                                    {"id": m["id"], "is_embedding": is_emb}
+                                )
             except Exception as e:
                 logger.warning(
                     "Live model probe skipped/failed for provider '%s': %s",
@@ -145,15 +164,16 @@ async def _fetch_models_from_endpoint(
     models_out: list[DiscoveredModel] = []
     seen = set()
     for m in discovered:
-        if m not in seen:
-            seen.add(m)
+        m_id = m["id"]
+        if m_id not in seen:
+            seen.add(m_id)
             models_out.append(
                 DiscoveredModel(
-                    id=m,
-                    name=m,
+                    id=m_id,
+                    name=m_id,
                     is_discovered=True,
-                    is_embedding=_is_embedding_model(m),
-                    is_reasoning=_is_reasoning_model(m),
+                    is_embedding=m["is_embedding"],
+                    is_reasoning=_is_reasoning_model(m_id),
                 )
             )
 
@@ -177,6 +197,21 @@ async def _fetch_models_from_endpoint(
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai", tags=["AI Provider Registry & Task Bindings"])
+
+
+@router.get("/global-settings", response_model=GlobalSettingsRead)
+async def get_global_settings() -> GlobalSettingsRead:
+    settings = load_settings()
+    return GlobalSettingsRead(ENABLE_EMBEDDINGS=settings.get("ENABLE_EMBEDDINGS", True))
+
+
+@router.patch("/global-settings", response_model=GlobalSettingsRead)
+async def update_global_settings(payload: GlobalSettingsUpdate) -> GlobalSettingsRead:
+    settings = load_settings()
+    if payload.ENABLE_EMBEDDINGS is not None:
+        settings["ENABLE_EMBEDDINGS"] = payload.ENABLE_EMBEDDINGS
+    save_settings(settings)
+    return GlobalSettingsRead(ENABLE_EMBEDDINGS=settings.get("ENABLE_EMBEDDINGS", True))
 
 
 def _to_provider_read(p: AIProviderModel) -> AIProviderRead:

@@ -17,7 +17,6 @@ import {
   CheckSquare,
   Cpu,
   Mail,
-  BarChart3,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -118,15 +117,6 @@ onMounted(() => {
           <span v-if="pendingTasksCount > 0" class="nav-badge">
             {{ pendingTasksCount }}
           </span>
-        </router-link>
-
-        <router-link
-          to="/analytics"
-          class="nav-link"
-          :class="{ active: route.path === '/analytics' }"
-        >
-          <BarChart3 :size="16" />
-          <span>Analytics</span>
         </router-link>
 
         <router-link
