@@ -26,11 +26,8 @@ import {
   SlidersHorizontal,
   DollarSign,
   Globe,
-  Sun,
-  Moon,
   Palette,
-  Kanban,
-  Table as TableIcon,
+  Archive,
   Clock,
   Key,
   RefreshCw,
@@ -1369,583 +1366,523 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- View Mode Setting Card -->
+          <!-- Application Auto-Archiver Card -->
           <div class="preference-card">
             <div class="preference-header">
               <div class="preference-icon text-primary">
-                <Globe :size="18" />
+                <Archive :size="18" />
               </div>
-              <div>
-                <h4 class="preference-title">Default Pipeline View</h4>
-                <p class="preference-desc">Choose whether the pipeline launches in Kanban board or tabular data table view.</p>
+              <div style="flex: 1;">
+                <div class="preference-header-between">
+                  <h4 class="preference-title">Application Auto-Archiver</h4>
+                  <label class="switch">
+                    <input type="checkbox" :checked="uiStore.autoArchiveEnabled" @change="e => uiStore.setAutoArchiveEnabled(e.target.checked)">
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+                <p class="preference-desc">Automatically moves inactive applications in the Applied stage to the Archived/Rejected tab.</p>
               </div>
             </div>
 
-            <div class="view-mode-toggle-row">
-              <button
-                type="button"
-                class="view-mode-option"
-                :class="{ active: uiStore.viewMode === 'kanban' }"
-                @click="uiStore.setViewMode('kanban')"
-              >
-                <Kanban :size="16" />
-                <span>Kanban Board</span>
-              </button>
-              <button
-                type="button"
-                class="view-mode-option"
-                :class="{ active: uiStore.viewMode === 'table' }"
-                @click="uiStore.setViewMode('table')"
-              >
-                <TableIcon :size="16" />
-                <span>Data Table</span>
-              </button>
+            <div v-if="uiStore.autoArchiveEnabled" style="margin-top: 8px;">
+              <div class="input-group">
+                <label class="input-label">Inactivity Threshold</label>
+                <select class="form-input" :value="uiStore.autoArchiveDays" @change="e => uiStore.setAutoArchiveDays(parseInt(e.target.value))">
+                  <option :value="14">14 days</option>
+                  <option :value="30">30 days (Recommended)</option>
+                  <option :value="45">45 days</option>
+                  <option :value="60">60 days</option>
+                  <option :value="90">90 days</option>
+                </select>
+              </div>
             </div>
           </div>
+        </div>
 
-          <!-- Appearance Theme Setting Card -->
-          <div class="preference-card">
+        <!-- Theme Palette Customizer Studio Card -->
+        <div class="preference-card preference-card-wide" style="margin-top: 16px;">
+          <div class="preference-header-between">
             <div class="preference-header">
               <div class="preference-icon text-primary">
                 <Palette :size="18" />
               </div>
               <div>
-                <h4 class="preference-title">Interface Appearance Theme</h4>
-                <p class="preference-desc">Switch between the refined dark slate Midnight theme and the warm studio Daylight theme.</p>
+                <h4 class="preference-title">Theme Palette Customizer Studio</h4>
+                <p class="preference-desc">
+                  Customize background, surfaces, primary accents, and border colors for <strong>{{ uiStore.theme === 'midnight' ? 'Midnight (Dark)' : 'Daylight (Light)' }}</strong> theme.
+                </p>
               </div>
             </div>
 
-            <div class="view-mode-toggle-row">
-              <button
-                type="button"
-                class="view-mode-option"
-                :class="{ active: uiStore.theme === 'midnight' }"
-                @click="uiStore.setTheme('midnight')"
-              >
-                <Moon :size="16" />
-                <span>Midnight (Dark Slate)</span>
-              </button>
-              <button
-                type="button"
-                class="view-mode-option"
-                :class="{ active: uiStore.theme === 'daylight' }"
-                @click="uiStore.setTheme('daylight')"
-              >
-                <Sun :size="16" />
-                <span>Daylight (Warm Studio)</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs text-secondary"
+              title="Reset all colors for active theme to factory defaults"
+              @click="uiStore.resetAllCustomColors(uiStore.theme)"
+            >
+              <RotateCcw :size="13" />
+              <span>Reset Palette</span>
+            </button>
           </div>
 
-          <!-- Theme Palette Customizer Studio Card -->
-          <div class="preference-card preference-card-wide">
-            <div class="preference-header-between">
-              <div class="preference-header">
-                <div class="preference-icon text-primary">
-                  <Palette :size="18" />
-                </div>
-                <div>
-                  <h4 class="preference-title">Theme Palette Customizer Studio</h4>
-                  <p class="preference-desc">
-                    Customize background, surfaces, primary accents, and border colors for <strong>{{ uiStore.theme === 'midnight' ? 'Midnight (Dark)' : 'Daylight (Light)' }}</strong> theme.
-                  </p>
-                </div>
+          <div class="theme-customizer-grid">
+            <!-- 1. Canvas Background -->
+            <div class="customizer-subcard">
+              <div class="subcard-header">
+                <span class="subcard-title">1. Canvas Background</span>
+                <span class="subcard-token font-mono">--bg-app</span>
               </div>
 
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs text-secondary"
-                title="Reset all colors for active theme to factory defaults"
-                @click="uiStore.resetAllCustomColors(uiStore.theme)"
-              >
-                <RotateCcw :size="13" />
-                <span>Reset All Palette Colors</span>
-              </button>
-            </div>
-
-            <div class="theme-customizer-grid">
-              <!-- 1. Canvas Background -->
-              <div class="customizer-subcard">
-                <div class="subcard-header">
-                  <span class="subcard-title">1. Canvas Background</span>
-                  <span class="subcard-token font-mono text-xs text-muted">--bg-app</span>
-                </div>
-
-                <!-- Swatches -->
-                <div v-if="uiStore.theme === 'midnight'" class="swatches-grid">
+              <!-- Swatch Dots Row -->
+              <div class="swatches-dots-row">
+                <template v-if="uiStore.theme === 'midnight'">
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: !uiStore.customDarkBg || uiStore.customDarkBg === '#000000' }"
                     title="Pure OLED Black (Default)"
                     @click="uiStore.resetCustomColor('midnight', 'bg')"
                   >
-                    <span class="swatch-preview" style="background-color: #000000;"></span>
-                    <span class="swatch-name">OLED Black (Def)</span>
+                    <span class="swatch-dot" style="background-color: #000000;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customDarkBg === '#12161f' }"
                     title="Slate Gunmetal"
                     @click="uiStore.setCustomColor('midnight', 'bg', '#12161f')"
                   >
-                    <span class="swatch-preview" style="background-color: #12161f;"></span>
-                    <span class="swatch-name">Gunmetal</span>
+                    <span class="swatch-dot" style="background-color: #12161f;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customDarkBg === '#0a1120' }"
                     title="Midnight Navy"
                     @click="uiStore.setCustomColor('midnight', 'bg', '#0a1120')"
                   >
-                    <span class="swatch-preview" style="background-color: #0a1120;"></span>
-                    <span class="swatch-name">Navy</span>
+                    <span class="swatch-dot" style="background-color: #0a1120;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customDarkBg === '#0b0f19' }"
                     title="Deep Charcoal"
                     @click="uiStore.setCustomColor('midnight', 'bg', '#0b0f19')"
                   >
-                    <span class="swatch-preview" style="background-color: #0b0f19;"></span>
-                    <span class="swatch-name">Charcoal</span>
+                    <span class="swatch-dot" style="background-color: #0b0f19;"></span>
                   </button>
-                </div>
-                <div v-else class="swatches-grid">
+                </template>
+                <template v-else>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: !uiStore.customLightBg || uiStore.customLightBg === '#e5ded1' }"
                     title="Muted Stone (Default)"
                     @click="uiStore.resetCustomColor('daylight', 'bg')"
                   >
-                    <span class="swatch-preview" style="background-color: #e5ded1;"></span>
-                    <span class="swatch-name">Muted Stone (Def)</span>
+                    <span class="swatch-dot" style="background-color: #e5ded1;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customLightBg === '#ede7dc' }"
                     title="Darker Alabaster"
                     @click="uiStore.setCustomColor('daylight', 'bg', '#ede7dc')"
                   >
-                    <span class="swatch-preview" style="background-color: #ede7dc;"></span>
-                    <span class="swatch-name">Alabaster</span>
+                    <span class="swatch-dot" style="background-color: #ede7dc;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customLightBg === '#faf8f5' }"
                     title="Warm Studio Cream"
                     @click="uiStore.setCustomColor('daylight', 'bg', '#faf8f5')"
                   >
-                    <span class="swatch-preview" style="background-color: #faf8f5;"></span>
-                    <span class="swatch-name">Warm Cream</span>
+                    <span class="swatch-dot" style="background-color: #faf8f5;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customLightBg === '#ffffff' }"
                     title="Pure Paper White"
                     @click="uiStore.setCustomColor('daylight', 'bg', '#ffffff')"
                   >
-                    <span class="swatch-preview" style="background-color: #ffffff;"></span>
-                    <span class="swatch-name">Paper White</span>
+                    <span class="swatch-dot" style="background-color: #ffffff;"></span>
                   </button>
-                </div>
-
-                <!-- Custom Picker Row -->
-                <div class="custom-color-row">
-                  <input
-                    type="color"
-                    class="color-input-picker"
-                    :value="uiStore.theme === 'midnight' ? (uiStore.customDarkBg || '#000000') : (uiStore.customLightBg || '#e5ded1')"
-                    @input="e => uiStore.setCustomColor(uiStore.theme, 'bg', e.target.value)"
-                  />
-                  <input
-                    type="text"
-                    class="form-input font-mono input-sm"
-                    placeholder="#HEX"
-                    :value="uiStore.theme === 'midnight' ? (uiStore.customDarkBg || '#000000') : (uiStore.customLightBg || '#E5DED1')"
-                    @change="e => uiStore.setCustomColor(uiStore.theme, 'bg', e.target.value)"
-                  />
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-xs text-secondary"
-                    title="Reset to default"
-                    @click="uiStore.resetCustomColor(uiStore.theme, 'bg')"
-                  >
-                    <RotateCcw :size="12" />
-                  </button>
-                </div>
+                </template>
               </div>
 
-              <!-- 2. Cards & Menu Surfaces -->
-              <div class="customizer-subcard">
-                <div class="subcard-header">
-                  <span class="subcard-title">2. Card &amp; Menu Surfaces</span>
-                  <span class="subcard-token font-mono text-xs text-muted">--bg-card / surface</span>
-                </div>
+              <!-- Custom Picker Row -->
+              <div class="custom-color-compact">
+                <input
+                  type="color"
+                  class="color-input-dot"
+                  :value="uiStore.theme === 'midnight' ? (uiStore.customDarkBg || '#000000') : (uiStore.customLightBg || '#e5ded1')"
+                  @input="e => uiStore.setCustomColor(uiStore.theme, 'bg', e.target.value)"
+                />
+                <input
+                  type="text"
+                  class="form-input font-mono input-xs"
+                  placeholder="#HEX"
+                  :value="uiStore.theme === 'midnight' ? (uiStore.customDarkBg || '#000000') : (uiStore.customLightBg || '#E5DED1')"
+                  @change="e => uiStore.setCustomColor(uiStore.theme, 'bg', e.target.value)"
+                />
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs text-secondary icon-btn-compact"
+                  title="Reset to default"
+                  @click="uiStore.resetCustomColor(uiStore.theme, 'bg')"
+                >
+                  <RotateCcw :size="11" />
+                </button>
+              </div>
+            </div>
 
-                <!-- Swatches -->
-                <div v-if="uiStore.theme === 'midnight'" class="swatches-grid">
+            <!-- 2. Cards & Menu Surfaces -->
+            <div class="customizer-subcard">
+              <div class="subcard-header">
+                <span class="subcard-title">2. Card Surfaces</span>
+                <span class="subcard-token font-mono">--bg-card</span>
+              </div>
+
+              <!-- Swatch Dots Row -->
+              <div class="swatches-dots-row">
+                <template v-if="uiStore.theme === 'midnight'">
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: !uiStore.customDarkSurface || uiStore.customDarkSurface === '#11151e' }"
                     title="Deep Obsidian (Default)"
                     @click="uiStore.resetCustomColor('midnight', 'surface')"
                   >
-                    <span class="swatch-preview" style="background-color: #11151e;"></span>
-                    <span class="swatch-name">Obsidian (Def)</span>
+                    <span class="swatch-dot" style="background-color: #11151e;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customDarkSurface === '#1a212e' }"
                     title="Slate Gunmetal"
                     @click="uiStore.setCustomColor('midnight', 'surface', '#1a212e')"
                   >
-                    <span class="swatch-preview" style="background-color: #1a212e;"></span>
-                    <span class="swatch-name">Gunmetal</span>
+                    <span class="swatch-dot" style="background-color: #1a212e;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customDarkSurface === '#1e2738' }"
                     title="Steel Cavity"
                     @click="uiStore.setCustomColor('midnight', 'surface', '#1e2738')"
                   >
-                    <span class="swatch-preview" style="background-color: #1e2738;"></span>
-                    <span class="swatch-name">Steel</span>
+                    <span class="swatch-dot" style="background-color: #1e2738;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customDarkSurface === '#161922' }"
                     title="Solid Onyx"
                     @click="uiStore.setCustomColor('midnight', 'surface', '#161922')"
                   >
-                    <span class="swatch-preview" style="background-color: #161922;"></span>
-                    <span class="swatch-name">Onyx</span>
+                    <span class="swatch-dot" style="background-color: #161922;"></span>
                   </button>
-                </div>
-                <div v-else class="swatches-grid">
+                </template>
+                <template v-else>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: !uiStore.customLightSurface || uiStore.customLightSurface === '#f7f4ee' }"
                     title="Parchment (Default)"
                     @click="uiStore.resetCustomColor('daylight', 'surface')"
                   >
-                    <span class="swatch-preview" style="background-color: #f7f4ee;"></span>
-                    <span class="swatch-name">Parchment (Def)</span>
+                    <span class="swatch-dot" style="background-color: #f7f4ee;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customLightSurface === '#ffffff' }"
                     title="Pastier Crisp White"
                     @click="uiStore.setCustomColor('daylight', 'surface', '#ffffff')"
                   >
-                    <span class="swatch-preview" style="background-color: #ffffff;"></span>
-                    <span class="swatch-name">White</span>
+                    <span class="swatch-dot" style="background-color: #ffffff;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customLightSurface === '#fcfbf8' }"
                     title="Soft Sand"
                     @click="uiStore.setCustomColor('daylight', 'surface', '#fcfbf8')"
                   >
-                    <span class="swatch-preview" style="background-color: #fcfbf8;"></span>
-                    <span class="swatch-name">Soft Sand</span>
+                    <span class="swatch-dot" style="background-color: #fcfbf8;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customLightSurface === '#f2ede4' }"
                     title="Warm Canvas"
                     @click="uiStore.setCustomColor('daylight', 'surface', '#f2ede4')"
                   >
-                    <span class="swatch-preview" style="background-color: #f2ede4;"></span>
-                    <span class="swatch-name">Warm Canvas</span>
+                    <span class="swatch-dot" style="background-color: #f2ede4;"></span>
                   </button>
-                </div>
-
-                <!-- Custom Picker Row -->
-                <div class="custom-color-row">
-                  <input
-                    type="color"
-                    class="color-input-picker"
-                    :value="uiStore.theme === 'midnight' ? (uiStore.customDarkSurface || '#11151e') : (uiStore.customLightSurface || '#f7f4ee')"
-                    @input="e => uiStore.setCustomColor(uiStore.theme, 'surface', e.target.value)"
-                  />
-                  <input
-                    type="text"
-                    class="form-input font-mono input-sm"
-                    placeholder="#HEX"
-                    :value="uiStore.theme === 'midnight' ? (uiStore.customDarkSurface || '#11151E') : (uiStore.customLightSurface || '#F7F4EE')"
-                    @change="e => uiStore.setCustomColor(uiStore.theme, 'surface', e.target.value)"
-                  />
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-xs text-secondary"
-                    title="Reset to default"
-                    @click="uiStore.resetCustomColor(uiStore.theme, 'surface')"
-                  >
-                    <RotateCcw :size="12" />
-                  </button>
-                </div>
+                </template>
               </div>
 
-              <!-- 3. Primary Accent Color -->
-              <div class="customizer-subcard">
-                <div class="subcard-header">
-                  <span class="subcard-title">3. Primary Accent Color</span>
-                  <span class="subcard-token font-mono text-xs text-primary">--primary</span>
-                </div>
+              <!-- Custom Picker Row -->
+              <div class="custom-color-compact">
+                <input
+                  type="color"
+                  class="color-input-dot"
+                  :value="uiStore.theme === 'midnight' ? (uiStore.customDarkSurface || '#11151e') : (uiStore.customLightSurface || '#f7f4ee')"
+                  @input="e => uiStore.setCustomColor(uiStore.theme, 'surface', e.target.value)"
+                />
+                <input
+                  type="text"
+                  class="form-input font-mono input-xs"
+                  placeholder="#HEX"
+                  :value="uiStore.theme === 'midnight' ? (uiStore.customDarkSurface || '#11151E') : (uiStore.customLightSurface || '#F7F4EE')"
+                  @change="e => uiStore.setCustomColor(uiStore.theme, 'surface', e.target.value)"
+                />
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs text-secondary icon-btn-compact"
+                  title="Reset to default"
+                  @click="uiStore.resetCustomColor(uiStore.theme, 'surface')"
+                >
+                  <RotateCcw :size="11" />
+                </button>
+              </div>
+            </div>
 
-                <!-- Swatches -->
-                <div v-if="uiStore.theme === 'midnight'" class="swatches-grid">
+            <!-- 3. Primary Accent Color -->
+            <div class="customizer-subcard">
+              <div class="subcard-header">
+                <span class="subcard-title">3. Primary Accent</span>
+                <span class="subcard-token font-mono">--primary</span>
+              </div>
+
+              <!-- Swatch Dots Row -->
+              <div class="swatches-dots-row">
+                <template v-if="uiStore.theme === 'midnight'">
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: !uiStore.customDarkPrimary || uiStore.customDarkPrimary === '#2dd4bf' }"
                     title="Emerald Cyan (Default)"
                     @click="uiStore.resetCustomColor('midnight', 'primary')"
                   >
-                    <span class="swatch-preview" style="background-color: #2dd4bf;"></span>
-                    <span class="swatch-name">Emerald (Def)</span>
+                    <span class="swatch-dot" style="background-color: #2dd4bf;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customDarkPrimary === '#38bdf8' }"
                     title="Electric Sky Blue"
                     @click="uiStore.setCustomColor('midnight', 'primary', '#38bdf8')"
                   >
-                    <span class="swatch-preview" style="background-color: #38bdf8;"></span>
-                    <span class="swatch-name">Sky Blue</span>
+                    <span class="swatch-dot" style="background-color: #38bdf8;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customDarkPrimary === '#3b82f6' }"
                     title="Cobalt Blue"
                     @click="uiStore.setCustomColor('midnight', 'primary', '#3b82f6')"
                   >
-                    <span class="swatch-preview" style="background-color: #3b82f6;"></span>
-                    <span class="swatch-name">Cobalt</span>
+                    <span class="swatch-dot" style="background-color: #3b82f6;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customDarkPrimary === '#fbbf24' }"
                     title="Amber Gold"
                     @click="uiStore.setCustomColor('midnight', 'primary', '#fbbf24')"
                   >
-                    <span class="swatch-preview" style="background-color: #fbbf24;"></span>
-                    <span class="swatch-name">Amber Gold</span>
+                    <span class="swatch-dot" style="background-color: #fbbf24;"></span>
                   </button>
-                </div>
-                <div v-else class="swatches-grid">
+                </template>
+                <template v-else>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: !uiStore.customLightPrimary || uiStore.customLightPrimary === '#854d0e' }"
                     title="Saddle Umber (Default)"
                     @click="uiStore.resetCustomColor('daylight', 'primary')"
                   >
-                    <span class="swatch-preview" style="background-color: #854d0e;"></span>
-                    <span class="swatch-name">Saddle (Def)</span>
+                    <span class="swatch-dot" style="background-color: #854d0e;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customLightPrimary === '#b45309' }"
                     title="Warm Cognac"
                     @click="uiStore.setCustomColor('daylight', 'primary', '#b45309')"
                   >
-                    <span class="swatch-preview" style="background-color: #b45309;"></span>
-                    <span class="swatch-name">Cognac</span>
+                    <span class="swatch-dot" style="background-color: #b45309;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customLightPrimary === '#c2410c' }"
                     title="Terracotta Bronze"
                     @click="uiStore.setCustomColor('daylight', 'primary', '#c2410c')"
                   >
-                    <span class="swatch-preview" style="background-color: #c2410c;"></span>
-                    <span class="swatch-name">Terracotta</span>
+                    <span class="swatch-dot" style="background-color: #c2410c;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customLightPrimary === '#ca8a04' }"
                     title="Rich Ochre"
                     @click="uiStore.setCustomColor('daylight', 'primary', '#ca8a04')"
                   >
-                    <span class="swatch-preview" style="background-color: #ca8a04;"></span>
-                    <span class="swatch-name">Ochre</span>
+                    <span class="swatch-dot" style="background-color: #ca8a04;"></span>
                   </button>
-                </div>
-
-                <!-- Custom Picker Row -->
-                <div class="custom-color-row">
-                  <input
-                    type="color"
-                    class="color-input-picker"
-                    :value="uiStore.theme === 'midnight' ? (uiStore.customDarkPrimary || '#2dd4bf') : (uiStore.customLightPrimary || '#854d0e')"
-                    @input="e => uiStore.setCustomColor(uiStore.theme, 'primary', e.target.value)"
-                  />
-                  <input
-                    type="text"
-                    class="form-input font-mono input-sm"
-                    placeholder="#HEX"
-                    :value="uiStore.theme === 'midnight' ? (uiStore.customDarkPrimary || '#2DD4BF') : (uiStore.customLightPrimary || '#854D0E')"
-                    @change="e => uiStore.setCustomColor(uiStore.theme, 'primary', e.target.value)"
-                  />
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-xs text-secondary"
-                    title="Reset to default"
-                    @click="uiStore.resetCustomColor(uiStore.theme, 'primary')"
-                  >
-                    <RotateCcw :size="12" />
-                  </button>
-                </div>
+                </template>
               </div>
 
-              <!-- 4. Borders & Dividers -->
-              <div class="customizer-subcard">
-                <div class="subcard-header">
-                  <span class="subcard-title">4. Borders &amp; Dividers</span>
-                  <span class="subcard-token font-mono text-xs text-muted">--border-color</span>
-                </div>
+              <!-- Custom Picker Row -->
+              <div class="custom-color-compact">
+                <input
+                  type="color"
+                  class="color-input-dot"
+                  :value="uiStore.theme === 'midnight' ? (uiStore.customDarkPrimary || '#2dd4bf') : (uiStore.customLightPrimary || '#854d0e')"
+                  @input="e => uiStore.setCustomColor(uiStore.theme, 'primary', e.target.value)"
+                />
+                <input
+                  type="text"
+                  class="form-input font-mono input-xs"
+                  placeholder="#HEX"
+                  :value="uiStore.theme === 'midnight' ? (uiStore.customDarkPrimary || '#2DD4BF') : (uiStore.customLightPrimary || '#854D0E')"
+                  @change="e => uiStore.setCustomColor(uiStore.theme, 'primary', e.target.value)"
+                />
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs text-secondary icon-btn-compact"
+                  title="Reset to default"
+                  @click="uiStore.resetCustomColor(uiStore.theme, 'primary')"
+                >
+                  <RotateCcw :size="11" />
+                </button>
+              </div>
+            </div>
 
-                <!-- Swatches -->
-                <div v-if="uiStore.theme === 'midnight'" class="swatches-grid">
+            <!-- 4. Borders & Dividers -->
+            <div class="customizer-subcard">
+              <div class="subcard-header">
+                <span class="subcard-title">4. Borders</span>
+                <span class="subcard-token font-mono">--border-color</span>
+              </div>
+
+              <!-- Swatch Dots Row -->
+              <div class="swatches-dots-row">
+                <template v-if="uiStore.theme === 'midnight'">
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: !uiStore.customDarkBorder || uiStore.customDarkBorder === '#1c2534' }"
                     title="Deep Edge (Default)"
                     @click="uiStore.resetCustomColor('midnight', 'border')"
                   >
-                    <span class="swatch-preview" style="background-color: #1c2534;"></span>
-                    <span class="swatch-name">Deep Edge (Def)</span>
+                    <span class="swatch-dot" style="background-color: #1c2534;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customDarkBorder === '#263245' }"
                     title="Gunmetal Crisp Border"
                     @click="uiStore.setCustomColor('midnight', 'border', '#263245')"
                   >
-                    <span class="swatch-preview" style="background-color: #263245;"></span>
-                    <span class="swatch-name">Gunmetal</span>
+                    <span class="swatch-dot" style="background-color: #263245;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customDarkBorder === '#303e55' }"
                     title="Subtle Steel"
                     @click="uiStore.setCustomColor('midnight', 'border', '#303e55')"
                   >
-                    <span class="swatch-preview" style="background-color: #303e55;"></span>
-                    <span class="swatch-name">Subtle Steel</span>
+                    <span class="swatch-dot" style="background-color: #303e55;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customDarkBorder === '#334155' }"
                     title="Muted Slate"
                     @click="uiStore.setCustomColor('midnight', 'border', '#334155')"
                   >
-                    <span class="swatch-preview" style="background-color: #334155;"></span>
-                    <span class="swatch-name">Muted Slate</span>
+                    <span class="swatch-dot" style="background-color: #334155;"></span>
                   </button>
-                </div>
-                <div v-else class="swatches-grid">
+                </template>
+                <template v-else>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: !uiStore.customLightBorder || uiStore.customLightBorder === '#b8aa97' }"
                     title="Soft Ochre (Default)"
                     @click="uiStore.resetCustomColor('daylight', 'border')"
                   >
-                    <span class="swatch-preview" style="background-color: #b8aa97;"></span>
-                    <span class="swatch-name">Soft Ochre (Def)</span>
+                    <span class="swatch-dot" style="background-color: #b8aa97;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customLightBorder === '#d8cfc2' }"
                     title="Alabaster Stone"
                     @click="uiStore.setCustomColor('daylight', 'border', '#d8cfc2')"
                   >
-                    <span class="swatch-preview" style="background-color: #d8cfc2;"></span>
-                    <span class="swatch-name">Stone</span>
+                    <span class="swatch-dot" style="background-color: #d8cfc2;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customLightBorder === '#c7bcaa' }"
                     title="Subtle Umber"
                     @click="uiStore.setCustomColor('daylight', 'border', '#c7bcaa')"
                   >
-                    <span class="swatch-preview" style="background-color: #c7bcaa;"></span>
-                    <span class="swatch-name">Subtle Umber</span>
+                    <span class="swatch-dot" style="background-color: #c7bcaa;"></span>
                   </button>
                   <button
                     type="button"
-                    class="swatch-btn"
+                    class="swatch-dot-btn"
                     :class="{ active: uiStore.customLightBorder === '#e4ddd2' }"
                     title="Warm Sand Line"
                     @click="uiStore.setCustomColor('daylight', 'border', '#e4ddd2')"
                   >
-                    <span class="swatch-preview" style="background-color: #e4ddd2;"></span>
-                    <span class="swatch-name">Warm Sand</span>
+                    <span class="swatch-dot" style="background-color: #e4ddd2;"></span>
                   </button>
-                </div>
+                </template>
+              </div>
 
-                <!-- Custom Picker Row -->
-                <div class="custom-color-row">
-                  <input
-                    type="color"
-                    class="color-input-picker"
-                    :value="uiStore.theme === 'midnight' ? (uiStore.customDarkBorder || '#1c2534') : (uiStore.customLightBorder || '#b8aa97')"
-                    @input="e => uiStore.setCustomColor(uiStore.theme, 'border', e.target.value)"
-                  />
-                  <input
-                    type="text"
-                    class="form-input font-mono input-sm"
-                    placeholder="#HEX"
-                    :value="uiStore.theme === 'midnight' ? (uiStore.customDarkBorder || '#1C2534') : (uiStore.customLightBorder || '#B8AA97')"
-                    @change="e => uiStore.setCustomColor(uiStore.theme, 'border', e.target.value)"
-                  />
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-xs text-secondary"
-                    title="Reset to default"
-                    @click="uiStore.resetCustomColor(uiStore.theme, 'border')"
-                  >
-                    <RotateCcw :size="12" />
-                  </button>
-                </div>
+              <!-- Custom Picker Row -->
+              <div class="custom-color-compact">
+                <input
+                  type="color"
+                  class="color-input-dot"
+                  :value="uiStore.theme === 'midnight' ? (uiStore.customDarkBorder || '#1c2534') : (uiStore.customLightBorder || '#b8aa97')"
+                  @input="e => uiStore.setCustomColor(uiStore.theme, 'border', e.target.value)"
+                />
+                <input
+                  type="text"
+                  class="form-input font-mono input-xs"
+                  placeholder="#HEX"
+                  :value="uiStore.theme === 'midnight' ? (uiStore.customDarkBorder || '#1C2534') : (uiStore.customLightBorder || '#B8AA97')"
+                  @change="e => uiStore.setCustomColor(uiStore.theme, 'border', e.target.value)"
+                />
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs text-secondary icon-btn-compact"
+                  title="Reset to default"
+                  @click="uiStore.resetCustomColor(uiStore.theme, 'border')"
+                >
+                  <RotateCcw :size="11" />
+                </button>
               </div>
             </div>
           </div>
         </div>
+        </div>
       </div>
     </div>
-      </div>
-    </div>
+  </div>
 
     <!-- PROVIDER MODAL -->
     <div v-if="isProviderModalOpen" class="modal-backdrop" @click.self="isProviderModalOpen = false">
@@ -2318,6 +2255,66 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* Switch Toggle Styles */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 20px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--border-color);
+  -webkit-transition: .4s;
+  transition: .4s;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  -webkit-transition: .4s;
+  transition: .4s;
+}
+
+input:checked + .slider {
+  background-color: var(--primary);
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px var(--primary);
+}
+
+input:checked + .slider:before {
+  -webkit-transform: translateX(14px);
+  -ms-transform: translateX(14px);
+  transform: translateX(14px);
+}
+
+.slider.round {
+  border-radius: 34px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
+}
+
 .page-container {
   display: flex;
   flex-direction: column;
@@ -3030,50 +3027,6 @@ onMounted(async () => {
   box-shadow: 0 0 0 2px var(--primary-subtle);
 }
 
-.swatch-preview {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 1px solid var(--border-subtle);
-}
-
-.swatch-name {
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  text-align: center;
-}
-
-.custom-color-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 4px;
-}
-
-.color-input-picker {
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
-  width: 38px;
-  height: 38px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
-  background: transparent;
-  cursor: pointer;
-  padding: 2px;
-  box-sizing: border-box;
-}
-
-.color-input-picker::-webkit-color-swatch-wrapper {
-  padding: 0;
-}
-
-.color-input-picker::-webkit-color-swatch {
-  border-radius: 3px;
-  border: none;
-}
-
 .preference-card-wide {
   grid-column: 1 / -1;
 }
@@ -3089,44 +3042,137 @@ onMounted(async () => {
 
 .theme-customizer-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
-  margin-top: 4px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 8px;
+}
+
+@media (max-width: 1024px) {
+  .theme-customizer-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .theme-customizer-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .customizer-subcard {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
-  padding: 14px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .subcard-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
 }
 
 .subcard-title {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--text-main);
 }
 
 .subcard-token {
-  font-size: 10px;
+  font-size: 9px;
+  color: var(--text-muted);
 }
 
-.input-sm {
-  max-width: 120px;
-  height: 34px;
-  padding: 4px 8px;
-  font-size: 12px;
+.swatches-dots-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.swatch-dot-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.swatch-dot-btn:hover {
+  transform: scale(1.12);
+  border-color: var(--border-focus);
+}
+
+.swatch-dot-btn.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-subtle);
+}
+
+.swatch-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  display: block;
+}
+
+.custom-color-compact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.color-input-dot {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  background: transparent;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.color-input-dot::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-input-dot::-webkit-color-swatch {
+  border: none;
+  border-radius: var(--radius-xs);
+}
+
+.input-xs {
+  height: 24px;
+  padding: 2px 6px;
+  font-size: 11px;
   text-transform: uppercase;
+  flex: 1;
+  min-width: 0;
+}
+
+.icon-btn-compact {
+  padding: 3px;
+  height: 24px;
+  width: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .preference-card {
