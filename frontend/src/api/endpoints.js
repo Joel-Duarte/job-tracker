@@ -64,6 +64,7 @@ export const SearchAPI = {
 export const AIConfigAPI = {
   getGlobalSettings: () => apiClient.get('/ai/global-settings'),
   updateGlobalSettings: (data) => apiClient.patch('/ai/global-settings', data),
+  reindexEmbeddings: () => apiClient.post('/ai/reindex-embeddings'),
   listProviders: () => apiClient.get('/ai/providers'),
   createProvider: (data) => apiClient.post('/ai/providers', data),
   updateProvider: (id, data) => apiClient.patch(`/ai/providers/${id}`, data),

@@ -83,24 +83,123 @@ const isResettingPrompt = ref(false)
 
 
 const globalBinding = computed(() => {
-  return bindings.value.find(b => b.task_type === 'GLOBAL_DEFAULT') || null
+  return bindings.value.find((b) => b.task_type === 'GLOBAL_DEFAULT') || null
 })
 const isAdvancedOpen = ref(false)
 
+// Global Default Model Form State
+const globalForm = ref({
+  provider_id: null,
+  model_name: '',
+})
+const globalProviderModels = ref([])
+const loadingGlobalModels = ref(false)
+const isSavingGlobal = ref(false)
+
+function syncGlobalForm() {
+  const gb = globalBinding.value
+  const chosenProviderId = gb?.provider_id || (providers.value[0]?.id || null)
+  globalForm.value.provider_id = chosenProviderId
+  globalForm.value.model_name = gb?.model_name || 'qwen/qwen3.5-9b'
+  fetchGlobalModels(chosenProviderId)
+}
+
+async function fetchGlobalModels(providerId, forceRefresh = false) {
+  if (!providerId) {
+    globalProviderModels.value = []
+    return
+  }
+  if (!forceRefresh && providerModelsCache.value[providerId]) {
+    globalProviderModels.value = providerModelsCache.value[providerId]
+    return
+  }
+  loadingGlobalModels.value = true
+  try {
+    const res = await AIConfigAPI.getProviderModels(providerId)
+    const models = res.data?.models || []
+    providerModelsCache.value[providerId] = models
+    globalProviderModels.value = models
+  } catch (err) {
+    globalProviderModels.value = []
+  } finally {
+    loadingGlobalModels.value = false
+  }
+}
+
+function onGlobalProviderChange() {
+  fetchGlobalModels(globalForm.value.provider_id)
+}
+
+async function saveGlobalDefault() {
+  if (!globalForm.value.provider_id || !globalForm.value.model_name.trim()) {
+    uiStore.showToast('Please select a provider and specify a model name.', 'warning')
+    return
+  }
+  isSavingGlobal.value = true
+  try {
+    await AIConfigAPI.setBinding('GLOBAL_DEFAULT', {
+      provider_id: globalForm.value.provider_id,
+      model_name: globalForm.value.model_name.trim(),
+      temperature: 0.2,
+      reasoning_effort: 'none',
+    })
+    uiStore.showToast('Global Default Model saved successfully!', 'success')
+    await loadBindings()
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to save global model', 'error')
+  } finally {
+    isSavingGlobal.value = false
+  }
+}
+
+// Vector Embeddings Settings State
+const enableEmbeddings = ref(true)
+const isUpdatingEmbeddings = ref(false)
+const isReindexingEmbeddings = ref(false)
+
+async function loadGlobalSettings() {
+  try {
+    const res = await AIConfigAPI.getGlobalSettings()
+    enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS ?? true
+    uiStore.enableEmbeddings = enableEmbeddings.value
+  } catch (err) {
+    console.error('Failed to load global settings', err)
+  }
+}
+
+async function toggleEmbeddings() {
+  isUpdatingEmbeddings.value = true
+  try {
+    const newVal = !enableEmbeddings.value
+    const res = await AIConfigAPI.updateGlobalSettings({ ENABLE_EMBEDDINGS: newVal })
+    enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS
+    uiStore.enableEmbeddings = enableEmbeddings.value
+    uiStore.showToast(
+      enableEmbeddings.value
+        ? 'Vector embeddings enabled.'
+        : 'Vector embeddings disabled. Intake will run faster without embeddings.',
+      'success'
+    )
+  } catch (err) {
+    uiStore.showToast('Failed to update embeddings setting', 'error')
+  } finally {
+    isUpdatingEmbeddings.value = false
+  }
+}
+
+async function reindexMissingEmbeddings() {
+  isReindexingEmbeddings.value = true
+  try {
+    const res = await AIConfigAPI.reindexEmbeddings()
+    uiStore.showToast(res.data.message || 'Embeddings backfill enqueued!', 'success')
+  } catch (err) {
+    uiStore.showToast('Failed to reindex embeddings: ' + (err.response?.data?.detail || err.message), 'error')
+  } finally {
+    isReindexingEmbeddings.value = false
+  }
+}
+
 const TASKS = [
-  {
-    key: 'GLOBAL_DEFAULT',
-    promptKey: null,
-    label: 'Global Default Model',
-    icon: 'Globe',
-    recommendedTemp: 0.2,
-    recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
-    hasPrompt: false,
-    desc: 'The master fallback model used across all standard inference tasks.',
-    variables: [],
-    hidden: computed(() => true)
-  },
   {
     key: 'JD_EXTRACTION',
     promptKey: 'jd_extraction',
@@ -309,14 +408,20 @@ async function saveStudioTask() {
 
   try {
     // 1. Save Model Binding
+    const useGlobal = studioForm.value.use_global_default && taskKey !== 'EMBEDDING'
     await AIConfigAPI.setBinding(taskKey, {
-      provider_id: studioForm.value.provider_id,
-      model_name: studioForm.value.model_name.trim(),
+      provider_id: useGlobal
+        ? (globalBinding.value?.provider_id || studioForm.value.provider_id)
+        : studioForm.value.provider_id,
+      model_name: useGlobal
+        ? (globalBinding.value?.model_name || studioForm.value.model_name.trim())
+        : studioForm.value.model_name.trim(),
       temperature: studioForm.value.temperature,
       reasoning_effort: studioForm.value.reasoning_effort,
       max_tokens: studioForm.value.max_tokens ? Number(studioForm.value.max_tokens) : undefined,
       embedding_dimensions: taskKey === 'EMBEDDING' ? studioForm.value.embedding_dimensions : undefined,
       extra_kwargs: {
+        use_global_default: useGlobal,
         reasoning_effort: studioForm.value.reasoning_effort,
       },
     })
@@ -405,6 +510,7 @@ async function loadBindings() {
   try {
     const res = await AIConfigAPI.listBindings()
     bindings.value = res.data || []
+    syncGlobalForm()
   } catch (err) {
     // ignore
   }
@@ -789,7 +895,9 @@ onMounted(async () => {
     loadPrompts(),
     loadEmailAccounts(),
     loadOAuthConfig(),
+    loadGlobalSettings(),
   ])
+  syncGlobalForm()
   syncStudioForm()
 })
 </script>
@@ -853,34 +961,125 @@ onMounted(async () => {
           <div class="global-hero-card">
             <div class="global-hero-header">
               <div class="hero-title-group">
-                <Globe class="text-primary" :size="24" />
+                <Globe class="text-primary" :size="22" />
                 <div>
                   <h2 class="hero-title">Global Default Model</h2>
-                  <p class="hero-desc">The primary AI model used across all standard pipelines unless explicitly overridden.</p>
+                  <p class="hero-desc">The primary AI provider and model used across all standard pipeline tasks.</p>
                 </div>
               </div>
-              <button class="btn btn-outline btn-sm" @click="selectStudioTask('GLOBAL_DEFAULT'); isAdvancedOpen = true">
-                <Edit3 :size="14" />
-                <span>Change Global Model</span>
+              <button
+                class="btn btn-primary btn-sm"
+                :disabled="isSavingGlobal"
+                @click="saveGlobalDefault"
+              >
+                <Loader2 v-if="isSavingGlobal" class="animate-spin" :size="14" />
+                <Save v-else :size="14" />
+                <span>{{ isSavingGlobal ? 'Saving...' : 'Save Global Default' }}</span>
               </button>
             </div>
 
-            <div class="global-hero-content" v-if="globalBinding">
-              <div class="global-stat">
-                <span class="stat-label">Provider</span>
-                <span class="stat-val">{{ globalBinding.provider_type }} ({{ globalBinding.provider_name }})</span>
+            <div class="global-hero-form">
+              <div class="form-grid-2">
+                <div class="input-group">
+                  <div class="label-with-hint">
+                    <label class="input-label">AI Provider *</label>
+                  </div>
+                  <select
+                    v-model="globalForm.provider_id"
+                    class="form-input"
+                    @change="onGlobalProviderChange"
+                  >
+                    <option v-for="p in providers" :key="p.id" :value="p.id">
+                      {{ p.name }} ({{ p.provider_type }})
+                    </option>
+                  </select>
+                </div>
+
+                <div class="input-group">
+                  <div class="label-with-hint">
+                    <label class="input-label">Model Identifier *</label>
+                    <button
+                      v-if="globalForm.provider_id"
+                      type="button"
+                      class="btn-refresh-models"
+                      :disabled="loadingGlobalModels"
+                      @click="fetchGlobalModels(globalForm.provider_id, true)"
+                      title="Auto-discover models from live endpoint"
+                    >
+                      <RefreshCw :class="{ 'animate-spin': loadingGlobalModels }" :size="12" />
+                      <span>{{ loadingGlobalModels ? 'Discovering...' : 'Auto-Discover' }}</span>
+                    </button>
+                  </div>
+                  <input
+                    v-model="globalForm.model_name"
+                    type="text"
+                    placeholder="e.g. gpt-4o, claude-3-7-sonnet, qwen/qwen3.5-9b"
+                    class="form-input font-mono"
+                    required
+                  />
+                </div>
               </div>
-              <div class="global-stat">
-                <span class="stat-label">Model Name</span>
-                <span class="stat-val highlight">{{ globalBinding.model_name }}</span>
-              </div>
-              <div class="global-stat">
-                <span class="stat-label">Temperature</span>
-                <span class="stat-val">{{ globalBinding.temperature }}</span>
+
+              <!-- Quick Pick Discovered Chips -->
+              <div v-if="globalProviderModels.length" class="model-suggestions-box mt-3">
+                <span class="suggestions-label">Discovered Models on Provider:</span>
+                <div class="suggestions-list">
+                  <button
+                    v-for="m in globalProviderModels"
+                    :key="m.id"
+                    type="button"
+                    class="model-chip font-mono"
+                    :class="{ active: globalForm.model_name === m.id }"
+                    @click="globalForm.model_name = m.id"
+                  >
+                    <Check v-if="globalForm.model_name === m.id" :size="11" />
+                    <span>{{ m.id }}</span>
+                  </button>
+                </div>
               </div>
             </div>
-            <div class="global-hero-content empty" v-else>
-              <span>No global default configured. System will fallback to legacy .env settings.</span>
+          </div>
+
+          <!-- VECTOR KNOWLEDGE & EMBEDDINGS CARD -->
+          <div class="embeddings-control-card">
+            <div class="embeddings-control-header">
+              <div class="embeddings-title-group">
+                <Cpu class="text-primary" :size="20" />
+                <div>
+                  <h3 class="embeddings-title">Vector Knowledge &amp; Embeddings</h3>
+                  <p class="embeddings-desc">
+                    Enable dense vector indexing for AI natural language search. Disable to make application intake significantly faster.
+                  </p>
+                </div>
+              </div>
+
+              <div class="embeddings-actions">
+                <label class="switch-toggle" title="Toggle Vector Embeddings generation">
+                  <input
+                    type="checkbox"
+                    :checked="enableEmbeddings"
+                    :disabled="isUpdatingEmbeddings"
+                    @change="toggleEmbeddings"
+                  />
+                  <span class="slider round"></span>
+                </label>
+              </div>
+            </div>
+
+            <div v-if="enableEmbeddings" class="embeddings-control-body">
+              <div class="embeddings-info-box">
+                <span class="embeddings-status-text">
+                  Vector Knowledge is <strong>ACTIVE</strong> — new applications automatically generate embeddings for semantic search.
+                </span>
+                <button
+                  class="btn btn-outline btn-xs"
+                  :disabled="isReindexingEmbeddings"
+                  @click="reindexMissingEmbeddings"
+                >
+                  <RefreshCw :size="12" :class="{ 'animate-spin': isReindexingEmbeddings }" />
+                  <span>{{ isReindexingEmbeddings ? 'Re-indexing...' : 'Rebuild Missing Embeddings' }}</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -982,13 +1181,18 @@ onMounted(async () => {
               <span>Model &amp; Execution Binding</span>
             </div>
 
-            <div v-if="selectedTaskKey !== 'GLOBAL_DEFAULT' && selectedTaskKey !== 'EMBEDDING'" class="use-global-checkbox mb-4">
+            <div v-if="selectedTaskKey !== 'EMBEDDING'" class="use-global-checkbox mb-4">
               <label class="custom-checkbox">
                 <input type="checkbox" v-model="studioForm.use_global_default" />
                 <span class="checkmark"></span>
-                <span class="checkbox-label">Use Global Default Model</span>
+                <span class="checkbox-label">Use Global Default Model ({{ globalBinding?.model_name || 'qwen/qwen3.5-9b' }})</span>
               </label>
-              <p class="checkbox-hint">If checked, this task will fall back to the Global Default model configured above.</p>
+              <p class="checkbox-hint">When checked, this task inherits the global provider and model while keeping its own execution parameters.</p>
+            </div>
+
+            <div v-if="studioForm.use_global_default && selectedTaskKey !== 'EMBEDDING'" class="inherited-model-banner mb-4">
+              <span class="inherited-icon">ℹ️</span>
+              <span>Inheriting Global Default Model: <strong>{{ globalBinding?.model_name || 'qwen/qwen3.5-9b' }}</strong>. You can still customize temperature, thinking mode, and max tokens below.</span>
             </div>
 
             <div class="form-grid-2" :class="{ 'opacity-50 pointer-events-none': studioForm.use_global_default && selectedTaskKey !== 'EMBEDDING' }">
@@ -1034,7 +1238,11 @@ onMounted(async () => {
             </div>
 
             <!-- Curated / Discovered Models Quick Pick Chips -->
-            <div v-if="studioProviderModels.length" class="model-suggestions-box">
+            <div
+              v-if="studioProviderModels.length"
+              class="model-suggestions-box"
+              :class="{ 'opacity-50 pointer-events-none': studioForm.use_global_default && selectedTaskKey !== 'EMBEDDING' }"
+            >
               <span class="suggestions-label">Discovered / Available Models on Provider:</span>
               <div class="suggestions-list">
                 <button
@@ -1042,6 +1250,7 @@ onMounted(async () => {
                   :key="m.id"
                   type="button"
                   class="model-chip font-mono"
+                  :disabled="studioForm.use_global_default && selectedTaskKey !== 'EMBEDDING'"
                   :class="{ active: studioForm.model_name === m.id }"
                   @click="studioForm.model_name = m.id"
                 >
@@ -2526,9 +2735,22 @@ onMounted(async () => {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: 20px;
   box-shadow: var(--shadow-sm);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+
+.task-header-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.studio-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .task-badge-row {
@@ -3650,9 +3872,8 @@ onMounted(async () => {
 }
 
 .advanced-overrides-section {
-  border-left: 2px solid var(--primary-subtle);
-  padding-left: 16px;
-  margin-left: 4px;
+  margin-top: 0;
+  margin-bottom: 24px;
 }
 
 .advanced-toggle-btn {
@@ -3735,6 +3956,137 @@ onMounted(async () => {
   font-size: 11px;
   color: var(--text-secondary);
   margin-left: 24px;
+}
+
+.global-hero-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.embeddings-control-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  margin-bottom: 24px;
+}
+
+.embeddings-control-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.embeddings-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.embeddings-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.embeddings-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 2px 0 0 0;
+}
+
+.embeddings-control-body {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.embeddings-info-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+}
+
+.embeddings-status-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* Switch Toggle Component */
+.switch-toggle {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.switch-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  transition: 0.3s;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 3px;
+  bottom: 3px;
+  background-color: var(--text-muted);
+  transition: 0.3s;
+}
+
+input:checked + .slider {
+  background-color: var(--primary);
+  border-color: var(--primary);
+}
+
+input:checked + .slider:before {
+  transform: translateX(20px);
+  background-color: #ffffff;
+}
+
+.slider.round {
+  border-radius: 24px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
+}
+
+.inherited-model-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-main);
 }
 
 .opacity-50 {

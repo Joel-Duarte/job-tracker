@@ -72,7 +72,47 @@ class ActionItemsInput(BaseModel):
 async def execute_semantic_vector_search(
     db: AsyncSession, query: str, limit: int = 5
 ) -> list[dict[str, Any]]:
-    """Performs semantic vector search across pgvector application embeddings."""
+    """Performs semantic vector search across pgvector application embeddings, with fallback if embeddings are disabled."""
+    from sqlalchemy import or_
+
+    from app.core.config_manager import get_setting
+
+    if not get_setting("ENABLE_EMBEDDINGS", True):
+        words = [w for w in query.strip().split() if len(w) > 2]
+        stmt = (
+            select(ApplicationModel)
+            .options(
+                selectinload(ApplicationModel.company),
+                selectinload(ApplicationModel.events),
+            )
+            .join(CompanyModel, ApplicationModel.company_id == CompanyModel.id)
+            .limit(limit)
+        )
+        if words:
+            filters = [
+                or_(
+                    CompanyModel.name.ilike(f"%{w}%"),
+                    ApplicationModel.position.ilike(f"%{w}%"),
+                    ApplicationModel.status.ilike(f"%{w}%"),
+                )
+                for w in words
+            ]
+            stmt = stmt.where(or_(*filters))
+        res = await db.execute(stmt)
+        apps = res.scalars().all()
+        return [
+            {
+                "application_id": app.id,
+                "company": app.company.name if app.company else "Unknown",
+                "position": app.position,
+                "status": app.status,
+                "similarity_score": "Keyword Match (Fast)",
+                "document_content": f"Application for {app.position} at {app.company.name if app.company else 'Unknown'} ({app.status})",
+                "metadata": {"fallback": True},
+            }
+            for app in apps
+        ]
+
     query_vector = await generate_embedding(db, query)
     distance_expr = ApplicationEmbeddingModel.embedding.cosine_distance(
         query_vector
