@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.core.llm_factory import get_task_chat_model
 from app.core.prompts import get_prompt_template
 from app.services.agent_tools import create_agent_tools
+from app.services.mock_interview_graph import mock_interview_graph
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,16 @@ class ChatMessage(BaseModel):
 
 class AgentChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(..., min_length=1)
+    interview_type: str | None = Field(
+        default=None, description="E.g., 'Rapid Technical Screen' or 'Deep Dive'"
+    )
+    application_id: int | None = Field(
+        default=None, description="Application ID context for mock interviews"
+    )
+    thread_id: str | None = Field(
+        default=None,
+        description="Unique conversation thread ID for LangGraph checkpointing",
+    )
 
 
 class AgentChatResponse(BaseModel):
@@ -39,6 +50,60 @@ async def chat_with_agent(
     """
     Conversational Agent Chat equipped with native semantic vector search and database query/mutation tools.
     """
+    if payload.interview_type:
+        thread_id = payload.thread_id or "default_thread"
+        config = {"configurable": {"thread_id": thread_id, "db": db}}
+
+        last_user_msg = payload.messages[-1].content.strip()
+        state_input = {
+            "messages": [HumanMessage(content=last_user_msg)],
+            "interview_type": payload.interview_type,
+            "application_id": payload.application_id,
+        }
+
+        reply_content = ""
+        actions_performed = []
+
+        try:
+            async for s in mock_interview_graph.astream(
+                state_input, config, stream_mode="values"
+            ):
+                if "messages" in s and s["messages"]:
+                    last_msg = s["messages"][-1]
+                    if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
+                        tc = last_msg.tool_calls[0]
+                        if tc["name"] in (
+                            "PresentMultipleChoiceQuestion",
+                            "PresentOpenEndedQuestion",
+                        ):
+                            reply_content = tc["args"].get("question", "")
+                            if tc["name"] == "PresentMultipleChoiceQuestion":
+                                options = tc["args"].get("options", [])
+                                reply_content += "\n\nOptions:\n" + "\n".join(
+                                    [f"- {opt}" for opt in options]
+                                )
+                            actions_performed.append(
+                                {"action": tc["name"], "args": tc["args"]}
+                            )
+                        elif tc["name"] == "SubmitEvaluation":
+                            score = tc["args"].get("score", 0)
+                            feedback = tc["args"].get("feedback", "")
+                            reply_content = f"Interview Complete!\nScore: {score}/100\n\nFeedback: {feedback}"
+                            actions_performed.append(
+                                {"action": tc["name"], "args": tc["args"]}
+                            )
+
+            return AgentChatResponse(
+                reply=reply_content,
+                actions_performed=actions_performed,
+            )
+        except Exception as err:
+            logger.error("Mock interview error: %s", err, exc_info=True)
+            return AgentChatResponse(
+                reply=f"I encountered an issue running the mock interview: {err}",
+                actions_performed=[],
+            )
+
     system_prompt = await get_prompt_template(db, "agent_system")
     chat_model = await get_task_chat_model(db, task_type="AGENT_REASONING")
 

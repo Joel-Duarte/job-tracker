@@ -17,6 +17,15 @@ export const useAgentChatStore = defineStore('agentChat', () => {
   const messages = ref(loadPersistedMessages())
   const isSending = ref(false)
 
+  const isMockInterview = ref(false)
+  const interviewType = ref('Rapid Technical Screen')
+  const applicationId = ref(null)
+
+  function generateThreadId() {
+    return 'thread_' + Math.random().toString(36).substring(2, 15)
+  }
+  const threadId = ref(generateThreadId())
+
   function loadPersistedMessages() {
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
@@ -42,7 +51,20 @@ export const useAgentChatStore = defineStore('agentChat', () => {
 
   function resetChat() {
     messages.value = [{ ...DEFAULT_WELCOME_MESSAGE }]
+    threadId.value = generateThreadId()
     savePersistedMessages()
+  }
+
+  function configureMockInterview(type, appId) {
+    isMockInterview.value = true
+    interviewType.value = type
+    applicationId.value = appId
+    resetChat()
+    messages.value = [{
+      role: 'assistant',
+      content: `Starting mock interview (${type}). I'll be your technical interviewer. Let me review your profile and we'll begin when you're ready!`,
+      actions: []
+    }]
   }
 
   async function sendMessage(text) {
@@ -60,10 +82,18 @@ export const useAgentChatStore = defineStore('agentChat', () => {
     isSending.value = true
 
     try {
-      const payload = messages.value.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }))
+      const payload = {
+        messages: messages.value.map((m) => ({
+          role: m.role,
+          content: m.content,
+        }))
+      }
+
+      if (isMockInterview.value) {
+        payload.interview_type = interviewType.value
+        payload.application_id = applicationId.value || null
+        payload.thread_id = threadId.value
+      }
 
       const res = await AgentAPI.chat(payload)
       messages.value.push({
@@ -93,7 +123,11 @@ export const useAgentChatStore = defineStore('agentChat', () => {
   return {
     messages,
     isSending,
+    isMockInterview,
+    interviewType,
+    applicationId,
     sendMessage,
     resetChat,
+    configureMockInterview,
   }
 })

@@ -39,7 +39,7 @@ export const CandidateProfileAPI = {
 }
 
 export const AgentAPI = {
-  chat: (messages) => apiClient.post('/agent/chat', { messages }),
+  chat: (payload) => apiClient.post('/agent/chat', payload),
 }
 
 export const PromptsAPI = {

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, nextTick, watch } from 'vue'
 import { useAgentChatStore } from '../stores/agentChatStore'
+import { useApplicationsStore } from '../stores/applicationsStore'
 import {
   Bot,
   User,
@@ -13,11 +14,25 @@ import {
   ArrowRight,
   RotateCcw,
   Plus,
+  MonitorPlay,
+  X
 } from 'lucide-vue-next'
 
 const chatStore = useAgentChatStore()
+const appStore = useApplicationsStore()
 const inputMessage = ref('')
 const chatContainer = ref(null)
+
+const showConfig = ref(false)
+const selectedInterviewType = ref('Rapid Technical Screen')
+const selectedAppId = ref('')
+
+onMounted(() => {
+  if (appStore.applications.length === 0) {
+    appStore.fetchApplications()
+  }
+  scrollToBottom()
+})
 
 const starterPrompts = [
   'Which applications currently require urgent action from me?',
@@ -59,7 +74,17 @@ function handleKeyDown(e) {
 }
 
 function handleResetChat() {
+  chatStore.isMockInterview = false
   chatStore.resetChat()
+  scrollToBottom()
+}
+
+function startMockInterview() {
+  chatStore.configureMockInterview(
+    selectedInterviewType.value,
+    selectedAppId.value ? parseInt(selectedAppId.value) : null
+  )
+  showConfig.value = false
   scrollToBottom()
 }
 
@@ -84,6 +109,16 @@ function formatActionLabel(act) {
   if (act.action === 'get_action_items') {
     return `Queried pending action items & deadlines`
   }
+  if (act.action === 'PresentMultipleChoiceQuestion') {
+    return `Asked Multiple Choice Question`
+  }
+  if (act.action === 'PresentOpenEndedQuestion') {
+    return `Asked Open Ended Question`
+  }
+  if (act.action === 'SubmitEvaluation') {
+    const s = act.args?.score || 0
+    return `Evaluated Answers (Score: ${s})`
+  }
   return `Executed: ${act.action || 'Tool'}`
 }
 </script>
@@ -97,15 +132,24 @@ function formatActionLabel(act) {
           <Bot :size="18" />
         </div>
         <div>
-          <h2 class="agent-title">Agent Assistant</h2>
+          <h2 class="agent-title">Agent Assistant <span v-if="chatStore.isMockInterview" class="mock-badge">Mock Interview</span></h2>
           <div class="agent-subtitle">
             <span class="pulse-dot"></span>
-            <span>Equipped with pgvector semantic search & database mutation tools</span>
+            <span v-if="!chatStore.isMockInterview">Equipped with pgvector semantic search & database mutation tools</span>
+            <span v-else>Acting as Technical Hiring Manager</span>
           </div>
         </div>
       </div>
 
       <div class="header-actions">
+        <button
+          class="btn-new-chat"
+          title="Start mock interview"
+          @click="showConfig = !showConfig"
+        >
+          <MonitorPlay :size="14" />
+          <span>Mock Interview</span>
+        </button>
         <button
           class="btn-new-chat"
           title="Start fresh conversation"
@@ -114,6 +158,27 @@ function formatActionLabel(act) {
           <Plus :size="14" />
           <span>New Chat</span>
         </button>
+      </div>
+    </div>
+
+    <!-- Mock Interview Config Bar -->
+    <div v-if="showConfig" class="mock-config-bar">
+      <div class="config-header">
+        <h4>Mock Interview Setup</h4>
+        <button class="btn-close" @click="showConfig = false"><X :size="14"/></button>
+      </div>
+      <div class="config-fields">
+        <select v-model="selectedInterviewType" class="select-input">
+          <option value="Rapid Technical Screen">Rapid Technical Screen</option>
+          <option value="Deep Dive">Deep Dive</option>
+        </select>
+        <select v-model="selectedAppId" class="select-input">
+          <option value="">General (No Context)</option>
+          <option v-for="app in appStore.applications" :key="app.id" :value="app.id">
+            {{ app.company?.name }} - {{ app.position }}
+          </option>
+        </select>
+        <button class="btn btn-primary" @click="startMockInterview">Start</button>
       </div>
     </div>
 
@@ -156,7 +221,7 @@ function formatActionLabel(act) {
     </div>
 
     <!-- Starter Prompts (if chat is short) -->
-    <div v-if="chatStore.messages.length <= 2" class="starters-bar">
+    <div v-if="chatStore.messages.length <= 2 && !chatStore.isMockInterview" class="starters-bar">
       <button
         v-for="prompt in starterPrompts"
         :key="prompt"
@@ -173,7 +238,7 @@ function formatActionLabel(act) {
       <textarea
         v-model="inputMessage"
         rows="1"
-        placeholder="Ask the agent to search applications, check interview dates, or change statuses (e.g. 'move Stripe to Offer')..."
+        :placeholder="chatStore.isMockInterview ? 'Type your answer to the interview question...' : 'Ask the agent to search applications, check interview dates, or change statuses...'"
         class="chat-input"
         @keydown="handleKeyDown"
       ></textarea>
@@ -239,6 +304,56 @@ function formatActionLabel(act) {
   background-color: var(--bg-hover);
   border-color: var(--border-color);
   color: var(--text-primary);
+}
+
+.mock-badge {
+  font-size: 10px;
+  background-color: var(--status-assessment-bg);
+  color: var(--status-assessment-text);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.mock-config-bar {
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+  padding: 12px 24px;
+}
+
+.config-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.config-header h4 {
+  font-size: 13px;
+  margin: 0;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.config-fields {
+  display: flex;
+  gap: 12px;
+}
+
+.select-input {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  font-size: 13px;
 }
 
 .agent-avatar {
