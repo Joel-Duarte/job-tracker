@@ -64,7 +64,10 @@ async def init_node(
 
     stmt = (
         select(ApplicationModel)
-        .options(joinedload(ApplicationModel.job_posting))
+        .options(
+            joinedload(ApplicationModel.job_posting),
+            joinedload(ApplicationModel.company),
+        )
         .where(ApplicationModel.id == app_id)
     )
     res = await db.execute(stmt)

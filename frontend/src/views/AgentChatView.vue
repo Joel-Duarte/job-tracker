@@ -174,8 +174,8 @@ function formatActionLabel(act) {
         </select>
         <select v-model="selectedAppId" class="select-input">
           <option value="">General (No Context)</option>
-          <option v-for="app in appStore.applications" :key="app.id" :value="app.id">
-            {{ app.company?.name }} - {{ app.position }}
+          <option v-for="app in appStore.applications.filter(a => ['TECHNICAL_INTERVIEW', 'OFFER', 'APPLIED'].includes(a.status))" :key="app.id" :value="app.id">
+            {{ app.company?.name }} - {{ app.position }} ({{ app.status }})
           </option>
         </select>
         <button class="btn btn-primary" @click="startMockInterview">Start</button>

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
+import { useAgentChatStore } from '../../stores/agentChatStore'
 import { ActionItemsAPI, ApplicationsAPI } from '../../api/endpoints'
 import DateTimePicker from '../common/DateTimePicker.vue'
 
@@ -33,11 +34,13 @@ import {
   BookOpen,
   Globe,
   RotateCcw,
+  MonitorPlay,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
 const router = useRouter()
 const appStore = useApplicationsStore()
+const chatStore = useAgentChatStore()
 
 const { detailActiveTab: activeTab } = storeToRefs(uiStore) // 'timeline' | 'job_spec' | 'actions' | 'guide'
 const showDeleteConfirm = ref(false)
@@ -163,6 +166,12 @@ async function handleClearGuide() {
 function openGuideInNewTab() {
   const routeData = router.resolve({ name: 'InterviewGuide', params: { id: appStore.selectedApplication.id } })
   window.open(routeData.href, '_blank')
+}
+
+function startMockInterview() {
+  uiStore.closeDrawer('applicationDetail')
+  chatStore.configureMockInterview('Deep Dive', appStore.selectedApplication.id)
+  router.push('/chat')
 }
 
 const INTERVIEW_STAGES = [
@@ -996,6 +1005,15 @@ function formatDate(isoStr) {
                   >
                     <RotateCcw :size="15" />
                     <span>Regenerate</span>
+                  </button>
+                  <button
+                    class="btn btn-primary"
+                    style="background-color: var(--status-assessment-bg); color: var(--status-assessment-text); border-color: var(--status-assessment-border);"
+                    title="Start Mock Interview"
+                    @click="startMockInterview"
+                  >
+                    <MonitorPlay :size="15" />
+                    <span>Mock Interview</span>
                   </button>
                 </div>
               </div>
