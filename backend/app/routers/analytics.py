@@ -14,7 +14,10 @@ async def get_overview(
     work_model: str | None = Query(
         None, description="Filter by work model (e.g., remote, hybrid)"
     ),
-    top_n: int = Query(15, description="Number of top skills/gaps to return"),
+    top_n: int | None = Query(
+        None,
+        description="Optional number of top skills/gaps to return (defaults to all)",
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     return await get_analytics_overview(

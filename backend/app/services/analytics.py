@@ -19,7 +19,7 @@ async def get_analytics_overview(
     db: AsyncSession,
     days_limit: int | None = None,
     work_model: str | None = None,
-    top_n_skills: int = 15,
+    top_n_skills: int | None = None,
 ) -> AnalyticsOverviewResponse:
     # 1. Fetch the active candidate CV to get extracted_skills
     cv_query = select(CandidateCVModel).where(CandidateCVModel.is_active).limit(1)
@@ -184,9 +184,9 @@ async def get_analytics_overview(
     avg_fit_score = sum(fit_scores) / len(fit_scores) if fit_scores else None
 
     # Top Demand Skills
-    top_skills_sorted = sorted(skill_counts.items(), key=lambda x: x[1], reverse=True)[
-        :top_n_skills
-    ]
+    top_skills_sorted = sorted(skill_counts.items(), key=lambda x: x[1], reverse=True)
+    if top_n_skills is not None and top_n_skills > 0:
+        top_skills_sorted = top_skills_sorted[:top_n_skills]
     top_in_demand_skills = []
     for skill, count in top_skills_sorted:
         pct = (count / total_applications * 100) if total_applications > 0 else 0
@@ -209,7 +209,9 @@ async def get_analytics_overview(
     # Skill Gaps
     gap_skills_sorted = sorted(
         gap_frequencies.items(), key=lambda x: x[1], reverse=True
-    )[:top_n_skills]
+    )
+    if top_n_skills is not None and top_n_skills > 0:
+        gap_skills_sorted = gap_skills_sorted[:top_n_skills]
     priority_skill_gaps = []
     for skill, freq in gap_skills_sorted:
         salaries = gap_salaries[skill]
