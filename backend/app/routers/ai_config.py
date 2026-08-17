@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -559,10 +559,11 @@ async def delete_ai_task_binding(
     stmt = delete(AITaskBindingModel).where(
         AITaskBindingModel.task_type == task_type_norm
     )
-    res = await db.execute(stmt)
+    result = await db.execute(stmt)
     await db.commit()
 
-    if res.rowcount == 0:
+    deleted_count = getattr(result, "rowcount", 0) or 0
+    if deleted_count == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Task binding for '{task_type_norm}' not found.",
