@@ -9,6 +9,7 @@ from app.models.applications import ApplicationModel, CompanyModel
 
 
 @pytest.mark.asyncio
+@pytest.mark.docker
 async def test_action_items_crud_and_filtering(db_session):
     app.dependency_overrides[get_db] = lambda: db_session
 
@@ -110,3 +111,56 @@ async def test_action_items_crud_and_filtering(db_session):
         # Verify 404 on deleting already deleted item
         del_res_404 = await ac.delete(f"/api/v1/action-items/{item2_id}")
         assert del_res_404.status_code == 404
+
+@pytest.mark.asyncio
+@pytest.mark.docker
+async def test_draft_action_item_reply(db_session, monkeypatch):
+    from app.services import llm
+
+    async def mock_generate_email_reply_draft(session, item_id):
+        return "Drafted mock reply email text"
+
+    monkeypatch.setattr(llm, "generate_email_reply_draft", mock_generate_email_reply_draft)
+
+    app.dependency_overrides[get_db] = lambda: db_session
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        # Create a company and application
+        company = CompanyModel(
+            name="Mock Corp",
+            name_normalized="mock corp",
+            domain="mockcorp.com",
+        )
+        db_session.add(company)
+        await db_session.commit()
+        await db_session.refresh(company)
+
+        application = ApplicationModel(
+            company_id=company.id,
+            position="Engineer",
+            position_normalized="engineer",
+            status="TECHNICAL_INTERVIEW",
+            application_key="mock-eng",
+        )
+        db_session.add(application)
+        await db_session.commit()
+        await db_session.refresh(application)
+
+        # Create Action Item via POST
+        create_payload = {
+            "application_id": application.id,
+            "title": "Reply to recruiter",
+            "urgency": "HIGH",
+            "status": "PENDING",
+        }
+        res1 = await ac.post("/api/v1/action-items", json=create_payload)
+        assert res1.status_code == 201
+        item_id = res1.json()["id"]
+
+        # Call draft reply
+        draft_res = await ac.post(f"/api/v1/action-items/{item_id}/draft-reply")
+        assert draft_res.status_code == 200
+        data = draft_res.json()
+        assert data["draft_email"] == "Drafted mock reply email text"
