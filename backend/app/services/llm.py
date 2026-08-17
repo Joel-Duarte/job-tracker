@@ -408,9 +408,7 @@ async def generate_email_reply_draft(
         return None
 
     # Get candidate profile context
-    profile_stmt = select(CandidateCVModel).where(
-        CandidateCVModel.is_active
-    )
+    profile_stmt = select(CandidateCVModel).where(CandidateCVModel.is_active)
     profile_res = await db.execute(profile_stmt)
     profile = profile_res.scalar_one_or_none()
 
