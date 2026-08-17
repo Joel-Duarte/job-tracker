@@ -1,10 +1,11 @@
 import logging
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 

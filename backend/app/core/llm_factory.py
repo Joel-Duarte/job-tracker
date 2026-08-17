@@ -167,6 +167,31 @@ async def get_embeddings_model(
     return init_embeddings(**init_kwargs)
 
 
+TASK_RECOMMENDED_DEFAULTS = {
+    "JD_EXTRACTION": {
+        "temperature": 0.0,
+        "reasoning_effort": "none",
+        "max_tokens": None,
+    },
+    "EXTRACTION": {
+        "temperature": 0.1,
+        "reasoning_effort": "none",
+        "max_tokens": None,
+    },
+    "ASSESSMENT": {
+        "temperature": 0.2,
+        "reasoning_effort": "none",
+        "max_tokens": None,
+    },
+    "INTERVIEW_GUIDE": {
+        "temperature": 0.3,
+        "reasoning_effort": "none",
+        "max_tokens": None,
+    },
+    "AGENT": {"temperature": 0.2, "reasoning_effort": "none", "max_tokens": None},
+}
+
+
 async def get_task_chat_model(
     db: AsyncSession | None = None,
     task_type: str = "EXTRACTION",
@@ -174,8 +199,14 @@ async def get_task_chat_model(
 ) -> BaseChatModel:
     """
     Dynamically loads and initializes a LangChain BaseChatModel based on task binding configuration.
-    Cascades gracefully to legacy/env config if task binding is not configured.
+    The Global Default Model sets only the Provider and Model Name.
+    Task-specific parameters (temperature, max_tokens, reasoning_effort) are kept independent per task.
     """
+    task_defaults = TASK_RECOMMENDED_DEFAULTS.get(
+        task_type,
+        {"temperature": 0.2, "reasoning_effort": "none", "max_tokens": None},
+    )
+
     if db is not None:
         try:
             from app.models.ai_providers import AITaskBindingModel
@@ -199,17 +230,59 @@ async def get_task_chat_model(
                 (b for b in bindings if b.task_type == "GLOBAL_DEFAULT"), None
             )
 
-            binding = exact_binding or global_binding
+            # 1. Resolve Provider and Model Name (Exact override takes precedence, otherwise Global Default)
+            target_provider = None
+            target_model_name = None
 
-            if binding and binding.provider and binding.provider.is_active:
-                provider_type = _resolve_provider(binding.provider.provider_type)
-                base_url = _clean_base_url(binding.provider.base_url)
-                api_key = binding.provider.api_key or "dummy-key"
+            if (
+                exact_binding
+                and exact_binding.provider
+                and exact_binding.provider.is_active
+                and exact_binding.model_name
+            ):
+                extra = dict(exact_binding.extra_kwargs or {})
+                if not extra.get("use_global_default", False):
+                    target_provider = exact_binding.provider
+                    target_model_name = exact_binding.model_name
+
+            if not target_provider or not target_model_name:
+                if (
+                    global_binding
+                    and global_binding.provider
+                    and global_binding.provider.is_active
+                ):
+                    target_provider = global_binding.provider
+                    target_model_name = global_binding.model_name
+
+            # 2. Resolve Parameters (Temperature, Max Tokens, Top P, Reasoning Effort)
+            # These are ALWAYS task-specific, never polluted by global default
+            if exact_binding:
+                temperature = (
+                    exact_binding.temperature
+                    if exact_binding.temperature is not None
+                    else task_defaults["temperature"]
+                )
+                top_p = exact_binding.top_p
+                max_tokens = exact_binding.max_tokens
+                extra = dict(exact_binding.extra_kwargs or {})
+                reasoning = extra.get(
+                    "reasoning_effort", task_defaults["reasoning_effort"]
+                )
+            else:
+                temperature = task_defaults["temperature"]
+                top_p = None
+                max_tokens = task_defaults["max_tokens"]
+                reasoning = task_defaults["reasoning_effort"]
+
+            if target_provider and target_provider.is_active and target_model_name:
+                provider_type = _resolve_provider(target_provider.provider_type)
+                base_url = _clean_base_url(target_provider.base_url)
+                api_key = target_provider.api_key or "dummy-key"
 
                 init_kwargs: dict[str, Any] = {
-                    "model": binding.model_name,
+                    "model": target_model_name,
                     "model_provider": provider_type,
-                    "temperature": binding.temperature,
+                    "temperature": temperature,
                     "timeout": 300.0,
                 }
 
@@ -217,13 +290,10 @@ async def get_task_chat_model(
                     init_kwargs["base_url"] = base_url
                 if api_key:
                     init_kwargs["api_key"] = api_key
-                if binding.top_p is not None:
-                    init_kwargs["top_p"] = binding.top_p
-                if binding.max_tokens is not None and binding.max_tokens > 0:
-                    init_kwargs["max_tokens"] = binding.max_tokens
-
-                extra = dict(binding.extra_kwargs or {})
-                reasoning = extra.get("reasoning_effort", "none")
+                if top_p is not None:
+                    init_kwargs["top_p"] = top_p
+                if max_tokens is not None and max_tokens > 0:
+                    init_kwargs["max_tokens"] = max_tokens
 
                 # Configure reasoning / thinking mode across model families
                 if reasoning and reasoning.lower() != "none":
@@ -247,7 +317,7 @@ async def get_task_chat_model(
                         current_max = (
                             init_kwargs.get("max_tokens")
                             or override_kwargs.get("max_tokens")
-                            or binding.max_tokens
+                            or max_tokens
                             or 0
                         )
                         if current_max <= budget:
@@ -263,12 +333,6 @@ async def get_task_chat_model(
                             "thinking_budget": budget
                         }
 
-                # Apply remaining extra kwargs if provided
-                for k, v in extra.items():
-                    if k != "reasoning_effort":
-                        init_kwargs[k] = v
-
-                # Filter out max_tokens=None from override_kwargs if passed
                 clean_overrides = {
                     k: v
                     for k, v in override_kwargs.items()
