@@ -749,6 +749,23 @@ onUnmounted(() => {
 
               <p v-else class="tailoring-text">{{ task.result_json.tailoring_strategy }}</p>
             </div>
+
+            <!-- Suggested Portfolio Projects -->
+            <div v-if="task.result_json?.portfolio_projects_matching || task.match_analysis_payload?.portfolio_projects_matching" class="tailoring-card" style="margin-top: 14px;">
+              <div class="tailoring-header" style="margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle);">
+                <Briefcase :size="14" class="text-primary" />
+                <span>Suggested Portfolio Projects to Highlight</span>
+              </div>
+              <div class="tailoring-parsed">
+                <div v-for="(proj, i) in (task.result_json?.portfolio_projects_matching?.recommended_projects || task.match_analysis_payload?.portfolio_projects_matching?.recommended_projects || [])" :key="i" class="reframing-card">
+                  <div class="reframing-reason">{{ proj.project_title }}</div>
+                  <div class="reframing-after">
+                    <span class="reframing-label">Why:</span>
+                    <span class="reframing-text">{{ proj.talking_points }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Decision Action Footer -->

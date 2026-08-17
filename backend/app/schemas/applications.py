@@ -127,6 +127,7 @@ class GenerateInterviewGuideRequest(BaseModel):
             "question_defenses",
             "interviewer_questions",
             "prep_checklist",
+            "culture_tech_brief",
         ],
         description="Target sections to generate in the guide",
     )

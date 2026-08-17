@@ -15,7 +15,10 @@ from app.services.llm import (
     assess_job_posting,
     extract_job_spec,
 )
-from app.services.matcher import compute_programmatic_skill_match
+from app.services.matcher import (
+    compute_programmatic_skill_match,
+    match_portfolio_projects,
+)
 from app.services.scraper import scrape_job_url
 
 logger = logging.getLogger(__name__)
@@ -203,12 +206,24 @@ async def _execute_evaluation_steps(
             target_status="ASSESSMENT",
         )
 
+        # Portfolio Matching AI Evaluation
+        if active_cv and active_cv.portfolio_projects:
+            portfolio_matching_result = await match_portfolio_projects(
+                db,
+                jd_text=content,
+                required_skills=assessment.matching_skills + assessment.missing_skills,
+                portfolio_projects=active_cv.portfolio_projects
+            )
+            if portfolio_matching_result.get("recommended_projects"):
+                result_payload = assessment.model_dump()
+                result_payload["portfolio_projects_matching"] = portfolio_matching_result
+
         # Completed Successfully
         task.status = "COMPLETED"
         task.stage = (
             "STAGED_DUPLICATE" if save_result.get("is_duplicate") else "COMPLETE"
         )
-        result_payload = assessment.model_dump()
+        result_payload = result_payload if 'result_payload' in locals() else assessment.model_dump()
         result_payload["application_id"] = save_result.get("application_id")
         result_payload["staging_item_id"] = save_result.get("staging_item_id")
         result_payload["is_duplicate"] = save_result.get("is_duplicate", False)

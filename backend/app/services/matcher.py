@@ -126,3 +126,57 @@ def compute_programmatic_skill_match(
         "matching_skills": matching_skills,
         "candidate_total_skills": total_count,
     }
+
+
+async def match_portfolio_projects(
+    db, jd_text: str, required_skills: list[str], portfolio_projects: list[dict]
+) -> dict:
+    import json
+
+    from langchain_core.prompts import ChatPromptTemplate
+
+    from app.core.llm_factory import get_task_chat_model
+
+    if not portfolio_projects:
+        return {"recommended_projects": []}
+
+    llm = await get_task_chat_model(db, task_type="JOB_ASSESSMENT", temperature=0.2)
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", (
+            "You are an expert technical recruiter and interview coach. "
+            "Given a job description and required skills, and a list of the candidate's portfolio projects, "
+            "determine which projects the candidate should emphasize during their technical interview. "
+            "Return a JSON object with a single key 'recommended_projects' which is a list of objects. "
+            "Each object must have 'project_title' (the name of the project) and 'talking_points' (a string "
+            "explaining why this project is relevant and what technical aspects or outcomes to highlight based on the JD)."
+            "Always output valid JSON."
+        )),
+        ("human", (
+            f"Job Description (snippet): {jd_text[:3000]}\n\n"
+            f"Required Skills: {', '.join(required_skills)}\n\n"
+            f"Candidate Portfolio Projects: {json.dumps(portfolio_projects)}\n\n"
+            "Analyze and recommend projects to highlight in the technical interview. Return ONLY JSON."
+        ))
+    ])
+
+    chain = prompt | llm
+
+    try:
+        res = await chain.ainvoke({})
+        content = res.content if hasattr(res, "content") else str(res)
+
+        # Clean output if wrapped in markdown
+        cleaned = content.strip()
+        if cleaned.startswith("```json"):
+            cleaned = cleaned[7:]
+        if cleaned.startswith("```"):
+            cleaned = cleaned[3:]
+        cleaned = cleaned.removesuffix("```").strip()
+
+        parsed = json.loads(cleaned)
+        return parsed
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Portfolio matching failed: %s", e)
+        return {"recommended_projects": []}

@@ -40,6 +40,12 @@ SECTION_DESCRIPTIONS = {
         "6. ✅ Final Pre-Interview Checklist\n"
         "- A concise, high-priority bullet list of critical items, metrics, and talking points to review 15 minutes before the interview."
     ),
+    "culture_tech_brief": (
+        "7. 🏢 Company Culture & Tech Stack Analyzer\n"
+        "- A briefing on the company's cultural values, recent news, engineering blog highlights.\n"
+        "- A detailed breakdown of the expected tech stack.\n"
+        "- Suggestions for cultural values the candidate should emphasize and technologies they should brush up on."
+    ),
 }
 
 
@@ -92,7 +98,7 @@ async def web_researcher_node(
                 [
                     (
                         "system",
-                        "You are an executive research analyst. Extract key business priorities, culture traits, and technical stack details from this job spec and company.",
+                        "You are an executive research analyst. Extract key business priorities, culture traits, and technical stack details from this job spec and company. Search the web for the target company's engineering blog, recent news, and tech stack. Determine which cultural values the candidate should emphasize and which technologies they should brush up on.",
                     ),
                     (
                         "human",

@@ -4,6 +4,12 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class PortfolioProjectItem(BaseModel):
+    title: str = Field(..., description="Name of the portfolio project")
+    description: str = Field(..., description="Brief summary of the project and impact")
+    link: str | None = Field(None, description="URL to the live project, repo, or case study")
+    skills: list[str] | None = Field(default_factory=list, description="Primary skills or tech stack used")
+
 class DomainExperienceItem(BaseModel):
     domain: str = Field(
         ...,
@@ -63,6 +69,7 @@ class CandidateCVUpdateRequest(BaseModel):
     domain_expertise: list[str] | None = None
     domain_experience: list[DomainExperienceItem] | None = None
     core_competencies: list[str] | None = None
+    portfolio_projects: list[PortfolioProjectItem] | None = None
     summary: str | None = None
 
 
@@ -75,6 +82,7 @@ class CandidateCVResponse(BaseModel):
     domain_expertise: list[str] = Field(default_factory=list)
     domain_experience: list[DomainExperienceItem] = Field(default_factory=list)
     core_competencies: list[str] = Field(default_factory=list)
+    portfolio_projects: list[PortfolioProjectItem] = Field(default_factory=list)
     summary: str | None = None
     is_active: bool
     created_at: datetime

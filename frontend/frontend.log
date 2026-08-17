@@ -6,10 +6,8 @@
   - `__dirname` (vite.config.js:9:25). Use `import.meta.dirname` instead
 Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
 
-  VITE v8.2.1  ready in 515 ms
+  VITE v8.2.1  ready in 362 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: http://192.168.0.2:5173/  eth0
-12:31:51 AM [vite] (client) [optimizer] bundling dependencies...
-12:36:43 AM [vite] (client) hmr update /src/views/SettingsView.vue
-12:48:49 AM [vite] (client) hmr update /src/views/ApplicationsView.vue
+2:46:59 AM [vite] (client) [optimizer] bundling dependencies...

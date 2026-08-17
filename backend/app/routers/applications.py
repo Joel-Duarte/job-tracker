@@ -505,6 +505,35 @@ async def transition_application(
         )
         db.add(action_item)
 
+        # Trigger Portfolio Matching AI Evaluation
+        from app.models.candidate_profile import CandidateCVModel
+        from app.services.matcher import match_portfolio_projects
+        cv_stmt = select(CandidateCVModel).limit(1)
+        cv_res = await db.execute(cv_stmt)
+        active_cv = cv_res.scalars().first()
+
+        if active_cv and active_cv.portfolio_projects:
+            jd_text = ""
+            required_skills = []
+            if app.job_posting:
+                jd_text = app.job_posting.description_markdown or ""
+                required_skills = app.job_posting.required_skills or []
+
+            portfolio_matching_result = await match_portfolio_projects(
+                db,
+                jd_text=jd_text,
+                required_skills=required_skills,
+                portfolio_projects=active_cv.portfolio_projects
+            )
+
+            if portfolio_matching_result.get("recommended_projects"):
+                if not app.match_analysis_payload:
+                    app.match_analysis_payload = {}
+                # Shallow copy to trigger sqlalchemy change detection on JSONB
+                updated_payload = dict(app.match_analysis_payload)
+                updated_payload["portfolio_projects_matching"] = portfolio_matching_result
+                app.match_analysis_payload = updated_payload
+
     if payload.offered_salary:
         curr = payload.currency or "USD"
         summary_parts.append(
