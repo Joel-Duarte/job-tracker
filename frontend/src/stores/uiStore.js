@@ -231,6 +231,13 @@ export const useUIStore = defineStore('ui', () => {
     intakeQueue.value = intakeQueue.value.filter(t => t.status === 'running')
   }
 
+  // Global Settings
+  const enableEmbeddings = ref(true)
+
+  function setEnableEmbeddings(val) {
+    enableEmbeddings.value = val
+  }
+
   // Currency Preference
   const defaultCurrency = ref(localStorage.getItem('jt_currency') || 'USD')
   const SUPPORTED_CURRENCIES = [
@@ -297,6 +304,8 @@ export const useUIStore = defineStore('ui', () => {
     updateIntakeTask,
     removeIntakeTask,
     clearCompletedIntakeTasks,
+    enableEmbeddings,
+    setEnableEmbeddings,
   }
 })
 

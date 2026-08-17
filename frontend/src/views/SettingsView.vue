@@ -81,7 +81,26 @@ const loadingStudioModels = ref(false)
 const isSavingStudio = ref(false)
 const isResettingPrompt = ref(false)
 
+
+const globalBinding = computed(() => {
+  return bindings.value.find(b => b.task_type === 'GLOBAL_DEFAULT') || null
+})
+const isAdvancedOpen = ref(false)
+
 const TASKS = [
+  {
+    key: 'GLOBAL_DEFAULT',
+    promptKey: null,
+    label: 'Global Default Model',
+    icon: 'Globe',
+    recommendedTemp: 0.2,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
+    hasPrompt: false,
+    desc: 'The master fallback model used across all standard inference tasks.',
+    variables: [],
+    hidden: computed(() => true)
+  },
   {
     key: 'JD_EXTRACTION',
     promptKey: 'jd_extraction',
@@ -158,6 +177,7 @@ const TASKS = [
     key: 'EMBEDDING',
     promptKey: null,
     label: 'Vector Embeddings (pgvector)',
+    hidden: computed(() => !uiStore.enableEmbeddings),
     icon: 'Cpu',
     recommendedTemp: null,
     recommendedReasoning: 'none',
@@ -199,6 +219,7 @@ const filteredStudioModels = computed(() => {
 
 // Unified form for currently selected task
 const studioForm = ref({
+  use_global_default: false,
   provider_id: null,
   model_name: '',
   temperature: 0.2,
@@ -217,6 +238,12 @@ function syncStudioForm() {
   const existingBinding = bindings.value.find(
     (b) => b.task_type.toUpperCase() === taskKey.toUpperCase()
   )
+
+  if (taskKey !== 'GLOBAL_DEFAULT' && taskKey !== 'EMBEDDING' && !existingBinding) {
+    studioForm.value.use_global_default = true;
+  } else {
+    studioForm.value.use_global_default = false;
+  }
 
   const defaultTemp = typeof taskDef.recommendedTemp === 'number' ? taskDef.recommendedTemp : 0.2
   const chosenProviderId = existingBinding?.provider_id || (providers.value[0]?.id || null)
@@ -821,7 +848,55 @@ onMounted(async () => {
       <div class="settings-inner-container">
         <!-- TAB 1: UNIFIED TASK STUDIO -->
         <div v-if="activeTab === 'studio'" class="tab-content animate-fade-in">
-      <div class="studio-layout">
+
+          <!-- GLOBAL DEFAULT HERO -->
+          <div class="global-hero-card">
+            <div class="global-hero-header">
+              <div class="hero-title-group">
+                <Globe class="text-primary" :size="24" />
+                <div>
+                  <h2 class="hero-title">Global Default Model</h2>
+                  <p class="hero-desc">The primary AI model used across all standard pipelines unless explicitly overridden.</p>
+                </div>
+              </div>
+              <button class="btn btn-outline btn-sm" @click="selectStudioTask('GLOBAL_DEFAULT'); isAdvancedOpen = true">
+                <Edit3 :size="14" />
+                <span>Change Global Model</span>
+              </button>
+            </div>
+
+            <div class="global-hero-content" v-if="globalBinding">
+              <div class="global-stat">
+                <span class="stat-label">Provider</span>
+                <span class="stat-val">{{ globalBinding.provider_type }} ({{ globalBinding.provider_name }})</span>
+              </div>
+              <div class="global-stat">
+                <span class="stat-label">Model Name</span>
+                <span class="stat-val highlight">{{ globalBinding.model_name }}</span>
+              </div>
+              <div class="global-stat">
+                <span class="stat-label">Temperature</span>
+                <span class="stat-val">{{ globalBinding.temperature }}</span>
+              </div>
+            </div>
+            <div class="global-hero-content empty" v-else>
+              <span>No global default configured. System will fallback to legacy .env settings.</span>
+            </div>
+          </div>
+
+          <!-- ADVANCED OVERRIDES ACCORDION -->
+          <div class="advanced-overrides-section">
+            <button class="advanced-toggle-btn" @click="isAdvancedOpen = !isAdvancedOpen">
+              <div class="advanced-toggle-left">
+                <SlidersHorizontal :size="16" />
+                <span>Advanced: Task-Specific Overrides</span>
+              </div>
+              <ChevronDown :size="16" class="accordion-icon" :class="{ 'rotated': isAdvancedOpen }" />
+            </button>
+
+            <transition name="accordion-fade">
+              <div v-show="isAdvancedOpen" class="advanced-overrides-content">
+                <div class="studio-layout">
         <!-- Studio Task Selector Sidebar -->
         <div class="studio-sidebar">
           <div class="sidebar-header">
@@ -833,6 +908,7 @@ onMounted(async () => {
             <button
               v-for="t in TASKS"
               :key="t.key"
+              v-show="!t.hidden?.value"
               class="task-nav-item"
               :class="{ active: selectedTaskKey === t.key }"
               @click="selectStudioTask(t.key)"
@@ -906,7 +982,16 @@ onMounted(async () => {
               <span>Model &amp; Execution Binding</span>
             </div>
 
-            <div class="form-grid-2">
+            <div v-if="selectedTaskKey !== 'GLOBAL_DEFAULT' && selectedTaskKey !== 'EMBEDDING'" class="use-global-checkbox mb-4">
+              <label class="custom-checkbox">
+                <input type="checkbox" v-model="studioForm.use_global_default" />
+                <span class="checkmark"></span>
+                <span class="checkbox-label">Use Global Default Model</span>
+              </label>
+              <p class="checkbox-hint">If checked, this task will fall back to the Global Default model configured above.</p>
+            </div>
+
+            <div class="form-grid-2" :class="{ 'opacity-50 pointer-events-none': studioForm.use_global_default && selectedTaskKey !== 'EMBEDDING' }">
               <div class="input-group">
                 <div class="label-with-hint">
                   <label class="input-label">AI Provider *</label>
@@ -1089,7 +1174,10 @@ onMounted(async () => {
             ></textarea>
           </div>
         </div>
-      </div>
+                </div>
+              </div>
+            </transition>
+          </div>
     </div>
 
     <!-- TAB 2: AI PROVIDERS -->
@@ -3484,5 +3572,181 @@ onMounted(async () => {
   .form-grid-2, .form-grid-3 {
     grid-template-columns: 1fr;
   }
+}
+</style>
+
+<style scoped>
+.global-hero-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+}
+
+.global-hero-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.hero-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hero-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.hero-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 2px 0 0 0;
+}
+
+.global-hero-content {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+.global-hero-content.empty {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 13px;
+}
+
+.global-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stat-val {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.stat-val.highlight {
+  color: var(--primary);
+}
+
+.advanced-overrides-section {
+  border-left: 2px solid var(--primary-subtle);
+  padding-left: 16px;
+  margin-left: 4px;
+}
+
+.advanced-toggle-btn {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.advanced-toggle-btn:hover {
+  background-color: var(--bg-surface);
+  border-color: var(--primary-subtle);
+}
+
+.advanced-toggle-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.accordion-icon {
+  transition: transform 0.3s ease;
+}
+
+.accordion-icon.rotated {
+  transform: rotate(180deg);
+}
+
+.accordion-fade-enter-active,
+.accordion-fade-leave-active {
+  transition: all 0.3s ease;
+  max-height: 2000px;
+  overflow: hidden;
+}
+
+.accordion-fade-enter-from,
+.accordion-fade-leave-to {
+  opacity: 0;
+  max-height: 0;
+  margin-top: 0;
+}
+
+.advanced-overrides-content {
+  margin-top: 16px;
+}
+
+.use-global-checkbox {
+  background-color: rgba(59, 130, 246, 0.05);
+  border: 1px solid var(--primary-subtle);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.custom-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.checkbox-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.checkbox-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: 24px;
+}
+
+.opacity-50 {
+  opacity: 0.5;
+}
+.pointer-events-none {
+  pointer-events: none;
+}
+.mt-3 {
+  margin-top: 16px;
+}
+.mb-4 {
+  margin-bottom: 20px;
 }
 </style>

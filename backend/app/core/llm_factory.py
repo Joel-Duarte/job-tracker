@@ -184,12 +184,18 @@ async def get_task_chat_model(
                 select(AITaskBindingModel)
                 .options(joinedload(AITaskBindingModel.provider))
                 .where(
-                    AITaskBindingModel.task_type == task_type,
+                    AITaskBindingModel.task_type.in_([task_type, "GLOBAL_DEFAULT"]),
                     AITaskBindingModel.is_active,
                 )
             )
             res = await db.execute(stmt)
-            binding = res.scalar_one_or_none()
+            bindings = res.scalars().all()
+
+            # Prefer the exact task_type match, otherwise fallback to GLOBAL_DEFAULT
+            exact_binding = next((b for b in bindings if b.task_type == task_type), None)
+            global_binding = next((b for b in bindings if b.task_type == "GLOBAL_DEFAULT"), None)
+
+            binding = exact_binding or global_binding
 
             if binding and binding.provider and binding.provider.is_active:
                 provider_type = _resolve_provider(binding.provider.provider_type)

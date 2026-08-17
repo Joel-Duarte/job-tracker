@@ -425,7 +425,7 @@ async function confirmDelete() {
           </button>
         </div>
 
-        <div class="search-input-wrapper">
+        <div class="search-input-wrapper" v-if="uiStore.enableEmbeddings">
           <Search :size="15" class="search-icon" />
           <input
             type="text"
