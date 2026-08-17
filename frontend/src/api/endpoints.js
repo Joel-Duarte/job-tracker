@@ -95,3 +95,7 @@ export const ActionItemsAPI = {
   updateUrgency: (id, manual_urgency) => apiClient.put(`/action-items/${id}/urgency`, { manual_urgency }),
   delete: (id) => apiClient.delete(`/action-items/${id}`),
 }
+
+export const DiagnosticsAPI = {
+  export: () => apiClient.get('/diagnostics/export', { responseType: 'blob' })
+}
