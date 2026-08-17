@@ -328,6 +328,101 @@ async def generate_embedding(db: AsyncSession, text_input: str) -> list[float]:
     return await embeddings.aembed_query(cleaned_text)
 
 
+async def generate_nudge_email(db: AsyncSession, application_id: int) -> str | None:
+    """Generates a nudge email using the 'email_nudge_draft' prompt template."""
+    stmt = (
+        select(ApplicationModel)
+        .options(selectinload(ApplicationModel.company))
+        .where(ApplicationModel.id == application_id)
+    )
+    res = await db.execute(stmt)
+    application = res.scalar_one_or_none()
+
+    if not application:
+        return None
+
+    llm = await get_task_chat_model(db, task_type="SUMMARIZATION", temperature=0.7)
+    template_str = await get_prompt_template(db, "email_nudge_draft")
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", template_str),
+        ]
+    )
+    chain = prompt | llm
+    result = await chain.ainvoke({
+        "company": application.company.name if application.company else "the company",
+        "position": application.position or "the role",
+        "status": application.status
+    })
+
+    return result.content if hasattr(result, "content") else str(result)
+
+async def generate_email_reply_draft(db: AsyncSession, action_item_id: int) -> str | None:
+    """Generates a draft reply to an email associated with an action item."""
+    from app.models.applications import ActionItemModel
+
+    stmt = (
+        select(ActionItemModel)
+        .options(
+            selectinload(ActionItemModel.event),
+            selectinload(ActionItemModel.application).selectinload(ApplicationModel.company)
+        )
+        .where(ActionItemModel.id == action_item_id)
+    )
+    res = await db.execute(stmt)
+    action_item = res.scalar_one_or_none()
+
+    if not action_item or not action_item.application:
+        return None
+
+    application = action_item.application
+    email_event = action_item.event
+
+    if not email_event:
+        # If no specific event is linked, try to get the latest event with action_required
+        events_stmt = (
+            select(ApplicationEventModel)
+            .where(ApplicationEventModel.email_application_id == application.id)
+            .where(ApplicationEventModel.email_action_required == True)
+            .order_by(ApplicationEventModel.email_received_at.desc())
+        )
+        events_res = await db.execute(events_stmt)
+        email_event = events_res.scalar_one_or_none()
+
+    if not email_event:
+        return None
+
+    # Get candidate profile context
+    profile_stmt = select(CandidateProfileModel).where(CandidateProfileModel.is_active == True)
+    profile_res = await db.execute(profile_stmt)
+    profile = profile_res.scalar_one_or_none()
+
+    profile_text = "No profile available."
+    if profile:
+        profile_text = f"Summary: {profile.summary}\nSkills: {profile.extracted_skills}\nExperience: {profile.years_of_experience} years"
+
+    email_content = email_event.email_raw_body or email_event.email_summary or "No email content"
+
+    llm = await get_task_chat_model(db, task_type="SUMMARIZATION", temperature=0.7)
+    template_str = await get_prompt_template(db, "email_reply_draft")
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", template_str),
+        ]
+    )
+    chain = prompt | llm
+    result = await chain.ainvoke({
+        "company": application.company.name if application.company else "the company",
+        "position": application.position or "the role",
+        "email_content": email_content,
+        "candidate_profile": profile_text
+    })
+
+    return result.content if hasattr(result, "content") else str(result)
+
+
 async def generate_and_save_application_embedding(
     db: AsyncSession,
     application_id: int,
