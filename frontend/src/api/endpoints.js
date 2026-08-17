@@ -94,4 +94,5 @@ export const ActionItemsAPI = {
   update: (id, data) => apiClient.patch(`/action-items/${id}`, data),
   updateUrgency: (id, manual_urgency) => apiClient.put(`/action-items/${id}/urgency`, { manual_urgency }),
   delete: (id) => apiClient.delete(`/action-items/${id}`),
+  draftReply: (id) => apiClient.post(`/action-items/${id}/draft-reply`),
 }

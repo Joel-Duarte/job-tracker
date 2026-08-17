@@ -154,13 +154,16 @@ async function saveGlobalDefault() {
 
 // Vector Embeddings Settings State
 const enableEmbeddings = ref(true)
+const enableAutoNudge = ref(true)
 const isUpdatingEmbeddings = ref(false)
+const isUpdatingAutoNudge = ref(false)
 const isReindexingEmbeddings = ref(false)
 
 async function loadGlobalSettings() {
   try {
     const res = await AIConfigAPI.getGlobalSettings()
     enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS ?? true
+    enableAutoNudge.value = res.data.ENABLE_AUTO_NUDGE ?? true
     uiStore.enableEmbeddings = enableEmbeddings.value
   } catch (err) {
     console.error('Failed to load global settings', err)
@@ -184,6 +187,25 @@ async function toggleEmbeddings() {
     uiStore.showToast('Failed to update embeddings setting', 'error')
   } finally {
     isUpdatingEmbeddings.value = false
+  }
+}
+
+async function toggleAutoNudge() {
+  isUpdatingAutoNudge.value = true
+  try {
+    const newVal = !enableAutoNudge.value
+    const res = await AIConfigAPI.updateGlobalSettings({ ENABLE_AUTO_NUDGE: newVal })
+    enableAutoNudge.value = res.data.ENABLE_AUTO_NUDGE
+    uiStore.showToast(
+      enableAutoNudge.value
+        ? 'Auto Follow-Up Nudges enabled.'
+        : 'Auto Follow-Up Nudges disabled.',
+      'success'
+    )
+  } catch (err) {
+    uiStore.showToast('Failed to update auto nudge setting', 'error')
+  } finally {
+    isUpdatingAutoNudge.value = false
   }
 }
 
@@ -1036,6 +1058,33 @@ onMounted(async () => {
                     <span>{{ m.id }}</span>
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AUTO-NUDGE CARD -->
+          <div class="embeddings-control-card">
+            <div class="embeddings-control-header">
+              <div class="embeddings-title-group">
+                <Clock class="text-primary" :size="20" />
+                <div>
+                  <h3 class="embeddings-title">Automated Follow-Up Nudges</h3>
+                  <p class="embeddings-desc">
+                    Enable automatic generation of 'Follow-up' tasks with drafted nudge emails for dormant applications.
+                  </p>
+                </div>
+              </div>
+
+              <div class="embeddings-actions">
+                <label class="switch-toggle" title="Toggle Auto Follow-Up Nudges">
+                  <input
+                    type="checkbox"
+                    :checked="enableAutoNudge"
+                    :disabled="isUpdatingAutoNudge"
+                    @change="toggleAutoNudge"
+                  />
+                  <span class="slider round"></span>
+                </label>
               </div>
             </div>
           </div>

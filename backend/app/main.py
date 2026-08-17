@@ -51,6 +51,16 @@ async def lifespan(app: FastAPI):
         logger.info("Opening LangGraph checkpointer pool...")
         await checkpointer_pool.open()
         await postgres_saver.setup()
+
+        # Start periodic background tasks
+        import asyncio
+
+        from app.core.database import AsyncSessionLocal
+        from app.services.scheduler import monitor_stale_applications
+
+        app.state.scheduler_task = asyncio.create_task(
+            monitor_stale_applications(AsyncSessionLocal)
+        )
     else:
         print("\n==================================================")
         print(" ERROR: Could not connect to the database!")
@@ -60,6 +70,10 @@ async def lifespan(app: FastAPI):
     yield
     # Executed on shutdown
     logger.info("Shutting down application and disposing connection pools...")
+
+    if hasattr(app.state, "scheduler_task"):
+        app.state.scheduler_task.cancel()
+
     from app.core.database import checkpointer_pool, engine
 
     await engine.dispose()

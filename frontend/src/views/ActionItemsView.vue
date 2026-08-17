@@ -20,6 +20,8 @@ import {
   Filter,
   CheckCircle2,
   Layers,
+  Copy,
+  Wand2,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
@@ -244,6 +246,28 @@ function toggleUrgencyFilter(level) {
   urgencyFilters.value[level] = !urgencyFilters.value[level]
 }
 
+async function draftEmail(item) {
+  item.isDrafting = true;
+  try {
+    const res = await ActionItemsAPI.draftReply(item.id);
+    item.draft_email = res.data.draft_email;
+    uiStore.showToast('Draft generated successfully', 'success');
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || 'Failed to generate draft', 'error');
+  } finally {
+    item.isDrafting = false;
+  }
+}
+
+async function copyDraft(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    uiStore.showToast('Draft copied to clipboard', 'success');
+  } catch (err) {
+    uiStore.showToast('Failed to copy text', 'error');
+  }
+}
+
 const displayedTasks = computed(() => {
   let tasks = actionItems.value
 
@@ -398,9 +422,8 @@ onUnmounted(() => {
       </div>
 
       <div v-else class="task-list">
+        <div v-for="item in displayedTasks" :key="item.id" class="task-row-container">
         <div
-          v-for="item in displayedTasks"
-          :key="item.id"
           class="task-row"
           :class="[
             { 'is-completed': item.status === 'COMPLETED' },
@@ -487,8 +510,12 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Actions (Edit, Delete) -->
+          <!-- Actions (Edit, Delete, Draft) -->
           <div class="task-actions">
+            <button v-if="item.application_id && !item.draft_email" class="btn-icon text-primary" @click="draftEmail(item)" title="Auto-Draft Reply" :disabled="item.isDrafting">
+              <Loader2 v-if="item.isDrafting" class="animate-spin" :size="14" />
+              <Wand2 v-else :size="14" />
+            </button>
             <button class="btn-icon" @click="openEditModal(item)" title="Edit task">
               <Edit2 :size="14" />
             </button>
@@ -496,6 +523,18 @@ onUnmounted(() => {
               <Trash2 :size="14" />
             </button>
           </div>
+        </div>
+
+        <!-- Draft Email Block -->
+        <div v-if="item.draft_email" class="task-draft-box">
+          <div class="draft-header">
+            <span class="draft-title"><Wand2 :size="12" style="margin-right: 4px;" /> AI Drafted Reply</span>
+            <button class="btn-icon" @click="copyDraft(item.draft_email)" title="Copy to clipboard">
+              <Copy :size="14" />
+            </button>
+          </div>
+          <textarea class="draft-textarea" v-model="item.draft_email" rows="4"></textarea>
+        </div>
         </div>
       </div>
     </div>
@@ -1135,5 +1174,63 @@ onUnmounted(() => {
 }
 .fade-enter-from, .fade-leave-to {
   opacity: 0;
+}
+
+
+.task-row-container {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.task-row-container:last-child {
+  border-bottom: none;
+}
+
+.task-row {
+  border-bottom: none !important;
+}
+
+.text-primary {
+  color: var(--primary) !important;
+}
+
+.task-draft-box {
+  margin: 0 20px 14px 44px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+}
+
+.draft-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.draft-title {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.draft-textarea {
+  width: 100%;
+  padding: 10px;
+  font-size: 13px;
+  color: var(--text-main);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+}
+
+.draft-textarea:focus {
+  outline: none;
+  border-color: var(--primary);
 }
 </style>
