@@ -112,6 +112,7 @@ async def test_action_items_crud_and_filtering(db_session):
         del_res_404 = await ac.delete(f"/api/v1/action-items/{item2_id}")
         assert del_res_404.status_code == 404
 
+
 @pytest.mark.asyncio
 @pytest.mark.docker
 async def test_draft_action_item_reply(db_session, monkeypatch):
@@ -120,7 +121,9 @@ async def test_draft_action_item_reply(db_session, monkeypatch):
     async def mock_generate_email_reply_draft(session, item_id):
         return "Drafted mock reply email text"
 
-    monkeypatch.setattr(llm, "generate_email_reply_draft", mock_generate_email_reply_draft)
+    monkeypatch.setattr(
+        llm, "generate_email_reply_draft", mock_generate_email_reply_draft
+    )
 
     app.dependency_overrides[get_db] = lambda: db_session
 
