@@ -48,6 +48,7 @@ import {
   EyeOff,
   Info,
   BookOpen,
+  FileEdit,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
@@ -284,6 +285,42 @@ const TASKS = [
     hasPrompt: false,
     desc: 'Generates 768-dimension dense vector representations for pgvector cosine similarity search.',
     variables: []
+  },
+  {
+    key: 'COVER_LETTER',
+    promptKey: 'cover_letter_generation',
+    label: 'Cover Letter Generation',
+    icon: 'FileText',
+    recommendedTemp: 0.5,
+    recommendedReasoning: 'medium',
+    recommendedMaxTokens: null,
+    hasPrompt: true,
+    desc: 'Generates a highly targeted, persuasive cover letter based on the candidate CV and job description.',
+    variables: ['{job_description}', '{candidate_cv}']
+  },
+  {
+    key: 'RESUME_TAILORING',
+    promptKey: 'resume_tailoring',
+    label: 'Resume Tailoring',
+    icon: 'FileEdit',
+    recommendedTemp: 0.3,
+    recommendedReasoning: 'medium',
+    recommendedMaxTokens: null,
+    hasPrompt: true,
+    desc: 'Generates a tailored, ATS-optimized version of the candidate\'s resume.',
+    variables: ['{job_description}', '{candidate_cv}']
+  },
+  {
+    key: 'REJECTION_ANALYSIS',
+    promptKey: 'rejection_analysis',
+    label: 'Rejection Analysis',
+    icon: 'AlertCircle',
+    recommendedTemp: 0.2,
+    recommendedReasoning: 'medium',
+    recommendedMaxTokens: null,
+    hasPrompt: true,
+    desc: 'Analyzes a job application rejection and provides a constructive pivot strategy.',
+    variables: ['{job_description}', '{candidate_cv}', '{rejection_reason}']
   },
 ]
 
