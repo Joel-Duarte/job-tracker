@@ -192,8 +192,12 @@ async def get_task_chat_model(
             bindings = res.scalars().all()
 
             # Prefer the exact task_type match, otherwise fallback to GLOBAL_DEFAULT
-            exact_binding = next((b for b in bindings if b.task_type == task_type), None)
-            global_binding = next((b for b in bindings if b.task_type == "GLOBAL_DEFAULT"), None)
+            exact_binding = next(
+                (b for b in bindings if b.task_type == task_type), None
+            )
+            global_binding = next(
+                (b for b in bindings if b.task_type == "GLOBAL_DEFAULT"), None
+            )
 
             binding = exact_binding or global_binding
 

@@ -1,9 +1,8 @@
 import logging
-from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -13,7 +12,6 @@ from app.models.applications import (
     OtherEventModel,
 )
 from app.services.seed_data import is_database_empty, seed_development_dataset
-from app.services.staleness_archiver import archive_stale_applications
 
 logger = logging.getLogger(__name__)
 
@@ -197,50 +195,4 @@ async def delete_event(
         "status": "success",
         "message": f"Event {event_id} deleted.",
         "embedding_resynced": embedding_reindexed,
-    }
-
-
-@router.post(
-    "/run-auto-archiver",
-    status_code=status.HTTP_200_OK,
-    summary="Triggers an immediate staleness sweep",
-)
-async def run_auto_archiver(
-    threshold_days: int = 30,
-    db: AsyncSession = Depends(get_db),
-):
-    stats = await archive_stale_applications(db, threshold_days=threshold_days)
-    return {
-        "status": "success",
-        "archived_count": stats["archived_count"],
-        "archived_ids": stats["archived_ids"],
-    }
-
-
-@router.get(
-    "/staleness-stats",
-    status_code=status.HTTP_200_OK,
-    summary="Get statistics for stale applications",
-)
-async def get_staleness_stats(
-    threshold_days: int = 30,
-    db: AsyncSession = Depends(get_db),
-):
-    cutoff_date = datetime.now(UTC) - timedelta(days=threshold_days)
-
-    query = select(func.count(ApplicationModel.id)).where(
-        ApplicationModel.status == "APPLIED",
-        func.coalesce(
-            ApplicationModel.last_activity_at,
-            ApplicationModel.application_date,
-            ApplicationModel.created_at,
-        )
-        < cutoff_date,
-    )
-    result = await db.execute(query)
-    count = result.scalar() or 0
-
-    return {
-        "stale_applications_count": count,
-        "threshold_days": threshold_days,
     }

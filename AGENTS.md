@@ -163,12 +163,5 @@ Before committing or completing tasks, agents and developers must execute and pa
    - For backend tests: Ensure database access via Testcontainers (`uv run pytest`) or `docker compose up -d db`.
    - For UI changes: Spin up `./dev.sh` to test visually against seeded mock data at `http://localhost:5173`.
 4. **TDD / Incremental Implementation:** Write or update tests before implementing logic; validate changes incrementally.
-5. **Run Pre-Commit Verification:** Run `./scripts/pre-commit.sh` (or individual Ruff, Pytest, and npm build checks) and verify 0 errors.
-6. **Git Staging & Commit (MANDATORY):**
-   - Verify modified and untracked files with `git status` and `git diff`.
-   - If work was done in a subagent workspace or git worktree, ensure changes are merged/copied into the working branch.
-   - Stage all modified and new files: `git add <files>`
-   - Commit changes with a descriptive conventional commit message: `git commit -m "feat/fix: <description>"`
-7. **Push to Remote (MANDATORY for PRs & Workflows):**
-   - Push committed changes to the active working branch: `git push origin HEAD` (or `git push origin <branch-name>`).
-   - Confirm with `git status` that working tree is clean and `git log -n 1` shows the latest commit before declaring completion.
+5. **Run Pre-Commit Verification:** Run `./scripts/pre-commit.sh` (or individual Ruff, Pytest, and npm build checks).
+6. **Verify 0 Errors:** Ensure all tests pass and 0 lint/format/build errors remain before submitting.

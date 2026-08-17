@@ -442,7 +442,9 @@ async def async_enqueue_application_embedding(
     from app.core.config_manager import get_setting
 
     if not get_setting("ENABLE_EMBEDDINGS", True):
-        logger.debug(f"Skipping vector embedding for app {application_id} (Embeddings Disabled)")
+        logger.debug(
+            f"Skipping vector embedding for app {application_id} (Embeddings Disabled)"
+        )
         return
 
     from app.core.ai_queue import concurrency_manager

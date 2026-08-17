@@ -1,9 +1,5 @@
 import apiClient from './client'
 
-export const AnalyticsAPI = {
-  getOverview: (params = {}) => apiClient.get('/analytics/overview', { params }),
-}
-
 export const ApplicationsAPI = {
   list: (params = {}) => apiClient.get('/applications', { params }),
   get: (id) => apiClient.get(`/applications/${id}`),
