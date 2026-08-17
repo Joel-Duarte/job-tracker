@@ -17,6 +17,7 @@ from app.models.applications import ApplicationEmbeddingModel, ApplicationModel
 from app.schemas.candidate_profile import CVAnonymizationResult
 from app.schemas.llm import (
     ApplicationSummaryResult,
+    ColdOutreachDrafts,
     EmailExtractionResult,
     ExtractedJobSpec,
     JobAssessmentResult,
@@ -527,3 +528,50 @@ async def async_enqueue_application_embedding(
                     db_task.status = "FAILED"
                     db_task.error_message = str(err)
                     await processing_session.commit()
+
+async def generate_cold_outreach_drafts(
+    db: AsyncSession,
+    candidate_cv_text: str,
+    target_company_name: str,
+    target_job_title: str,
+    target_job_description: str | None = None,
+) -> ColdOutreachDrafts:
+    """Generates two distinct cold outreach drafts (hiring manager and peer) based on candidate profile and target job."""
+    llm = await get_task_chat_model(db, task_type="GENERATION", temperature=0.7)
+    structured_llm = llm.with_structured_output(ColdOutreachDrafts)
+
+    system_prompt = (
+        "You are an expert career coach and technical recruiter. "
+        "Your task is to write two highly tailored cold outreach messages for a candidate aiming to network or get a referral for a specific role.\n\n"
+        "Draft 1 (Hiring Manager): Focus on business value, solving problems, and demonstrating high-level alignment with the company's goals and the role's requirements.\n"
+        "Draft 2 (Peer/IC): Focus on tech stack, engineering challenges, networking, and asking about team culture or specific technical implementations.\n\n"
+        "Keep both messages concise, authentic, and under 150 words each. Avoid generic buzzwords."
+    )
+
+    human_prompt = (
+        "Target Company: {company_name}\n"
+        "Target Job Title: {job_title}\n"
+        "Target Job Description:\n{job_description}\n\n"
+        "Candidate Profile:\n{candidate_cv}\n\n"
+        "Generate the two distinct cold outreach drafts."
+    )
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system_prompt),
+            ("human", human_prompt),
+        ]
+    )
+
+    chain = prompt | structured_llm
+    result = await chain.ainvoke(
+        {
+            "company_name": target_company_name,
+            "job_title": target_job_title,
+            "job_description": target_job_description or "Not specified",
+            "candidate_cv": candidate_cv_text,
+        }
+    )
+    if isinstance(result, ColdOutreachDrafts):
+        return result
+    return ColdOutreachDrafts.model_validate(result)

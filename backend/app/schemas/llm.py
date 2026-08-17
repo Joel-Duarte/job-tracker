@@ -172,3 +172,11 @@ class JobAssessmentResult(BaseModel):
         description="Recommendation: APPLY_STRONGLY, APPLY, CAUTION, SKIP",
     )
     summary: str = Field(default="", description="Brief summary of the evaluation")
+
+class ColdOutreachDrafts(BaseModel):
+    recruiter_message: str = Field(
+        description="Outreach message tailored for a hiring manager (focusing on business value)"
+    )
+    peer_message: str = Field(
+        description="Outreach message tailored for a peer (focusing on tech stack and networking)"
+    )

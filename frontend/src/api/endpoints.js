@@ -9,6 +9,7 @@ export const ApplicationsAPI = {
   byStatus: () => apiClient.get('/applications/by-status'),
   generateInterviewGuide: (id, data = {}) => apiClient.post(`/applications/${id}/interview-guide`, data),
   clearInterviewGuide: (id) => apiClient.delete(`/applications/${id}/interview-guide`),
+  generateOutreachDrafts: (id) => apiClient.post(`/applications/${id}/outreach-drafts`),
 }
 
 export const IntakeAPI = {

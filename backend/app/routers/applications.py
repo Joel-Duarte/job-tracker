@@ -30,9 +30,11 @@ from app.schemas.applications import (
     GenerateInterviewGuideRequest,
     JobPostingDetail,
 )
+from app.schemas.llm import ColdOutreachDrafts
 from app.services.interview_guide import clear_interview_guide, generate_interview_guide
 from app.services.llm import (
     async_enqueue_application_embedding,
+    generate_cold_outreach_drafts,
 )
 
 logger = logging.getLogger(__name__)
@@ -691,6 +693,78 @@ async def clear_app_interview_guide(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(val_err))
     except Exception as exc:
         logger.error("Failed to clear interview guide: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+        )
+
+@router.post(
+    "/{application_id}/outreach-drafts",
+    response_model=ColdOutreachDrafts,
+    summary="Generate dual-target cold outreach drafts",
+)
+async def create_cold_outreach_drafts(
+    application_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        from app.models.applications import ApplicationModel
+        from app.models.candidate_profile import CandidateProfileModel
+
+        # Fetch Application with Company and JobPosting
+        stmt = (
+            select(ApplicationModel)
+            .options(
+                selectinload(ApplicationModel.company),
+                selectinload(ApplicationModel.job_posting),
+            )
+            .where(ApplicationModel.id == application_id)
+        )
+        result = await db.execute(stmt)
+        application = result.scalar_one_or_none()
+
+        if not application:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Application {application_id} not found.",
+            )
+
+        # Fetch active Candidate Profile
+        profile_stmt = select(CandidateProfileModel).where(
+            CandidateProfileModel.is_active
+        )
+        profile_result = await db.execute(profile_stmt)
+        profile = profile_result.scalar_one_or_none()
+
+        if not profile or not profile.canonical_cv:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Active candidate profile with canonical CV is required.",
+            )
+
+        # Prepare parameters
+        cv_text = profile.canonical_cv
+        company_name = application.company.name if application.company else "Unknown Company"
+        job_title = application.position or "Unknown Role"
+
+        job_description = None
+        if application.job_posting and application.job_posting.description_markdown:
+            job_description = application.job_posting.description_markdown
+
+        # Generate drafts
+        drafts = await generate_cold_outreach_drafts(
+            db=db,
+            candidate_cv_text=cv_text,
+            target_company_name=company_name,
+            target_job_title=job_title,
+            target_job_description=job_description,
+        )
+
+        return drafts
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to generate cold outreach drafts: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         )

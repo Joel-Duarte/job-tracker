@@ -33,6 +33,8 @@ import {
   BookOpen,
   Globe,
   RotateCcw,
+  MessageSquare,
+  Copy,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
