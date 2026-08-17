@@ -18,22 +18,6 @@ Based on the architecture and core goals of the Job Tracker project, here are 20
 
 ---
 
-## 2. Automated Job Board Auto-Filler (Via Browser Extension)
-**Description:** A companion browser extension that reads the user's structured `CandidateCVModel` from the backend and automatically maps and injects the data (experience, links, education) into standard Workday, Lever, and Greenhouse forms on click.
-
-**Pros:**
-1. Eliminates the most universally hated aspect of job hunting: manually re-typing resumes into portals.
-2. Converts the application from a passive tracking board into an active, high-speed application engine.
-
-**Cons:**
-1. Inherently fragile due to constant DOM and form changes on third-party job boards.
-2. Requires bootstrapping, publishing, and maintaining an entirely separate browser extension repository and tech stack.
-
-- **Relevance to Project:** 10/10
-- **Ease of Implementation:** 3/10
-
----
-
 ## 3. Tailored Cover Letter & Resume Generator
 **Description:** A module that takes the user's `CandidateCVModel` and a specific `JobPostingModel` or `ApplicationModel`, and uses the LLM to generate a highly targeted cover letter and a tailored version of the resume emphasizing the matching skills.
 
@@ -44,38 +28,6 @@ Based on the architecture and core goals of the Job Tracker project, here are 20
 **Cons:**
 1. Exporting the final tailored resume to a cleanly formatted PDF or DOCX requires additional backend libraries and complex styling logic.
 2. Requires building a new specialized frontend editor for users to review, tweak, and approve the generated documents before saving.
-
-- **Relevance to Project:** 9/10
-- **Ease of Implementation:** 6/10
-
----
-
-## 4. Salary Negotiation Co-Pilot
-**Description:** A dedicated tool that takes a received `offered_salary`, the `job_posting.salary_max`, and the user's `CandidateCVModel` experience level to query the LLM for market rates and generate a strategic, step-by-step negotiation script to counter-offer.
-
-**Pros:**
-1. Unmatched ROI for the user—a feature that literally helps them negotiate thousands of dollars.
-2. Makes the tracker feel like a true "career agent" rather than just a database.
-
-**Cons:**
-1. LLMs can give overly aggressive or out-of-touch negotiation advice if not strictly prompted.
-2. Relying entirely on LLM world knowledge for salary data may be inaccurate without integrating a paid external salary API.
-
-- **Relevance to Project:** 9/10
-- **Ease of Implementation:** 6/10
-
----
-
-## 5. Job Market Keyword Trend Analyzer
-**Description:** Aggregates the `required_skills` and `missing_skills` across all ingested `JobPostingModel`s for a user. Displays a word cloud or list indicating which skills the user lacks that are appearing most frequently in jobs they want.
-
-**Pros:**
-1. Gives candidates direct, data-backed advice on what to study next to improve their hireability.
-2. Uses data the app is already actively collecting and storing via the `intake.py` pipeline.
-
-**Cons:**
-1. Requires relatively heavy SQL aggregation and caching to keep the frontend snappy.
-2. Normalization of skill strings (e.g. "ReactJS" vs "React" vs "React.js") is difficult without continuous LLM sanitization.
 
 - **Relevance to Project:** 9/10
 - **Ease of Implementation:** 6/10
@@ -114,21 +66,6 @@ Based on the architecture and core goals of the Job Tracker project, here are 20
 
 ---
 
-## 8. Application "Staleness" Auto-Archiver
-**Description:** A cleanup cron job that automatically moves applications from "Applied" to "Archived/Ghosted" if there has been no email activity or status change for 60+ days, keeping the active Kanban board uncluttered.
-
-**Pros:**
-1. Improves the UX by keeping the Kanban board focused only on active leads.
-2. Very easy to implement via a simple nightly SQL query and state transition.
-
-**Cons:**
-1. Might prematurely archive slow-moving enterprise or government applications.
-2. Users might feel they lost data if the transition happens without clear notification.
-
-- **Relevance to Project:** 8/10
-- **Ease of Implementation:** 9/10
-
----
 
 ## 9. One-Click Email Reply Drafter
 **Description:** Since the system tracks `ActionItemModel`s for emails requiring a response (e.g., "Schedule Interview", "Respond to Offer"), this feature adds an "Auto-Draft Reply" button. It uses the `ApplicationEventModel` context and the user's profile to instantly draft a professional email reply.
@@ -143,22 +80,6 @@ Based on the architecture and core goals of the Job Tracker project, here are 20
 
 - **Relevance to Project:** 8/10
 - **Ease of Implementation:** 8/10
-
----
-
-## 10. Application Conversion Analytics Dashboard
-**Description:** A rich analytics view visualizing the user's pipeline funnel (e.g., Applied -> Screen % -> Technical % -> Offer %) and using AI to correlate which specific `extracted_skills` or domains from their profile result in the highest interview rates.
-
-**Pros:**
-1. Provides data-driven insights to help users identify flaws in their resume or interviewing strategy.
-2. Visually satisfying and a standard hallmark of mature CRM-style software.
-
-**Cons:**
-1. Requires importing and configuring a robust charting library (like Chart.js or D3) on the Vue frontend.
-2. Requires writing complex SQL aggregation and analytics queries on the backend.
-
-- **Relevance to Project:** 8/10
-- **Ease of Implementation:** 7/10
 
 ---
 
@@ -210,54 +131,6 @@ Based on the architecture and core goals of the Job Tracker project, here are 20
 
 ---
 
-## 14. Take-Home Assignment Tracker & Evaluator
-**Description:** When an application enters the "Take-Home" stage, this feature tracks the deadline, prompts the user to upload their completed code/document, and uses the LLM to run a preliminary "Code Review" grading it against the `JobPostingModel` requirements before they submit it.
-
-**Pros:**
-1. Helps candidates catch obvious bugs or missed requirements before submission.
-2. Provides immediate, actionable value during a highly stressful phase of the application.
-
-**Cons:**
-1. LLMs may falsely critique correct code or give poor architectural advice, confusing the user.
-2. Requires building a UI to securely upload, store, and display large code snippets or PDFs.
-
-- **Relevance to Project:** 8/10
-- **Ease of Implementation:** 6/10
-
----
-
-## 15. Network Mapping & Referral Finder
-**Description:** An integration (via LinkedIn OAuth or manual CSV import) that maps the user's network connections against the `CompanyModel` list on their Kanban board, visually highlighting companies where they have a "warm introduction" opportunity.
-
-**Pros:**
-1. Referrals are statistically the highest-converting job search strategy; this encourages best practices.
-2. Transforms the app from an isolated tracking tool into a holistic networking CRM.
-
-**Cons:**
-1. LinkedIn's API is notoriously locked down, likely forcing users to manually export and upload their connection data.
-2. Introduces data privacy and storage overhead regarding syncing entire personal network graphs.
-
-- **Relevance to Project:** 8/10
-- **Ease of Implementation:** 2/10
-
----
-
-## 16. Automated "Thank You" Email Dispatcher
-**Description:** Post-interview, the system scans calendar events or transitions, generates a personalized "Thank you for the interview" email referencing context from the user's `notes`, and queues it as an Action Item for the user to quickly approve and send.
-
-**Pros:**
-1. Automates common recruitment etiquette that is proven to boost offer chances.
-2. Creates a high perceived "magic" factor by proactively managing the user's relationships.
-
-**Cons:**
-1. Completely relies on the user accurately logging interview participants and notes to sound authentic.
-2. Without direct SMTP capabilities, it remains just a text snippet requiring manual copy-pasting.
-
-- **Relevance to Project:** 7/10
-- **Ease of Implementation:** 8/10
-
----
-
 ## 17. Job Rejection Analyzer & Pivot Strategy
 **Description:** When an application is moved to `REJECTED`, the LLM reads the rejection email/reason, compares it against the `JobPostingModel`, and provides a constructive summary (e.g., "Missing senior-level React experience") while suggesting what to study or change for the next application.
 
@@ -271,22 +144,6 @@ Based on the architecture and core goals of the Job Tracker project, here are 20
 
 - **Relevance to Project:** 7/10
 - **Ease of Implementation:** 8/10
-
----
-
-## 18. Real-time Webhook Integrations (Zapier / Make)
-**Description:** Exposes standard webhooks so that when an application changes status or a new interview is scheduled, it can trigger external workflows (e.g., send an SMS, update a Notion doc, or post in a personal Slack channel).
-
-**Pros:**
-1. Exponentially increases the flexibility and ecosystem integration capabilities of the app.
-2. A standard "power-user" SaaS feature that drives retention.
-
-**Cons:**
-1. Requires building a webhook subscription management UI and reliable retry/delivery mechanisms on the backend.
-2. Debugging failing external webhooks and managing user configurations is tedious.
-
-- **Relevance to Project:** 7/10
-- **Ease of Implementation:** 6/10
 
 ---
 
@@ -305,17 +162,3 @@ Based on the architecture and core goals of the Job Tracker project, here are 20
 - **Ease of Implementation:** 5/10
 
 ---
-
-## 20. Offer Comparison Matrix
-**Description:** When a user receives multiple offers, this tool generates a side-by-side comparison matrix evaluating base salary, equity (calculated via Black-Scholes or standard startup math), benefits, and alignment with the user's `CandidateProfile` goals.
-
-**Pros:**
-1. High user value for successful candidates facing complex equity packages.
-2. Highly shareable visualization (good for organic growth).
-
-**Cons:**
-1. Startup equity mathematics (options, RSUs, strike prices, dilution) are complex and hard to accurately generalize.
-2. Will be an empty feature for the vast majority of users who only get one offer at a time.
-
-- **Relevance to Project:** 7/10
-- **Ease of Implementation:** 5/10
