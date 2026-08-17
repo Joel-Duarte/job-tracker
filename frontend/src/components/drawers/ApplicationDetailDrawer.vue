@@ -73,6 +73,11 @@ const transitionForm = ref({
 // Interview Guide state
 const isGenerating = ref(false)
 const showConfigPanel = ref(false)
+
+// Outreach Drafts state
+const isDraftingOutreach = ref(false)
+const outreachDrafts = ref(null)
+
 const showAdvanced = ref(false)
 
 const selectedLanguage = ref('en')
