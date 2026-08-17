@@ -633,11 +633,6 @@ async def transition_application(
     )
 
 
-@router.delete(
-    "/{application_id}",
-    status_code=status.HTTP_200_OK,
-    summary="Delete an application from database",
-)
 async def async_run_rejection_analysis(application_id: int):
     async with AsyncSessionLocal() as session:
         stmt = (
@@ -686,6 +681,11 @@ async def async_run_rejection_analysis(application_id: int):
             )
 
 
+@router.delete(
+    "/{application_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete an application from database",
+)
 async def delete_application(
     application_id: int,
     db: AsyncSession = Depends(get_db),
