@@ -172,3 +172,12 @@ class JobAssessmentResult(BaseModel):
         description="Recommendation: APPLY_STRONGLY, APPLY, CAUTION, SKIP",
     )
     summary: str = Field(default="", description="Brief summary of the evaluation")
+
+
+class RejectionAnalysisResult(BaseModel):
+    missing_requirements: list[str] = Field(
+        default_factory=list, description="List of missing requirements or skills"
+    )
+    pivot_strategy: str = Field(
+        description="Constructive pivot strategy for the candidate"
+    )

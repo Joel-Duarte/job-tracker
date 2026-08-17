@@ -20,6 +20,7 @@ from app.schemas.llm import (
     EmailExtractionResult,
     ExtractedJobSpec,
     JobAssessmentResult,
+    RejectionAnalysisResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -326,6 +327,99 @@ async def generate_embedding(db: AsyncSession, text_input: str) -> list[float]:
         )
 
     return await embeddings.aembed_query(cleaned_text)
+
+
+async def generate_cover_letter(
+    db: AsyncSession,
+    candidate_cv: str,
+    job_description: str,
+) -> str:
+    """Generates a targeted cover letter."""
+    llm = await get_task_chat_model(db, task_type="EXTRACTION", temperature=0.5)
+    template_str = await get_prompt_template(db, "cover_letter_generation")
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", template_str),
+            ("human", "Generate the cover letter."),
+        ]
+    )
+    chain = prompt | llm
+    res = await chain.ainvoke(
+        {"candidate_cv": candidate_cv, "job_description": job_description}
+    )
+
+    content = res.content if hasattr(res, "content") else res
+    raw_html = content if isinstance(content, str) else str(content)
+    clean_html = raw_html.strip()
+    if clean_html.startswith("```html"):
+        clean_html = clean_html[7:]
+    elif clean_html.startswith("```"):
+        clean_html = clean_html[3:]
+    clean_html = clean_html.removesuffix("```")
+    return clean_html.strip()
+
+
+async def generate_tailored_resume(
+    db: AsyncSession,
+    candidate_cv: str,
+    job_description: str,
+) -> str:
+    """Generates a tailored ATS-optimized resume."""
+    llm = await get_task_chat_model(db, task_type="EXTRACTION", temperature=0.3)
+    template_str = await get_prompt_template(db, "resume_tailoring")
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", template_str),
+            ("human", "Generate the tailored resume."),
+        ]
+    )
+    chain = prompt | llm
+    res = await chain.ainvoke(
+        {"candidate_cv": candidate_cv, "job_description": job_description}
+    )
+
+    content = res.content if hasattr(res, "content") else res
+    raw_html = content if isinstance(content, str) else str(content)
+    clean_html = raw_html.strip()
+    if clean_html.startswith("```html"):
+        clean_html = clean_html[7:]
+    elif clean_html.startswith("```"):
+        clean_html = clean_html[3:]
+    clean_html = clean_html.removesuffix("```")
+    return clean_html.strip()
+
+
+async def analyze_rejection(
+    db: AsyncSession,
+    candidate_cv: str,
+    job_description: str,
+    rejection_reason: str,
+) -> dict[str, Any]:
+    """Analyzes rejection and provides pivot strategy."""
+    llm = await get_task_chat_model(db, task_type="ASSESSMENT", temperature=0.2)
+    structured_llm = llm.with_structured_output(RejectionAnalysisResult)
+    template_str = await get_prompt_template(db, "rejection_analysis")
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", template_str),
+            ("human", "Analyze the rejection and provide a pivot strategy."),
+        ]
+    )
+    chain = prompt | structured_llm
+    res = await chain.ainvoke(
+        {
+            "candidate_cv": candidate_cv,
+            "job_description": job_description,
+            "rejection_reason": rejection_reason,
+        }
+    )
+
+    if isinstance(res, RejectionAnalysisResult):
+        return res.model_dump()
+    return RejectionAnalysisResult.model_validate(res).model_dump()
 
 
 async def generate_and_save_application_embedding(

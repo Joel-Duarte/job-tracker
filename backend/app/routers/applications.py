@@ -6,7 +6,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from app.core.database import get_db
+from app.core.database import AsyncSessionLocal, get_db
 from app.models.applications import (
     ActionItemModel,
     ApplicationEmbeddingModel,
@@ -15,6 +15,7 @@ from app.models.applications import (
     CompanyModel,
     JobPostingModel,
 )
+from app.models.candidate_profile import CandidateCVModel
 from app.schemas.applications import (
     ActionItemDetail,
     AllowedApplicationStatus,
@@ -32,7 +33,10 @@ from app.schemas.applications import (
 )
 from app.services.interview_guide import clear_interview_guide, generate_interview_guide
 from app.services.llm import (
+    analyze_rejection,
     async_enqueue_application_embedding,
+    generate_cover_letter,
+    generate_tailored_resume,
 )
 
 logger = logging.getLogger(__name__)
@@ -558,6 +562,10 @@ async def transition_application(
     db.add(event)
     await db.commit()
 
+    # Background rejection analysis
+    if new_status == "REJECTED":
+        background_tasks.add_task(async_run_rejection_analysis, app.id)
+
     # Enqueue non-blocking background embedding generation (only if active stage, not ASSESSMENT)
     if new_status != "ASSESSMENT":
         background_tasks.add_task(
@@ -630,6 +638,54 @@ async def transition_application(
     status_code=status.HTTP_200_OK,
     summary="Delete an application from database",
 )
+async def async_run_rejection_analysis(application_id: int):
+    async with AsyncSessionLocal() as session:
+        stmt = (
+            select(ApplicationModel)
+            .where(ApplicationModel.id == application_id)
+            .options(
+                selectinload(ApplicationModel.job_posting),
+                selectinload(ApplicationModel.events),
+            )
+        )
+        res = await session.execute(stmt)
+        app = res.scalar_one_or_none()
+        if not app:
+            return
+
+        cv_stmt = select(CandidateCVModel).limit(1)
+        cv_res = await session.execute(cv_stmt)
+        active_cv = cv_res.scalars().first()
+
+        cv_text = (
+            active_cv.anonymized_text or active_cv.raw_text
+            if active_cv
+            else "General Candidate"
+        )
+        jd_text = (
+            app.job_posting.description_markdown if app.job_posting else "Not Specified"
+        )
+
+        # Determine rejection reason
+        rejection_reason = "Application rejected"
+        if app.events:
+            for event in sorted(app.events, key=lambda x: x.created_at, reverse=True):
+                if event.email_status_after_event == "REJECTED":
+                    rejection_reason = event.email_summary or rejection_reason
+                    break
+
+        try:
+            analysis = await analyze_rejection(
+                session, cv_text, jd_text, rejection_reason
+            )
+            app.rejection_analysis_payload = analysis
+            await session.commit()
+        except Exception as e:
+            logger.error(
+                "Failed to analyze rejection for app %s: %s", application_id, e
+            )
+
+
 async def delete_application(
     application_id: int,
     db: AsyncSession = Depends(get_db),
@@ -673,6 +729,90 @@ async def generate_app_interview_guide(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         )
+
+
+@router.post(
+    "/{application_id}/cover-letter",
+    response_model=ApplicationDetailResponse,
+    summary="Generate tailored cover letter",
+)
+async def create_cover_letter(
+    application_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = (
+        select(ApplicationModel)
+        .where(ApplicationModel.id == application_id)
+        .options(selectinload(ApplicationModel.job_posting))
+    )
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    cv_stmt = select(CandidateCVModel).limit(1)
+    cv_res = await db.execute(cv_stmt)
+    active_cv = cv_res.scalars().first()
+
+    cv_text = (
+        active_cv.anonymized_text or active_cv.raw_text
+        if active_cv
+        else "General Candidate"
+    )
+    jd_text = (
+        app.job_posting.description_markdown if app.job_posting else "Not Specified"
+    )
+
+    try:
+        cover_letter = await generate_cover_letter(db, cv_text, jd_text)
+        app.cover_letter_html = cover_letter
+        await db.commit()
+        return await get_application(app.id, db)
+    except Exception as e:
+        logger.error("Failed to generate cover letter: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/{application_id}/tailored-resume",
+    response_model=ApplicationDetailResponse,
+    summary="Generate tailored resume",
+)
+async def create_tailored_resume(
+    application_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = (
+        select(ApplicationModel)
+        .where(ApplicationModel.id == application_id)
+        .options(selectinload(ApplicationModel.job_posting))
+    )
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    cv_stmt = select(CandidateCVModel).limit(1)
+    cv_res = await db.execute(cv_stmt)
+    active_cv = cv_res.scalars().first()
+
+    cv_text = (
+        active_cv.anonymized_text or active_cv.raw_text
+        if active_cv
+        else "General Candidate"
+    )
+    jd_text = (
+        app.job_posting.description_markdown if app.job_posting else "Not Specified"
+    )
+
+    try:
+        resume = await generate_tailored_resume(db, cv_text, jd_text)
+        app.tailored_resume_html = resume
+        await db.commit()
+        return await get_application(app.id, db)
+    except Exception as e:
+        logger.error("Failed to generate tailored resume: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete(

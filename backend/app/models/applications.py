@@ -78,6 +78,11 @@ class ApplicationModel(Base):
     interview_guide_preferences: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB, nullable=True
     )
+    cover_letter_html: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tailored_resume_html: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rejection_analysis_payload: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
     match_analysis_payload: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB, nullable=True
     )
