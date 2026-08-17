@@ -1851,6 +1851,39 @@ onMounted(async () => {
                   </button>
                 </div>
               </div>
+
+          <!-- Application Auto-Archiver Card -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <RotateCcw :size="18" />
+              </div>
+              <div style="flex: 1;">
+                <div class="preference-header-between">
+                  <h4 class="preference-title">Application Auto-Archiver</h4>
+                  <label class="switch">
+                    <input type="checkbox" :checked="uiStore.autoArchiveEnabled" @change="e => uiStore.setAutoArchiveEnabled(e.target.checked)">
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+                <p class="preference-desc">Automatically moves inactive applications in the Applied stage to the Archived/Rejected tab.</p>
+              </div>
+            </div>
+
+            <div v-if="uiStore.autoArchiveEnabled" style="margin-top: 8px;">
+              <div class="input-group">
+                <label class="input-label">Inactivity Threshold</label>
+                <select class="form-input" :value="uiStore.autoArchiveDays" @change="e => uiStore.setAutoArchiveDays(parseInt(e.target.value))">
+                  <option :value="14">14 days</option>
+                  <option :value="30">30 days (Recommended)</option>
+                  <option :value="45">45 days</option>
+                  <option :value="60">60 days</option>
+                  <option :value="90">90 days</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
             </div>
           </div>
         </div>
@@ -2230,6 +2263,66 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* Switch Toggle Styles */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 20px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--border-color);
+  -webkit-transition: .4s;
+  transition: .4s;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  -webkit-transition: .4s;
+  transition: .4s;
+}
+
+input:checked + .slider {
+  background-color: var(--primary);
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px var(--primary);
+}
+
+input:checked + .slider:before {
+  -webkit-transform: translateX(14px);
+  -ms-transform: translateX(14px);
+  transform: translateX(14px);
+}
+
+.slider.round {
+  border-radius: 34px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
+}
+
 .page-container {
   display: flex;
   flex-direction: column;
