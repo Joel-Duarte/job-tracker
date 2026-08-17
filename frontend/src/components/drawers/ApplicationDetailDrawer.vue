@@ -165,6 +165,31 @@ function openGuideInNewTab() {
   window.open(routeData.href, '_blank')
 }
 
+// Outreach methods
+async function handleGenerateOutreachDrafts() {
+  if (!appStore.selectedApplication?.id) return
+
+  try {
+    isDraftingOutreach.value = true
+    const response = await ApplicationsAPI.generateOutreachDrafts(appStore.selectedApplication.id)
+    outreachDrafts.value = response.data
+    uiStore.showToast('Outreach drafts generated successfully!', 'success')
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || 'Failed to generate outreach drafts', 'error')
+  } finally {
+    isDraftingOutreach.value = false
+  }
+}
+
+async function copyToClipboard(text, type) {
+  try {
+    await navigator.clipboard.writeText(text)
+    uiStore.showToast(`${type} draft copied to clipboard!`, 'info')
+  } catch (err) {
+    uiStore.showToast('Failed to copy to clipboard', 'error')
+  }
+}
+
 const INTERVIEW_STAGES = [
   'Interview Requested / Scheduling',
   'Recruiter Screen / Initial Chat',
@@ -647,6 +672,15 @@ function formatDate(isoStr) {
               <span>Interview Guide</span>
               <span v-if="appStore.selectedApplication.has_interview_guide" class="guide-ready-indicator"></span>
             </button>
+
+            <button
+              class="tab-item"
+              :class="{ active: activeTab === 'outreach' }"
+              @click="activeTab = 'outreach'"
+            >
+              <MessageSquare :size="15" />
+              <span>Outreach</span>
+            </button>
           </div>
 
           <!-- Tab Panels -->
@@ -1015,6 +1049,67 @@ function formatDate(isoStr) {
                 >
                   <Sparkles :size="15" />
                   <span>Configure & Generate</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 5. OUTREACH TAB -->
+            <div v-if="activeTab === 'outreach'" class="outreach-tab-panel animate-fade-in">
+              <div v-if="isDraftingOutreach" class="state-container generating-state">
+                <div class="pulse-glow-ring">
+                  <Sparkles :size="36" class="text-primary animate-pulse" />
+                </div>
+                <h3 class="generating-title">Drafting Outreach Messages</h3>
+                <p class="generating-desc">
+                  Synthesizing tailored outreach messages based on your profile and target role...
+                </p>
+              </div>
+
+              <div v-else-if="outreachDrafts" class="outreach-drafts-container">
+                <div class="outreach-card">
+                  <div class="outreach-card-header">
+                    <h4 class="outreach-title">Hiring Manager Draft</h4>
+                    <button class="btn btn-xs btn-ghost" @click="copyToClipboard(outreachDrafts.recruiter_message, 'Hiring Manager')">
+                      <Copy :size="14" />
+                      <span>Copy</span>
+                    </button>
+                  </div>
+                  <textarea readonly class="form-textarea outreach-textarea" :value="outreachDrafts.recruiter_message" rows="6"></textarea>
+                </div>
+
+                <div class="outreach-card">
+                  <div class="outreach-card-header">
+                    <h4 class="outreach-title">Peer / IC Draft</h4>
+                    <button class="btn btn-xs btn-ghost" @click="copyToClipboard(outreachDrafts.peer_message, 'Peer')">
+                      <Copy :size="14" />
+                      <span>Copy</span>
+                    </button>
+                  </div>
+                  <textarea readonly class="form-textarea outreach-textarea" :value="outreachDrafts.peer_message" rows="6"></textarea>
+                </div>
+
+                <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+                  <button class="btn btn-secondary btn-sm" @click="handleGenerateOutreachDrafts">
+                    <RotateCcw :size="14" />
+                    <span>Regenerate Drafts</span>
+                  </button>
+                </div>
+              </div>
+
+              <div v-else class="guide-empty-state">
+                <div class="guide-empty-icon">
+                  <MessageSquare :size="32" class="text-primary" />
+                </div>
+                <h4 class="guide-empty-title">Cold Outreach Drafter</h4>
+                <p class="guide-empty-desc">
+                  Generate dual-target cold outreach messages tailored for hiring managers and peers to accelerate your networking and referrals.
+                </p>
+                <button
+                  class="btn btn-primary btn-sm"
+                  @click="handleGenerateOutreachDrafts"
+                >
+                  <Sparkles :size="14" />
+                  <span>Draft Outreach Messages</span>
                 </button>
               </div>
             </div>
@@ -2478,4 +2573,37 @@ function formatDate(isoStr) {
 .status-badge-static.status-rejected { color: var(--status-rejected-text); border-color: var(--status-rejected-border); background-color: var(--status-rejected-bg); }
 .status-badge-static.status-assessment { color: var(--status-assessment-text); border-color: var(--status-assessment-border); background-color: var(--status-assessment-bg); }
 
+.outreach-drafts-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.outreach-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.outreach-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.outreach-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-main);
+}
+
+.outreach-textarea {
+  width: 100%;
+  resize: vertical;
+  background-color: var(--bg-surface-hover);
+}
 </style>
