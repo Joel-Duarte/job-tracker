@@ -142,23 +142,31 @@ async def match_portfolio_projects(
 
     llm = await get_task_chat_model(db, task_type="JOB_ASSESSMENT", temperature=0.2)
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", (
-            "You are an expert technical recruiter and interview coach. "
-            "Given a job description and required skills, and a list of the candidate's portfolio projects, "
-            "determine which projects the candidate should emphasize during their technical interview. "
-            "Return a JSON object with a single key 'recommended_projects' which is a list of objects. "
-            "Each object must have 'project_title' (the name of the project) and 'talking_points' (a string "
-            "explaining why this project is relevant and what technical aspects or outcomes to highlight based on the JD)."
-            "Always output valid JSON."
-        )),
-        ("human", (
-            f"Job Description (snippet): {jd_text[:3000]}\n\n"
-            f"Required Skills: {', '.join(required_skills)}\n\n"
-            f"Candidate Portfolio Projects: {json.dumps(portfolio_projects)}\n\n"
-            "Analyze and recommend projects to highlight in the technical interview. Return ONLY JSON."
-        ))
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                (
+                    "You are an expert technical recruiter and interview coach. "
+                    "Given a job description and required skills, and a list of the candidate's portfolio projects, "
+                    "determine which projects the candidate should emphasize during their technical interview. "
+                    "Return a JSON object with a single key 'recommended_projects' which is a list of objects. "
+                    "Each object must have 'project_title' (the name of the project) and 'talking_points' (a string "
+                    "explaining why this project is relevant and what technical aspects or outcomes to highlight based on the JD)."
+                    "Always output valid JSON."
+                ),
+            ),
+            (
+                "human",
+                (
+                    f"Job Description (snippet): {jd_text[:3000]}\n\n"
+                    f"Required Skills: {', '.join(required_skills)}\n\n"
+                    f"Candidate Portfolio Projects: {json.dumps(portfolio_projects)}\n\n"
+                    "Analyze and recommend projects to highlight in the technical interview. Return ONLY JSON."
+                ),
+            ),
+        ]
+    )
 
     chain = prompt | llm
 
@@ -178,5 +186,6 @@ async def match_portfolio_projects(
         return parsed
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).warning("Portfolio matching failed: %s", e)
         return {"recommended_projects": []}

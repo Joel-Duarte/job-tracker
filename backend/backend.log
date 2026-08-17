@@ -1022,3 +1022,14 @@ Traceback (most recent call last):
   File "/home/jules/.pyenv/versions/3.12.13/lib/python3.12/asyncio/base_events.py", line 1140, in create_connection
     raise OSError('Multiple exceptions: {}'.format(
 OSError: Multiple exceptions: [Errno 111] Connect call failed ('::1', 5432, 0, 0), [Errno 111] Connect call failed ('127.0.0.1', 5432)
+WARNING:  StatReload detected changes in 'app/services/matcher.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:app.main:Shutting down application and disposing connection pools...
+INFO:     Application shutdown complete.
+INFO:     Finished server process [185105]
+INFO:     Started server process [268546]
+INFO:     Waiting for application startup.
+INFO:app.main:Checking database connection...
+ERROR:app.core.database:Database connection check failed: Multiple exceptions: [Errno 111] Connect call failed ('::1', 5432, 0, 0), [Errno 111] Connect call failed ('127.0.0.1', 5432)
+INFO:     Application startup complete.

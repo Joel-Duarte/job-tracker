@@ -212,18 +212,22 @@ async def _execute_evaluation_steps(
                 db,
                 jd_text=content,
                 required_skills=assessment.matching_skills + assessment.missing_skills,
-                portfolio_projects=active_cv.portfolio_projects
+                portfolio_projects=active_cv.portfolio_projects,
             )
             if portfolio_matching_result.get("recommended_projects"):
                 result_payload = assessment.model_dump()
-                result_payload["portfolio_projects_matching"] = portfolio_matching_result
+                result_payload["portfolio_projects_matching"] = (
+                    portfolio_matching_result
+                )
 
         # Completed Successfully
         task.status = "COMPLETED"
         task.stage = (
             "STAGED_DUPLICATE" if save_result.get("is_duplicate") else "COMPLETE"
         )
-        result_payload = result_payload if 'result_payload' in locals() else assessment.model_dump()
+        result_payload = (
+            result_payload if "result_payload" in locals() else assessment.model_dump()
+        )
         result_payload["application_id"] = save_result.get("application_id")
         result_payload["staging_item_id"] = save_result.get("staging_item_id")
         result_payload["is_duplicate"] = save_result.get("is_duplicate", False)

@@ -508,6 +508,7 @@ async def transition_application(
         # Trigger Portfolio Matching AI Evaluation
         from app.models.candidate_profile import CandidateCVModel
         from app.services.matcher import match_portfolio_projects
+
         cv_stmt = select(CandidateCVModel).limit(1)
         cv_res = await db.execute(cv_stmt)
         active_cv = cv_res.scalars().first()
@@ -523,7 +524,7 @@ async def transition_application(
                 db,
                 jd_text=jd_text,
                 required_skills=required_skills,
-                portfolio_projects=active_cv.portfolio_projects
+                portfolio_projects=active_cv.portfolio_projects,
             )
 
             if portfolio_matching_result.get("recommended_projects"):
@@ -531,7 +532,9 @@ async def transition_application(
                     app.match_analysis_payload = {}
                 # Shallow copy to trigger sqlalchemy change detection on JSONB
                 updated_payload = dict(app.match_analysis_payload)
-                updated_payload["portfolio_projects_matching"] = portfolio_matching_result
+                updated_payload["portfolio_projects_matching"] = (
+                    portfolio_matching_result
+                )
                 app.match_analysis_payload = updated_payload
 
     if payload.offered_salary:

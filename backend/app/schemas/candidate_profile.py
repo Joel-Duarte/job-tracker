@@ -7,8 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field
 class PortfolioProjectItem(BaseModel):
     title: str = Field(..., description="Name of the portfolio project")
     description: str = Field(..., description="Brief summary of the project and impact")
-    link: str | None = Field(None, description="URL to the live project, repo, or case study")
-    skills: list[str] | None = Field(default_factory=list, description="Primary skills or tech stack used")
+    link: str | None = Field(
+        None, description="URL to the live project, repo, or case study"
+    )
+    skills: list[str] | None = Field(
+        default_factory=list, description="Primary skills or tech stack used"
+    )
+
 
 class DomainExperienceItem(BaseModel):
     domain: str = Field(
