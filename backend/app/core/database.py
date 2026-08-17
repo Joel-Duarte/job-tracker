@@ -181,6 +181,9 @@ async def ensure_db_schema() -> None:
             "ALTER TABLE IF EXISTS email_applications ADD COLUMN IF NOT EXISTS interview_guide_language TEXT DEFAULT 'en';",
             "ALTER TABLE IF EXISTS email_applications ADD COLUMN IF NOT EXISTS interview_guide_generated_at TIMESTAMPTZ;",
             "ALTER TABLE IF EXISTS email_applications ADD COLUMN IF NOT EXISTS interview_guide_preferences JSONB;",
+            "ALTER TABLE IF EXISTS email_applications ADD COLUMN IF NOT EXISTS cover_letter_html TEXT;",
+            "ALTER TABLE IF EXISTS email_applications ADD COLUMN IF NOT EXISTS tailored_resume_html TEXT;",
+            "ALTER TABLE IF EXISTS email_applications ADD COLUMN IF NOT EXISTS rejection_analysis_payload JSONB;",
             # job_postings
             "ALTER TABLE IF EXISTS job_postings ADD COLUMN IF NOT EXISTS description_markdown TEXT;",
             "ALTER TABLE IF EXISTS job_postings ADD COLUMN IF NOT EXISTS salary_min FLOAT;",
