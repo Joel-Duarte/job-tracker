@@ -13,7 +13,12 @@ from app.core.llm_factory import (
     get_task_embeddings_model,
 )
 from app.core.prompts import get_prompt_template
-from app.models.applications import ApplicationEmbeddingModel, ApplicationModel
+from app.models.applications import (
+    ApplicationEmbeddingModel,
+    ApplicationEventModel,
+    ApplicationModel,
+)
+from app.models.candidate_profile import CandidateCVModel
 from app.schemas.candidate_profile import CVAnonymizationResult
 from app.schemas.llm import (
     ApplicationSummaryResult,
@@ -350,15 +355,22 @@ async def generate_nudge_email(db: AsyncSession, application_id: int) -> str | N
         ]
     )
     chain = prompt | llm
-    result = await chain.ainvoke({
-        "company": application.company.name if application.company else "the company",
-        "position": application.position or "the role",
-        "status": application.status
-    })
+    result = await chain.ainvoke(
+        {
+            "company": application.company.name
+            if application.company
+            else "the company",
+            "position": application.position or "the role",
+            "status": application.status,
+        }
+    )
 
     return result.content if hasattr(result, "content") else str(result)
 
-async def generate_email_reply_draft(db: AsyncSession, action_item_id: int) -> str | None:
+
+async def generate_email_reply_draft(
+    db: AsyncSession, action_item_id: int
+) -> str | None:
     """Generates a draft reply to an email associated with an action item."""
     from app.models.applications import ActionItemModel
 
@@ -366,7 +378,9 @@ async def generate_email_reply_draft(db: AsyncSession, action_item_id: int) -> s
         select(ActionItemModel)
         .options(
             selectinload(ActionItemModel.event),
-            selectinload(ActionItemModel.application).selectinload(ApplicationModel.company)
+            selectinload(ActionItemModel.application).selectinload(
+                ApplicationModel.company
+            ),
         )
         .where(ActionItemModel.id == action_item_id)
     )
@@ -384,7 +398,7 @@ async def generate_email_reply_draft(db: AsyncSession, action_item_id: int) -> s
         events_stmt = (
             select(ApplicationEventModel)
             .where(ApplicationEventModel.email_application_id == application.id)
-            .where(ApplicationEventModel.email_action_required == True)
+            .where(ApplicationEventModel.email_action_required)
             .order_by(ApplicationEventModel.email_received_at.desc())
         )
         events_res = await db.execute(events_stmt)
@@ -394,7 +408,9 @@ async def generate_email_reply_draft(db: AsyncSession, action_item_id: int) -> s
         return None
 
     # Get candidate profile context
-    profile_stmt = select(CandidateProfileModel).where(CandidateProfileModel.is_active == True)
+    profile_stmt = select(CandidateCVModel).where(
+        CandidateCVModel.is_active
+    )
     profile_res = await db.execute(profile_stmt)
     profile = profile_res.scalar_one_or_none()
 
@@ -402,7 +418,9 @@ async def generate_email_reply_draft(db: AsyncSession, action_item_id: int) -> s
     if profile:
         profile_text = f"Summary: {profile.summary}\nSkills: {profile.extracted_skills}\nExperience: {profile.years_of_experience} years"
 
-    email_content = email_event.email_raw_body or email_event.email_summary or "No email content"
+    email_content = (
+        email_event.email_raw_body or email_event.email_summary or "No email content"
+    )
 
     llm = await get_task_chat_model(db, task_type="SUMMARIZATION", temperature=0.7)
     template_str = await get_prompt_template(db, "email_reply_draft")
@@ -413,12 +431,16 @@ async def generate_email_reply_draft(db: AsyncSession, action_item_id: int) -> s
         ]
     )
     chain = prompt | llm
-    result = await chain.ainvoke({
-        "company": application.company.name if application.company else "the company",
-        "position": application.position or "the role",
-        "email_content": email_content,
-        "candidate_profile": profile_text
-    })
+    result = await chain.ainvoke(
+        {
+            "company": application.company.name
+            if application.company
+            else "the company",
+            "position": application.position or "the role",
+            "email_content": email_content,
+            "candidate_profile": profile_text,
+        }
+    )
 
     return result.content if hasattr(result, "content") else str(result)
 
