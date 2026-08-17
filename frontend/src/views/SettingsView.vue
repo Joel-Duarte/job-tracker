@@ -26,11 +26,8 @@ import {
   SlidersHorizontal,
   DollarSign,
   Globe,
-  Sun,
-  Moon,
   Palette,
-  Kanban,
-  Table as TableIcon,
+  Archive,
   Clock,
   Key,
   RefreshCw,
@@ -1281,76 +1278,41 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- View Mode Setting Card -->
+          <!-- Application Auto-Archiver Card -->
           <div class="preference-card">
             <div class="preference-header">
               <div class="preference-icon text-primary">
-                <Globe :size="18" />
+                <Archive :size="18" />
               </div>
-              <div>
-                <h4 class="preference-title">Default Pipeline View</h4>
-                <p class="preference-desc">Choose whether the pipeline launches in Kanban board or tabular data table view.</p>
+              <div style="flex: 1;">
+                <div class="preference-header-between">
+                  <h4 class="preference-title">Application Auto-Archiver</h4>
+                  <label class="switch">
+                    <input type="checkbox" :checked="uiStore.autoArchiveEnabled" @change="e => uiStore.setAutoArchiveEnabled(e.target.checked)">
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+                <p class="preference-desc">Automatically moves inactive applications in the Applied stage to the Archived/Rejected tab.</p>
               </div>
             </div>
 
-            <div class="view-mode-toggle-row">
-              <button
-                type="button"
-                class="view-mode-option"
-                :class="{ active: uiStore.viewMode === 'kanban' }"
-                @click="uiStore.setViewMode('kanban')"
-              >
-                <Kanban :size="16" />
-                <span>Kanban Board</span>
-              </button>
-              <button
-                type="button"
-                class="view-mode-option"
-                :class="{ active: uiStore.viewMode === 'table' }"
-                @click="uiStore.setViewMode('table')"
-              >
-                <TableIcon :size="16" />
-                <span>Data Table</span>
-              </button>
+            <div v-if="uiStore.autoArchiveEnabled" style="margin-top: 8px;">
+              <div class="input-group">
+                <label class="input-label">Inactivity Threshold</label>
+                <select class="form-input" :value="uiStore.autoArchiveDays" @change="e => uiStore.setAutoArchiveDays(parseInt(e.target.value))">
+                  <option :value="14">14 days</option>
+                  <option :value="30">30 days (Recommended)</option>
+                  <option :value="45">45 days</option>
+                  <option :value="60">60 days</option>
+                  <option :value="90">90 days</option>
+                </select>
+              </div>
             </div>
           </div>
+        </div>
 
-          <!-- Appearance Theme Setting Card -->
-          <div class="preference-card">
-            <div class="preference-header">
-              <div class="preference-icon text-primary">
-                <Palette :size="18" />
-              </div>
-              <div>
-                <h4 class="preference-title">Interface Appearance Theme</h4>
-                <p class="preference-desc">Switch between the refined dark slate Midnight theme and the warm studio Daylight theme.</p>
-              </div>
-            </div>
-
-            <div class="view-mode-toggle-row">
-              <button
-                type="button"
-                class="view-mode-option"
-                :class="{ active: uiStore.theme === 'midnight' }"
-                @click="uiStore.setTheme('midnight')"
-              >
-                <Moon :size="16" />
-                <span>Midnight (Dark Slate)</span>
-              </button>
-              <button
-                type="button"
-                class="view-mode-option"
-                :class="{ active: uiStore.theme === 'daylight' }"
-                @click="uiStore.setTheme('daylight')"
-              >
-                <Sun :size="16" />
-                <span>Daylight (Warm Studio)</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Theme Palette Customizer Studio Card -->
-          <div class="preference-card preference-card-wide">
+        <!-- Theme Palette Customizer Studio Card -->
+        <div class="preference-card preference-card-wide" style="margin-top: 16px;">
             <div class="preference-header-between">
               <div class="preference-header">
                 <div class="preference-icon text-primary">
@@ -1852,45 +1814,12 @@ onMounted(async () => {
                 </div>
               </div>
 
-          <!-- Application Auto-Archiver Card -->
-          <div class="preference-card">
-            <div class="preference-header">
-              <div class="preference-icon text-primary">
-                <RotateCcw :size="18" />
-              </div>
-              <div style="flex: 1;">
-                <div class="preference-header-between">
-                  <h4 class="preference-title">Application Auto-Archiver</h4>
-                  <label class="switch">
-                    <input type="checkbox" :checked="uiStore.autoArchiveEnabled" @change="e => uiStore.setAutoArchiveEnabled(e.target.checked)">
-                    <span class="slider round"></span>
-                  </label>
-                </div>
-                <p class="preference-desc">Automatically moves inactive applications in the Applied stage to the Archived/Rejected tab.</p>
-              </div>
-            </div>
-
-            <div v-if="uiStore.autoArchiveEnabled" style="margin-top: 8px;">
-              <div class="input-group">
-                <label class="input-label">Inactivity Threshold</label>
-                <select class="form-input" :value="uiStore.autoArchiveDays" @change="e => uiStore.setAutoArchiveDays(parseInt(e.target.value))">
-                  <option :value="14">14 days</option>
-                  <option :value="30">30 days (Recommended)</option>
-                  <option :value="45">45 days</option>
-                  <option :value="60">60 days</option>
-                  <option :value="90">90 days</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
             </div>
           </div>
         </div>
       </div>
     </div>
-      </div>
-    </div>
+  </div>
 
     <!-- PROVIDER MODAL -->
     <div v-if="isProviderModalOpen" class="modal-backdrop" @click.self="isProviderModalOpen = false">
