@@ -17,6 +17,7 @@ import {
   CheckSquare,
   Cpu,
   Mail,
+  BarChart3,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -81,6 +82,15 @@ onMounted(() => {
         >
           <Briefcase :size="16" />
           <span>Board</span>
+        </router-link>
+
+        <router-link
+          to="/analytics"
+          class="nav-link"
+          :class="{ active: route.path === '/analytics' }"
+        >
+          <BarChart3 :size="16" />
+          <span>Analytics</span>
         </router-link>
 
         <router-link

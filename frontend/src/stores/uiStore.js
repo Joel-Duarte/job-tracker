@@ -258,6 +258,21 @@ export const useUIStore = defineStore('ui', () => {
     localStorage.setItem('jt_currency', curr)
   }
 
+  // Auto-Archiver Preferences
+  const autoArchiveEnabled = ref(localStorage.getItem('jt_auto_archiver_enabled') !== 'false')
+  const autoArchiveDays = ref(parseInt(localStorage.getItem('jt_auto_archiver_days') || '30', 10))
+
+  function setAutoArchiveEnabled(val) {
+    autoArchiveEnabled.value = val
+    localStorage.setItem('jt_auto_archiver_enabled', val ? 'true' : 'false')
+  }
+
+  function setAutoArchiveDays(days) {
+    autoArchiveDays.value = days
+    localStorage.setItem('jt_auto_archiver_days', String(days))
+  }
+
+
   // Initialize root class and custom theme colors
   document.documentElement.className = theme.value
   applyCustomColors()
@@ -306,5 +321,9 @@ export const useUIStore = defineStore('ui', () => {
     clearCompletedIntakeTasks,
     enableEmbeddings,
     setEnableEmbeddings,
+    autoArchiveEnabled,
+    autoArchiveDays,
+    setAutoArchiveEnabled,
+    setAutoArchiveDays,
   }
 })

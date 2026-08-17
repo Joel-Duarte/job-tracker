@@ -7,6 +7,7 @@ import CandidateProfileView from '../views/CandidateProfileView.vue'
 import AgentChatView from '../views/AgentChatView.vue'
 import StagingView from '../views/StagingView.vue'
 import SettingsView from '../views/SettingsView.vue'
+import AnalyticsView from '../views/AnalyticsView.vue'
 import InterviewGuideView from '../views/InterviewGuideView.vue'
 
 const routes = [
@@ -14,6 +15,11 @@ const routes = [
     path: '/',
     name: 'Applications',
     component: ApplicationsView,
+  },
+  {
+    path: '/analytics',
+    name: 'Analytics',
+    component: AnalyticsView,
   },
   {
     path: '/tasks',

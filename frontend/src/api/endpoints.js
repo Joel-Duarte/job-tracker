@@ -95,3 +95,10 @@ export const ActionItemsAPI = {
   updateUrgency: (id, manual_urgency) => apiClient.put(`/action-items/${id}/urgency`, { manual_urgency }),
   delete: (id) => apiClient.delete(`/action-items/${id}`),
 }
+
+export const AnalyticsAPI = {
+  getOverview: (params = {}) => apiClient.get('/analytics/overview', { params }),
+  getWorkModelBreakdown: () => apiClient.get('/analytics/work-model-breakdown'),
+  getFunnelMetrics: () => apiClient.get('/analytics/funnel'),
+}
+

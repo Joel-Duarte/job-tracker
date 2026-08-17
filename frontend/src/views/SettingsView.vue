@@ -43,6 +43,7 @@ import {
   BrainCircuit,
   Bot,
   Briefcase,
+  Archive,
   Copy,
   Eye,
   EyeOff,
@@ -1643,6 +1644,46 @@ onMounted(async () => {
                 <Sun :size="16" />
                 <span>Daylight (Warm Studio)</span>
               </button>
+            </div>
+          </div>
+
+          <!-- Application Auto-Archiver Card -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <Archive :size="18" />
+              </div>
+              <div style="flex: 1;">
+                <div class="preference-header-between">
+                  <h4 class="preference-title">Application Auto-Archiver</h4>
+                  <label class="switch-toggle">
+                    <input
+                      type="checkbox"
+                      :checked="uiStore.autoArchiveEnabled"
+                      @change="e => uiStore.setAutoArchiveEnabled(e.target.checked)"
+                    />
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+                <p class="preference-desc">Automatically moves inactive applications in the Applied stage to the Archived/Rejected tab.</p>
+              </div>
+            </div>
+
+            <div v-if="uiStore.autoArchiveEnabled" style="margin-top: 12px;">
+              <div class="input-group">
+                <label class="input-label">Inactivity Threshold</label>
+                <select
+                  class="form-input"
+                  :value="uiStore.autoArchiveDays"
+                  @change="e => uiStore.setAutoArchiveDays(parseInt(e.target.value))"
+                >
+                  <option :value="14">14 days</option>
+                  <option :value="30">30 days (Recommended)</option>
+                  <option :value="45">45 days</option>
+                  <option :value="60">60 days</option>
+                  <option :value="90">90 days</option>
+                </select>
+              </div>
             </div>
           </div>
 
