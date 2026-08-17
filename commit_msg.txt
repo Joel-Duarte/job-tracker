@@ -1,7 +1,1 @@
-feat: Dual-Target Inbox Cold Outreach Drafter
-
-- Add `ColdOutreachDrafts` Pydantic schema in `backend/app/schemas/llm.py`
-- Create `generate_cold_outreach_drafts` LangChain service method in `backend/app/services/llm.py`
-- Implement new POST endpoint `/applications/{application_id}/outreach-drafts` in `backend/app/routers/applications.py`
-- Add `generateOutreachDrafts` method to `ApplicationsAPI` in `frontend/src/api/endpoints.js`
-- Integrate new Outreach tab in `frontend/src/components/drawers/ApplicationDetailDrawer.vue` with drafting state, generated draft text areas, and copy to clipboard functionality.
+fix: Run ruff format on backend files to fix CI error

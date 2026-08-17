@@ -173,6 +173,7 @@ class JobAssessmentResult(BaseModel):
     )
     summary: str = Field(default="", description="Brief summary of the evaluation")
 
+
 class ColdOutreachDrafts(BaseModel):
     recruiter_message: str = Field(
         description="Outreach message tailored for a hiring manager (focusing on business value)"

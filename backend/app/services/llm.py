@@ -529,6 +529,7 @@ async def async_enqueue_application_embedding(
                     db_task.error_message = str(err)
                     await processing_session.commit()
 
+
 async def generate_cold_outreach_drafts(
     db: AsyncSession,
     candidate_cv_text: str,

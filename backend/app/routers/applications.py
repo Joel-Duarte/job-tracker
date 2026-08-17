@@ -697,6 +697,7 @@ async def clear_app_interview_guide(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         )
 
+
 @router.post(
     "/{application_id}/outreach-drafts",
     response_model=ColdOutreachDrafts,
@@ -743,7 +744,9 @@ async def create_cold_outreach_drafts(
 
         # Prepare parameters
         cv_text = profile.canonical_cv
-        company_name = application.company.name if application.company else "Unknown Company"
+        company_name = (
+            application.company.name if application.company else "Unknown Company"
+        )
         job_title = application.position or "Unknown Role"
 
         job_description = None
