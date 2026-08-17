@@ -11,6 +11,7 @@ from app.routers import (
     ai_config,
     applications,
     candidate_profile,
+    diagnostics,
     email_accounts,
     events,
     extension,
@@ -86,6 +87,7 @@ app.include_router(admin.router, prefix="/api/v1")
 app.include_router(prompts.router, prefix="/api/v1")
 app.include_router(email_accounts.router, prefix="/api/v1")
 app.include_router(staging.router, prefix="/api/v1")
+app.include_router(diagnostics.router, prefix="/api/v1")
 app.include_router(llm.router, prefix="/api/v1")
 
 
