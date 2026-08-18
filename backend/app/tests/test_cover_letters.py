@@ -2,10 +2,11 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 from langchain_core.runnables import RunnableLambda
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_db
 from app.main import app
 from app.models.applications import ApplicationModel, CompanyModel
 from app.models.candidate_profile import CandidateCVModel
@@ -148,15 +149,20 @@ async def test_cover_letter_chain_structured_and_fallback():
 @pytest.mark.docker
 async def test_cover_letter_get_endpoint_not_found(db_session: AsyncSession):
     """Verifies 404 response for non-existent application cover letter GET request."""
-    client = TestClient(app)
-    response = client.get("/api/v1/applications/999999/cover-letter")
-    assert response.status_code == 404
-    assert "not found" in response.json()["detail"].lower()
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/v1/applications/999999/cover-letter")
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+    app.dependency_overrides.clear()
 
 
 @pytest.mark.docker
 async def test_cover_letter_put_and_get_workflow(db_session: AsyncSession):
     """Verifies creating an application, retrieving initial cover letter status, and saving manual edits via PUT."""
+    app.dependency_overrides[get_db] = lambda: db_session
+
     company = CompanyModel(name="Stripe", name_normalized="stripe", domain="stripe.com")
     db_session.add(company)
     await db_session.flush()
@@ -171,35 +177,40 @@ async def test_cover_letter_put_and_get_workflow(db_session: AsyncSession):
     await db_session.commit()
     await db_session.refresh(application)
 
-    client = TestClient(app)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # GET initial status
+        get_resp = await client.get(
+            f"/api/v1/applications/{application.id}/cover-letter"
+        )
+        assert get_resp.status_code == 200
+        data = get_resp.json()
+        assert data["application_id"] == application.id
+        assert data["cover_letter_status"] == "PENDING"
+        assert data["cover_letter_markdown"] is None
 
-    # GET initial status
-    get_resp = client.get(f"/api/v1/applications/{application.id}/cover-letter")
-    assert get_resp.status_code == 200
-    data = get_resp.json()
-    assert data["application_id"] == application.id
-    assert data["cover_letter_status"] == "PENDING"
-    assert data["cover_letter_markdown"] is None
-
-    # PUT manual user edits
-    edit_payload = {"content": "# Custom Cover Letter\n\nDear Stripe Team..."}
-    put_resp = client.put(
-        f"/api/v1/applications/{application.id}/cover-letter",
-        json=edit_payload,
-    )
-    assert put_resp.status_code == 200
-    updated_data = put_resp.json()
-    assert updated_data["cover_letter_status"] == "COMPLETED"
-    assert updated_data["cover_letter_markdown"] == edit_payload["content"]
+        # PUT manual user edits
+        edit_payload = {"content": "# Custom Cover Letter\n\nDear Stripe Team..."}
+        put_resp = await client.put(
+            f"/api/v1/applications/{application.id}/cover-letter",
+            json=edit_payload,
+        )
+        assert put_resp.status_code == 200
+        updated_data = put_resp.json()
+        assert updated_data["cover_letter_status"] == "COMPLETED"
+        assert updated_data["cover_letter_markdown"] == edit_payload["content"]
 
     await db_session.refresh(application)
     assert application.cover_letter_status == "COMPLETED"
     assert application.cover_letter_markdown == edit_payload["content"]
+    app.dependency_overrides.clear()
 
 
 @pytest.mark.docker
 async def test_cover_letter_generate_endpoint_queues_task(db_session: AsyncSession):
     """Verifies POST /generate queues background generation task and sets status to PENDING."""
+    app.dependency_overrides[get_db] = lambda: db_session
+
     company = CompanyModel(name="Linear", name_normalized="linear", domain="linear.app")
     db_session.add(company)
     await db_session.flush()
@@ -213,23 +224,25 @@ async def test_cover_letter_generate_endpoint_queues_task(db_session: AsyncSessi
     db_session.add(application)
     await db_session.commit()
 
-    client = TestClient(app)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch(
+            "app.routers.cover_letters.process_evaluation_task", new_callable=AsyncMock
+        ) as mock_worker:
+            gen_resp = await client.post(
+                f"/api/v1/applications/{application.id}/cover-letter/generate",
+                json={
+                    "custom_instructions": "Focus on offline sync",
+                    "tone": "enthusiastic",
+                },
+            )
+            assert gen_resp.status_code == 202
+            body = gen_resp.json()
+            assert body["application_id"] == application.id
+            assert body["cover_letter_status"] == "PENDING"
+            mock_worker.assert_called_once()
 
-    with patch(
-        "app.routers.cover_letters.process_evaluation_task", new_callable=AsyncMock
-    ) as mock_worker:
-        gen_resp = client.post(
-            f"/api/v1/applications/{application.id}/cover-letter/generate",
-            json={
-                "custom_instructions": "Focus on offline sync",
-                "tone": "enthusiastic",
-            },
-        )
-        assert gen_resp.status_code == 202
-        body = gen_resp.json()
-        assert body["application_id"] == application.id
-        assert body["cover_letter_status"] == "PENDING"
-        mock_worker.assert_called_once()
+    app.dependency_overrides.clear()
 
 
 @pytest.mark.docker
