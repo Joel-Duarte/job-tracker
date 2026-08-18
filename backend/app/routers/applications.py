@@ -25,6 +25,8 @@ from app.schemas.applications import (
     ApplicationListResponse,
     ApplicationTransitionRequest,
     ApplicationUpdate,
+    BulkTransitionRequest,
+    BulkTransitionResult,
     CompanySummary,
     EventSummary,
     GenerateInterviewGuideRequest,
@@ -780,6 +782,70 @@ async def transition_application(
     app_refreshed = res_refreshed.scalar_one()
 
     return await get_application(app_refreshed.id, db)
+
+
+@router.post(
+    "/bulk-transition",
+    response_model=BulkTransitionResult,
+    summary="Bulk-transition multiple applications to a new status",
+)
+async def bulk_transition_applications(
+    payload: BulkTransitionRequest,
+    db: AsyncSession = Depends(get_db),
+) -> BulkTransitionResult:
+    """
+    Transitions all applications whose status is in payload.from_statuses
+    to payload.target_status, skipping any IDs in payload.exclude_ids.
+    Creates a timeline event for each application updated.
+    Terminal statuses (HIRED, ARCHIVED, WITHDRAWN, REJECTED) in from_statuses
+    are silently ignored to prevent accidental re-transitions.
+    """
+    TERMINAL = {"HIRED", "ARCHIVED", "WITHDRAWN", "REJECTED"}
+    safe_from = [s for s in payload.from_statuses if str(s) not in TERMINAL]
+    if not safe_from:
+        return BulkTransitionResult(updated_count=0, updated_ids=[])
+
+    target = str(payload.target_status)
+    now = datetime.now(UTC)
+    note = payload.notes or f"Bulk transitioned to {target}."
+
+    stmt = select(ApplicationModel).where(
+        ApplicationModel.status.in_([str(s) for s in safe_from]),
+    )
+    if payload.exclude_ids:
+        stmt = stmt.where(ApplicationModel.id.not_in(payload.exclude_ids))
+
+    result = await db.execute(stmt)
+    apps = result.scalars().all()
+
+    updated_ids = []
+    for app in apps:
+        app.status = target
+        app.last_activity_at = now
+        event = ApplicationEventModel(
+            email_application_id=app.id,
+            email_event_type="STATUS_CHANGE",
+            email_status_after_event=target,
+            email_summary=note,
+            source_channel="MANUAL",
+            raw_payload={"bulk_action": True, "target_status": target},
+        )
+        db.add(event)
+
+        # Dismiss pending action items on terminal transition
+        if target in TERMINAL:
+            ai_stmt = select(ActionItemModel).where(
+                ActionItemModel.application_id == app.id,
+                ActionItemModel.status == "PENDING",
+            )
+            ai_result = await db.execute(ai_stmt)
+            for ai in ai_result.scalars().all():
+                ai.status = "DISMISSED"
+
+        updated_ids.append(app.id)
+
+    await db.commit()
+    return BulkTransitionResult(updated_count=len(updated_ids), updated_ids=updated_ids)
 
 
 @router.delete(

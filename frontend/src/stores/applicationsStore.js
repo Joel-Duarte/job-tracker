@@ -15,7 +15,7 @@ export const useApplicationsStore = defineStore('applications', () => {
   const selectedApplication = ref(null)
   const loadingDetail = ref(false)
 
-  const pipelineViewMode = ref('active') // 'active' | 'archive'
+  const pipelineViewMode = ref('active') // 'active' | 'archive' | 'hired'
 
   function matchesWorkModel(app) {
     if (!selectedWorkModel.value) return true
@@ -40,10 +40,12 @@ export const useApplicationsStore = defineStore('applications', () => {
     { key: 'OFFER', label: 'Offer', color: 'offer' },
   ]
 
+  const TERMINAL_STATUSES = ['HIRED', 'ARCHIVED', 'WITHDRAWN', 'REJECTED']
+
   const activeApplications = computed(() => {
     return applications.value.filter((a) => {
       const status = (a.status || 'APPLIED').toUpperCase()
-      if (status === 'REJECTED') return false
+      if (TERMINAL_STATUSES.includes(status)) return false
       return matchesWorkModel(a)
     })
   })
@@ -51,8 +53,14 @@ export const useApplicationsStore = defineStore('applications', () => {
   const archivedApplications = computed(() => {
     return applications.value.filter((a) => {
       const status = (a.status || '').toUpperCase()
-      if (status !== 'REJECTED') return false
-      return matchesWorkModel(a)
+      return ['ARCHIVED', 'WITHDRAWN', 'REJECTED'].includes(status) && matchesWorkModel(a)
+    })
+  })
+
+  const hiredApplications = computed(() => {
+    return applications.value.filter((a) => {
+      const status = (a.status || '').toUpperCase()
+      return status === 'HIRED' && matchesWorkModel(a)
     })
   })
 
@@ -257,6 +265,34 @@ export const useApplicationsStore = defineStore('applications', () => {
     })
   }
 
+  async function quickWithdraw(applicationId, reason = 'Withdrawn by candidate') {
+    return transitionApplication(applicationId, {
+      status: 'WITHDRAWN',
+      notes: reason,
+    })
+  }
+
+  async function bulkTransition(targetStatus, fromStatuses, excludeIds = [], notes = null) {
+    try {
+      const res = await ApplicationsAPI.bulkTransition({
+        target_status: targetStatus,
+        from_statuses: fromStatuses,
+        exclude_ids: excludeIds,
+        notes,
+      })
+      const updatedIds = new Set(res.data.updated_ids || [])
+      applications.value.forEach((a) => {
+        if (updatedIds.has(a.id)) {
+          a.status = targetStatus
+        }
+      })
+      return res.data
+    } catch (err) {
+      error.value = err.message
+      throw err
+    }
+  }
+
   async function restoreToActive(applicationId, targetStatus = 'APPLIED') {
     return transitionApplication(applicationId, {
       status: targetStatus,
@@ -293,14 +329,18 @@ export const useApplicationsStore = defineStore('applications', () => {
     pipelineViewMode,
     STATUSES,
     ACTIVE_STATUSES,
+    TERMINAL_STATUSES,
     activeApplications,
     archivedApplications,
+    hiredApplications,
     kanbanColumns,
     fetchApplications,
     fetchApplicationDetail,
     updateStatus,
     transitionApplication,
     quickReject,
+    quickWithdraw,
+    bulkTransition,
     restoreToActive,
     deleteApplication,
   }

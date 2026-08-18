@@ -8,6 +8,7 @@ import { ActionItemsAPI, ApplicationsAPI } from '../../api/endpoints'
 import DateTimePicker from '../common/DateTimePicker.vue'
 import InterviewReaderModal from '../modals/InterviewReaderModal.vue'
 import LogActivityModal from '../modals/LogActivityModal.vue'
+import PostHireModal from '../modals/PostHireModal.vue'
 import CompanyLogo from '../common/CompanyLogo.vue'
 
 import {
@@ -84,6 +85,15 @@ const transitionForm = ref({
   rejection_reason: 'Resume / Initial Screen',
   notes: '',
 })
+
+// Post-hire celebration modal
+const showPostHireModal = ref(false)
+const lastHiredAppId = ref(null)
+
+function handlePostHireClose() {
+  showPostHireModal.value = false
+  lastHiredAppId.value = null
+}
 
 watch(
   () => transitionForm.value.interview_stage,
@@ -304,7 +314,7 @@ function handleStatusSelect(e) {
   const newStatus = e.target.value
   if (!appStore.selectedApplication || newStatus === appStore.selectedApplication.status) return
 
-  if (['TECHNICAL_INTERVIEW', 'OFFER', 'REJECTED'].includes(newStatus)) {
+  if (['TECHNICAL_INTERVIEW', 'OFFER', 'REJECTED', 'HIRED', 'WITHDRAWN'].includes(newStatus)) {
     transitionTargetStatus.value = newStatus
     const today = new Date().toISOString().substring(0, 10)
     transitionForm.value = {
@@ -443,6 +453,15 @@ async function confirmTransitionSubmit() {
     }
 
     await appStore.transitionApplication(appStore.selectedApplication.id, payload)
+
+    if (transitionTargetStatus.value === 'HIRED') {
+      lastHiredAppId.value = appStore.selectedApplication.id
+      showTransitionModal.value = false
+      showPostHireModal.value = true
+      isSubmittingTransition.value = false
+      return
+    }
+
     uiStore.showToast(`Application transitioned to ${transitionTargetStatus.value}`, 'success')
     showTransitionModal.value = false
   } catch (err) {
@@ -1215,6 +1234,32 @@ function formatDate(isoStr) {
             </div>
           </div>
 
+          <!-- HIRED Form -->
+          <div v-if="transitionTargetStatus === 'HIRED'" class="form-group-stack">
+            <div class="form-field">
+              <label class="field-label">Notes (optional)</label>
+              <textarea
+                v-model="transitionForm.notes"
+                class="field-textarea"
+                rows="2"
+                placeholder="e.g. Starting date, role confirmed..."
+              ></textarea>
+            </div>
+          </div>
+
+          <!-- WITHDRAWN Form -->
+          <div v-if="transitionTargetStatus === 'WITHDRAWN'" class="form-group-stack">
+            <div class="form-field">
+              <label class="field-label">Reason for withdrawal (optional)</label>
+              <textarea
+                v-model="transitionForm.notes"
+                class="field-textarea"
+                rows="2"
+                placeholder="e.g. Accepted another offer, role no longer relevant..."
+              ></textarea>
+            </div>
+          </div>
+
           <!-- Optional Context / Notes -->
           <div class="form-group notes-form-group">
             <div class="notes-header-row">
@@ -1303,7 +1348,13 @@ function formatDate(isoStr) {
     @updated="onActivityLogged"
   />
 
-  </template>
+  <PostHireModal
+    :visible="showPostHireModal"
+    :hired-application-id="lastHiredAppId || 0"
+    @close="handlePostHireClose"
+  />
+
+</template>
 
 <style scoped>
 .drawer-overlay {

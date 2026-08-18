@@ -61,7 +61,7 @@ async def test_archive_stale_applications_transitions_inactive_apps(
     assert app.id in stats["archived_ids"]
 
     await db_session.refresh(app)
-    assert app.status == "REJECTED"
+    assert app.status == "ARCHIVED"
     assert app.last_activity_at > app_date  # Should be updated to now
 
     # Verify event created
@@ -73,7 +73,7 @@ async def test_archive_stale_applications_transitions_inactive_apps(
     event_list = events.scalars().all()
     assert len(event_list) == 1
     assert event_list[0].email_event_type == "STATUS_CHANGE"
-    assert event_list[0].email_status_after_event == "REJECTED"
+    assert event_list[0].email_status_after_event == "ARCHIVED"
     assert event_list[0].source_channel == "SYSTEM"
 
     # Verify action items dismissed
@@ -111,7 +111,7 @@ async def test_archive_stale_applications_ignores_recent_apps(db_session: AsyncS
 
 
 @pytest.mark.asyncio
-async def test_archive_stale_applications_ignores_active_interviews_and_offers(
+async def test_archive_stale_applications_archives_stale_interviews(
     db_session: AsyncSession,
 ):
     # Setup company
@@ -136,9 +136,9 @@ async def test_archive_stale_applications_ignores_active_interviews_and_offers(
     stats = await archive_stale_applications(db_session, threshold_days=30)
 
     # Verify
-    assert stats["archived_count"] == 0
+    assert stats["archived_count"] == 1
     await db_session.refresh(app)
-    assert app.status == "TECHNICAL_INTERVIEW"
+    assert app.status == "ARCHIVED"
 
 
 @pytest.mark.asyncio
@@ -172,3 +172,28 @@ async def test_admin_run_auto_archiver_endpoint(
     assert data["status"] == "success"
     assert data["archived_count"] == 1
     assert app.id in data["archived_ids"]
+
+
+@pytest.mark.asyncio
+async def test_archive_stale_applications_ignores_terminal_statuses(
+    db_session: AsyncSession,
+):
+    company = CompanyModel(name="Mock Company 5", name_normalized="mock company 5")
+    db_session.add(company)
+    await db_session.commit()
+    await db_session.refresh(company)
+
+    old_date = datetime.now(UTC) - timedelta(days=90)
+    for terminal in ("HIRED", "ARCHIVED", "WITHDRAWN", "REJECTED"):
+        app = ApplicationModel(
+            company_id=company.id,
+            position=f"Engineer ({terminal})",
+            status=terminal,
+            last_activity_at=old_date,
+            application_date=old_date,
+        )
+        db_session.add(app)
+    await db_session.commit()
+
+    stats = await archive_stale_applications(db_session, threshold_days=30)
+    assert stats["archived_count"] == 0
