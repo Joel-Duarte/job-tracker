@@ -34,17 +34,23 @@ import PageHeader from '../components/common/PageHeader.vue'
 const tasks = ref([])
 const loading = ref(false)
 const isClearing = ref(false)
+import { watch } from 'vue'
+
 const retryingTaskIds = ref(new Set())
-const statusFilter = ref('ALL') // 'ALL' | 'ACTIVE' | 'COMPLETED' | 'FAILED'
-const typeFilter = ref('ALL') // 'ALL' | 'JOB_ASSESSMENT' | 'CV_EXTRACTION'
+const selectedTaskIds = ref(new Set())
+const statusFilter = ref('ALL') // 'ALL' | 'FAILED' | 'RUNNING' | 'PENDING' | 'COMPLETED'
+const typeFilter = ref('ALL') // 'ALL' | 'JOB_ASSESSMENT' | 'CV_EXTRACTION' | 'EMBEDDING'
 const searchQuery = ref('')
+const showBulkDeleteConfirm = ref(false)
+const isBulkActing = ref(false)
 
 let pollTimer = null
 
 const filteredTasks = computed(() => {
   return tasks.value.filter((t) => {
     // Status filter
-    if (statusFilter.value === 'ACTIVE' && !['QUEUED', 'PROCESSING'].includes(t.status)) return false
+    if (statusFilter.value === 'RUNNING' && t.status !== 'PROCESSING') return false
+    if (statusFilter.value === 'PENDING' && t.status !== 'QUEUED') return false
     if (statusFilter.value === 'COMPLETED' && t.status !== 'COMPLETED') return false
     if (statusFilter.value === 'FAILED' && !['FAILED', 'CANCELLED'].includes(t.status)) return false
 
@@ -64,9 +70,55 @@ const filteredTasks = computed(() => {
   })
 })
 
-const activeCount = computed(() => tasks.value.filter((t) => ['QUEUED', 'PROCESSING'].includes(t.status)).length)
+const runningCount = computed(() => tasks.value.filter((t) => t.status === 'PROCESSING').length)
+const pendingCount = computed(() => tasks.value.filter((t) => t.status === 'QUEUED').length)
+const activeCount = computed(() => runningCount.value + pendingCount.value)
 const completedCount = computed(() => tasks.value.filter((t) => t.status === 'COMPLETED').length)
 const failedCount = computed(() => tasks.value.filter((t) => ['FAILED', 'CANCELLED'].includes(t.status)).length)
+
+const isAllSelected = computed(() => {
+  if (filteredTasks.value.length === 0) return false
+  return filteredTasks.value.every((t) => selectedTaskIds.value.has(t.id))
+})
+
+const isSomeSelected = computed(() => {
+  return selectedTaskIds.value.size > 0 && !isAllSelected.value
+})
+
+const selectedFailedTasksCount = computed(() => {
+  return filteredTasks.value.filter(
+    (t) => selectedTaskIds.value.has(t.id) && ['FAILED', 'CANCELLED'].includes(t.status)
+  ).length
+})
+
+// Auto-clear selection when filter or search changes
+watch([statusFilter, typeFilter, searchQuery], () => {
+  clearSelection()
+})
+
+function toggleSelectAll() {
+  if (isAllSelected.value) {
+    clearSelection()
+  } else {
+    const newSet = new Set(selectedTaskIds.value)
+    filteredTasks.value.forEach((t) => newSet.add(t.id))
+    selectedTaskIds.value = newSet
+  }
+}
+
+function toggleTaskSelection(taskId) {
+  const newSet = new Set(selectedTaskIds.value)
+  if (newSet.has(taskId)) {
+    newSet.delete(taskId)
+  } else {
+    newSet.add(taskId)
+  }
+  selectedTaskIds.value = newSet
+}
+
+function clearSelection() {
+  selectedTaskIds.value = new Set()
+}
 
 async function fetchTasks(silent = false) {
   if (!silent) loading.value = true
@@ -97,9 +149,51 @@ async function deleteTask(taskId) {
   try {
     await IntakeAPI.deleteEvaluation(taskId)
     tasks.value = tasks.value.filter((t) => t.id !== taskId)
+    if (selectedTaskIds.value.has(taskId)) {
+      const newSet = new Set(selectedTaskIds.value)
+      newSet.delete(taskId)
+      selectedTaskIds.value = newSet
+    }
     uiStore.showToast(`Task #${taskId} dismissed`, 'info')
   } catch (err) {
     uiStore.showToast(err.message, 'error')
+  }
+}
+
+async function bulkRetrySelected() {
+  if (selectedTaskIds.value.size === 0) return
+  isBulkActing.value = true
+  const ids = Array.from(selectedTaskIds.value)
+  try {
+    const res = await IntakeAPI.bulkRetryEvaluations(ids)
+    const affected = res.data?.affected_count ?? 0
+    const skipped = res.data?.skipped_count ?? 0
+    uiStore.showToast(`Bulk retry completed: ${affected} retried, ${skipped} skipped`, 'success')
+    clearSelection()
+    await fetchTasks(true)
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to bulk retry tasks', 'error')
+  } finally {
+    isBulkActing.value = false
+  }
+}
+
+async function bulkDeleteSelected() {
+  if (selectedTaskIds.value.size === 0) return
+  isBulkActing.value = true
+  const ids = Array.from(selectedTaskIds.value)
+  try {
+    const res = await IntakeAPI.bulkDeleteEvaluations(ids)
+    const deleted = res.data?.deleted_count ?? 0
+    const skipped = res.data?.skipped_count ?? 0
+    uiStore.showToast(`Bulk delete completed: ${deleted} deleted, ${skipped} skipped`, 'info')
+    showBulkDeleteConfirm.value = false
+    clearSelection()
+    await fetchTasks(true)
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to bulk delete tasks', 'error')
+  } finally {
+    isBulkActing.value = false
   }
 }
 
@@ -164,17 +258,34 @@ onUnmounted(() => {
             :class="{ active: statusFilter === 'ALL' }"
             @click="statusFilter = 'ALL'"
           >
-            <span>All Tasks</span>
+            <span>All</span>
             <span class="pill-badge">{{ tasks.length }}</span>
           </button>
           <button
             class="tab-pill"
-            :class="{ active: statusFilter === 'ACTIVE' }"
-            @click="statusFilter = 'ACTIVE'"
+            :class="{ active: statusFilter === 'FAILED' }"
+            @click="statusFilter = 'FAILED'"
           >
-            <span class="live-dot" v-if="activeCount > 0"></span>
-            <span>Processing</span>
-            <span class="pill-badge">{{ activeCount }}</span>
+            <AlertCircle v-if="failedCount > 0" :size="12" class="text-danger flex-shrink-0" />
+            <span>Failed</span>
+            <span class="pill-badge" :class="{ 'badge-failed-active': failedCount > 0 }">{{ failedCount }}</span>
+          </button>
+          <button
+            class="tab-pill"
+            :class="{ active: statusFilter === 'RUNNING' }"
+            @click="statusFilter = 'RUNNING'"
+          >
+            <span class="live-dot" v-if="runningCount > 0"></span>
+            <span>Running</span>
+            <span class="pill-badge">{{ runningCount }}</span>
+          </button>
+          <button
+            class="tab-pill"
+            :class="{ active: statusFilter === 'PENDING' }"
+            @click="statusFilter = 'PENDING'"
+          >
+            <span>Pending</span>
+            <span class="pill-badge">{{ pendingCount }}</span>
           </button>
           <button
             class="tab-pill"
@@ -183,15 +294,6 @@ onUnmounted(() => {
           >
             <span>Completed</span>
             <span class="pill-badge">{{ completedCount }}</span>
-          </button>
-          <button
-            v-if="failedCount > 0"
-            class="tab-pill"
-            :class="{ active: statusFilter === 'FAILED' }"
-            @click="statusFilter = 'FAILED'"
-          >
-            <span>Failed</span>
-            <span class="pill-badge">{{ failedCount }}</span>
           </button>
         </div>
 
@@ -267,6 +369,100 @@ onUnmounted(() => {
       </template>
     </PageHeader>
 
+    <!-- Selection Control Sub-Bar -->
+    <div v-if="filteredTasks.length > 0" class="selection-control-bar">
+      <label class="select-all-label">
+        <input
+          type="checkbox"
+          :checked="isAllSelected"
+          :indeterminate="isSomeSelected"
+          @change="toggleSelectAll"
+          class="custom-checkbox"
+        />
+        <span>Select All Visible ({{ filteredTasks.length }})</span>
+      </label>
+
+      <span v-if="selectedTaskIds.size > 0" class="selected-count-badge">
+        {{ selectedTaskIds.size }} selected
+      </span>
+    </div>
+
+    <!-- Dynamic Sticky Bulk Action Toolbar -->
+    <Transition name="slide-up">
+      <div v-if="selectedTaskIds.size > 0" class="bulk-action-bar">
+        <div class="bulk-info">
+          <span class="bulk-count-pill">{{ selectedTaskIds.size }}</span>
+          <span class="bulk-label">task{{ selectedTaskIds.size > 1 ? 's' : '' }} selected</span>
+        </div>
+
+        <div class="bulk-actions-group">
+          <!-- Retry Selected -->
+          <button
+            class="btn btn-secondary btn-sm btn-bulk-retry"
+            :disabled="isBulkActing || selectedFailedTasksCount === 0"
+            @click="bulkRetrySelected"
+            :title="selectedFailedTasksCount > 0 ? `Retry ${selectedFailedTasksCount} failed task(s)` : 'No failed tasks in selection'"
+          >
+            <Loader2 v-if="isBulkActing" class="animate-spin" :size="13" />
+            <RotateCcw v-else :size="13" />
+            <span>Retry Failed ({{ selectedFailedTasksCount }})</span>
+          </button>
+
+          <!-- Delete Selected -->
+          <button
+            class="btn btn-danger btn-sm btn-bulk-delete"
+            :disabled="isBulkActing"
+            @click="showBulkDeleteConfirm = true"
+            title="Delete selected tasks"
+          >
+            <Trash2 :size="13" />
+            <span>Delete Selected</span>
+          </button>
+
+          <!-- Clear Selection -->
+          <button
+            class="btn btn-ghost btn-sm btn-clear-selection"
+            @click="clearSelection"
+          >
+            <XCircle :size="13" />
+            <span>Clear</span>
+          </button>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Bulk Delete Confirmation Dialog Modal -->
+    <div v-if="showBulkDeleteConfirm" class="modal-backdrop" @click.self="showBulkDeleteConfirm = false">
+      <div class="modal-card animate-scale-in">
+        <div class="modal-header">
+          <AlertCircle :size="20" class="text-danger flex-shrink-0" />
+          <h3 class="modal-title">Confirm Bulk Task Deletion</h3>
+        </div>
+        <div class="modal-body">
+          <p>Are you sure you want to delete <strong>{{ selectedTaskIds.size }}</strong> selected task{{ selectedTaskIds.size > 1 ? 's' : '' }}?</p>
+          <p class="modal-subtext text-muted">Running/processing tasks will be safely skipped. This action cannot be undone.</p>
+        </div>
+        <div class="modal-footer">
+          <button
+            class="btn btn-secondary btn-sm"
+            :disabled="isBulkActing"
+            @click="showBulkDeleteConfirm = false"
+          >
+            Cancel
+          </button>
+          <button
+            class="btn btn-danger btn-sm"
+            :disabled="isBulkActing"
+            @click="bulkDeleteSelected"
+          >
+            <Loader2 v-if="isBulkActing" class="animate-spin" :size="13" />
+            <Trash2 v-else :size="13" />
+            <span>Confirm Delete</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Main Content Area -->
     <div class="queue-content-scroll">
       <!-- Empty State -->
@@ -284,11 +480,20 @@ onUnmounted(() => {
           v-for="task in filteredTasks"
           :key="task.id"
           class="task-card animate-fade-in"
-          :class="`task-card-${task.status.toLowerCase()}`"
+          :class="[
+            `task-card-${task.status.toLowerCase()}`,
+            { 'task-card-selected': selectedTaskIds.has(task.id) }
+          ]"
         >
           <!-- Task Card Header -->
           <div class="task-card-top">
             <div class="task-header-left">
+              <input
+                type="checkbox"
+                :checked="selectedTaskIds.has(task.id)"
+                @change="toggleTaskSelection(task.id)"
+                class="custom-checkbox task-checkbox"
+              />
               <span class="task-id-tag">#{{ task.id }}</span>
               <span
                 class="task-type-tag"
@@ -632,9 +837,195 @@ onUnmounted(() => {
   color: var(--text-secondary);
 }
 
+.badge-failed-active {
+  background-color: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+  border: 1px solid var(--status-rejected-border);
+}
+
 .tab-pill.active .pill-badge {
   background-color: rgba(255, 255, 255, 0.25);
   color: #ffffff;
+}
+
+/* Selection Control Bar */
+.selection-control-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 900px;
+  margin: 12px auto 0;
+  padding: 0 4px;
+}
+
+.select-all-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.custom-checkbox {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.selected-count-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  background-color: var(--primary-subtle);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+/* Floating / Sticky Bulk Action Toolbar */
+.bulk-action-bar {
+  position: sticky;
+  top: 10px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 900px;
+  margin: 12px auto;
+  padding: 10px 18px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--primary-glow);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  border-radius: var(--radius-full);
+  backdrop-filter: blur(8px);
+}
+
+.bulk-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bulk-count-pill {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  background-color: var(--primary);
+  color: #ffffff;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+.bulk-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.bulk-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-bulk-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.btn-bulk-delete {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.btn-clear-selection {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Modal Styling */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  backdrop-filter: blur(4px);
+}
+
+.modal-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.modal-body {
+  font-size: 13px;
+  color: var(--text-main);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.modal-subtext {
+  font-size: 12px;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.task-card-selected {
+  border-color: var(--primary);
+  background-color: var(--primary-subtle);
+}
+
+.task-checkbox {
+  margin-right: 2px;
+}
+
+/* Transitions */
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all 0.25s ease-out;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
 }
 
 .live-dot {

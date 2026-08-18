@@ -302,3 +302,91 @@ async def test_retry_evaluation_task(db_session: AsyncSession):
             assert data["error_message"] is None
 
     app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_bulk_retry_and_delete_evaluation_tasks(db_session: AsyncSession):
+    app.dependency_overrides[get_db] = lambda: db_session
+
+    # Create tasks with mixed statuses
+    t1_failed = IntakeEvaluationTaskModel(
+        title_hint="Task 1 Failed",
+        status="FAILED",
+        stage="FAILED",
+        error_message="Timeout",
+    )
+    t2_completed = IntakeEvaluationTaskModel(
+        title_hint="Task 2 Completed", status="COMPLETED", stage="COMPLETE"
+    )
+    t3_running = IntakeEvaluationTaskModel(
+        title_hint="Task 3 Running", status="PROCESSING", stage="FETCHING"
+    )
+    t4_cancelled = IntakeEvaluationTaskModel(
+        title_hint="Task 4 Cancelled", status="CANCELLED", stage="CANCELLED"
+    )
+
+    db_session.add_all([t1_failed, t2_completed, t3_running, t4_cancelled])
+    await db_session.commit()
+    for t in [t1_failed, t2_completed, t3_running, t4_cancelled]:
+        await db_session.refresh(t)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        # 1. Bulk Retry mixed tasks
+        with patch("app.routers.intake.process_evaluation_task"):
+            retry_res = await ac.post(
+                "/api/v1/intake/evaluations/bulk-retry",
+                json={
+                    "task_ids": [
+                        t1_failed.id,
+                        t2_completed.id,
+                        t3_running.id,
+                        t4_cancelled.id,
+                        999999,
+                    ]
+                },
+            )
+            assert retry_res.status_code == 200
+            retry_data = retry_res.json()
+            assert retry_data["affected_count"] == 2  # t1_failed and t4_cancelled
+            assert retry_data["skipped_count"] == 3  # t2_completed, t3_running, 999999
+            assert 999999 in retry_data["unhandled_ids"]
+
+            # Verify database states
+            updated_t1 = await db_session.get(IntakeEvaluationTaskModel, t1_failed.id)
+            assert updated_t1.status == "QUEUED"
+            assert updated_t1.error_message is None
+
+            updated_t2 = await db_session.get(
+                IntakeEvaluationTaskModel, t2_completed.id
+            )
+            assert updated_t2.status == "COMPLETED"
+
+        # 2. Bulk Delete mixed tasks (t3_running should be protected and skipped)
+        del_res = await ac.post(
+            "/api/v1/intake/evaluations/bulk-delete",
+            json={
+                "task_ids": [
+                    t1_failed.id,
+                    t2_completed.id,
+                    t3_running.id,
+                    t4_cancelled.id,
+                    888888,
+                ]
+            },
+        )
+        assert del_res.status_code == 200
+        del_data = del_res.json()
+        assert (
+            del_data["deleted_count"] == 3
+        )  # t1_failed (now QUEUED), t2_completed, t4_cancelled (now QUEUED)
+        assert del_data["skipped_count"] == 2  # t3_running, 888888
+        assert t3_running.id in del_data["unhandled_ids"]
+
+        # Verify running task still exists
+        running_check = await db_session.get(IntakeEvaluationTaskModel, t3_running.id)
+        assert running_check is not None
+        assert running_check.status == "PROCESSING"
+
+    app.dependency_overrides.clear()

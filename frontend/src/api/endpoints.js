@@ -23,6 +23,8 @@ export const IntakeAPI = {
   getEvaluations: (limit = 50) => apiClient.get('/intake/evaluations', { params: { limit } }),
   deleteEvaluation: (taskId) => apiClient.delete(`/intake/evaluations/${taskId}`),
   retryEvaluation: (taskId) => apiClient.post(`/intake/evaluations/${taskId}/retry`),
+  bulkRetryEvaluations: (taskIds) => apiClient.post('/intake/evaluations/bulk-retry', { task_ids: taskIds }),
+  bulkDeleteEvaluations: (taskIds) => apiClient.post('/intake/evaluations/bulk-delete', { task_ids: taskIds }),
   clearCompletedEvaluations: () => apiClient.post('/intake/evaluations/clear-completed'),
   confirmAssessment: (data) => apiClient.post('/intake/confirm-assessment', data),
   getExtensionConfig: () => apiClient.get('/intake/extension-config'),
