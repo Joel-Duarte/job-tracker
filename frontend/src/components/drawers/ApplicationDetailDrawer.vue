@@ -35,6 +35,8 @@ import {
   RotateCcw,
   MessageSquare,
   Copy,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
@@ -79,6 +81,11 @@ const showConfigPanel = ref(false)
 // Outreach Drafts state
 const isDraftingOutreach = ref(false)
 const outreachDrafts = ref(null)
+const expandedDrafts = ref({})
+
+function toggleDraftExpansion(draftKey) {
+  expandedDrafts.value[draftKey] = !expandedDrafts.value[draftKey]
+}
 
 const showAdvanced = ref(false)
 
@@ -1074,25 +1081,37 @@ function formatDate(isoStr) {
 
               <div v-else-if="outreachDrafts" class="outreach-drafts-container">
                 <div class="outreach-card">
-                  <div class="outreach-card-header">
-                    <h4 class="outreach-title">Hiring Manager Draft</h4>
-                    <button class="btn btn-xs btn-ghost" @click="copyToClipboard(outreachDrafts.recruiter_message, 'Hiring Manager')">
+                  <div class="outreach-card-header" @click="toggleDraftExpansion('recruiter')" style="cursor: pointer;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <ChevronDown v-if="expandedDrafts['recruiter']" :size="16" />
+                      <ChevronRight v-else :size="16" />
+                      <h4 class="outreach-title">Hiring Manager Draft</h4>
+                    </div>
+                    <button class="btn btn-xs btn-ghost" @click.stop="copyToClipboard(outreachDrafts.recruiter_message, 'Hiring Manager')">
                       <Copy :size="14" />
                       <span>Copy</span>
                     </button>
                   </div>
-                  <textarea readonly class="form-textarea outreach-textarea" :value="outreachDrafts.recruiter_message" rows="6"></textarea>
+                  <div v-show="expandedDrafts['recruiter']" style="margin-top: 12px;">
+                    <textarea readonly class="form-textarea outreach-textarea" :value="outreachDrafts.recruiter_message" rows="6"></textarea>
+                  </div>
                 </div>
 
                 <div class="outreach-card">
-                  <div class="outreach-card-header">
-                    <h4 class="outreach-title">Peer / IC Draft</h4>
-                    <button class="btn btn-xs btn-ghost" @click="copyToClipboard(outreachDrafts.peer_message, 'Peer')">
+                  <div class="outreach-card-header" @click="toggleDraftExpansion('peer')" style="cursor: pointer;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <ChevronDown v-if="expandedDrafts['peer']" :size="16" />
+                      <ChevronRight v-else :size="16" />
+                      <h4 class="outreach-title">Peer / IC Draft</h4>
+                    </div>
+                    <button class="btn btn-xs btn-ghost" @click.stop="copyToClipboard(outreachDrafts.peer_message, 'Peer')">
                       <Copy :size="14" />
                       <span>Copy</span>
                     </button>
                   </div>
-                  <textarea readonly class="form-textarea outreach-textarea" :value="outreachDrafts.peer_message" rows="6"></textarea>
+                  <div v-show="expandedDrafts['peer']" style="margin-top: 12px;">
+                    <textarea readonly class="form-textarea outreach-textarea" :value="outreachDrafts.peer_message" rows="6"></textarea>
+                  </div>
                 </div>
 
                 <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
@@ -2598,7 +2617,6 @@ function formatDate(isoStr) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
 }
 
 .outreach-title {

@@ -1,1 +1,1 @@
-fix: Use CandidateCVModel instead of non-existent CandidateProfileModel
+fix: Make outreach drafts collapsible and collapsed by default
