@@ -12,6 +12,14 @@ export const ApplicationsAPI = {
   clearInterviewGuide: (id) => apiClient.delete(`/applications/${id}/interview-guide`),
 }
 
+export const CoverLettersAPI = {
+  get: (applicationId) => apiClient.get(`/applications/${applicationId}/cover-letter`),
+  generate: (applicationId, data = {}) =>
+    apiClient.post(`/applications/${applicationId}/cover-letter/generate`, data),
+  update: (applicationId, data) =>
+    apiClient.put(`/applications/${applicationId}/cover-letter`, data),
+}
+
 export const IntakeAPI = {
   paste: (data) => apiClient.post('/intake/paste', data),
   upload: (formData) =>

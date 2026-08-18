@@ -1,0 +1,5 @@
+{
+  "ENABLE_EMBEDDINGS": true,
+  "auto_generate_cover_letter": true,
+  "cover_letter_min_match_pct": 50
+}

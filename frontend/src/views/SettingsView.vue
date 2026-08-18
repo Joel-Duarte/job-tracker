@@ -49,6 +49,7 @@ import {
   Info,
   BookOpen,
   UserCheck,
+  FileText,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -321,18 +322,63 @@ function isTaskCustomized(taskKey) {
   return false
 }
 
-// Vector Embeddings Settings State
+// Vector Embeddings & Cover Letter Settings State
 const enableEmbeddings = ref(true)
 const isUpdatingEmbeddings = ref(false)
 const isReindexingEmbeddings = ref(false)
+
+const autoGenerateCoverLetter = ref(false)
+const coverLetterMinMatchPct = ref(50)
+const isUpdatingCoverLetterSetting = ref(false)
 
 async function loadGlobalSettings() {
   try {
     const res = await AIConfigAPI.getGlobalSettings()
     enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS ?? true
     uiStore.enableEmbeddings = enableEmbeddings.value
+
+    autoGenerateCoverLetter.value = res.data.auto_generate_cover_letter ?? false
+    coverLetterMinMatchPct.value = res.data.cover_letter_min_match_pct ?? 50
+    uiStore.setAutoGenerateCoverLetter(autoGenerateCoverLetter.value)
+    uiStore.setCoverLetterMinMatchPct(coverLetterMinMatchPct.value)
   } catch (err) {
     console.error('Failed to load global settings', err)
+  }
+}
+
+async function toggleAutoGenerateCoverLetter() {
+  isUpdatingCoverLetterSetting.value = true
+  try {
+    const newVal = !autoGenerateCoverLetter.value
+    const res = await AIConfigAPI.updateGlobalSettings({ auto_generate_cover_letter: newVal })
+    autoGenerateCoverLetter.value = res.data.auto_generate_cover_letter
+    uiStore.setAutoGenerateCoverLetter(autoGenerateCoverLetter.value)
+    uiStore.showToast(
+      autoGenerateCoverLetter.value
+        ? 'Cover letter auto-generation enabled for intake pipeline.'
+        : 'Cover letter auto-generation disabled during intake.',
+      'success'
+    )
+  } catch (err) {
+    uiStore.showToast('Failed to update cover letter setting', 'error')
+  } finally {
+    isUpdatingCoverLetterSetting.value = false
+  }
+}
+
+async function saveCoverLetterThreshold() {
+  isUpdatingCoverLetterSetting.value = true
+  try {
+    const res = await AIConfigAPI.updateGlobalSettings({
+      cover_letter_min_match_pct: Number(coverLetterMinMatchPct.value),
+    })
+    coverLetterMinMatchPct.value = res.data.cover_letter_min_match_pct
+    uiStore.setCoverLetterMinMatchPct(coverLetterMinMatchPct.value)
+    uiStore.showToast(`Minimum candidate match threshold saved (${coverLetterMinMatchPct.value}%).`, 'success')
+  } catch (err) {
+    uiStore.showToast('Failed to update match threshold', 'error')
+  } finally {
+    isUpdatingCoverLetterSetting.value = false
   }
 }
 
@@ -440,6 +486,18 @@ const TASKS = [
     hasPrompt: true,
     desc: 'Generates tailored interview preparation guides, STAR stories, and strategic question defenses.',
     variables: ['{language}', '{company_name}', '{position}', '{company_context}', '{jd_text}', '{cv_text}', '{target_section}']
+  },
+  {
+    key: 'COVER_LETTER',
+    promptKey: 'cover_letter',
+    label: 'Cover Letter Generation',
+    icon: 'FileText',
+    recommendedTemp: 0.4,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
+    hasPrompt: true,
+    desc: 'Crafts tailored, professional cover letters using candidate CV experience, company specs, and match analysis.',
+    variables: ['{company_name}', '{job_title}', '{job_description}', '{candidate_cv}', '{candidate_skills}', '{candidate_experience}', '{custom_instructions}', '{tone}']
   },
   {
     key: 'EMBEDDING',
@@ -1271,6 +1329,65 @@ onMounted(async () => {
                     <span>{{ m.id }}</span>
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- COVER LETTER AUTO-GENERATION INTAKE CARD -->
+          <div class="embeddings-control-card">
+            <div class="embeddings-control-header">
+              <div class="embeddings-title-group">
+                <FileText class="text-primary" :size="20" />
+                <div>
+                  <h3 class="embeddings-title">Auto-generate Cover Letter during Intake</h3>
+                  <p class="embeddings-desc">
+                    Automatically generate tailored markdown cover letters for candidates during intake pipeline execution.
+                  </p>
+                </div>
+              </div>
+
+              <div class="embeddings-actions">
+                <label class="switch-toggle" title="Toggle Cover Letter auto-generation">
+                  <input
+                    type="checkbox"
+                    :checked="autoGenerateCoverLetter"
+                    :disabled="isUpdatingCoverLetterSetting"
+                    @change="toggleAutoGenerateCoverLetter"
+                  />
+                  <span class="slider round"></span>
+                </label>
+              </div>
+            </div>
+
+            <div v-if="autoGenerateCoverLetter" class="embeddings-control-body">
+              <div class="threshold-slider-group">
+                <div class="flex items-center justify-between mb-2">
+                  <label class="input-label font-semibold">Minimum Candidate Match %</label>
+                  <span class="font-mono text-xs font-bold text-primary">{{ coverLetterMinMatchPct }}%</span>
+                </div>
+                <div class="flex items-center gap-3">
+                  <input
+                    v-model.number="coverLetterMinMatchPct"
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    class="form-range flex-1"
+                    @change="saveCoverLetterThreshold"
+                  />
+                  <input
+                    v-model.number="coverLetterMinMatchPct"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="5"
+                    class="form-input font-mono w-20 text-center"
+                    @change="saveCoverLetterThreshold"
+                  />
+                </div>
+                <p class="text-xs text-muted mt-2">
+                  <em>Cover letters will automatically generate during intake if candidate fit meets or exceeds this threshold.</em>
+                </p>
               </div>
             </div>
           </div>

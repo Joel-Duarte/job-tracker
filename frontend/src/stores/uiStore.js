@@ -251,9 +251,19 @@ export const useUIStore = defineStore('ui', () => {
 
   // Global Settings
   const enableEmbeddings = ref(true)
+  const autoGenerateCoverLetter = ref(false)
+  const coverLetterMinMatchPct = ref(50)
 
   function setEnableEmbeddings(val) {
     enableEmbeddings.value = val
+  }
+
+  function setAutoGenerateCoverLetter(val) {
+    autoGenerateCoverLetter.value = val
+  }
+
+  function setCoverLetterMinMatchPct(pct) {
+    coverLetterMinMatchPct.value = pct
   }
 
   // Currency Preference
@@ -358,6 +368,10 @@ export const useUIStore = defineStore('ui', () => {
     clearCompletedIntakeTasks,
     enableEmbeddings,
     setEnableEmbeddings,
+    autoGenerateCoverLetter,
+    coverLetterMinMatchPct,
+    setAutoGenerateCoverLetter,
+    setCoverLetterMinMatchPct,
     autoArchiveEnabled,
     autoArchiveDays,
     setAutoArchiveEnabled,
