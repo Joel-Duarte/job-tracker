@@ -85,6 +85,7 @@ onMounted(() => {
     </div>
 
     <div v-else class="settings-content-area">
+      <div class="diagnostics-inner-container">
       <!-- KPI Metric Cards -->
       <div class="kpi-grid">
         <div class="kpi-card">
@@ -196,6 +197,7 @@ onMounted(() => {
           </table>
         </div>
       </div>
+      </div>
     </div>
 
     <!-- Deep Dive Modal -->
@@ -234,9 +236,66 @@ onMounted(() => {
 
 <style scoped>
 .page-container {
-  padding: 32px 0;
-  max-width: 1200px;
-  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--navbar-height));
+  background-color: var(--bg-app);
+  overflow: hidden;
+  padding: 0;
+  max-width: none;
+  margin: 0;
+}
+
+.page-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 22px 24px 16px;
+  background-color: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  gap: 14px;
+  margin-bottom: 0;
+}
+
+.header-text-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 6px;
+  letter-spacing: -0.01em;
+}
+
+.page-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 600px;
+  line-height: 1.5;
+}
+
+.settings-content-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px 24px;
+  background-color: var(--bg-app);
+  display: flex;
+  justify-content: center;
+}
+
+.diagnostics-inner-container {
+  width: 100%;
+  max-width: 1100px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
 
 .kpi-grid {

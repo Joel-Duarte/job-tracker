@@ -73,6 +73,22 @@ async def get_diagnostics_stats(db: AsyncSession = Depends(get_db)):
     }
 
 
+def _extract_tracer_task_name(run_dict: dict) -> str:
+    """Helper to extract a human-readable task name from a LangChain run dictionary."""
+    name = run_dict.get("name", "Unknown Task")
+
+    # Let's see if we can find a better name from tags
+    tags = run_dict.get("tags", [])
+    if isinstance(tags, list) and len(tags) > 0:
+        # Avoid generic tags
+        meaningful_tags = [t for t in tags if t not in ("seq:step:1", "seq:step:2")]
+        if meaningful_tags:
+            name = meaningful_tags[0]
+
+    # Or from inputs/outputs context if needed (not implemented for simplicity)
+    return name
+
+
 @router.get("/traces")
 async def get_traces(
     limit: int = 50,
@@ -92,7 +108,7 @@ async def get_traces(
 
     out = []
     for r in records:
-        name = r.payload.get("name")
+        name = _extract_tracer_task_name(r.payload)
         error = r.payload.get("error")
         start_time = r.payload.get("start_time")
         end_time = r.payload.get("end_time")

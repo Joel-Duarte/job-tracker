@@ -6,82 +6,28 @@
   - `__dirname` (vite.config.js:9:25). Use `import.meta.dirname` instead
 Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
 
-  VITE v8.2.1  ready in 412 ms
+  VITE v8.2.1  ready in 372 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: http://192.168.0.2:5173/  eth0
-10:51:56 AM [vite] http proxy error: /api/v1/staging?status=PENDING&limit=1
+11:55:13 AM [vite] http proxy error: /api/v1/staging?status=PENDING&limit=1
 Error: connect ECONNREFUSED 127.0.0.1:8000
     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:51:56 AM [vite] http proxy error: /api/v1/email_accounts
+11:55:13 AM [vite] http proxy error: /api/v1/email_accounts
 Error: connect ECONNREFUSED 127.0.0.1:8000
     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:51:56 AM [vite] http proxy error: /api/v1/intake/extension-config
+11:55:13 AM [vite] http proxy error: /api/v1/intake/extension-config
 Error: connect ECONNREFUSED 127.0.0.1:8000
     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:51:56 AM [vite] http proxy error: /api/v1/ai/global-settings
+11:55:13 AM [vite] http proxy error: /api/v1/ai/global-settings
 Error: connect ECONNREFUSED 127.0.0.1:8000
     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:51:56 AM [vite] http proxy error: /api/v1/diagnostics/stats
+11:55:13 AM [vite] http proxy error: /api/v1/diagnostics/stats
 Error: connect ECONNREFUSED 127.0.0.1:8000
     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:51:56 AM [vite] http proxy error: /api/v1/action-items?status=PENDING&limit=1
+11:55:13 AM [vite] http proxy error: /api/v1/action-items?status=PENDING&limit=1
 Error: connect ECONNREFUSED 127.0.0.1:8000
     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:51:56 AM [vite] http proxy error: /api/v1/intake/evaluations?limit=100
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:52:06 AM [vite] http proxy error: /api/v1/staging?status=PENDING&limit=1
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:52:06 AM [vite] http proxy error: /api/v1/action-items?status=PENDING&limit=1
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:52:06 AM [vite] http proxy error: /api/v1/intake/evaluations?limit=100
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:52:16 AM [vite] http proxy error: /api/v1/staging?status=PENDING&limit=1
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:52:16 AM [vite] http proxy error: /api/v1/action-items?status=PENDING&limit=1
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:52:16 AM [vite] http proxy error: /api/v1/intake/evaluations?limit=100
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:52:26 AM [vite] http proxy error: /api/v1/staging?status=PENDING&limit=1
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:52:26 AM [vite] http proxy error: /api/v1/action-items?status=PENDING&limit=1
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:52:26 AM [vite] http proxy error: /api/v1/intake/evaluations?limit=100
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:53:09 AM [vite] http proxy error: /api/v1/staging?status=PENDING&limit=1
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:53:09 AM [vite] http proxy error: /api/v1/email_accounts
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:53:09 AM [vite] http proxy error: /api/v1/intake/extension-config
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:53:09 AM [vite] http proxy error: /api/v1/ai/global-settings
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:53:09 AM [vite] http proxy error: /api/v1/diagnostics/stats
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:53:09 AM [vite] http proxy error: /api/v1/action-items?status=PENDING&limit=1
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:53:09 AM [vite] http proxy error: /api/v1/intake/evaluations?limit=100
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:53:11 AM [vite] http proxy error: /api/v1/diagnostics/traces?errors_only=true&limit=100
-Error: connect ECONNREFUSED 127.0.0.1:8000
-    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
-10:53:12 AM [vite] http proxy error: /api/v1/diagnostics/traces?errors_only=false&limit=100
+11:55:13 AM [vite] http proxy error: /api/v1/intake/evaluations?limit=100
 Error: connect ECONNREFUSED 127.0.0.1:8000
     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
