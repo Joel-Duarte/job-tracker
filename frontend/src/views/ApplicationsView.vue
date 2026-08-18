@@ -6,6 +6,7 @@ import DateTimePicker from '../components/common/DateTimePicker.vue'
 import InterviewReaderModal from '../components/modals/InterviewReaderModal.vue'
 import MatchAnalysisModal from '../components/modals/MatchAnalysisModal.vue'
 import LogActivityModal from '../components/modals/LogActivityModal.vue'
+import PostHireModal from '../components/modals/PostHireModal.vue'
 import CompanyLogo from '../components/common/CompanyLogo.vue'
 import {
   formatRelativeDate,
@@ -111,6 +112,16 @@ function handleScrollOrResize() {
 }
 
 // Interview Guide Modal State
+
+// Post Hire Modal State
+const showPostHireModal = ref(false)
+const lastHiredAppId = ref(null)
+
+function handlePostHireClose() {
+  showPostHireModal.value = false
+  lastHiredAppId.value = null
+}
+
 const activeGuideAppId = ref(null)
 
 function openInterviewGuide(appId) {
@@ -184,6 +195,15 @@ async function quickRejectApp(app) {
   }
 }
 
+
+async function quickWithdrawApp(app) {
+  try {
+    await appStore.quickWithdraw(app.id)
+    uiStore.showToast(`Moved '${app.company?.name || 'Application'}' to Withdrawn Archive`, 'info')
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to withdraw application', 'error')
+  }
+}
 async function restoreApp(app) {
   try {
     await appStore.restoreToActive(app.id, 'APPLIED')
@@ -487,7 +507,12 @@ function handleStatusChange(app, newStatus) {
 async function executeTransition(appId, payload) {
   try {
     await appStore.transitionApplication(appId, payload)
-    uiStore.showToast(`Application moved to ${payload.status}`, 'success')
+    if (payload.status === 'HIRED') {
+      lastHiredAppId.value = appId
+      showPostHireModal.value = true
+    } else {
+      uiStore.showToast(`Application moved to ${payload.status}`, 'success')
+    }
   } catch (err) {
     uiStore.showToast(err.message, 'error')
   }
@@ -517,8 +542,15 @@ async function submitTransitionModal() {
     }
 
     await appStore.transitionApplication(transitionApp.value.id, payload)
-    uiStore.showToast(`Application moved to ${targetStatus.value}`, 'success')
-    showTransitionModal.value = false
+
+    if (targetStatus.value === 'HIRED') {
+      lastHiredAppId.value = transitionApp.value.id
+      showTransitionModal.value = false
+      showPostHireModal.value = true
+    } else {
+      uiStore.showToast(`Application moved to ${targetStatus.value}`, 'success')
+      showTransitionModal.value = false
+    }
   } catch (err) {
     uiStore.showToast(err.message, 'error')
   } finally {
@@ -1001,6 +1033,27 @@ async function confirmDelete() {
                 <span class="summary-prefix">{{ app.latest_event.email_event_type }}:</span>
                 {{ app.latest_event.email_summary }}
               </div>
+
+              <!-- Offer Actions (Hired / Withdrawn) -->
+              <div v-if="app.status === 'OFFER'" class="offer-actions" @click.stop>
+                <button
+                  class="offer-action-btn btn-hired"
+                  @click="executeTransition(app.id, { status: 'HIRED' })"
+                  title="Accept Offer & Mark Hired"
+                >
+                  <Trophy :size="12" />
+                  <span>Hired</span>
+                </button>
+                <button
+                  class="offer-action-btn btn-withdrawn"
+                  @click="quickWithdrawApp(app)"
+                  title="Decline Offer & Withdraw"
+                >
+                  <Ban :size="12" />
+                  <span>Decline</span>
+                </button>
+              </div>
+
 
 
             </div>
@@ -1490,6 +1543,12 @@ async function confirmDelete() {
         </button>
       </div>
     </Teleport>
+
+    <PostHireModal
+      :visible="showPostHireModal"
+      :hired-application-id="lastHiredAppId || 0"
+      @close="handlePostHireClose"
+    />
   </div>
 </template>
 
@@ -3034,4 +3093,51 @@ async function confirmDelete() {
 .status-badge--archived { background: hsl(220 40% 50% / 0.15); color: hsl(220 40% 60%); }
 .status-badge--withdrawn { background: hsl(40 80% 50% / 0.15); color: hsl(40 80% 60%); }
 .reason-text { color: var(--color-text-muted, #888); font-size: 0.8rem; }
+
+/* Offer Actions Styles appended below */
+.offer-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.offer-action-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 0;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: 1px solid transparent;
+}
+
+.btn-hired {
+  background-color: rgba(250, 204, 21, 0.1);
+  color: hsl(45 90% 50%);
+  border-color: rgba(250, 204, 21, 0.2);
+}
+
+.btn-hired:hover {
+  background-color: rgba(250, 204, 21, 0.2);
+  border-color: rgba(250, 204, 21, 0.4);
+}
+
+.btn-withdrawn {
+  background-color: rgba(251, 146, 60, 0.1);
+  color: hsl(28 90% 60%);
+  border-color: rgba(251, 146, 60, 0.2);
+}
+
+.btn-withdrawn:hover {
+  background-color: rgba(251, 146, 60, 0.2);
+  border-color: rgba(251, 146, 60, 0.4);
+}
+
 </style>
