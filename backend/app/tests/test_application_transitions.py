@@ -59,6 +59,25 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
             assert data["latest_event"] is not None
             assert data["latest_event"]["email_event_type"] == "STATUS_CHANGE"
 
+        # 2b. Transition to Task Completed / Awaiting Response -> auto-completes action items
+        with patch(
+            "app.routers.applications.async_enqueue_application_embedding",
+            new_callable=AsyncMock,
+        ):
+            resp = await client.post(
+                f"/api/v1/applications/{application.id}/transition",
+                json={
+                    "status": "TECHNICAL_INTERVIEW",
+                    "interview_stage": "Task Completed / Awaiting Response",
+                    "notes": "Finished take-home challenge, sent to recruiter.",
+                },
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "TECHNICAL_INTERVIEW"
+            assert data["latest_event"]["raw_payload"].get("scheduled_at") is None
+            assert data["scheduled_interview_at"] is None
+
         # 3. Transition to OFFER with offered salary, offer_received_date, and decision_deadline
         with patch(
             "app.routers.applications.async_enqueue_application_embedding",
@@ -112,7 +131,7 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
         )
         events_res = await db_session.execute(events_stmt)
         events = events_res.scalars().all()
-        assert len(events) == 3
+        assert len(events) == 4
 
         # 6. Delete application
         del_resp = await client.delete(f"/api/v1/applications/{application.id}")

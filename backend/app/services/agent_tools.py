@@ -175,9 +175,7 @@ async def execute_list_applications(
     apps = res.scalars().all()
     out = []
     for a in apps:
-        has_action = any(e.email_action_required for e in (a.events or [])) or any(
-            i.status == "PENDING" for i in (a.action_items or [])
-        )
+        has_action = any(i.status == "PENDING" for i in (a.action_items or []))
         if action_required_only and not has_action:
             continue
         out.append(

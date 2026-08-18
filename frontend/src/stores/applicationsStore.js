@@ -92,6 +92,84 @@ export const useApplicationsStore = defineStore('applications', () => {
       }
     })
 
+    const nowTs = Date.now()
+
+    function getAppInterviewTimestamp(app) {
+      const stage = (app.latest_event?.raw_payload?.interview_stage || '').trim()
+      if (stage === 'Task Completed / Awaiting Response') {
+        return null
+      }
+      const raw =
+        app.scheduled_interview_at ||
+        app.latest_event?.raw_payload?.scheduled_at ||
+        app.events?.find((e) => e.raw_payload?.scheduled_at)?.raw_payload?.scheduled_at
+      if (!raw) return null
+      const ts = new Date(raw).getTime()
+      return isNaN(ts) ? null : ts
+    }
+
+    function getAppOfferDeadlineTimestamp(app) {
+      const raw =
+        app.nearest_due_date ||
+        app.latest_event?.raw_payload?.decision_deadline ||
+        app.events?.find((e) => e.raw_payload?.decision_deadline)?.raw_payload?.decision_deadline
+      if (!raw) return null
+      const ts = new Date(raw).getTime()
+      return isNaN(ts) ? null : ts
+    }
+
+    function getAppActivityTimestamp(app) {
+      const raw = app.last_activity_at || app.application_date || app.created_at
+      if (!raw) return 0
+      const ts = new Date(raw).getTime()
+      return isNaN(ts) ? 0 : ts
+    }
+
+    // Sort APPLIED: newest activity first
+    columns.APPLIED.sort((a, b) => getAppActivityTimestamp(b) - getAppActivityTimestamp(a))
+
+    // Sort TECHNICAL_INTERVIEW: upcoming interviews first (ascending), then past, then unscheduled
+    columns.TECHNICAL_INTERVIEW.sort((a, b) => {
+      const tsA = getAppInterviewTimestamp(a)
+      const tsB = getAppInterviewTimestamp(b)
+
+      const isFutureA = tsA !== null && tsA >= nowTs
+      const isFutureB = tsB !== null && tsB >= nowTs
+
+      if (isFutureA && isFutureB) return tsA - tsB
+      if (isFutureA) return -1
+      if (isFutureB) return 1
+
+      const isPastA = tsA !== null && tsA < nowTs
+      const isPastB = tsB !== null && tsB < nowTs
+      if (isPastA && isPastB) return tsB - tsA
+      if (isPastA) return -1
+      if (isPastB) return 1
+
+      return getAppActivityTimestamp(b) - getAppActivityTimestamp(a)
+    })
+
+    // Sort OFFER: soonest decision deadline first (ascending), then past, then received date
+    columns.OFFER.sort((a, b) => {
+      const tsA = getAppOfferDeadlineTimestamp(a)
+      const tsB = getAppOfferDeadlineTimestamp(b)
+
+      const isFutureA = tsA !== null && tsA >= nowTs
+      const isFutureB = tsB !== null && tsB >= nowTs
+
+      if (isFutureA && isFutureB) return tsA - tsB
+      if (isFutureA) return -1
+      if (isFutureB) return 1
+
+      const isPastA = tsA !== null && tsA < nowTs
+      const isPastB = tsB !== null && tsB < nowTs
+      if (isPastA && isPastB) return tsB - tsA
+      if (isPastA) return -1
+      if (isPastB) return 1
+
+      return getAppActivityTimestamp(b) - getAppActivityTimestamp(a)
+    })
+
     return columns
   })
 
@@ -122,6 +200,12 @@ export const useApplicationsStore = defineStore('applications', () => {
     try {
       const res = await ApplicationsAPI.get(id)
       selectedApplication.value = res.data
+      const idx = applications.value.findIndex((a) => a.id === id)
+      if (idx !== -1) {
+        applications.value[idx].has_action_required = res.data.has_action_required
+        applications.value[idx].nearest_due_date = res.data.nearest_due_date
+        applications.value[idx].scheduled_interview_at = res.data.scheduled_interview_at
+      }
     } catch (err) {
       error.value = err.message
     } finally {

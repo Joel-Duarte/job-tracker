@@ -137,8 +137,7 @@ async def list_applications(
     for app in applications:
         latest_evt = app.events[0] if app.events else None
         has_pending_tasks = any(a.status == "PENDING" for a in (app.action_items or []))
-        has_email_action = any(e.email_action_required for e in app.events)
-        has_action = has_pending_tasks or has_email_action
+        has_action = has_pending_tasks
 
         # Compute nearest pending due date across action items & payload deadlines
         due_dates = [
@@ -177,20 +176,36 @@ async def list_applications(
 
         # Compute scheduled interview date
         scheduled_interview = None
-        for evt in app.events or []:
-            if evt.raw_payload and isinstance(evt.raw_payload, dict):
-                sched_val = evt.raw_payload.get("scheduled_at")
-                if sched_val:
-                    try:
-                        scheduled_interview = datetime.fromisoformat(str(sched_val))
+        latest_evt = app.events[0] if (app.events and len(app.events) > 0) else None
+        latest_stage = (
+            latest_evt.raw_payload.get("interview_stage")
+            if (
+                latest_evt
+                and latest_evt.raw_payload
+                and isinstance(latest_evt.raw_payload, dict)
+            )
+            else None
+        )
+
+        if latest_stage != "Task Completed / Awaiting Response":
+            for evt in app.events or []:
+                if evt.raw_payload and isinstance(evt.raw_payload, dict):
+                    sched_val = evt.raw_payload.get("scheduled_at")
+                    if sched_val:
+                        try:
+                            scheduled_interview = datetime.fromisoformat(str(sched_val))
+                            break
+                        except Exception:
+                            pass
+            if not scheduled_interview:
+                for act in app.action_items or []:
+                    if (
+                        act.status == "PENDING"
+                        and "interview" in act.title.lower()
+                        and act.due_date
+                    ):
+                        scheduled_interview = act.due_date
                         break
-                    except Exception:
-                        pass
-        if not scheduled_interview:
-            for act in app.action_items or []:
-                if "interview" in act.title.lower() and act.due_date:
-                    scheduled_interview = act.due_date
-                    break
 
         loc = (
             app.job_posting.location
@@ -407,20 +422,34 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
 
     # Compute scheduled interview date
     scheduled_interview = None
-    for evt in sorted_events:
-        if evt.raw_payload and isinstance(evt.raw_payload, dict):
-            sched_val = evt.raw_payload.get("scheduled_at")
-            if sched_val:
-                try:
-                    scheduled_interview = datetime.fromisoformat(str(sched_val))
+    latest_stage = (
+        latest_evt.raw_payload.get("interview_stage")
+        if (
+            latest_evt
+            and latest_evt.raw_payload
+            and isinstance(latest_evt.raw_payload, dict)
+        )
+        else None
+    )
+    if latest_stage != "Task Completed / Awaiting Response":
+        for evt in sorted_events:
+            if evt.raw_payload and isinstance(evt.raw_payload, dict):
+                sched_val = evt.raw_payload.get("scheduled_at")
+                if sched_val:
+                    try:
+                        scheduled_interview = datetime.fromisoformat(str(sched_val))
+                        break
+                    except Exception:
+                        pass
+        if not scheduled_interview:
+            for act in app.action_items or []:
+                if (
+                    act.status == "PENDING"
+                    and "interview" in act.title.lower()
+                    and act.due_date
+                ):
+                    scheduled_interview = act.due_date
                     break
-                except Exception:
-                    pass
-    if not scheduled_interview:
-        for act in app.action_items or []:
-            if "interview" in act.title.lower() and act.due_date:
-                scheduled_interview = act.due_date
-                break
 
     due_dates = [
         _to_utc(a.due_date)
@@ -438,8 +467,7 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
     nearest_due = min(valid_due_dates) if valid_due_dates else None
 
     has_pending_tasks = any(a.status == "PENDING" for a in (app.action_items or []))
-    has_email_action = any(e.email_action_required for e in (app.events or []))
-    has_action = has_pending_tasks or has_email_action
+    has_action = has_pending_tasks
 
     loc = (
         app.job_posting.location
@@ -643,7 +671,20 @@ async def transition_application(
     summary_parts = [f"Status changed from {old_status} to {new_status}."]
     if payload.interview_stage:
         summary_parts.append(f"Interview Phase: {payload.interview_stage}.")
-    if payload.scheduled_at:
+
+    is_task_completed = payload.interview_stage == "Task Completed / Awaiting Response"
+    if is_task_completed:
+        payload.scheduled_at = None
+        # Auto-complete all open Action Items for this application
+        stmt_act = select(ActionItemModel).where(
+            ActionItemModel.application_id == app.id,
+            ActionItemModel.status == "PENDING",
+        )
+        res_acts = await db.execute(stmt_act)
+        for act in res_acts.scalars().all():
+            act.status = "COMPLETED"
+
+    if payload.scheduled_at and not is_task_completed:
         summary_parts.append(
             f"Scheduled: {payload.scheduled_at.strftime('%b %d, %Y %I:%M %p')}."
         )
@@ -655,7 +696,7 @@ async def transition_application(
             urgency="HIGH",
         )
         db.add(action_item)
-    elif new_status == "TECHNICAL_INTERVIEW":
+    elif new_status == "TECHNICAL_INTERVIEW" and not is_task_completed:
         # Create action item to respond and schedule interview
         action_item = ActionItemModel(
             application_id=app.id,

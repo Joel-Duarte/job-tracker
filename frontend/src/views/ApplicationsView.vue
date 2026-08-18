@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useUIStore } from '../stores/uiStore'
 import DateTimePicker from '../components/common/DateTimePicker.vue'
@@ -137,7 +137,7 @@ const transitionApp = ref(null)
 const targetStatus = ref('')
 const isSubmittingTransition = ref(false)
 const transitionForm = ref({
-  interview_stage: 'Technical Round 1',
+  interview_stage: 'Technical / Coding Round',
   scheduled_at: '',
   offered_salary: null,
   currency: 'USD',
@@ -147,6 +147,15 @@ const transitionForm = ref({
   rejection_reason: 'Resume / Initial Screen',
   notes: '',
 })
+
+watch(
+  () => transitionForm.value.interview_stage,
+  (newStage) => {
+    if (newStage === 'Task Completed / Awaiting Response') {
+      transitionForm.value.scheduled_at = ''
+    }
+  }
+)
 
 // Delete Modal State
 const showDeleteModal = ref(false)
@@ -173,13 +182,10 @@ async function restoreApp(app) {
 
 const INTERVIEW_STAGES = [
   'Interview Requested / Scheduling',
+  'Recruiter Screen',
+  'Technical / Coding Round',
+  'Final / Hiring Manager Round',
   'Task Completed / Awaiting Response',
-  'Recruiter Screen / Initial Chat',
-  'Online Assessment / Take-Home',
-  'Technical Round 1',
-  'System Design / Live Coding',
-  'Hiring Manager / Final Round',
-  'Custom / Other',
 ]
 
 const REJECTION_REASONS = [
@@ -1133,13 +1139,20 @@ async function confirmDelete() {
                 </select>
               </div>
 
-              <div class="form-group">
+              <div
+                v-if="transitionForm.interview_stage !== 'Task Completed / Awaiting Response'"
+                class="form-group"
+              >
                 <label class="form-label">Scheduled Date & Time (Optional)</label>
                 <DateTimePicker
                   v-model="transitionForm.scheduled_at"
                   type="datetime"
                   placeholder="Select scheduled date & time..."
                 />
+              </div>
+              <div v-else class="stage-info-banner">
+                <CheckCircle2 :size="15" class="info-icon" />
+                <span>Marking as completed will clear scheduled dates and resolve pending action items for this application.</span>
               </div>
             </div>
 
@@ -2551,6 +2564,24 @@ async function confirmDelete() {
   border: 1px solid var(--status-rejected-border);
   border-radius: var(--radius-md);
   padding: 14px;
+}
+
+.stage-info-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.stage-info-banner .info-icon {
+  color: var(--success);
+  flex-shrink: 0;
 }
 
 .stage-section-header {
