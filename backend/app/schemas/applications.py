@@ -44,6 +44,11 @@ class ApplicationListItem(BaseModel):
     latest_event: EventSummary | None = None
     nearest_due_date: datetime | None = None
     scheduled_interview_at: datetime | None = None
+    location: str | None = None
+    work_model: str | None = None
+    salary_min: int | None = None
+    salary_max: int | None = None
+    currency: str | None = "USD"
 
     model_config = ConfigDict(from_attributes=True)
 

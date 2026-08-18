@@ -40,6 +40,7 @@ import {
   MessageSquare,
   ExternalLink,
   PenLine,
+  MapPin,
 } from 'lucide-vue-next'
 
 const appStore = useApplicationsStore()
@@ -276,6 +277,18 @@ function getScheduleUrgencyClass(app) {
   }
 }
 
+function formatAppSalary(app) {
+  if (!app) return null
+  const min = app.salary_min ?? app.match_analysis_payload?.salary_min
+  const max = app.salary_max ?? app.match_analysis_payload?.salary_max
+  if (min && max) {
+    return `$${Math.round(min / 1000)}k - $${Math.round(max / 1000)}k`
+  }
+  if (min) return `From $${Math.round(min / 1000)}k`
+  if (max) return `Up to $${Math.round(max / 1000)}k`
+  return null
+}
+
 function getDueDate(app) {
   if (!app) return null
   const payload = app.latest_event?.raw_payload || {}
@@ -495,6 +508,18 @@ async function confirmDelete() {
           <option v-for="s in appStore.ACTIVE_STATUSES" :key="s.key" :value="s.key">
             {{ s.label }}
           </option>
+        </select>
+
+        <!-- Work Model Filter (All / Remote / Hybrid / On-site) -->
+        <select
+          v-model="appStore.selectedWorkModel"
+          class="filter-select work-model-select"
+          title="Filter by workplace arrangement"
+        >
+          <option value="">All Workplaces</option>
+          <option value="Remote">🌐 Remote</option>
+          <option value="Hybrid">🏢 Hybrid</option>
+          <option value="On-site">📍 On-site</option>
         </select>
 
         <button
@@ -735,6 +760,26 @@ async function confirmDelete() {
                 {{ app.position || 'Position Not Specified' }}
               </div>
 
+              <!-- Metadata Chips: Salary, Location, Work Model -->
+              <div
+                v-if="formatAppSalary(app) || app.location || app.work_model"
+                class="card-meta-chips"
+                @click.stop
+              >
+                <span v-if="formatAppSalary(app)" class="card-meta-tag salary-tag">
+                  <DollarSign :size="10" />
+                  <span>{{ formatAppSalary(app) }}</span>
+                </span>
+                <span v-if="app.location" class="card-meta-tag location-tag" :title="app.location">
+                  <MapPin :size="10" />
+                  <span>{{ app.location }}</span>
+                </span>
+                <span v-if="app.work_model" class="card-meta-tag workmodel-tag" :title="`Workplace Model: ${app.work_model}`">
+                  <Building2 :size="10" />
+                  <span>{{ app.work_model }}</span>
+                </span>
+              </div>
+
               <!-- Phase Detail Pill, Interview Date, & Due Date -->
               <div class="card-phase-row" @click.stop>
                 <button
@@ -903,15 +948,34 @@ async function confirmDelete() {
 
               <td class="cell-position">
                 <div class="position-cell-wrapper">
-                  <span class="position-title">{{ app.position || '—' }}</span>
+                  <div class="position-title-row">
+                    <span class="position-title">{{ app.position || '—' }}</span>
+                    <div
+                      v-if="getAppMatchScore(app) !== null"
+                      class="match-score-pill table-match-pill"
+                      :class="getMatchScoreTierClass(getAppMatchScore(app))"
+                      :title="`Role Match Fit: ${getAppMatchScore(app)}%`"
+                    >
+                      <Sparkles :size="10" class="match-pill-icon" />
+                      <span>{{ getAppMatchScore(app) }}%</span>
+                    </div>
+                  </div>
                   <div
-                    v-if="getAppMatchScore(app) !== null"
-                    class="match-score-pill table-match-pill"
-                    :class="getMatchScoreTierClass(getAppMatchScore(app))"
-                    :title="`Role Match Fit: ${getAppMatchScore(app)}%`"
+                    v-if="formatAppSalary(app) || app.location || app.work_model"
+                    class="table-meta-chips"
                   >
-                    <Sparkles :size="10" class="match-pill-icon" />
-                    <span>{{ getAppMatchScore(app) }}%</span>
+                    <span v-if="formatAppSalary(app)" class="card-meta-tag salary-tag">
+                      <DollarSign :size="10" />
+                      <span>{{ formatAppSalary(app) }}</span>
+                    </span>
+                    <span v-if="app.location" class="card-meta-tag location-tag">
+                      <MapPin :size="10" />
+                      <span>{{ app.location }}</span>
+                    </span>
+                    <span v-if="app.work_model" class="card-meta-tag workmodel-tag">
+                      <Building2 :size="10" />
+                      <span>{{ app.work_model }}</span>
+                    </span>
                   </div>
                 </div>
               </td>
@@ -2457,6 +2521,68 @@ async function confirmDelete() {
 
 .action-required-card {
   border-left: 3px solid var(--status-rejected-border);
+}
+
+.work-model-select {
+  min-width: 140px;
+}
+
+.card-meta-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  margin-bottom: 2px;
+}
+
+.table-meta-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.position-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.card-meta-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.card-meta-tag.salary-tag {
+  color: var(--status-offer-text);
+  background-color: var(--status-offer-bg);
+  border-color: var(--status-offer-border);
+  font-weight: 600;
+}
+
+.card-meta-tag.workmodel-tag {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+}
+
+.card-meta-tag.location-tag {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 </style>

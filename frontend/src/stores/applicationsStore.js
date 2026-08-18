@@ -11,10 +11,18 @@ export const useApplicationsStore = defineStore('applications', () => {
   const selectedStatus = ref('')
   const actionRequiredOnly = ref(false)
   const minMatchScore = ref(null)
+  const selectedWorkModel = ref('') // '' | 'Remote' | 'Hybrid' | 'On-site'
   const selectedApplication = ref(null)
   const loadingDetail = ref(false)
 
   const pipelineViewMode = ref('active') // 'active' | 'archive'
+
+  function matchesWorkModel(app) {
+    if (!selectedWorkModel.value) return true
+    const target = selectedWorkModel.value.toLowerCase().replace(/[^a-z]/g, '')
+    const current = (app.work_model || app.match_analysis_payload?.work_model || '').toLowerCase().replace(/[^a-z]/g, '')
+    return current.includes(target) || target.includes(current)
+  }
 
   // Full status list
   const STATUSES = [
@@ -35,14 +43,16 @@ export const useApplicationsStore = defineStore('applications', () => {
   const activeApplications = computed(() => {
     return applications.value.filter((a) => {
       const status = (a.status || 'APPLIED').toUpperCase()
-      return status !== 'REJECTED'
+      if (status === 'REJECTED') return false
+      return matchesWorkModel(a)
     })
   })
 
   const archivedApplications = computed(() => {
     return applications.value.filter((a) => {
       const status = (a.status || '').toUpperCase()
-      return status === 'REJECTED'
+      if (status !== 'REJECTED') return false
+      return matchesWorkModel(a)
     })
   })
 
@@ -54,6 +64,9 @@ export const useApplicationsStore = defineStore('applications', () => {
     }
 
     applications.value.forEach((app) => {
+      // Filter by work model if active
+      if (!matchesWorkModel(app)) return
+
       // Filter by min match score if active
       if (minMatchScore.value !== null && minMatchScore.value !== undefined && minMatchScore.value !== '') {
         const targetMin = Number(minMatchScore.value)
@@ -190,6 +203,7 @@ export const useApplicationsStore = defineStore('applications', () => {
     selectedStatus,
     actionRequiredOnly,
     minMatchScore,
+    selectedWorkModel,
     selectedApplication,
     loadingDetail,
     pipelineViewMode,

@@ -37,6 +37,7 @@ from app.services.llm import (
 
 logger = logging.getLogger(__name__)
 
+
 def _to_utc(dt: datetime | None) -> datetime | None:
     if dt is None:
         return None
@@ -78,6 +79,7 @@ async def list_applications(
             joinedload(ApplicationModel.company),
             selectinload(ApplicationModel.events),
             selectinload(ApplicationModel.action_items),
+            selectinload(ApplicationModel.job_posting),
         )
     )
 
@@ -148,7 +150,9 @@ async def list_applications(
             payload_deadline = latest_evt.raw_payload.get("decision_deadline")
             if payload_deadline:
                 try:
-                    due_dates.append(_to_utc(datetime.fromisoformat(str(payload_deadline))))
+                    due_dates.append(
+                        _to_utc(datetime.fromisoformat(str(payload_deadline)))
+                    )
                 except Exception:
                     pass
 
@@ -188,6 +192,52 @@ async def list_applications(
                     scheduled_interview = act.due_date
                     break
 
+        loc = (
+            app.job_posting.location
+            if app.job_posting and app.job_posting.location
+            else (
+                app.match_analysis_payload.get("location")
+                if app.match_analysis_payload
+                else None
+            )
+        )
+        wm = (
+            app.job_posting.work_model
+            if app.job_posting and app.job_posting.work_model
+            else (
+                app.match_analysis_payload.get("work_model")
+                if app.match_analysis_payload
+                else None
+            )
+        )
+        s_min = (
+            app.job_posting.salary_min
+            if app.job_posting and app.job_posting.salary_min is not None
+            else (
+                app.match_analysis_payload.get("salary_min")
+                if app.match_analysis_payload
+                else None
+            )
+        )
+        s_max = (
+            app.job_posting.salary_max
+            if app.job_posting and app.job_posting.salary_max is not None
+            else (
+                app.match_analysis_payload.get("salary_max")
+                if app.match_analysis_payload
+                else None
+            )
+        )
+        curr = (
+            app.job_posting.currency
+            if app.job_posting and app.job_posting.currency
+            else (
+                app.match_analysis_payload.get("currency", "USD")
+                if app.match_analysis_payload
+                else "USD"
+            )
+        )
+
         items.append(
             ApplicationListItem(
                 id=app.id,
@@ -204,6 +254,11 @@ async def list_applications(
                 match_analysis_payload=app.match_analysis_payload,
                 nearest_due_date=nearest_due,
                 scheduled_interview_at=scheduled_interview,
+                location=loc,
+                work_model=wm,
+                salary_min=s_min,
+                salary_max=s_max,
+                currency=curr,
                 latest_event=EventSummary(
                     id=latest_evt.id,
                     email_event_type=latest_evt.email_event_type,
@@ -386,6 +441,32 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
     has_email_action = any(e.email_action_required for e in (app.events or []))
     has_action = has_pending_tasks or has_email_action
 
+    loc = (
+        app.job_posting.location
+        if app.job_posting and app.job_posting.location
+        else (match_payload.get("location") if match_payload else None)
+    )
+    wm = (
+        app.job_posting.work_model
+        if app.job_posting and app.job_posting.work_model
+        else (match_payload.get("work_model") if match_payload else None)
+    )
+    s_min = (
+        app.job_posting.salary_min
+        if app.job_posting and app.job_posting.salary_min is not None
+        else (match_payload.get("salary_min") if match_payload else None)
+    )
+    s_max = (
+        app.job_posting.salary_max
+        if app.job_posting and app.job_posting.salary_max is not None
+        else (match_payload.get("salary_max") if match_payload else None)
+    )
+    curr = (
+        app.job_posting.currency
+        if app.job_posting and app.job_posting.currency
+        else (match_payload.get("currency", "USD") if match_payload else "USD")
+    )
+
     return ApplicationDetailResponse(
         id=app.id,
         company=CompanySummary(
@@ -405,6 +486,11 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
         match_analysis_payload=match_payload,
         nearest_due_date=nearest_due,
         scheduled_interview_at=scheduled_interview,
+        location=loc,
+        work_model=wm,
+        salary_min=s_min,
+        salary_max=s_max,
+        currency=curr,
         latest_event=EventSummary(
             id=latest_evt.id,
             email_event_type=latest_evt.email_event_type,
