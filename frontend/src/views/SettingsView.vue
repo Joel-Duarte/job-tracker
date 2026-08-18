@@ -346,21 +346,22 @@ async function loadGlobalSettings() {
   }
 }
 
-async function toggleAutoGenerateCoverLetter() {
+async function toggleAutoGenerateCoverLetter(event) {
   isUpdatingCoverLetterSetting.value = true
   try {
-    const newVal = !autoGenerateCoverLetter.value
+    const newVal = event && event.target ? event.target.checked : !autoGenerateCoverLetter.value
     const res = await AIConfigAPI.updateGlobalSettings({ auto_generate_cover_letter: newVal })
     autoGenerateCoverLetter.value = res.data.auto_generate_cover_letter
-    uiStore.setAutoGenerateCoverLetter(autoGenerateCoverLetter.value)
+    uiStore.setAutoGenerateCoverLetter(res.data.auto_generate_cover_letter)
     uiStore.showToast(
-      autoGenerateCoverLetter.value
+      res.data.auto_generate_cover_letter
         ? 'Cover letter auto-generation enabled for intake pipeline.'
         : 'Cover letter auto-generation disabled during intake.',
       'success'
     )
   } catch (err) {
     uiStore.showToast('Failed to update cover letter setting', 'error')
+    autoGenerateCoverLetter.value = uiStore.autoGenerateCoverLetter
   } finally {
     isUpdatingCoverLetterSetting.value = false
   }

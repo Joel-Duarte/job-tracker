@@ -97,19 +97,44 @@ function openCoverLetterModal(task) {
 }
 
 async function handleGenerateCoverLetter(task) {
-  if (!task.result_json?.application_id) {
-    uiStore.showToast('Please mark application as applied first or wait for intake completion.', 'info')
-    return
-  }
-  const appId = task.result_json.application_id
+  let appId = task.result_json?.application_id
   coverLetterGeneratingTaskIds.value.add(task.id)
+  if (task.result_json) {
+    task.result_json.cover_letter_status = 'GENERATING'
+  }
   try {
+    if (!appId) {
+      const result = task.result_json || {}
+      const confirmRes = await IntakeAPI.confirmAssessment({
+        company: result.company || task.title_hint || 'Company',
+        position: result.position || 'Software Engineer',
+        status: 'ASSESSMENT',
+        job_url: task.job_url || null,
+        description_markdown: task.raw_text || result.summary || '',
+        salary_min: result.salary_min,
+        salary_max: result.salary_max,
+        currency: result.currency || 'USD',
+        location: result.location,
+        work_model: result.work_model,
+        required_skills: [
+          ...(result.matching_skills || []),
+          ...(result.missing_skills || []),
+        ],
+        match_analysis_payload: result,
+      })
+      appId = confirmRes.data.application_id
+      if (task.result_json) {
+        task.result_json.application_id = appId
+      }
+    }
     await CoverLettersAPI.generate(appId)
     uiStore.showToast('Cover letter generation queued in AI Queue!', 'success')
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to generate cover letter', 'error')
-  } finally {
     coverLetterGeneratingTaskIds.value.delete(task.id)
+    if (task.result_json) {
+      task.result_json.cover_letter_status = 'FAILED'
+    }
   }
 }
 
@@ -339,6 +364,12 @@ async function loadEvaluations(silent = false) {
   try {
     const res = await IntakeAPI.getEvaluations(100)
     evaluationTasks.value = res.data || []
+    for (const task of evaluationTasks.value) {
+      const status = task.result_json?.cover_letter_status
+      if (status === 'COMPLETED' || status === 'FAILED' || status === 'SKIPPED') {
+        coverLetterGeneratingTaskIds.value.delete(task.id)
+      }
+    }
   } catch (err) {
     if (!silent) uiStore.showToast(err.message, 'error')
   } finally {
@@ -864,29 +895,29 @@ onUnmounted(() => {
 
               <!-- Dynamic Cover Letter Action Button -->
               <button
-                v-if="task.result_json?.cover_letter_status === 'GENERATING' || coverLetterGeneratingTaskIds.has(task.id)"
+                v-if="task.result_json?.cover_letter_status === 'GENERATING' || task.result_json?.cover_letter_status === 'PENDING' || coverLetterGeneratingTaskIds.has(task.id)"
                 class="btn btn-secondary btn-sm"
                 disabled
               >
                 <Loader2 class="animate-spin" :size="14" />
-                <span>Drafting...</span>
+                <span>Generating...</span>
               </button>
 
               <button
                 v-else-if="task.result_json?.cover_letter_markdown || task.result_json?.cover_letter_status === 'COMPLETED'"
                 class="btn btn-primary btn-sm"
-                title="View and edit tailored cover letter draft"
+                title="View generated cover letter"
                 @click="openCoverLetterModal(task)"
               >
                 <FileText :size="14" />
-                <span>View Cover Letter</span>
+                <span>View Generated Letter</span>
               </button>
 
               <button
                 v-else
                 class="btn btn-secondary btn-sm"
                 title="Generate tailored cover letter draft with AI"
-                @click="task.result_json?.application_id ? openCoverLetterModal(task) : handleGenerateCoverLetter(task)"
+                @click="handleGenerateCoverLetter(task)"
               >
                 <Sparkles :size="14" />
                 <span>Generate Cover Letter</span>

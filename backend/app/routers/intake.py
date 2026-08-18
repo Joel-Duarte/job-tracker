@@ -838,7 +838,33 @@ async def list_evaluation_tasks(
         .limit(limit)
     )
     res = await db.execute(stmt)
-    return list(res.scalars().all())
+    tasks = list(res.scalars().all())
+
+    # Dynamically sync cover letter status and markdown from ApplicationModel for tasks with application_id
+    app_ids = [
+        t.result_json["application_id"]
+        for t in tasks
+        if t.result_json
+        and isinstance(t.result_json, dict)
+        and t.result_json.get("application_id")
+    ]
+    if app_ids:
+        app_stmt = select(ApplicationModel).where(ApplicationModel.id.in_(app_ids))
+        app_res = await db.execute(app_stmt)
+        apps_map = {app.id: app for app in app_res.scalars().all()}
+        for t in tasks:
+            if t.result_json and isinstance(t.result_json, dict):
+                app_id = t.result_json.get("application_id")
+                if app_id in apps_map:
+                    app = apps_map[app_id]
+                    if app.cover_letter_status:
+                        t.result_json["cover_letter_status"] = app.cover_letter_status
+                    if app.cover_letter_markdown:
+                        t.result_json["cover_letter_markdown"] = (
+                            app.cover_letter_markdown
+                        )
+
+    return tasks
 
 
 @router.delete("/evaluations/{task_id}", status_code=status.HTTP_200_OK)
