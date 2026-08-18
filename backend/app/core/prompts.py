@@ -18,6 +18,7 @@ DEFAULT_PROMPTS = {
         "--------------------------------------------------\n"
         "- Title: Extract the exact position title (e.g. 'Staff Backend Engineer').\n"
         "- Company: Extract the hiring employer name (ignore portal or job board names like LinkedIn, Indeed, Glassdoor).\n"
+        "- Company URL: Extract or infer the company's official website root domain into company_url (e.g. 'stripe.com', 'linear.app', 'datadoghq.com'). Strip protocols, www, and subpaths. Do not return ATS domains like greenhouse.io, lever.co, or ashbyhq.com.\n"
         "- Location & Work Model: Identify physical location and work model. Strictly normalize work_model to one of: 'Remote', 'Hybrid', 'On-site', or null. Do NOT include parenthetical commentary or hiring codes.\n"
         "- Compensation: Extract minimum salary, maximum salary, and ISO currency (e.g. USD, EUR, GBP) if stated.\n"
         "- Skills & Requirements: Extract key mandatory technical skills, programming languages, and frameworks.\n"

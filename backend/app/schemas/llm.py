@@ -36,6 +36,10 @@ class ExtractedJobSpec(BaseModel):
     company: str = Field(
         default="Not Specified", description="Company, employer, or organization name"
     )
+    company_url: str | None = Field(
+        default=None,
+        description="Official company website domain or URL, e.g. 'stripe.com', 'linear.app', 'datadoghq.com'",
+    )
     position: str = Field(
         default="Not Specified", description="Job title or role position"
     )
@@ -126,6 +130,10 @@ class HardMatches(BaseModel):
 
 class JobAssessmentResult(BaseModel):
     company: str = Field(description="Company name extracted from the job posting")
+    company_url: str | None = Field(
+        default=None,
+        description="Official company website domain or URL, e.g. 'stripe.com', 'linear.app'",
+    )
     position: str = Field(description="Position or job title")
     fit_score: int = Field(description="Calculated AI match/fit score from 0 to 100")
     programmatic_match_score: int = Field(

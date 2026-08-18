@@ -651,7 +651,11 @@ onUnmounted(() => {
           <div class="eval-card-header">
             <div class="eval-title-group" style="flex-direction: row; align-items: center; gap: 14px;">
               <input type="checkbox" class="form-checkbox" :checked="selectedTaskIds.has(task.id)" @change="toggleTaskSelection(task.id)" />
-              <CompanyLogo :name="task.result_json?.company || task.title_hint" :size="44" />
+              <CompanyLogo
+                :name="task.result_json?.company || task.title_hint"
+                :domain="task.result_json?.company_url || task.result_json?.company_domain"
+                :size="44"
+              />
               <div>
                 <div class="company-badge-line">
                   <span class="eval-company">{{ task.result_json?.company || task.title_hint || 'Target Company' }}</span>
@@ -952,7 +956,11 @@ onUnmounted(() => {
                 :checked="selectedTaskIds.has(task.id)"
                 @change="toggleTaskSelection(task.id)"
               />
-              <CompanyLogo :name="task.result_json?.company || task.title_hint" :size="44" />
+              <CompanyLogo
+                :name="task.result_json?.company || task.title_hint"
+                :domain="task.result_json?.company_url || task.result_json?.company_domain"
+                :size="44"
+              />
               <div>
                 <div class="company-badge-line">
                   <span class="eval-company">{{ task.result_json?.company || task.title_hint || 'Target Company' }}</span>

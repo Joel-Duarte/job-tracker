@@ -14,6 +14,7 @@ from app.models.applications import (
 )
 from app.models.staging import StagingItemModel
 from app.schemas.llm import JobAssessmentResult
+from app.services.domain_resolver import resolve_company_domain
 from app.services.llm import generate_and_save_application_embedding
 
 logger = logging.getLogger(__name__)
@@ -89,13 +90,26 @@ async def persist_or_stage_job_assessment(
             }
 
     # 2. Find or Create Company
+    resolved_domain = await resolve_company_domain(
+        company_name=company_name,
+        source_url=clean_url,
+        ai_domain=assessment.company_url,
+    )
+
     comp_stmt = select(CompanyModel).where(CompanyModel.name_normalized == company_norm)
     comp_res = await db.execute(comp_stmt)
     company = comp_res.scalar_one_or_none()
 
     if not company:
-        company = CompanyModel(name=company_name, name_normalized=company_norm)
+        company = CompanyModel(
+            name=company_name,
+            name_normalized=company_norm,
+            domain=resolved_domain,
+        )
         db.add(company)
+        await db.flush()
+    elif not company.domain and resolved_domain:
+        company.domain = resolved_domain
         await db.flush()
 
     # 3. Create Application

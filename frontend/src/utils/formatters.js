@@ -147,12 +147,50 @@ export function formatRelativeDate(dateStr, includeTime = false) {
   }
 }
 
+const KNOWN_ATS_DOMAINS = new Set([
+  'greenhouse.io',
+  'lever.co',
+  'ashbyhq.com',
+  'workday.com',
+  'myworkdayjobs.com',
+  'smartrecruiters.com',
+  'bamboohr.com',
+  'jobvite.com',
+  'icims.com',
+  'rippling-ats.com',
+  'recruitee.com',
+  'applytojob.com',
+  'workable.com',
+  'breezy.hr',
+  'jazzhr.com',
+  'pinpointhq.com',
+  'teamtailor.com',
+  'polymer.co',
+  'otta.com',
+  'wellfound.com',
+  'linkedin.com',
+  'indeed.com',
+  'glassdoor.com',
+])
+
 /**
  * Returns clean company domain from company object or company name
  */
 export function getCompanyDomain(companyName, existingDomain = null) {
   if (existingDomain && String(existingDomain).includes('.')) {
-    return existingDomain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+    let clean = String(existingDomain)
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, '')
+      .replace(/\/.*$/, '')
+      .replace(/^www\./, '')
+
+    const isATS = Array.from(KNOWN_ATS_DOMAINS).some(
+      (ats) => clean === ats || clean.endsWith(`.${ats}`)
+    )
+    if (!isATS && clean.length > 3) {
+      return clean
+    }
   }
   if (!companyName) return null
 
@@ -185,6 +223,14 @@ export function getCompanyDomain(companyName, existingDomain = null) {
     vercel: 'vercel.com',
     supabase: 'supabase.com',
     postman: 'postman.com',
+    openai: 'openai.com',
+    anthropic: 'anthropic.com',
+    canva: 'canva.com',
+    snowflake: 'snowflake.com',
+    cloudflare: 'cloudflare.com',
+    discord: 'discord.com',
+    zoom: 'zoom.us',
+    atlassian: 'atlassian.com',
   }
 
   if (overrides[cleaned]) {

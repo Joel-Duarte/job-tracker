@@ -40,6 +40,7 @@ from app.schemas.intake import (
     PasteIntakeRequest,
 )
 from app.schemas.llm import JobAssessmentResult
+from app.services.domain_resolver import resolve_company_domain
 from app.services.email_fetcher import fetch_emails_from_account
 from app.services.evaluation_worker import process_evaluation_task
 from app.services.file_parser import parse_uploaded_file
@@ -434,13 +435,24 @@ async def confirm_job_assessment(
     now = datetime.now(UTC)
 
     # 1. Company
+    resolved_domain = await resolve_company_domain(
+        company_name=payload.company.strip(),
+        source_url=payload.job_url,
+    )
     stmt = select(CompanyModel).where(CompanyModel.name_normalized == comp_norm)
     res = await db.execute(stmt)
     company = res.scalar_one_or_none()
 
     if not company:
-        company = CompanyModel(name=payload.company.strip(), name_normalized=comp_norm)
+        company = CompanyModel(
+            name=payload.company.strip(),
+            name_normalized=comp_norm,
+            domain=resolved_domain,
+        )
         db.add(company)
+        await db.flush()
+    elif not company.domain and resolved_domain:
+        company.domain = resolved_domain
         await db.flush()
 
     # 2. Application resolution
