@@ -112,13 +112,15 @@ async def generator_node(
         )
         tools = [question_tool, SubmitEvaluation]
 
-    model_with_tools = llm.bind_tools(tools)
+    # Force the LLM to use one of the provided tools
+    model_with_tools = llm.bind_tools(tools, tool_choice="any")
 
     system_prompt = (
         "You are a strict technical hiring manager conducting a mock interview.\n"
         "Here is the context of the job the candidate is interviewing for:\n{job_context}\n"
         "Your job is to either ask a relevant question using the provided tools, or if enough questions have been asked (at least 2), submit the final evaluation.\n"
-        "Do not ask generic questions; tailor them specifically to the required skills."
+        "Do not ask generic questions; tailor them specifically to the required skills.\n"
+        "ALWAYS use the provided tools to format your question. You may also include plain text to provide feedback on the user's previous answer."
     )
 
     prompt = ChatPromptTemplate.from_messages(

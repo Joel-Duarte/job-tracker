@@ -73,20 +73,33 @@ async def chat_with_agent(
 
             if final_state and "messages" in final_state and final_state["messages"]:
                 last_msg = final_state["messages"][-1]
+
+                # Capture any conversational content the LLM generated alongside the tool call
+                reply_content = (
+                    last_msg.content
+                    if hasattr(last_msg, "content") and last_msg.content
+                    else ""
+                )
+
                 if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
                     tc = last_msg.tool_calls[0]
                     if tc["name"] in (
                         "PresentMultipleChoiceQuestion",
                         "PresentOpenEndedQuestion",
                     ):
-                        reply_content = tc["args"].get("question", "")
+                        # Append the tool's question text if it exists
+                        q_text = tc["args"].get("question", "")
+                        if q_text:
+                            reply_content = (reply_content + "\n\n" + q_text).strip()
+
                         actions_performed.append(
                             {"action": tc["name"], "args": tc["args"]}
                         )
                     elif tc["name"] == "SubmitEvaluation":
                         score = tc["args"].get("score", 0)
                         feedback = tc["args"].get("feedback", "")
-                        reply_content = f"Interview Complete!\nScore: {score}/100\n\nFeedback: {feedback}"
+                        eval_text = f"Interview Complete!\nScore: {score}/100\n\nFeedback: {feedback}"
+                        reply_content = (reply_content + "\n\n" + eval_text).strip()
                         actions_performed.append(
                             {"action": tc["name"], "args": tc["args"]}
                         )
