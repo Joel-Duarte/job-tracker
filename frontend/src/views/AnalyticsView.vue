@@ -396,73 +396,79 @@ const sankeyData = computed(() => {
         <div v-else-if="activityData">
           <!-- Metric Cards -->
           <div class="kpi-banner-4 mb-6">
-            <div class="kpi-card">
-              <div class="kpi-header">
-                <span class="kpi-title">Applications</span>
-                <Activity :size="14" class="kpi-icon text-blue-500" />
+            <div class="kpi-card flex flex-col justify-between p-4">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-sm font-semibold text-secondary">Applications</span>
+                <Activity :size="16" class="text-blue-500 opacity-80" />
               </div>
-              <div class="kpi-value text-blue-500">{{ activityData.applications_submitted }}</div>
+              <div class="text-2xl font-bold text-main">{{ activityData.applications_submitted }}</div>
             </div>
 
-            <div class="kpi-card">
-              <div class="kpi-header">
-                <span class="kpi-title">Inbound Replies</span>
-                <Clock :size="14" class="kpi-icon text-emerald-500" />
+            <div class="kpi-card flex flex-col justify-between p-4">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-sm font-semibold text-secondary">Inbound Replies</span>
+                <Clock :size="16" class="text-emerald-500 opacity-80" />
               </div>
-              <div class="kpi-value text-emerald-500">{{ activityData.replies_received }}</div>
+              <div class="text-2xl font-bold text-main">{{ activityData.replies_received }}</div>
             </div>
 
-            <div class="kpi-card">
-              <div class="kpi-header">
-                <span class="kpi-title">Interviews Scheduled</span>
-                <Target :size="14" class="kpi-icon text-purple-500" />
+            <div class="kpi-card flex flex-col justify-between p-4">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-sm font-semibold text-secondary">Interviews Scheduled</span>
+                <Target :size="16" class="text-purple-500 opacity-80" />
               </div>
-              <div class="kpi-value text-purple-500">{{ activityData.interviews_scheduled }}</div>
+              <div class="text-2xl font-bold text-main">{{ activityData.interviews_scheduled }}</div>
             </div>
 
-            <div class="kpi-card">
-              <div class="kpi-header">
-                <span class="kpi-title">Tasks Completed</span>
-                <CheckCircle2 :size="14" class="kpi-icon text-amber-500" />
+            <div class="kpi-card flex flex-col justify-between p-4">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-sm font-semibold text-secondary">Tasks Completed</span>
+                <CheckCircle2 :size="16" class="text-amber-500 opacity-80" />
               </div>
-              <div class="kpi-value text-amber-500">{{ activityData.tasks_completed }}</div>
+              <div class="text-2xl font-bold text-main">{{ activityData.tasks_completed }}</div>
             </div>
           </div>
 
           <!-- Charts -->
           <div class="bento-grid" style="grid-template-columns: 2fr 1fr;">
             <!-- Daily Breakdown Chart -->
-            <div class="bento-card">
+            <div class="bento-card overflow-hidden">
               <div class="bento-header">
                 <h3 class="bento-title">
                   <BarChart3 :size="16" class="text-primary" />
                   Activity Throughput
                 </h3>
               </div>
-              <div class="bento-body p-4 pt-8">
-                <div class="daily-chart-container flex items-end gap-2 h-48">
-                  <div v-for="day in activityData.daily_breakdown" :key="day.date" class="daily-bar-wrap flex-1 flex flex-col justify-end items-center relative group">
-                    <div class="daily-tooltip">
-                      <div class="font-bold border-b border-border-color mb-1 pb-1">{{ day.date }}</div>
-                      <div class="text-blue-400">Apps: {{ day.applications }}</div>
-                      <div class="text-emerald-400">Replies: {{ day.replies }}</div>
-                      <div class="text-amber-400">Tasks: {{ day.tasks }}</div>
-                    </div>
-
-                    <div class="w-full max-w-sm flex flex-col items-center gap-1">
-                      <div class="w-full bg-blue-500 rounded-t-sm" :style="{ height: `${day.applications * 4}px`, minHeight: day.applications ? '4px' : '0' }"></div>
-                      <div class="w-full bg-emerald-500 rounded-sm" :style="{ height: `${day.replies * 4}px`, minHeight: day.replies ? '4px' : '0' }"></div>
-                      <div class="w-full bg-amber-500 rounded-sm" :style="{ height: `${day.tasks * 4}px`, minHeight: day.tasks ? '4px' : '0' }"></div>
-                    </div>
-
-                    <span class="text-[10px] text-muted mt-2 rotate-45 transform origin-left whitespace-nowrap overflow-hidden text-ellipsis">{{ day.date.substring(5) }}</span>
-                  </div>
+              <div class="bento-body p-4 pt-8 h-full">
+                <div v-if="!activityData.daily_breakdown || activityData.daily_breakdown.length === 0" class="flex flex-col items-center justify-center h-full text-muted py-10">
+                  <Activity :size="32" class="mb-3 opacity-50" />
+                  <p class="text-sm">No activity recorded for this period.</p>
                 </div>
+                <div v-else class="h-full flex flex-col justify-between">
+                  <div class="daily-chart-container flex items-end gap-2 h-48 px-2 overflow-hidden relative">
+                    <div v-for="day in activityData.daily_breakdown" :key="day.date" class="daily-bar-wrap flex-1 flex flex-col justify-end items-center relative group">
+                      <div class="daily-tooltip">
+                        <div class="font-bold border-b border-border-color mb-1 pb-1">{{ day.date }}</div>
+                        <div class="text-blue-400">Apps: {{ day.applications }}</div>
+                        <div class="text-emerald-400">Replies: {{ day.replies }}</div>
+                        <div class="text-amber-400">Tasks: {{ day.tasks }}</div>
+                      </div>
 
-                <div class="flex justify-center gap-6 mt-10">
-                  <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-blue-500"></span><span class="text-xs">Applications</span></div>
-                  <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-emerald-500"></span><span class="text-xs">Replies</span></div>
-                  <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-amber-500"></span><span class="text-xs">Tasks</span></div>
+                      <div class="w-full max-w-[12px] flex flex-col items-center gap-[1px]">
+                        <div class="w-full bg-blue-500 rounded-t-sm" :style="{ height: `${day.applications * 4}px`, minHeight: day.applications ? '4px' : '0' }"></div>
+                        <div class="w-full bg-emerald-500 rounded-sm" :style="{ height: `${day.replies * 4}px`, minHeight: day.replies ? '4px' : '0' }"></div>
+                        <div class="w-full bg-amber-500 rounded-sm" :style="{ height: `${day.tasks * 4}px`, minHeight: day.tasks ? '4px' : '0' }"></div>
+                      </div>
+
+                      <span class="text-[9px] text-muted mt-2 truncate max-w-full hidden sm:block">{{ day.date.substring(5) }}</span>
+                    </div>
+                  </div>
+
+                  <div class="flex justify-center gap-6 mt-6">
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-blue-500"></span><span class="text-xs font-medium text-secondary">Applications</span></div>
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-emerald-500"></span><span class="text-xs font-medium text-secondary">Replies</span></div>
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-amber-500"></span><span class="text-xs font-medium text-secondary">Tasks</span></div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -475,18 +481,18 @@ const sankeyData = computed(() => {
                   Terminal Outcomes
                 </h3>
               </div>
-              <div class="bento-body p-4 flex flex-col justify-center h-full gap-4">
-                <div class="flex items-center justify-between">
-                  <span class="text-xs font-semibold text-emerald-500 flex items-center gap-2"><div class="w-2 h-2 bg-emerald-500 rounded-full"></div>Offer / Hired</span>
-                  <span class="font-mono text-sm">{{ activityData.terminal_outcomes.OFFER + activityData.terminal_outcomes.HIRED }}</span>
+              <div class="bento-body p-5 flex flex-col justify-center h-full gap-4">
+                <div class="flex items-center justify-between p-2 rounded-md bg-emerald-500/10 border border-emerald-500/20">
+                  <span class="text-sm font-semibold text-emerald-600 flex items-center gap-2"><div class="w-2.5 h-2.5 bg-emerald-500 rounded-full"></div>Offer / Hired</span>
+                  <span class="font-bold text-lg text-emerald-700">{{ activityData.terminal_outcomes.OFFER + activityData.terminal_outcomes.HIRED }}</span>
                 </div>
-                <div class="flex items-center justify-between">
-                  <span class="text-xs font-semibold text-red-500 flex items-center gap-2"><div class="w-2 h-2 bg-red-500 rounded-full"></div>Rejected</span>
-                  <span class="font-mono text-sm">{{ activityData.terminal_outcomes.REJECTED }}</span>
+                <div class="flex items-center justify-between p-2 rounded-md bg-red-500/10 border border-red-500/20">
+                  <span class="text-sm font-semibold text-red-600 flex items-center gap-2"><div class="w-2.5 h-2.5 bg-red-500 rounded-full"></div>Rejected</span>
+                  <span class="font-bold text-lg text-red-700">{{ activityData.terminal_outcomes.REJECTED }}</span>
                 </div>
-                <div class="flex items-center justify-between">
-                  <span class="text-xs font-semibold text-slate-500 flex items-center gap-2"><div class="w-2 h-2 bg-slate-500 rounded-full"></div>Withdrawn</span>
-                  <span class="font-mono text-sm">{{ activityData.terminal_outcomes.WITHDRAWN }}</span>
+                <div class="flex items-center justify-between p-2 rounded-md bg-slate-500/10 border border-slate-500/20">
+                  <span class="text-sm font-semibold text-slate-600 flex items-center gap-2"><div class="w-2.5 h-2.5 bg-slate-500 rounded-full"></div>Withdrawn</span>
+                  <span class="font-bold text-lg text-slate-700">{{ activityData.terminal_outcomes.WITHDRAWN }}</span>
                 </div>
               </div>
             </div>
