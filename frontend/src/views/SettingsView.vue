@@ -101,34 +101,49 @@ const globalForm = ref({
 const globalProviderModels = ref([])
 const loadingGlobalModels = ref(false)
 const isSavingGlobal = ref(false)
+const isSyncingGlobal = ref(false)
+let globalAutoSaveTimer = null
 
 const isExporting = ref(false)
 
 async function exportDiagnostics() {
-  if (isExporting.value) return;
-  isExporting.value = true;
+  if (isExporting.value) return
+  isExporting.value = true
   try {
-    const res = await DiagnosticsAPI.export();
-    const url = window.URL.createObjectURL(new Blob([res.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'diagnostics.zip');
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    const res = await DiagnosticsAPI.export()
+    const url = window.URL.createObjectURL(new Blob([res.data]))
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', 'diagnostics.zip')
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
   } catch (err) {
-    console.error("Failed to export diagnostics", err);
+    console.error('Failed to export diagnostics', err)
   } finally {
-    isExporting.value = false;
+    isExporting.value = false
   }
 }
 
+function scheduleGlobalAutoSave(delay = 500) {
+  if (isSyncingGlobal.value) return
+  if (globalAutoSaveTimer) clearTimeout(globalAutoSaveTimer)
+  globalAutoSaveTimer = setTimeout(() => {
+    saveGlobalDefault(true)
+  }, delay)
+}
+
 function syncGlobalForm() {
+  isSyncingGlobal.value = true
+  if (globalAutoSaveTimer) clearTimeout(globalAutoSaveTimer)
   const gb = globalBinding.value
   const chosenProviderId = gb?.provider_id || (providers.value[0]?.id || null)
   globalForm.value.provider_id = chosenProviderId
   globalForm.value.model_name = gb?.model_name || 'qwen/qwen3.5-9b'
   fetchGlobalModels(chosenProviderId)
+  setTimeout(() => {
+    isSyncingGlobal.value = false
+  }, 150)
 }
 
 async function fetchGlobalModels(providerId, forceRefresh = false) {
@@ -155,28 +170,155 @@ async function fetchGlobalModels(providerId, forceRefresh = false) {
 
 function onGlobalProviderChange() {
   fetchGlobalModels(globalForm.value.provider_id)
+  scheduleGlobalAutoSave(100)
 }
 
-async function saveGlobalDefault() {
-  if (!globalForm.value.provider_id || !globalForm.value.model_name.trim()) {
-    uiStore.showToast('Please select a provider and specify a model name.', 'warning')
+function selectGlobalSuggestedModel(modelId) {
+  globalForm.value.model_name = modelId
+  scheduleGlobalAutoSave(50)
+}
+
+async function saveGlobalDefault(isAutoSave = false) {
+  if (!globalForm.value.provider_id || !globalForm.value.model_name?.trim()) {
+    if (!isAutoSave) {
+      uiStore.showToast('Please select a provider and specify a model name.', 'warning')
+    }
     return
   }
   isSavingGlobal.value = true
+  const existingGb = globalBinding.value
   try {
     await AIConfigAPI.setBinding('GLOBAL_DEFAULT', {
       provider_id: globalForm.value.provider_id,
       model_name: globalForm.value.model_name.trim(),
-      temperature: 0.2,
-      reasoning_effort: 'none',
+      // Preserve existing parameters without resetting temperature etc.
+      temperature: existingGb?.temperature !== undefined ? existingGb.temperature : 0.2,
+      reasoning_effort: existingGb?.reasoning_effort || existingGb?.extra_kwargs?.reasoning_effort || 'none',
+      max_tokens: existingGb?.max_tokens || undefined,
+      extra_kwargs: existingGb?.extra_kwargs || {},
     })
-    uiStore.showToast('Global Default Model saved successfully!', 'success')
+    uiStore.showToast('Global default model updated', 'success')
     await loadBindings()
   } catch (err) {
-    uiStore.showToast(err.message || 'Failed to save global model', 'error')
+    uiStore.showToast(err.message || 'Failed to set global model', 'error')
   } finally {
     isSavingGlobal.value = false
   }
+}
+
+const isResettingGlobal = ref(false)
+
+async function resetGlobalDefaultToDefaults() {
+  if (
+    !confirm(
+      'Reset ALL AI models, pipeline task settings, and prompt templates back to recommended factory defaults?'
+    )
+  ) {
+    return
+  }
+  isResettingGlobal.value = true
+  try {
+    const firstProviderId = providers.value[0]?.id || null
+
+    // 1. Reset Global Default Model
+    globalForm.value.provider_id = firstProviderId
+    globalForm.value.model_name = 'qwen/qwen3.5-9b'
+    await AIConfigAPI.setBinding('GLOBAL_DEFAULT', {
+      provider_id: firstProviderId,
+      model_name: 'qwen/qwen3.5-9b',
+      temperature: 0.2,
+      reasoning_effort: 'none',
+      max_tokens: undefined,
+      extra_kwargs: {},
+    })
+
+    // 2. Reset every individual pipeline task to factory recommendations
+    for (const t of TASKS) {
+      if (t.key === 'EMBEDDING') {
+        await AIConfigAPI.setBinding('EMBEDDING', {
+          provider_id: firstProviderId,
+          model_name: 'nomic-embed-text',
+          embedding_dimensions: 768,
+          extra_kwargs: {},
+        })
+      } else {
+        const defaultTemp = typeof t.recommendedTemp === 'number' ? t.recommendedTemp : 0.2
+        const defaultReasoning = t.recommendedReasoning || 'none'
+        await AIConfigAPI.setBinding(t.key, {
+          provider_id: firstProviderId,
+          model_name: 'qwen/qwen3.5-9b',
+          temperature: defaultTemp,
+          reasoning_effort: defaultReasoning,
+          max_tokens: undefined,
+          extra_kwargs: {
+            use_global_default: true,
+            reasoning_effort: defaultReasoning,
+          },
+        })
+      }
+
+      if (t.hasPrompt && t.promptKey) {
+        try {
+          await PromptsAPI.reset(t.promptKey)
+        } catch {
+          // ignore if prompt doesn't exist
+        }
+      }
+    }
+
+    uiStore.showToast('All AI models, task settings, and prompts reset to factory defaults!', 'success')
+    await loadBindings()
+    await loadPrompts()
+    syncStudioForm()
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to reset global defaults', 'error')
+  } finally {
+    isResettingGlobal.value = false
+  }
+}
+
+function isTaskCustomized(taskKey) {
+  const taskDef = TASKS.find((t) => t.key === taskKey)
+  if (!taskDef) return false
+
+  const b = bindings.value.find(
+    (x) => x.task_type.toUpperCase() === taskKey.toUpperCase()
+  )
+
+  if (taskKey === 'EMBEDDING') {
+    if (!b) return false
+    const isCustomModel = b.model_name && b.model_name !== 'nomic-embed-text'
+    const isCustomDims = b.embedding_dimensions && Number(b.embedding_dimensions) !== 768
+    return Boolean(isCustomModel || isCustomDims)
+  }
+
+  if (b) {
+    // Custom model override (not inheriting global default)
+    if (b.extra_kwargs?.use_global_default === false) {
+      return true
+    }
+    // Custom temperature override
+    if (
+      typeof taskDef.recommendedTemp === 'number' &&
+      b.temperature !== undefined &&
+      b.temperature !== null &&
+      Math.abs(Number(b.temperature) - taskDef.recommendedTemp) > 0.001
+    ) {
+      return true
+    }
+    // Custom reasoning override
+    const recReasoning = taskDef.recommendedReasoning || 'none'
+    const actualReasoning = b.reasoning_effort || b.extra_kwargs?.reasoning_effort || 'none'
+    if (actualReasoning !== recReasoning) {
+      return true
+    }
+    // Custom max tokens
+    if (b.max_tokens !== undefined && b.max_tokens !== null && b.max_tokens !== '') {
+      return true
+    }
+  }
+
+  return false
 }
 
 // Vector Embeddings Settings State
@@ -354,9 +496,22 @@ const studioForm = ref({
   embedding_dimensions: 768,
   prompt_template: '',
 })
+const isSyncingStudio = ref(false)
+let studioAutoSaveTimer = null
+
+function scheduleStudioAutoSave(delay = 500) {
+  if (isSyncingStudio.value || loadingStudio.value) return
+  if (studioAutoSaveTimer) clearTimeout(studioAutoSaveTimer)
+  studioAutoSaveTimer = setTimeout(() => {
+    saveStudioTask(true)
+  }, delay)
+}
 
 // Sync studio form with selected task
 function syncStudioForm() {
+  isSyncingStudio.value = true
+  if (studioAutoSaveTimer) clearTimeout(studioAutoSaveTimer)
+
   const taskKey = selectedTaskKey.value
   const taskDef = activeTaskDef.value
 
@@ -366,9 +521,11 @@ function syncStudioForm() {
   )
 
   if (taskKey !== 'GLOBAL_DEFAULT' && taskKey !== 'EMBEDDING' && !existingBinding) {
-    studioForm.value.use_global_default = true;
+    studioForm.value.use_global_default = true
+  } else if (existingBinding?.extra_kwargs?.use_global_default !== undefined) {
+    studioForm.value.use_global_default = existingBinding.extra_kwargs.use_global_default
   } else {
-    studioForm.value.use_global_default = false;
+    studioForm.value.use_global_default = false
   }
 
   const defaultTemp = typeof taskDef.recommendedTemp === 'number' ? taskDef.recommendedTemp : 0.2
@@ -390,6 +547,10 @@ function syncStudioForm() {
   }
 
   fetchStudioModels(chosenProviderId)
+
+  setTimeout(() => {
+    isSyncingStudio.value = false
+  }, 150)
 }
 
 function selectStudioTask(taskKey) {
@@ -422,13 +583,20 @@ async function fetchStudioModels(providerId, forceRefresh = false) {
 
 function onStudioProviderChange() {
   fetchStudioModels(studioForm.value.provider_id)
+  scheduleStudioAutoSave(100)
 }
 
 function selectStudioSuggestedModel(modelId) {
   studioForm.value.model_name = modelId
+  scheduleStudioAutoSave(50)
 }
 
-async function saveStudioTask() {
+function setStudioReasoningEffort(effort) {
+  studioForm.value.reasoning_effort = effort
+  scheduleStudioAutoSave(50)
+}
+
+async function saveStudioTask(isAutoSave = false) {
   isSavingStudio.value = true
   const taskKey = selectedTaskKey.value
   const taskDef = activeTaskDef.value
@@ -454,7 +622,7 @@ async function saveStudioTask() {
     })
 
     // 2. Save Prompt Template if applicable
-    if (taskDef.hasPrompt && taskDef.promptKey && studioForm.value.prompt_template) {
+    if (taskDef.hasPrompt && taskDef.promptKey && studioForm.value.prompt_template !== undefined) {
       await PromptsAPI.update(taskDef.promptKey, studioForm.value.prompt_template)
     }
 
@@ -478,12 +646,14 @@ async function resetStudioTaskToDefaults() {
 
   isResettingPrompt.value = true
   try {
-    studioForm.value.temperature = typeof taskDef.recommendedTemp === 'number' ? taskDef.recommendedTemp : 0.2
-    studioForm.value.reasoning_effort = taskDef.recommendedReasoning || 'none'
-    studioForm.value.max_tokens = null
     if (taskKey === 'EMBEDDING') {
       studioForm.value.embedding_dimensions = 768
       studioForm.value.model_name = 'nomic-embed-text'
+    } else {
+      studioForm.value.use_global_default = true
+      studioForm.value.temperature = typeof taskDef.recommendedTemp === 'number' ? taskDef.recommendedTemp : 0.2
+      studioForm.value.reasoning_effort = taskDef.recommendedReasoning || 'none'
+      studioForm.value.max_tokens = null
     }
 
     if (taskDef.hasPrompt && taskDef.promptKey) {
@@ -492,7 +662,8 @@ async function resetStudioTaskToDefaults() {
       await loadPrompts()
     }
 
-    uiStore.showToast(`Task '${taskDef.label}' reset to recommended defaults (click Save to persist)`, 'info')
+    await saveStudioTask(false)
+    uiStore.showToast(`Task '${taskDef.label}' reset to recommended defaults!`, 'success')
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to reset task defaults', 'error')
   } finally {
@@ -509,7 +680,8 @@ async function resetStudioPrompt() {
   try {
     const res = await PromptsAPI.reset(taskDef.promptKey)
     studioForm.value.prompt_template = res.data.template
-    uiStore.showToast(`Prompt '${taskDef.label}' reset to factory defaults`, 'info')
+    await PromptsAPI.update(taskDef.promptKey, res.data.template)
+    uiStore.showToast(`Prompt '${taskDef.label}' reset to factory defaults!`, 'success')
     await loadPrompts()
   } catch (err) {
     uiStore.showToast(err.message, 'error')
@@ -517,6 +689,30 @@ async function resetStudioPrompt() {
     isResettingPrompt.value = false
   }
 }
+
+watch(
+  () => [
+    studioForm.value.model_name,
+    studioForm.value.temperature,
+    studioForm.value.max_tokens,
+    studioForm.value.embedding_dimensions,
+    studioForm.value.prompt_template,
+  ],
+  () => {
+    if (!isSyncingStudio.value && !loadingStudio.value) {
+      scheduleStudioAutoSave(600)
+    }
+  }
+)
+
+watch(
+  () => [globalForm.value.model_name],
+  () => {
+    if (!isSyncingGlobal.value && !loadingGlobalModels.value) {
+      scheduleGlobalAutoSave(600)
+    }
+  }
+)
 
 // --------------------------------------------------------------------------
 // AI Providers State & CRUD
@@ -1003,15 +1199,17 @@ onMounted(async () => {
                   <p class="hero-desc">The primary AI provider and model used across all standard pipeline tasks.</p>
                 </div>
               </div>
-              <button
-                class="btn btn-primary btn-sm"
-                :disabled="isSavingGlobal"
-                @click="saveGlobalDefault"
-              >
-                <Loader2 v-if="isSavingGlobal" class="animate-spin" :size="14" />
-                <Save v-else :size="14" />
-                <span>{{ isSavingGlobal ? 'Saving...' : 'Save Global Default' }}</span>
-              </button>
+              <div class="hero-actions-group flex items-center gap-2">
+                <button
+                  class="btn btn-ghost btn-sm text-secondary"
+                  :disabled="isResettingGlobal"
+                  @click="resetGlobalDefaultToDefaults"
+                  title="Reset Global Default model back to factory recommended default"
+                >
+                  <RotateCcw :size="14" />
+                  <span>Reset to Defaults</span>
+                </button>
+              </div>
             </div>
 
             <div class="global-hero-form">
@@ -1052,6 +1250,7 @@ onMounted(async () => {
                     placeholder="e.g. gpt-4o, claude-3-7-sonnet, qwen/qwen3.5-9b"
                     class="form-input font-mono"
                     required
+                    @input="scheduleGlobalAutoSave(600)"
                   />
                 </div>
               </div>
@@ -1066,7 +1265,7 @@ onMounted(async () => {
                     type="button"
                     class="model-chip font-mono"
                     :class="{ active: globalForm.model_name === m.id }"
-                    @click="globalForm.model_name = m.id"
+                    @click="selectGlobalSuggestedModel(m.id)"
                   >
                     <Check v-if="globalForm.model_name === m.id" :size="11" />
                     <span>{{ m.id }}</span>
@@ -1153,11 +1352,11 @@ onMounted(async () => {
               </div>
               <div class="task-nav-right">
                 <span
-                  v-if="bindings.find(b => b.task_type.toUpperCase() === t.key.toUpperCase())"
+                  v-if="isTaskCustomized(t.key)"
                   class="task-bound-indicator"
-                  title="Configured in AI Registry"
+                  title="Customized parameters"
                 >
-                  <CheckCircle2 :size="12" class="text-success" />
+                  <CheckCircle2 :size="12" class="text-primary" />
                 </span>
               </div>
             </button>
@@ -1187,7 +1386,7 @@ onMounted(async () => {
               <p class="task-header-desc">{{ activeTaskDef.desc }}</p>
             </div>
 
-            <div class="studio-header-actions">
+            <div class="studio-header-actions flex items-center gap-2">
               <button
                 class="btn btn-ghost btn-sm text-secondary"
                 :disabled="isResettingPrompt"
@@ -1196,16 +1395,6 @@ onMounted(async () => {
               >
                 <RotateCcw :size="14" />
                 <span>Reset to Defaults</span>
-              </button>
-
-              <button
-                class="btn btn-primary btn-sm"
-                :disabled="isSavingStudio"
-                @click="saveStudioTask"
-              >
-                <Loader2 v-if="isSavingStudio" class="animate-spin" :size="14" />
-                <Save v-else :size="14" />
-                <span>Save Configuration</span>
               </button>
             </div>
           </div>
@@ -1219,7 +1408,11 @@ onMounted(async () => {
 
             <div v-if="selectedTaskKey !== 'EMBEDDING'" class="use-global-checkbox mb-4">
               <label class="custom-checkbox">
-                <input type="checkbox" v-model="studioForm.use_global_default" />
+                <input
+                  type="checkbox"
+                  v-model="studioForm.use_global_default"
+                  @change="scheduleStudioAutoSave(50)"
+                />
                 <span class="checkmark"></span>
                 <span class="checkbox-label">Use Global Default Model ({{ globalBinding?.model_name || 'qwen/qwen3.5-9b' }})</span>
               </label>
@@ -1269,6 +1462,7 @@ onMounted(async () => {
                   placeholder="e.g. gpt-4o, claude-3-7-sonnet, deepseek-r1"
                   class="form-input font-mono"
                   required
+                  @input="scheduleStudioAutoSave(600)"
                 />
               </div>
             </div>
@@ -1288,7 +1482,7 @@ onMounted(async () => {
                   class="model-chip font-mono"
                   :disabled="studioForm.use_global_default && selectedTaskKey !== 'EMBEDDING'"
                   :class="{ active: studioForm.model_name === m.id }"
-                  @click="studioForm.model_name = m.id"
+                  @click="selectStudioSuggestedModel(m.id)"
                 >
                   <Check v-if="studioForm.model_name === m.id" :size="11" />
                   <span>{{ m.id }}</span>
@@ -1305,6 +1499,7 @@ onMounted(async () => {
                   type="number"
                   placeholder="768"
                   class="form-input font-mono"
+                  @input="scheduleStudioAutoSave(600)"
                 />
               </div>
               <div class="input-group flex flex-col justify-end">
@@ -1328,7 +1523,7 @@ onMounted(async () => {
                       type="button"
                       class="reasoning-pill font-mono"
                       :class="{ active: studioForm.reasoning_effort === effort }"
-                      @click="studioForm.reasoning_effort = effort"
+                      @click="setStudioReasoningEffort(effort)"
                     >
                       {{ effort === 'none' ? 'None (Fast)' : effort }}
                     </button>
@@ -1348,6 +1543,7 @@ onMounted(async () => {
                     max="64000"
                     placeholder="Optional (Default unconstrained)"
                     class="form-input font-mono"
+                    @input="scheduleStudioAutoSave(600)"
                   />
                 </div>
               </div>
@@ -1366,6 +1562,8 @@ onMounted(async () => {
                     min="0.0"
                     max="1.0"
                     class="form-range"
+                    @input="scheduleStudioAutoSave(300)"
+                    @change="scheduleStudioAutoSave(50)"
                   />
                 </div>
               </div>
@@ -1416,6 +1614,8 @@ onMounted(async () => {
               rows="12"
               class="prompt-textarea font-mono"
               placeholder="Enter prompt template instructions..."
+              @input="scheduleStudioAutoSave(800)"
+              @change="scheduleStudioAutoSave(50)"
             ></textarea>
           </div>
         </div>
@@ -2276,6 +2476,19 @@ onMounted(async () => {
   gap: 10px;
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+.autosave-status {
+  font-size: 11px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  user-select: none;
 }
 
 .task-badge-row {
