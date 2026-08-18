@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useUIStore } from '../stores/uiStore'
 import DateTimePicker from '../components/common/DateTimePicker.vue'
@@ -49,7 +49,20 @@ import {
   MapPin,
   MoreHorizontal,
   MoreVertical,
+  Trophy,
 } from 'lucide-vue-next'
+
+const pipelineCount = computed(() => {
+  if (appStore.pipelineViewMode === 'active') return appStore.activeApplications.length
+  if (appStore.pipelineViewMode === 'hired') return appStore.hiredApplications.length
+  return appStore.archivedApplications.length
+})
+
+const pipelineCountLabel = computed(() => {
+  if (appStore.pipelineViewMode === 'active') return 'Active'
+  if (appStore.pipelineViewMode === 'hired') return 'Hired'
+  return 'Archived'
+})
 
 const appStore = useApplicationsStore()
 const uiStore = useUIStore()
@@ -556,7 +569,15 @@ async function confirmDelete() {
             @click="appStore.pipelineViewMode = 'archive'"
           >
             <Archive :size="14" />
-            <span>Archive / Rejected ({{ appStore.archivedApplications.length }})</span>
+            <span>Archived / Closed ({{ appStore.archivedApplications.length }})</span>
+          </button>
+          <button
+            class="pipeline-mode-btn"
+            :class="{ active: appStore.pipelineViewMode === 'hired' }"
+            @click="appStore.pipelineViewMode = 'hired'"
+          >
+            <Trophy :size="14" />
+            <span>Past Wins ({{ appStore.hiredApplications.length }})</span>
           </button>
         </div>
 
@@ -659,8 +680,8 @@ async function confirmDelete() {
       <!-- View Switcher & Total Count -->
       <div class="view-switch-group">
         <div class="total-counter">
-          <span class="count-num">{{ appStore.pipelineViewMode === 'active' ? appStore.activeApplications.length : appStore.archivedApplications.length }}</span>
-          <span class="count-label">{{ appStore.pipelineViewMode === 'active' ? 'Active' : 'Archived' }}</span>
+          <span class="count-num">{{ pipelineCount }}</span>
+          <span class="count-label">{{ pipelineCountLabel }}</span>
         </div>
 
         <div v-if="appStore.pipelineViewMode === 'active'" class="view-toggle">
@@ -702,7 +723,7 @@ async function confirmDelete() {
               <tr>
                 <th>Company</th>
                 <th>Position</th>
-                <th>Rejection Reason</th>
+                <th>Reason / Status</th>
                 <th>Archived Date</th>
                 <th>Match Fit</th>
                 <th class="text-right">Actions</th>
@@ -728,7 +749,10 @@ async function confirmDelete() {
 
                 <td class="cell-reason">
                   <span class="archive-reason-pill">
-                    {{ app.rejection_reason || 'Rejection / Concluded' }}
+                    <span v-if="app.status === 'ARCHIVED'" class="status-badge status-badge--archived">Archived</span>
+                    <span v-else-if="app.status === 'WITHDRAWN'" class="status-badge status-badge--withdrawn">Withdrawn</span>
+                    <span v-else class="status-badge status-badge--rejected">Rejected</span>
+                    <span class="reason-text">{{ app.latest_event?.raw_payload?.archive_reason || app.latest_event?.raw_payload?.rejection_reason || app.rejection_reason || 'Concluded' }}</span>
                   </span>
                 </td>
 
@@ -774,6 +798,41 @@ async function confirmDelete() {
               </tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- 1b. HIRED / PAST WINS VIEW -->
+      <div v-if="appStore.pipelineViewMode === 'hired'" class="hired-view-container animate-fade-in">
+        <div v-if="appStore.hiredApplications.length === 0" class="empty-state-box">
+          <span class="empty-state-trophy">&#x1F3C6;</span>
+          <h3 class="empty-state-title">No hired applications yet</h3>
+          <p class="empty-state-desc">
+            When you accept an offer and mark it as Hired, it will appear here as a past win.
+          </p>
+        </div>
+
+        <div v-else class="hired-cards-grid">
+          <div
+            v-for="app in appStore.hiredApplications"
+            :key="app.id"
+            class="hired-card"
+            @click="uiStore.openDetail(app.id)"
+          >
+            <div class="hired-card-header">
+              <CompanyLogo :name="app.company?.name" :domain="app.company?.domain" :size="32" />
+              <div class="hired-card-info">
+                <span class="hired-company-name">{{ app.company?.name || 'Company' }}</span>
+                <span class="hired-role">{{ app.position || 'Position' }}</span>
+              </div>
+              <span class="hired-badge">&#x1F3C6; Hired</span>
+            </div>
+            <div class="hired-card-meta">
+              <span v-if="app.salary_min || app.salary_max" class="hired-salary">
+                {{ formatSalaryRange(app.salary_min, app.salary_max, app.currency) }}
+              </span>
+              <span class="hired-date">{{ formatDate(app.last_activity_at) }}</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2879,4 +2938,99 @@ async function confirmDelete() {
   white-space: nowrap;
 }
 
+/* Hired / Past Wins View */
+.hired-view-container { padding: 1.5rem 0; }
+
+.hired-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.hired-card {
+  background: var(--color-surface-elevated, hsl(0 0% 14%));
+  border: 1px solid hsl(45 90% 50% / 0.2);
+  border-radius: 14px;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+}
+
+.hired-card:hover {
+  border-color: hsl(45 90% 50% / 0.5);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px hsl(45 90% 50% / 0.1);
+}
+
+.hired-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+}
+
+.hired-card-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.hired-company-name {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--color-text-primary, #f5f5f5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hired-role {
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #888);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hired-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: hsl(45 90% 50% / 0.15);
+  color: hsl(45 90% 60%);
+  padding: 0.25rem 0.625rem;
+  border-radius: 100px;
+  white-space: nowrap;
+  border: 1px solid hsl(45 90% 50% / 0.25);
+}
+
+.hired-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #888);
+}
+
+.hired-salary { font-weight: 600; color: hsl(45 90% 60%); }
+.empty-state-trophy { font-size: 2.5rem; }
+
+.status-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: 100px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 0.35rem;
+}
+.status-badge--rejected { background: hsl(0 70% 50% / 0.15); color: hsl(0 70% 60%); }
+.status-badge--archived { background: hsl(220 40% 50% / 0.15); color: hsl(220 40% 60%); }
+.status-badge--withdrawn { background: hsl(40 80% 50% / 0.15); color: hsl(40 80% 60%); }
+.reason-text { color: var(--color-text-muted, #888); font-size: 0.8rem; }
 </style>

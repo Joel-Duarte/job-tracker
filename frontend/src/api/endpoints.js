@@ -5,6 +5,7 @@ export const ApplicationsAPI = {
   get: (id) => apiClient.get(`/applications/${id}`),
   update: (id, data) => apiClient.patch(`/applications/${id}`, data),
   transition: (id, data) => apiClient.post(`/applications/${id}/transition`, data),
+  bulkTransition: (data) => apiClient.post('/applications/bulk-transition', data),
   delete: (id) => apiClient.delete(`/applications/${id}`),
   byStatus: () => apiClient.get('/applications/by-status'),
   generateInterviewGuide: (id, data = {}) => apiClient.post(`/applications/${id}/interview-guide`, data),
