@@ -14,21 +14,25 @@ from app.models.applications import (
 
 logger = logging.getLogger(__name__)
 
+ACTIVE_STAGES = ("APPLIED", "ONLINE_ASSESSMENT", "TECHNICAL_INTERVIEW", "OFFER")
+
 
 async def archive_stale_applications(
     db: AsyncSession,
     threshold_days: int = 30,
-    target_status: str = "REJECTED",
+    target_status: str = "ARCHIVED",
 ) -> dict[str, Any]:
     """
-    Finds all applications in 'APPLIED' status where last_activity_at
-    (or application_date) is older than threshold_days.
-    Transitions them to target_status, logs a timeline event, and dismisses pending action items.
+    Finds all applications in active stages where last_activity_at
+    (or application_date or created_at) is older than threshold_days.
+    Transitions them to target_status (default ARCHIVED), logs a timeline event,
+    and dismisses pending action items.
+    Terminal statuses (HIRED, ARCHIVED, WITHDRAWN, REJECTED) are never touched.
     """
     cutoff_date = datetime.now(UTC) - timedelta(days=threshold_days)
 
     query = select(ApplicationModel).where(
-        ApplicationModel.status == "APPLIED",
+        ApplicationModel.status.in_(ACTIVE_STAGES),
         func.coalesce(
             ApplicationModel.last_activity_at,
             ApplicationModel.application_date,
@@ -42,33 +46,27 @@ async def archive_stale_applications(
     archived_ids = []
 
     for app in applications:
-        # Update app.status = 'REJECTED'.
         app.status = target_status
-        # Set app.last_activity_at = now().
         app.last_activity_at = datetime.now(UTC)
 
-        # Create an ApplicationEventModel
         event = ApplicationEventModel(
             email_application_id=app.id,
             email_event_type="STATUS_CHANGE",
             email_status_after_event=target_status,
-            email_summary=f"Application automatically archived due to {threshold_days} days of inactivity.",
+            email_summary=f"Application automatically archived — no activity for {threshold_days}+ days.",
             source_channel="SYSTEM",
             raw_payload={
-                "rejection_reason": f"Ghosted / Inactive for {threshold_days}+ days (Auto-Archived)"
+                "archive_reason": f"Ghosted / Inactive for {threshold_days}+ days (Auto-Archived)"
             },
         )
         db.add(event)
 
-        # Dismiss any pending action items (ActionItemModel.status = 'DISMISSED').
-        # Using select to find pending action items
         action_items_query = select(ActionItemModel).where(
             ActionItemModel.application_id == app.id,
             ActionItemModel.status == "PENDING",
         )
         action_items_result = await db.execute(action_items_query)
-        pending_items = action_items_result.scalars().all()
-        for item in pending_items:
+        for item in action_items_result.scalars().all():
             item.status = "DISMISSED"
 
         archived_ids.append(app.id)
