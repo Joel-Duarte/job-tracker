@@ -280,22 +280,6 @@ async function generateCoverLetter(taskId) {
   }
 }
 
-async function generateTailoredCV(taskId) {
-  isGenerating.value = { ...isGenerating.value, [`${taskId}_cv`]: true }
-  try {
-    const res = await IntakeAPI.generateTailoredCV(taskId)
-    const updatedTask = evaluationTasks.value.find((t) => t.id === taskId)
-    if (updatedTask && res.data.tailored_cv_markdown) {
-      if (!updatedTask.result_json) updatedTask.result_json = {}
-      updatedTask.result_json.tailored_cv_markdown = res.data.tailored_cv_markdown
-    }
-    uiStore.showToast('Tailored CV generated', 'success')
-  } catch (err) {
-    uiStore.showToast(err.message, 'error')
-  } finally {
-    isGenerating.value = { ...isGenerating.value, [`${taskId}_cv`]: false }
-  }
-}
 
 function openDocEditor(task, type) {
   docModalTaskId.value = task.id
@@ -842,17 +826,6 @@ onUnmounted(() => {
                 <span>Cover Letter</span>
               </button>
 
-              <button
-                class="btn btn-secondary btn-sm"
-                :title="task.result_json?.tailored_cv_markdown ? 'View Tailored CV' : 'Tailor CV'"
-                @click="task.result_json?.tailored_cv_markdown ? openDocEditor(task, 'tailored_cv') : generateTailoredCV(task.id)"
-                :disabled="isGenerating[task.id + '_cv']"
-              >
-                <Loader2 v-if="isGenerating[task.id + '_cv']" class="animate-spin" :size="14" />
-                <Sparkles v-else-if="!task.result_json?.tailored_cv_markdown" :size="14" />
-                <FileEdit v-else :size="14" />
-                <span>Tailored CV</span>
-              </button>
 
               <button
                 class="btn btn-secondary btn-sm"
