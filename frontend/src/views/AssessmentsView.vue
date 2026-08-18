@@ -39,7 +39,10 @@ import {
   Archive,
   RotateCcw,
   CheckSquare,
+  FileEdit,
 } from 'lucide-vue-next'
+
+import DocumentEditorModal from '../components/modals/DocumentEditorModal.vue'
 
 const router = useRouter()
 const uiStore = useUIStore()
@@ -83,7 +86,14 @@ const evaluationTasks = ref([])
 const loadingEvaluations = ref(false)
 const expandedTaskIds = ref(new Set())
 const processingTaskIds = ref(new Set())
+const isGenerating = ref({})
 let pollTimer = null
+
+// Document Modal State
+const isDocModalOpen = ref(false)
+const docModalContent = ref('')
+const docModalType = ref('')
+const docModalTaskId = ref(null)
 
 // Computed Lists
 const selectedTaskIds = ref(new Set())
@@ -250,6 +260,55 @@ function toggleExpandTask(taskId) {
     expandedTaskIds.value.delete(taskId)
   } else {
     expandedTaskIds.value.add(taskId)
+  }
+}
+
+async function generateCoverLetter(taskId) {
+  isGenerating.value = { ...isGenerating.value, [`${taskId}_cover`]: true }
+  try {
+    const res = await IntakeAPI.generateCoverLetter(taskId)
+    const updatedTask = evaluationTasks.value.find((t) => t.id === taskId)
+    if (updatedTask && res.data.cover_letter_markdown) {
+      if (!updatedTask.result_json) updatedTask.result_json = {}
+      updatedTask.result_json.cover_letter_markdown = res.data.cover_letter_markdown
+    }
+    uiStore.showToast('Cover letter generated', 'success')
+  } catch (err) {
+    uiStore.showToast(err.message, 'error')
+  } finally {
+    isGenerating.value = { ...isGenerating.value, [`${taskId}_cover`]: false }
+  }
+}
+
+async function generateTailoredCV(taskId) {
+  isGenerating.value = { ...isGenerating.value, [`${taskId}_cv`]: true }
+  try {
+    const res = await IntakeAPI.generateTailoredCV(taskId)
+    const updatedTask = evaluationTasks.value.find((t) => t.id === taskId)
+    if (updatedTask && res.data.tailored_cv_markdown) {
+      if (!updatedTask.result_json) updatedTask.result_json = {}
+      updatedTask.result_json.tailored_cv_markdown = res.data.tailored_cv_markdown
+    }
+    uiStore.showToast('Tailored CV generated', 'success')
+  } catch (err) {
+    uiStore.showToast(err.message, 'error')
+  } finally {
+    isGenerating.value = { ...isGenerating.value, [`${taskId}_cv`]: false }
+  }
+}
+
+function openDocEditor(task, type) {
+  docModalTaskId.value = task.id
+  docModalType.value = type
+  docModalContent.value = type === 'cover_letter' ? task.result_json.cover_letter_markdown : task.result_json.tailored_cv_markdown
+  isDocModalOpen.value = true
+}
+
+function handleDocSaved(htmlContent, type, taskId) {
+  const task = evaluationTasks.value.find((t) => t.id === taskId)
+  if (task && task.result_json) {
+    if (type === 'cover_letter') task.result_json.cover_letter_markdown = htmlContent
+    else task.result_json.tailored_cv_markdown = htmlContent
   }
 }
 
@@ -773,6 +832,30 @@ onUnmounted(() => {
 
               <button
                 class="btn btn-secondary btn-sm"
+                :title="task.result_json?.cover_letter_markdown ? 'View Cover Letter' : 'Draft Cover Letter'"
+                @click="task.result_json?.cover_letter_markdown ? openDocEditor(task, 'cover_letter') : generateCoverLetter(task.id)"
+                :disabled="isGenerating[task.id + '_cover']"
+              >
+                <Loader2 v-if="isGenerating[task.id + '_cover']" class="animate-spin" :size="14" />
+                <Sparkles v-else-if="!task.result_json?.cover_letter_markdown" :size="14" />
+                <FileText v-else :size="14" />
+                <span>Cover Letter</span>
+              </button>
+
+              <button
+                class="btn btn-secondary btn-sm"
+                :title="task.result_json?.tailored_cv_markdown ? 'View Tailored CV' : 'Tailor CV'"
+                @click="task.result_json?.tailored_cv_markdown ? openDocEditor(task, 'tailored_cv') : generateTailoredCV(task.id)"
+                :disabled="isGenerating[task.id + '_cv']"
+              >
+                <Loader2 v-if="isGenerating[task.id + '_cv']" class="animate-spin" :size="14" />
+                <Sparkles v-else-if="!task.result_json?.tailored_cv_markdown" :size="14" />
+                <FileEdit v-else :size="14" />
+                <span>Tailored CV</span>
+              </button>
+
+              <button
+                class="btn btn-secondary btn-sm"
                 title="Archive as passed / not applying"
                 @click="passAndArchive(task)"
               >
@@ -860,6 +943,15 @@ onUnmounted(() => {
       </div>
     </Transition>
 
+    <!-- Document Editor Modal -->
+    <DocumentEditorModal
+      :is-open="isDocModalOpen"
+      :document-html="docModalContent"
+      :document-type="docModalType"
+      :task-id="docModalTaskId"
+      @close="isDocModalOpen = false"
+      @saved="handleDocSaved"
+    />
   </div>
 </template>
 

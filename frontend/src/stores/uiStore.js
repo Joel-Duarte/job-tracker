@@ -204,6 +204,26 @@ export const useUIStore = defineStore('ui', () => {
     activeDetailId.value = null
   }
 
+  // AI Generation & Automation Pipeline Preferences
+  const autoCoverLetter = ref(localStorage.getItem('jt_auto_cover_letter') === 'true')
+  const autoTailoredCV = ref(localStorage.getItem('jt_auto_tailored_cv') === 'true')
+  const autoRejectionAnalysis = ref(localStorage.getItem('jt_auto_rejection_analysis') === 'true')
+
+  function toggleAutoCoverLetter() {
+    autoCoverLetter.value = !autoCoverLetter.value
+    localStorage.setItem('jt_auto_cover_letter', autoCoverLetter.value)
+  }
+
+  function toggleAutoTailoredCV() {
+    autoTailoredCV.value = !autoTailoredCV.value
+    localStorage.setItem('jt_auto_tailored_cv', autoTailoredCV.value)
+  }
+
+  function toggleAutoRejectionAnalysis() {
+    autoRejectionAnalysis.value = !autoRejectionAnalysis.value
+    localStorage.setItem('jt_auto_rejection_analysis', autoRejectionAnalysis.value)
+  }
+
   // Background Intake Tasks Queue
   const intakeQueue = ref([])
   const isQueueDrawerOpen = ref(false)
@@ -300,6 +320,12 @@ export const useUIStore = defineStore('ui', () => {
     closeJobIntakeModal,
     openDetail,
     closeDetail,
+    autoCoverLetter,
+    autoTailoredCV,
+    autoRejectionAnalysis,
+    toggleAutoCoverLetter,
+    toggleAutoTailoredCV,
+    toggleAutoRejectionAnalysis,
     addIntakeTask,
     updateIntakeTask,
     removeIntakeTask,

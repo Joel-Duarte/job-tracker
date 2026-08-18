@@ -47,7 +47,11 @@ from app.services.intake import (
     process_email_batch_sequential,
     process_single_email_graph,
 )
-from app.services.llm import assess_job_posting
+from app.services.llm import (
+    assess_job_posting,
+    generate_cover_letter,
+    generate_tailored_resume,
+)
 from app.services.scraper import scrape_job_url
 from app.services.task_tracker import task_tracker
 
@@ -860,6 +864,117 @@ async def clear_completed_evaluations(
     result = await db.execute(stmt)
     await db.commit()
     return {"status": "success", "cleared_count": result.rowcount}
+
+
+class DocumentUpdateRequest(BaseModel):
+    cover_letter_markdown: str | None = None
+    tailored_cv_markdown: str | None = None
+
+
+@router.put("/evaluations/{task_id}/documents", status_code=status.HTTP_200_OK)
+async def update_evaluation_documents(
+    task_id: int,
+    payload: DocumentUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Updates the generated documents in the evaluation task payload."""
+    task = await db.get(IntakeEvaluationTaskModel, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found.")
+
+    if not task.result_json:
+        task.result_json = {}
+
+    # Copy the dictionary to ensure SQLAlchemy detects the JSONB update
+    updated_json = dict(task.result_json)
+    if payload.cover_letter_markdown is not None:
+        updated_json["cover_letter_markdown"] = payload.cover_letter_markdown
+    if payload.tailored_cv_markdown is not None:
+        updated_json["tailored_cv_markdown"] = payload.tailored_cv_markdown
+
+    task.result_json = updated_json
+    await db.commit()
+    await db.refresh(task)
+
+    return {"status": "success", "task_id": task.id}
+
+
+@router.post(
+    "/evaluations/{task_id}/generate-cover-letter", status_code=status.HTTP_200_OK
+)
+async def task_generate_cover_letter(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Generates cover letter on-demand for an existing evaluation task."""
+    task = await db.get(IntakeEvaluationTaskModel, task_id)
+    if not task or not task.result_json:
+        raise HTTPException(status_code=404, detail="Task or results not found.")
+
+    from app.models.candidate_profile import CandidateCVModel
+
+    cv_stmt = select(CandidateCVModel).limit(1)
+    cv_res = await db.execute(cv_stmt)
+    active_cv = cv_res.scalars().first()
+
+    cv_text = (
+        active_cv.anonymized_text or active_cv.raw_text
+        if active_cv
+        else "General Candidate"
+    )
+    jd_text = task.result_json.get("markdown_report") or task.raw_text or ""
+
+    try:
+        cover_letter = await generate_cover_letter(db, cv_text, jd_text)
+        updated_json = dict(task.result_json)
+        updated_json["cover_letter_markdown"] = cover_letter
+        task.result_json = updated_json
+        await db.commit()
+        await db.refresh(task)
+        return {
+            "status": "success",
+            "task_id": task.id,
+            "cover_letter_markdown": cover_letter,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/evaluations/{task_id}/generate-tailored-cv", status_code=status.HTTP_200_OK
+)
+async def task_generate_tailored_cv(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Generates tailored CV on-demand for an existing evaluation task."""
+    task = await db.get(IntakeEvaluationTaskModel, task_id)
+    if not task or not task.result_json:
+        raise HTTPException(status_code=404, detail="Task or results not found.")
+
+    from app.models.candidate_profile import CandidateCVModel
+
+    cv_stmt = select(CandidateCVModel).limit(1)
+    cv_res = await db.execute(cv_stmt)
+    active_cv = cv_res.scalars().first()
+
+    cv_text = (
+        active_cv.anonymized_text or active_cv.raw_text
+        if active_cv
+        else "General Candidate"
+    )
+    jd_text = task.result_json.get("markdown_report") or task.raw_text or ""
+
+    try:
+        resume = await generate_tailored_resume(db, cv_text, jd_text)
+        updated_json = dict(task.result_json)
+        updated_json["tailored_cv_markdown"] = resume
+        task.result_json = updated_json
+        await db.commit()
+        await db.refresh(task)
+        return {"status": "success", "task_id": task.id, "tailored_cv_markdown": resume}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post(

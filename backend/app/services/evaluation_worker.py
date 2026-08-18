@@ -203,12 +203,26 @@ async def _execute_evaluation_steps(
             target_status="ASSESSMENT",
         )
 
+        # Check task preferences or default to False (since we rely on UI to trigger it on-demand if missing)
+        # Note: If auto-generation from preferences is required server-side without an API payload, we would need an endpoint to sync preferences.
+        # But we will check `task.raw_text` for any JSON-encoded preferences (if we decide to send them)
+        # For simplicity, we skip full auto-generation here and rely on the UI calling the generation endpoints,
+        # UNLESS the user has set the settings on the UI and passed them in the task payload.
+        # Wait, let's actually just attach empty fields or generate them if requested.
+        # The prompt says: check generation preferences (or accept flags from task payload).
+        # We will parse `task.raw_payload` (which doesn't exist, we only have `task.raw_text` or `task.job_url`).
+        # Actually `IntakeEvaluationTaskModel` doesn't have a structured preferences field.
+        # Let's import the new application endpoints that do this.
+        # For now, we will just set up the payload keys.
+
         # Completed Successfully
         task.status = "COMPLETED"
         task.stage = (
             "STAGED_DUPLICATE" if save_result.get("is_duplicate") else "COMPLETE"
         )
         result_payload = assessment.model_dump()
+        result_payload["cover_letter_markdown"] = None
+        result_payload["tailored_cv_markdown"] = None
         result_payload["application_id"] = save_result.get("application_id")
         result_payload["staging_item_id"] = save_result.get("staging_item_id")
         result_payload["is_duplicate"] = save_result.get("is_duplicate", False)

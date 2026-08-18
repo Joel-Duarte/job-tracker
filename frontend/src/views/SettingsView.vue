@@ -1581,6 +1581,74 @@ onMounted(async () => {
 
     <!-- TAB 4: PREFERENCES -->
     <div v-else-if="activeTab === 'preferences'" class="tab-content animate-fade-in">
+
+      <!-- AI Generation & Automation Pipeline -->
+      <div class="section-card mb-6">
+        <div class="card-intro">
+          <h3>AI Generation &amp; Automation Pipeline</h3>
+          <p>Configure which documents and AI features are automatically generated when jobs progress through the pipeline.</p>
+        </div>
+
+        <div class="preferences-grid">
+          <!-- Auto Cover Letter -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <FileText :size="18" />
+              </div>
+              <div>
+                <h4 class="preference-title">Auto-generate Cover Letter</h4>
+                <p class="preference-desc">Generates a targeted, job-aligned cover letter automatically during job intake.</p>
+              </div>
+              <div class="ml-auto flex items-center">
+                <label class="toggle-switch">
+                  <input type="checkbox" :checked="uiStore.autoCoverLetter" @change="uiStore.toggleAutoCoverLetter()">
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Auto Tailored CV -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <FileEdit :size="18" />
+              </div>
+              <div>
+                <h4 class="preference-title">Auto-generate Tailored CV</h4>
+                <p class="preference-desc">Generates an ATS-optimized resume version automatically during job intake.</p>
+              </div>
+              <div class="ml-auto flex items-center">
+                <label class="toggle-switch">
+                  <input type="checkbox" :checked="uiStore.autoTailoredCV" @change="uiStore.toggleAutoTailoredCV()">
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Auto Rejection Analysis -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-danger">
+                <AlertCircle :size="18" />
+              </div>
+              <div>
+                <h4 class="preference-title">Auto-generate Rejection Analysis</h4>
+                <p class="preference-desc">Analyzes root cause and provides a pivot strategy when an application is marked as rejected.</p>
+              </div>
+              <div class="ml-auto flex items-center">
+                <label class="toggle-switch">
+                  <input type="checkbox" :checked="uiStore.autoRejectionAnalysis" @change="uiStore.toggleAutoRejectionAnalysis()">
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="section-card">
         <div class="card-intro">
           <h3>System &amp; Workspace Preferences</h3>

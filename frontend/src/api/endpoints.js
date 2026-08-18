@@ -27,6 +27,9 @@ export const IntakeAPI = {
   getExtensionConfig: () => apiClient.get('/intake/extension-config'),
   syncAccount: (data) => apiClient.post('/intake/sync-account', data),
   getTaskStatus: (taskId) => apiClient.get(`/intake/tasks/${taskId}`),
+  generateCoverLetter: (taskId) => apiClient.post(`/intake/evaluations/${taskId}/generate-cover-letter`),
+  generateTailoredCV: (taskId) => apiClient.post(`/intake/evaluations/${taskId}/generate-tailored-cv`),
+  updateDocuments: (taskId, data) => apiClient.put(`/intake/evaluations/${taskId}/documents`, data),
 }
 
 
