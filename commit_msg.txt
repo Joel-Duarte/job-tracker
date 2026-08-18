@@ -1,1 +1,1 @@
-fix: Run ruff format on backend files to fix CI error
+fix: Use CandidateCVModel instead of non-existent CandidateProfileModel

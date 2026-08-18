@@ -709,7 +709,7 @@ async def create_cold_outreach_drafts(
 ):
     try:
         from app.models.applications import ApplicationModel
-        from app.models.candidate_profile import CandidateProfileModel
+        from app.models.candidate_profile import CandidateCVModel
 
         # Fetch Application with Company and JobPosting
         stmt = (
@@ -730,20 +730,18 @@ async def create_cold_outreach_drafts(
             )
 
         # Fetch active Candidate Profile
-        profile_stmt = select(CandidateProfileModel).where(
-            CandidateProfileModel.is_active
-        )
+        profile_stmt = select(CandidateCVModel).where(CandidateCVModel.is_active)
         profile_result = await db.execute(profile_stmt)
         profile = profile_result.scalar_one_or_none()
 
-        if not profile or not profile.canonical_cv:
+        if not profile or not profile.anonymized_text:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Active candidate profile with canonical CV is required.",
             )
 
         # Prepare parameters
-        cv_text = profile.canonical_cv
+        cv_text = profile.anonymized_text
         company_name = (
             application.company.name if application.company else "Unknown Company"
         )
