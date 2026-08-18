@@ -64,6 +64,7 @@ class JobPostingDetail(BaseModel):
     currency: str | None = "USD"
     required_skills: list[str] | None = []
     source_url: str | None = None
+    structured_spec: dict[str, Any] | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

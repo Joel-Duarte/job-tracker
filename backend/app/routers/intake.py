@@ -393,6 +393,11 @@ async def assess_job_lead(
     elif active_cv and active_cv.domain_expertise:
         active_domains_str = ", ".join(active_cv.domain_expertise)
 
+    from app.services.llm import extract_job_spec
+
+    extracted_spec_obj = await extract_job_spec(db, content)
+    spec_dict = extracted_spec_obj.model_dump() if extracted_spec_obj else None
+
     assessment = await assess_job_posting(
         db,
         content,
@@ -414,6 +419,7 @@ async def assess_job_lead(
         job_url=payload.url,
         force_new=False,
         target_status="ASSESSMENT",
+        structured_spec=spec_dict,
     )
 
     return assessment
@@ -508,6 +514,9 @@ async def confirm_job_assessment(
             location=payload.location,
             work_model=payload.work_model,
             required_skills=payload.required_skills or [],
+            structured_spec=payload.structured_spec
+            if hasattr(payload, "structured_spec")
+            else None,
         )
         db.add(job_posting)
     else:
@@ -523,6 +532,8 @@ async def confirm_job_assessment(
             job_posting.work_model = payload.work_model
         if payload.required_skills:
             job_posting.required_skills = payload.required_skills
+        if hasattr(payload, "structured_spec") and payload.structured_spec:
+            job_posting.structured_spec = payload.structured_spec
 
     # 4. Initial/Update Event
     event = ApplicationEventModel(

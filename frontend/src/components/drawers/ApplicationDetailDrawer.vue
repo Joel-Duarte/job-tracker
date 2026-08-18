@@ -37,6 +37,11 @@ import {
   BookOpen,
   Globe,
   RotateCcw,
+  Briefcase,
+  Target,
+  ListChecks,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
@@ -46,6 +51,11 @@ const appStore = useApplicationsStore()
 const { detailActiveTab: activeTab } = storeToRefs(uiStore) // 'timeline' | 'job_spec' | 'actions' | 'guide'
 const showDeleteConfirm = ref(false)
 const isLogActivityModalOpen = ref(false)
+const showRawDescription = ref(false)
+
+const structuredSpec = computed(() => {
+  return appStore.selectedApplication?.job_posting?.structured_spec || null
+})
 
 function openLogActivity() {
   isLogActivityModalOpen.value = true
@@ -771,58 +781,138 @@ function formatDate(isoStr) {
               </div>
             </div>
 
-            <!-- 2. JOB SPEC (Scraped Details) -->
+            <!-- 2. JOB SPEC (Pure Structured Job Details) -->
             <div v-else-if="activeTab === 'job_spec'" class="job-spec-panel">
-              <div v-if="appStore.selectedApplication.job_posting" class="spec-grid">
-                <div v-if="appStore.selectedApplication.job_posting.salary_min || appStore.selectedApplication.job_posting.salary_max" class="spec-card">
-                  <DollarSign :size="16" class="spec-icon" />
-                  <div>
-                    <div class="spec-label">Compensation</div>
-                    <div class="spec-val">
-                      ${{ appStore.selectedApplication.job_posting.salary_min?.toLocaleString() }} -
-                      ${{ appStore.selectedApplication.job_posting.salary_max?.toLocaleString() }}
-                      {{ appStore.selectedApplication.job_posting.currency || 'USD' }}
+              <div v-if="appStore.selectedApplication.job_posting" class="spec-container">
+                <!-- Overview Metadata Cards -->
+                <div class="spec-grid">
+                  <div class="spec-card">
+                    <DollarSign :size="16" class="spec-icon" />
+                    <div>
+                      <div class="spec-label">Compensation</div>
+                      <div class="spec-val">
+                        <template v-if="structuredSpec?.compensation_text">
+                          {{ structuredSpec.compensation_text }}
+                        </template>
+                        <template v-else-if="appStore.selectedApplication.job_posting.salary_min || appStore.selectedApplication.job_posting.salary_max">
+                          ${{ appStore.selectedApplication.job_posting.salary_min?.toLocaleString() }} -
+                          ${{ appStore.selectedApplication.job_posting.salary_max?.toLocaleString() }}
+                          {{ appStore.selectedApplication.job_posting.currency || 'USD' }}
+                        </template>
+                        <template v-else>
+                          Not Specified
+                        </template>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="spec-card">
+                    <MapPin :size="16" class="spec-icon" />
+                    <div>
+                      <div class="spec-label">Location &amp; Workplace</div>
+                      <div class="spec-val">
+                        <template v-if="structuredSpec?.location_text || structuredSpec?.workplace_type">
+                          {{ structuredSpec.location_text || appStore.selectedApplication.job_posting.location || 'Location Unspecified' }}
+                          <span v-if="structuredSpec.workplace_type">({{ structuredSpec.workplace_type }})</span>
+                        </template>
+                        <template v-else-if="appStore.selectedApplication.job_posting.location">
+                          {{ appStore.selectedApplication.job_posting.location }}
+                          <span v-if="appStore.selectedApplication.job_posting.work_model">
+                            ({{ appStore.selectedApplication.job_posting.work_model }})
+                          </span>
+                        </template>
+                        <template v-else>
+                          Not Specified
+                        </template>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <div v-if="appStore.selectedApplication.job_posting.location" class="spec-card">
-                  <MapPin :size="16" class="spec-icon" />
-                  <div>
-                    <div class="spec-label">Location / Work Model</div>
-                    <div class="spec-val">
-                      {{ appStore.selectedApplication.job_posting.location }}
-                      <span v-if="appStore.selectedApplication.job_posting.work_model">
-                        ({{ appStore.selectedApplication.job_posting.work_model }})
-                      </span>
-                    </div>
+                <!-- Company Context / Why Hiring -->
+                <div v-if="structuredSpec?.why_hiring" class="spec-block why-hiring-box">
+                  <div class="spec-block-title">
+                    <Building2 :size="15" class="text-primary" />
+                    <span>Why They Are Hiring</span>
+                  </div>
+                  <p class="spec-block-text">{{ structuredSpec.why_hiring }}</p>
+                </div>
+
+                <!-- Deliverables / What You Will Build -->
+                <div v-if="structuredSpec?.what_you_will_build" class="spec-block build-box">
+                  <div class="spec-block-title">
+                    <Target :size="15" class="text-primary" />
+                    <span>What You Will Build</span>
+                  </div>
+                  <p class="spec-block-text">{{ structuredSpec.what_you_will_build }}</p>
+                </div>
+
+                <!-- Responsibilities -->
+                <div v-if="structuredSpec?.responsibilities?.length" class="spec-block">
+                  <div class="spec-block-title">
+                    <Briefcase :size="15" class="text-primary" />
+                    <span>Core Responsibilities</span>
+                  </div>
+                  <ul class="spec-list">
+                    <li v-for="(resp, idx) in structuredSpec.responsibilities" :key="idx" class="spec-list-item">
+                      <span class="bullet-dot"></span>
+                      <span>{{ resp }}</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <!-- Requirements & Qualifications -->
+                <div v-if="structuredSpec?.requirements?.length" class="spec-block">
+                  <div class="spec-block-title">
+                    <ListChecks :size="15" class="text-primary" />
+                    <span>Requirements &amp; Qualifications</span>
+                  </div>
+                  <ul class="spec-list">
+                    <li v-for="(req, idx) in structuredSpec.requirements" :key="idx" class="spec-list-item">
+                      <span class="bullet-dot"></span>
+                      <span>{{ req }}</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <!-- Extracted Skills Badges -->
+                <div
+                  v-if="(structuredSpec?.extracted_skills || appStore.selectedApplication.job_posting?.required_skills)?.length"
+                  class="skills-box"
+                >
+                  <div class="skills-title">Technical Skills &amp; Competencies</div>
+                  <div class="skills-tags">
+                    <span
+                      v-for="skill in (structuredSpec?.extracted_skills || appStore.selectedApplication.job_posting.required_skills)"
+                      :key="skill"
+                      class="skill-tag"
+                    >
+                      {{ skill }}
+                    </span>
                   </div>
                 </div>
-              </div>
 
-              <!-- Skills Badges -->
-              <div
-                v-if="appStore.selectedApplication.job_posting?.required_skills?.length"
-                class="skills-box"
-              >
-                <div class="skills-title">Extracted Skills & Requirements</div>
-                <div class="skills-tags">
-                  <span
-                    v-for="skill in appStore.selectedApplication.job_posting.required_skills"
-                    :key="skill"
-                    class="skill-tag"
-                  >
-                    {{ skill }}
-                  </span>
+                <!-- Fallback or Full Markdown Description -->
+                <div v-if="!structuredSpec && parsedJobSpecSections.length > 0" class="job-structured-spec">
+                  <div v-for="(sec, idx) in parsedJobSpecSections" :key="idx" class="job-spec-section">
+                    <h3 class="job-spec-header">{{ sec.title }}</h3>
+                    <div class="job-spec-body" v-html="renderMarkdownText(sec.content)"></div>
+                  </div>
+                </div>
+
+                <!-- Full Posting Toggle / Raw Description -->
+                <div v-if="structuredSpec && appStore.selectedApplication.job_posting?.description_markdown" class="raw-description-toggle">
+                  <button class="btn btn-ghost btn-xs text-muted toggle-btn" @click="showRawDescription = !showRawDescription">
+                    <FileText :size="13" />
+                    <span>{{ showRawDescription ? 'Hide Full Job Posting Text' : 'View Full Job Posting Text' }}</span>
+                    <ChevronUp v-if="showRawDescription" :size="13" />
+                    <ChevronDown v-else :size="13" />
+                  </button>
+                  <div v-if="showRawDescription" class="raw-description-box" v-html="renderMarkdownText(appStore.selectedApplication.job_posting.description_markdown)"></div>
                 </div>
               </div>
-
-              <!-- Job Structured Spec -->
-              <div v-if="parsedJobSpecSections.length > 0" class="job-structured-spec">
-                <div v-for="(sec, idx) in parsedJobSpecSections" :key="idx" class="job-spec-section">
-                  <h3 class="job-spec-header">{{ sec.title }}</h3>
-                  <div class="job-spec-body" v-html="renderMarkdownText(sec.content)"></div>
-                </div>
+              <div v-else class="empty-state">
+                No job specification details available for this application.
               </div>
             </div>
 
@@ -2598,6 +2688,103 @@ function formatDate(isoStr) {
   font-weight: 600;
 }
 
+
+.spec-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.spec-block {
+  padding: 16px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.spec-block-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.spec-block-text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.why-hiring-box {
+  background-color: var(--bg-surface);
+  border-left: 3px solid var(--primary);
+}
+
+.build-box {
+  background-color: var(--bg-surface);
+  border-left: 3px solid var(--primary);
+}
+
+.spec-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.spec-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.bullet-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--primary);
+  margin-top: 7px;
+  flex-shrink: 0;
+}
+
+.raw-description-toggle {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  font-size: 12px;
+}
+
+.raw-description-box {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  background-color: var(--bg-card);
+  padding: 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
 
 .job-structured-spec {
   display: flex;

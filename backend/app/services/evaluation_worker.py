@@ -219,6 +219,7 @@ async def _execute_evaluation_steps(
                 job_url=task.job_url,
                 force_new=False,
                 target_status="ASSESSMENT",
+                structured_spec=job_spec.model_dump(),
             )
 
             # Completed Successfully
