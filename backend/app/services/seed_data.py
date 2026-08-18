@@ -510,6 +510,37 @@ Stripe is looking for a Senior Backend Engineer to join our Core Payments Infras
             "PostgreSQL",
             "FastAPI",
         ],
+        structured_spec={
+            "job_found": True,
+            "company": "Stripe",
+            "company_url": "stripe.com",
+            "position": "Senior Backend Engineer - Global Payments",
+            "why_hiring": "Expanding core global payments platform to support multi-currency cross-border settlement scaling.",
+            "what_you_will_build": "Zero-downtime double-entry ledger engines and high-throughput transactional APIs for global acquiring networks.",
+            "responsibilities": [
+                "Architect, build, and maintain high-reliability transactional APIs processing millions of daily transactions.",
+                "Optimize distributed consensus and asynchronous idempotency across international acquiring networks.",
+                "Partner with security and compliance teams to enforce zero-trust payment primitives.",
+            ],
+            "requirements": [
+                "5+ years of software engineering experience in Python, Go, or Java.",
+                "Deep expertise in PostgreSQL, transaction isolation levels, and data modeling.",
+                "Experience with Kafka, RabbitMQ, or distributed event streaming.",
+                "Strong fundamentals in distributed systems consistency models.",
+            ],
+            "extracted_skills": [
+                "Python",
+                "Go",
+                "PostgreSQL",
+                "Kafka",
+                "Distributed Systems",
+                "FastAPI",
+                "Redis",
+            ],
+            "compensation_text": "$195,000 - $245,000 USD",
+            "location_text": "San Francisco, CA / Remote",
+            "workplace_type": "Remote",
+        },
     )
     session.add(jp_stripe)
 
@@ -622,6 +653,35 @@ Linear is building the future of software project management with instantaneous 
             "Distributed Systems",
             "Redis",
         ],
+        structured_spec={
+            "job_found": True,
+            "company": "Linear",
+            "company_url": "linear.app",
+            "position": "Staff Systems & Sync Engineer",
+            "why_hiring": "Scaling real-time sync infrastructure for global local-first desktop and web clients.",
+            "what_you_will_build": "Offline-first sync engine utilizing delta-based state reconciliation over WebSockets.",
+            "responsibilities": [
+                "Lead the architecture of our real-time client-cloud sync engine.",
+                "Build fault-tolerant distributed sync protocols that work offline and online.",
+                "Optimize database queries and caching layers for sub-10ms response times globally.",
+            ],
+            "requirements": [
+                "Deep experience in TypeScript, Node.js, and PostgreSQL.",
+                "Understanding of distributed state, CRDTs, and local-first software patterns.",
+                "Strong background in high-performance WebSockets and Redis pub/sub.",
+            ],
+            "extracted_skills": [
+                "TypeScript",
+                "Node.js",
+                "PostgreSQL",
+                "CRDTs",
+                "WebSockets",
+                "Redis",
+            ],
+            "compensation_text": "$210,000 - $275,000 USD",
+            "location_text": "Remote (Global)",
+            "workplace_type": "Remote",
+        },
     )
     session.add(jp_linear)
 
@@ -709,6 +769,35 @@ Help Figma scale multiplayer collaborative canvas technology to hundreds of mill
             "WebAssembly",
             "Distributed Systems",
         ],
+        structured_spec={
+            "job_found": True,
+            "company": "Figma",
+            "company_url": "figma.com",
+            "position": "Principal Platform Engineer",
+            "why_hiring": "Expanding global multiplayer canvas infrastructure and multi-cluster Kubernetes platform.",
+            "what_you_will_build": "Resilient multi-cluster Kubernetes platform supporting 10M+ daily active collaborative sessions.",
+            "responsibilities": [
+                "Architect resilient multi-cluster Kubernetes platform supporting global canvas sessions.",
+                "Lead infrastructure scaling initiatives in Rust, Go, and WebAssembly.",
+                "Drive multi-quarter reliability and latency roadmaps across distributed compute nodes.",
+            ],
+            "requirements": [
+                "8+ years building high-performance compute and platform infrastructure in Rust, Go, or C++.",
+                "Expertise in WebAssembly, Kubernetes, and distributed memory caching.",
+                "Proven leadership driving multi-quarter infrastructure roadmaps.",
+            ],
+            "extracted_skills": [
+                "Rust",
+                "Go",
+                "Kubernetes",
+                "WebAssembly",
+                "C++",
+                "Distributed Systems",
+            ],
+            "compensation_text": "$240,000 - $310,000 USD",
+            "location_text": "San Francisco, CA",
+            "workplace_type": "Hybrid",
+        },
     )
     session.add(jp_figma)
 
@@ -797,6 +886,35 @@ Datadog is looking for a Senior Software Engineer to build high-scale APM ingest
             "Linux Internals",
             "OpenTelemetry",
         ],
+        structured_spec={
+            "job_found": True,
+            "company": "Datadog",
+            "company_url": "datadoghq.com",
+            "position": "Senior Software Engineer - Distributed Tracing",
+            "why_hiring": "Scaling high-throughput APM telemetry ingestion pipelines across multi-tenant clusters.",
+            "what_you_will_build": "Low-latency distributed tracing propagation and eBPF kernel telemetry probing engines.",
+            "responsibilities": [
+                "Build and optimize high-scale APM ingest pipelines in Go and Python.",
+                "Implement low-overhead span collection and W3C Trace Context propagation.",
+                "Optimize memory efficiency and concurrency across distributed Linux clusters.",
+            ],
+            "requirements": [
+                "Strong experience in Go, Python, or C++.",
+                "Understanding of eBPF, OpenTelemetry, and Linux tracing internals.",
+                "Deep focus on memory optimization, concurrency, and low latency processing.",
+            ],
+            "extracted_skills": [
+                "Go",
+                "Python",
+                "eBPF",
+                "OpenTelemetry",
+                "Linux Internals",
+                "Kafka",
+            ],
+            "compensation_text": "$185,000 - $235,000 USD",
+            "location_text": "New York, NY",
+            "workplace_type": "Hybrid",
+        },
     )
     session.add(jp_datadog)
 
@@ -857,6 +975,33 @@ Datadog is looking for a Senior Software Engineer to build high-scale APM ingest
         location="San Francisco, CA / Remote",
         work_model="Remote",
         required_skills=["Java", "Kubernetes", "AWS", "Terraform"],
+        structured_spec={
+            "job_found": True,
+            "company": "Airbnb",
+            "company_url": "airbnb.com",
+            "position": "Senior Platform Engineer",
+            "why_hiring": None,
+            "what_you_will_build": "Developer infrastructure and service delivery platform for internal microservices.",
+            "responsibilities": [
+                "Maintain and scale core JVM developer platform infrastructure.",
+                "Automate cloud deployment pipelines using Kubernetes and Terraform on AWS.",
+            ],
+            "requirements": [
+                "Senior engineering experience with Java and Spring Boot microservices.",
+                "Hands-on expertise with Kubernetes, Terraform, and AWS cloud environments.",
+            ],
+            "extracted_skills": [
+                "Java",
+                "Spring Boot",
+                "Kubernetes",
+                "AWS",
+                "Terraform",
+                "Spinnaker",
+            ],
+            "compensation_text": "$190,000 - $240,000 USD",
+            "location_text": "San Francisco, CA",
+            "workplace_type": "Remote",
+        },
     )
     session.add(jp_airbnb)
 

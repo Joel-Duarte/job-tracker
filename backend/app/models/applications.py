@@ -189,6 +189,7 @@ class JobPostingModel(Base):
     required_skills: Mapped[list[str]] = mapped_column(
         JSONB, server_default=text("'[]'::jsonb")
     )
+    structured_spec: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

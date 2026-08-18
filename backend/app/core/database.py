@@ -189,6 +189,7 @@ async def ensure_db_schema() -> None:
             "ALTER TABLE IF EXISTS job_postings ADD COLUMN IF NOT EXISTS location TEXT;",
             "ALTER TABLE IF EXISTS job_postings ADD COLUMN IF NOT EXISTS work_model TEXT;",
             "ALTER TABLE IF EXISTS job_postings ADD COLUMN IF NOT EXISTS required_skills JSONB DEFAULT '[]'::jsonb;",
+            "ALTER TABLE IF EXISTS job_postings ADD COLUMN IF NOT EXISTS structured_spec JSONB;",
             # email_application_events
             "ALTER TABLE IF EXISTS email_application_events ADD COLUMN IF NOT EXISTS email_message_id TEXT;",
             "ALTER TABLE IF EXISTS email_application_events ADD COLUMN IF NOT EXISTS email_internet_message_id TEXT;",

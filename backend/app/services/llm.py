@@ -40,37 +40,56 @@ async def extract_job_spec(
     Stage 1: Extracts structured job specs, responsibilities, requirements, and ATS keywords from raw webpage data.
     Uses JD_EXTRACTION task binding with temperature=0.0 and reasoning disabled.
     """
-    llm = await get_task_chat_model(db, task_type="JD_EXTRACTION", temperature=0.0)
-    structured_llm = llm.with_structured_output(ExtractedJobSpec)
-    template_str = await get_prompt_template(db, "jd_extraction")
-
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                (
-                    "You are an expert recruitment data analyst. "
-                    "Extract essential job details from raw scraped webpage markdown text or pasted specs. "
-                    "Disregard navigation, cookie popups, footers, headers, ads, or legal notices. "
-                    "If no job vacancy is found, set job_found to false and leave fields as 'Not Specified'."
-                ),
-            ),
-            ("human", template_str),
-        ]
-    )
-
-    chain = prompt | structured_llm
-    result = await chain.ainvoke(
-        {
-            "raw_webpage_data": raw_webpage_data,
-            "email_content": raw_webpage_data,
+    async with trace_operation(
+        category="llm",
+        name="extract_job_spec",
+        inputs={
+            "char_count": len(raw_webpage_data),
+            "sample": raw_webpage_data[:200],
         },
-        config={"callbacks": [PostgresTracer()]},
-    )
+        db=db,
+    ) as trace_ctx:
+        llm = await get_task_chat_model(db, task_type="JD_EXTRACTION", temperature=0.0)
+        structured_llm = llm.with_structured_output(ExtractedJobSpec)
+        template_str = await get_prompt_template(db, "jd_extraction")
 
-    if not isinstance(result, ExtractedJobSpec):
-        result = ExtractedJobSpec.model_validate(result)
-    return result
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    (
+                        "You are an expert recruitment data analyst. "
+                        "Extract essential job details from raw scraped webpage markdown text or pasted specs. "
+                        "Disregard navigation, cookie popups, footers, headers, ads, or legal notices. "
+                        "If no job vacancy is found, set job_found to false and leave fields as default."
+                    ),
+                ),
+                ("human", template_str),
+            ]
+        )
+
+        chain = prompt | structured_llm
+        result = await chain.ainvoke(
+            {
+                "raw_webpage_data": raw_webpage_data,
+                "email_content": raw_webpage_data,
+            },
+            config={"callbacks": [PostgresTracer()]},
+        )
+
+        if not isinstance(result, ExtractedJobSpec):
+            result = ExtractedJobSpec.model_validate(result)
+
+        trace_ctx["outputs"] = {
+            "job_found": result.job_found,
+            "company": result.company,
+            "position": result.position,
+            "responsibilities_count": len(result.responsibilities),
+            "requirements_count": len(result.requirements),
+            "extracted_skills": result.extracted_skills,
+        }
+
+        return result
 
 
 async def extract_email_info(

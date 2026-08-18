@@ -27,6 +27,7 @@ async def persist_or_stage_job_assessment(
     job_url: str | None = None,
     force_new: bool = False,
     target_status: str = "ASSESSMENT",
+    structured_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Persists an AI job assessment to the database in ASSESSMENT status.
@@ -142,6 +143,7 @@ async def persist_or_stage_job_assessment(
         location=assessment.location,
         work_model=assessment.work_model,
         required_skills=all_skills,
+        structured_spec=structured_spec,
     )
     db.add(job_posting)
 

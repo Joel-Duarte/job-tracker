@@ -31,7 +31,8 @@ class ExtractedJobSpec(BaseModel):
     """Structured job details extracted from raw webpage or pasted job description text."""
 
     job_found: bool = Field(
-        description="True if the provided text contains an actual job vacancy/description; False if error page, navigation, or unrelated text."
+        default=True,
+        description="True if the provided text contains an actual job vacancy/description; False if error page, navigation, or unrelated text.",
     )
     company: str = Field(
         default="Not Specified", description="Company, employer, or organization name"
@@ -43,25 +44,37 @@ class ExtractedJobSpec(BaseModel):
     position: str = Field(
         default="Not Specified", description="Job title or role position"
     )
-    location_work_type: str = Field(
-        default="Not Specified",
-        description="Location and work model e.g. 'San Francisco, CA (Hybrid)' or 'Remote (US)'",
+    why_hiring: str | None = Field(
+        default=None,
+        description="Explicit company expansion, scaling, or team creation reasons. Must be null if not explicitly mentioned in text.",
     )
-    salary_benefits: str = Field(
-        default="Not Specified",
-        description="Salary range, compensation, and key benefits or perks mentioned",
+    what_you_will_build: str | None = Field(
+        default=None,
+        description="Concrete deliverables, systems, or product domains. Must be null if not explicitly mentioned in text.",
     )
-    core_responsibilities: str = Field(
-        default="Not Specified",
-        description="Core duties, responsibilities, and expected impact",
-    )
-    requirements_qualifications: str = Field(
-        default="Not Specified",
-        description="Key technical requirements, years of experience, education, and required qualifications",
-    )
-    ats_keywords: list[str] = Field(
+    responsibilities: list[str] = Field(
         default_factory=list,
-        description="Critical technical and domain ATS keywords for candidate matching",
+        description="Array of clean, itemized action items (e.g., 'Design distributed data pipelines'). Company-specific introductory phrases must be stripped.",
+    )
+    requirements: list[str] = Field(
+        default_factory=list,
+        description="Array of hard prerequisites, years of experience, and qualifications as clean itemized strings.",
+    )
+    extracted_skills: list[str] = Field(
+        default_factory=list,
+        description="Array of technical skills and competencies mentioned in the job description.",
+    )
+    compensation_text: str | None = Field(
+        default=None,
+        description="Formatted salary or rate range string e.g. '$195,000 - $245,000 USD'.",
+    )
+    location_text: str | None = Field(
+        default=None,
+        description="Clean city and country string e.g. 'San Francisco, CA'.",
+    )
+    workplace_type: str | None = Field(
+        default=None,
+        description="Clean classification string: 'Remote', 'Hybrid', or 'On-site'.",
     )
     raw_markdown_summary: str | None = Field(
         default=None, description="Clean formatted markdown overview of the role"
