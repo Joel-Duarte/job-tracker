@@ -9,6 +9,7 @@ from app.routers import (
     admin,
     agent_chat,
     ai_config,
+    analytics,
     applications,
     candidate_profile,
     diagnostics,
@@ -52,6 +53,15 @@ async def lifespan(app: FastAPI):
         logger.info("Opening LangGraph checkpointer pool...")
         await checkpointer_pool.open()
         await postgres_saver.setup()
+
+        # Start the background worker for staleness archiver
+        import asyncio
+
+        from app.services.staleness_archiver import staleness_archiver_worker
+
+        app.state.archiver_task = asyncio.create_task(
+            staleness_archiver_worker(AsyncSessionLocal)
+        )
     else:
         print("\n==================================================")
         print(" ERROR: Could not connect to the database!")
@@ -61,6 +71,11 @@ async def lifespan(app: FastAPI):
     yield
     # Executed on shutdown
     logger.info("Shutting down application and disposing connection pools...")
+
+    archiver_task = getattr(app.state, "archiver_task", None)
+    if archiver_task:
+        archiver_task.cancel()
+
     from app.core.database import checkpointer_pool, engine
 
     await engine.dispose()
@@ -75,6 +90,7 @@ app = FastAPI(
 
 # Register routers
 app.include_router(intake.router, prefix="/api/v1")
+app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(candidate_profile.router, prefix="/api/v1")
 app.include_router(extension.router, prefix="/api/v1")
 app.include_router(agent_chat.router, prefix="/api/v1")

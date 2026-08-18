@@ -1019,68 +1019,68 @@ Datadog is looking for a Senior Software Engineer to build high-scale APM ingest
         task_type="JOB_ASSESSMENT",
         job_url="https://snowflake.com/careers/cloud-architect",
         title_hint="Snowflake - Principal Cloud Architect",
-        status="PROCESSING",
-        stage="ASSESSING",
+        status="FAILED",
+        stage="FAILED",
+        error_message="NetworkTimeout: Connection timed out after 30s while fetching job posting from snowflake.com",
         result_json=None,
-        created_at=now - timedelta(minutes=5),
+        created_at=now - timedelta(minutes=15),
+        completed_at=now - timedelta(minutes=14),
     )
     session.add_all([task_1, task_2, task_3])
     stats["intake_tasks"] = 3
 
     # -------------------------------------------------------------------------
-    # 6. AI Providers & Task Bindings
+    # 6. AI Providers & Task Bindings (Local LM Studio Default)
     # -------------------------------------------------------------------------
-    provider_openai = AIProviderModel(
-        name="OpenAI (Default)",
-        provider_type="openai",
-        base_url="https://api.openai.com/v1",
-        api_key=None,
-        max_concurrency=4,
-        is_active=True,
-    )
-    provider_anthropic = AIProviderModel(
-        name="Anthropic (Claude 3.5 Sonnet)",
-        provider_type="anthropic",
-        base_url="https://api.anthropic.com/v1",
-        api_key=None,
-        max_concurrency=2,
-        is_active=True,
-    )
     provider_local = AIProviderModel(
-        name="Local LM Studio / Ollama",
-        provider_type="custom",
-        base_url="http://localhost:1234/v1",
-        api_key="lm-studio",
+        name="Local LM studio",
+        provider_type="openai",
+        base_url="http://192.168.1.187:1234/v1",
+        api_key="",
         max_concurrency=1,
-        is_active=False,
+        is_active=True,
     )
-    session.add_all([provider_openai, provider_anthropic, provider_local])
+    session.add(provider_local)
     await session.flush()
 
+    binding_global = AITaskBindingModel(
+        task_type="GLOBAL_DEFAULT",
+        provider_id=provider_local.id,
+        model_name="qwen/qwen3.5-9b",
+        temperature=0.2,
+        is_active=True,
+    )
     binding_1 = AITaskBindingModel(
         task_type="JOB_ASSESSMENT",
-        provider_id=provider_openai.id,
-        model_name="gpt-4o",
+        provider_id=provider_local.id,
+        model_name="qwen/qwen3.5-9b",
         temperature=0.2,
         is_active=True,
     )
     binding_2 = AITaskBindingModel(
         task_type="EMAIL_EXTRACTION",
-        provider_id=provider_openai.id,
-        model_name="gpt-4o-mini",
+        provider_id=provider_local.id,
+        model_name="qwen/qwen3.5-9b",
         temperature=0.0,
         is_active=True,
     )
     binding_3 = AITaskBindingModel(
         task_type="INTERVIEW_GUIDE",
-        provider_id=provider_anthropic.id,
-        model_name="claude-3-5-sonnet-20241022",
+        provider_id=provider_local.id,
+        model_name="qwen/qwen3.5-9b",
         temperature=0.3,
         is_active=True,
     )
-    session.add_all([binding_1, binding_2, binding_3])
-    stats["ai_providers"] = 3
-    stats["ai_task_bindings"] = 3
+    binding_4 = AITaskBindingModel(
+        task_type="JD_EXTRACTION",
+        provider_id=provider_local.id,
+        model_name="qwen/qwen3.5-9b",
+        temperature=0.0,
+        is_active=True,
+    )
+    session.add_all([binding_global, binding_1, binding_2, binding_3, binding_4])
+    stats["ai_providers"] = 1
+    stats["ai_task_bindings"] = 5
 
     # -------------------------------------------------------------------------
     # 7. Connected Email Accounts

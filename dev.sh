@@ -26,6 +26,15 @@ while [[ $# -gt 0 ]]; do
       STOP_ONLY=true
       shift
       ;;
+    --generate-mocks|--gen-mocks)
+      echo "🤖 Running Dynamic Local LLM Mock Generator..."
+      if [ -x "$(command -v uv)" ]; then
+        (cd backend && uv run python -m app.services.mock_generator --seed-db)
+      else
+        docker compose "${COMPOSE_FILES[@]}" exec backend python -m app.services.mock_generator --seed-db
+      fi
+      exit 0
+      ;;
     --help|-h)
       echo "Job Tracker - Development Launcher"
       echo ""
@@ -34,12 +43,14 @@ while [[ $# -gt 0 ]]; do
       echo "Options:"
       echo "  --reset, --clean, -r, --reset-db   Wipe PostgreSQL database & application data, then start fresh"
       echo "  --reset-only                       Wipe database & data volumes without restarting containers"
+      echo "  --generate-mocks, --gen-mocks      Synthesize fresh mock domain data using Local LM Studio"
       echo "  --down, --stop                     Stop running development containers"
       echo "  --help, -h                         Show this help message"
       echo ""
       echo "Examples:"
       echo "  ./dev.sh                           # Normal start (preserves DB data)"
       echo "  ./dev.sh --reset                   # Reset all DB & app data and start fresh"
+      echo "  ./dev.sh --generate-mocks          # Generate synthetic mock leads from local LLM"
       echo "  ./dev.sh --reset-only              # Wipe volumes and exit"
       echo "  ./dev.sh --down                    # Stop containers"
       exit 0

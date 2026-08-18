@@ -40,8 +40,13 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - 5 Applications across statuses (`APPLIED`, `TECHNICAL_INTERVIEW`, `OFFER`, `ONLINE_ASSESSMENT`, `REJECTED`) with full candidate dossiers and match analysis payloads (`Stripe`, `Linear`, `Figma`, `Datadog`, `Airbnb`)
   - 5 Job Postings with salaries, ATS skills, and markdown descriptions
   - 8 Application Timeline Events and 5 Action Items with varying deadlines/urgencies
-  - 3 Staging Queue items for triage and 3 Intake AI evaluation tasks
-  - 3 AI Providers / Task Bindings and 2 Email accounts
+  - 3 Staging Queue items for triage
+  - 3 Intake AI evaluation tasks: 2 `COMPLETED` tasks with full match dossiers and 1 retryable `FAILED` task (with simulated network error) for testing UI retry functionality
+  - 1 Active AI Provider: `Local LM studio` (`openai` provider type, `http://192.168.1.187:1234/v1`, max concurrency `1`, empty key)
+  - 5 AI Task Bindings (`GLOBAL_DEFAULT`, `JOB_ASSESSMENT`, `EMAIL_EXTRACTION`, `INTERVIEW_GUIDE`, `JD_EXTRACTION`) bound to `Local LM studio`
+  - 2 Connected Email Accounts
+- **Dynamic Local LLM Mock Data Generator:** Run `./dev.sh --generate-mocks` (or `uv run python -m app.services.mock_generator --seed-db`) to query your local LM Studio instance and synthesize fresh, domain-accurate tech job leads, dossiers, and timeline events for testing new fields.
+- **Branch Schema Resilience (Schema Auto-Sync):** On backend startup, `ensure_db_schema()` automatically verifies required PostgreSQL extensions (`vector`, `pg_trgm`), syncs tables from ORM metadata, and executes non-destructive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements for all registered model fields. Switching between feature branches with new fields never breaks existing database tables or queries.
 - **Production Mode:** Run `./prod.sh` (using `docker-compose.yml` with `ENVIRONMENT=production`). All services run permanently in the background with `restart: unless-stopped`, meaning they automatically auto-start on PC/system boot whenever the Docker daemon starts and only stop when explicitly taken down (`./prod.sh --down`). Seed data is strictly skipped in production.
 
 ## Core Domains & Data Models

@@ -102,3 +102,9 @@ export const DiagnosticsAPI = {
   getTraces: (params = {}) => apiClient.get('/diagnostics/traces', { params }),
   getTrace: (runId) => apiClient.get(`/diagnostics/traces/${runId}`)
 }
+export const AnalyticsAPI = {
+  getOverview: (params = {}) => apiClient.get('/analytics/overview', { params }),
+  getWorkModelBreakdown: () => apiClient.get('/analytics/work-model-breakdown'),
+  getFunnelMetrics: () => apiClient.get('/analytics/funnel'),
+}
+
