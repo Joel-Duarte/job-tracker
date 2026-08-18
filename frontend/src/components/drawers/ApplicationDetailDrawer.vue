@@ -539,16 +539,6 @@ function formatDate(isoStr) {
           <!-- Metadata & Status Bar -->
           <div class="status-bar">
             <div class="status-control-group">
-              <div class="status-control">
-                <label class="status-label">Status</label>
-                <div
-                  class="status-badge-static"
-                  :class="`status-${appStore.selectedApplication.status?.toLowerCase()}`"
-                >
-                  {{ appStore.selectedApplication.status?.replace('_', ' ') }}
-                </div>
-              </div>
-
               <!-- Interactive Sub-Status Pill with Edit Trigger -->
               <button
                 class="phase-detail-btn"
@@ -2460,22 +2450,5 @@ function formatDate(isoStr) {
   list-style-type: disc;
 }
 
-
-.status-badge-static {
-  padding: 5px 10px;
-  font-size: 12px;
-  font-weight: 700;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-surface);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.status-badge-static.status-applied { color: var(--status-applied-text); border-color: var(--status-applied-border); background-color: var(--status-applied-bg); }
-.status-badge-static.status-interview, .status-badge-static.status-technical_interview { color: var(--status-interview-text); border-color: var(--status-interview-border); background-color: var(--status-interview-bg); }
-.status-badge-static.status-offer { color: var(--status-offer-text); border-color: var(--status-offer-border); background-color: var(--status-offer-bg); }
-.status-badge-static.status-rejected { color: var(--status-rejected-text); border-color: var(--status-rejected-border); background-color: var(--status-rejected-bg); }
-.status-badge-static.status-assessment { color: var(--status-assessment-text); border-color: var(--status-assessment-border); background-color: var(--status-assessment-bg); }
 
 </style>

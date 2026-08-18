@@ -81,7 +81,6 @@ async function executeEnqueue(urls, textVal) {
     jobUrl.value = ''
     jobText.value = ''
     uiStore.closeJobIntakeModal()
-    router.push('/assessments')
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to enqueue job lead', 'error')
   } finally {

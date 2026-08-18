@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useUIStore } from '../stores/uiStore'
 import DateTimePicker from '../components/common/DateTimePicker.vue'
@@ -145,8 +145,19 @@ onMounted(() => {
   appStore.fetchApplications()
 })
 
+onUnmounted(() => {
+  if (appStore.searchQuery) {
+    appStore.searchQuery = ''
+  }
+})
+
 function handleSearch(e) {
   appStore.searchQuery = e.target.value
+  appStore.fetchApplications()
+}
+
+function clearSearch() {
+  appStore.searchQuery = ''
   appStore.fetchApplications()
 }
 
@@ -434,6 +445,14 @@ async function confirmDelete() {
             class="search-input"
             @input="handleSearch"
           />
+          <button
+            v-if="appStore.searchQuery"
+            class="btn-clear-search"
+            @click="clearSearch"
+            title="Clear search"
+          >
+            <X :size="13" />
+          </button>
         </div>
 
         <!-- Status Filter shown in Table view where columns don't separate statuses -->
@@ -1294,7 +1313,31 @@ async function confirmDelete() {
 .search-input {
   width: 100%;
   padding-left: 32px;
+  padding-right: 30px;
   height: 34px;
+}
+
+.btn-clear-search {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-clear-search:hover {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
 }
 
 .filter-select {
