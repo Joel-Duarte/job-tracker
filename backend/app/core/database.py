@@ -257,6 +257,7 @@ async def ensure_db_schema() -> None:
             "ALTER TABLE IF EXISTS email_staging_items ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'PENDING';",
             # trace_events
             "ALTER TABLE IF EXISTS trace_events ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'llm';",
+            "CREATE TABLE IF NOT EXISTS agent_chats (id BIGSERIAL PRIMARY KEY, title TEXT NOT NULL DEFAULT 'New Chat', messages JSONB DEFAULT '[]'::jsonb, created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP);",
         ]
 
         for stmt in migration_statements:

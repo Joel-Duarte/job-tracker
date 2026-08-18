@@ -1,3 +1,4 @@
+from app.models.agent_chat import AgentChatModel
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.models.applications import (
     ActionItemModel,
@@ -36,5 +37,6 @@ __all__ = [
     "ProcessedEmailModel",
     "PromptModel",
     "StagingItemModel",
+    "AgentChatModel",
     "TraceEventModel",
 ]

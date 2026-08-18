@@ -3,9 +3,11 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config_manager import load_settings
+from app.models.agent_chat import AgentChatModel
 from app.models.applications import (
     ActionItemModel,
     ApplicationEventModel,
@@ -76,6 +78,19 @@ async def archive_stale_applications(
     return {"archived_count": len(archived_ids), "archived_ids": archived_ids}
 
 
+async def delete_stale_agent_chats(db: AsyncSession) -> int:
+    settings = load_settings()
+    retention_days = settings.get("AGENT_CHAT_RETENTION_DAYS", 0)
+    if retention_days <= 0:
+        return 0
+
+    cutoff_date = datetime.now(UTC) - timedelta(days=retention_days)
+    stmt = delete(AgentChatModel).where(AgentChatModel.updated_at < cutoff_date)
+    result = await db.execute(stmt)
+    await db.commit()
+    return getattr(result, "rowcount", 0) or 0
+
+
 async def staleness_archiver_worker(session_factory, interval_seconds: int = 86400):
     """
     Background worker that runs once every interval_seconds.
@@ -88,6 +103,13 @@ async def staleness_archiver_worker(session_factory, interval_seconds: int = 864
                 logger.info(
                     f"Auto-archiver executed. Archived {stats['archived_count']} applications."
                 )
+
+                deleted_chats = await delete_stale_agent_chats(session)
+                if deleted_chats > 0:
+                    logger.info(
+                        f"Auto-archiver executed. Deleted {deleted_chats} stale agent chats."
+                    )
+
         except asyncio.CancelledError:
             logger.info("Staleness archiver worker cancelled.")
             break

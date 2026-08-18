@@ -1,23 +1,26 @@
 <script setup>
 import { ref, onMounted, nextTick, watch } from 'vue'
 import { useAgentChatStore } from '../stores/agentChatStore'
+import { AIConfigAPI } from '../api/endpoints'
 import {
   Bot,
   User,
   Send,
-  Sparkles,
   Loader2,
   CheckCircle2,
-  HelpCircle,
-  Building2,
   ArrowRight,
-  RotateCcw,
   Plus,
+  MessageSquare,
+  Trash2,
+  Settings
 } from 'lucide-vue-next'
 
 const chatStore = useAgentChatStore()
 const inputMessage = ref('')
 const chatContainer = ref(null)
+
+const retentionDays = ref(0)
+const isUpdatingRetention = ref(false)
 
 const starterPrompts = [
   'Which applications currently require urgent action from me?',
@@ -34,8 +37,16 @@ function scrollToBottom() {
   })
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await chatStore.fetchChats()
   scrollToBottom()
+
+  try {
+    const res = await AIConfigAPI.getGlobalSettings()
+    retentionDays.value = res.data.AGENT_CHAT_RETENTION_DAYS || 0
+  } catch (err) {
+    console.error("Failed to load retention settings", err)
+  }
 })
 
 watch(() => chatStore.messages.length, () => {
@@ -61,6 +72,28 @@ function handleKeyDown(e) {
 function handleResetChat() {
   chatStore.resetChat()
   scrollToBottom()
+}
+
+async function handleLoadChat(id) {
+  await chatStore.loadChat(id)
+  scrollToBottom()
+}
+
+async function handleDeleteChat(id) {
+  await chatStore.deleteChat(id)
+}
+
+async function handleRetentionChange() {
+  isUpdatingRetention.value = true
+  try {
+    await AIConfigAPI.updateGlobalSettings({
+      AGENT_CHAT_RETENTION_DAYS: parseInt(retentionDays.value)
+    })
+  } catch (err) {
+    console.error("Failed to update retention setting", err)
+  } finally {
+    isUpdatingRetention.value = false
+  }
 }
 
 function formatActionLabel(act) {
@@ -89,114 +122,315 @@ function formatActionLabel(act) {
 </script>
 
 <template>
-  <div class="chat-page">
-    <!-- Chat Header -->
-    <div class="chat-header">
-      <div class="header-left">
-        <div class="agent-avatar">
-          <Bot :size="18" />
-        </div>
-        <div>
-          <h2 class="agent-title">Agent Assistant</h2>
-          <div class="agent-subtitle">
-            <span class="pulse-dot"></span>
-            <span>Equipped with pgvector semantic search & database mutation tools</span>
-          </div>
-        </div>
-      </div>
+  <div class="chat-page-container">
 
-      <div class="header-actions">
+    <!-- Sidebar -->
+    <div class="chat-sidebar">
+      <div class="sidebar-header">
         <button
-          class="btn-new-chat"
-          title="Start fresh conversation"
+          class="btn-new-chat-sidebar"
           @click="handleResetChat"
         >
-          <Plus :size="14" />
+          <Plus :size="16" />
           <span>New Chat</span>
         </button>
       </div>
+
+      <div class="chats-list">
+        <div v-if="chatStore.isLoadingChats" class="chats-loading">
+          <Loader2 class="animate-spin" :size="20" />
+        </div>
+        <div v-else-if="chatStore.chatsList.length === 0" class="no-chats">
+          No previous chats
+        </div>
+        <div v-else class="chats-list-scroll">
+          <div
+            v-for="chat in chatStore.chatsList"
+            :key="chat.id"
+            class="chat-list-item"
+            :class="{ active: chatStore.chatId === chat.id }"
+            @click="handleLoadChat(chat.id)"
+          >
+            <div class="chat-item-content">
+              <MessageSquare :size="14" class="chat-icon" />
+              <span class="chat-title">{{ chat.title }}</span>
+            </div>
+            <button class="btn-delete-chat" @click.stop="handleDeleteChat(chat.id)" title="Delete Chat">
+              <Trash2 :size="14" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="retention-setting">
+          <label class="retention-label">
+            <Settings :size="12" />
+            Auto-delete chats
+          </label>
+          <select
+            v-model="retentionDays"
+            @change="handleRetentionChange"
+            :disabled="isUpdatingRetention"
+            class="retention-select"
+          >
+            <option :value="0">Never</option>
+            <option :value="7">After 7 days</option>
+            <option :value="14">After 14 days</option>
+            <option :value="30">After 30 days</option>
+          </select>
+        </div>
+      </div>
     </div>
 
-    <!-- Chat Messages Stream -->
-    <div ref="chatContainer" class="chat-messages">
-      <div
-        v-for="(msg, idx) in chatStore.messages"
-        :key="idx"
-        class="message-row"
-        :class="`msg-${msg.role}`"
-      >
-        <div class="avatar-icon">
-          <Bot v-if="msg.role === 'assistant'" :size="16" />
-          <User v-else :size="16" />
-        </div>
-
-        <div class="message-bubble">
-          <!-- Executed Actions Chips -->
-          <div v-if="msg.actions && msg.actions.length > 0" class="actions-chips">
-            <div v-for="(act, aIdx) in msg.actions" :key="aIdx" class="action-chip">
-              <CheckCircle2 :size="13" class="text-success" />
-              <span>{{ formatActionLabel(act) }}</span>
+    <!-- Main Chat Area -->
+    <div class="chat-main">
+      <div class="chat-header">
+        <div class="header-left">
+          <div class="agent-avatar">
+            <Bot :size="18" />
+          </div>
+          <div>
+            <h2 class="agent-title">Agent Assistant</h2>
+            <div class="agent-subtitle">
+              <span class="pulse-dot"></span>
+              <span>Equipped with pgvector semantic search & database mutation tools</span>
             </div>
           </div>
-
-          <div class="message-text">{{ msg.content }}</div>
         </div>
       </div>
 
-      <!-- Thinking Indicator -->
-      <div v-if="chatStore.isSending" class="message-row msg-assistant">
-        <div class="avatar-icon">
-          <Bot :size="16" />
+      <!-- Chat Messages Stream -->
+      <div ref="chatContainer" class="chat-messages">
+        <div
+          v-for="(msg, idx) in chatStore.messages"
+          :key="idx"
+          class="message-row"
+          :class="`msg-${msg.role}`"
+        >
+          <!-- Skip tool messages in UI normally unless needed -->
+          <template v-if="msg.role !== 'tool' && msg.role !== 'system'">
+            <div class="avatar-icon">
+              <Bot v-if="msg.role === 'assistant'" :size="16" />
+              <User v-else :size="16" />
+            </div>
+
+            <div class="message-bubble">
+              <!-- Executed Actions Chips -->
+              <div v-if="msg.actions && msg.actions.length > 0" class="actions-chips">
+                <div v-for="(act, aIdx) in msg.actions" :key="aIdx" class="action-chip">
+                  <CheckCircle2 :size="13" class="text-success" />
+                  <span>{{ formatActionLabel(act) }}</span>
+                </div>
+              </div>
+
+              <div class="message-text">{{ msg.content }}</div>
+            </div>
+          </template>
         </div>
-        <div class="message-bubble thinking-bubble">
-          <Loader2 class="animate-spin" :size="16" />
-          <span>Agent is reasoning & searching records...</span>
+
+        <!-- Thinking Indicator -->
+        <div v-if="chatStore.isSending" class="message-row msg-assistant">
+          <div class="avatar-icon">
+            <Bot :size="16" />
+          </div>
+          <div class="message-bubble thinking-bubble">
+            <Loader2 class="animate-spin" :size="16" />
+            <span>Agent is reasoning & searching records...</span>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Starter Prompts (if chat is short) -->
-    <div v-if="chatStore.messages.length <= 2" class="starters-bar">
-      <button
-        v-for="prompt in starterPrompts"
-        :key="prompt"
-        class="starter-chip"
-        @click="handleSendMessage(prompt)"
-      >
-        <span>{{ prompt }}</span>
-        <ArrowRight :size="12" />
-      </button>
-    </div>
+      <!-- Starter Prompts (if chat is short) -->
+      <div v-if="chatStore.messages.length <= 2" class="starters-bar">
+        <button
+          v-for="prompt in starterPrompts"
+          :key="prompt"
+          class="starter-chip"
+          @click="handleSendMessage(prompt)"
+        >
+          <span>{{ prompt }}</span>
+          <ArrowRight :size="12" />
+        </button>
+      </div>
 
-    <!-- Input Bar -->
-    <div class="chat-input-bar">
-      <textarea
-        v-model="inputMessage"
-        rows="1"
-        placeholder="Ask the agent to search applications, check interview dates, or change statuses (e.g. 'move Stripe to Offer')..."
-        class="chat-input"
-        @keydown="handleKeyDown"
-      ></textarea>
+      <!-- Input Bar -->
+      <div class="chat-input-bar">
+        <textarea
+          v-model="inputMessage"
+          rows="1"
+          placeholder="Ask the agent to search applications, check interview dates, or change statuses..."
+          class="chat-input"
+          @keydown="handleKeyDown"
+        ></textarea>
 
-      <button
-        class="btn btn-primary btn-send"
-        :disabled="chatStore.isSending || !inputMessage.trim()"
-        @click="handleSendMessage()"
-      >
-        <Send :size="15" />
-      </button>
+        <button
+          class="btn btn-primary btn-send"
+          :disabled="chatStore.isSending || !inputMessage.trim()"
+          @click="handleSendMessage()"
+        >
+          <Send :size="15" />
+        </button>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.chat-page {
+.chat-page-container {
+  display: flex;
+  height: calc(100vh - var(--navbar-height));
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  background-color: var(--bg-app);
+}
+
+.chat-sidebar {
+  width: 260px;
+  border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
-  height: calc(100vh - var(--navbar-height));
-  max-width: 900px;
-  margin: 0 auto;
+  background-color: var(--bg-surface);
+}
+
+.sidebar-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.btn-new-chat-sidebar {
   width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  border-radius: var(--radius-md);
+  background-color: var(--primary);
+  color: white;
+  border: none;
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+  transition: opacity var(--transition-fast);
+}
+
+.btn-new-chat-sidebar:hover {
+  opacity: 0.9;
+}
+
+.chats-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 8px;
+}
+
+.chats-loading, .no-chats {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 60px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.chat-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  margin-bottom: 4px;
+  transition: background-color var(--transition-fast);
+  color: var(--text-main);
+}
+
+.chat-list-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.chat-list-item.active {
+  background-color: var(--bg-active);
+  font-weight: 500;
+}
+
+.chat-item-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.chat-icon {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.chat-title {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-delete-chat {
+  opacity: 0;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.chat-list-item:hover .btn-delete-chat {
+  opacity: 1;
+}
+
+.btn-delete-chat:hover {
+  color: var(--danger);
+  background-color: var(--danger-subtle);
+}
+
+.sidebar-footer {
+  padding: 16px;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-surface-alt);
+}
+
+.retention-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.retention-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.retention-select {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  font-size: 13px;
+}
+
+.chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
 }
 
 .chat-header {
@@ -205,40 +439,12 @@ function formatActionLabel(act) {
   background-color: var(--bg-app);
   display: flex;
   align-items: center;
-  justify-content: space-between;
 }
 
 .header-left {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.btn-new-chat {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-main);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.btn-new-chat:hover {
-  background-color: var(--bg-hover);
-  border-color: var(--border-color);
-  color: var(--text-primary);
 }
 
 .agent-avatar {
