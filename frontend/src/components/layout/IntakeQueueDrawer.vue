@@ -36,6 +36,7 @@ const STAGES = {
   EXTRACTING: { label: 'Extracting Specs', icon: Loader2, color: 'text-primary' },
   MATCHING: { label: 'CV Keyword Overlap', icon: Loader2, color: 'text-primary' },
   ASSESSING: { label: 'AI Assessment', icon: Loader2, color: 'text-primary' },
+  COVER_LETTER: { label: 'Cover Letter Generation', icon: Loader2, color: 'text-primary' },
   COMPLETE: { label: 'Assessment Ready', icon: CheckCircle, color: 'text-success' },
   FAILED: { label: 'Scrape Degraded', icon: AlertTriangle, color: 'text-danger' },
 }
@@ -106,15 +107,16 @@ const STAGES = {
           <span v-if="item.message" class="item-msg text-xs">{{ item.message }}</span>
         </div>
 
-        <!-- Step Progress Dots -->
+        <!-- Step Progress Dots (5-Stage Ingest Pipeline) -->
         <div v-if="item.status === 'running'" class="step-progress-bar">
           <div
             class="progress-fill"
             :style="{
-              width: item.stage === 'SCRAPING' ? '25%' :
-                     item.stage === 'EXTRACTING' ? '50%' :
-                     item.stage === 'MATCHING' ? '75%' :
-                     item.stage === 'ASSESSING' ? '90%' : '100%'
+              width: item.stage === 'SCRAPING' ? '20%' :
+                     item.stage === 'EXTRACTING' ? '40%' :
+                     item.stage === 'MATCHING' ? '60%' :
+                     item.stage === 'ASSESSING' ? '80%' :
+                     item.stage === 'COVER_LETTER' ? '95%' : '100%'
             }"
           ></div>
         </div>

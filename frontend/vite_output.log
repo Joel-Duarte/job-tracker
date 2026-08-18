@@ -76,3 +76,7 @@ Error: connect ECONNREFUSED 127.0.0.1:8000
 10:02:02 PM [vite] http proxy error: /api/v1/ai/global-settings
 Error: connect ECONNREFUSED 127.0.0.1:8000
     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
+10:43:57 PM [vite] (client) hmr update /src/views/AssessmentsView.vue
+10:44:53 PM [vite] (client) hmr update /src/components/layout/IntakeQueueDrawer.vue
+10:46:00 PM [vite] (client) hmr update /src/views/QueueView.vue, /src/views/QueueView.vue?vue&type=style&index=0&scoped=c39a52ef&lang.css
+10:52:48 PM [vite] (client) hmr update /src/components/modals/CoverLetterModal.vue

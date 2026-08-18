@@ -26,6 +26,15 @@ import {
   SlidersHorizontal,
   RotateCcw,
 } from 'lucide-vue-next'
+import CoverLetterModal from '../components/modals/CoverLetterModal.vue'
+
+const isCoverLetterModalOpen = ref(false)
+const selectedCoverLetterTask = ref(null)
+
+function openCoverLetterModal(task) {
+  selectedCoverLetterTask.value = task
+  isCoverLetterModalOpen.value = true
+}
 
 const router = useRouter()
 const uiStore = useUIStore()
@@ -229,6 +238,16 @@ onUnmounted(() => {
             <Layers :size="12" />
             <span>Vector Embeddings</span>
           </button>
+
+          <!-- NEW: Cover Letter Filter -->
+          <button
+            class="type-pill"
+            :class="{ active: typeFilter === 'COVER_LETTER_GENERATION' }"
+            @click="typeFilter = 'COVER_LETTER_GENERATION'"
+          >
+            <FileText :size="12" />
+            <span>Cover Letters</span>
+          </button>
         </div>
 
         <!-- Actions: Search, Refresh, Clear Completed -->
@@ -295,11 +314,12 @@ onUnmounted(() => {
                 :class="{
                   'type-cv': task.task_type === 'CV_EXTRACTION',
                   'type-job': task.task_type === 'JOB_ASSESSMENT' || !task.task_type,
-                  'type-embedding': task.task_type === 'EMBEDDING'
+                  'type-embedding': task.task_type === 'EMBEDDING',
+                  'type-cover-letter': task.task_type === 'COVER_LETTER_GENERATION'
                 }"
               >
-                <component :is="task.task_type === 'CV_EXTRACTION' ? UserCheck : (task.task_type === 'EMBEDDING' ? Layers : Briefcase)" :size="12" />
-                <span>{{ task.task_type === 'CV_EXTRACTION' ? 'CV Profile Extraction' : (task.task_type === 'EMBEDDING' ? 'Vector Embedding' : 'Job Assessment') }}</span>
+                <component :is="task.task_type === 'COVER_LETTER_GENERATION' ? FileText : (task.task_type === 'CV_EXTRACTION' ? UserCheck : (task.task_type === 'EMBEDDING' ? Layers : Briefcase))" :size="12" />
+                <span>{{ task.task_type === 'COVER_LETTER_GENERATION' ? 'Cover Letter Generation' : (task.task_type === 'CV_EXTRACTION' ? 'CV Profile Extraction' : (task.task_type === 'EMBEDDING' ? 'Vector Embedding' : 'Job Assessment')) }}</span>
               </span>
               <span class="task-title-text" :title="task.title_hint || task.job_url">
                 {{ task.title_hint || task.job_url || `Task #${task.id}` }}
@@ -350,13 +370,48 @@ onUnmounted(() => {
 
           <!-- DEDICATED PIPELINE STEPPERS -->
           <div class="task-pipeline-container">
-            <!-- 1. JOB ASSESSMENT STEPPER (5 Stages) -->
-            <div v-if="task.task_type !== 'CV_EXTRACTION' && task.task_type !== 'EMBEDDING'" class="pipeline-stepper job-stepper">
+            <!-- 1. COVER LETTER STEPPER (3 Stages) -->
+            <div v-if="task.task_type === 'COVER_LETTER_GENERATION'" class="pipeline-stepper cover-letter-stepper">
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'QUEUED',
+                  done: ['GENERATING', 'COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">1</div>
+                <span class="node-label">Queued</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'GENERATING' || task.status === 'PROCESSING',
+                  done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">2</div>
+                <span class="node-label">LLM Generation</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">3</div>
+                <span class="node-label">Draft Ready</span>
+              </div>
+            </div>
+
+            <!-- 2. JOB ASSESSMENT STEPPER (5 Stages) -->
+            <div v-else-if="task.task_type !== 'CV_EXTRACTION' && task.task_type !== 'EMBEDDING'" class="pipeline-stepper job-stepper">
               <div
                 class="stepper-node"
                 :class="{
                   active: task.stage === 'FETCHING',
-                  done: ['EXTRACTING', 'MATCHING', 'ASSESSING', 'SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
+                  done: ['EXTRACTING', 'MATCHING', 'ASSESSING', 'COVER_LETTER', 'SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
                 }"
               >
                 <div class="node-bullet">1</div>
@@ -367,7 +422,7 @@ onUnmounted(() => {
                 class="stepper-node"
                 :class="{
                   active: task.stage === 'EXTRACTING',
-                  done: ['MATCHING', 'ASSESSING', 'SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
+                  done: ['MATCHING', 'ASSESSING', 'COVER_LETTER', 'SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
                 }"
               >
                 <div class="node-bullet">2</div>
@@ -378,7 +433,7 @@ onUnmounted(() => {
                 class="stepper-node"
                 :class="{
                   active: task.stage === 'MATCHING',
-                  done: ['ASSESSING', 'SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
+                  done: ['ASSESSING', 'COVER_LETTER', 'SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
                 }"
               >
                 <div class="node-bullet">3</div>
@@ -389,7 +444,7 @@ onUnmounted(() => {
                 class="stepper-node"
                 :class="{
                   active: task.stage === 'ASSESSING',
-                  done: ['SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
+                  done: ['COVER_LETTER', 'SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
                 }"
               >
                 <div class="node-bullet">4</div>
@@ -399,11 +454,12 @@ onUnmounted(() => {
               <div
                 class="stepper-node"
                 :class="{
-                  done: ['COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
+                  active: task.stage === 'COVER_LETTER',
+                  done: ['SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
                 }"
               >
                 <div class="node-bullet">5</div>
-                <span class="node-label">{{ task.stage === 'STAGED_DUPLICATE' ? 'Staged' : 'Complete' }}</span>
+                <span class="node-label">{{ task.stage === 'STAGED_DUPLICATE' ? 'Staged' : 'Cover Letter' }}</span>
               </div>
             </div>
 
@@ -508,8 +564,28 @@ onUnmounted(() => {
 
           <!-- Result Footer & Contextual Actions -->
           <div v-else-if="task.status === 'COMPLETED' && task.result_json" class="task-card-footer">
+            <!-- Cover Letter Context -->
+            <template v-if="task.task_type === 'COVER_LETTER_GENERATION'">
+              <div class="footer-left">
+                <span class="badge-cv-ready">
+                  <FileText :size="12" />
+                  <span>Cover Letter Draft Ready</span>
+                </span>
+              </div>
+
+              <div class="footer-right">
+                <button
+                  class="btn btn-primary btn-xs"
+                  @click="openCoverLetterModal(task)"
+                >
+                  <FileText :size="12" />
+                  <span>View Draft &rarr;</span>
+                </button>
+              </div>
+            </template>
+
             <!-- Job Assessment Context -->
-            <template v-if="task.task_type !== 'CV_EXTRACTION' && task.task_type !== 'EMBEDDING'">
+            <template v-else-if="task.task_type !== 'CV_EXTRACTION' && task.task_type !== 'EMBEDDING'">
               <div class="footer-left">
                 <span v-if="task.result_json.match_score !== undefined || task.result_json.fit_score !== undefined" class="score-badge">
                   {{ task.result_json.match_score ?? task.result_json.fit_score }}% Match
@@ -565,6 +641,17 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- Cover Letter Editor Modal -->
+    <CoverLetterModal
+      :is-open="isCoverLetterModalOpen"
+      :application-id="selectedCoverLetterTask?.result_json?.application_id || selectedCoverLetterTask?.application_id"
+      :application-title="selectedCoverLetterTask?.result_json?.position || 'Software Engineer'"
+      :company-name="selectedCoverLetterTask?.result_json?.company || selectedCoverLetterTask?.title_hint"
+      @close="isCoverLetterModalOpen = false"
+      @saved="fetchTasks(true)"
+      @generated="fetchTasks(true)"
+    />
   </div>
 </template>
 
@@ -806,6 +893,12 @@ onUnmounted(() => {
   background-color: var(--primary-subtle);
   color: var(--primary);
   border: 1px solid var(--primary-glow);
+}
+
+.task-type-tag.type-cover-letter {
+  background-color: var(--status-interview-bg);
+  color: var(--status-interview-text);
+  border: 1px solid var(--status-interview-border);
 }
 
 .task-title-text {

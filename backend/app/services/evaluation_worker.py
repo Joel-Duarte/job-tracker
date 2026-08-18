@@ -226,16 +226,18 @@ async def _execute_evaluation_steps(
     ) as ctx:
         if task.task_type == "CV_EXTRACTION":
             await _execute_cv_extraction_steps(task, db)
-            ctx["outputs"] = {"status": task.status, "stage": task.stage}
-            if task.status == "FAILED":
-                ctx["error"] = task.error_message
+            if ctx is not None:
+                ctx["outputs"] = {"status": task.status, "stage": task.stage}
+                if task.status == "FAILED":
+                    ctx["error"] = task.error_message
             return
 
         if task.task_type in ("COVER_LETTER_GENERATION", "COVER_LETTER"):
             await _execute_cover_letter_generation_steps(task, db)
-            ctx["outputs"] = {"status": task.status, "stage": task.stage}
-            if task.status == "FAILED":
-                ctx["error"] = task.error_message
+            if ctx is not None:
+                ctx["outputs"] = {"status": task.status, "stage": task.stage}
+                if task.status == "FAILED":
+                    ctx["error"] = task.error_message
             return
 
         try:

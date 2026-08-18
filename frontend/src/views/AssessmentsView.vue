@@ -42,6 +42,8 @@ import {
 } from 'lucide-vue-next'
 import PageHeader from '../components/common/PageHeader.vue'
 import CompanyLogo from '../components/common/CompanyLogo.vue'
+import CoverLetterModal from '../components/modals/CoverLetterModal.vue'
+import { CoverLettersAPI } from '../api/endpoints'
 import {
   normalizeWorkModel,
   formatRelativeDate,
@@ -83,6 +85,33 @@ const parsedTailoringStrategy = (task) => {
  // null or number (40, 60, 80)
 const sortBy = ref('match_score') // 'match_score' | 'date_desc' | 'company'
 const passedTaskIds = ref(new Set(JSON.parse(localStorage.getItem('job_tracker_passed_assessments') || '[]')))
+
+// Modal & Cover Letter State
+const isCoverLetterModalOpen = ref(false)
+const selectedCoverLetterTask = ref(null)
+const coverLetterGeneratingTaskIds = ref(new Set())
+
+function openCoverLetterModal(task) {
+  selectedCoverLetterTask.value = task
+  isCoverLetterModalOpen.value = true
+}
+
+async function handleGenerateCoverLetter(task) {
+  if (!task.result_json?.application_id) {
+    uiStore.showToast('Please mark application as applied first or wait for intake completion.', 'info')
+    return
+  }
+  const appId = task.result_json.application_id
+  coverLetterGeneratingTaskIds.value.add(task.id)
+  try {
+    await CoverLettersAPI.generate(appId)
+    uiStore.showToast('Cover letter generation queued in AI Queue!', 'success')
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to generate cover letter', 'error')
+  } finally {
+    coverLetterGeneratingTaskIds.value.delete(task.id)
+  }
+}
 
 // Queue & Tasks State
 const evaluationTasks = ref([])
@@ -833,6 +862,36 @@ onUnmounted(() => {
                 <Trash2 :size="14" />
               </button>
 
+              <!-- Dynamic Cover Letter Action Button -->
+              <button
+                v-if="task.result_json?.cover_letter_status === 'GENERATING' || coverLetterGeneratingTaskIds.has(task.id)"
+                class="btn btn-secondary btn-sm"
+                disabled
+              >
+                <Loader2 class="animate-spin" :size="14" />
+                <span>Drafting...</span>
+              </button>
+
+              <button
+                v-else-if="task.result_json?.cover_letter_markdown || task.result_json?.cover_letter_status === 'COMPLETED'"
+                class="btn btn-primary btn-sm"
+                title="View and edit tailored cover letter draft"
+                @click="openCoverLetterModal(task)"
+              >
+                <FileText :size="14" />
+                <span>View Cover Letter</span>
+              </button>
+
+              <button
+                v-else
+                class="btn btn-secondary btn-sm"
+                title="Generate tailored cover letter draft with AI"
+                @click="task.result_json?.application_id ? openCoverLetterModal(task) : handleGenerateCoverLetter(task)"
+              >
+                <Sparkles :size="14" />
+                <span>Generate Cover Letter</span>
+              </button>
+
               <button
                 class="btn btn-secondary btn-sm"
                 title="Archive as passed / not applying"
@@ -1097,6 +1156,17 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+    <!-- Cover Letter Editor Modal -->
+    <CoverLetterModal
+      :is-open="isCoverLetterModalOpen"
+      :application-id="selectedCoverLetterTask?.result_json?.application_id"
+      :application-title="selectedCoverLetterTask?.result_json?.position || 'Software Engineer'"
+      :company-name="selectedCoverLetterTask?.result_json?.company || selectedCoverLetterTask?.title_hint"
+      @close="isCoverLetterModalOpen = false"
+      @saved="loadEvaluations(true)"
+      @generated="loadEvaluations(true)"
+    />
+
     <!-- Batch Actions Floating Bar -->
     <Transition name="slide-up">
       <div v-if="selectedTaskIds.size > 0" class="batch-actions-bar">
