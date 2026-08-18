@@ -15,6 +15,8 @@ import {
   Monitor,
   CalendarDays,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Globe,
   MapPin,
   Flame,
@@ -77,13 +79,161 @@ const velocityPeriod = ref('this_week')
 const velocityCustomStart = ref(null)
 const velocityCustomEnd = ref(null)
 
-const relativeJumpOptions = [
-  { label: 'This Week', value: 'this_week' },
-  { label: 'Last Week', value: 'last_week' },
-  { label: 'This Month', value: 'this_month' },
-  { label: 'Last Month', value: 'last_month' },
-  { label: 'Custom Range', value: 'custom' },
+// Custom Date Range Picker state
+const isCustomPickerOpen = ref(false)
+const customPickerRef = ref(null)
+
+const calendarViewYear = ref(new Date().getFullYear())
+const calendarViewMonth = ref(new Date().getMonth())
+
+const tempRangeStart = ref(null)
+const tempRangeEnd = ref(null)
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
 ]
+const DAYS_OF_WEEK = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
+
+function toggleCustomPicker() {
+  velocityPeriod.value = 'custom'
+  isCustomPickerOpen.value = !isCustomPickerOpen.value
+  if (isCustomPickerOpen.value) {
+    if (velocityCustomStart.value) {
+      const d = new Date(velocityCustomStart.value + 'T00:00:00')
+      if (!isNaN(d.getTime())) {
+        calendarViewYear.value = d.getFullYear()
+        calendarViewMonth.value = d.getMonth()
+      }
+    }
+  }
+}
+
+function prevPickerMonth() {
+  if (calendarViewMonth.value === 0) {
+    calendarViewMonth.value = 11
+    calendarViewYear.value--
+  } else {
+    calendarViewMonth.value--
+  }
+}
+
+function nextPickerMonth() {
+  if (calendarViewMonth.value === 11) {
+    calendarViewMonth.value = 0
+    calendarViewYear.value++
+  } else {
+    calendarViewMonth.value++
+  }
+}
+
+function toYMD(year, month, day) {
+  const m = String(month + 1).padStart(2, '0')
+  const d = String(day).padStart(2, '0')
+  return `${year}-${m}-${d}`
+}
+
+const pickerCalendarDays = computed(() => {
+  const days = []
+  const firstDayOfMonth = new Date(calendarViewYear.value, calendarViewMonth.value, 1).getDay()
+  const daysInMonth = new Date(calendarViewYear.value, calendarViewMonth.value + 1, 0).getDate()
+  const daysInPrevMonth = new Date(calendarViewYear.value, calendarViewMonth.value, 0).getDate()
+
+  const todayStr = toYMD(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())
+
+  for (let i = firstDayOfMonth - 1; i >= 0; i--) {
+    const d = daysInPrevMonth - i
+    const m = calendarViewMonth.value === 0 ? 11 : calendarViewMonth.value - 1
+    const y = calendarViewMonth.value === 0 ? calendarViewYear.value - 1 : calendarViewYear.value
+    const ymd = toYMD(y, m, d)
+    days.push({ day: d, month: m, year: y, ymd, isCurrentMonth: false, isToday: ymd === todayStr })
+  }
+
+  for (let i = 1; i <= daysInMonth; i++) {
+    const ymd = toYMD(calendarViewYear.value, calendarViewMonth.value, i)
+    days.push({ day: i, month: calendarViewMonth.value, year: calendarViewYear.value, ymd, isCurrentMonth: true, isToday: ymd === todayStr })
+  }
+
+  const remaining = 42 - days.length
+  for (let i = 1; i <= remaining; i++) {
+    const m = calendarViewMonth.value === 11 ? 0 : calendarViewMonth.value + 1
+    const y = calendarViewMonth.value === 11 ? calendarViewYear.value + 1 : calendarViewYear.value
+    const ymd = toYMD(y, m, i)
+    days.push({ day: i, month: m, year: y, ymd, isCurrentMonth: false, isToday: ymd === todayStr })
+  }
+
+  return days
+})
+
+function onDateClick(ymd) {
+  if (!tempRangeStart.value || (tempRangeStart.value && tempRangeEnd.value)) {
+    tempRangeStart.value = ymd
+    tempRangeEnd.value = null
+  } else {
+    tempRangeEnd.value = ymd
+    let start = tempRangeStart.value
+    let end = tempRangeEnd.value
+    if (start > end) {
+      const tmp = start
+      start = end
+      end = tmp
+    }
+    velocityCustomStart.value = start
+    velocityCustomEnd.value = end
+    fetchActivity()
+    setTimeout(() => {
+      isCustomPickerOpen.value = false
+    }, 200)
+  }
+}
+
+function isDateSelectedStart(ymd) {
+  if (tempRangeStart.value && !tempRangeEnd.value) {
+    return tempRangeStart.value === ymd
+  }
+  if (velocityCustomStart.value && velocityCustomEnd.value) {
+    const start = velocityCustomStart.value < velocityCustomEnd.value ? velocityCustomStart.value : velocityCustomEnd.value
+    return ymd === start
+  }
+  return false
+}
+
+function isDateSelectedEnd(ymd) {
+  if (tempRangeStart.value && tempRangeEnd.value) {
+    const end = tempRangeStart.value > tempRangeEnd.value ? tempRangeStart.value : tempRangeEnd.value
+    return ymd === end
+  }
+  if (velocityCustomStart.value && velocityCustomEnd.value) {
+    const end = velocityCustomStart.value > velocityCustomEnd.value ? velocityCustomStart.value : velocityCustomEnd.value
+    return ymd === end
+  }
+  return false
+}
+
+function isDateInRange(ymd) {
+  let start, end
+  if (tempRangeStart.value && tempRangeEnd.value) {
+    start = tempRangeStart.value < tempRangeEnd.value ? tempRangeStart.value : tempRangeEnd.value
+    end = tempRangeStart.value > tempRangeEnd.value ? tempRangeStart.value : tempRangeEnd.value
+  } else if (velocityCustomStart.value && velocityCustomEnd.value) {
+    start = velocityCustomStart.value < velocityCustomEnd.value ? velocityCustomStart.value : velocityCustomEnd.value
+    end = velocityCustomStart.value > velocityCustomEnd.value ? velocityCustomEnd.value : velocityCustomStart.value
+  } else {
+    return false
+  }
+  return ymd > start && ymd < end
+}
+
+const formattedCustomRange = computed(() => {
+  if (!velocityCustomStart.value || !velocityCustomEnd.value) return 'Custom Range'
+  const d1 = new Date(velocityCustomStart.value + 'T00:00:00')
+  const d2 = new Date(velocityCustomEnd.value + 'T00:00:00')
+  if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return 'Custom Range'
+
+  const f1 = d1.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const f2 = d2.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return `${f1} – ${f2}`
+})
 
 async function fetchActivity() {
   velocityLoading.value = true
@@ -94,8 +244,8 @@ async function fetchActivity() {
         velocityLoading.value = false
         return
       }
-      params.start_date = new Date(velocityCustomStart.value).toISOString()
-      params.end_date = new Date(velocityCustomEnd.value).toISOString()
+      params.start_date = new Date(velocityCustomStart.value + 'T00:00:00').toISOString()
+      params.end_date = new Date(velocityCustomEnd.value + 'T23:59:59').toISOString()
     }
     const res = await AnalyticsAPI.getActivity(params)
     activityData.value = res.data
@@ -116,8 +266,23 @@ async function fetchHistory() {
   }
 }
 
+const isHistoryEmpty = computed(() => {
+  if (!activityHistory.value?.length) return true
+  return activityHistory.value.every(
+    (b) => (b.applications || 0) + (b.tasks || 0) + (b.replies || 0) === 0
+  )
+})
+
+const isDailyBreakdownEmpty = computed(() => {
+  if (!activityData.value?.daily_breakdown?.length) return true
+  return activityData.value.daily_breakdown.every(
+    (d) => (d.applications || 0) + (d.replies || 0) + (d.tasks || 0) === 0
+  )
+})
+
 function setPeriod(period) {
   velocityPeriod.value = period
+  isCustomPickerOpen.value = false
   fetchActivity()
 }
 
@@ -125,13 +290,28 @@ function setWeekFromHistory(weekStart, weekEnd) {
   velocityPeriod.value = 'custom'
   velocityCustomStart.value = weekStart.split('T')[0]
   velocityCustomEnd.value = weekEnd.split('T')[0]
+  tempRangeStart.value = velocityCustomStart.value
+  tempRangeEnd.value = velocityCustomEnd.value
   fetchActivity()
 }
 
+function handleClickOutside(event) {
+  if (customPickerRef.value && !customPickerRef.value.contains(event.target)) {
+    isCustomPickerOpen.value = false
+  }
+}
+
 onMounted(() => {
+  document.addEventListener('click', handleClickOutside)
   fetchAnalytics()
   fetchActivity()
   fetchHistory()
+})
+
+import { onBeforeUnmount } from 'vue'
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleClickOutside)
 })
 
 
@@ -348,43 +528,90 @@ const sankeyData = computed(() => {
         <div class="velocity-controls-card flex justify-between items-center mb-6">
           <div class="flex items-center gap-4">
             <span class="text-sm font-semibold text-secondary">Timeframe:</span>
-            <div class="btn-group">
+            <div class="btn-group relative" ref="customPickerRef">
               <button :class="['btn-toggle', velocityPeriod === 'this_week' ? 'active' : '']" @click="setPeriod('this_week')">This Week</button>
               <button :class="['btn-toggle', velocityPeriod === 'last_week' ? 'active' : '']" @click="setPeriod('last_week')">Last Week</button>
               <button :class="['btn-toggle', velocityPeriod === 'this_month' ? 'active' : '']" @click="setPeriod('this_month')">This Month</button>
               <button :class="['btn-toggle', velocityPeriod === 'last_month' ? 'active' : '']" @click="setPeriod('last_month')">Last Month</button>
-              <button :class="['btn-toggle', velocityPeriod === 'custom' ? 'active' : '']" @click="velocityPeriod = 'custom'">Custom Range</button>
-            </div>
+              <button
+                :class="['btn-toggle', velocityPeriod === 'custom' ? 'active' : '']"
+                @click="toggleCustomPicker"
+              >
+                <CalendarDays class="w-3.5 h-3.5 inline mr-1" />
+                <span>{{ formattedCustomRange }}</span>
+                <ChevronDown class="w-3.5 h-3.5 inline ml-1 opacity-70" />
+              </button>
 
-            <div class="relative-jump flex items-center gap-3 ml-auto" v-if="velocityPeriod === 'custom'">
-              <input type="date" v-model="velocityCustomStart" class="form-input text-xs py-1.5" />
-              <span class="text-xs font-semibold text-muted">TO</span>
-              <input type="date" v-model="velocityCustomEnd" @change="fetchActivity" class="form-input text-xs py-1.5" />
+              <!-- Custom Range Calendar Popover -->
+              <div v-if="isCustomPickerOpen" class="custom-range-popover animate-fade-in" @click.stop>
+                <div class="popover-header">
+                  <button class="nav-btn" type="button" @click="prevPickerMonth" title="Previous Month">
+                    <ChevronLeft :size="16" />
+                  </button>
+                  <span class="month-year-label">{{ MONTH_NAMES[calendarViewMonth] }} {{ calendarViewYear }}</span>
+                  <button class="nav-btn" type="button" @click="nextPickerMonth" title="Next Month">
+                    <ChevronRight :size="16" />
+                  </button>
+                </div>
+
+                <div class="days-header-row">
+                  <span v-for="d in DAYS_OF_WEEK" :key="d" class="day-name">{{ d }}</span>
+                </div>
+
+                <div class="calendar-grid">
+                  <button
+                    v-for="(cell, idx) in pickerCalendarDays"
+                    :key="idx"
+                    type="button"
+                    class="calendar-day-btn"
+                    :class="{
+                      'out-of-month': !cell.isCurrentMonth,
+                      'is-today': cell.isToday,
+                      'is-range-start': isDateSelectedStart(cell.ymd),
+                      'is-range-end': isDateSelectedEnd(cell.ymd),
+                      'in-range': isDateInRange(cell.ymd)
+                    }"
+                    @click="onDateClick(cell.ymd)"
+                  >
+                    {{ cell.day }}
+                  </button>
+                </div>
+
+                <div class="popover-hint">
+                  <span v-if="!tempRangeStart">Select start date</span>
+                  <span v-else-if="!tempRangeEnd">Select end date</span>
+                  <span v-else class="text-primary font-medium">{{ formattedCustomRange }}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
         <!-- History Ribbon -->
-        <div class="history-ribbon-widget mb-6">
+        <div class="history-ribbon-widget mb-6 relative overflow-hidden">
           <div class="flex justify-between items-center mb-3">
-            <h3 class="text-sm font-semibold">12-Week Velocity History</h3>
+            <h3 class="text-sm font-bold text-main">12-Week Velocity History</h3>
             <span class="text-xs text-muted">Click a week to drill down</span>
           </div>
-          <div class="ribbon-chart flex items-end gap-1">
+          <div v-if="isHistoryEmpty" class="flex flex-col items-center justify-center py-6 text-muted text-xs">
+            <Activity :size="24" class="mb-2 opacity-40 text-secondary" />
+            <span>No velocity activity recorded over the past 12 weeks.</span>
+          </div>
+          <div v-else class="ribbon-chart flex items-end gap-1 relative overflow-hidden">
             <div
               v-for="(bucket, idx) in activityHistory"
               :key="idx"
-              class="ribbon-bar-container group cursor-pointer"
+              class="ribbon-bar-container group cursor-pointer min-w-0"
               @click="setWeekFromHistory(bucket.week_start, bucket.week_end)"
             >
               <div class="ribbon-tooltip">
                 <div class="font-bold mb-1">{{ bucket.week_start.split('T')[0] }}</div>
-                <div>Apps: {{ bucket.applications }}</div>
-                <div>Tasks: {{ bucket.tasks }}</div>
-                <div>Replies: {{ bucket.replies }}</div>
+                <div>Apps: {{ bucket.applications || 0 }}</div>
+                <div>Tasks: {{ bucket.tasks || 0 }}</div>
+                <div>Replies: {{ bucket.replies || 0 }}</div>
               </div>
-              <div class="ribbon-bar bg-primary" :style="{ height: `${Math.max(4, Math.min(60, (bucket.applications + bucket.tasks + bucket.replies) * 1.5))}px` }"></div>
-              <div class="ribbon-label">{{ bucket.week_start.split('-')[1] }}/{{ bucket.week_start.split('-')[2].substring(0,2) }}</div>
+              <div class="ribbon-bar bg-primary" :style="{ height: `${Math.max(4, Math.min(50, ((bucket.applications || 0) + (bucket.tasks || 0) + (bucket.replies || 0)) * 2))}px` }"></div>
+              <div class="ribbon-label font-mono text-[9px] text-muted mt-1 truncate max-w-full text-center leading-none">{{ bucket.week_start.split('-')[1] }}/{{ bucket.week_start.split('-')[2].substring(0,2) }}</div>
             </div>
           </div>
         </div>
@@ -395,104 +622,129 @@ const sankeyData = computed(() => {
 
         <div v-else-if="activityData">
           <!-- Metric Cards -->
-          <div class="kpi-banner-4 mb-6">
-            <div class="kpi-card flex flex-col justify-between p-4">
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-sm font-semibold text-secondary">Applications</span>
-                <Activity :size="16" class="text-blue-500 opacity-80" />
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div class="velocity-kpi-card">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs font-bold text-secondary uppercase tracking-wider">Applications</span>
+                <div class="w-8 h-8 rounded-md bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
+                  <Activity :size="16" />
+                </div>
               </div>
-              <div class="text-2xl font-bold text-main">{{ activityData.applications_submitted }}</div>
+              <div class="text-3xl font-extrabold text-main tracking-tight font-mono">{{ activityData.applications_submitted || 0 }}</div>
             </div>
 
-            <div class="kpi-card flex flex-col justify-between p-4">
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-sm font-semibold text-secondary">Inbound Replies</span>
-                <Clock :size="16" class="text-emerald-500 opacity-80" />
+            <div class="velocity-kpi-card">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs font-bold text-secondary uppercase tracking-wider">Inbound Replies</span>
+                <div class="w-8 h-8 rounded-md bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
+                  <Clock :size="16" />
+                </div>
               </div>
-              <div class="text-2xl font-bold text-main">{{ activityData.replies_received }}</div>
+              <div class="text-3xl font-extrabold text-main tracking-tight font-mono">{{ activityData.replies_received || 0 }}</div>
             </div>
 
-            <div class="kpi-card flex flex-col justify-between p-4">
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-sm font-semibold text-secondary">Interviews Scheduled</span>
-                <Target :size="16" class="text-purple-500 opacity-80" />
+            <div class="velocity-kpi-card">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs font-bold text-secondary uppercase tracking-wider">Interviews Scheduled</span>
+                <div class="w-8 h-8 rounded-md bg-purple-500/10 text-purple-500 flex items-center justify-center shrink-0">
+                  <Target :size="16" />
+                </div>
               </div>
-              <div class="text-2xl font-bold text-main">{{ activityData.interviews_scheduled }}</div>
+              <div class="text-3xl font-extrabold text-main tracking-tight font-mono">{{ activityData.interviews_scheduled || 0 }}</div>
             </div>
 
-            <div class="kpi-card flex flex-col justify-between p-4">
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-sm font-semibold text-secondary">Tasks Completed</span>
-                <CheckCircle2 :size="16" class="text-amber-500 opacity-80" />
+            <div class="velocity-kpi-card">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs font-bold text-secondary uppercase tracking-wider">Tasks Completed</span>
+                <div class="w-8 h-8 rounded-md bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0">
+                  <CheckCircle2 :size="16" />
+                </div>
               </div>
-              <div class="text-2xl font-bold text-main">{{ activityData.tasks_completed }}</div>
+              <div class="text-3xl font-extrabold text-main tracking-tight font-mono">{{ activityData.tasks_completed || 0 }}</div>
             </div>
           </div>
 
           <!-- Charts -->
           <div class="bento-grid" style="grid-template-columns: 2fr 1fr;">
             <!-- Daily Breakdown Chart -->
-            <div class="bento-card overflow-hidden">
-              <div class="bento-header">
-                <h3 class="bento-title">
+            <div class="bento-card relative overflow-hidden flex flex-col">
+              <div class="bento-header flex items-center justify-between border-b border-border-color pb-3 mb-2">
+                <h3 class="bento-title flex items-center gap-2 text-sm font-bold text-main">
                   <BarChart3 :size="16" class="text-primary" />
                   Activity Throughput
                 </h3>
               </div>
-              <div class="bento-body p-4 pt-8 h-full">
-                <div v-if="!activityData.daily_breakdown || activityData.daily_breakdown.length === 0" class="flex flex-col items-center justify-center h-full text-muted py-10">
-                  <Activity :size="32" class="mb-3 opacity-50" />
-                  <p class="text-sm">No activity recorded for this period.</p>
+              <div class="bento-body p-2 flex flex-col justify-between h-full">
+                <div v-if="!activityData.daily_breakdown || activityData.daily_breakdown.length === 0 || isDailyBreakdownEmpty" class="flex flex-col items-center justify-center h-48 text-muted py-10">
+                  <Activity :size="32" class="mb-3 opacity-40 text-secondary" />
+                  <p class="text-xs font-medium">No activity recorded for this period.</p>
                 </div>
                 <div v-else class="h-full flex flex-col justify-between">
-                  <div class="daily-chart-container flex items-end gap-2 h-48 px-2 overflow-hidden relative">
-                    <div v-for="day in activityData.daily_breakdown" :key="day.date" class="daily-bar-wrap flex-1 flex flex-col justify-end items-center relative group">
+                  <div class="daily-chart-container flex items-end justify-between gap-1.5 h-44 px-2 relative overflow-hidden">
+                    <div v-for="day in activityData.daily_breakdown" :key="day.date" class="daily-bar-wrap flex-1 flex flex-col justify-end items-center relative group min-w-0">
                       <div class="daily-tooltip">
                         <div class="font-bold border-b border-border-color mb-1 pb-1">{{ day.date }}</div>
-                        <div class="text-blue-400">Apps: {{ day.applications }}</div>
-                        <div class="text-emerald-400">Replies: {{ day.replies }}</div>
-                        <div class="text-amber-400">Tasks: {{ day.tasks }}</div>
+                        <div class="text-blue-400">Apps: {{ day.applications || 0 }}</div>
+                        <div class="text-emerald-400">Replies: {{ day.replies || 0 }}</div>
+                        <div class="text-amber-400">Tasks: {{ day.tasks || 0 }}</div>
                       </div>
 
-                      <div class="w-full max-w-[12px] flex flex-col items-center gap-[1px]">
-                        <div class="w-full bg-blue-500 rounded-t-sm" :style="{ height: `${day.applications * 4}px`, minHeight: day.applications ? '4px' : '0' }"></div>
-                        <div class="w-full bg-emerald-500 rounded-sm" :style="{ height: `${day.replies * 4}px`, minHeight: day.replies ? '4px' : '0' }"></div>
-                        <div class="w-full bg-amber-500 rounded-sm" :style="{ height: `${day.tasks * 4}px`, minHeight: day.tasks ? '4px' : '0' }"></div>
+                      <div class="w-full max-w-[14px] flex flex-col items-center gap-[1px]">
+                        <div class="w-full bg-blue-500 rounded-t-sm transition-all duration-200" :style="{ height: `${Math.min(70, (day.applications || 0) * 8)}px`, minHeight: day.applications ? '4px' : '0' }"></div>
+                        <div class="w-full bg-emerald-500 rounded-sm transition-all duration-200" :style="{ height: `${Math.min(70, (day.replies || 0) * 8)}px`, minHeight: day.replies ? '4px' : '0' }"></div>
+                        <div class="w-full bg-amber-500 rounded-sm transition-all duration-200" :style="{ height: `${Math.min(70, (day.tasks || 0) * 8)}px`, minHeight: day.tasks ? '4px' : '0' }"></div>
                       </div>
 
-                      <span class="text-[9px] text-muted mt-2 truncate max-w-full hidden sm:block">{{ day.date.substring(5) }}</span>
+                      <span class="text-[9px] font-mono text-muted mt-2 truncate max-w-full text-center block leading-none">{{ day.date.substring(5) }}</span>
                     </div>
                   </div>
 
-                  <div class="flex justify-center gap-6 mt-6">
-                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-blue-500"></span><span class="text-xs font-medium text-secondary">Applications</span></div>
-                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-emerald-500"></span><span class="text-xs font-medium text-secondary">Replies</span></div>
-                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-amber-500"></span><span class="text-xs font-medium text-secondary">Tasks</span></div>
+                  <div class="flex items-center justify-center gap-6 mt-4 pt-3 border-t border-border-color">
+                    <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span><span class="text-xs font-semibold text-secondary">Applications</span></div>
+                    <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span><span class="text-xs font-semibold text-secondary">Replies</span></div>
+                    <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span><span class="text-xs font-semibold text-secondary">Tasks</span></div>
                   </div>
                 </div>
               </div>
             </div>
 
             <!-- Terminal Outcomes -->
-            <div class="bento-card">
-              <div class="bento-header">
-                <h3 class="bento-title">
+            <div class="bento-card relative overflow-hidden flex flex-col">
+              <div class="bento-header flex items-center justify-between border-b border-border-color pb-3 mb-2">
+                <h3 class="bento-title flex items-center gap-2 text-sm font-bold text-main">
                   <Target :size="16" class="text-primary" />
                   Terminal Outcomes
                 </h3>
               </div>
-              <div class="bento-body p-5 flex flex-col justify-center h-full gap-4">
-                <div class="flex items-center justify-between p-2 rounded-md bg-emerald-500/10 border border-emerald-500/20">
-                  <span class="text-sm font-semibold text-emerald-600 flex items-center gap-2"><div class="w-2.5 h-2.5 bg-emerald-500 rounded-full"></div>Offer / Hired</span>
-                  <span class="font-bold text-lg text-emerald-700">{{ activityData.terminal_outcomes.OFFER + activityData.terminal_outcomes.HIRED }}</span>
+              <div class="bento-body p-2 flex flex-col justify-center h-full gap-3">
+                <div class="flex items-center justify-between p-3 rounded-md bg-emerald-500/10 border border-emerald-500/20">
+                  <span class="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+                    <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full shrink-0"></span>
+                    Offer / Hired
+                  </span>
+                  <span class="px-2.5 py-1 rounded-full text-xs font-extrabold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-mono min-w-[32px] text-center">
+                    {{ (activityData.terminal_outcomes?.OFFER || 0) + (activityData.terminal_outcomes?.HIRED || 0) }}
+                  </span>
                 </div>
-                <div class="flex items-center justify-between p-2 rounded-md bg-red-500/10 border border-red-500/20">
-                  <span class="text-sm font-semibold text-red-600 flex items-center gap-2"><div class="w-2.5 h-2.5 bg-red-500 rounded-full"></div>Rejected</span>
-                  <span class="font-bold text-lg text-red-700">{{ activityData.terminal_outcomes.REJECTED }}</span>
+
+                <div class="flex items-center justify-between p-3 rounded-md bg-red-500/10 border border-red-500/20">
+                  <span class="text-xs font-semibold text-red-600 dark:text-red-400 flex items-center gap-2">
+                    <span class="w-2.5 h-2.5 bg-red-500 rounded-full shrink-0"></span>
+                    Rejected
+                  </span>
+                  <span class="px-2.5 py-1 rounded-full text-xs font-extrabold bg-red-500/20 text-red-700 dark:text-red-300 font-mono min-w-[32px] text-center">
+                    {{ activityData.terminal_outcomes?.REJECTED || 0 }}
+                  </span>
                 </div>
-                <div class="flex items-center justify-between p-2 rounded-md bg-slate-500/10 border border-slate-500/20">
-                  <span class="text-sm font-semibold text-slate-600 flex items-center gap-2"><div class="w-2.5 h-2.5 bg-slate-500 rounded-full"></div>Withdrawn</span>
-                  <span class="font-bold text-lg text-slate-700">{{ activityData.terminal_outcomes.WITHDRAWN }}</span>
+
+                <div class="flex items-center justify-between p-3 rounded-md bg-slate-500/10 border border-slate-500/20">
+                  <span class="text-xs font-semibold text-slate-600 dark:text-slate-400 flex items-center gap-2">
+                    <span class="w-2.5 h-2.5 bg-slate-500 rounded-full shrink-0"></span>
+                    Withdrawn
+                  </span>
+                  <span class="px-2.5 py-1 rounded-full text-xs font-extrabold bg-slate-500/20 text-slate-700 dark:text-slate-300 font-mono min-w-[32px] text-center">
+                    {{ activityData.terminal_outcomes?.WITHDRAWN || 0 }}
+                  </span>
                 </div>
               </div>
             </div>
@@ -976,18 +1228,164 @@ const sankeyData = computed(() => {
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
+/* Custom Range Calendar Popover */
+.custom-range-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 999;
+  width: 280px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xl, 0 10px 25px -5px rgba(0, 0, 0, 0.2));
+  padding: 14px;
+  box-sizing: border-box;
+}
 
+.popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.month-year-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.nav-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.nav-btn:hover {
+  background-color: var(--bg-elevated);
+  color: var(--text-main);
+}
+
+.days-header-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+  margin-bottom: 6px;
+}
+
+.day-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.calendar-day-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 500;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.calendar-day-btn:hover {
+  background-color: var(--bg-elevated);
+  border-color: var(--border-color);
+}
+
+.calendar-day-btn.out-of-month {
+  color: var(--text-muted);
+  opacity: 0.35;
+}
+
+.calendar-day-btn.is-today {
+  font-weight: 700;
+  border-color: var(--border-focus, var(--primary));
+}
+
+.calendar-day-btn.is-range-start,
+.calendar-day-btn.is-range-end {
+  background-color: var(--primary);
+  color: #fff !important;
+  font-weight: 700;
+  border-color: var(--primary);
+  border-radius: var(--radius-sm);
+}
+
+.calendar-day-btn.in-range {
+  background-color: var(--primary-subtle, rgba(59, 130, 246, 0.15));
+  color: var(--primary);
+  border-radius: 0;
+}
+
+.popover-hint {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+  font-size: 11px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 .history-ribbon-widget {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   padding: 12px 16px;
+  position: relative;
+  overflow: hidden;
 }
 .ribbon-chart {
   height: 80px;
   border-bottom: 1px solid var(--border-color);
   padding-bottom: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.velocity-kpi-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  transition: transform var(--transition-fast, 0.15s ease), border-color var(--transition-fast, 0.15s ease);
+}
+.velocity-kpi-card:hover {
+  border-color: var(--border-focus);
 }
 .ribbon-bar-container {
   flex: 1;
