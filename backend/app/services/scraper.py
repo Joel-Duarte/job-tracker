@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.services.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
 
@@ -275,29 +276,47 @@ async def scrape_job_url(url: str, timeout_seconds: float = 25.0) -> ScrapedJobC
     if not cleaned_url.startswith(("http://", "https://")):
         cleaned_url = f"https://{cleaned_url}"
 
-    # 1. Attempt Camofox stealth scraper
-    camofox_result = await _scrape_via_camofox(
-        cleaned_url, timeout_seconds=timeout_seconds
-    )
-    if camofox_result and len(camofox_result.text.strip()) > 100:
-        return camofox_result
+    async with trace_operation(
+        category="scraper",
+        name="scrape_job_url",
+        inputs={"url": cleaned_url, "timeout_seconds": timeout_seconds},
+    ) as ctx:
+        # 1. Attempt Camofox stealth scraper
+        camofox_result = await _scrape_via_camofox(
+            cleaned_url, timeout_seconds=timeout_seconds
+        )
+        if camofox_result and len(camofox_result.text.strip()) > 100:
+            ctx["outputs"] = {
+                "title": camofox_result.title,
+                "char_count": len(camofox_result.text),
+                "scraped_via": "camofox",
+            }
+            return camofox_result
 
-    # 2. Fallback to direct HTTP request
-    logger.info("Falling back to HTTP fetch for URL: %s", cleaned_url)
-    try:
-        return await _scrape_via_http_fallback(
-            cleaned_url, timeout_seconds=min(timeout_seconds, 15.0)
-        )
-    except Exception as fallback_err:
-        logger.error(
-            "Both Camofox and HTTP fallback failed for %s: %s",
-            cleaned_url,
-            fallback_err,
-        )
-        # Return empty content with error note rather than crashing ungracefully
-        return ScrapedJobContent(
-            title="",
-            text="",
-            source_url=cleaned_url,
-            scraped_via="failed",
-        )
+        # 2. Fallback to direct HTTP request
+        logger.info("Falling back to HTTP fetch for URL: %s", cleaned_url)
+        try:
+            http_result = await _scrape_via_http_fallback(
+                cleaned_url, timeout_seconds=min(timeout_seconds, 15.0)
+            )
+            ctx["outputs"] = {
+                "title": http_result.title,
+                "char_count": len(http_result.text),
+                "scraped_via": "http_fallback",
+            }
+            return http_result
+        except Exception as fallback_err:
+            logger.error(
+                "Both Camofox and HTTP fallback failed for %s: %s",
+                cleaned_url,
+                fallback_err,
+            )
+            ctx["error"] = f"Scraping failed: {fallback_err}"
+            ctx["outputs"] = {"scraped_via": "failed"}
+            # Return empty content with error note rather than crashing ungracefully
+            return ScrapedJobContent(
+                title="",
+                text="",
+                source_url=cleaned_url,
+                scraped_via="failed",
+            )

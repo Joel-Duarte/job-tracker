@@ -8,6 +8,7 @@ from email.header import decode_header
 from app.models.email_accounts import EmailAccountModel
 from app.schemas.intake import EmailPayload
 from app.services.oauth_adapters import GmailOAuthAdapter, MicrosoftGraphAdapter
+from app.services.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
 
@@ -106,68 +107,94 @@ async def fetch_emails_from_account(
     """
     auth_type = (account.auth_type or "IMAP").upper()
 
-    if auth_type == "GMAIL_OAUTH":
-        token = account.access_token
-        # Try refreshing token if refresh token and credentials are present
-        if (
-            not token
-            and account.refresh_token
-            and account.client_id
-            and account.client_secret
-        ):
-            try:
-                token = await GmailOAuthAdapter.refresh_access_token(
-                    account.client_id, account.client_secret, account.refresh_token
+    async with trace_operation(
+        category="email_sync",
+        name=f"email_sync_{auth_type.lower()}",
+        inputs={
+            "account_id": getattr(account, "id", None),
+            "username": getattr(account, "username", None),
+            "auth_type": auth_type,
+            "folder": getattr(account, "folder", "INBOX") or "INBOX",
+            "since_date": since_date.isoformat() if since_date else None,
+        },
+    ) as ctx:
+        if auth_type == "GMAIL_OAUTH":
+            token = account.access_token
+            # Try refreshing token if refresh token and credentials are present
+            if (
+                not token
+                and account.refresh_token
+                and account.client_id
+                and account.client_secret
+            ):
+                try:
+                    token = await GmailOAuthAdapter.refresh_access_token(
+                        account.client_id, account.client_secret, account.refresh_token
+                    )
+                    account.access_token = token
+                except Exception as err:
+                    logger.error("Failed refreshing Gmail access token: %s", err)
+
+            if not token:
+                logger.warning(
+                    "No valid access token for Gmail OAuth account %s", account.id
                 )
-                account.access_token = token
-            except Exception as err:
-                logger.error("Failed refreshing Gmail access token: %s", err)
-
-        if not token:
-            logger.warning(
-                "No valid access token for Gmail OAuth account %s", account.id
-            )
-            return [], None
-
-        query_str = f"label:{account.folder or 'INBOX'}"
-        if since_date:
-            date_fmt = since_date.strftime("%Y/%m/%d")
-            query_str += f" after:{date_fmt}"
-
-        return await GmailOAuthAdapter.fetch_messages_delta(
-            access_token=token,
-            history_id=account.sync_cursor,
-            query=query_str,
-        )
-
-    elif auth_type == "MS_GRAPH_OAUTH":
-        token = account.access_token
-        if (
-            not token
-            and account.refresh_token
-            and account.client_id
-            and account.client_secret
-        ):
-            try:
-                token = await MicrosoftGraphAdapter.refresh_access_token(
-                    account.client_id, account.client_secret, account.refresh_token
+                ctx["error"] = (
+                    f"No valid access token for Gmail OAuth account {account.id}"
                 )
-                account.access_token = token
-            except Exception as err:
-                logger.error("Failed refreshing MS Graph access token: %s", err)
+                ctx["outputs"] = {"fetched_count": 0}
+                return [], None
 
-        if not token:
-            logger.warning(
-                "No valid access token for MS Graph OAuth account %s", account.id
+            query_str = f"label:{account.folder or 'INBOX'}"
+            if since_date:
+                date_fmt = since_date.strftime("%Y/%m/%d")
+                query_str += f" after:{date_fmt}"
+
+            emails, cursor = await GmailOAuthAdapter.fetch_messages_delta(
+                access_token=token,
+                history_id=account.sync_cursor,
+                query=query_str,
             )
-            return [], None
+            ctx["outputs"] = {"fetched_count": len(emails), "cursor": cursor}
+            return emails, cursor
 
-        return await MicrosoftGraphAdapter.fetch_messages_delta(
-            access_token=token,
-            delta_link=account.sync_cursor,
-        )
+        elif auth_type == "MS_GRAPH_OAUTH":
+            token = account.access_token
+            if (
+                not token
+                and account.refresh_token
+                and account.client_id
+                and account.client_secret
+            ):
+                try:
+                    token = await MicrosoftGraphAdapter.refresh_access_token(
+                        account.client_id, account.client_secret, account.refresh_token
+                    )
+                    account.access_token = token
+                except Exception as err:
+                    logger.error("Failed refreshing MS Graph access token: %s", err)
 
-    else:
-        # Standard IMAP
-        emails = await asyncio.to_thread(_fetch_imap_emails_sync, account, since_date)
-        return emails, None
+            if not token:
+                logger.warning(
+                    "No valid access token for MS Graph OAuth account %s", account.id
+                )
+                ctx["error"] = (
+                    f"No valid access token for MS Graph OAuth account {account.id}"
+                )
+                ctx["outputs"] = {"fetched_count": 0}
+                return [], None
+
+            emails, cursor = await MicrosoftGraphAdapter.fetch_messages_delta(
+                access_token=token,
+                delta_link=account.sync_cursor,
+            )
+            ctx["outputs"] = {"fetched_count": len(emails), "cursor": cursor}
+            return emails, cursor
+
+        else:
+            # Standard IMAP
+            emails = await asyncio.to_thread(
+                _fetch_imap_emails_sync, account, since_date
+            )
+            ctx["outputs"] = {"fetched_count": len(emails)}
+            return emails, None

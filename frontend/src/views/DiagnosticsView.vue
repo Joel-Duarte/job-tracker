@@ -1,15 +1,45 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { DiagnosticsAPI } from '../api/endpoints'
-import { Activity, AlertCircle, CheckCircle, Search, TerminalSquare, Info, ChevronRight, X } from 'lucide-vue-next'
+import {
+  Activity,
+  AlertCircle,
+  CheckCircle,
+  TerminalSquare,
+  ChevronRight,
+  X,
+  Sparkles,
+  Globe,
+  Mail,
+  Cpu,
+  Database,
+  Trash2,
+  Clock,
+  Code,
+  Layers,
+  Copy,
+  Check
+} from 'lucide-vue-next'
 
 const stats = ref(null)
 const traces = ref([])
 const loading = ref(true)
 const loadingTraces = ref(false)
 const showErrorsOnly = ref(false)
+const activeCategory = ref('all')
 const selectedTrace = ref(null)
 const loadingDetail = ref(false)
+const modalTab = ref('overview') // 'overview' or 'raw'
+const copied = ref(false)
+
+const categories = [
+  { id: 'all', label: 'All Telemetry', icon: Layers },
+  { id: 'llm', label: 'AI & LLM', icon: Sparkles },
+  { id: 'scraper', label: 'Web Scraper', icon: Globe },
+  { id: 'email_sync', label: 'Email Sync', icon: Mail },
+  { id: 'worker', label: 'Workers', icon: Cpu },
+  { id: 'embedding', label: 'Embeddings', icon: Database },
+]
 
 async function loadData() {
   loading.value = true
@@ -28,13 +58,25 @@ async function loadData() {
 async function loadTraces() {
   loadingTraces.value = true
   try {
-    const resTraces = await DiagnosticsAPI.getTraces({ errors_only: showErrorsOnly.value, limit: 100 })
+    const params = {
+      errors_only: showErrorsOnly.value,
+      limit: 100
+    }
+    if (activeCategory.value && activeCategory.value !== 'all') {
+      params.category = activeCategory.value
+    }
+    const resTraces = await DiagnosticsAPI.getTraces(params)
     traces.value = resTraces.data
   } catch (err) {
     console.error("Failed to load traces", err)
   } finally {
     loadingTraces.value = false
   }
+}
+
+function selectCategory(catId) {
+  activeCategory.value = catId
+  loadTraces()
 }
 
 function toggleErrorsOnly() {
@@ -44,7 +86,8 @@ function toggleErrorsOnly() {
 
 async function viewTraceDetails(runId) {
   loadingDetail.value = true
-  selectedTrace.value = { id: 'loading' } // placeholder to open modal
+  modalTab.value = 'overview'
+  selectedTrace.value = { id: 'loading', run_id: runId }
   try {
     const res = await DiagnosticsAPI.getTrace(runId)
     selectedTrace.value = res.data
@@ -60,6 +103,55 @@ function closeDetails() {
   selectedTrace.value = null
 }
 
+async function purgeAllTraces() {
+  if (!confirm("Are you sure you want to purge all telemetry traces? This action cannot be undone.")) {
+    return
+  }
+  try {
+    await DiagnosticsAPI.purge()
+    await loadData()
+  } catch (err) {
+    console.error("Failed to purge traces", err)
+  }
+}
+
+function copyRawJson() {
+  if (!selectedTrace.value?.payload) return
+  navigator.clipboard.writeText(JSON.stringify(selectedTrace.value.payload, null, 2))
+  copied.value = true
+  setTimeout(() => {
+    copied.value = false
+  }, 2000)
+}
+
+function getCategoryBadgeClass(category) {
+  switch (category) {
+    case 'llm': return 'badge-cat-llm'
+    case 'scraper': return 'badge-cat-scraper'
+    case 'email_sync': return 'badge-cat-email'
+    case 'worker': return 'badge-cat-worker'
+    case 'embedding': return 'badge-cat-embedding'
+    default: return 'badge-cat-default'
+  }
+}
+
+function getCategoryIcon(category) {
+  switch (category) {
+    case 'llm': return Sparkles
+    case 'scraper': return Globe
+    case 'email_sync': return Mail
+    case 'worker': return Cpu
+    case 'embedding': return Database
+    default: return Activity
+  }
+}
+
+function formatDuration(ms) {
+  if (ms == null) return '--'
+  if (ms < 1000) return `${Math.round(ms)} ms`
+  return `${(ms / 1000).toFixed(2)} s`
+}
+
 onMounted(() => {
   loadData()
 })
@@ -69,10 +161,13 @@ onMounted(() => {
   <div class="page-container">
     <div class="page-header">
       <div class="header-text-center">
-        <h1 class="page-title">LangGraph Telemetry Dashboard</h1>
-        <p class="page-subtitle">Real-time embedded PostgreSQL tracer diagnostics</p>
+        <h1 class="page-title">System Diagnostics & Telemetry</h1>
+        <p class="page-subtitle">Real-time execution traces across AI pipelines, web scrapers, email sync, and background workers</p>
       </div>
       <div class="header-actions">
+        <button class="btn btn-outline" @click="purgeAllTraces" title="Purge telemetry records">
+          <Trash2 :size="15" /> Purge Logs
+        </button>
         <button class="btn btn-primary" @click="loadData">
           <Activity :size="16" /> Refresh Telemetry
         </button>
@@ -86,129 +181,164 @@ onMounted(() => {
 
     <div v-else class="settings-content-area">
       <div class="diagnostics-inner-container">
-      <!-- KPI Metric Cards -->
-      <div class="kpi-grid">
-        <div class="kpi-card">
-          <div class="kpi-icon default">
-            <Activity :size="20" />
+        <!-- KPI Metric Cards -->
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-icon default">
+              <Activity :size="20" />
+            </div>
+            <div class="kpi-info">
+              <div class="kpi-label">Total Traces Recorded</div>
+              <div class="kpi-value">{{ stats?.total_runs || 0 }}</div>
+              <div class="kpi-subtext">Across all background services</div>
+            </div>
           </div>
-          <div class="kpi-info">
-            <div class="kpi-label">Total Traces Recorded</div>
-            <div class="kpi-value">{{ stats?.total_runs || 0 }}</div>
+
+          <div class="kpi-card">
+            <div class="kpi-icon success">
+              <CheckCircle :size="20" />
+            </div>
+            <div class="kpi-info">
+              <div class="kpi-label">Successful Executions</div>
+              <div class="kpi-value text-success">{{ stats?.success_count || 0 }}</div>
+              <div class="kpi-subtext">Success Rate: {{ stats?.success_rate || 0 }}%</div>
+            </div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-icon danger">
+              <AlertCircle :size="20" />
+            </div>
+            <div class="kpi-info">
+              <div class="kpi-label">Failed Invocations</div>
+              <div class="kpi-value text-danger">{{ stats?.error_count || 0 }}</div>
+              <div class="kpi-subtext">{{ stats?.error_count ? 'Requires triage' : 'All systems normal' }}</div>
+            </div>
           </div>
         </div>
 
-        <div class="kpi-card">
-          <div class="kpi-icon success">
-            <CheckCircle :size="20" />
+        <!-- Tracing Data Section -->
+        <div class="section-card">
+          <!-- Category Tabs Bar -->
+          <div class="category-tabs-container">
+            <div class="category-tabs">
+              <button
+                v-for="cat in categories"
+                :key="cat.id"
+                class="category-tab"
+                :class="{ active: activeCategory === cat.id }"
+                @click="selectCategory(cat.id)"
+              >
+                <component :is="cat.icon" :size="15" />
+                <span>{{ cat.label }}</span>
+                <span class="tab-badge">
+                  {{ cat.id === 'all' ? (stats?.total_runs || 0) : (stats?.category_counts?.[cat.id] || 0) }}
+                </span>
+              </button>
+            </div>
+
+            <div class="filters-actions">
+              <label class="toggle-switch">
+                <input type="checkbox" v-model="showErrorsOnly" @change="loadTraces" />
+                <span class="slider round"></span>
+                <span class="toggle-label ml-2 text-sm font-medium">Show Errors Only</span>
+              </label>
+            </div>
           </div>
-          <div class="kpi-info">
-            <div class="kpi-label">Successful Executions</div>
-            <div class="kpi-value text-success">{{ stats?.success_count || 0 }}</div>
-            <div class="kpi-subtext">Success Rate: {{ stats?.success_rate || 0 }}%</div>
+
+          <!-- Loading State -->
+          <div v-if="loadingTraces" class="py-8 flex flex-center">
+            <div class="spinner"></div>
+            <span class="mt-2 text-secondary text-sm">Filtering traces...</span>
+          </div>
+
+          <!-- Empty State -->
+          <div v-else-if="traces.length === 0" class="empty-state py-12 text-center">
+            <TerminalSquare :size="36" class="text-secondary mb-3 mx-auto opacity-70" />
+            <h4>No traces recorded</h4>
+            <p class="text-secondary text-sm mt-1">
+              {{ showErrorsOnly ? 'No error traces found for this category.' : 'No operations have been recorded in this category yet.' }}
+            </p>
+          </div>
+
+          <!-- Traces Table -->
+          <div v-else class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th width="15%">Timestamp</th>
+                  <th width="12%">Category</th>
+                  <th width="35%">Task / Operation</th>
+                  <th width="12%">Duration</th>
+                  <th width="14%">Status</th>
+                  <th width="12%" class="text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="trace in traces"
+                  :key="trace.id"
+                  class="trace-row"
+                  @click="viewTraceDetails(trace.run_id)"
+                >
+                  <td class="text-secondary text-xs">
+                    <span class="font-medium text-main">{{ new Date(trace.timestamp).toLocaleTimeString() }}</span>
+                    <br />
+                    <span class="opacity-75">{{ new Date(trace.timestamp).toLocaleDateString() }}</span>
+                  </td>
+                  <td>
+                    <span class="category-badge" :class="getCategoryBadgeClass(trace.category)">
+                      <component :is="getCategoryIcon(trace.category)" :size="12" />
+                      {{ trace.category }}
+                    </span>
+                  </td>
+                  <td>
+                    <div class="task-cell">
+                      <span class="task-name">{{ trace.payload_summary?.name || trace.event_type }}</span>
+                      <span class="run-id-pill font-mono">{{ trace.run_id.substring(0, 8) }}</span>
+                    </div>
+                  </td>
+                  <td class="text-secondary text-sm font-mono">
+                    {{ formatDuration(trace.payload_summary?.duration_ms) }}
+                  </td>
+                  <td>
+                    <div v-if="trace.payload_summary?.error || trace.status === 'error'" class="status-indicator error">
+                      <span class="dot"></span> Failed
+                    </div>
+                    <div v-else class="status-indicator success">
+                      <span class="dot"></span> Completed
+                    </div>
+                  </td>
+                  <td class="text-right">
+                    <button class="btn-inspect" @click.stop="viewTraceDetails(trace.run_id)">
+                      <span>Inspect</span>
+                      <ChevronRight :size="14" />
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
-
-        <div class="kpi-card">
-          <div class="kpi-icon danger">
-            <AlertCircle :size="20" />
-          </div>
-          <div class="kpi-info">
-            <div class="kpi-label">Failed Invocations</div>
-            <div class="kpi-value text-danger">{{ stats?.error_count || 0 }}</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Tracing Data Table -->
-      <div class="section-card mt-6">
-        <div class="card-intro flex justify-between items-center mb-4">
-          <div>
-            <h3>Execution Traces</h3>
-            <p class="text-sm text-secondary">Showing recent agent runs and LLM completions.</p>
-          </div>
-
-          <div class="filters">
-            <label class="toggle-switch">
-              <input type="checkbox" v-model="showErrorsOnly" @change="loadTraces" />
-              <span class="slider round"></span>
-              <span class="toggle-label ml-2 text-sm font-medium">Show Errors Only</span>
-            </label>
-          </div>
-        </div>
-
-        <div v-if="loadingTraces" class="py-6 flex flex-center">
-          <div class="spinner"></div>
-        </div>
-
-        <div v-else-if="traces.length === 0" class="empty-state py-8 text-center">
-          <TerminalSquare :size="32" class="text-secondary mb-3 mx-auto" />
-          <h4>No traces found</h4>
-          <p class="text-secondary text-sm mt-1">No AI telemetry has been recorded yet.</p>
-        </div>
-
-        <div v-else class="table-responsive">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th width="15%">Timestamp</th>
-                <th width="12%">Run ID</th>
-                <th width="10%">Type</th>
-                <th width="35%">Task Name</th>
-                <th width="15%">Status</th>
-                <th width="13%" class="text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="trace in traces" :key="trace.id" class="trace-row" @click="viewTraceDetails(trace.run_id)">
-                <td class="text-secondary text-sm">
-                  {{ new Date(trace.timestamp).toLocaleTimeString() }}
-                  <br>
-                  <span style="font-size: 11px;">{{ new Date(trace.timestamp).toLocaleDateString() }}</span>
-                </td>
-                <td>
-                  <span class="badge badge-outline text-xs font-mono">
-                    {{ trace.run_id.substring(0, 8) }}
-                  </span>
-                </td>
-                <td>
-                  <span class="badge badge-neutral text-xs capitalize">
-                    {{ trace.event_type }}
-                  </span>
-                </td>
-                <td class="font-medium text-sm">
-                  {{ trace.payload_summary?.name || 'Unknown execution' }}
-                </td>
-                <td>
-                  <div v-if="trace.payload_summary?.error" class="status-indicator error">
-                    <span class="dot"></span> Failed
-                  </div>
-                  <div v-else class="status-indicator success">
-                    <span class="dot"></span> Completed
-                  </div>
-                </td>
-                <td class="text-right">
-                  <button class="btn btn-icon btn-sm text-secondary hover-primary">
-                    <ChevronRight :size="16" />
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
       </div>
     </div>
 
-    <!-- Deep Dive Modal -->
+    <!-- Inspector Modal -->
     <div v-if="selectedTrace" class="modal-backdrop" @click.self="closeDetails">
-      <div class="modal-card animate-fade-in" style="max-width: 900px; width: 90vw;">
+      <div class="modal-card animate-fade-in" style="max-width: 880px; width: 92vw;">
         <div class="modal-header">
           <div class="modal-title-group">
-            <div class="modal-icon text-primary"><TerminalSquare :size="18" /></div>
+            <div class="modal-icon text-primary">
+              <component :is="getCategoryIcon(selectedTrace.category)" :size="20" />
+            </div>
             <div>
-              <h3 class="modal-title">Trace Inspector</h3>
-              <p class="text-xs text-secondary mt-1 font-mono">Run ID: {{ selectedTrace.run_id || '...' }}</p>
+              <div class="flex items-center gap-2">
+                <h3 class="modal-title">{{ selectedTrace.payload?.name || 'Trace Inspector' }}</h3>
+                <span class="category-badge" :class="getCategoryBadgeClass(selectedTrace.category)">
+                  {{ selectedTrace.category || 'telemetry' }}
+                </span>
+              </div>
+              <p class="text-xs text-secondary mt-1 font-mono">Run ID: {{ selectedTrace.run_id }}</p>
             </div>
           </div>
           <button class="btn-icon" @click="closeDetails">
@@ -216,18 +346,94 @@ onMounted(() => {
           </button>
         </div>
 
-        <div class="modal-body" style="background: #0f172a; padding: 20px; max-height: 70vh; overflow-y: auto;">
-          <div v-if="loadingDetail" class="flex flex-center py-8">
+        <!-- Modal Tabs -->
+        <div class="modal-nav">
+          <button
+            class="modal-nav-tab"
+            :class="{ active: modalTab === 'overview' }"
+            @click="modalTab = 'overview'"
+          >
+            <Activity :size="14" /> Structured Overview
+          </button>
+          <button
+            class="modal-nav-tab"
+            :class="{ active: modalTab === 'raw' }"
+            @click="modalTab = 'raw'"
+          >
+            <Code :size="14" /> Raw Payload JSON
+          </button>
+        </div>
+
+        <div class="modal-body">
+          <div v-if="loadingDetail" class="flex flex-center py-12">
             <div class="spinner"></div>
+            <span class="mt-2 text-secondary text-sm">Loading trace details...</span>
           </div>
+
           <div v-else-if="selectedTrace.id !== 'loading'">
-            <div v-if="selectedTrace.payload?.error" class="error-banner mb-4">
-              <h4 class="text-danger flex items-center gap-2"><AlertCircle :size="16" /> Exception Caught</h4>
-              <p class="text-sm font-mono mt-2" style="white-space: pre-wrap; color: #f87171;">{{ selectedTrace.payload.error }}</p>
+            <!-- Overview Tab -->
+            <div v-if="modalTab === 'overview'" class="overview-content">
+              <!-- Exception Banner if failed -->
+              <div v-if="selectedTrace.payload?.error" class="error-banner mb-4">
+                <h4 class="text-danger flex items-center gap-2 font-semibold">
+                  <AlertCircle :size="16" /> Execution Error
+                </h4>
+                <pre class="error-trace font-mono">{{ selectedTrace.payload.error }}</pre>
+              </div>
+
+              <!-- Metadata Summary Grid -->
+              <div class="meta-grid mb-4">
+                <div class="meta-item">
+                  <span class="meta-label">Status</span>
+                  <span class="meta-value">
+                    <span v-if="selectedTrace.payload?.error" class="text-danger font-semibold">Failed</span>
+                    <span v-else class="text-success font-semibold">Success</span>
+                  </span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">Duration</span>
+                  <span class="meta-value font-mono">{{ formatDuration(selectedTrace.payload?.duration_ms) }}</span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">Timestamp</span>
+                  <span class="meta-value text-xs">{{ new Date(selectedTrace.timestamp).toLocaleString() }}</span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">Category</span>
+                  <span class="meta-value capitalize">{{ selectedTrace.category }}</span>
+                </div>
+              </div>
+
+              <!-- Operation Inputs -->
+              <div v-if="selectedTrace.payload?.inputs && Object.keys(selectedTrace.payload.inputs).length > 0" class="payload-box mb-4">
+                <h5 class="box-title">Inputs</h5>
+                <pre class="json-code"><code>{{ JSON.stringify(selectedTrace.payload.inputs, null, 2) }}</code></pre>
+              </div>
+
+              <!-- Operation Outputs -->
+              <div v-if="selectedTrace.payload?.outputs && Object.keys(selectedTrace.payload.outputs).length > 0" class="payload-box mb-4">
+                <h5 class="box-title">Outputs</h5>
+                <pre class="json-code"><code>{{ JSON.stringify(selectedTrace.payload.outputs, null, 2) }}</code></pre>
+              </div>
+
+              <!-- Extra Metadata -->
+              <div v-if="selectedTrace.payload?.extra && Object.keys(selectedTrace.payload.extra).length > 0" class="payload-box">
+                <h5 class="box-title">Operational Context</h5>
+                <pre class="json-code"><code>{{ JSON.stringify(selectedTrace.payload.extra, null, 2) }}</code></pre>
+              </div>
             </div>
 
-            <h4 class="text-white mb-2 text-sm font-medium">Raw Payload Data</h4>
-            <pre class="json-viewer"><code>{{ JSON.stringify(selectedTrace.payload, null, 2) }}</code></pre>
+            <!-- Raw JSON Tab -->
+            <div v-else class="raw-content">
+              <div class="raw-header">
+                <span class="text-xs text-secondary">Complete JSON Payload</span>
+                <button class="btn btn-xs btn-outline" @click="copyRawJson">
+                  <component :is="copied ? Check : Copy" :size="13" />
+                  {{ copied ? 'Copied!' : 'Copy JSON' }}
+                </button>
+              </div>
+              <pre class="raw-viewer font-mono"><code>{{ JSON.stringify(selectedTrace.payload, null, 2) }}</code></pre>
+            </div>
           </div>
         </div>
       </div>
@@ -249,43 +455,48 @@ onMounted(() => {
 
 .page-header {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  text-align: center;
-  padding: 22px 24px 16px;
-  background-color: var(--bg-sidebar);
+  justify-content: space-between;
+  padding: 20px 32px;
+  background-color: var(--bg-surface);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
-  gap: 14px;
-  margin-bottom: 0;
+  gap: 16px;
 }
 
 .header-text-center {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.header-actions {
+  display: flex;
   align-items: center;
-  text-align: center;
+  gap: 10px;
 }
 
 .page-title {
   font-size: 22px;
   font-weight: 700;
   color: var(--text-main);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   letter-spacing: -0.01em;
 }
 
 .page-subtitle {
   font-size: 13px;
   color: var(--text-secondary);
-  max-width: 600px;
-  line-height: 1.5;
+  max-width: 650px;
+  line-height: 1.4;
 }
 
 .settings-content-area {
   flex: 1;
   overflow-y: auto;
-  padding: 32px 24px;
+  padding: 28px 32px;
   background-color: var(--bg-app);
   display: flex;
   justify-content: center;
@@ -293,26 +504,27 @@ onMounted(() => {
 
 .diagnostics-inner-container {
   width: 100%;
-  max-width: 1100px;
+  max-width: 1180px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
+/* KPI Cards */
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+  gap: 16px;
 }
 
 .kpi-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  padding: 20px;
+  padding: 18px 20px;
   display: flex;
   align-items: flex-start;
-  gap: 16px;
+  gap: 14px;
   box-shadow: var(--shadow-sm);
   transition: transform 0.2s, box-shadow 0.2s;
 }
@@ -323,36 +535,103 @@ onMounted(() => {
 }
 
 .kpi-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
-.kpi-icon.default { background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
-.kpi-icon.success { background: rgba(34, 197, 94, 0.1); color: #22c55e; }
-.kpi-icon.danger { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+.kpi-icon.default { background: rgba(99, 102, 241, 0.12); color: #6366f1; }
+.kpi-icon.success { background: rgba(34, 197, 94, 0.12); color: #22c55e; }
+.kpi-icon.danger { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
 
 .kpi-info { flex: 1; }
-.kpi-label { font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 4px; }
-.kpi-value { font-size: 28px; font-weight: 700; color: var(--text-main); line-height: 1.2; }
+.kpi-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+.kpi-value { font-size: 26px; font-weight: 700; color: var(--text-main); line-height: 1.2; }
 .kpi-subtext { font-size: 12px; color: var(--text-tertiary); margin-top: 4px; }
 .text-success { color: var(--status-success-text); }
 .text-danger { color: var(--status-danger-text); }
 
-.mt-6 { margin-top: 24px; }
-.mb-4 { margin-bottom: 16px; }
-.mb-3 { margin-bottom: 12px; }
-.py-6 { padding-top: 24px; padding-bottom: 24px; }
-.py-8 { padding-top: 32px; padding-bottom: 32px; }
-.flex { display: flex; }
-.flex-center { align-items: center; justify-content: center; flex-direction: column; }
-.justify-between { justify-content: space-between; }
-.items-center { align-items: center; }
-.gap-2 { gap: 8px; }
+/* Section Card */
+.section-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
 
+/* Category Tabs Bar */
+.category-tabs-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-sidebar);
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.category-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.category-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.category-tab:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-main);
+}
+
+.category-tab.active {
+  background: var(--bg-surface);
+  color: var(--primary);
+  border-color: var(--border-color);
+  box-shadow: var(--shadow-xs);
+  font-weight: 600;
+}
+
+.tab-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--bg-main);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.category-tab.active .tab-badge {
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--primary);
+}
+
+.filters-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Data Table */
 .data-table {
   width: 100%;
   border-collapse: collapse;
@@ -360,17 +639,18 @@ onMounted(() => {
 
 .data-table th {
   text-align: left;
-  padding: 12px 16px;
-  font-size: 12px;
+  padding: 12px 18px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-secondary);
-  border-bottom: 2px solid var(--border-color);
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border-color);
   font-weight: 600;
 }
 
 .data-table td {
-  padding: 12px 16px;
+  padding: 12px 18px;
   border-bottom: 1px solid var(--border-color);
   vertical-align: middle;
 }
@@ -379,38 +659,286 @@ onMounted(() => {
   cursor: pointer;
   transition: background-color 0.15s;
 }
+
 .trace-row:hover {
   background-color: var(--bg-surface-hover);
 }
-.trace-row:hover .hover-primary {
-  color: var(--primary);
+
+.task-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.badge {
-  padding: 2px 8px;
-  border-radius: 12px;
-  display: inline-block;
+.task-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-main);
 }
-.badge-outline { border: 1px solid var(--border-color); }
-.badge-neutral { background: var(--bg-main); border: 1px solid var(--border-color); }
-.font-mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
 
+.run-id-pill {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-main);
+  border: 1px solid var(--border-color);
+  color: var(--text-tertiary);
+}
+
+/* Category Badges */
+.category-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.badge-cat-llm { background: rgba(168, 85, 247, 0.12); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.25); }
+.badge-cat-scraper { background: rgba(20, 184, 166, 0.12); color: #0d9488; border: 1px solid rgba(20, 184, 166, 0.25); }
+.badge-cat-email { background: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.25); }
+.badge-cat-worker { background: rgba(59, 130, 246, 0.12); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.25); }
+.badge-cat-embedding { background: rgba(99, 102, 241, 0.12); color: #4f46e5; border: 1px solid rgba(99, 102, 241, 0.25); }
+.badge-cat-default { background: var(--bg-main); color: var(--text-secondary); border: 1px solid var(--border-color); }
+
+/* Status Indicator */
 .status-indicator {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 600;
 }
+
 .status-indicator .dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
 }
-.status-indicator.success .dot { background: var(--status-success-text); }
-.status-indicator.success { color: var(--status-success-text); }
-.status-indicator.error .dot { background: var(--status-danger-text); }
-.status-indicator.error { color: var(--status-danger-text); }
+
+.status-indicator.success .dot { background: #22c55e; }
+.status-indicator.success { color: #16a34a; }
+.status-indicator.error .dot { background: #ef4444; }
+.status-indicator.error { color: #dc2626; }
+
+.btn-inspect {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.trace-row:hover .btn-inspect {
+  background: var(--bg-surface);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+/* Modal Styling */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: var(--bg-backdrop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-card {
+  width: 100%;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  background-color: var(--bg-surface);
+}
+
+.modal-title-group {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.modal-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.modal-nav {
+  display: flex;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-sidebar);
+  padding: 0 16px;
+}
+
+.modal-nav-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.modal-nav-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+}
+
+.modal-body {
+  padding: 20px 24px;
+  max-height: 72vh;
+  overflow-y: auto;
+  background: var(--bg-surface);
+}
+
+/* Modal Content Components */
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.meta-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+}
+
+.meta-value {
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.error-banner {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  padding: 14px 18px;
+  border-radius: var(--radius-md);
+}
+
+.error-trace {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #f87171;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.payload-box {
+  background: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+}
+
+.box-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.json-code {
+  margin: 0;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  color: #6366f1;
+  max-height: 220px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.raw-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.raw-viewer {
+  margin: 0;
+  background: #0f172a;
+  color: #a5b4fc;
+  font-size: 12px;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  max-height: 55vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Helpers */
+.flex { display: flex; }
+.flex-center { align-items: center; justify-content: center; }
+.items-center { align-items: center; }
+.gap-2 { gap: 8px; }
+.mb-4 { margin-bottom: 16px; }
+.mb-3 { margin-bottom: 12px; }
+.mt-1 { margin-top: 4px; }
+.mt-2 { margin-top: 8px; }
+.py-8 { padding-top: 32px; padding-bottom: 32px; }
+.py-12 { padding-top: 48px; padding-bottom: 48px; }
+.text-center { text-align: center; }
+.text-right { text-align: right; }
+.btn-xs { padding: 4px 8px; font-size: 11px; }
 
 /* Toggle Switch */
 .toggle-switch {
@@ -422,84 +950,27 @@ onMounted(() => {
 .toggle-switch input { opacity: 0; width: 0; height: 0; }
 .slider {
   position: relative;
-  width: 36px;
-  height: 20px;
+  width: 34px;
+  height: 18px;
   background-color: var(--bg-main);
   border: 1px solid var(--border-color);
-  transition: .4s;
+  transition: .3s;
   border-radius: 34px;
 }
 .slider:before {
   position: absolute;
   content: "";
-  height: 14px;
-  width: 14px;
+  height: 12px;
+  width: 12px;
   left: 2px;
   bottom: 2px;
   background-color: var(--text-secondary);
-  transition: .4s;
+  transition: .3s;
   border-radius: 50%;
 }
 input:checked + .slider { background-color: var(--primary); border-color: var(--primary); }
 input:checked + .slider:before {
   transform: translateX(16px);
   background-color: white;
-}
-
-/* Modal styling overrides */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background-color: var(--bg-backdrop);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 20px;
-}
-.modal-card {
-  width: 100%;
-  max-width: 640px;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xl);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.modal-header {
-  padding: 20px 24px;
-  border-bottom: 1px solid var(--border-color);
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  background-color: var(--bg-surface);
-}
-.modal-title-group {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-.modal-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-main);
-  margin-bottom: 4px;
-  line-height: 1.4;
-}
-
-.error-banner {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  padding: 12px 16px;
-  border-radius: 8px;
-}
-.json-viewer {
-  margin: 0;
-  color: #a5b4fc;
-  font-size: 13px;
-  font-family: 'JetBrains Mono', monospace;
-  overflow-x: auto;
 }
 </style>

@@ -121,17 +121,26 @@ async def test_task_binding_and_execution(db_session: AsyncSession):
         chat_model = await get_task_chat_model(db_session, task_type="EXTRACTION")
         assert chat_model is not None
 
-        # 5. Delete Provider Conflict Guard
+        # 5. Delete Provider Solo Guard (cannot delete only configured provider)
         del_prov = await ac.delete(f"/api/v1/ai/providers/{provider.id}")
-        assert del_prov.status_code == 409  # Conflict because binding exists
+        assert del_prov.status_code == 400
 
-        # 6. Delete Binding
-        del_bind = await ac.delete("/api/v1/ai/bindings/EXTRACTION")
-        assert del_bind.status_code == 200
+        # 6. Create fallback provider
+        fb_provider = AIProviderModel(
+            name="Fallback Provider",
+            provider_type="openai",
+            base_url="http://192.168.1.188:1234/v1",
+            api_key="fb-key",
+            is_active=True,
+        )
+        db_session.add(fb_provider)
+        await db_session.commit()
+        await db_session.refresh(fb_provider)
 
-        # 7. Now delete provider succeeds
+        # 7. Now delete primary provider succeeds and rebinds tasks to fallback
         del_prov_ok = await ac.delete(f"/api/v1/ai/providers/{provider.id}")
         assert del_prov_ok.status_code == 200
+        assert "deleted" in del_prov_ok.json()["message"]
 
     app.dependency_overrides.clear()
 

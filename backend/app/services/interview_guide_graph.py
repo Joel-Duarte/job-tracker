@@ -174,7 +174,8 @@ async def section_generator_node(
                     "jd_text": jd_text[:4000],
                     "cv_text": cv_text[:4000],
                     "target_section": section_desc,
-                }
+                },
+                config={"callbacks": [PostgresTracer()]},
             )
 
             content = res.content if hasattr(res, "content") else res

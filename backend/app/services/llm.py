@@ -22,6 +22,7 @@ from app.schemas.llm import (
     JobAssessmentResult,
 )
 from app.services.postgres_tracer import PostgresTracer
+from app.services.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
 
@@ -323,21 +324,32 @@ async def generate_embedding(db: AsyncSession, text_input: str) -> list[float]:
     if not cleaned_text:
         cleaned_text = "Job Application"
 
-    embeddings = await get_task_embeddings_model(db)
+    async with trace_operation(
+        category="embedding",
+        name="generate_embedding",
+        inputs={"text_sample": cleaned_text[:200], "char_count": len(cleaned_text)},
+    ) as ctx:
+        embeddings = await get_task_embeddings_model(db)
 
-    # Local OpenAI-compatible servers (such as LM Studio / Ollama) often strictly require
-    # an array of strings in the 'input' JSON payload (e.g. {"input": ["..."], "model": "..."}).
-    # Trying aembed_documents([cleaned_text]) first satisfies array input requirement.
-    try:
-        doc_vectors = await embeddings.aembed_documents([cleaned_text])
-        if doc_vectors and len(doc_vectors) > 0 and len(doc_vectors[0]) > 0:
-            return doc_vectors[0]
-    except Exception as doc_err:
-        logger.debug(
-            "aembed_documents attempt failed, trying aembed_query: %s", doc_err
-        )
+        # Local OpenAI-compatible servers (such as LM Studio / Ollama) often strictly require
+        # an array of strings in the 'input' JSON payload (e.g. {"input": ["..."], "model": "..."}).
+        # Trying aembed_documents([cleaned_text]) first satisfies array input requirement.
+        try:
+            doc_vectors = await embeddings.aembed_documents([cleaned_text])
+            if doc_vectors and len(doc_vectors) > 0 and len(doc_vectors[0]) > 0:
+                ctx["outputs"] = {
+                    "dimensions": len(doc_vectors[0]),
+                    "method": "aembed_documents",
+                }
+                return doc_vectors[0]
+        except Exception as doc_err:
+            logger.debug(
+                "aembed_documents attempt failed, trying aembed_query: %s", doc_err
+            )
 
-    return await embeddings.aembed_query(cleaned_text)
+        vector = await embeddings.aembed_query(cleaned_text)
+        ctx["outputs"] = {"dimensions": len(vector), "method": "aembed_query"}
+        return vector
 
 
 async def generate_and_save_application_embedding(

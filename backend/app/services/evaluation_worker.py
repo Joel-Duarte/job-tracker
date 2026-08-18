@@ -17,6 +17,7 @@ from app.services.llm import (
 )
 from app.services.matcher import compute_programmatic_skill_match
 from app.services.scraper import scrape_job_url
+from app.services.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
 
@@ -121,120 +122,146 @@ async def _execute_cv_extraction_steps(
 async def _execute_evaluation_steps(
     task: IntakeEvaluationTaskModel, db: AsyncSession
 ) -> None:
-    if task.task_type == "CV_EXTRACTION":
-        await _execute_cv_extraction_steps(task, db)
-        return
-
-    try:
-        content = task.raw_text
-
-        # Stage 1: Fetch URL if content not already provided
-        if not content and task.job_url:
-            scraped = await scrape_job_url(task.job_url)
-            if scraped.text:
-                content = scraped.text
-
-        if not content or not content.strip():
-            task.status = "FAILED"
-            task.stage = "FAILED"
-            task.error_message = "SCRAPE_FAILED: Unable to scrape job portal automatically. Please provide job description text."
-            task.completed_at = datetime.now(UTC)
-            await db.commit()
+    async with trace_operation(
+        category="worker",
+        name=f"worker_{task.task_type.lower()}",
+        inputs={
+            "task_id": task.id,
+            "task_type": task.task_type,
+            "job_url": task.job_url,
+            "title_hint": task.title_hint,
+        },
+    ) as ctx:
+        if task.task_type == "CV_EXTRACTION":
+            await _execute_cv_extraction_steps(task, db)
+            ctx["outputs"] = {"status": task.status, "stage": task.stage}
+            if task.status == "FAILED":
+                ctx["error"] = task.error_message
             return
 
-        # Stage 2: Extract Specs
-        task.stage = "EXTRACTING"
-        await db.commit()
+        try:
+            content = task.raw_text
 
-        job_spec = await extract_job_spec(db, content)
-        if not job_spec.job_found:
-            task.status = "FAILED"
-            task.stage = "FAILED"
-            task.error_message = "NO_JOB_FOUND: The scraped page or input text did not contain an active job description or vacancy."
+            # Stage 1: Fetch URL if content not already provided
+            if not content and task.job_url:
+                scraped = await scrape_job_url(task.job_url)
+                if scraped.text:
+                    content = scraped.text
+
+            if not content or not content.strip():
+                task.status = "FAILED"
+                task.stage = "FAILED"
+                task.error_message = "SCRAPE_FAILED: Unable to scrape job portal automatically. Please provide job description text."
+                task.completed_at = datetime.now(UTC)
+                await db.commit()
+                ctx["error"] = task.error_message
+                ctx["outputs"] = {"status": task.status, "stage": task.stage}
+                return
+
+            # Stage 2: Extract Specs
+            task.stage = "EXTRACTING"
+            await db.commit()
+
+            job_spec = await extract_job_spec(db, content)
+            if not job_spec.job_found:
+                task.status = "FAILED"
+                task.stage = "FAILED"
+                task.error_message = "NO_JOB_FOUND: The scraped page or input text did not contain an active job description or vacancy."
+                task.completed_at = datetime.now(UTC)
+                await db.commit()
+                ctx["error"] = task.error_message
+                ctx["outputs"] = {"status": task.status, "stage": task.stage}
+                return
+
+            # Stage 3: CV Keyword Overlap Matching
+            task.stage = "MATCHING"
+            cv_stmt = select(CandidateCVModel).limit(1)
+            cv_res = await db.execute(cv_stmt)
+            active_cv = cv_res.scalars().first()
+            candidate_skills = active_cv.extracted_skills if active_cv else []
+
+            match_info = compute_programmatic_skill_match(candidate_skills, content)
+            await db.commit()
+
+            # Format active domain experience breakdown string
+            active_domains_str = None
+            if active_cv and active_cv.domain_experience:
+                active_list = [
+                    f"{item['domain']} ({item['years']} yrs)"
+                    for item in active_cv.domain_experience
+                    if item.get("is_active", True)
+                ]
+                if active_list:
+                    active_domains_str = ", ".join(active_list)
+            elif active_cv and active_cv.domain_expertise:
+                active_domains_str = ", ".join(active_cv.domain_expertise)
+
+            # Stage 4: Qualitative AI Fit Assessment
+            task.stage = "ASSESSING"
+            await db.commit()
+
+            assessment = await assess_job_posting(
+                db,
+                content,
+                candidate_skills=candidate_skills,
+                candidate_cv=active_cv.anonymized_text or active_cv.raw_text
+                if active_cv
+                else None,
+                candidate_domain_breakdown=active_domains_str,
+                programmatic_baseline=match_info.get("programmatic_score", 0),
+            )
+
+            # Persist to database (or route to staging if duplicate)
+            save_result = await persist_or_stage_job_assessment(
+                db=db,
+                assessment=assessment,
+                raw_text=content,
+                job_url=task.job_url,
+                force_new=False,
+                target_status="ASSESSMENT",
+            )
+
+            # Completed Successfully
+            task.status = "COMPLETED"
+            task.stage = (
+                "STAGED_DUPLICATE" if save_result.get("is_duplicate") else "COMPLETE"
+            )
+            result_payload = assessment.model_dump()
+            result_payload["application_id"] = save_result.get("application_id")
+            result_payload["staging_item_id"] = save_result.get("staging_item_id")
+            result_payload["is_duplicate"] = save_result.get("is_duplicate", False)
+            result_payload["save_status"] = save_result.get("status")
+            task.result_json = result_payload
+            task.title_hint = f"{assessment.company} - {assessment.position}"
             task.completed_at = datetime.now(UTC)
             await db.commit()
-            return
+            ctx["outputs"] = {
+                "status": task.status,
+                "stage": task.stage,
+                "company": assessment.company,
+                "position": assessment.position,
+                "fit_score": assessment.fit_score,
+            }
+            logger.info(
+                "Intake evaluation task %d completed for '%s' (saved: %s, app_id: %s, staged_id: %s)",
+                task.id,
+                task.title_hint,
+                save_result.get("status"),
+                save_result.get("application_id"),
+                save_result.get("staging_item_id"),
+            )
 
-        # Stage 3: CV Keyword Overlap Matching
-        task.stage = "MATCHING"
-        cv_stmt = select(CandidateCVModel).limit(1)
-        cv_res = await db.execute(cv_stmt)
-        active_cv = cv_res.scalars().first()
-        candidate_skills = active_cv.extracted_skills if active_cv else []
-
-        match_info = compute_programmatic_skill_match(candidate_skills, content)
-        await db.commit()
-
-        # Format active domain experience breakdown string
-        active_domains_str = None
-        if active_cv and active_cv.domain_experience:
-            active_list = [
-                f"{item['domain']} ({item['years']} yrs)"
-                for item in active_cv.domain_experience
-                if item.get("is_active", True)
-            ]
-            if active_list:
-                active_domains_str = ", ".join(active_list)
-        elif active_cv and active_cv.domain_expertise:
-            active_domains_str = ", ".join(active_cv.domain_expertise)
-
-        # Stage 4: Qualitative AI Fit Assessment
-        task.stage = "ASSESSING"
-        await db.commit()
-
-        assessment = await assess_job_posting(
-            db,
-            content,
-            candidate_skills=candidate_skills,
-            candidate_cv=active_cv.anonymized_text or active_cv.raw_text
-            if active_cv
-            else None,
-            candidate_domain_breakdown=active_domains_str,
-            programmatic_baseline=match_info.get("programmatic_score", 0),
-        )
-
-        # Persist to database (or route to staging if duplicate)
-        save_result = await persist_or_stage_job_assessment(
-            db=db,
-            assessment=assessment,
-            raw_text=content,
-            job_url=task.job_url,
-            force_new=False,
-            target_status="ASSESSMENT",
-        )
-
-        # Completed Successfully
-        task.status = "COMPLETED"
-        task.stage = (
-            "STAGED_DUPLICATE" if save_result.get("is_duplicate") else "COMPLETE"
-        )
-        result_payload = assessment.model_dump()
-        result_payload["application_id"] = save_result.get("application_id")
-        result_payload["staging_item_id"] = save_result.get("staging_item_id")
-        result_payload["is_duplicate"] = save_result.get("is_duplicate", False)
-        result_payload["save_status"] = save_result.get("status")
-        task.result_json = result_payload
-        task.title_hint = f"{assessment.company} - {assessment.position}"
-        task.completed_at = datetime.now(UTC)
-        await db.commit()
-        logger.info(
-            "Intake evaluation task %d completed for '%s' (saved: %s, app_id: %s, staged_id: %s)",
-            task.id,
-            task.title_hint,
-            save_result.get("status"),
-            save_result.get("application_id"),
-            save_result.get("staging_item_id"),
-        )
-
-    except Exception as err:
-        logger.error(
-            "Failed processing intake task %d: %s", task.id, err, exc_info=True
-        )
-        task.status = "FAILED"
-        task.stage = "FAILED"
-        task.error_message = str(err)
-        task.completed_at = datetime.now(UTC)
-        await db.commit()
+        except Exception as err:
+            logger.error(
+                "Failed processing intake task %d: %s", task.id, err, exc_info=True
+            )
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = str(err)
+            task.completed_at = datetime.now(UTC)
+            await db.commit()
+            ctx["error"] = str(err)
+            ctx["outputs"] = {"status": "FAILED", "stage": "FAILED"}
 
 
 async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) -> None:

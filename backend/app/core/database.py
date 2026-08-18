@@ -255,6 +255,8 @@ async def ensure_db_schema() -> None:
             "ALTER TABLE IF EXISTS email_staging_items ADD COLUMN IF NOT EXISTS match_score FLOAT;",
             "ALTER TABLE IF EXISTS email_staging_items ADD COLUMN IF NOT EXISTS match_reason TEXT;",
             "ALTER TABLE IF EXISTS email_staging_items ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'PENDING';",
+            # trace_events
+            "ALTER TABLE IF EXISTS trace_events ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'llm';",
         ]
 
         for stmt in migration_statements:

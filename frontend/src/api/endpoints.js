@@ -100,7 +100,8 @@ export const DiagnosticsAPI = {
   export: () => apiClient.get('/diagnostics/export', { responseType: 'blob' }),
   getStats: () => apiClient.get('/diagnostics/stats'),
   getTraces: (params = {}) => apiClient.get('/diagnostics/traces', { params }),
-  getTrace: (runId) => apiClient.get(`/diagnostics/traces/${runId}`)
+  getTrace: (runId) => apiClient.get(`/diagnostics/traces/${runId}`),
+  purge: () => apiClient.delete('/diagnostics/purge')
 }
 export const AnalyticsAPI = {
   getOverview: (params = {}) => apiClient.get('/analytics/overview', { params }),

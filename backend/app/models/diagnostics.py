@@ -13,6 +13,9 @@ class TraceEventModel(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     run_id: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    category: Mapped[str] = mapped_column(
+        Text, nullable=False, default="llm", server_default="llm", index=True
+    )
     event_type: Mapped[str] = mapped_column(Text, nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     timestamp: Mapped[datetime] = mapped_column(

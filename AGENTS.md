@@ -130,6 +130,57 @@ When creating or modifying Vue components, layouts, stores, or styling:
 - **Modifying the UI:** When modifying frontend features, ensure the component's setup script (`<script setup>`) interacts with `pinia` stores (like `uiStore` or `applicationsStore`) correctly for state reactivity. Ensure Lucide icons used are imported from `lucide-vue-next`.
 - **Modifying the Database:** If adding a new field to a database model, update the corresponding Pydantic schemas in the `schemas/` directory to reflect the change for both request validation and response serialization.
 
+### 4. Telemetry & Diagnostics Tracing Protocol (Mandatory)
+Every new or modified LLM call, external network request (scrapers, IMAP/OAuth email fetchers, 3rd-party APIs), background worker task, vector embedding generation, or complex programmatic workflow that can fail **MUST register traces with the diagnostics telemetry system** (`trace_events` table).
+
+#### A. AI & LLM Invocations (LangChain / LangGraph)
+Every call to `chain.ainvoke`, `chat_model.ainvoke`, `graph.ainvoke`, or `tool.ainvoke` **MUST** pass `PostgresTracer` in its RunnableConfig callbacks:
+```python
+from app.services.postgres_tracer import PostgresTracer
+
+# In standalone chains or router probes:
+response = await chain.ainvoke(
+    {"input": text},
+    config={"callbacks": [PostgresTracer()]},
+)
+
+# In LangGraph graph invocations:
+result = await intake_graph.ainvoke(
+    initial_state,
+    config={"configurable": {"db": db}, "callbacks": [PostgresTracer()]},
+)
+```
+
+#### B. Programmatic Operations & Background Tasks (Non-LLM)
+For non-LLM asynchronous code (web scraping, email sync, background worker queues, vector embeddings, scheduled tasks), wrap the operation using the `trace_operation` async context manager from `app.services.telemetry`:
+```python
+from app.services.telemetry import trace_operation
+
+async def scrape_custom_portal(url: str, db: AsyncSession | None = None) -> ScrapedData:
+    async with trace_operation(
+        category="scraper",          # Standard categories: "llm", "scraper", "email_sync", "worker", "embedding"
+        name="scrape_custom_portal",  # Descriptive snake_case task name
+        inputs={"url": url},         # Inputs context (sanitized of secrets/passwords)
+        db=db,                       # Optional: pass explicit session (recommended in tests)
+    ) as ctx:
+        # Perform work
+        result = await browser.fetch(url)
+        
+        # Populate structured outputs upon success
+        ctx["outputs"] = {"char_count": len(result.text), "title": result.title}
+        
+        # Optional: Explicitly mark failure without raising an exception:
+        # ctx["error"] = "Custom validation failed: Missing job title"
+        
+        return result
+```
+
+#### C. Tracing Best Practices & Test Isolation:
+1. **Categories:** Use canonical category strings (`"llm"`, `"scraper"`, `"email_sync"`, `"worker"`, `"embedding"`) so traces appear under the correct filter tabs on the `/diagnostics` dashboard.
+2. **Payload Sanitization:** Never pass raw passwords, secret API keys, or full OAuth refresh tokens into `inputs` or `metadata`.
+3. **Error Capture:** Unhandled exceptions raised inside `trace_operation` are automatically caught, measured for duration, recorded with full tracebacks in `trace_events`, and then re-raised cleanly.
+4. **Test Fixtures:** In Pytest database tests (`test_*.py`), always pass `db=db_session` to `trace_operation` or `record_diagnostic_event` to ensure writes use the active test transaction and avoid connection concurrency locks.
+
 ---
 
 ## Pre-Commit Verification & Git Hooks
