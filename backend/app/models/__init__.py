@@ -10,6 +10,7 @@ from app.models.applications import (
     OtherEventModel,
 )
 from app.models.candidate_profile import CandidateCVModel
+from app.models.diagnostics import TraceEventModel
 from app.models.email_accounts import EmailAccountModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.models.llm import LLMConfigModel
@@ -35,4 +36,5 @@ __all__ = [
     "ProcessedEmailModel",
     "PromptModel",
     "StagingItemModel",
+    "TraceEventModel",
 ]

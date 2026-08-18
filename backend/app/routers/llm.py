@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.llm_factory import get_active_llm_config_dict, get_chat_model
 from app.models.llm import LLMConfigModel
+from app.services.postgres_tracer import PostgresTracer
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +201,8 @@ async def test_llm_connection(db: AsyncSession = Depends(get_db)) -> dict[str, A
     try:
         chat_model = await get_chat_model(db, max_tokens=10)
         response = await chat_model.ainvoke(
-            [HumanMessage(content="Respond with 'OK' to verify connectivity.")]
+            [HumanMessage(content="Respond with 'OK' to verify connectivity.")],
+            config={"callbacks": [PostgresTracer()]},
         )
         content = (
             response.content

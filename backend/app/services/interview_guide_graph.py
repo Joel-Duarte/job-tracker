@@ -7,6 +7,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.core.llm_factory import get_task_chat_model
 from app.core.prompts import get_prompt_template
+from app.services.postgres_tracer import PostgresTracer
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,10 @@ async def web_researcher_node(
                 ]
             )
             chain = prompt | llm
-            res = await chain.ainvoke({})
+            res = await chain.ainvoke(
+                {},
+                config={"callbacks": [PostgresTracer()]},
+            )
             content = res.content if hasattr(res, "content") else res
             summary_content = content if isinstance(content, str) else str(content)
             return {"company_context": [summary_content]}

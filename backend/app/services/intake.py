@@ -6,6 +6,7 @@ from app.schemas.graph_state import JobTrackerState
 from app.schemas.intake import EmailPayload
 from app.services.intake_graph import intake_graph
 from app.services.llm import extract_email_info
+from app.services.postgres_tracer import PostgresTracer
 from app.services.task_tracker import task_tracker
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,10 @@ async def process_single_email_graph(
 
     result = await intake_graph.ainvoke(
         state_input,
-        config={"configurable": {"db": db, "thread_id": thread_id}},
+        config={
+            "configurable": {"db": db, "thread_id": thread_id},
+            "callbacks": [PostgresTracer()],
+        },
     )
     return result
 

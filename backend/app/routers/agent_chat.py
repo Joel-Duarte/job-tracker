@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.core.llm_factory import get_task_chat_model
 from app.core.prompts import get_prompt_template
 from app.services.agent_tools import create_agent_tools
+from app.services.postgres_tracer import PostgresTracer
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,10 @@ async def chat_with_agent(
 
     for turn in range(max_turns):
         try:
-            response = await model_with_tools.ainvoke(messages)
+            response = await model_with_tools.ainvoke(
+                messages,
+                config={"callbacks": [PostgresTracer()]},
+            )
             messages.append(response)
 
             tool_calls = getattr(response, "tool_calls", None)
@@ -103,7 +107,10 @@ async def chat_with_agent(
                 selected_tool = tool_map.get(tool_name)
                 if selected_tool:
                     try:
-                        tool_result = await selected_tool.ainvoke(tool_args)
+                        tool_result = await selected_tool.ainvoke(
+                            tool_args,
+                            config={"callbacks": [PostgresTracer()]},
+                        )
                         parsed_res = tool_result
                         if isinstance(tool_result, str) and (
                             tool_result.strip().startswith("{")

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useUIStore } from '../stores/uiStore'
-import { AIConfigAPI, EmailAccountsAPI, IntakeAPI, PromptsAPI } from '../api/endpoints'
+import { AIConfigAPI, EmailAccountsAPI, IntakeAPI, PromptsAPI, DiagnosticsAPI } from '../api/endpoints'
 import {
   Cpu,
   Layers,
@@ -96,6 +96,27 @@ const globalForm = ref({
 const globalProviderModels = ref([])
 const loadingGlobalModels = ref(false)
 const isSavingGlobal = ref(false)
+
+const isExporting = ref(false)
+
+async function exportDiagnostics() {
+  if (isExporting.value) return;
+  isExporting.value = true;
+  try {
+    const res = await DiagnosticsAPI.export();
+    const url = window.URL.createObjectURL(new Blob([res.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'diagnostics.zip');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } catch (err) {
+    console.error("Failed to export diagnostics", err);
+  } finally {
+    isExporting.value = false;
+  }
+}
 
 function syncGlobalForm() {
   const gb = globalBinding.value
@@ -1552,6 +1573,28 @@ onMounted(async () => {
         </div>
 
         <div class="preferences-grid">
+          <!-- Diagnostics Export Card -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <Save :size="18" />
+              </div>
+              <div>
+                <h4 class="preference-title">Diagnostics & Telemetry</h4>
+                <p class="preference-desc">Monitor LangGraph execution telemetry, trace errors, and export zip logs.</p>
+              </div>
+            </div>
+            <div style="margin-top: 1rem; display: flex; gap: 8px;">
+              <button class="btn btn-primary" @click="$router.push('/diagnostics')">
+                View Dashboard
+              </button>
+              <button class="btn btn-outline" @click="exportDiagnostics" :disabled="isExporting">
+                <Loader2 v-if="isExporting" class="animate-spin" :size="14" />
+                <span v-else>Download Logs</span>
+              </button>
+            </div>
+          </div>
+
           <!-- Currency Setting Card -->
           <div class="preference-card">
             <div class="preference-header">
