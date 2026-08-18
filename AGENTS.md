@@ -19,6 +19,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - `ActionItemsView`: To-do list generated from emails and application updates.
   - `StagingView`: Review and manual resolution area for ambiguous or low-confidence extractions.
   - `AgentChatView`: Conversational AI agent interface to query application data.
+  - `PastWinsView`: Archive and showcase for accepted offers, hired milestones, and celebration analytics.
 
 ### Backend
 - **Framework:** FastAPI
@@ -33,7 +34,8 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - `intake_graph.py` & `interview_guide_graph.py`: LangGraph state machines managing complex data extraction and document generation.
   - `email_fetcher.py`: Connects to IMAP or OAuth to pull recruitment emails, deduplicating via `message_id`.
   - `evaluation_worker.py`: Background worker for processing async evaluations in a 4-stage pipeline.
-
+  - `staleness_archiver`: Background lifecycle job that sweeps across all 4 active application stages (`APPLIED`, `ONLINE_ASSESSMENT`, `TECHNICAL_INTERVIEW`, `OFFER`) and transitions inactive applications to `ARCHIVED` (rather than `REJECTED`), leaving all terminal statuses untouched.
+  
 ### Infrastructure & Development Startup
 - **Local Development:** Run `./dev.sh` (or `./dev.sh --reset` to wipe and restart). This spins up `db` (PostgreSQL), `scraper` (Camofox), `backend` (FastAPI), and `frontend` (Vite dev server) using `docker-compose.dev.yml`.
 - **Automatic Mock Dataset Seeding:** When `./dev.sh` or a clean database boots in development mode (`ENVIRONMENT=development` or `SEED_DEV_DATA=true`), the backend automatically populates a comprehensive, domain-tailored mock dataset:
@@ -51,7 +53,12 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
 - **Production Mode:** Run `./prod.sh` (using `docker-compose.yml` with `ENVIRONMENT=production`). All services run permanently in the background with `restart: unless-stopped`, meaning they automatically auto-start on PC/system boot whenever the Docker daemon starts and only stop when explicitly taken down (`./prod.sh --down`). Seed data is strictly skipped in production.
 
 ## Core Domains & Data Models
-- **Applications:** `ApplicationModel` linked to `CompanyModel` (persisting canonical corporate `domain`). Tracks status (`APPLIED`, `TECHNICAL_INTERVIEW`, `OFFER`, `REJECTED`, `ASSESSMENT`), dates, and linked timeline events. Cards in Kanban columns are chronologically sorted by upcoming scheduled interviews (`TECHNICAL_INTERVIEW`) and decision deadlines (`OFFER`).
+- **Applications:** `ApplicationModel` linked to `CompanyModel` (persisting canonical corporate `domain`). 
+  - **Statuses (`AllowedApplicationStatus`):**
+    - *Active Stages (4):* `APPLIED`, `ONLINE_ASSESSMENT`, `TECHNICAL_INTERVIEW`, `OFFER`.
+    - *Terminal Statuses:* `HIRED`, `ARCHIVED`, `WITHDRAWN`, `REJECTED` (terminal records are immutable to automated staleness transitions).
+  - **Sorting & Deadlines:** Cards in Kanban columns are chronologically sorted by upcoming scheduled interviews (`TECHNICAL_INTERVIEW`) and decision deadlines (`OFFER`).
+  - **Bulk Transition Engine (`POST /api/v1/applications/bulk-transition`):** Transitions batches of matching non-terminal applications simultaneously (e.g., auto-withdrawing or archiving remaining active applications upon accepting an offer via `PostHireModal`). Bulk operations automatically generate application timeline events and dismiss associated pending `ActionItemModel` tasks.
 - **Candidate Profile:** `CandidateCVModel` stores raw resumes, anonymized versions, extracted skills, domain expertise, and years of experience.
 - **Intake/Staging:** Raw leads are ingested as `StagingItemModel` or evaluated directly into `IntakeEvaluationTaskModel`.
 - **Emails & Events:** `ApplicationEventModel` (tied to an app) or `OtherEventModel` (general recruitment spam/newsletters).
