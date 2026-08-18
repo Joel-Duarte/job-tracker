@@ -899,17 +899,6 @@ function formatDate(isoStr) {
                     <div class="job-spec-body" v-html="renderMarkdownText(sec.content)"></div>
                   </div>
                 </div>
-
-                <!-- Full Posting Toggle / Raw Description -->
-                <div v-if="structuredSpec && appStore.selectedApplication.job_posting?.description_markdown" class="raw-description-toggle">
-                  <button class="btn btn-ghost btn-xs text-muted toggle-btn" @click="showRawDescription = !showRawDescription">
-                    <FileText :size="13" />
-                    <span>{{ showRawDescription ? 'Hide Full Job Posting Text' : 'View Full Job Posting Text' }}</span>
-                    <ChevronUp v-if="showRawDescription" :size="13" />
-                    <ChevronDown v-else :size="13" />
-                  </button>
-                  <div v-if="showRawDescription" class="raw-description-box" v-html="renderMarkdownText(appStore.selectedApplication.job_posting.description_markdown)"></div>
-                </div>
               </div>
               <div v-else class="empty-state">
                 No job specification details available for this application.
@@ -2759,13 +2748,6 @@ function formatDate(isoStr) {
   background-color: var(--primary);
   margin-top: 7px;
   flex-shrink: 0;
-}
-
-.raw-description-toggle {
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
 }
 
 .toggle-btn {
