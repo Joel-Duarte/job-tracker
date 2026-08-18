@@ -10,29 +10,43 @@
           </div>
 
           <div class="modal-options">
-            <label class="option-row" :class="{ selected: actions.archiveAll }">
-              <input v-model="actions.archiveAll" type="checkbox" id="opt-archive-all" />
+            <div
+              class="selection-card"
+              :class="{ 'card-active': actions.archiveAll }"
+              @click="actions.archiveAll = !actions.archiveAll"
+              role="button"
+              tabindex="0"
+              @keydown.space.prevent="actions.archiveAll = !actions.archiveAll"
+              @keydown.enter.prevent="actions.archiveAll = !actions.archiveAll"
+            >
+              <div class="card-icon-wrapper">
+                <CheckCircle2 v-if="actions.archiveAll" class="icon-active" :size="20" />
+                <Circle v-else class="icon-inactive" :size="20" />
+              </div>
               <div class="option-content">
-                <span class="option-label">Archive all other open applications</span>
+                <span class="option-label">Archive early-stage applications</span>
                 <span class="option-description">Moves Applied and Assessment cards to Archived.</span>
               </div>
-            </label>
+            </div>
 
-            <label class="option-row" :class="{ selected: actions.withdrawInterviews }">
-              <input v-model="actions.withdrawInterviews" type="checkbox" id="opt-withdraw" />
+            <div
+              class="selection-card"
+              :class="{ 'card-active': actions.withdrawInterviews }"
+              @click="actions.withdrawInterviews = !actions.withdrawInterviews"
+              role="button"
+              tabindex="0"
+              @keydown.space.prevent="actions.withdrawInterviews = !actions.withdrawInterviews"
+              @keydown.enter.prevent="actions.withdrawInterviews = !actions.withdrawInterviews"
+            >
+              <div class="card-icon-wrapper">
+                <CheckCircle2 v-if="actions.withdrawInterviews" class="icon-active" :size="20" />
+                <Circle v-else class="icon-inactive" :size="20" />
+              </div>
               <div class="option-content">
                 <span class="option-label">Withdraw outstanding interviews &amp; offers</span>
                 <span class="option-description">Marks Interview and Offer stage cards as Withdrawn.</span>
               </div>
-            </label>
-
-            <label class="option-row" :class="{ selected: actions.keepTracking }">
-              <input v-model="actions.keepTracking" type="checkbox" id="opt-keep" />
-              <div class="option-content">
-                <span class="option-label">Keep tracking — I'm still considering options</span>
-                <span class="option-description">Leaves all cards as they are. You can clean up later.</span>
-              </div>
-            </label>
+            </div>
           </div>
 
           <div class="modal-footer">
@@ -50,6 +64,7 @@
 
 <script setup>
 import { reactive, ref } from 'vue'
+import { CheckCircle2, Circle } from 'lucide-vue-next'
 import { useApplicationsStore } from '../../stores/applicationsStore'
 
 const props = defineProps({
@@ -62,12 +77,16 @@ const appStore = useApplicationsStore()
 const submitting = ref(false)
 
 const actions = reactive({
-  archiveAll: false,
-  withdrawInterviews: false,
-  keepTracking: false,
+  archiveAll: true,
+  withdrawInterviews: true,
 })
 
 async function handleConfirm() {
+  if (!actions.archiveAll && !actions.withdrawInterviews) {
+    emit('close')
+    return
+  }
+
   submitting.value = true
   try {
     const excludeIds = [props.hiredApplicationId]
@@ -150,24 +169,47 @@ function handleDecideLater() {
   flex-direction: column;
   gap: 0.75rem;
 }
-.option-row {
+.selection-card {
   display: flex;
   align-items: flex-start;
   gap: 0.875rem;
-  padding: 0.875rem 1rem;
+  padding: 1rem;
   border-radius: 10px;
   border: 1px solid hsl(0 0% 100% / 0.07);
   background: hsl(0 0% 100% / 0.03);
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: all 0.2s ease-in-out;
+  outline: none;
 }
-.option-row:hover { background: hsl(0 0% 100% / 0.06); }
-.option-row.selected {
+.selection-card:hover {
+  background: hsl(0 0% 100% / 0.06);
+}
+.selection-card:focus-visible {
+  border-color: hsl(220 80% 55%);
+  box-shadow: 0 0 0 2px hsl(220 80% 55% / 0.3);
+}
+.selection-card.card-active {
   background: hsl(220 80% 55% / 0.12);
-  border-color: hsl(220 80% 55% / 0.4);
+  border-color: hsl(220 80% 55% / 0.6);
 }
-.option-row input[type="checkbox"] { margin-top: 2px; flex-shrink: 0; accent-color: hsl(220 80% 55%); }
-.option-content { display: flex; flex-direction: column; gap: 0.25rem; }
+.card-icon-wrapper {
+  margin-top: 2px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.icon-active {
+  color: hsl(220 80% 55%);
+}
+.icon-inactive {
+  color: hsl(0 0% 100% / 0.2);
+}
+.option-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
 .option-label {
   font-size: 0.9rem;
   font-weight: 600;
