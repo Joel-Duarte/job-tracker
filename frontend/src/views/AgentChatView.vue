@@ -287,7 +287,12 @@ function formatActionLabel(act) {
 }
 
 .chat-sidebar {
+  position: fixed;
+  top: var(--navbar-height);
+  left: 0;
+  bottom: 0;
   width: 260px;
+  z-index: 10;
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
@@ -431,6 +436,7 @@ function formatActionLabel(act) {
   flex-direction: column;
   height: 100%;
   min-width: 0;
+  margin-left: 260px;
 }
 
 .chat-header {
