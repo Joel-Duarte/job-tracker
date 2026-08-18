@@ -31,6 +31,8 @@ from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.models.processed_email import ProcessedEmailModel
 from app.schemas.intake import (
     AssessJobRequest,
+    BulkTaskActionRequest,
+    BulkTaskActionResult,
     ConfirmAssessmentRequest,
     DirectEmailIntakeRequest,
     EmailPayload,
@@ -51,6 +53,7 @@ from app.services.intake import (
 from app.services.llm import assess_job_posting
 from app.services.scraper import scrape_job_url
 from app.services.task_tracker import task_tracker
+from app.services.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
 
@@ -906,3 +909,170 @@ async def retry_evaluation_task(
 
     background_tasks.add_task(process_evaluation_task, task_id=task.id)
     return task
+
+
+@router.post(
+    "/evaluations/bulk-retry",
+    response_model=BulkTaskActionResult,
+    status_code=status.HTTP_200_OK,
+)
+async def bulk_retry_evaluation_tasks(
+    payload: BulkTaskActionRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> BulkTaskActionResult:
+    """
+    Bulk retries AI queue evaluation tasks by resetting state and re-dispatching worker execution.
+    Only tasks in FAILED or CANCELLED status are retried; others are skipped.
+    """
+    async with trace_operation(
+        "worker",
+        "bulk_retry_evaluation_tasks",
+        inputs={"task_ids": payload.task_ids},
+        db=db,
+    ) as ctx:
+        parsed_ids = []
+        for tid in payload.task_ids:
+            try:
+                parsed_ids.append(int(tid))
+            except (ValueError, TypeError):
+                pass
+
+        if not parsed_ids:
+            return BulkTaskActionResult(
+                affected_count=0,
+                skipped_count=len(payload.task_ids),
+                unhandled_ids=payload.task_ids,
+            )
+
+        stmt = select(IntakeEvaluationTaskModel).where(
+            IntakeEvaluationTaskModel.id.in_(parsed_ids)
+        )
+        res = await db.execute(stmt)
+        found_tasks = {t.id: t for t in res.scalars().all()}
+
+        retried_tasks = []
+        unhandled_ids = []
+        skipped_count = 0
+
+        for raw_id in payload.task_ids:
+            try:
+                int_id = int(raw_id)
+                task = found_tasks.get(int_id)
+            except (ValueError, TypeError):
+                task = None
+
+            if not task:
+                unhandled_ids.append(raw_id)
+                skipped_count += 1
+                continue
+
+            if task.status not in ["FAILED", "CANCELLED"]:
+                skipped_count += 1
+                continue
+
+            task.status = "QUEUED"
+            task.stage = (
+                "FETCHING" if task.task_type != "CV_EXTRACTION" else "SCRUBBING"
+            )
+            task.error_message = None
+            task.result_json = None
+            task.completed_at = None
+            task.created_at = datetime.now(UTC)
+
+            retried_tasks.append(task)
+            background_tasks.add_task(process_evaluation_task, task_id=task.id)
+
+        await db.commit()
+        for task in retried_tasks:
+            await db.refresh(task)
+
+        result = BulkTaskActionResult(
+            affected_count=len(retried_tasks),
+            skipped_count=skipped_count,
+            unhandled_ids=unhandled_ids,
+            updated_tasks=retried_tasks,
+        )
+        ctx["outputs"] = {
+            "affected_count": result.affected_count,
+            "skipped_count": result.skipped_count,
+        }
+        return result
+
+
+@router.post(
+    "/evaluations/bulk-delete",
+    response_model=BulkTaskActionResult,
+    status_code=status.HTTP_200_OK,
+)
+async def bulk_delete_evaluation_tasks(
+    payload: BulkTaskActionRequest,
+    db: AsyncSession = Depends(get_db),
+) -> BulkTaskActionResult:
+    """
+    Bulk deletes AI queue evaluation tasks from the database.
+    Running tasks (status PROCESSING) are protected and skipped.
+    """
+    async with trace_operation(
+        "worker",
+        "bulk_delete_evaluation_tasks",
+        inputs={"task_ids": payload.task_ids},
+        db=db,
+    ) as ctx:
+        parsed_ids = []
+        for tid in payload.task_ids:
+            try:
+                parsed_ids.append(int(tid))
+            except (ValueError, TypeError):
+                pass
+
+        if not parsed_ids:
+            return BulkTaskActionResult(
+                deleted_count=0,
+                skipped_count=len(payload.task_ids),
+                unhandled_ids=payload.task_ids,
+            )
+
+        stmt = select(IntakeEvaluationTaskModel).where(
+            IntakeEvaluationTaskModel.id.in_(parsed_ids)
+        )
+        res = await db.execute(stmt)
+        found_tasks = {t.id: t for t in res.scalars().all()}
+
+        deleted_count = 0
+        skipped_count = 0
+        unhandled_ids = []
+
+        for raw_id in payload.task_ids:
+            try:
+                int_id = int(raw_id)
+                task = found_tasks.get(int_id)
+            except (ValueError, TypeError):
+                task = None
+
+            if not task:
+                unhandled_ids.append(raw_id)
+                skipped_count += 1
+                continue
+
+            # Prevent deletion of currently running tasks
+            if task.status in ["PROCESSING", "IN_PROGRESS"]:
+                unhandled_ids.append(raw_id)
+                skipped_count += 1
+                continue
+
+            await db.delete(task)
+            deleted_count += 1
+
+        await db.commit()
+
+        result = BulkTaskActionResult(
+            deleted_count=deleted_count,
+            skipped_count=skipped_count,
+            unhandled_ids=unhandled_ids,
+        )
+        ctx["outputs"] = {
+            "deleted_count": result.deleted_count,
+            "skipped_count": result.skipped_count,
+        }
+        return result

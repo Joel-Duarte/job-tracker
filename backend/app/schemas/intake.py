@@ -170,6 +170,12 @@ class EnqueueAssessmentRequest(BaseModel):
     )
 
 
+class BulkTaskActionRequest(BaseModel):
+    task_ids: list[int | str] = Field(
+        ..., min_length=1, description="List of task IDs to perform action on"
+    )
+
+
 class IntakeEvaluationTaskResponse(BaseModel):
     id: int
     task_type: str = "JOB_ASSESSMENT"
@@ -184,3 +190,11 @@ class IntakeEvaluationTaskResponse(BaseModel):
     completed_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class BulkTaskActionResult(BaseModel):
+    affected_count: int = 0
+    skipped_count: int = 0
+    deleted_count: int = 0
+    unhandled_ids: list[int | str] = Field(default_factory=list)
+    updated_tasks: list[IntakeEvaluationTaskResponse] = Field(default_factory=list)
