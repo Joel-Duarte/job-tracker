@@ -232,6 +232,7 @@ class ActionItemModel(Base):
         Text, server_default="MEDIUM"
     )  # HIGH, MEDIUM, LOW
     manual_urgency_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    draft_email: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

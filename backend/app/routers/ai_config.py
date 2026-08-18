@@ -202,7 +202,10 @@ router = APIRouter(prefix="/ai", tags=["AI Provider Registry & Task Bindings"])
 @router.get("/global-settings", response_model=GlobalSettingsRead)
 async def get_global_settings() -> GlobalSettingsRead:
     settings = load_settings()
-    return GlobalSettingsRead(ENABLE_EMBEDDINGS=settings.get("ENABLE_EMBEDDINGS", True))
+    return GlobalSettingsRead(
+        ENABLE_EMBEDDINGS=settings.get("ENABLE_EMBEDDINGS", True),
+        ENABLE_AUTO_NUDGE=settings.get("ENABLE_AUTO_NUDGE", True),
+    )
 
 
 @router.patch("/global-settings", response_model=GlobalSettingsRead)
@@ -210,8 +213,13 @@ async def update_global_settings(payload: GlobalSettingsUpdate) -> GlobalSetting
     settings = load_settings()
     if payload.ENABLE_EMBEDDINGS is not None:
         settings["ENABLE_EMBEDDINGS"] = payload.ENABLE_EMBEDDINGS
+    if payload.ENABLE_AUTO_NUDGE is not None:
+        settings["ENABLE_AUTO_NUDGE"] = payload.ENABLE_AUTO_NUDGE
     save_settings(settings)
-    return GlobalSettingsRead(ENABLE_EMBEDDINGS=settings.get("ENABLE_EMBEDDINGS", True))
+    return GlobalSettingsRead(
+        ENABLE_EMBEDDINGS=settings.get("ENABLE_EMBEDDINGS", True),
+        ENABLE_AUTO_NUDGE=settings.get("ENABLE_AUTO_NUDGE", True),
+    )
 
 
 def _to_provider_read(p: AIProviderModel) -> AIProviderRead:

@@ -173,6 +173,7 @@ async def list_action_items(
                 company_name=company_name,
                 position=position,
                 application_status=app_status,
+                draft_email=item.draft_email,
             )
         )
 
@@ -252,6 +253,7 @@ async def create_action_item(
         company_name=company_name,
         position=position,
         application_status=app_status,
+        draft_email=action_item.draft_email,
     )
 
 
@@ -349,6 +351,7 @@ async def update_action_item(
         company_name=company_name,
         position=position,
         application_status=app_status,
+        draft_email=item.draft_email,
     )
 
 
@@ -416,6 +419,7 @@ async def override_action_item_urgency(
         company_name=company_name,
         position=position,
         application_status=app_status,
+        draft_email=item.draft_email,
     )
 
 
@@ -451,3 +455,93 @@ async def delete_action_item(
         "message": f"Action item {action_item_id} deleted successfully",
         "id": action_item_id,
     }
+
+
+@router.post(
+    "/{action_item_id}/draft-reply",
+    response_model=ActionItemResponse,
+    summary="Auto-draft an email reply using LLM",
+)
+async def draft_action_item_reply(
+    action_item_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Generates an email reply draft for a specific action item if linked to an application and event."""
+    from app.services.llm import generate_email_reply_draft
+
+    stmt = (
+        select(ActionItemModel)
+        .where(ActionItemModel.id == action_item_id)
+        .options(
+            joinedload(ActionItemModel.application).joinedload(
+                ApplicationModel.company
+            ),
+        )
+    )
+    result = await db.execute(stmt)
+    item = result.scalars().first()
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Action item not found"
+        )
+
+    if not item.application_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Action item is not linked to an application",
+        )
+
+    app_id = item.application_id
+
+    event_stmt = (
+        select(ApplicationEventModel)
+        .where(ApplicationEventModel.email_application_id == app_id)
+        .order_by(ApplicationEventModel.email_received_at.desc())
+    )
+    event_res = await db.execute(event_stmt)
+    event_list = event_res.scalars().all()
+
+    if not event_list:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No application events found for this application to draft a reply.",
+        )
+
+    event_text_list = []
+    for e in event_list:
+        if e.email_body_text:
+            event_text_list.append(
+                f"Date: {e.email_received_at}\nBody:\n{e.email_body_text}\n"
+            )
+
+    events_context = "\n---\n".join(event_text_list)
+
+    draft = await generate_email_reply_draft(app_id, db, item.title, events_context)
+
+    item.draft_email = draft
+    await db.commit()
+    await db.refresh(item)
+
+    app = item.application
+    company_name = app.company.name if app and app.company else None
+    position = app.position if app else None
+    app_status = app.status if app else None
+
+    return ActionItemResponse(
+        id=item.id,
+        application_id=item.application_id,
+        event_id=item.event_id,
+        title=item.title,
+        due_date=item.due_date,
+        status=item.status,
+        action_url=item.action_url,
+        urgency=compute_live_urgency(item),
+        manual_urgency_override=item.manual_urgency_override,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+        company_name=company_name,
+        position=position,
+        application_status=app_status,
+        draft_email=item.draft_email,
+    )

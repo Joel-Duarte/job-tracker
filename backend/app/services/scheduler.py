@@ -16,9 +16,18 @@ async def monitor_stale_applications(async_session_maker: sessionmaker):
     Background worker that checks for stale applications once a day
     and creates 'Follow-up' action items with generated draft emails.
     """
+    from app.core.config_manager import get_setting
+
     logger.info("Scheduler for stale applications started.")
     while True:
         try:
+            if not get_setting("ENABLE_AUTO_NUDGE", True):
+                logger.info(
+                    "Auto nudge is disabled. Skipping stale applications check."
+                )
+                await asyncio.sleep(24 * 60 * 60)
+                continue
+
             async with async_session_maker() as session:
                 threshold_date = datetime.now(UTC) - timedelta(days=7)
 

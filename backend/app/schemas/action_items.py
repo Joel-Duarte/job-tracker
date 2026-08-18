@@ -30,6 +30,7 @@ class ActionItemUpdate(BaseModel):
     urgency: str | None = Field(None, description="HIGH, MEDIUM, LOW")
     status: str | None = Field(None, description="PENDING, COMPLETED, DISMISSED")
     action_url: str | None = None
+    draft_email: str | None = None
 
 
 class UrgencyOverrideUpdate(BaseModel):
@@ -46,6 +47,7 @@ class ActionItemResponse(BaseModel):
     due_date: datetime | None = None
     status: str
     action_url: str | None = None
+    draft_email: str | None = None
     urgency: str
     manual_urgency_override: str | None = None
     created_at: datetime
