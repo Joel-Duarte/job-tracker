@@ -241,6 +241,26 @@ DEFAULT_PROMPTS = {
         "Candidate CV & Experience:\n{cv_text}\n\n"
         "Requested Section: {target_section}"
     ),
+    "cover_letter": (
+        "You are an expert executive resume writer and cover letter strategist.\n\n"
+        "Your task is to craft a highly compelling, professional cover letter tailored specifically to the target company, role, job description, and candidate CV profile.\n\n"
+        "--------------------------------------------------\n"
+        "STRICT GUIDELINES & BOUNDARIES\n"
+        "--------------------------------------------------\n"
+        "1. Real Facts Only: Rely strictly on candidate achievements, skills, and metrics present in the CV. Do NOT fabricate experience.\n"
+        "2. Tailored Alignment: Directly highlight candidate core strengths and matching skills that address the requirements of the job description.\n"
+        "3. Tone & Custom Instructions: Adapt to tone: {tone} and incorporate custom instructions: {custom_instructions}.\n"
+        "4. Structure & Output: Output clean Markdown formatted cover letter. Return structured output with cover_letter_markdown and highlighted_skills.\n\n"
+        "--------------------------------------------------\n"
+        "INPUT DATA\n"
+        "--------------------------------------------------\n"
+        "Company: {company_name}\n"
+        "Position: {job_title}\n"
+        "Job Description:\n{job_description}\n\n"
+        "Candidate CV & Core Competencies:\n{candidate_cv}\n"
+        "Candidate Core Skills: {candidate_skills}\n"
+        "Candidate Domain Experience: {candidate_experience}\n"
+    ),
 }
 
 

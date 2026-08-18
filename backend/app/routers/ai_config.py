@@ -203,7 +203,11 @@ router = APIRouter(prefix="/ai", tags=["AI Provider Registry & Task Bindings"])
 @router.get("/global-settings", response_model=GlobalSettingsRead)
 async def get_global_settings() -> GlobalSettingsRead:
     settings = load_settings()
-    return GlobalSettingsRead(ENABLE_EMBEDDINGS=settings.get("ENABLE_EMBEDDINGS", True))
+    return GlobalSettingsRead(
+        ENABLE_EMBEDDINGS=settings.get("ENABLE_EMBEDDINGS", True),
+        auto_generate_cover_letter=settings.get("auto_generate_cover_letter", False),
+        cover_letter_min_match_pct=settings.get("cover_letter_min_match_pct", 50),
+    )
 
 
 @router.patch("/global-settings", response_model=GlobalSettingsRead)
@@ -211,8 +215,16 @@ async def update_global_settings(payload: GlobalSettingsUpdate) -> GlobalSetting
     settings = load_settings()
     if payload.ENABLE_EMBEDDINGS is not None:
         settings["ENABLE_EMBEDDINGS"] = payload.ENABLE_EMBEDDINGS
+    if payload.auto_generate_cover_letter is not None:
+        settings["auto_generate_cover_letter"] = payload.auto_generate_cover_letter
+    if payload.cover_letter_min_match_pct is not None:
+        settings["cover_letter_min_match_pct"] = payload.cover_letter_min_match_pct
     save_settings(settings)
-    return GlobalSettingsRead(ENABLE_EMBEDDINGS=settings.get("ENABLE_EMBEDDINGS", True))
+    return GlobalSettingsRead(
+        ENABLE_EMBEDDINGS=settings.get("ENABLE_EMBEDDINGS", True),
+        auto_generate_cover_letter=settings.get("auto_generate_cover_letter", False),
+        cover_letter_min_match_pct=settings.get("cover_letter_min_match_pct", 50),
+    )
 
 
 def _to_provider_read(p: AIProviderModel) -> AIProviderRead:

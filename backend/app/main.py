@@ -12,6 +12,7 @@ from app.routers import (
     analytics,
     applications,
     candidate_profile,
+    cover_letters,
     diagnostics,
     email_accounts,
     events,
@@ -105,6 +106,7 @@ app.include_router(email_accounts.router, prefix="/api/v1")
 app.include_router(staging.router, prefix="/api/v1")
 app.include_router(diagnostics.router, prefix="/api/v1")
 app.include_router(llm.router, prefix="/api/v1")
+app.include_router(cover_letters.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["Health"])

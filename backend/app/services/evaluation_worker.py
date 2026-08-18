@@ -119,6 +119,98 @@ async def _execute_cv_extraction_steps(
         await db.commit()
 
 
+async def _execute_cover_letter_generation_steps(
+    task: IntakeEvaluationTaskModel, db: AsyncSession
+) -> None:
+    try:
+        payload = task.result_json or {}
+        app_id = payload.get("application_id")
+        if not app_id and task.raw_text and task.raw_text.isdigit():
+            app_id = int(task.raw_text)
+
+        if not app_id:
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = (
+                "INVALID_TASK: Missing application_id for cover letter generation."
+            )
+            task.completed_at = datetime.now(UTC)
+            await db.commit()
+            return
+
+        from app.models.applications import ApplicationModel
+
+        app = await db.get(ApplicationModel, app_id)
+        if not app:
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = (
+                f"APPLICATION_NOT_FOUND: Application {app_id} does not exist."
+            )
+            task.completed_at = datetime.now(UTC)
+            await db.commit()
+            return
+
+        app.cover_letter_status = "GENERATING"
+        task.stage = "GENERATING"
+        await db.commit()
+
+        custom_instructions = payload.get("custom_instructions")
+        tone = payload.get("tone")
+
+        from app.services.cover_letter import generate_cover_letter_for_application
+
+        result = await generate_cover_letter_for_application(
+            db=db,
+            application_id=app_id,
+            custom_instructions=custom_instructions,
+            tone=tone,
+        )
+
+        app.cover_letter_markdown = result.cover_letter_markdown
+        app.cover_letter_status = "COMPLETED"
+        app.cover_letter_highlighted_skills = result.highlighted_skills
+        app.updated_at = datetime.now(UTC)
+
+        task.status = "COMPLETED"
+        task.stage = "COMPLETE"
+        task.result_json = {
+            "application_id": app_id,
+            "cover_letter_markdown": result.cover_letter_markdown,
+            "highlighted_skills": result.highlighted_skills,
+        }
+        task.completed_at = datetime.now(UTC)
+        await db.commit()
+        logger.info(
+            "Cover letter generation task %d completed for application ID %d",
+            task.id,
+            app_id,
+        )
+
+    except Exception as err:
+        logger.error(
+            "Failed processing cover letter task %d: %s", task.id, err, exc_info=True
+        )
+        task.status = "FAILED"
+        task.stage = "FAILED"
+        task.error_message = str(err)
+        task.completed_at = datetime.now(UTC)
+
+        try:
+            payload = task.result_json or {}
+            app_id = payload.get("application_id")
+            if app_id:
+                from app.models.applications import ApplicationModel
+
+                app = await db.get(ApplicationModel, app_id)
+                if app:
+                    app.cover_letter_status = "FAILED"
+        except Exception:
+            pass
+
+        await db.commit()
+
+
 async def _execute_evaluation_steps(
     task: IntakeEvaluationTaskModel, db: AsyncSession
 ) -> None:
@@ -134,6 +226,13 @@ async def _execute_evaluation_steps(
     ) as ctx:
         if task.task_type == "CV_EXTRACTION":
             await _execute_cv_extraction_steps(task, db)
+            ctx["outputs"] = {"status": task.status, "stage": task.stage}
+            if task.status == "FAILED":
+                ctx["error"] = task.error_message
+            return
+
+        if task.task_type in ("COVER_LETTER_GENERATION", "COVER_LETTER"):
+            await _execute_cover_letter_generation_steps(task, db)
             ctx["outputs"] = {"status": task.status, "stage": task.stage}
             if task.status == "FAILED":
                 ctx["error"] = task.error_message
@@ -227,7 +326,8 @@ async def _execute_evaluation_steps(
                 "STAGED_DUPLICATE" if save_result.get("is_duplicate") else "COMPLETE"
             )
             result_payload = assessment.model_dump()
-            result_payload["application_id"] = save_result.get("application_id")
+            app_id = save_result.get("application_id")
+            result_payload["application_id"] = app_id
             result_payload["staging_item_id"] = save_result.get("staging_item_id")
             result_payload["is_duplicate"] = save_result.get("is_duplicate", False)
             result_payload["save_status"] = save_result.get("status")
@@ -235,6 +335,25 @@ async def _execute_evaluation_steps(
             task.title_hint = f"{assessment.company} - {assessment.position}"
             task.completed_at = datetime.now(UTC)
             await db.commit()
+
+            # Auto-generate cover letter if setting enabled and fit score meets threshold
+            from app.core.config_manager import get_setting
+
+            auto_gen = get_setting("auto_generate_cover_letter", False)
+            min_match = get_setting("cover_letter_min_match_pct", 50)
+            if app_id and auto_gen and assessment.fit_score >= min_match:
+                cl_task = IntakeEvaluationTaskModel(
+                    task_type="COVER_LETTER_GENERATION",
+                    status="QUEUED",
+                    stage="QUEUED",
+                    title_hint=f"Cover Letter - {assessment.company}",
+                    result_json={"application_id": app_id},
+                )
+                db.add(cl_task)
+                await db.commit()
+                import asyncio
+
+                asyncio.create_task(process_evaluation_task(cl_task.id))
             ctx["outputs"] = {
                 "status": task.status,
                 "stage": task.stage,
@@ -274,7 +393,15 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
         if not task or task.status == "CANCELLED":
             return
         task.status = "PROCESSING"
-        task.stage = "SCRUBBING" if task.task_type == "CV_EXTRACTION" else "FETCHING"
+        task.stage = (
+            "SCRUBBING"
+            if task.task_type == "CV_EXTRACTION"
+            else (
+                "GENERATING"
+                if task.task_type in ("COVER_LETTER_GENERATION", "COVER_LETTER")
+                else "FETCHING"
+            )
+        )
         await db.commit()
         await _execute_evaluation_steps(task, db)
         return
@@ -315,7 +442,13 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
 
             task.status = "PROCESSING"
             task.stage = (
-                "SCRUBBING" if task.task_type == "CV_EXTRACTION" else "FETCHING"
+                "SCRUBBING"
+                if task.task_type == "CV_EXTRACTION"
+                else (
+                    "GENERATING"
+                    if task.task_type in ("COVER_LETTER_GENERATION", "COVER_LETTER")
+                    else "FETCHING"
+                )
             )
             await session.commit()
 

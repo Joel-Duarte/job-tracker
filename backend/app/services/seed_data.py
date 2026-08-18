@@ -1079,9 +1079,18 @@ Datadog is looking for a Senior Software Engineer to build high-scale APM ingest
         temperature=0.0,
         is_active=True,
     )
-    session.add_all([binding_global, binding_1, binding_2, binding_3, binding_4])
+    binding_5 = AITaskBindingModel(
+        task_type="COVER_LETTER",
+        provider_id=provider_local.id,
+        model_name="qwen/qwen3.5-9b",
+        temperature=0.4,
+        is_active=True,
+    )
+    session.add_all(
+        [binding_global, binding_1, binding_2, binding_3, binding_4, binding_5]
+    )
     stats["ai_providers"] = 1
-    stats["ai_task_bindings"] = 5
+    stats["ai_task_bindings"] = 6
 
     # -------------------------------------------------------------------------
     # 7. Connected Email Accounts

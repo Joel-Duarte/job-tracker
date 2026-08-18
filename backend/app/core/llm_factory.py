@@ -188,6 +188,11 @@ TASK_RECOMMENDED_DEFAULTS = {
         "reasoning_effort": "none",
         "max_tokens": None,
     },
+    "COVER_LETTER": {
+        "temperature": 0.4,
+        "reasoning_effort": "none",
+        "max_tokens": None,
+    },
     "AGENT": {"temperature": 0.2, "reasoning_effort": "none", "max_tokens": None},
 }
 
