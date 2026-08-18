@@ -53,19 +53,17 @@ async function loadApplication() {
 }
 
 const parsedTailoringStrategy = computed(() => {
-  if (!analysisData.value?.tailoring_strategy) return null
+  if (!analysisData.value) return null
+  const raw = analysisData.value.tailoring_strategy || analysisData.value.strategic_tips
+  if (!raw) return null
   try {
-    const raw = analysisData.value.tailoring_strategy
     if (typeof raw === 'object') return raw // already parsed
-    // Attempt to parse string to JSON
-    // Clean up markdown block format if LLM returned it in ```json blocks
-    let cleaned = raw.trim()
+    let cleaned = String(raw).trim()
     if (cleaned.startsWith('```json')) cleaned = cleaned.replace(/^```json/, '')
     if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```/, '')
     if (cleaned.endsWith('```')) cleaned = cleaned.replace(/```$/, '')
     return JSON.parse(cleaned)
   } catch (err) {
-    console.error("Failed to parse tailoring strategy JSON:", err)
     return null
   }
 })
@@ -75,8 +73,36 @@ const analysisData = computed(() => {
   return application.value.match_analysis_payload || null
 })
 
+const summaryText = computed(() => {
+  if (!analysisData.value) return ''
+  return analysisData.value.summary || analysisData.value.rationale || analysisData.value.overview || ''
+})
+
+const matchingSkills = computed(() => {
+  if (!analysisData.value) return []
+  return analysisData.value.matching_skills || analysisData.value.hard_matches || analysisData.value.pros || []
+})
+
+const missingSkills = computed(() => {
+  if (!analysisData.value) return []
+  return analysisData.value.missing_skills || analysisData.value.missing_keywords || analysisData.value.cons || []
+})
+
+const gapMitigationText = computed(() => {
+  if (!analysisData.value) return ''
+  return analysisData.value.gap_mitigation || analysisData.value.mitigation || ''
+})
+
+const rawTailoringText = computed(() => {
+  if (!analysisData.value) return ''
+  const raw = analysisData.value.tailoring_strategy || analysisData.value.strategic_tips
+  if (typeof raw === 'string') return raw
+  if (Array.isArray(raw)) return raw.join('\n\n')
+  return ''
+})
+
 const matchScore = computed(() => {
-  return application.value?.match_score ?? analysisData.value?.match_score ?? analysisData.value?.fit_score ?? 0
+  return application.value?.match_score ?? analysisData.value?.match_score ?? analysisData.value?.fit_score ?? analysisData.value?.overall_fit_score ?? 0
 })
 
 function getFitBadgeClass(score) {
@@ -85,6 +111,14 @@ function getFitBadgeClass(score) {
   if (num >= 60) return 'fit-high'
   if (num >= 40) return 'fit-medium'
   return 'fit-low'
+}
+
+function getFitLabel(score) {
+  const num = Number(score)
+  if (num >= 80) return 'Elite Match'
+  if (num >= 60) return 'Strong Fit'
+  if (num >= 40) return 'Moderate Fit'
+  return 'Low Alignment'
 }
 </script>
 
@@ -125,33 +159,33 @@ function getFitBadgeClass(score) {
             </div>
           </div>
 
-          <div class="analysis-section" v-if="analysisData.summary">
+          <div class="analysis-section" v-if="summaryText">
              <h3 class="section-title"><FileText :size="15" /> Executive Summary</h3>
-             <p class="section-text">{{ analysisData.summary }}</p>
+             <p class="section-text">{{ summaryText }}</p>
           </div>
 
-          <div class="skills-grid">
-            <div class="skills-card matching" v-if="analysisData.matching_skills?.length">
+          <div class="skills-grid" v-if="matchingSkills.length || missingSkills.length">
+            <div class="skills-card matching" v-if="matchingSkills.length">
                <h3 class="skills-title"><CheckCircle2 :size="15" /> Strategic Match Pros</h3>
                <div class="skills-list">
-                 <span v-for="skill in analysisData.matching_skills" :key="skill" class="skill-tag match">{{ skill }}</span>
+                 <span v-for="skill in matchingSkills" :key="skill" class="skill-tag match">{{ skill }}</span>
                </div>
             </div>
-            <div class="skills-card missing" v-if="analysisData.missing_skills?.length">
-               <h3 class="skills-title"><AlertTriangle :size="15" /> Missing Gaps & Considerations</h3>
+            <div class="skills-card missing" v-if="missingSkills.length">
+               <h3 class="skills-title"><AlertTriangle :size="15" /> Missing Gaps &amp; Considerations</h3>
                <div class="skills-list">
-                 <span v-for="skill in analysisData.missing_skills" :key="skill" class="skill-tag miss">{{ skill }}</span>
+                 <span v-for="skill in missingSkills" :key="skill" class="skill-tag miss">{{ skill }}</span>
                </div>
             </div>
           </div>
 
-          <div class="analysis-section gap-card" v-if="analysisData.gap_mitigation">
+          <div class="analysis-section gap-card" v-if="gapMitigationText">
              <h3 class="section-title text-warning"><AlertTriangle :size="15" /> Gap Mitigation Plan</h3>
-             <p class="section-text">{{ analysisData.gap_mitigation }}</p>
+             <p class="section-text">{{ gapMitigationText }}</p>
           </div>
 
           <!-- Tailoring Strategy -->
-          <div class="analysis-section" v-if="analysisData.tailoring_strategy">
+          <div class="analysis-section" v-if="parsedTailoringStrategy || rawTailoringText">
              <h3 class="section-title"><Sparkles :size="15" /> Recommended Resume Tailoring Strategy</h3>
 
              <div v-if="parsedTailoringStrategy" class="tailoring-parsed">
@@ -195,7 +229,7 @@ function getFitBadgeClass(score) {
                </div>
              </div>
 
-             <p v-else class="section-text fallback-text">{{ analysisData.tailoring_strategy }}</p>
+             <p v-else class="section-text fallback-text">{{ rawTailoringText }}</p>
           </div>
         </div>
       </div>

@@ -6,6 +6,7 @@ import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
 import { ActionItemsAPI, ApplicationsAPI } from '../../api/endpoints'
 import DateTimePicker from '../common/DateTimePicker.vue'
+import InterviewReaderModal from '../modals/InterviewReaderModal.vue'
 
 import {
   X, Check,
@@ -42,6 +43,7 @@ const appStore = useApplicationsStore()
 const { detailActiveTab: activeTab } = storeToRefs(uiStore) // 'timeline' | 'job_spec' | 'actions' | 'guide'
 const showDeleteConfirm = ref(false)
 const isDeleting = ref(false)
+const isReaderModalOpen = ref(false)
 
 
 // In-drawer Action Item creation state
@@ -974,7 +976,7 @@ function formatDate(isoStr) {
                 <div class="guide-meta-actions" style="display: flex; gap: 8px; margin-top: 8px;">
                   <button
                     class="btn btn-primary"
-                    @click="openGuideInNewTab"
+                    @click="isReaderModalOpen = true"
                   >
                     <BookOpen :size="15" />
                     <span>Open Full Reader</span>
@@ -1224,6 +1226,12 @@ function formatDate(isoStr) {
       </div>
     </div>
   </Transition>
+
+  <InterviewReaderModal
+    :is-open="isReaderModalOpen"
+    :application-id="appStore.selectedApplication?.id"
+    @close="isReaderModalOpen = false"
+  />
 
   </template>
 

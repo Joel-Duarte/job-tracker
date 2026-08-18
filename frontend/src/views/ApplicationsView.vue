@@ -229,11 +229,25 @@ function getAppSubPhaseLabel(app) {
   return 'Applied'
 }
 
-function getInterviewDate(app) {
+function getScheduledInterviewDate(app) {
   if (!app) return null
+  if (app.scheduled_interview_at) return app.scheduled_interview_at
   const payload = app.latest_event?.raw_payload || {}
-  const dateStr = payload.scheduled_at
-  if (!dateStr) return null
+  if (payload.scheduled_at) return payload.scheduled_at
+  if (app.status === 'TECHNICAL_INTERVIEW') {
+    if (app.nearest_due_date) return app.nearest_due_date
+    for (const act of app.action_items || []) {
+      if (act.due_date && String(act.title).toLowerCase().includes('interview')) {
+        return act.due_date
+      }
+    }
+  }
+  return null
+}
+
+function formatScheduledDate(app) {
+  const dateStr = getScheduledInterviewDate(app)
+  if (!dateStr) return ''
   try {
     const d = new Date(dateStr)
     return d.toLocaleString('en-US', {
@@ -243,7 +257,22 @@ function getInterviewDate(app) {
       minute: '2-digit',
     })
   } catch {
-    return dateStr
+    return String(dateStr)
+  }
+}
+
+function getScheduleUrgencyClass(app) {
+  const dateStr = getScheduledInterviewDate(app)
+  if (!dateStr) return 'date-yellow'
+  try {
+    const schedTime = new Date(dateStr).getTime()
+    const nowTime = Date.now()
+    const diffHours = (schedTime - nowTime) / (1000 * 60 * 60)
+    if (diffHours >= 72) return 'date-green'
+    if (diffHours > 24) return 'date-yellow'
+    return 'date-red'
+  } catch {
+    return 'date-yellow'
   }
 }
 
@@ -719,9 +748,14 @@ async function confirmDelete() {
                 </button>
 
                 <!-- Show Interview Scheduled Date if it exists -->
-                <div v-if="getInterviewDate(app)" class="interview-date-tag" title="Scheduled Interview Date & Time">
+                <div
+                  v-if="getScheduledInterviewDate(app)"
+                  class="interview-scheduled-badge"
+                  :class="getScheduleUrgencyClass(app)"
+                  title="Scheduled Interview Date & Time"
+                >
                   <Calendar :size="11" />
-                  <span>{{ getInterviewDate(app) }}</span>
+                  <span>{{ formatScheduledDate(app) }}</span>
                 </div>
 
                 <!-- Show Awaiting Response badge if task was completed -->
@@ -761,26 +795,41 @@ async function confirmDelete() {
               <div class="card-actions-row" @click.stop>
                 <!-- Interview Guide Buttons -->
                 <template v-if="!['REJECTED', 'OFFER'].includes(app.status)">
-                  <template v-if="app.has_interview_guide">
-                    <button class="btn-action-chip btn-guide-ready" @click="openInterviewReaderModal(app.id)" title="Open Full-Screen Reader">
+                  <div v-if="app.has_interview_guide" class="btn-guide-split-group" title="Interview Guide Ready">
+                    <button
+                      class="btn-guide-split-main"
+                      @click="openInterviewReaderModal(app.id)"
+                      title="Open Guide Reader"
+                    >
                       <BookOpen :size="11" />
                       <span>Guide Ready</span>
                     </button>
-                    <button class="btn-action-chip" @click="openInterviewGuide(app.id)" title="Regenerate Guide">
+                    <button
+                      class="btn-guide-split-action"
+                      @click="openInterviewGuide(app.id)"
+                      title="Regenerate Guide"
+                    >
                       <RotateCcw :size="11" />
                     </button>
-                  </template>
-                  <template v-else>
-                    <button class="btn-action-chip" @click="openInterviewGuide(app.id)" title="Generate Interview Prep">
-                      <Sparkles :size="11" />
-                      <span>Interview Prep</span>
-                    </button>
-                  </template>
+                  </div>
+                  <button
+                    v-else
+                    class="btn-action-chip"
+                    @click="openInterviewGuide(app.id)"
+                    title="Generate Interview Guide"
+                  >
+                    <Sparkles :size="11" />
+                    <span>Generate Guide</span>
+                  </button>
                 </template>
 
                 <!-- Match Analysis Button -->
-                <template v-if="app.match_score !== null || app.match_analysis_payload?.match_score">
-                  <button class="btn-action-chip btn-analysis" @click="openMatchAnalysisModal(app.id)" title="View Match Breakdown">
+                <template v-if="['APPLIED', 'TECHNICAL_INTERVIEW', 'INTERVIEW', 'OFFER', 'ASSESSMENT'].includes(app.status) && (app.match_score !== null || app.match_analysis_payload)">
+                  <button
+                    class="btn-action-chip btn-analysis"
+                    @click="openMatchAnalysisModal(app.id)"
+                    title="View Match Assessment"
+                  >
                     <Sparkles :size="11" />
                     <span>View Assessment</span>
                   </button>
@@ -879,9 +928,14 @@ async function confirmDelete() {
                     <SlidersHorizontal :size="11" class="phase-icon" />
                   </button>
 
-                  <div v-if="getInterviewDate(app)" class="interview-date-tag" title="Scheduled Interview Date & Time">
+                  <div
+                    v-if="getScheduledInterviewDate(app)"
+                    class="interview-scheduled-badge"
+                    :class="getScheduleUrgencyClass(app)"
+                    title="Scheduled Interview Date & Time"
+                  >
                     <Calendar :size="11" />
-                    <span>{{ getInterviewDate(app) }}</span>
+                    <span>{{ formatScheduledDate(app) }}</span>
                   </div>
 
                   <div
@@ -2320,26 +2374,86 @@ async function confirmDelete() {
   transform: translateY(-1px);
 }
 
-.btn-guide-ready {
+.btn-guide-split-group {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--primary-glow);
   background-color: var(--primary-subtle);
-  color: var(--primary);
-  border-color: var(--primary-glow);
+  overflow: hidden;
+  transition: all var(--transition-fast);
 }
 
-.btn-guide-ready:hover {
+.btn-guide-split-group:hover {
   box-shadow: 0 0 8px var(--primary-glow);
+  border-color: var(--primary);
+  transform: translateY(-1px);
 }
 
-.btn-analysis {
-  color: var(--status-offer-text);
-  border-color: var(--status-offer-border);
+.btn-guide-split-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  background: transparent;
+  color: var(--primary);
+  border: none;
+  border-right: 1px solid rgba(99, 102, 241, 0.25);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.btn-guide-split-main:hover {
+  background-color: rgba(99, 102, 241, 0.15);
+}
+
+.btn-guide-split-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 6px;
+  background: transparent;
+  color: var(--primary);
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.btn-guide-split-action:hover {
+  background-color: rgba(99, 102, 241, 0.25);
+}
+
+.interview-scheduled-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  user-select: none;
+}
+
+.interview-scheduled-badge.date-green {
   background-color: var(--status-offer-bg);
+  color: var(--status-offer-text);
+  border: 1px solid var(--status-offer-border);
 }
 
-.btn-analysis:hover {
-  box-shadow: 0 0 4px var(--status-offer-border);
+.interview-scheduled-badge.date-yellow {
+  background-color: var(--status-interview-bg);
+  color: var(--status-interview-text);
+  border: 1px solid var(--status-interview-border);
 }
 
+.interview-scheduled-badge.date-red {
+  background-color: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+  border: 1px solid var(--status-rejected-border);
+}
 
 .action-required-card {
   border-left: 3px solid var(--status-rejected-border);

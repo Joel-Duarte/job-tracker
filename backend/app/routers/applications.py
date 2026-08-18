@@ -162,6 +162,23 @@ async def list_applications(
                     except (ValueError, TypeError):
                         pass
 
+        # Compute scheduled interview date
+        scheduled_interview = None
+        for evt in app.events or []:
+            if evt.raw_payload and isinstance(evt.raw_payload, dict):
+                sched_val = evt.raw_payload.get("scheduled_at")
+                if sched_val:
+                    try:
+                        scheduled_interview = datetime.fromisoformat(str(sched_val))
+                        break
+                    except Exception:
+                        pass
+        if not scheduled_interview:
+            for act in app.action_items or []:
+                if "interview" in act.title.lower() and act.due_date:
+                    scheduled_interview = act.due_date
+                    break
+
         items.append(
             ApplicationListItem(
                 id=app.id,
@@ -175,7 +192,9 @@ async def list_applications(
                 has_action_required=has_action,
                 has_interview_guide=bool(app.interview_guide_html),
                 match_score=match_score,
+                match_analysis_payload=app.match_analysis_payload,
                 nearest_due_date=nearest_due,
+                scheduled_interview_at=scheduled_interview,
                 latest_event=EventSummary(
                     id=latest_evt.id,
                     email_event_type=latest_evt.email_event_type,

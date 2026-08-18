@@ -43,6 +43,7 @@ class ApplicationListItem(BaseModel):
     match_analysis_payload: dict[str, Any] | None = None
     latest_event: EventSummary | None = None
     nearest_due_date: datetime | None = None
+    scheduled_interview_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

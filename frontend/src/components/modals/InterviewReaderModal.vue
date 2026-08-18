@@ -11,8 +11,12 @@ import {
   Building2,
   Briefcase,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Maximize2,
+  Minimize2,
+  ExternalLink
 } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
 
 const props = defineProps({
   isOpen: Boolean,
@@ -21,11 +25,13 @@ const props = defineProps({
 
 const emit = defineEmits(['close'])
 const uiStore = useUIStore()
+const router = useRouter()
 
 const isLoading = ref(true)
 const application = ref(null)
 const error = ref(null)
 const hasCopied = ref(false)
+const isFullScreen = ref(false)
 
 watch(() => props.isOpen, async (newVal) => {
   if (newVal && props.applicationId) {
@@ -33,6 +39,7 @@ watch(() => props.isOpen, async (newVal) => {
   } else {
     application.value = null
     error.value = null
+    isFullScreen.value = false
   }
 })
 
@@ -53,7 +60,11 @@ async function loadApplication() {
   }
 }
 
-
+function openInDedicatedTab() {
+  if (!application.value?.id) return
+  const routeData = router.resolve({ name: 'InterviewGuide', params: { id: application.value.id } })
+  window.open(routeData.href, '_blank')
+}
 
 function handleCopy() {
   if (!application.value?.interview_guide_html) return
@@ -91,8 +102,8 @@ function formatLanguageName(code) {
 </script>
 
 <template>
-  <div v-if="isOpen" class="modal-backdrop print-hide" @click.self="emit('close')">
-    <div class="modal-card animate-fade-in interview-reader-container">
+  <div v-if="isOpen" class="modal-backdrop print-hide" :class="{ 'full-screen-backdrop': isFullScreen }" @click.self="emit('close')">
+    <div class="modal-card animate-fade-in interview-reader-container" :class="{ 'full-screen-mode': isFullScreen }">
       <!-- Header -->
       <div class="modal-header">
         <div class="header-main-info">
@@ -110,6 +121,23 @@ function formatLanguageName(code) {
         </div>
 
         <div class="header-actions">
+          <button
+            class="btn btn-secondary btn-sm"
+            @click="isFullScreen = !isFullScreen"
+            :title="isFullScreen ? 'Exit Full Reader' : 'Full Reader Mode'"
+          >
+            <component :is="isFullScreen ? Minimize2 : Maximize2" :size="14" />
+            <span>{{ isFullScreen ? 'Compact' : 'Full Reader' }}</span>
+          </button>
+
+          <button
+            v-if="application?.id"
+            class="btn btn-secondary btn-sm"
+            @click="openInDedicatedTab"
+            title="Open in New Tab"
+          >
+            <ExternalLink :size="14" />
+          </button>
 
           <button class="btn btn-secondary btn-sm" @click="handleCopy" :disabled="!application?.interview_guide_html">
             <component :is="hasCopied ? Check : Copy" :size="14" :class="{ 'text-success': hasCopied }" />
@@ -165,6 +193,10 @@ function formatLanguageName(code) {
   padding: 20px;
 }
 
+.modal-backdrop.full-screen-backdrop {
+  padding: 0;
+}
+
 .interview-reader-container {
   width: 100%;
   max-width: 960px;
@@ -176,6 +208,15 @@ function formatLanguageName(code) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: all 0.2s ease-in-out;
+}
+
+.interview-reader-container.full-screen-mode {
+  width: 100vw;
+  max-width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  border: none;
 }
 
 .modal-header {

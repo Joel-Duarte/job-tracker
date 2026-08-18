@@ -650,6 +650,7 @@ Linear is building the future of software project management with instantaneous 
         email_action_required=True,
         email_action="Prepare diagrams for offline sync architecture session",
         email_raw_body="Hi Alex, we enjoyed our chat! We would like to invite you to our 60-minute technical architecture interview focusing on data sync and local-first persistence.",
+        raw_payload={"scheduled_at": (now + timedelta(days=2)).isoformat()},
     )
     session.add_all([event_linear_1, event_linear_2])
     await session.flush()
