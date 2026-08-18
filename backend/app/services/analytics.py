@@ -463,9 +463,9 @@ async def get_activity_history(db: AsyncSession) -> ActivityHistoryResponse:
     query = text("""
         WITH weeks AS (
             SELECT generate_series(
-                date_trunc('week', :start_date::timestamp),
-                date_trunc('week', :end_date::timestamp),
-                '1 week'::interval
+                date_trunc('week', CAST(:start_date AS TIMESTAMP)),
+                date_trunc('week', CAST(:end_date AS TIMESTAMP)),
+                INTERVAL '1 week'
             ) AS week_start
         ),
         app_counts AS (
