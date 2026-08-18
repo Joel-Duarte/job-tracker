@@ -7,6 +7,8 @@ import { useApplicationsStore } from '../../stores/applicationsStore'
 import { ActionItemsAPI, ApplicationsAPI } from '../../api/endpoints'
 import DateTimePicker from '../common/DateTimePicker.vue'
 import InterviewReaderModal from '../modals/InterviewReaderModal.vue'
+import LogActivityModal from '../modals/LogActivityModal.vue'
+import CompanyLogo from '../common/CompanyLogo.vue'
 
 import {
   X, Check,
@@ -42,6 +44,18 @@ const appStore = useApplicationsStore()
 
 const { detailActiveTab: activeTab } = storeToRefs(uiStore) // 'timeline' | 'job_spec' | 'actions' | 'guide'
 const showDeleteConfirm = ref(false)
+const isLogActivityModalOpen = ref(false)
+
+function openLogActivity() {
+  isLogActivityModalOpen.value = true
+}
+
+async function onActivityLogged() {
+  if (appStore.selectedApplication?.id) {
+    await appStore.fetchApplication(appStore.selectedApplication.id)
+    await appStore.fetchApplications()
+  }
+}
 const isDeleting = ref(false)
 const isReaderModalOpen = ref(false)
 
@@ -377,7 +391,16 @@ function openEditModal() {
   showTransitionModal.value = true
 }
 
-
+function getTransitionModalTitle() {
+  const company = appStore.selectedApplication?.company?.name || 'Application'
+  const currentStatus = appStore.selectedApplication?.status
+  if (currentStatus === transitionTargetStatus.value) {
+    if (transitionTargetStatus.value === 'OFFER') return `Update Offer for ${company}`
+    if (transitionTargetStatus.value === 'TECHNICAL_INTERVIEW') return `Update Interview Stage for ${company}`
+    return `Update Details for ${company}`
+  }
+  return `Move to ${transitionTargetStatus.value ? transitionTargetStatus.value.replace('_', ' ') : 'Stage'}`
+}
 
 async function executeDirectTransition(status) {
   if (!appStore.selectedApplication) return
@@ -511,9 +534,12 @@ function formatDate(isoStr) {
           <!-- Drawer Header -->
           <div class="drawer-header">
             <div class="header-main">
-              <div class="company-badge-large">
-                <Building2 :size="20" />
-              </div>
+              <CompanyLogo
+                :name="appStore.selectedApplication.company?.name"
+                :domain="appStore.selectedApplication.company?.domain"
+                :size="44"
+                class="company-badge-large"
+              />
               <div class="header-titles">
                 <h2 class="company-name">
                   {{ appStore.selectedApplication.company?.name || 'Company' }}
@@ -540,27 +566,10 @@ function formatDate(isoStr) {
 
           <!-- Metadata & Status Bar -->
           <div class="status-bar">
-            <div class="status-control-group">
-              <!-- Interactive Sub-Status Pill with Edit Trigger -->
-              <button
-                class="phase-detail-btn"
-                :class="`phase-${(appStore.selectedApplication.status || 'applied').toLowerCase()}`"
-                @click="openEditModal"
-                title="Edit phase details, scheduled dates & compensation"
-              >
-                <span class="phase-detail-text">{{ getAppSubPhaseLabel(appStore.selectedApplication) }}</span>
-                <SlidersHorizontal :size="12" class="phase-icon" />
-              </button>
-
-              <!-- Interview Scheduled Date Tag -->
-              <div
-                v-if="getInterviewDate(appStore.selectedApplication)"
-                class="interview-date-tag"
-                title="Scheduled Interview Date & Time"
-              >
-                <Calendar :size="12" />
-                <span>{{ getInterviewDate(appStore.selectedApplication) }}</span>
-              </div>
+            <div class="meta-item">
+              <span class="badge" :class="`badge-${(appStore.selectedApplication.status || 'applied').toLowerCase()}`">
+                {{ (appStore.selectedApplication.status || 'APPLIED').replace('_', ' ') }}
+              </span>
             </div>
 
             <div class="meta-item">
@@ -644,55 +653,92 @@ function formatDate(isoStr) {
           <!-- Tab Panels -->
           <div class="drawer-body">
             <!-- 1. TIMELINE STREAM (Newest First) -->
-            <div v-if="activeTab === 'timeline'" class="timeline-stream">
-              <div
-                v-for="(event, idx) in appStore.selectedApplication.events || []"
-                :key="event.id || idx"
-                class="timeline-item"
-              >
-                <div class="timeline-bullet"></div>
-                <div class="timeline-card">
-                  <div class="event-header">
-                    <div class="event-type-group">
-                      <span class="badge" :class="`badge-${(event.email_status_after_event || 'applied').toLowerCase()}`">
-                        {{ event.email_event_type }}
-                      </span>
-                      <span v-if="event.email_sender_name || event.email_sender" class="event-sender">
-                        {{ event.email_sender_name || event.email_sender }}
-                      </span>
-                    </div>
-                    <span class="event-date">{{ formatDate(event.email_received_at || event.created_at) }}</span>
-                  </div>
+            <div v-if="activeTab === 'timeline'" class="timeline-tab-content">
+              <div class="timeline-action-header">
+                <div class="timeline-header-meta">
+                  <span class="timeline-header-title">Timeline Events</span>
+                  <span class="timeline-count-chip">{{ appStore.selectedApplication.events?.length || 0 }}</span>
+                </div>
+                <div class="timeline-action-btns">
+                  <!-- Update Phase / Stage / Offer button -->
+                  <button
+                    v-if="appStore.selectedApplication.status === 'TECHNICAL_INTERVIEW'"
+                    class="btn btn-secondary btn-sm"
+                    @click="openEditModal"
+                    title="Update interview phase, scheduled date, or notes"
+                  >
+                    <SlidersHorizontal :size="13" />
+                    <span>Update Interview Stage</span>
+                  </button>
 
-                  <div v-if="event.email_subject" class="event-subject">
-                    {{ event.email_subject }}
-                  </div>
+                  <button
+                    v-else-if="appStore.selectedApplication.status === 'OFFER'"
+                    class="btn btn-secondary btn-sm"
+                    @click="openEditModal"
+                    title="Update offer package and decision deadline"
+                  >
+                    <Award :size="13" />
+                    <span>Update Offer</span>
+                  </button>
 
-                  <div v-if="event.email_summary" class="event-summary">
-                    {{ event.email_summary }}
-                  </div>
-
-                  <!-- Recorded Notes Pill / Card -->
-                  <div v-if="event.raw_payload?.notes" class="event-notes-card">
-                    <div class="notes-header">
-                      <FileText :size="12" class="text-primary" />
-                      <span>Note / Context</span>
-                    </div>
-                    <div class="notes-body">{{ event.raw_payload.notes }}</div>
-                  </div>
-
-                  <div v-if="event.email_action_required" class="event-action-required">
-                    <AlertCircle :size="14" />
-                    <span>Action Required: {{ event.email_action || 'Pending response' }}</span>
-                  </div>
+                  <!-- Log Activity button -->
+                  <button class="btn btn-secondary btn-sm" @click="openLogActivity" title="Log custom activity or note">
+                    <Plus :size="13" />
+                    <span>Log Activity</span>
+                  </button>
                 </div>
               </div>
 
-              <div
-                v-if="!appStore.selectedApplication.events?.length"
-                class="empty-state"
-              >
-                No timeline events recorded yet.
+              <div class="timeline-stream">
+                <div
+                  v-for="(event, idx) in appStore.selectedApplication.events || []"
+                  :key="event.id || idx"
+                  class="timeline-item"
+                >
+                  <div class="timeline-bullet"></div>
+                  <div class="timeline-card">
+                    <div class="event-header">
+                      <div class="event-type-group">
+                        <span class="badge" :class="`badge-${(event.email_status_after_event || 'applied').toLowerCase()}`">
+                          {{ event.email_event_type }}
+                        </span>
+                        <span v-if="event.email_sender_name || event.email_sender" class="event-sender">
+                          {{ event.email_sender_name || event.email_sender }}
+                        </span>
+                      </div>
+                      <span class="event-date">{{ formatDate(event.email_received_at || event.created_at) }}</span>
+                    </div>
+
+                    <div v-if="event.email_subject" class="event-subject">
+                      {{ event.email_subject }}
+                    </div>
+
+                    <div v-if="event.email_summary" class="event-summary">
+                      {{ event.email_summary }}
+                    </div>
+
+                    <!-- Recorded Notes Pill / Card -->
+                    <div v-if="event.raw_payload?.notes" class="event-notes-card">
+                      <div class="notes-header">
+                        <FileText :size="12" class="text-primary" />
+                        <span>Note / Context</span>
+                      </div>
+                      <div class="notes-body">{{ event.raw_payload.notes }}</div>
+                    </div>
+
+                    <div v-if="event.email_action_required" class="event-action-required">
+                      <AlertCircle :size="14" />
+                      <span>Action Required: {{ event.email_action || 'Pending response' }}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  v-if="!appStore.selectedApplication.events?.length"
+                  class="empty-state"
+                >
+                  No timeline events recorded yet.
+                </div>
               </div>
             </div>
 
@@ -1022,7 +1068,7 @@ function formatDate(isoStr) {
       <div class="inner-modal-box">
         <div class="inner-modal-header">
           <div class="inner-modal-title">
-            <span>Move to {{ transitionTargetStatus.replace('_', ' ') }}</span>
+            <span>{{ getTransitionModalTitle() }}</span>
           </div>
           <button class="btn-close" @click="showTransitionModal = false">
             <X :size="16" />
@@ -1231,6 +1277,13 @@ function formatDate(isoStr) {
     :is-open="isReaderModalOpen"
     :application-id="appStore.selectedApplication?.id"
     @close="isReaderModalOpen = false"
+  />
+
+  <LogActivityModal
+    :is-open="isLogActivityModalOpen"
+    :application-id="appStore.selectedApplication?.id"
+    @close="isLogActivityModalOpen = false"
+    @updated="onActivityLogged"
   />
 
   </template>
@@ -1469,6 +1522,51 @@ function formatDate(isoStr) {
   padding: 24px;
   flex: 1;
   overflow-y: auto;
+}
+
+.timeline-tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.timeline-action-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  gap: 12px;
+}
+
+.timeline-action-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.timeline-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.timeline-header-title {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-main);
+}
+
+.timeline-count-chip {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background-color: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
 }
 
 .timeline-stream {
@@ -1920,8 +2018,18 @@ function formatDate(isoStr) {
 
 .form-row-2 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.form-row-2 .form-group {
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 
 /* Offer & Rejection Boxes */

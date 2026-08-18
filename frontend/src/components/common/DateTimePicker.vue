@@ -391,6 +391,7 @@ onBeforeUnmount(() => {
 .custom-datepicker-container {
   position: relative;
   width: 100%;
+  box-sizing: border-box;
 }
 
 .datepicker-input-wrapper {
@@ -406,6 +407,9 @@ onBeforeUnmount(() => {
   color: var(--text-main);
   transition: all var(--transition-fast);
   min-height: 38px;
+  height: 38px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .datepicker-input-wrapper:hover {

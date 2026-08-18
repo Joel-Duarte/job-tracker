@@ -41,6 +41,11 @@ import {
   CheckSquare,
 } from 'lucide-vue-next'
 import PageHeader from '../components/common/PageHeader.vue'
+import CompanyLogo from '../components/common/CompanyLogo.vue'
+import {
+  normalizeWorkModel,
+  formatRelativeDate,
+} from '../utils/formatters'
 
 const router = useRouter()
 const uiStore = useUIStore()
@@ -644,20 +649,21 @@ onUnmounted(() => {
         >
           <!-- Card Header Row -->
           <div class="eval-card-header">
-            <div class="eval-title-group" style="flex-direction: row; align-items: flex-start; gap: 12px;">
-              <input type="checkbox" class="form-checkbox mt-1" :checked="selectedTaskIds.has(task.id)" @change="toggleTaskSelection(task.id)" />
+            <div class="eval-title-group" style="flex-direction: row; align-items: center; gap: 14px;">
+              <input type="checkbox" class="form-checkbox" :checked="selectedTaskIds.has(task.id)" @change="toggleTaskSelection(task.id)" />
+              <CompanyLogo :name="task.result_json?.company || task.title_hint" :size="44" />
               <div>
-              <div class="company-badge-line">
-                <span class="eval-company">{{ task.result_json?.company || task.title_hint || 'Target Company' }}</span>
-                <span v-if="task.job_url" class="eval-url-link">
-                  <a :href="task.job_url" target="_blank" rel="noopener noreferrer" title="Open original job posting">
-                    <Globe :size="12" />
-                    <span>External Posting</span>
-                    <ArrowUpRight :size="11" />
-                  </a>
-                </span>
-              </div>
-              <h2 class="eval-role">{{ task.result_json?.position || 'Software Engineer' }}</h2>
+                <div class="company-badge-line">
+                  <span class="eval-company">{{ task.result_json?.company || task.title_hint || 'Target Company' }}</span>
+                  <span v-if="task.job_url" class="eval-url-link">
+                    <a :href="task.job_url" target="_blank" rel="noopener noreferrer" title="Open original job posting">
+                      <Globe :size="12" />
+                      <span>External Posting</span>
+                      <ArrowUpRight :size="11" />
+                    </a>
+                  </span>
+                </div>
+                <h2 class="eval-role">{{ task.result_json?.position || 'Software Engineer' }}</h2>
               </div>
             </div>
 
@@ -687,12 +693,12 @@ onUnmounted(() => {
 
             <span v-if="task.result_json?.work_model" class="meta-chip font-mono">
               <Building2 :size="12" />
-              <span>{{ task.result_json.work_model }}</span>
+              <span>{{ normalizeWorkModel(task.result_json.work_model) }}</span>
             </span>
 
             <span class="meta-chip date-chip text-muted">
               <Clock :size="11" />
-              <span>Assessed {{ formatDate(task.created_at) }}</span>
+              <span>Assessed {{ formatRelativeDate(task.created_at, false) }}</span>
             </span>
           </div>
 
@@ -939,13 +945,14 @@ onUnmounted(() => {
         >
           <!-- Card Header Row -->
           <div class="eval-card-header">
-            <div class="eval-title-group" style="flex-direction: row; align-items: flex-start; gap: 12px;">
+            <div class="eval-title-group" style="flex-direction: row; align-items: center; gap: 14px;">
               <input
                 type="checkbox"
-                class="form-checkbox mt-1"
+                class="form-checkbox"
                 :checked="selectedTaskIds.has(task.id)"
                 @change="toggleTaskSelection(task.id)"
               />
+              <CompanyLogo :name="task.result_json?.company || task.title_hint" :size="44" />
               <div>
                 <div class="company-badge-line">
                   <span class="eval-company">{{ task.result_json?.company || task.title_hint || 'Target Company' }}</span>
@@ -987,12 +994,12 @@ onUnmounted(() => {
 
             <span v-if="task.result_json?.work_model" class="meta-chip font-mono">
               <Building2 :size="12" />
-              <span>{{ task.result_json.work_model }}</span>
+              <span>{{ normalizeWorkModel(task.result_json.work_model) }}</span>
             </span>
 
             <span class="meta-chip date-chip text-muted">
               <Clock :size="11" />
-              <span>Assessed {{ formatDate(task.created_at) }}</span>
+              <span>Assessed {{ formatRelativeDate(task.created_at, false) }}</span>
             </span>
           </div>
 

@@ -6,6 +6,12 @@ import DateTimePicker from '../components/common/DateTimePicker.vue'
 import InterviewReaderModal from '../components/modals/InterviewReaderModal.vue'
 import MatchAnalysisModal from '../components/modals/MatchAnalysisModal.vue'
 import LogActivityModal from '../components/modals/LogActivityModal.vue'
+import CompanyLogo from '../components/common/CompanyLogo.vue'
+import {
+  formatRelativeDate,
+  normalizeWorkModel,
+  formatSalaryRange,
+} from '../utils/formatters'
 import {
   Search,
   Kanban,
@@ -41,10 +47,55 @@ import {
   ExternalLink,
   PenLine,
   MapPin,
+  MoreHorizontal,
+  MoreVertical,
 } from 'lucide-vue-next'
 
 const appStore = useApplicationsStore()
 const uiStore = useUIStore()
+
+// Dropdown Context Menu State (Teleported Floating Menu)
+const activeMenuApp = ref(null)
+const menuPosition = ref({ top: 0, left: 0, openUpward: false })
+
+function toggleCardMenu(app, event) {
+  if (event) {
+    event.stopPropagation()
+    event.preventDefault()
+  }
+  if (activeMenuApp.value?.id === app.id) {
+    closeCardMenu()
+    return
+  }
+  activeMenuApp.value = app
+
+  const rect = event.currentTarget.getBoundingClientRect()
+  const menuHeight = 230
+  const menuWidth = 185
+  const spaceBelow = window.innerHeight - rect.bottom
+  const openUpward = spaceBelow < menuHeight
+
+  const top = openUpward ? Math.max(10, rect.top - menuHeight - 4) : rect.bottom + 4
+  const left = Math.min(window.innerWidth - menuWidth - 10, Math.max(10, rect.right - menuWidth))
+
+  menuPosition.value = { top, left, openUpward }
+}
+
+function closeCardMenu() {
+  activeMenuApp.value = null
+}
+
+function handleGlobalClick(e) {
+  if (activeMenuApp.value && !e.target.closest('.card-teleport-menu') && !e.target.closest('.card-menu-trigger')) {
+    closeCardMenu()
+  }
+}
+
+function handleScrollOrResize() {
+  if (activeMenuApp.value) {
+    closeCardMenu()
+  }
+}
 
 // Interview Guide Modal State
 const activeGuideAppId = ref(null)
@@ -144,12 +195,18 @@ const REJECTION_REASONS = [
 
 onMounted(() => {
   appStore.fetchApplications()
+  window.addEventListener('click', handleGlobalClick)
+  window.addEventListener('scroll', handleScrollOrResize, true)
+  window.addEventListener('resize', handleScrollOrResize)
 })
 
 onUnmounted(() => {
   if (appStore.searchQuery) {
     appStore.searchQuery = ''
   }
+  window.removeEventListener('click', handleGlobalClick)
+  window.removeEventListener('scroll', handleScrollOrResize, true)
+  window.removeEventListener('resize', handleScrollOrResize)
 })
 
 function handleSearch(e) {
@@ -246,20 +303,31 @@ function getScheduledInterviewDate(app) {
   return null
 }
 
+function getAppMetadataLine(app) {
+  if (!app) return ''
+  const parts = []
+  const salary = formatSalaryRange(app.salary_min, app.salary_max, app.currency)
+  if (salary) parts.push(salary)
+
+  const loc = app.location || app.match_analysis_payload?.location
+  if (loc) parts.push(loc)
+
+  const wm = normalizeWorkModel(app.work_model || app.match_analysis_payload?.work_model)
+  if (wm) parts.push(wm)
+
+  return parts.join(' · ')
+}
+
+function formatScheduledDateFriendly(app) {
+  const dateStr = getScheduledInterviewDate(app)
+  if (!dateStr) return ''
+  return formatRelativeDate(dateStr, true)
+}
+
 function formatScheduledDate(app) {
   const dateStr = getScheduledInterviewDate(app)
   if (!dateStr) return ''
-  try {
-    const d = new Date(dateStr)
-    return d.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    })
-  } catch {
-    return String(dateStr)
-  }
+  return formatRelativeDate(dateStr, true)
 }
 
 function getScheduleUrgencyClass(app) {
@@ -279,38 +347,35 @@ function getScheduleUrgencyClass(app) {
 
 function formatAppSalary(app) {
   if (!app) return null
-  const min = app.salary_min ?? app.match_analysis_payload?.salary_min
-  const max = app.salary_max ?? app.match_analysis_payload?.salary_max
-  if (min && max) {
-    return `$${Math.round(min / 1000)}k - $${Math.round(max / 1000)}k`
-  }
-  if (min) return `From $${Math.round(min / 1000)}k`
-  if (max) return `Up to $${Math.round(max / 1000)}k`
-  return null
+  return formatSalaryRange(app.salary_min, app.salary_max, app.currency)
+}
+
+function getDueDateStr(app) {
+  if (!app) return null
+  const payload = app.latest_event?.raw_payload || {}
+  return app.nearest_due_date || payload.decision_deadline || payload.due_date || null
+}
+
+function formatDueDateFriendly(app) {
+  const dateStr = getDueDateStr(app)
+  if (!dateStr) return ''
+  return formatRelativeDate(dateStr, false)
 }
 
 function getDueDate(app) {
-  if (!app) return null
-  const payload = app.latest_event?.raw_payload || {}
-  const dateStr = app.nearest_due_date || payload.decision_deadline || payload.due_date
+  const dateStr = getDueDateStr(app)
   if (!dateStr) return null
-  try {
-    const d = new Date(dateStr)
-    return d.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-    })
-  } catch {
-    return dateStr
-  }
+  return formatRelativeDate(dateStr, false)
 }
 
 function isOverdue(app) {
-  if (!app) return false
-  const payload = app.latest_event?.raw_payload || {}
-  const dateStr = app.nearest_due_date || payload.decision_deadline || payload.due_date
+  const dateStr = getDueDateStr(app)
   if (!dateStr) return false
-  return new Date(dateStr) < new Date()
+  try {
+    return new Date(dateStr).getTime() < Date.now()
+  } catch {
+    return false
+  }
 }
 
 // Drag and Drop Handlers
@@ -378,6 +443,17 @@ function openTransitionModal(app, colKey) {
     notes: '',
   }
   showTransitionModal.value = true
+}
+
+function getTransitionModalTitle() {
+  const company = transitionApp.value?.company?.name || 'Application'
+  const currentStatus = transitionApp.value?.status
+  if (currentStatus === targetStatus.value) {
+    if (targetStatus.value === 'OFFER') return `Edit Offer for ${company}`
+    if (targetStatus.value === 'TECHNICAL_INTERVIEW') return `Update Interview Details for ${company}`
+    return `Edit Application Details for ${company}`
+  }
+  return `Move ${company} to ${targetStatus.value ? targetStatus.value.replace('_', ' ') : 'Stage'}`
 }
 
 function handleStatusChange(app, newStatus) {
@@ -635,9 +711,7 @@ async function confirmDelete() {
               >
                 <td class="cell-company">
                   <div class="company-cell-wrapper">
-                    <div class="company-logo-mini">
-                      <Building2 :size="14" />
-                    </div>
+                    <CompanyLogo :name="app.company?.name" :domain="app.company?.domain" :size="18" />
                     <span class="company-name-bold">{{ app.company?.name || 'Company' }}</span>
                   </div>
                 </td>
@@ -723,7 +797,7 @@ async function confirmDelete() {
               v-for="app in appStore.kanbanColumns[col.key] || []"
               :key="app.id"
               class="application-card"
-              :class="[{ 'is-dragging': draggedApp?.id === app.id }, app.has_action_required ? 'action-required-card' : '']"
+              :class="[{ 'is-dragging': draggedApp?.id === app.id, 'has-open-menu': openMenuAppId === app.id }, app.has_action_required ? 'action-required-card' : '']"
               draggable="true"
               @dragstart="onDragStart(app, $event)"
               @dragend="onDragEnd"
@@ -731,62 +805,82 @@ async function confirmDelete() {
             >
               <div class="card-header">
                 <div class="company-name-tag">
-                  <Building2 :size="14" class="company-icon" />
-                  <span>{{ app.company?.name || 'Company' }}</span>
+                  <CompanyLogo :name="app.company?.name" :domain="app.company?.domain" :size="18" />
+                  <span class="company-name-text">{{ app.company?.name || 'Company' }}</span>
                 </div>
+
                 <div class="card-header-actions" @click.stop>
+                  <!-- Fit Score Pill -->
                   <div
                     v-if="getAppMatchScore(app) !== null"
                     class="match-score-pill"
                     :class="getMatchScoreTierClass(getAppMatchScore(app))"
-                    :title="`Role Match Fit: ${getAppMatchScore(app)}%`"
+                    :title="`Role Match Fit: ${getAppMatchScore(app)}% - Click to view assessment`"
+                    @click="openMatchAnalysisModal(app.id)"
                   >
                     <Sparkles :size="10" class="match-pill-icon" />
                     <span>{{ getAppMatchScore(app) }}%</span>
                   </div>
-                  <span class="card-date">{{ formatDate(app.last_activity_at || app.application_date) }}</span>
-                  <button
-                    class="card-action-btn quick-reject-btn"
-                    title="Reject / Archive"
-                    @click="openTransitionModal(app, 'REJECTED')"
-                  >
-                    <Archive :size="13" />
-                  </button>
 
+                  <!-- Quick On-Hover Action Icons -->
+                  <div class="card-hover-actions">
+                    <button
+                      v-if="!['REJECTED', 'OFFER'].includes(app.status)"
+                      class="card-hover-icon-btn"
+                      :class="{ 'has-guide': app.has_interview_guide }"
+                      :title="app.has_interview_guide ? 'Open Interview Guide Reader' : 'Generate Interview Guide'"
+                      @click="app.has_interview_guide ? openInterviewReaderModal(app.id) : openInterviewGuide(app.id)"
+                    >
+                      <BookOpen v-if="app.has_interview_guide" :size="12" />
+                      <Sparkles v-else :size="12" />
+                    </button>
+
+                    <button
+                      class="card-hover-icon-btn"
+                      title="Log Activity"
+                      @click="openLogActivityModal(app.id)"
+                    >
+                      <PenLine :size="12" />
+                    </button>
+                  </div>
+
+                  <!-- Card Context Menu Trigger -->
+                  <div class="card-menu-container">
+                    <button
+                      class="card-menu-trigger"
+                      :class="{ active: activeMenuApp?.id === app.id }"
+                      title="More actions"
+                      @click="toggleCardMenu(app, $event)"
+                    >
+                      <MoreHorizontal :size="14" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
+              <!-- Position Title -->
               <div class="card-position">
                 {{ app.position || 'Position Not Specified' }}
               </div>
 
-              <!-- Metadata Chips: Salary, Location, Work Model -->
-              <div
-                v-if="formatAppSalary(app) || app.location || app.work_model"
-                class="card-meta-chips"
-                @click.stop
-              >
-                <span v-if="formatAppSalary(app)" class="card-meta-tag salary-tag">
-                  <DollarSign :size="10" />
-                  <span>{{ formatAppSalary(app) }}</span>
-                </span>
-                <span v-if="app.location" class="card-meta-tag location-tag" :title="app.location">
-                  <MapPin :size="10" />
-                  <span>{{ app.location }}</span>
-                </span>
-                <span v-if="app.work_model" class="card-meta-tag workmodel-tag" :title="`Workplace Model: ${app.work_model}`">
-                  <Building2 :size="10" />
-                  <span>{{ app.work_model }}</span>
-                </span>
+              <!-- Clean Mid-Dot Metadata Line (No Pill Soup) -->
+              <div v-if="getAppMetadataLine(app)" class="card-meta-line" @click.stop>
+                {{ getAppMetadataLine(app) }}
               </div>
 
               <!-- Phase Detail Pill, Interview Date, & Due Date -->
-              <div class="card-phase-row" @click.stop>
+              <div
+                v-if="app.status !== 'APPLIED' || getScheduledInterviewDate(app) || getDueDateStr(app)"
+                class="card-phase-row"
+                @click.stop
+              >
+                <!-- Only show sub-phase button if not generic applied stage -->
                 <button
+                  v-if="app.status !== 'APPLIED'"
                   class="phase-detail-btn"
                   :class="`phase-${(app.status || 'applied').toLowerCase()}`"
                   @click="openTransitionModal(app, app.status)"
-                  title="Click to edit phase details, dates, or status"
+                  :title="`Click to edit stage: ${getAppSubPhaseLabel(app)}`"
                 >
                   <span class="phase-detail-text">{{ getAppSubPhaseLabel(app) }}</span>
                   <SlidersHorizontal :size="11" class="phase-icon" />
@@ -800,7 +894,7 @@ async function confirmDelete() {
                   title="Scheduled Interview Date & Time"
                 >
                   <Calendar :size="11" />
-                  <span>{{ formatScheduledDate(app) }}</span>
+                  <span>{{ formatScheduledDateFriendly(app) }}</span>
                 </div>
 
                 <!-- Show Awaiting Response badge if task was completed -->
@@ -824,80 +918,19 @@ async function confirmDelete() {
                   <span>⚡ Schedule</span>
                 </button>
 
-                <!-- Show Due Date / Deadline if it exists -->
+                <!-- Show Due Date / Deadline ONLY if NO scheduled interview date (prevents duplicate info) -->
                 <div
-                  v-if="getDueDate(app)"
+                  v-if="!getScheduledInterviewDate(app) && getDueDateStr(app)"
                   class="due-date-tag"
                   :class="{ overdue: isOverdue(app) }"
-                  title="Task Due Date / Offer Decision Deadline"
+                  :title="`Task Deadline: ${getDueDate(app)}`"
                 >
                   <Clock :size="11" />
-                  <span>Due: {{ getDueDate(app) }}</span>
+                  <span>Due {{ formatDueDateFriendly(app) }}</span>
                 </div>
               </div>
 
-              <!-- Action Buttons Row -->
-              <div class="card-actions-row" @click.stop>
-                <!-- Interview Guide Buttons -->
-                <template v-if="!['REJECTED', 'OFFER'].includes(app.status)">
-                  <div v-if="app.has_interview_guide" class="btn-guide-split-group" title="Interview Guide Ready">
-                    <button
-                      class="btn-guide-split-main"
-                      @click="openInterviewReaderModal(app.id)"
-                      title="Open Guide Reader"
-                    >
-                      <BookOpen :size="11" />
-                      <span>Guide Ready</span>
-                    </button>
-                    <button
-                      class="btn-guide-split-action"
-                      @click="openInterviewGuide(app.id)"
-                      title="Regenerate Guide"
-                    >
-                      <RotateCcw :size="11" />
-                    </button>
-                  </div>
-                  <button
-                    v-else
-                    class="btn-action-chip"
-                    @click="openInterviewGuide(app.id)"
-                    title="Generate Interview Guide"
-                  >
-                    <Sparkles :size="11" />
-                    <span>Generate Guide</span>
-                  </button>
-                </template>
-
-                <!-- Match Analysis Button -->
-                <template v-if="['APPLIED', 'TECHNICAL_INTERVIEW', 'INTERVIEW', 'OFFER', 'ASSESSMENT'].includes(app.status) && (app.match_score !== null || app.match_analysis_payload)">
-                  <button
-                    class="btn-action-chip btn-analysis"
-                    @click="openMatchAnalysisModal(app.id)"
-                    title="View Match Assessment"
-                  >
-                    <Sparkles :size="11" />
-                    <span>View Assessment</span>
-                  </button>
-                </template>
-
-                <!-- Utility Buttons -->
-                <a v-if="app.job_posting?.source_url || app.job_url" :href="app.job_posting?.source_url || app.job_url" target="_blank" rel="noopener noreferrer" class="btn-action-chip" title="View Job Post">
-                  <ExternalLink :size="11" />
-                  <span>View Post</span>
-                </a>
-
-                <button class="btn-action-chip" @click="openLogActivityModal(app.id)" title="Log Activity">
-                  <PenLine :size="11" />
-                  <span>Log Activity</span>
-                </button>
-
-                <button v-if="app.action_items?.length" class="btn-action-chip text-warning" @click="uiStore.openDetail(app.id, 'actions')" title="View Action Items">
-                  <CheckSquare :size="11" />
-                  <span>{{ app.action_items.length }} Due</span>
-                </button>
-              </div>
-
-              <!-- Latest Event Summary Pill -->
+              <!-- Latest Event Summary Note (Compact) -->
               <div v-if="app.latest_event?.email_summary" class="card-summary">
                 <span class="summary-prefix">{{ app.latest_event.email_event_type }}:</span>
                 {{ app.latest_event.email_summary }}
@@ -939,9 +972,7 @@ async function confirmDelete() {
             >
               <td class="cell-company">
                 <div class="company-cell-wrapper">
-                  <div class="company-logo-mini">
-                    <Building2 :size="14" />
-                  </div>
+                  <CompanyLogo :name="app.company?.name" :domain="app.company?.domain" :size="18" />
                   <span class="company-name-bold">{{ app.company?.name || 'Company' }}</span>
                 </div>
               </td>
@@ -955,27 +986,17 @@ async function confirmDelete() {
                       class="match-score-pill table-match-pill"
                       :class="getMatchScoreTierClass(getAppMatchScore(app))"
                       :title="`Role Match Fit: ${getAppMatchScore(app)}%`"
+                      @click="openMatchAnalysisModal(app.id)"
                     >
                       <Sparkles :size="10" class="match-pill-icon" />
                       <span>{{ getAppMatchScore(app) }}%</span>
                     </div>
                   </div>
                   <div
-                    v-if="formatAppSalary(app) || app.location || app.work_model"
-                    class="table-meta-chips"
+                    v-if="getAppMetadataLine(app)"
+                    class="table-meta-line"
                   >
-                    <span v-if="formatAppSalary(app)" class="card-meta-tag salary-tag">
-                      <DollarSign :size="10" />
-                      <span>{{ formatAppSalary(app) }}</span>
-                    </span>
-                    <span v-if="app.location" class="card-meta-tag location-tag">
-                      <MapPin :size="10" />
-                      <span>{{ app.location }}</span>
-                    </span>
-                    <span v-if="app.work_model" class="card-meta-tag workmodel-tag">
-                      <Building2 :size="10" />
-                      <span>{{ app.work_model }}</span>
-                    </span>
+                    {{ getAppMetadataLine(app) }}
                   </div>
                 </div>
               </td>
@@ -986,7 +1007,7 @@ async function confirmDelete() {
                     class="phase-detail-btn"
                     :class="`phase-${(app.status || 'applied').toLowerCase()}`"
                     @click="openTransitionModal(app, app.status)"
-                    title="Click to edit phase details, dates, or status"
+                    :title="`Click to edit stage: ${getAppSubPhaseLabel(app)}`"
                   >
                     <span class="phase-detail-text">{{ getAppSubPhaseLabel(app) }}</span>
                     <SlidersHorizontal :size="11" class="phase-icon" />
@@ -999,7 +1020,7 @@ async function confirmDelete() {
                     title="Scheduled Interview Date & Time"
                   >
                     <Calendar :size="11" />
-                    <span>{{ formatScheduledDate(app) }}</span>
+                    <span>{{ formatScheduledDateFriendly(app) }}</span>
                   </div>
 
                   <div
@@ -1022,13 +1043,13 @@ async function confirmDelete() {
                   </button>
 
                   <div
-                    v-if="getDueDate(app)"
+                    v-if="getDueDateStr(app)"
                     class="due-date-tag"
                     :class="{ overdue: isOverdue(app) }"
-                    title="Task Due Date / Offer Decision Deadline"
+                    :title="`Task Deadline: ${getDueDate(app)}`"
                   >
                     <Clock :size="11" />
-                    <span>Due: {{ getDueDate(app) }}</span>
+                    <span>Due {{ formatDueDateFriendly(app) }}</span>
                   </div>
                 </div>
               </td>
@@ -1093,7 +1114,7 @@ async function confirmDelete() {
         <div class="inner-modal-box">
           <div class="inner-modal-header">
             <div class="inner-modal-title">
-              <span>Move {{ transitionApp?.company?.name }} to {{ targetStatus.replace('_', ' ') }}</span>
+              <span>{{ getTransitionModalTitle() }}</span>
             </div>
             <button class="btn-close" @click="showTransitionModal = false">
               <X :size="16" />
@@ -1314,6 +1335,88 @@ async function confirmDelete() {
       @close="isLogModalOpen = false"
       @updated="appStore.fetchApplications()"
     />
+
+    <!-- Teleported Floating Card Dropdown Menu -->
+    <Teleport to="body">
+      <div
+        v-if="activeMenuApp"
+        class="card-teleport-menu animate-fade-in"
+        :style="{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }"
+        @click.stop
+      >
+        <button
+          v-if="activeMenuApp.match_score !== null || activeMenuApp.match_analysis_payload"
+          class="menu-item"
+          @click="openMatchAnalysisModal(activeMenuApp.id); closeCardMenu()"
+        >
+          <Sparkles :size="13" class="text-primary" />
+          <span>View Assessment</span>
+        </button>
+
+        <button
+          v-if="activeMenuApp.has_interview_guide"
+          class="menu-item"
+          @click="openInterviewReaderModal(activeMenuApp.id); closeCardMenu()"
+        >
+          <BookOpen :size="13" class="text-primary" />
+          <span>Open Guide Reader</span>
+        </button>
+        <button
+          v-else-if="!['REJECTED', 'OFFER'].includes(activeMenuApp.status)"
+          class="menu-item"
+          @click="openInterviewGuide(activeMenuApp.id); closeCardMenu()"
+        >
+          <Sparkles :size="13" />
+          <span>Generate Guide</span>
+        </button>
+
+        <button
+          class="menu-item"
+          @click="openLogActivityModal(activeMenuApp.id); closeCardMenu()"
+        >
+          <PenLine :size="13" />
+          <span>Log Activity</span>
+        </button>
+
+        <button
+          class="menu-item"
+          @click="openTransitionModal(activeMenuApp, activeMenuApp.status); closeCardMenu()"
+        >
+          <SlidersHorizontal :size="13" />
+          <span>Edit Stage &amp; Details</span>
+        </button>
+
+        <a
+          v-if="activeMenuApp.job_posting?.source_url || activeMenuApp.job_url"
+          :href="activeMenuApp.job_posting?.source_url || activeMenuApp.job_url"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="menu-item"
+          @click="closeCardMenu()"
+        >
+          <ExternalLink :size="13" />
+          <span>View Job Listing</span>
+        </a>
+
+        <div class="menu-divider"></div>
+
+        <button
+          class="menu-item text-warning"
+          @click="openTransitionModal(activeMenuApp, 'REJECTED'); closeCardMenu()"
+        >
+          <Archive :size="13" />
+          <span>Reject / Archive</span>
+        </button>
+
+        <button
+          class="menu-item text-danger"
+          @click="openDeleteConfirm(activeMenuApp); closeCardMenu()"
+        >
+          <Trash2 :size="13" />
+          <span>Delete</span>
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -1685,18 +1788,23 @@ async function confirmDelete() {
 
 .content-wrapper {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow-x: auto;
-  overflow-y: auto;
-  padding: 20px 24px;
+  overflow-y: hidden;
+  padding: 16px 24px;
+  min-height: 0;
 }
 
-/* KANBAN BOARD */
+/* KANBAN BOARD (Full-Height Responsive Grid) */
 .kanban-board {
   display: grid;
-  grid-template-columns: repeat(3, minmax(340px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(3, minmax(320px, 1fr));
+  gap: 16px;
+  flex: 1;
   height: 100%;
-  align-items: start;
+  min-height: 0;
+  align-items: stretch;
   width: 100%;
 }
 
@@ -1706,7 +1814,8 @@ async function confirmDelete() {
   border-radius: var(--radius-md);
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 170px);
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -1716,6 +1825,7 @@ async function confirmDelete() {
   justify-content: space-between;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
 .column-title-group {
@@ -1758,6 +1868,8 @@ async function confirmDelete() {
   flex-direction: column;
   gap: 10px;
   overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .application-card {
@@ -1768,6 +1880,13 @@ async function confirmDelete() {
   cursor: pointer;
   transition: all var(--transition-fast);
   box-shadow: var(--card-shadow);
+  position: relative;
+}
+
+.application-card.has-open-menu {
+  z-index: 50;
+  border-color: var(--primary);
+  box-shadow: var(--shadow-md);
 }
 
 .application-card:hover {
@@ -1782,33 +1901,59 @@ async function confirmDelete() {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 6px;
+  position: relative;
 }
 
 .company-name-tag {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-main);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.company-name-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .company-icon {
   color: var(--primary);
 }
 
-.card-date {
-  font-size: 10px;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-}
-
 .card-position {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-main);
-  margin-bottom: 6px;
+  margin-bottom: 3px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Single-line clean metadata text (No pill soup) */
+.card-meta-line {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   line-height: 1.3;
+}
+
+.table-meta-line {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Card & Table Phase Row */
@@ -2106,28 +2251,136 @@ async function confirmDelete() {
 .card-header-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
-.card-action-btn {
+/* On-hover quick action buttons */
+.card-hover-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transform: translateX(4px);
+  transition: all var(--transition-fast);
+  pointer-events: none;
+}
+
+.application-card:hover .card-hover-actions {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.card-hover-icon-btn {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 22px;
   height: 22px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid transparent;
   color: var(--text-muted);
-  opacity: 0;
+  cursor: pointer;
   transition: all var(--transition-fast);
 }
 
-.application-card:hover .card-action-btn {
+.card-hover-icon-btn:hover {
+  background-color: var(--bg-surface);
+  color: var(--primary);
+  border-color: var(--border-subtle);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.card-hover-icon-btn.has-guide {
+  color: var(--primary);
+}
+
+/* Card Context Menu */
+.card-menu-container {
+  position: relative;
+  display: inline-flex;
+}
+
+.card-menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0.5;
+  transition: all var(--transition-fast);
+}
+
+.application-card:hover .card-menu-trigger,
+.card-menu-trigger.active {
   opacity: 1;
 }
 
-.card-action-btn:hover {
+.card-menu-trigger:hover,
+.card-menu-trigger.active {
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  border-color: var(--border-subtle);
+}
+
+.card-teleport-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 185px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: 0 14px 35px -4px rgba(0, 0, 0, 0.4), 0 6px 14px -2px rgba(0, 0, 0, 0.25);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  backdrop-filter: blur(8px);
+}
+
+.card-teleport-menu .menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  text-decoration: none;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.card-teleport-menu .menu-item:hover {
+  background-color: var(--bg-surface-hover);
+  color: var(--text-main);
+}
+
+.card-teleport-menu .menu-item.text-warning:hover {
+  background-color: var(--status-interview-bg);
+  color: var(--status-interview-text);
+}
+
+.card-teleport-menu .menu-item.text-danger:hover {
   background-color: var(--status-rejected-bg);
   color: var(--status-rejected-text);
+}
+
+.card-dropdown-menu .menu-divider {
+  height: 1px;
+  background-color: var(--border-subtle);
+  margin: 3px 0;
 }
 
 .card-drag-hint {
@@ -2245,8 +2498,18 @@ async function confirmDelete() {
 
 .form-row-2 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.form-row-2 .form-group {
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 
 .notes-form-group {

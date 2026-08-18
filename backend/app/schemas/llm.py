@@ -1,4 +1,7 @@
-from pydantic import BaseModel, Field
+import re
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class EmailExtractionResult(BaseModel):
@@ -172,3 +175,18 @@ class JobAssessmentResult(BaseModel):
         description="Recommendation: APPLY_STRONGLY, APPLY, CAUTION, SKIP",
     )
     summary: str = Field(default="", description="Brief summary of the evaluation")
+
+    @field_validator("work_model", mode="before")
+    @classmethod
+    def normalize_work_model(cls, v: Any) -> str | None:
+        if not v or not isinstance(v, str):
+            return None
+        lower = v.lower().strip()
+        if "hybrid" in lower:
+            return "Hybrid"
+        if "remote" in lower or "telecommute" in lower:
+            return "Remote"
+        if "on-site" in lower or "onsite" in lower or "in-office" in lower:
+            return "On-site"
+        cleaned = re.sub(r"\s*\([^)]*\)", "", v).strip()
+        return cleaned[:30] if cleaned else None

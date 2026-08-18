@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { ApplicationsAPI } from '../../api/endpoints'
 import { useUIStore } from '../../stores/uiStore'
+import CompanyLogo from '../common/CompanyLogo.vue'
 import {
   X,
   Sparkles,
@@ -206,6 +207,7 @@ function getFitLabel(score) {
           <div class="eval-hero-card">
             <div class="hero-main-info">
               <div class="company-badge-line">
+                <CompanyLogo :name="application?.company?.name" :domain="application?.company?.domain" :size="20" />
                 <span class="eval-company">{{ application?.company?.name || 'Target Company' }}</span>
               </div>
               <h2 class="eval-role">{{ application?.position || 'Software Engineer' }}</h2>
