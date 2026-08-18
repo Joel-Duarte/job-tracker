@@ -40,7 +40,10 @@ export const CandidateProfileAPI = {
 }
 
 export const AgentAPI = {
-  chat: (messages) => apiClient.post('/agent/chat', { messages }),
+  listChats: () => apiClient.get('/agent/chats'),
+  getChat: (id) => apiClient.get(`/agent/chats/${id}`),
+  deleteChat: (id) => apiClient.delete(`/agent/chats/${id}`),
+  chat: (messages, chatId = null) => apiClient.post('/agent/chat', { messages, chat_id: chatId }),
 }
 
 export const PromptsAPI = {

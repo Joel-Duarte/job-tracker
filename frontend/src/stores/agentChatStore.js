@@ -4,8 +4,6 @@ import { AgentAPI } from '../api/endpoints'
 import { useApplicationsStore } from './applicationsStore'
 import { useUIStore } from './uiStore'
 
-const STORAGE_KEY = 'job_tracker_agent_chat_messages'
-
 const DEFAULT_WELCOME_MESSAGE = {
   role: 'assistant',
   content:
@@ -14,35 +12,61 @@ const DEFAULT_WELCOME_MESSAGE = {
 }
 
 export const useAgentChatStore = defineStore('agentChat', () => {
-  const messages = ref(loadPersistedMessages())
+  const chatId = ref(null)
+  const chatsList = ref([])
+  const messages = ref([{ ...DEFAULT_WELCOME_MESSAGE }])
   const isSending = ref(false)
+  const isLoadingChats = ref(false)
 
-  function loadPersistedMessages() {
+  async function fetchChats() {
+    isLoadingChats.value = true
     try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed
-        }
-      }
+      const res = await AgentAPI.listChats()
+      chatsList.value = res.data
     } catch (e) {
-      console.warn('Failed to load persisted agent messages:', e)
+      console.error('Failed to load chats:', e)
+    } finally {
+      isLoadingChats.value = false
     }
-    return [{ ...DEFAULT_WELCOME_MESSAGE }]
   }
 
-  function savePersistedMessages() {
+  async function loadChat(id) {
+    isLoadingChats.value = true
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.value))
+      const res = await AgentAPI.getChat(id)
+      chatId.value = res.data.id
+      messages.value = res.data.messages || []
+      if (messages.value.length === 0) {
+        messages.value = [{ ...DEFAULT_WELCOME_MESSAGE }]
+      }
     } catch (e) {
-      console.warn('Failed to persist agent messages:', e)
+      console.error('Failed to load chat:', e)
+      const uiStore = useUIStore()
+      uiStore.showToast('Failed to load chat', 'error')
+    } finally {
+      isLoadingChats.value = false
+    }
+  }
+
+  async function deleteChat(id) {
+    try {
+      await AgentAPI.deleteChat(id)
+      chatsList.value = chatsList.value.filter((c) => c.id !== id)
+      if (chatId.value === id) {
+        resetChat()
+      }
+      const uiStore = useUIStore()
+      uiStore.showToast('Chat deleted', 'success')
+    } catch (e) {
+      console.error('Failed to delete chat:', e)
+      const uiStore = useUIStore()
+      uiStore.showToast('Failed to delete chat', 'error')
     }
   }
 
   function resetChat() {
+    chatId.value = null
     messages.value = [{ ...DEFAULT_WELCOME_MESSAGE }]
-    savePersistedMessages()
   }
 
   async function sendMessage(text) {
@@ -56,7 +80,6 @@ export const useAgentChatStore = defineStore('agentChat', () => {
       role: 'user',
       content: trimmed,
     })
-    savePersistedMessages()
     isSending.value = true
 
     try {
@@ -65,13 +88,18 @@ export const useAgentChatStore = defineStore('agentChat', () => {
         content: m.content,
       }))
 
-      const res = await AgentAPI.chat(payload)
+      const res = await AgentAPI.chat(payload, chatId.value)
+
+      chatId.value = res.data.chat_id
+
       messages.value.push({
         role: 'assistant',
         content: res.data.reply,
         actions: res.data.actions_performed || [],
       })
-      savePersistedMessages()
+
+      // Refresh chats list so the new title shows up if it was a new chat
+      fetchChats()
 
       // If any DB mutations occurred, refresh application store
       if (res.data.actions_performed?.length) {
@@ -84,15 +112,20 @@ export const useAgentChatStore = defineStore('agentChat', () => {
         content: `Sorry, I encountered an error: ${err.message || 'Unknown error'}`,
         actions: [],
       })
-      savePersistedMessages()
     } finally {
       isSending.value = false
     }
   }
 
   return {
+    chatId,
+    chatsList,
     messages,
     isSending,
+    isLoadingChats,
+    fetchChats,
+    loadChat,
+    deleteChat,
     sendMessage,
     resetChat,
   }

@@ -5,11 +5,13 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, Field
+from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.llm_factory import get_task_chat_model
 from app.core.prompts import get_prompt_template
+from app.models.agent_chat import AgentChatModel
 from app.services.agent_tools import create_agent_tools
 from app.services.postgres_tracer import PostgresTracer
 
@@ -25,11 +27,48 @@ class ChatMessage(BaseModel):
 
 class AgentChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(..., min_length=1)
+    chat_id: int | None = None
 
 
 class AgentChatResponse(BaseModel):
+    chat_id: int
     reply: str
     actions_performed: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AgentChatRead(BaseModel):
+    id: int
+    title: str
+    messages: list[dict[str, Any]]
+    created_at: Any
+    updated_at: Any
+
+
+@router.get("/chats", response_model=list[AgentChatRead])
+async def list_chats(db: AsyncSession = Depends(get_db)):
+    stmt = select(AgentChatModel).order_by(desc(AgentChatModel.updated_at))
+    res = await db.execute(stmt)
+    return res.scalars().all()
+
+
+@router.get("/chats/{chat_id}", response_model=AgentChatRead)
+async def get_chat(chat_id: int, db: AsyncSession = Depends(get_db)):
+    stmt = select(AgentChatModel).where(AgentChatModel.id == chat_id)
+    res = await db.execute(stmt)
+    chat = res.scalar_one_or_none()
+    if not chat:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return chat
+
+
+@router.delete("/chats/{chat_id}")
+async def delete_chat(chat_id: int, db: AsyncSession = Depends(get_db)):
+    stmt = delete(AgentChatModel).where(AgentChatModel.id == chat_id)
+    await db.execute(stmt)
+    await db.commit()
+    return {"status": "ok"}
 
 
 @router.post("/chat", response_model=AgentChatResponse)
@@ -59,11 +98,33 @@ async def chat_with_agent(
 
     # Assemble conversation history
     messages: list[Any] = [SystemMessage(content=system_prompt)]
-    for m in payload.messages[:-1]:
-        if m.role == "user":
-            messages.append(HumanMessage(content=m.content))
-        elif m.role == "assistant":
-            messages.append(AIMessage(content=m.content))
+
+    chat_record = None
+    if payload.chat_id:
+        stmt = select(AgentChatModel).where(AgentChatModel.id == payload.chat_id)
+        res = await db.execute(stmt)
+        chat_record = res.scalar_one_or_none()
+
+    if chat_record:
+        # Load from DB history
+        for m_data in chat_record.messages:
+            if m_data.get("role") == "user":
+                messages.append(HumanMessage(content=m_data.get("content", "")))
+            elif m_data.get("role") == "assistant":
+                messages.append(AIMessage(content=m_data.get("content", "")))
+            elif m_data.get("role") == "tool":
+                messages.append(
+                    ToolMessage(
+                        content=m_data.get("content", ""),
+                        tool_call_id=m_data.get("tool_call_id", ""),
+                    )
+                )
+    else:
+        for m in payload.messages[:-1]:
+            if m.role == "user":
+                messages.append(HumanMessage(content=m.content))
+            elif m.role == "assistant":
+                messages.append(AIMessage(content=m.content))
 
     messages.append(HumanMessage(content=last_user_msg))
 
@@ -149,7 +210,34 @@ async def chat_with_agent(
         last_msg = messages[-1]
         reply_content = getattr(last_msg, "content", "Processing completed.")
 
+    # Save to DB
+    db_messages = []
+    for m in messages[1:]:  # Skip system prompt
+        if isinstance(m, HumanMessage):
+            db_messages.append({"role": "user", "content": m.content})
+        elif isinstance(m, AIMessage):
+            db_messages.append({"role": "assistant", "content": m.content})
+        elif isinstance(m, ToolMessage):
+            db_messages.append(
+                {"role": "tool", "content": m.content, "tool_call_id": m.tool_call_id}
+            )
+
+    if not chat_record:
+        # Create new
+        title_text = (
+            last_user_msg[:30] + "..." if len(last_user_msg) > 30 else last_user_msg
+        )
+        chat_record = AgentChatModel(title=title_text, messages=db_messages)
+        db.add(chat_record)
+        await db.commit()
+        await db.refresh(chat_record)
+    else:
+        chat_record.messages = db_messages
+        db.add(chat_record)
+        await db.commit()
+
     return AgentChatResponse(
+        chat_id=chat_record.id,
         reply=str(reply_content).strip(),
         actions_performed=actions_performed,
     )
