@@ -5,6 +5,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.schemas.graph_state import JobTrackerState
 from app.services.graph_nodes import (
+    cover_letter_node,
     db_commit_node,
     extraction_node,
     fuzzy_match_node,
@@ -57,6 +58,7 @@ def build_intake_graph():
     builder.add_node("scrape_enrich", scrape_enrich_node)
     builder.add_node("db_commit", db_commit_node)
     builder.add_node("summarize_embed", summarize_embed_node)
+    builder.add_node("cover_letter", cover_letter_node)
 
     builder.add_edge(START, "normalize_and_dedupe")
     builder.add_conditional_edges("normalize_and_dedupe", route_after_dedupe)
@@ -65,7 +67,8 @@ def build_intake_graph():
     builder.add_edge("staging", END)
     builder.add_edge("scrape_enrich", "db_commit")
     builder.add_conditional_edges("db_commit", route_after_commit)
-    builder.add_edge("summarize_embed", END)
+    builder.add_edge("summarize_embed", "cover_letter")
+    builder.add_edge("cover_letter", END)
 
     from app.core.database import postgres_saver
 

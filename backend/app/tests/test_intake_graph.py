@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -8,7 +8,112 @@ from app.models.applications import ApplicationModel, CompanyModel, OtherEventMo
 from app.models.staging import StagingItemModel
 from app.schemas.graph_state import JobTrackerState
 from app.schemas.intake import ExtractedEmailInfo
+from app.services.cover_letter import CoverLetterLLMResult
+from app.services.graph_nodes import cover_letter_node
 from app.services.intake_graph import intake_graph
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_node_unit_case_a_disabled():
+    """Unit Test Case A: auto_generate_cover_letter is False -> Cover letter is skipped."""
+    mock_db = AsyncMock(spec=AsyncSession)
+    mock_app = ApplicationModel(id=1, cover_letter_status="PENDING")
+    mock_res = MagicMock()
+    mock_res.scalar_one_or_none.return_value = mock_app
+    mock_db.execute.return_value = mock_res
+
+    state_input: JobTrackerState = {
+        "application_id": 1,
+        "match_score": 0.90,
+    }
+
+    with patch(
+        "app.core.config_manager.get_setting",
+        side_effect=lambda key, default=None: (
+            False if key == "auto_generate_cover_letter" else 50
+        ),
+    ):
+        res = await cover_letter_node(
+            state_input,
+            config={"configurable": {"db": mock_db}},
+        )
+
+    assert res["cover_letter_created"] is False
+    assert res["cover_letter_status"] == "SKIPPED"
+    assert mock_app.cover_letter_status == "SKIPPED"
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_node_unit_case_b_above_threshold():
+    """Unit Test Case B: auto_generate_cover_letter is True & match_score >= min_match_pct -> Cover letter created."""
+    mock_db = AsyncMock(spec=AsyncSession)
+    mock_app = ApplicationModel(id=1, cover_letter_status="PENDING")
+    mock_res = MagicMock()
+    mock_res.scalar_one_or_none.return_value = mock_app
+    mock_db.execute.return_value = mock_res
+
+    state_input: JobTrackerState = {
+        "application_id": 1,
+        "match_score": 0.85,  # 85%
+    }
+
+    mock_llm_result = CoverLetterLLMResult(
+        cover_letter_markdown="# Auto Generated Cover Letter",
+        highlighted_skills=["Python", "FastAPI"],
+    )
+
+    with (
+        patch(
+            "app.core.config_manager.get_setting",
+            side_effect=lambda key, default=None: (
+                True if key == "auto_generate_cover_letter" else 50
+            ),
+        ),
+        patch(
+            "app.services.cover_letter.generate_cover_letter_for_application",
+            new_callable=AsyncMock,
+            return_value=mock_llm_result,
+        ),
+    ):
+        res = await cover_letter_node(
+            state_input,
+            config={"configurable": {"db": mock_db}},
+        )
+
+    assert res["cover_letter_created"] is True
+    assert res["cover_letter_status"] == "COMPLETED"
+    assert mock_app.cover_letter_status == "COMPLETED"
+    assert mock_app.cover_letter_markdown == mock_llm_result.cover_letter_markdown
+
+
+@pytest.mark.asyncio
+async def test_cover_letter_node_unit_case_c_below_threshold():
+    """Unit Test Case C: auto_generate_cover_letter is True & match_score < min_match_pct -> Cover letter skipped with log."""
+    mock_db = AsyncMock(spec=AsyncSession)
+    mock_app = ApplicationModel(id=1, cover_letter_status="PENDING")
+    mock_res = MagicMock()
+    mock_res.scalar_one_or_none.return_value = mock_app
+    mock_db.execute.return_value = mock_res
+
+    state_input: JobTrackerState = {
+        "application_id": 1,
+        "match_score": 0.40,  # 40% < 70% threshold
+    }
+
+    with patch(
+        "app.core.config_manager.get_setting",
+        side_effect=lambda key, default=None: (
+            True if key == "auto_generate_cover_letter" else 70
+        ),
+    ):
+        res = await cover_letter_node(
+            state_input,
+            config={"configurable": {"db": mock_db}},
+        )
+
+    assert res["cover_letter_created"] is False
+    assert res["cover_letter_status"] == "SKIPPED"
+    assert mock_app.cover_letter_status == "SKIPPED"
 
 
 @pytest.mark.asyncio

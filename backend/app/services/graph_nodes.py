@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -456,3 +456,88 @@ async def summarize_embed_node(
             return {"embedding_created": False, "reason": "assessment_status"}
 
     return {"embedding_created": False}
+
+
+async def cover_letter_node(
+    state: JobTrackerState, config: RunnableConfig
+) -> dict[str, Any]:
+    """
+    Stage 5: Cover letter auto-generation node based on user settings and match score threshold.
+    Safely retrieves db session from config['configurable']['db'].
+    """
+    db = _get_db(config)
+    application_id = state.get("application_id")
+
+    if not application_id:
+        return {"cover_letter_created": False, "cover_letter_status": "SKIPPED"}
+
+    from app.core.config_manager import get_setting
+
+    auto_gen = get_setting("auto_generate_cover_letter", False)
+    min_match_pct = get_setting("cover_letter_min_match_pct", 50)
+
+    raw_match_score = state.get("match_score", 0.0)
+    match_score_pct = (
+        raw_match_score * 100.0 if raw_match_score <= 1.0 else raw_match_score
+    )
+
+    app_stmt = select(ApplicationModel).where(ApplicationModel.id == application_id)
+    app_res = await db.execute(app_stmt)
+    application = app_res.scalar_one_or_none()
+
+    if not application:
+        return {"cover_letter_created": False, "cover_letter_status": "SKIPPED"}
+
+    # Case A: Toggle OFF
+    if not auto_gen:
+        application.cover_letter_status = "SKIPPED"
+        await db.commit()
+        logger.info(
+            "Cover letter generation skipped for application %d: auto_generate_cover_letter is disabled.",
+            application_id,
+        )
+        return {"cover_letter_created": False, "cover_letter_status": "SKIPPED"}
+
+    # Case C: Toggle ON, Score < Threshold
+    if match_score_pct < min_match_pct:
+        application.cover_letter_status = "SKIPPED"
+        await db.commit()
+        logger.info(
+            "Cover letter generation skipped for application %d: match score %.1f%% falls below threshold %d%%.",
+            application_id,
+            match_score_pct,
+            min_match_pct,
+        )
+        return {"cover_letter_created": False, "cover_letter_status": "SKIPPED"}
+
+    # Case B: Toggle ON, Score >= Threshold
+    try:
+        application.cover_letter_status = "GENERATING"
+        await db.commit()
+
+        from app.services.cover_letter import generate_cover_letter_for_application
+
+        cl_result = await generate_cover_letter_for_application(db, application_id)
+
+        application.cover_letter_markdown = cl_result.cover_letter_markdown
+        application.cover_letter_highlighted_skills = cl_result.highlighted_skills
+        application.cover_letter_status = "COMPLETED"
+        application.updated_at = datetime.now(UTC)
+        await db.commit()
+
+        logger.info(
+            "Cover letter auto-generated successfully for application %d.",
+            application_id,
+        )
+        return {"cover_letter_created": True, "cover_letter_status": "COMPLETED"}
+
+    except Exception as err:
+        logger.error(
+            "Failed auto-generating cover letter for application %d: %s",
+            application_id,
+            err,
+            exc_info=True,
+        )
+        application.cover_letter_status = "FAILED"
+        await db.commit()
+        return {"cover_letter_created": False, "cover_letter_status": "FAILED"}

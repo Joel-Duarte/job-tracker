@@ -320,40 +320,107 @@ async def _execute_evaluation_steps(
                 target_status="ASSESSMENT",
             )
 
+            # Stage 5: Cover Letter Generation Stage
+            task.stage = "COVER_LETTER_GENERATION"
+            await db.commit()
+
+            from app.core.config_manager import get_setting
+
+            auto_gen = get_setting("auto_generate_cover_letter", False)
+            min_match = get_setting("cover_letter_min_match_pct", 50)
+            app_id = save_result.get("application_id")
+
+            cover_letter_status_out = "SKIPPED"
+            cover_letter_reason_out = None
+
+            if app_id:
+                from app.models.applications import ApplicationModel
+
+                app_record = await db.get(ApplicationModel, app_id)
+
+                if not auto_gen:
+                    # Case A: Toggle OFF
+                    cover_letter_status_out = "SKIPPED"
+                    cover_letter_reason_out = "AUTO_GEN_DISABLED"
+                    if app_record:
+                        app_record.cover_letter_status = "SKIPPED"
+                    logger.info(
+                        "Cover letter generation skipped for task %d / app %d: auto_generate_cover_letter is disabled.",
+                        task.id,
+                        app_id,
+                    )
+                elif assessment.fit_score < min_match:
+                    # Case C: Toggle ON, Score < Threshold
+                    cover_letter_status_out = "SKIPPED"
+                    cover_letter_reason_out = f"Match score {assessment.fit_score}% below threshold {min_match}%"
+                    if app_record:
+                        app_record.cover_letter_status = "SKIPPED"
+                    logger.info(
+                        "Cover letter generation skipped for task %d / app %d: match score %d%% falls below threshold %d%%.",
+                        task.id,
+                        app_id,
+                        assessment.fit_score,
+                        min_match,
+                    )
+                else:
+                    # Case B: Toggle ON, Score >= Threshold
+                    try:
+                        if app_record:
+                            app_record.cover_letter_status = "GENERATING"
+                            await db.commit()
+
+                        from app.services.cover_letter import (
+                            generate_cover_letter_for_application,
+                        )
+
+                        cl_result = await generate_cover_letter_for_application(
+                            db, app_id
+                        )
+
+                        if app_record:
+                            app_record.cover_letter_markdown = (
+                                cl_result.cover_letter_markdown
+                            )
+                            app_record.cover_letter_highlighted_skills = (
+                                cl_result.highlighted_skills
+                            )
+                            app_record.cover_letter_status = "COMPLETED"
+
+                        cover_letter_status_out = "COMPLETED"
+                        logger.info(
+                            "Cover letter auto-generated for task %d / app %d.",
+                            task.id,
+                            app_id,
+                        )
+                    except Exception as cl_err:
+                        logger.error(
+                            "Failed auto-generating cover letter for task %d / app %d: %s",
+                            task.id,
+                            app_id,
+                            cl_err,
+                            exc_info=True,
+                        )
+                        cover_letter_status_out = "FAILED"
+                        if app_record:
+                            app_record.cover_letter_status = "FAILED"
+
             # Completed Successfully
             task.status = "COMPLETED"
             task.stage = (
                 "STAGED_DUPLICATE" if save_result.get("is_duplicate") else "COMPLETE"
             )
             result_payload = assessment.model_dump()
-            app_id = save_result.get("application_id")
             result_payload["application_id"] = app_id
             result_payload["staging_item_id"] = save_result.get("staging_item_id")
             result_payload["is_duplicate"] = save_result.get("is_duplicate", False)
             result_payload["save_status"] = save_result.get("status")
+            result_payload["cover_letter_status"] = cover_letter_status_out
+            if cover_letter_reason_out:
+                result_payload["cover_letter_reason"] = cover_letter_reason_out
             task.result_json = result_payload
             task.title_hint = f"{assessment.company} - {assessment.position}"
             task.completed_at = datetime.now(UTC)
             await db.commit()
-
-            # Auto-generate cover letter if setting enabled and fit score meets threshold
-            from app.core.config_manager import get_setting
-
-            auto_gen = get_setting("auto_generate_cover_letter", False)
-            min_match = get_setting("cover_letter_min_match_pct", 50)
-            if app_id and auto_gen and assessment.fit_score >= min_match:
-                cl_task = IntakeEvaluationTaskModel(
-                    task_type="COVER_LETTER_GENERATION",
-                    status="QUEUED",
-                    stage="QUEUED",
-                    title_hint=f"Cover Letter - {assessment.company}",
-                    result_json={"application_id": app_id},
-                )
-                db.add(cl_task)
-                await db.commit()
-                import asyncio
-
-                asyncio.create_task(process_evaluation_task(cl_task.id))
             ctx["outputs"] = {
                 "status": task.status,
                 "stage": task.stage,

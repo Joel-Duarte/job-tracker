@@ -34,3 +34,7 @@ class JobTrackerState(TypedDict, total=False):
     staging_item_id: int | None
     event_id: int | None
     embedding_created: bool
+
+    # Cover Letter Generation (Stage 5)
+    cover_letter_created: bool
+    cover_letter_status: str | None
