@@ -469,6 +469,13 @@ async def draft_action_item_reply(
     """Generates an email reply draft for a specific action item if linked to an application and event."""
     from app.services.llm import generate_email_reply_draft
 
+    draft = await generate_email_reply_draft(db, action_item_id)
+
+    if not draft:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Could not generate a draft for this action item. Ensure it is linked to an application event."
+        )
+
     stmt = (
         select(ActionItemModel)
         .where(ActionItemModel.id == action_item_id)
@@ -485,39 +492,6 @@ async def draft_action_item_reply(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Action item not found"
         )
-
-    if not item.application_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Action item is not linked to an application",
-        )
-
-    app_id = item.application_id
-
-    event_stmt = (
-        select(ApplicationEventModel)
-        .where(ApplicationEventModel.email_application_id == app_id)
-        .order_by(ApplicationEventModel.email_received_at.desc())
-    )
-    event_res = await db.execute(event_stmt)
-    event_list = event_res.scalars().all()
-
-    if not event_list:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No application events found for this application to draft a reply.",
-        )
-
-    event_text_list = []
-    for e in event_list:
-        if e.email_raw_body:
-            event_text_list.append(
-                f"Date: {e.email_received_at}\nBody:\n{e.email_raw_body}\n"
-            )
-
-    events_context = "\n---\n".join(event_text_list)
-
-    draft = await generate_email_reply_draft(app_id, db, item.title, events_context)
 
     item.draft_email = draft
     await db.commit()
