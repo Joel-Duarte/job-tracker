@@ -30,6 +30,7 @@ from app.schemas.ai_config import (
     mask_secret,
 )
 from app.schemas.global_settings import GlobalSettingsRead, GlobalSettingsUpdate
+from app.services.postgres_tracer import PostgresTracer
 
 EMBEDDING_KEYWORDS = ("embed", "nomic", "bge", "minilm", "gte", "e5", "bert", "mxbai")
 
@@ -400,7 +401,8 @@ async def test_ai_provider(
 
         model = init_chat_model(**init_kwargs)
         response = await model.ainvoke(
-            [HumanMessage(content="Respond with 'OK' to verify connectivity.")]
+            [HumanMessage(content="Respond with 'OK' to verify connectivity.")],
+            config={"callbacks": [PostgresTracer()]},
         )
         content = (
             response.content
@@ -612,7 +614,8 @@ async def test_ai_task_binding(
                 db, task_type=task_type_norm, max_tokens=15
             )
             response = await chat_model.ainvoke(
-                [HumanMessage(content="Respond with 'OK' to verify connectivity.")]
+                [HumanMessage(content="Respond with 'OK' to verify connectivity.")],
+                config={"callbacks": [PostgresTracer()]},
             )
             content = (
                 response.content

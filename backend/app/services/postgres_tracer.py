@@ -1,7 +1,6 @@
 import json
 
 import asyncpg
-from langchain_core.load import dumpd
 from langchain_core.tracers.base import AsyncBaseTracer
 from langchain_core.tracers.schemas import Run
 
@@ -15,7 +14,8 @@ class PostgresTracer(AsyncBaseTracer):
 
     async def _persist_run(self, run: Run) -> None:
         try:
-            run_dict = dumpd(run)
+            # Note: We serialize directly via model_dump(mode='json') to avoid UUID/datetime serialization issues
+            run_dict = run.model_dump(mode="json")
             run_id = str(run.id)
             event_type = run.run_type
 

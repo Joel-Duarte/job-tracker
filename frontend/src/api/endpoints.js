@@ -97,5 +97,8 @@ export const ActionItemsAPI = {
 }
 
 export const DiagnosticsAPI = {
-  export: () => apiClient.get('/diagnostics/export', { responseType: 'blob' })
+  export: () => apiClient.get('/diagnostics/export', { responseType: 'blob' }),
+  getStats: () => apiClient.get('/diagnostics/stats'),
+  getTraces: (params = {}) => apiClient.get('/diagnostics/traces', { params }),
+  getTrace: (runId) => apiClient.get(`/diagnostics/traces/${runId}`)
 }

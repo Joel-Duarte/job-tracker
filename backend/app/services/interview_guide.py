@@ -9,6 +9,7 @@ from app.models.applications import ApplicationModel
 from app.models.candidate_profile import CandidateCVModel
 from app.schemas.applications import GenerateInterviewGuideRequest
 from app.services.interview_guide_graph import interview_guide_graph
+from app.services.postgres_tracer import PostgresTracer
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,7 @@ async def generate_interview_guide(
         config={
             "recursion_limit": recursion_limit,
             "configurable": {"db": db, "thread_id": str(application_id)},
+            "callbacks": [PostgresTracer()],
         },
     )
 

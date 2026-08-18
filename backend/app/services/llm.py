@@ -21,6 +21,7 @@ from app.schemas.llm import (
     ExtractedJobSpec,
     JobAssessmentResult,
 )
+from app.services.postgres_tracer import PostgresTracer
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,8 @@ async def extract_job_spec(
         {
             "raw_webpage_data": raw_webpage_data,
             "email_content": raw_webpage_data,
-        }
+        },
+        config={"callbacks": [PostgresTracer()]},
     )
 
     if not isinstance(result, ExtractedJobSpec):
@@ -102,7 +104,10 @@ Email Body:
     )
 
     chain = prompt | structured_llm
-    result = await chain.ainvoke({"email_content": formatted_content})
+    result = await chain.ainvoke(
+        {"email_content": formatted_content},
+        config={"callbacks": [PostgresTracer()]},
+    )
     if isinstance(result, EmailExtractionResult):
         return result
     return EmailExtractionResult.model_validate(result)
@@ -159,7 +164,8 @@ async def assess_job_posting(
             "candidate_cv": cv_text,
             "candidate_domain_breakdown": domain_text,
             "programmatic_baseline": str(programmatic_baseline),
-        }
+        },
+        config={"callbacks": [PostgresTracer()]},
     )
 
     if not isinstance(result, JobAssessmentResult):
@@ -270,7 +276,10 @@ async def anonymize_and_parse_cv(
     )
 
     chain = prompt | structured_llm
-    result = await chain.ainvoke({"resume_text": pre_scrubbed_text})
+    result = await chain.ainvoke(
+        {"resume_text": pre_scrubbed_text},
+        config={"callbacks": [PostgresTracer()]},
+    )
     if isinstance(result, CVAnonymizationResult):
         return result
     return CVAnonymizationResult.model_validate(result)
@@ -293,7 +302,10 @@ async def summarize_application_status(
     )
 
     chain = prompt | structured_llm
-    result = await chain.ainvoke({"events_str": events_str})
+    result = await chain.ainvoke(
+        {"events_str": events_str},
+        config={"callbacks": [PostgresTracer()]},
+    )
     if isinstance(result, ApplicationSummaryResult):
         return result
     return ApplicationSummaryResult.model_validate(result)
