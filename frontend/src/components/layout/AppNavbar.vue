@@ -132,7 +132,14 @@ onMounted(() => {
           </span>
         </router-link>
 
-
+        <router-link
+          to="/chat"
+          class="nav-link"
+          :class="{ active: route.path === '/chat' }"
+        >
+          <Bot :size="16" />
+          <span>Agent</span>
+        </router-link>
 
       </nav>
     </div>

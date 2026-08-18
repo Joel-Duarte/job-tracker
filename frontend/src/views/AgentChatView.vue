@@ -12,7 +12,9 @@ import {
   Plus,
   MessageSquare,
   Trash2,
-  Settings
+  Settings,
+  PanelLeftClose,
+  PanelLeftOpen
 } from 'lucide-vue-next'
 
 const chatStore = useAgentChatStore()
@@ -21,6 +23,12 @@ const chatContainer = ref(null)
 
 const retentionDays = ref(0)
 const isUpdatingRetention = ref(false)
+const isSidebarCollapsed = ref(localStorage.getItem('agentChatSidebarCollapsed') === 'true')
+
+function toggleSidebar() {
+  isSidebarCollapsed.value = !isSidebarCollapsed.value
+  localStorage.setItem('agentChatSidebarCollapsed', isSidebarCollapsed.value ? 'true' : 'false')
+}
 
 const starterPrompts = [
   'Which applications currently require urgent action from me?',
@@ -96,6 +104,102 @@ async function handleRetentionChange() {
   }
 }
 
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+function renderMarkdown(text) {
+  if (!text) return ''
+
+  // 1. First escape all raw HTML to prevent XSS
+  let html = escapeHtml(text)
+
+  // 2. Fenced code blocks ```code```
+  html = html.replace(/```([\s\S]*?)```/g, (match, p1) => {
+    return `<pre><code>${p1.trim()}</code></pre>`
+  })
+
+  // 3. Inline code `code`
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
+
+  // 4. Tables
+  const lines = html.split('\n')
+  let inTable = false
+  let tableHtml = ''
+  let newLines = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (line.startsWith('|') && line.endsWith('|')) {
+      const cells = line.split('|').slice(1, -1).map(c => c.trim())
+      // Check if separator line
+      if (cells.every(c => /^:?-+:?$/.test(c))) {
+        continue
+      }
+      if (!inTable) {
+        inTable = true
+        tableHtml = '<table><thead><tr>' + cells.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>'
+      } else {
+        tableHtml += '<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>'
+      }
+    } else {
+      if (inTable) {
+        tableHtml += '</tbody></table>'
+        newLines.push(tableHtml)
+        inTable = false
+        tableHtml = ''
+      }
+      newLines.push(lines[i])
+    }
+  }
+  if (inTable) {
+    tableHtml += '</tbody></table>'
+    newLines.push(tableHtml)
+  }
+  html = newLines.join('\n')
+
+  // 5. Headings
+  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>')
+  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>')
+  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>')
+
+  // 6. Blockquotes
+  html = html.replace(/^\&gt;\s?(.*$)/gim, '<blockquote>$1</blockquote>')
+
+  // 7. Bold and Italics
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>')
+
+  // 8. Unordered / Ordered Lists
+  html = html.replace(/^\s*[\-\*]\s+(.*$)/gim, '<li>$1</li>')
+  html = html.replace(/(<li>.*<\/li>)/gis, '<ul>$1</ul>')
+  html = html.replace(/<\/ul>\s*<ul>/g, '')
+
+  // 9. Links [text](url)
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, p1, p2) => {
+    // Ensure URL is safe (http/https or relative)
+    const safeUrl = (p2.startsWith('http://') || p2.startsWith('https://') || p2.startsWith('/')) ? p2 : '#'
+    return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${p1}</a>`
+  })
+
+  // 10. Paragraph breaks for double newlines
+  html = html.replace(/\n\n+/g, '</p><p>')
+  html = `<p>${html}</p>`
+  html = html.replace(/<p>\s*<\/p>/g, '')
+  html = html.replace(/<p>(<h[1-3]>.*?<\/h[1-3]>)<\/p>/g, '$1')
+  html = html.replace(/<p>(<pre>.*?<\/pre>)<\/p>/gs, '$1')
+  html = html.replace(/<p>(<table>.*?<\/table>)<\/p>/gs, '$1')
+  html = html.replace(/<p>(<ul>.*?<\/ul>)<\/p>/gs, '$1')
+  html = html.replace(/<p>(<blockquote>.*?<\/blockquote>)<\/p>/gs, '$1')
+
+  return html
+}
+
 function formatActionLabel(act) {
   if (act.action === 'UPDATE_STATUS' || act.action === 'update_application_status') {
     const comp = act.args?.company_name || act.company || 'Application'
@@ -122,10 +226,10 @@ function formatActionLabel(act) {
 </script>
 
 <template>
-  <div class="chat-page-container">
+  <div class="chat-page-container" :class="{ 'sidebar-collapsed': isSidebarCollapsed }">
 
     <!-- Sidebar -->
-    <div class="chat-sidebar">
+    <div class="chat-sidebar" :class="{ 'collapsed': isSidebarCollapsed }">
       <div class="sidebar-header">
         <button
           class="btn-new-chat-sidebar"
@@ -133,6 +237,13 @@ function formatActionLabel(act) {
         >
           <Plus :size="16" />
           <span>New Chat</span>
+        </button>
+        <button
+          class="btn-icon-sidebar"
+          @click="toggleSidebar"
+          title="Collapse Sidebar"
+        >
+          <PanelLeftClose :size="18" />
         </button>
       </div>
 
@@ -186,91 +297,113 @@ function formatActionLabel(act) {
     <!-- Main Chat Area -->
     <div class="chat-main">
       <div class="chat-header">
-        <div class="header-left">
-          <div class="agent-avatar">
-            <Bot :size="18" />
-          </div>
-          <div>
-            <h2 class="agent-title">Agent Assistant</h2>
-            <div class="agent-subtitle">
-              <span class="pulse-dot"></span>
-              <span>Equipped with pgvector semantic search & database mutation tools</span>
+        <div class="header-content-inner">
+          <div class="header-left">
+            <button
+              v-if="isSidebarCollapsed"
+              class="btn-icon-sidebar btn-expand-sidebar"
+              @click="toggleSidebar"
+              title="Expand Sidebar"
+            >
+              <PanelLeftOpen :size="18" />
+            </button>
+            <div class="agent-avatar">
+              <Bot :size="18" />
+            </div>
+            <div>
+              <h2 class="agent-title">Agent Assistant</h2>
+              <div class="agent-subtitle">
+                <span class="pulse-dot"></span>
+                <span>Equipped with pgvector semantic search & database mutation tools</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Chat Messages Stream -->
+      <!-- Centered Messages Stream -->
       <div ref="chatContainer" class="chat-messages">
-        <div
-          v-for="(msg, idx) in chatStore.messages"
-          :key="idx"
-          class="message-row"
-          :class="`msg-${msg.role}`"
-        >
-          <!-- Skip tool messages in UI normally unless needed -->
-          <template v-if="msg.role !== 'tool' && msg.role !== 'system'">
-            <div class="avatar-icon">
-              <Bot v-if="msg.role === 'assistant'" :size="16" />
-              <User v-else :size="16" />
-            </div>
-
-            <div class="message-bubble">
-              <!-- Executed Actions Chips -->
-              <div v-if="msg.actions && msg.actions.length > 0" class="actions-chips">
-                <div v-for="(act, aIdx) in msg.actions" :key="aIdx" class="action-chip">
-                  <CheckCircle2 :size="13" class="text-success" />
-                  <span>{{ formatActionLabel(act) }}</span>
-                </div>
+        <div class="chat-messages-inner">
+          <div
+            v-for="(msg, idx) in chatStore.messages"
+            :key="idx"
+            class="message-row"
+            :class="`msg-${msg.role}`"
+          >
+            <!-- Skip tool messages in UI normally unless needed -->
+            <template v-if="msg.role !== 'tool' && msg.role !== 'system'">
+              <div class="avatar-icon">
+                <Bot v-if="msg.role === 'assistant'" :size="16" />
+                <User v-else :size="16" />
               </div>
 
-              <div class="message-text">{{ msg.content }}</div>
+              <div class="message-bubble">
+                <!-- Executed Actions Chips -->
+                <div v-if="msg.actions && msg.actions.length > 0" class="actions-chips">
+                  <div v-for="(act, aIdx) in msg.actions" :key="aIdx" class="action-chip">
+                    <CheckCircle2 :size="13" class="text-success" />
+                    <span>{{ formatActionLabel(act) }}</span>
+                  </div>
+                </div>
+
+                <div
+                  v-if="msg.role === 'assistant'"
+                  class="message-text markdown-body"
+                  v-html="renderMarkdown(msg.content)"
+                ></div>
+                <div v-else class="message-text">{{ msg.content }}</div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Thinking Indicator -->
+          <div v-if="chatStore.isSending" class="message-row msg-assistant">
+            <div class="avatar-icon">
+              <Bot :size="16" />
             </div>
-          </template>
-        </div>
-
-        <!-- Thinking Indicator -->
-        <div v-if="chatStore.isSending" class="message-row msg-assistant">
-          <div class="avatar-icon">
-            <Bot :size="16" />
-          </div>
-          <div class="message-bubble thinking-bubble">
-            <Loader2 class="animate-spin" :size="16" />
-            <span>Agent is reasoning & searching records...</span>
+            <div class="message-bubble thinking-bubble">
+              <Loader2 class="animate-spin" :size="16" />
+              <span>Agent is reasoning & searching records...</span>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Starter Prompts (if chat is short) -->
-      <div v-if="chatStore.messages.length <= 2" class="starters-bar">
-        <button
-          v-for="prompt in starterPrompts"
-          :key="prompt"
-          class="starter-chip"
-          @click="handleSendMessage(prompt)"
-        >
-          <span>{{ prompt }}</span>
-          <ArrowRight :size="12" />
-        </button>
-      </div>
+      <!-- Bottom Dock: Starters & Input Box Centered Column -->
+      <div class="chat-bottom-dock">
+        <div class="bottom-dock-inner">
+          <!-- Starter Prompts (if chat is short) -->
+          <div v-if="chatStore.messages.length <= 2" class="starters-bar">
+            <button
+              v-for="prompt in starterPrompts"
+              :key="prompt"
+              class="starter-chip"
+              @click="handleSendMessage(prompt)"
+            >
+              <span>{{ prompt }}</span>
+              <ArrowRight :size="12" />
+            </button>
+          </div>
 
-      <!-- Input Bar -->
-      <div class="chat-input-bar">
-        <textarea
-          v-model="inputMessage"
-          rows="1"
-          placeholder="Ask the agent to search applications, check interview dates, or change statuses..."
-          class="chat-input"
-          @keydown="handleKeyDown"
-        ></textarea>
+          <!-- Input Bar -->
+          <div class="chat-input-bar">
+            <textarea
+              v-model="inputMessage"
+              rows="1"
+              placeholder="Ask the agent to search applications, check interview dates, or change statuses..."
+              class="chat-input"
+              @keydown="handleKeyDown"
+            ></textarea>
 
-        <button
-          class="btn btn-primary btn-send"
-          :disabled="chatStore.isSending || !inputMessage.trim()"
-          @click="handleSendMessage()"
-        >
-          <Send :size="15" />
-        </button>
+            <button
+              class="btn btn-primary btn-send"
+              :disabled="chatStore.isSending || !inputMessage.trim()"
+              @click="handleSendMessage()"
+            >
+              <Send :size="15" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -281,48 +414,84 @@ function formatActionLabel(act) {
   display: flex;
   height: calc(100vh - var(--navbar-height));
   width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
   background-color: var(--bg-app);
+  position: relative;
+  overflow: hidden;
 }
 
 .chat-sidebar {
-  position: fixed;
-  top: var(--navbar-height);
-  left: 0;
-  bottom: 0;
   width: 260px;
-  z-index: 10;
+  height: 100%;
+  flex-shrink: 0;
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   background-color: var(--bg-surface);
+  transition: width var(--transition-smooth), margin-left var(--transition-smooth), opacity var(--transition-smooth);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.chat-sidebar.collapsed {
+  width: 0;
+  border-right-color: transparent;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .sidebar-header {
-  padding: 16px;
+  height: 65px;
+  box-sizing: border-box;
+  padding: 0 16px;
   border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .btn-new-chat-sidebar {
-  width: 100%;
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px;
+  padding: 8px 12px;
   border-radius: var(--radius-md);
   background-color: var(--primary);
-  color: white;
+  color: var(--primary-contrast, #0a0d14);
   border: none;
   font-weight: 500;
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
   transition: opacity var(--transition-fast);
 }
 
 .btn-new-chat-sidebar:hover {
   opacity: 0.9;
+}
+
+.btn-icon-sidebar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.btn-icon-sidebar:hover {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
+  border-color: var(--border-color);
+}
+
+.btn-expand-sidebar {
+  margin-right: 4px;
 }
 
 .chats-list {
@@ -436,13 +605,26 @@ function formatActionLabel(act) {
   flex-direction: column;
   height: 100%;
   min-width: 0;
-  margin-left: 260px;
+  margin-left: 0;
+  position: relative;
+  background-color: var(--bg-app);
 }
 
 .chat-header {
-  padding: 14px 24px;
+  height: 65px;
+  box-sizing: border-box;
+  padding: 0 24px;
   border-bottom: 1px solid var(--border-color);
   background-color: var(--bg-app);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.header-content-inner {
+  width: 100%;
+  max-width: 860px;
+  margin: 0 auto;
   display: flex;
   align-items: center;
 }
@@ -482,16 +664,23 @@ function formatActionLabel(act) {
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: 24px 24px 16px;
+}
+
+.chat-messages-inner {
+  max-width: 860px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
+  width: 100%;
 }
 
 .message-row {
   display: flex;
-  gap: 12px;
-  max-width: 85%;
+  gap: 14px;
+  width: 100%;
+  max-width: 100%;
 }
 
 .msg-user {
@@ -558,6 +747,105 @@ function formatActionLabel(act) {
   white-space: pre-wrap;
 }
 
+/* Markdown Styling */
+.markdown-body {
+  white-space: normal;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-main);
+}
+
+.markdown-body p {
+  margin-bottom: 8px;
+}
+
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body ul, .markdown-body ol {
+  margin: 6px 0 10px 20px;
+  padding-left: 4px;
+}
+
+.markdown-body li {
+  margin-bottom: 4px;
+}
+
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
+  font-weight: 600;
+  color: var(--text-main);
+  margin: 12px 0 6px;
+}
+
+.markdown-body h1 { font-size: 16px; }
+.markdown-body h2 { font-size: 15px; }
+.markdown-body h3 { font-size: 14px; }
+
+.markdown-body code {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  padding: 2px 5px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface-hover);
+  border: 1px solid var(--border-color);
+  color: var(--primary);
+}
+
+.markdown-body pre {
+  margin: 10px 0;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-color);
+  overflow-x: auto;
+}
+
+.markdown-body pre code {
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+}
+
+.markdown-body blockquote {
+  margin: 8px 0;
+  padding: 4px 12px;
+  border-left: 3px solid var(--primary);
+  color: var(--text-secondary);
+  background: var(--bg-surface-hover);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 12.5px;
+}
+
+.markdown-body th, .markdown-body td {
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  text-align: left;
+}
+
+.markdown-body th {
+  background-color: var(--bg-surface-hover);
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.markdown-body a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-body a:hover {
+  opacity: 0.85;
+}
+
 .thinking-bubble {
   display: flex;
   align-items: center;
@@ -568,11 +856,24 @@ function formatActionLabel(act) {
   box-shadow: none;
 }
 
+.chat-bottom-dock {
+  flex-shrink: 0;
+  padding: 0 24px 24px;
+  background-color: var(--bg-app);
+}
+
+.bottom-dock-inner {
+  max-width: 860px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .starters-bar {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 0 24px 12px;
 }
 
 .starter-chip {
@@ -598,8 +899,27 @@ function formatActionLabel(act) {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 16px 24px 24px;
-  background-color: var(--bg-app);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 8px 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.chat-input {
+  flex: 1;
+  padding: 6px 8px;
+  resize: none;
+  border: none;
+  background: transparent;
+  font-size: 13.5px;
+  color: var(--text-main);
+  outline: none;
+}
+
+.chat-input:focus {
+  box-shadow: none;
+  border-color: transparent;
 }
 
 .chat-input {
