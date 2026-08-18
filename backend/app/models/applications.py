@@ -78,6 +78,7 @@ class ApplicationModel(Base):
     interview_guide_preferences: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB, nullable=True
     )
+    outreach_drafts: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     match_analysis_payload: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB, nullable=True
     )

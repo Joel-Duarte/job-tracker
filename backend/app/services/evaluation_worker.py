@@ -125,6 +125,10 @@ async def _execute_evaluation_steps(
         await _execute_cv_extraction_steps(task, db)
         return
 
+    if task.task_type == "OUTREACH_DRAFTING":
+        await _execute_outreach_drafting_steps(task, db)
+        return
+
     try:
         content = task.raw_text
 
@@ -293,3 +297,76 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
             await session.commit()
 
             await _execute_evaluation_steps(task, session)
+
+
+async def _execute_outreach_drafting_steps(
+    task: IntakeEvaluationTaskModel, db: AsyncSession
+) -> None:
+    from app.models.applications import ApplicationModel
+    from app.models.candidate_profile import CandidateCVModel
+    from app.services.llm import generate_cold_outreach_drafts
+
+    try:
+        if not task.result_json or "application_id" not in task.result_json:
+            raise ValueError("Application ID missing from task payload.")
+
+        application_id = task.result_json["application_id"]
+
+        from sqlalchemy.orm import selectinload
+
+        stmt = (
+            select(ApplicationModel)
+            .options(
+                selectinload(ApplicationModel.company),
+                selectinload(ApplicationModel.job_posting),
+            )
+            .where(ApplicationModel.id == application_id)
+        )
+        result = await db.execute(stmt)
+        application = result.scalar_one_or_none()
+
+        if not application:
+            raise ValueError(f"Application {application_id} not found.")
+
+        profile_stmt = select(CandidateCVModel).where(CandidateCVModel.is_active)
+        profile_result = await db.execute(profile_stmt)
+        profile = profile_result.scalar_one_or_none()
+
+        if not profile or not profile.anonymized_text:
+            raise ValueError("Active candidate profile with canonical CV is required.")
+
+        cv_text = profile.anonymized_text
+        company_name = (
+            application.company.name if application.company else "Unknown Company"
+        )
+        job_title = application.position or "Unknown Role"
+
+        job_description = None
+        if application.job_posting and application.job_posting.description_markdown:
+            job_description = application.job_posting.description_markdown
+
+        drafts = await generate_cold_outreach_drafts(
+            db=db,
+            candidate_cv_text=cv_text,
+            target_company_name=company_name,
+            target_job_title=job_title,
+            target_job_description=job_description,
+        )
+
+        task.result_json = drafts.model_dump()
+
+        # Also store it in the ApplicationModel directly
+        application.outreach_drafts = task.result_json
+
+        task.status = "COMPLETED"
+        task.stage = "COMPLETE"
+        task.completed_at = datetime.now(UTC)
+        await db.commit()
+
+    except Exception as exc:
+        logger.error("Outreach Drafting Worker Error: %s", exc, exc_info=True)
+        task.status = "FAILED"
+        task.stage = "FAILED"
+        task.error_message = f"DRAFTING_ERROR: {str(exc)}"
+        task.completed_at = datetime.now(UTC)
+        await db.commit()

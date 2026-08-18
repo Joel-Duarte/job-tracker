@@ -30,11 +30,9 @@ from app.schemas.applications import (
     GenerateInterviewGuideRequest,
     JobPostingDetail,
 )
-from app.schemas.llm import ColdOutreachDrafts
 from app.services.interview_guide import clear_interview_guide, generate_interview_guide
 from app.services.llm import (
     async_enqueue_application_embedding,
-    generate_cold_outreach_drafts,
 )
 
 logger = logging.getLogger(__name__)
@@ -700,16 +698,19 @@ async def clear_app_interview_guide(
 
 @router.post(
     "/{application_id}/outreach-drafts",
-    response_model=ColdOutreachDrafts,
+    status_code=status.HTTP_202_ACCEPTED,
     summary="Generate dual-target cold outreach drafts",
 )
 async def create_cold_outreach_drafts(
     application_id: int,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     try:
         from app.models.applications import ApplicationModel
-        from app.models.candidate_profile import CandidateCVModel
+        from app.models.intake_tasks import IntakeEvaluationTaskModel
+        from app.schemas.intake import IntakeEvaluationTaskResponse
+        from app.services.evaluation_worker import process_evaluation_task
 
         # Fetch Application with Company and JobPosting
         stmt = (
@@ -729,38 +730,28 @@ async def create_cold_outreach_drafts(
                 detail=f"Application {application_id} not found.",
             )
 
-        # Fetch active Candidate Profile
-        profile_stmt = select(CandidateCVModel).where(CandidateCVModel.is_active)
-        profile_result = await db.execute(profile_stmt)
-        profile = profile_result.scalar_one_or_none()
-
-        if not profile or not profile.anonymized_text:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Active candidate profile with canonical CV is required.",
-            )
-
-        # Prepare parameters
-        cv_text = profile.anonymized_text
-        company_name = (
-            application.company.name if application.company else "Unknown Company"
-        )
-        job_title = application.position or "Unknown Role"
-
-        job_description = None
-        if application.job_posting and application.job_posting.description_markdown:
-            job_description = application.job_posting.description_markdown
-
-        # Generate drafts
-        drafts = await generate_cold_outreach_drafts(
-            db=db,
-            candidate_cv_text=cv_text,
-            target_company_name=company_name,
-            target_job_title=job_title,
-            target_job_description=job_description,
+        # Enqueue the background task
+        task_record = IntakeEvaluationTaskModel(
+            job_url=application.job_url,
+            raw_text=None,
+            title_hint=f"Outreach Draft: {application.position} at {application.company.name if application.company else 'Unknown'}",
+            status="QUEUED",
+            stage="GENERATING",
+            task_type="OUTREACH_DRAFTING",
         )
 
-        return drafts
+        # We store the application_id in result_json temporarily so the worker knows which app to update
+        task_record.result_json = {"application_id": application_id}
+
+        db.add(task_record)
+        await db.commit()
+        await db.refresh(task_record)
+
+        # Hand off to background worker
+        background_tasks.add_task(process_evaluation_task, task_id=task_record.id)
+
+        # Return the task response
+        return IntakeEvaluationTaskResponse.model_validate(task_record)
 
     except HTTPException:
         raise

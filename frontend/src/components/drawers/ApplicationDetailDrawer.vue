@@ -184,16 +184,47 @@ async function handleGenerateOutreachDrafts() {
   if (!appStore.selectedApplication?.id) return
 
   try {
-    isDraftingOutreach.value = true
     const response = await ApplicationsAPI.generateOutreachDrafts(appStore.selectedApplication.id)
-    outreachDrafts.value = response.data
-    uiStore.showToast('Outreach drafts generated successfully!', 'success')
+    uiStore.addIntakeTask(response.data)
+    uiStore.showToast('Outreach message generation queued!', 'success')
   } catch (err) {
-    uiStore.showToast(err.response?.data?.detail || 'Failed to generate outreach drafts', 'error')
-  } finally {
-    isDraftingOutreach.value = false
+    uiStore.showToast(err.response?.data?.detail || 'Failed to enqueue outreach generation task', 'error')
   }
 }
+
+watch(
+  () => uiStore.intakeQueue,
+  (newQueue) => {
+    if (!appStore.selectedApplication?.id) return
+    const draftingTask = newQueue.find(
+      t => t.task_type === 'OUTREACH_DRAFTING' &&
+           t.result_json?.application_id === appStore.selectedApplication.id
+    )
+
+    if (draftingTask) {
+      isDraftingOutreach.value = draftingTask.status === 'PROCESSING' || draftingTask.status === 'QUEUED'
+      if (draftingTask.status === 'COMPLETED' && draftingTask.result_json?.recruiter_message) {
+        outreachDrafts.value = draftingTask.result_json
+        appStore.fetchApplicationDetail(appStore.selectedApplication.id) // Optionally refresh
+      }
+    } else {
+      isDraftingOutreach.value = false
+    }
+  },
+  { deep: true, immediate: true }
+)
+
+watch(
+  () => appStore.selectedApplication?.outreach_drafts,
+  (newDrafts) => {
+    if (newDrafts) {
+      outreachDrafts.value = newDrafts
+    } else {
+      outreachDrafts.value = null
+    }
+  },
+  { immediate: true }
+)
 
 async function copyToClipboard(text, type) {
   try {

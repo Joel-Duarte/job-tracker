@@ -108,6 +108,7 @@ class ApplicationDetailResponse(ApplicationListItem):
     interview_guide_language: str | None = "en"
     interview_guide_generated_at: datetime | None = None
     interview_guide_preferences: dict | None = None
+    outreach_drafts: dict | None = None
     created_at: datetime
     updated_at: datetime
     events: list[ApplicationEventDetail] = []

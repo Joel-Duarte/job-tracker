@@ -36,8 +36,9 @@ const STAGES = {
   EXTRACTING: { label: 'Extracting Specs', icon: Loader2, color: 'text-primary' },
   MATCHING: { label: 'CV Keyword Overlap', icon: Loader2, color: 'text-primary' },
   ASSESSING: { label: 'AI Assessment', icon: Loader2, color: 'text-primary' },
-  COMPLETE: { label: 'Assessment Ready', icon: CheckCircle, color: 'text-success' },
-  FAILED: { label: 'Scrape Degraded', icon: AlertTriangle, color: 'text-danger' },
+  GENERATING: { label: 'Generating Content', icon: Loader2, color: 'text-primary' },
+  COMPLETE: { label: 'Complete', icon: CheckCircle, color: 'text-success' },
+  FAILED: { label: 'Failed', icon: AlertTriangle, color: 'text-danger' },
 }
 </script>
 
