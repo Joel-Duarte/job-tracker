@@ -83,21 +83,6 @@ Based on the architecture and core goals of the Job Tracker project, here are 20
 
 ---
 
-## 11. Smart Portfolio & Case Study Matcher
-**Description:** Allows users to catalog links and descriptions of their past projects. When an application hits the `TECHNICAL_INTERVIEW` stage, the AI evaluates the `required_skills` of the job and suggests which specific portfolio projects the candidate should bring up during the interview.
-
-**Pros:**
-1. Directly improves technical interview performance by tailoring the candidate's talking points.
-2. Fits perfectly into the existing Interview Guide generation workflow.
-
-**Cons:**
-1. Requires expanding the database schema and UI significantly to handle structured project/portfolio artifacts.
-2. The LLM context window might get crowded if full project descriptions are constantly passed back and forth.
-
-- **Relevance to Project:** 8/10
-- **Ease of Implementation:** 7/10
-
----
 
 ## 12. Company Culture & Tech Stack Analyzer
 **Description:** Before an interview, the LLM searches the web for the target company's engineering blog, recent news, and tech stack (e.g., via StackShare API) to brief the user on what technologies to brush up on and what cultural values to emphasize.
@@ -128,22 +113,6 @@ Based on the architecture and core goals of the Job Tracker project, here are 20
 
 - **Relevance to Project:** 8/10
 - **Ease of Implementation:** 7/10
-
----
-
-## 17. Job Rejection Analyzer & Pivot Strategy
-**Description:** When an application is moved to `REJECTED`, the LLM reads the rejection email/reason, compares it against the `JobPostingModel`, and provides a constructive summary (e.g., "Missing senior-level React experience") while suggesting what to study or change for the next application.
-
-**Pros:**
-1. Turns negative user experiences (rejections) into actionable, positive data.
-2. Encourages continuous improvement and skill development during long job hunts.
-
-**Cons:**
-1. Rejection emails are usually automated and generic, severely limiting the AI's ability to extract real insight.
-2. Might frustrate users if the AI gives generic or hallucinated advice based on boilerplate rejection text.
-
-- **Relevance to Project:** 7/10
-- **Ease of Implementation:** 8/10
 
 ---
 
