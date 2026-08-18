@@ -141,9 +141,9 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
         # Verify application and events are deleted from DB
         app_stmt = select(ApplicationModel).where(ApplicationModel.id == application.id)
         app_res = await db_session.execute(app_stmt)
-        assert app_res.scalar_one_or_none() is None
-
         # Verify application and events are deleted from DB
         app_stmt = select(ApplicationModel).where(ApplicationModel.id == application.id)
         app_res = await db_session.execute(app_stmt)
         assert app_res.scalar_one_or_none() is None
+
+    app.dependency_overrides.clear()
