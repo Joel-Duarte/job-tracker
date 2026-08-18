@@ -9,7 +9,7 @@ const STORAGE_KEY = 'job_tracker_agent_chat_messages'
 const DEFAULT_WELCOME_MESSAGE = {
   role: 'assistant',
   content:
-    "Hello! I am your Job Tracker Agent. I can search through your applications using 768-dimension vector similarity, check interview timelines, and modify application statuses on demand. How can I help you today?",
+    "Hello! I am your Job Tracker Agent. I can search through your applications, check interview timelines, and modify application statuses on demand. How can I help you today?",
   actions: [],
 }
 
