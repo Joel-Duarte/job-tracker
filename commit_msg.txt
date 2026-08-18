@@ -1,1 +1,1 @@
-fix: Make outreach drafts collapsible and collapsed by default
+fix: Queue outreach message generation via the concurrency manager

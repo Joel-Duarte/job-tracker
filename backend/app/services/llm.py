@@ -538,6 +538,37 @@ async def generate_cold_outreach_drafts(
     target_job_description: str | None = None,
 ) -> ColdOutreachDrafts:
     """Generates two distinct cold outreach drafts (hiring manager and peer) based on candidate profile and target job."""
+    from app.core.ai_queue import concurrency_manager
+    from app.models.ai_providers import AIProviderModel, AITaskBindingModel
+
+    # 1. Resolve Provider ID to utilize the concurrency manager queue properly
+    provider_id = None
+    stmt = (
+        select(AITaskBindingModel)
+        .options(selectinload(AITaskBindingModel.provider))
+        .where(AITaskBindingModel.task_type == "GENERATION")
+    )
+    result = await db.execute(stmt)
+    binding = result.scalar_one_or_none()
+
+    if binding and binding.provider:
+        provider_id = binding.provider_id
+        max_concurrency = binding.provider.max_concurrency
+    else:
+        # Fallback to active llm config
+        config = await get_active_llm_config_dict(db)
+        # Attempt to map from global active
+        active_stmt = select(AIProviderModel).where(
+            AIProviderModel.name == config.get("provider")
+        )
+        active_res = await db.execute(active_stmt)
+        active_provider = active_res.scalar_one_or_none()
+        if active_provider:
+            provider_id = active_provider.id
+            max_concurrency = active_provider.max_concurrency
+        else:
+            max_concurrency = 1
+
     llm = await get_task_chat_model(db, task_type="GENERATION", temperature=0.7)
     structured_llm = llm.with_structured_output(ColdOutreachDrafts)
 
@@ -565,14 +596,17 @@ async def generate_cold_outreach_drafts(
     )
 
     chain = prompt | structured_llm
-    result = await chain.ainvoke(
-        {
-            "company_name": target_company_name,
-            "job_title": target_job_title,
-            "job_description": target_job_description or "Not specified",
-            "candidate_cv": candidate_cv_text,
-        }
-    )
+
+    async with concurrency_manager.acquire(provider_id, max_concurrency, priority=1):
+        result = await chain.ainvoke(
+            {
+                "company_name": target_company_name,
+                "job_title": target_job_title,
+                "job_description": target_job_description or "Not specified",
+                "candidate_cv": candidate_cv_text,
+            }
+        )
+
     if isinstance(result, ColdOutreachDrafts):
         return result
     return ColdOutreachDrafts.model_validate(result)
