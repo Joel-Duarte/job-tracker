@@ -53,3 +53,43 @@ class AnalyticsOverviewResponse(BaseModel):
     salary_insights: list[dict]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ActivityDailyBreakdown(BaseModel):
+    date: str
+    applications: int = 0
+    replies: int = 0
+    interviews: int = 0
+    tasks: int = 0
+
+
+class TerminalOutcomes(BaseModel):
+    OFFER: int = 0
+    HIRED: int = 0
+    REJECTED: int = 0
+    WITHDRAWN: int = 0
+
+
+class ActivityAnalyticsResponse(BaseModel):
+    period: str
+    start_date: str
+    end_date: str
+    applications_submitted: int
+    replies_received: int
+    interviews_scheduled: int
+    tasks_completed: int
+    terminal_outcomes: TerminalOutcomes
+    daily_breakdown: list[ActivityDailyBreakdown]
+
+
+class ActivityHistoryBucket(BaseModel):
+    week_start: str
+    week_end: str
+    applications: int
+    replies: int
+    interviews: int
+    tasks: int
+
+
+class ActivityHistoryResponse(BaseModel):
+    history: list[ActivityHistoryBucket]

@@ -1,16 +1,27 @@
 import datetime
 from collections import defaultdict
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.applications import ApplicationModel, CompanyModel, JobPostingModel
+from app.models.applications import (
+    ActionItemModel,
+    ApplicationEventModel,
+    ApplicationModel,
+    CompanyModel,
+    JobPostingModel,
+)
 from app.models.candidate_profile import CandidateCVModel
 from app.schemas.analytics import (
+    ActivityAnalyticsResponse,
+    ActivityDailyBreakdown,
+    ActivityHistoryBucket,
+    ActivityHistoryResponse,
     AnalyticsOverviewResponse,
     FunnelStageItem,
     SkillDemandItem,
     SkillGapItem,
+    TerminalOutcomes,
     WorkModelBreakdown,
 )
 
@@ -284,3 +295,229 @@ async def get_analytics_overview(
         work_model_distribution=work_model_distribution,
         salary_insights=salary_insights,
     )
+
+
+def add_months(sourcedate, months):
+    month = sourcedate.month - 1 + months
+    year = sourcedate.year + month // 12
+    month = month % 12 + 1
+    return sourcedate.replace(year=year, month=month)
+
+
+def get_utc_bounds(
+    period: str, start_date: str | None = None, end_date: str | None = None
+) -> tuple[datetime.datetime, datetime.datetime]:
+    now = datetime.datetime.now(datetime.UTC)
+    if period == "this_week":
+        start = now - datetime.timedelta(days=now.weekday())
+        start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + datetime.timedelta(days=6, hours=23, minutes=59, seconds=59)
+    elif period == "last_week":
+        start = now - datetime.timedelta(days=now.weekday() + 7)
+        start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + datetime.timedelta(days=6, hours=23, minutes=59, seconds=59)
+    elif period == "this_month":
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        next_month = add_months(start, 1)
+        end = next_month - datetime.timedelta(seconds=1)
+    elif period == "last_month":
+        last_month_start = add_months(
+            now.replace(day=1, hour=0, minute=0, second=0, microsecond=0), -1
+        )
+        start = last_month_start
+        next_month = add_months(start, 1)
+        end = next_month - datetime.timedelta(seconds=1)
+    elif period == "custom":
+        if not start_date or not end_date:
+            raise ValueError("start_date and end_date are required for custom period")
+        start = datetime.datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+        end = datetime.datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+    else:
+        raise ValueError(f"Invalid period: {period}")
+    return start, end
+
+
+async def get_activity_analytics(
+    db: AsyncSession,
+    period: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> ActivityAnalyticsResponse:
+    start, end = get_utc_bounds(period, start_date, end_date)
+
+    app_query = select(ApplicationModel).where(
+        and_(ApplicationModel.created_at >= start, ApplicationModel.created_at <= end)
+    )
+    app_res = await db.execute(app_query)
+    apps = app_res.scalars().all()
+    applications_submitted = len(apps)
+
+    reply_query = select(ApplicationEventModel).where(
+        and_(
+            ApplicationEventModel.created_at >= start,
+            ApplicationEventModel.created_at <= end,
+            ApplicationEventModel.email_event_type.notin_(
+                ["EMAIL_SENT", "SYSTEM_EVENT"]
+            ),
+        )
+    )
+    reply_res = await db.execute(reply_query)
+    replies = reply_res.scalars().all()
+    replies_received = len(replies)
+
+    interview_query = select(ApplicationEventModel).where(
+        and_(
+            ApplicationEventModel.created_at >= start,
+            ApplicationEventModel.created_at <= end,
+            ApplicationEventModel.email_event_type.ilike("%INTERVIEW%"),
+        )
+    )
+    interview_res = await db.execute(interview_query)
+    interviews_scheduled = len(interview_res.scalars().all())
+
+    app_interview_query = select(ApplicationModel).where(
+        and_(
+            ApplicationModel.updated_at >= start,
+            ApplicationModel.updated_at <= end,
+            ApplicationModel.status.ilike("%INTERVIEW%"),
+        )
+    )
+    app_interview_res = await db.execute(app_interview_query)
+    interviews_scheduled += len(app_interview_res.scalars().all())
+
+    task_query = select(ActionItemModel).where(
+        and_(
+            ActionItemModel.updated_at >= start,
+            ActionItemModel.updated_at <= end,
+            ActionItemModel.status == "COMPLETED",
+        )
+    )
+    task_res = await db.execute(task_query)
+    tasks = task_res.scalars().all()
+    tasks_completed = len(tasks)
+
+    terminal = {"OFFER": 0, "HIRED": 0, "REJECTED": 0, "WITHDRAWN": 0}
+    term_app_query = select(ApplicationModel).where(
+        and_(
+            ApplicationModel.updated_at >= start,
+            ApplicationModel.updated_at <= end,
+            ApplicationModel.status.in_(["OFFER", "HIRED", "REJECTED", "WITHDRAWN"]),
+        )
+    )
+    term_app_res = await db.execute(term_app_query)
+    term_apps = term_app_res.scalars().all()
+    for app in term_apps:
+        if app.status.upper() in terminal:
+            terminal[app.status.upper()] += 1
+
+    daily_map = defaultdict(
+        lambda: {"applications": 0, "replies": 0, "interviews": 0, "tasks": 0}
+    )
+
+    for a in apps:
+        dt_str = a.created_at.strftime("%Y-%m-%d")
+        daily_map[dt_str]["applications"] += 1
+
+    for r in replies:
+        dt_str = r.created_at.strftime("%Y-%m-%d")
+        daily_map[dt_str]["replies"] += 1
+
+    for t in tasks:
+        dt_str = t.updated_at.strftime("%Y-%m-%d")
+        daily_map[dt_str]["tasks"] += 1
+
+    daily_breakdown = []
+    curr_date = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_date_clean = end.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    while curr_date <= end_date_clean:
+        dt_str = curr_date.strftime("%Y-%m-%d")
+        daily_breakdown.append(
+            ActivityDailyBreakdown(
+                date=dt_str,
+                applications=daily_map[dt_str]["applications"],
+                replies=daily_map[dt_str]["replies"],
+                interviews=0,
+                tasks=daily_map[dt_str]["tasks"],
+            )
+        )
+        curr_date += datetime.timedelta(days=1)
+
+    return ActivityAnalyticsResponse(
+        period=period,
+        start_date=start.isoformat(),
+        end_date=end.isoformat(),
+        applications_submitted=applications_submitted,
+        replies_received=replies_received,
+        interviews_scheduled=interviews_scheduled,
+        tasks_completed=tasks_completed,
+        terminal_outcomes=TerminalOutcomes(**terminal),
+        daily_breakdown=daily_breakdown,
+    )
+
+
+async def get_activity_history(db: AsyncSession) -> ActivityHistoryResponse:
+    now = datetime.datetime.now(datetime.UTC)
+    twelve_weeks_ago = now - datetime.timedelta(weeks=12)
+
+    query = text("""
+        WITH weeks AS (
+            SELECT generate_series(
+                date_trunc('week', :start_date::timestamp),
+                date_trunc('week', :end_date::timestamp),
+                '1 week'::interval
+            ) AS week_start
+        ),
+        app_counts AS (
+            SELECT date_trunc('week', created_at) AS week_start, COUNT(*) as app_count
+            FROM email_applications
+            WHERE created_at >= :start_date
+            GROUP BY 1
+        ),
+        task_counts AS (
+            SELECT date_trunc('week', updated_at) AS week_start, COUNT(*) as task_count
+            FROM action_items
+            WHERE updated_at >= :start_date AND status = 'COMPLETED'
+            GROUP BY 1
+        ),
+        reply_counts AS (
+            SELECT date_trunc('week', created_at) AS week_start, COUNT(*) as reply_count
+            FROM email_application_events
+            WHERE created_at >= :start_date AND email_event_type NOT IN ('EMAIL_SENT', 'SYSTEM_EVENT')
+            GROUP BY 1
+        )
+        SELECT
+            w.week_start,
+            COALESCE(a.app_count, 0) as applications,
+            COALESCE(t.task_count, 0) as tasks,
+            COALESCE(r.reply_count, 0) as replies
+        FROM weeks w
+        LEFT JOIN app_counts a ON w.week_start = a.week_start
+        LEFT JOIN task_counts t ON w.week_start = t.week_start
+        LEFT JOIN reply_counts r ON w.week_start = r.week_start
+        ORDER BY w.week_start ASC
+    """)
+
+    result = await db.execute(query, {"start_date": twelve_weeks_ago, "end_date": now})
+    rows = result.all()
+
+    history = []
+    for row in rows:
+        week_start = row.week_start
+        if not isinstance(week_start, datetime.datetime):
+            week_start = datetime.datetime.fromisoformat(str(week_start))
+        week_end = week_start + datetime.timedelta(
+            days=6, hours=23, minutes=59, seconds=59
+        )
+        history.append(
+            ActivityHistoryBucket(
+                week_start=week_start.isoformat(),
+                week_end=week_end.isoformat(),
+                applications=row.applications,
+                replies=row.replies,
+                interviews=0,
+                tasks=row.tasks,
+            )
+        )
+
+    return ActivityHistoryResponse(history=history)
