@@ -1,5 +1,8 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
+import { AnalyticsAPI } from '../api/endpoints'
+import { useRouter } from 'vue-router'
+
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useUIStore } from '../stores/uiStore'
 import DateTimePicker from '../components/common/DateTimePicker.vue'
@@ -13,6 +16,7 @@ import {
   formatSalaryRange,
 } from '../utils/formatters'
 import {
+  Activity,
   Search,
   Kanban,
   Table as TableIcon,
@@ -66,6 +70,26 @@ const pipelineCountLabel = computed(() => {
 
 const appStore = useApplicationsStore()
 const uiStore = useUIStore()
+
+const router = useRouter()
+const weeklyStats = ref(null)
+
+async function fetchWeeklyStats() {
+  try {
+    const res = await AnalyticsAPI.getActivity({ period: 'this_week' })
+    weeklyStats.value = res.data
+  } catch(e) {
+    console.error("Failed to fetch weekly stats", e)
+  }
+}
+
+onMounted(() => {
+  fetchWeeklyStats()
+  document.addEventListener('click', handleGlobalClick)
+  window.addEventListener('scroll', handleScrollOrResize)
+  window.addEventListener('resize', handleScrollOrResize)
+})
+
 
 // Dropdown Context Menu State (Teleported Floating Menu)
 const activeMenuApp = ref(null)
@@ -1494,6 +1518,25 @@ async function confirmDelete() {
 </template>
 
 <style scoped>
+
+.weekly-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  margin-right: auto;
+}
+.stat-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
 .page-container {
   display: flex;
   flex-direction: column;

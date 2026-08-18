@@ -3,6 +3,9 @@ import { ref, onMounted, computed } from 'vue'
 import { AnalyticsAPI } from '../api/endpoints'
 import {
   BarChart3,
+  Activity,
+  PieChart,
+  Clock,
   RefreshCw,
   TrendingUp,
   Target,
@@ -24,6 +27,7 @@ import PageHeader from '../components/common/PageHeader.vue'
 
 const uiStore = useUIStore()
 
+const currentTab = ref('velocity')
 const loading = ref(true)
 const analyticsData = ref(null)
 
@@ -64,9 +68,72 @@ async function fetchAnalytics() {
   }
 }
 
+
+const activityData = ref(null)
+const activityHistory = ref([])
+const velocityLoading = ref(false)
+
+const velocityPeriod = ref('this_week')
+const velocityCustomStart = ref(null)
+const velocityCustomEnd = ref(null)
+
+const relativeJumpOptions = [
+  { label: 'This Week', value: 'this_week' },
+  { label: 'Last Week', value: 'last_week' },
+  { label: 'This Month', value: 'this_month' },
+  { label: 'Last Month', value: 'last_month' },
+  { label: 'Custom Range', value: 'custom' },
+]
+
+async function fetchActivity() {
+  velocityLoading.value = true
+  try {
+    const params = { period: velocityPeriod.value }
+    if (velocityPeriod.value === 'custom') {
+      if (!velocityCustomStart.value || !velocityCustomEnd.value) {
+        velocityLoading.value = false
+        return
+      }
+      params.start_date = new Date(velocityCustomStart.value).toISOString()
+      params.end_date = new Date(velocityCustomEnd.value).toISOString()
+    }
+    const res = await AnalyticsAPI.getActivity(params)
+    activityData.value = res.data
+  } catch (err) {
+    uiStore.addToast('Failed to load activity data', 'error')
+    console.error(err)
+  } finally {
+    velocityLoading.value = false
+  }
+}
+
+async function fetchHistory() {
+  try {
+    const res = await AnalyticsAPI.getActivityHistory()
+    activityHistory.value = res.data.history
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+function setPeriod(period) {
+  velocityPeriod.value = period
+  fetchActivity()
+}
+
+function setWeekFromHistory(weekStart, weekEnd) {
+  velocityPeriod.value = 'custom'
+  velocityCustomStart.value = weekStart.split('T')[0]
+  velocityCustomEnd.value = weekEnd.split('T')[0]
+  fetchActivity()
+}
+
 onMounted(() => {
   fetchAnalytics()
+  fetchActivity()
+  fetchHistory()
 })
+
 
 const maxSkillCount = computed(() => {
   if (!analyticsData.value?.top_in_demand_skills?.length) return 1
@@ -269,8 +336,178 @@ const sankeyData = computed(() => {
       </template>
     </PageHeader>
 
+    <div class="flex justify-center mb-6 mt-2">
+      <div class="tab-switcher">
+        <button
+          :class="['tab-btn', currentTab === 'velocity' ? 'active' : '']"
+          @click="currentTab = 'velocity'"
+        >
+          <Activity class="w-4 h-4 mr-2 inline" />
+          Search Velocity & Activity
+        </button>
+        <button
+          :class="['tab-btn', currentTab === 'market' ? 'active' : '']"
+          @click="currentTab = 'market'"
+        >
+          <PieChart class="w-4 h-4 mr-2 inline" />
+          Market Intelligence & Skills
+        </button>
+      </div>
+    </div>
+
     <!-- Main Content Area -->
     <div class="analytics-content">
+      <div v-if="currentTab === 'velocity'" class="velocity-tab-container">
+        <!-- Velocity Controls -->
+        <div class="velocity-controls flex justify-between items-center mb-5">
+          <div class="btn-group">
+            <button :class="['btn-toggle', velocityPeriod === 'this_week' ? 'active' : '']" @click="setPeriod('this_week')">Week</button>
+            <button :class="['btn-toggle', velocityPeriod === 'this_month' ? 'active' : '']" @click="setPeriod('this_month')">Month</button>
+            <button :class="['btn-toggle', velocityPeriod === 'custom' ? 'active' : '']" @click="velocityPeriod = 'custom'">Custom</button>
+          </div>
+
+          <div class="relative-jump flex items-center gap-3">
+            <template v-if="velocityPeriod === 'custom'">
+              <input type="date" v-model="velocityCustomStart" class="form-input text-xs py-1" />
+              <span class="text-xs text-muted">to</span>
+              <input type="date" v-model="velocityCustomEnd" @change="fetchActivity" class="form-input text-xs py-1" />
+            </template>
+            <select v-model="velocityPeriod" @change="fetchActivity" class="form-input text-xs py-1 pr-6" style="min-width: 130px;">
+              <option v-for="opt in relativeJumpOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- History Ribbon -->
+        <div class="history-ribbon-widget mb-6">
+          <div class="flex justify-between items-center mb-3">
+            <h3 class="text-sm font-semibold">12-Week Velocity History</h3>
+            <span class="text-xs text-muted">Click a week to drill down</span>
+          </div>
+          <div class="ribbon-chart flex items-end gap-1">
+            <div
+              v-for="(bucket, idx) in activityHistory"
+              :key="idx"
+              class="ribbon-bar-container group cursor-pointer"
+              @click="setWeekFromHistory(bucket.week_start, bucket.week_end)"
+            >
+              <div class="ribbon-tooltip">
+                <div class="font-bold mb-1">{{ bucket.week_start.split('T')[0] }}</div>
+                <div>Apps: {{ bucket.applications }}</div>
+                <div>Tasks: {{ bucket.tasks }}</div>
+                <div>Replies: {{ bucket.replies }}</div>
+              </div>
+              <div class="ribbon-bar bg-primary" :style="{ height: `${Math.max(4, Math.min(60, (bucket.applications + bucket.tasks + bucket.replies) * 1.5))}px` }"></div>
+              <div class="ribbon-label">{{ bucket.week_start.split('-')[1] }}/{{ bucket.week_start.split('-')[2].substring(0,2) }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="velocityLoading" class="loading-state py-10">
+          <RefreshCw class="spin text-primary" :size="32" />
+        </div>
+
+        <div v-else-if="activityData">
+          <!-- Metric Cards -->
+          <div class="kpi-banner-4 mb-6">
+            <div class="kpi-card">
+              <div class="kpi-header">
+                <span class="kpi-title">Applications</span>
+                <Activity :size="14" class="kpi-icon text-blue-500" />
+              </div>
+              <div class="kpi-value text-blue-500">{{ activityData.applications_submitted }}</div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-header">
+                <span class="kpi-title">Inbound Replies</span>
+                <Clock :size="14" class="kpi-icon text-emerald-500" />
+              </div>
+              <div class="kpi-value text-emerald-500">{{ activityData.replies_received }}</div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-header">
+                <span class="kpi-title">Interviews Scheduled</span>
+                <Target :size="14" class="kpi-icon text-purple-500" />
+              </div>
+              <div class="kpi-value text-purple-500">{{ activityData.interviews_scheduled }}</div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-header">
+                <span class="kpi-title">Tasks Completed</span>
+                <CheckCircle2 :size="14" class="kpi-icon text-amber-500" />
+              </div>
+              <div class="kpi-value text-amber-500">{{ activityData.tasks_completed }}</div>
+            </div>
+          </div>
+
+          <!-- Charts -->
+          <div class="bento-grid" style="grid-template-columns: 2fr 1fr;">
+            <!-- Daily Breakdown Chart -->
+            <div class="bento-card">
+              <div class="bento-header">
+                <h3 class="bento-title">
+                  <BarChart3 :size="16" class="text-primary" />
+                  Activity Throughput
+                </h3>
+              </div>
+              <div class="bento-body p-4 pt-8">
+                <div class="daily-chart-container flex items-end gap-2 h-48">
+                  <div v-for="day in activityData.daily_breakdown" :key="day.date" class="daily-bar-wrap flex-1 flex flex-col justify-end items-center relative group">
+                    <div class="daily-tooltip">
+                      <div class="font-bold border-b border-border-color mb-1 pb-1">{{ day.date }}</div>
+                      <div class="text-blue-400">Apps: {{ day.applications }}</div>
+                      <div class="text-emerald-400">Replies: {{ day.replies }}</div>
+                      <div class="text-amber-400">Tasks: {{ day.tasks }}</div>
+                    </div>
+
+                    <div class="w-full max-w-sm flex flex-col items-center gap-1">
+                      <div class="w-full bg-blue-500 rounded-t-sm" :style="{ height: `${day.applications * 4}px`, minHeight: day.applications ? '4px' : '0' }"></div>
+                      <div class="w-full bg-emerald-500 rounded-sm" :style="{ height: `${day.replies * 4}px`, minHeight: day.replies ? '4px' : '0' }"></div>
+                      <div class="w-full bg-amber-500 rounded-sm" :style="{ height: `${day.tasks * 4}px`, minHeight: day.tasks ? '4px' : '0' }"></div>
+                    </div>
+
+                    <span class="text-[10px] text-muted mt-2 rotate-45 transform origin-left whitespace-nowrap overflow-hidden text-ellipsis">{{ day.date.substring(5) }}</span>
+                  </div>
+                </div>
+
+                <div class="flex justify-center gap-6 mt-10">
+                  <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-blue-500"></span><span class="text-xs">Applications</span></div>
+                  <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-emerald-500"></span><span class="text-xs">Replies</span></div>
+                  <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-amber-500"></span><span class="text-xs">Tasks</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Terminal Outcomes -->
+            <div class="bento-card">
+              <div class="bento-header">
+                <h3 class="bento-title">
+                  <Target :size="16" class="text-primary" />
+                  Terminal Outcomes
+                </h3>
+              </div>
+              <div class="bento-body p-4 flex flex-col justify-center h-full gap-4">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-semibold text-emerald-500 flex items-center gap-2"><div class="w-2 h-2 bg-emerald-500 rounded-full"></div>Offer / Hired</span>
+                  <span class="font-mono text-sm">{{ activityData.terminal_outcomes.OFFER + activityData.terminal_outcomes.HIRED }}</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-semibold text-red-500 flex items-center gap-2"><div class="w-2 h-2 bg-red-500 rounded-full"></div>Rejected</span>
+                  <span class="font-mono text-sm">{{ activityData.terminal_outcomes.REJECTED }}</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-semibold text-slate-500 flex items-center gap-2"><div class="w-2 h-2 bg-slate-500 rounded-full"></div>Withdrawn</span>
+                  <span class="font-mono text-sm">{{ activityData.terminal_outcomes.WITHDRAWN }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-if="currentTab === 'market'">
       <div v-if="loading && !analyticsData" class="loading-state">
         <RefreshCw class="spin text-primary" :size="32" />
         <p>Crunching pipeline intelligence...</p>
@@ -673,11 +910,132 @@ const sankeyData = computed(() => {
           </div>
         </div>
       </div>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+
+/* Tab Switcher */
+.tab-switcher {
+  display: inline-flex;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  padding: 4px;
+}
+.tab-btn {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.tab-btn:hover:not(.active) {
+  color: var(--text-main);
+  background-color: var(--bg-elevated);
+}
+.tab-btn.active {
+  background-color: var(--primary);
+  color: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Velocity Tab Specific Styles */
+.btn-group {
+  display: inline-flex;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.btn-toggle {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-toggle:last-child {
+  border-right: none;
+}
+.btn-toggle:hover {
+  background-color: var(--bg-elevated);
+}
+.btn-toggle.active {
+  background-color: var(--primary);
+  color: white;
+}
+
+.history-ribbon-widget {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+}
+.ribbon-chart {
+  height: 80px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 4px;
+}
+.ribbon-bar-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  position: relative;
+  height: 100%;
+}
+.ribbon-bar {
+  width: 100%;
+  max-width: 24px;
+  border-radius: 3px 3px 0 0;
+  opacity: 0.7;
+  transition: opacity 0.2s, background-color 0.2s;
+}
+.ribbon-bar-container:hover .ribbon-bar {
+  opacity: 1;
+  background-color: var(--primary-hover, var(--primary));
+}
+.ribbon-label {
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+.ribbon-tooltip, .daily-tooltip {
+  position: absolute;
+  bottom: 100%;
+  margin-bottom: 8px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  font-size: 10px;
+  color: var(--text-main);
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s;
+  z-index: 10;
+  white-space: nowrap;
+}
+.ribbon-bar-container:hover .ribbon-tooltip, .daily-bar-wrap:hover .daily-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
 /* Page Layout */
 .page-container {
   max-width: 1240px;

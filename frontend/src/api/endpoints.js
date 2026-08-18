@@ -108,5 +108,7 @@ export const AnalyticsAPI = {
   getOverview: (params = {}) => apiClient.get('/analytics/overview', { params }),
   getWorkModelBreakdown: () => apiClient.get('/analytics/work-model-breakdown'),
   getFunnelMetrics: () => apiClient.get('/analytics/funnel'),
+  getActivity: (params = {}) => apiClient.get('/analytics/activity', { params }),
+  getActivityHistory: () => apiClient.get('/analytics/activity/history'),
 }
 
