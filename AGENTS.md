@@ -222,3 +222,6 @@ Before committing or completing tasks, agents and developers must execute and pa
 4. **TDD / Incremental Implementation:** Write or update tests before implementing logic; validate changes incrementally.
 5. **Run Pre-Commit Verification:** Run `./scripts/pre-commit.sh` (or individual Ruff, Pytest, and npm build checks).
 6. **Verify 0 Errors:** Ensure all tests pass and 0 lint/format/build errors remain before submitting.
+### 5. Analytics Module & API
+- The Analytics service (`/api/v1/analytics`) strictly separates Market Intelligence endpoints (`/overview`, `/work-model-breakdown`, `/funnel`) from Search Velocity & Activity endpoints (`/activity`, `/activity/history`).
+- Activity analytics aggregate counts and bounded time ranges using `this_week`, `last_week`, `this_month`, `last_month`, or `custom` UTC boundaries natively in Postgres via SQLAlchemy.

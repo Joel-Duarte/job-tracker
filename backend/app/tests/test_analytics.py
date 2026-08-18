@@ -77,3 +77,45 @@ async def test_analytics_overview_with_query_params(
 
     assert len(data["top_in_demand_skills"]) <= 5
     assert len(data["priority_skill_gaps"]) <= 5
+
+
+@pytest.mark.asyncio
+async def test_activity_analytics_empty_db(
+    async_client: AsyncClient, db_session: AsyncSession
+):
+    response = await async_client.get("/api/v1/analytics/activity?period=this_week")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["period"] == "this_week"
+    assert data["applications_submitted"] == 0
+    assert data["replies_received"] == 0
+    assert data["interviews_scheduled"] == 0
+    assert data["tasks_completed"] == 0
+    assert data["terminal_outcomes"]["OFFER"] == 0
+    assert isinstance(data["daily_breakdown"], list)
+    assert len(data["daily_breakdown"]) == 7
+
+
+@pytest.mark.asyncio
+async def test_activity_history_empty_db(
+    async_client: AsyncClient, db_session: AsyncSession
+):
+    response = await async_client.get("/api/v1/analytics/activity/history")
+    assert response.status_code == 200
+    data = response.json()
+    assert "history" in data
+    assert isinstance(data["history"], list)
+    assert len(data["history"]) >= 12
+
+
+@pytest.mark.asyncio
+async def test_activity_analytics_custom_period(
+    async_client: AsyncClient, db_session: AsyncSession
+):
+    response = await async_client.get(
+        "/api/v1/analytics/activity?period=custom&start_date=2023-01-01T00:00:00Z&end_date=2023-01-31T23:59:59Z"
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["period"] == "custom"
+    assert len(data["daily_breakdown"]) == 31
