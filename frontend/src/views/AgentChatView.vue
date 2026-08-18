@@ -12,7 +12,9 @@ import {
   Plus,
   MessageSquare,
   Trash2,
-  Settings
+  Settings,
+  PanelLeftClose,
+  PanelLeftOpen
 } from 'lucide-vue-next'
 
 const chatStore = useAgentChatStore()
@@ -21,6 +23,12 @@ const chatContainer = ref(null)
 
 const retentionDays = ref(0)
 const isUpdatingRetention = ref(false)
+const isSidebarCollapsed = ref(localStorage.getItem('agentChatSidebarCollapsed') === 'true')
+
+function toggleSidebar() {
+  isSidebarCollapsed.value = !isSidebarCollapsed.value
+  localStorage.setItem('agentChatSidebarCollapsed', isSidebarCollapsed.value ? 'true' : 'false')
+}
 
 const starterPrompts = [
   'Which applications currently require urgent action from me?',
@@ -122,10 +130,10 @@ function formatActionLabel(act) {
 </script>
 
 <template>
-  <div class="chat-page-container">
+  <div class="chat-page-container" :class="{ 'sidebar-collapsed': isSidebarCollapsed }">
 
     <!-- Sidebar -->
-    <div class="chat-sidebar">
+    <div class="chat-sidebar" :class="{ 'collapsed': isSidebarCollapsed }">
       <div class="sidebar-header">
         <button
           class="btn-new-chat-sidebar"
@@ -133,6 +141,13 @@ function formatActionLabel(act) {
         >
           <Plus :size="16" />
           <span>New Chat</span>
+        </button>
+        <button
+          class="btn-icon-sidebar"
+          @click="toggleSidebar"
+          title="Collapse Sidebar"
+        >
+          <PanelLeftClose :size="18" />
         </button>
       </div>
 
@@ -187,6 +202,14 @@ function formatActionLabel(act) {
     <div class="chat-main">
       <div class="chat-header">
         <div class="header-left">
+          <button
+            v-if="isSidebarCollapsed"
+            class="btn-icon-sidebar btn-expand-sidebar"
+            @click="toggleSidebar"
+            title="Expand Sidebar"
+          >
+            <PanelLeftOpen :size="18" />
+          </button>
           <div class="agent-avatar">
             <Bot :size="18" />
           </div>
@@ -281,48 +304,82 @@ function formatActionLabel(act) {
   display: flex;
   height: calc(100vh - var(--navbar-height));
   width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
   background-color: var(--bg-app);
+  position: relative;
+  overflow: hidden;
 }
 
 .chat-sidebar {
-  position: fixed;
-  top: var(--navbar-height);
-  left: 0;
-  bottom: 0;
   width: 260px;
-  z-index: 10;
+  height: 100%;
+  flex-shrink: 0;
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   background-color: var(--bg-surface);
+  transition: width var(--transition-smooth), margin-left var(--transition-smooth), opacity var(--transition-smooth);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.chat-sidebar.collapsed {
+  width: 0;
+  border-right-color: transparent;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .sidebar-header {
   padding: 16px;
   border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .btn-new-chat-sidebar {
-  width: 100%;
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px;
+  padding: 8px 12px;
   border-radius: var(--radius-md);
   background-color: var(--primary);
-  color: white;
+  color: var(--primary-contrast, #0a0d14);
   border: none;
   font-weight: 500;
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
   transition: opacity var(--transition-fast);
 }
 
 .btn-new-chat-sidebar:hover {
   opacity: 0.9;
+}
+
+.btn-icon-sidebar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.btn-icon-sidebar:hover {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
+  border-color: var(--border-color);
+}
+
+.btn-expand-sidebar {
+  margin-right: 4px;
 }
 
 .chats-list {
@@ -436,7 +493,7 @@ function formatActionLabel(act) {
   flex-direction: column;
   height: 100%;
   min-width: 0;
-  margin-left: 260px;
+  margin-left: 0;
 }
 
 .chat-header {
