@@ -510,9 +510,9 @@ async def draft_action_item_reply(
 
     event_text_list = []
     for e in event_list:
-        if e.email_body_text:
+        if e.email_raw_body:
             event_text_list.append(
-                f"Date: {e.email_received_at}\nBody:\n{e.email_body_text}\n"
+                f"Date: {e.email_received_at}\nBody:\n{e.email_raw_body}\n"
             )
 
     events_context = "\n---\n".join(event_text_list)
