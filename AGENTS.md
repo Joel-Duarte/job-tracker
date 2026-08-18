@@ -35,7 +35,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - `email_fetcher.py`: Connects to IMAP or OAuth to pull recruitment emails, deduplicating via `message_id`.
   - `evaluation_worker.py`: Background worker for processing async evaluations in a 4-stage pipeline.
   - `staleness_archiver`: Background lifecycle job that sweeps across all 4 active application stages (`APPLIED`, `ONLINE_ASSESSMENT`, `TECHNICAL_INTERVIEW`, `OFFER`) and transitions inactive applications to `ARCHIVED` (rather than `REJECTED`), leaving all terminal statuses untouched.
-  
+
 ### Infrastructure & Development Startup
 - **Local Development:** Run `./dev.sh` (or `./dev.sh --reset` to wipe and restart). This spins up `db` (PostgreSQL), `scraper` (Camofox), `backend` (FastAPI), and `frontend` (Vite dev server) using `docker-compose.dev.yml`.
 - **Automatic Mock Dataset Seeding:** When `./dev.sh` or a clean database boots in development mode (`ENVIRONMENT=development` or `SEED_DEV_DATA=true`), the backend automatically populates a comprehensive, domain-tailored mock dataset:
@@ -140,6 +140,17 @@ When creating or modifying Vue components, layouts, stores, or styling:
 
 ### 4. Telemetry & Diagnostics Tracing Protocol (Mandatory)
 Every new or modified LLM call, external network request (scrapers, IMAP/OAuth email fetchers, 3rd-party APIs), background worker task, vector embedding generation, or complex programmatic workflow that can fail **MUST register traces with the diagnostics telemetry system** (`trace_events` table).
+
+### 5. Living Spec Maintenance (AGENTS.md)
+When introducing architectural changes, agents MUST keep `AGENTS.md` synchronized with the ground truth:
+- **When to update:**
+  - Adding or modifying database models, core enums, or table relations under `## Core Domains & Data Models`.
+  - Introducing new background services or core pipeline components under `### Key Services`.
+  - Adding new top-level frontend routes/views under `### Key Views`.
+  - Introducing new setup, testing, or database migration commands.
+- **Rules of engagement:**
+  - **No Changelogs:** Never append date-stamped logs, commit notes, or "what was changed" narratives. Update the reference definitions in-place.
+  - **Conciseness:** Keep descriptions brief and dense. Do not inflate token count with verbose prose.
 
 #### A. AI & LLM Invocations (LangChain / LangGraph)
 Every call to `chain.ainvoke`, `chat_model.ainvoke`, `graph.ainvoke`, or `tool.ainvoke` **MUST** pass `PostgresTracer` in its RunnableConfig callbacks:
