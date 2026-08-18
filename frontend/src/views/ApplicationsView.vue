@@ -636,7 +636,7 @@ async function confirmDelete() {
           <span>Needs Action</span>
         </button>
 
-        <!-- Match Fit % Filter with Quick Preset Chips -->
+        <!-- Match Fit % Filter with Quick Preset Chips 
         <div class="match-filter-container">
           <div class="match-input-box" :class="{ active: appStore.minMatchScore }">
             <Sparkles :size="13" class="match-sparkle-icon" />
@@ -675,8 +675,9 @@ async function confirmDelete() {
             </button>
           </div>
         </div>
+        -->
       </div>
-
+      
       <!-- View Switcher & Total Count -->
       <div class="view-switch-group">
         <div class="total-counter">
