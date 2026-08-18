@@ -68,6 +68,20 @@ export const useUIStore = defineStore('ui', () => {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`
   }
 
+  function getContrastColor(hex) {
+    if (!hex || !hex.startsWith('#')) return '#ffffff'
+    let c = hex.substring(1)
+    if (c.length === 3) c = c.split('').map((x) => x + x).join('')
+    const num = parseInt(c, 16)
+    if (isNaN(num)) return '#ffffff'
+    const r = (num >> 16) & 255
+    const g = (num >> 8) & 255
+    const b = num & 255
+    // Relative luminance YIQ calculation (WCAG standard)
+    const yiq = (r * 299 + g * 587 + b * 114) / 1000
+    return yiq >= 128 ? '#0a0d14' : '#ffffff'
+  }
+
   function applyCustomColors() {
     const isDark = theme.value === 'midnight'
     const bg = isDark ? customDarkBg.value : customLightBg.value
@@ -97,7 +111,11 @@ export const useUIStore = defineStore('ui', () => {
       rootStyle.removeProperty('--bg-elevated')
     }
 
-    // 3. Primary Accent
+    // 3. Primary Accent & Dynamic Contrast Text
+    const effectivePrimary = primary || (isDark ? '#2dd4bf' : '#854d0e')
+    const contrastText = getContrastColor(effectivePrimary)
+    rootStyle.setProperty('--primary-contrast', contrastText)
+
     if (primary) {
       rootStyle.setProperty('--primary', primary)
       rootStyle.setProperty('--primary-hover', primary)
@@ -273,6 +291,21 @@ export const useUIStore = defineStore('ui', () => {
   }
 
 
+  // Theme Palette Popover State
+  const isThemePopoverOpen = ref(false)
+
+  function toggleThemePopover() {
+    isThemePopoverOpen.value = !isThemePopoverOpen.value
+  }
+
+  function openThemePopover() {
+    isThemePopoverOpen.value = true
+  }
+
+  function closeThemePopover() {
+    isThemePopoverOpen.value = false
+  }
+
   // Initialize root class and custom theme colors
   document.documentElement.className = theme.value
   applyCustomColors()
@@ -302,6 +335,10 @@ export const useUIStore = defineStore('ui', () => {
     detailActiveTab,
     intakeQueue,
     isQueueDrawerOpen,
+    isThemePopoverOpen,
+    toggleThemePopover,
+    openThemePopover,
+    closeThemePopover,
     toast,
     showToast,
     hideToast,

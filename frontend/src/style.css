@@ -75,6 +75,7 @@
   --primary-hover: #14b8a6;
   --primary-glow: rgba(45, 212, 191, 0.22);
   --primary-subtle: rgba(45, 212, 191, 0.10);
+  --primary-contrast: #0a0d14;
   --danger: #ef4444;
 
   /* Radii — Tight, geometric, tool-like */
@@ -171,6 +172,7 @@ html.daylight {
   --primary-hover: #713f12;
   --primary-glow: rgba(133, 77, 14, 0.20);
   --primary-subtle: rgba(133, 77, 14, 0.08);
+  --primary-contrast: #ffffff;
   --danger: #dc2626;
 
   /* Radii — Generous, soft, approachable */
@@ -338,12 +340,13 @@ html.daylight ::-webkit-scrollbar-thumb {
 
 .btn-primary {
   background-color: var(--primary);
-  color: #fff;
+  color: var(--primary-contrast, #0a0d14);
   box-shadow: var(--shadow-sm);
 }
 
 .btn-primary:hover {
   background-color: var(--primary-hover);
+  color: var(--primary-contrast, #0a0d14);
   box-shadow: var(--shadow-glow);
 }
 

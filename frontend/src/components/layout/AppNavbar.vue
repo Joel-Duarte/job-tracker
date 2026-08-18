@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUIStore } from '../../stores/uiStore'
 import { StagingAPI, ActionItemsAPI, IntakeAPI } from '../../api/endpoints'
+import ThemePalettePopover from './ThemePalettePopover.vue'
 import {
   Briefcase,
   Layers,
@@ -191,11 +192,14 @@ onMounted(() => {
 
       <button
         class="btn-icon theme-toggle"
-        @click="uiStore.toggleTheme"
-        :title="'Current theme: ' + uiStore.theme"
+        :class="{ active: uiStore.isThemePopoverOpen }"
+        @click="uiStore.toggleThemePopover"
+        :title="'Theme & Palette Studio (Current: ' + uiStore.theme + ')'"
       >
         <Palette :size="17" />
       </button>
+
+      <ThemePalettePopover />
     </div>
   </header>
 </template>
@@ -275,17 +279,17 @@ onMounted(() => {
 }
 
 .nav-badge {
-  background-color: var(--status-interview-text);
-  color: var(--bg-main);
+  background-color: var(--primary);
+  color: var(--primary-contrast, #0a0d14);
   font-size: 10px;
   font-weight: 700;
-  padding: 1px 4px;
+  padding: 1px 5px;
   border-radius: var(--radius-full);
 }
 
 .nav-badge-pulse {
   background-color: var(--primary);
-  color: #fff;
+  color: var(--primary-contrast, #0a0d14);
   animation: pulse-glow 2s infinite ease-in-out;
 }
 
@@ -322,5 +326,12 @@ onMounted(() => {
 .btn-icon:hover {
   background-color: var(--bg-surface-hover);
   color: var(--text-main);
+}
+
+.btn-icon.active {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-contrast, #0a0d14);
+  box-shadow: 0 0 0 2px var(--primary-subtle);
 }
 </style>
