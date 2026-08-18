@@ -200,6 +200,7 @@ async function confirmAndSaveLead(task, targetStatus = 'ASSESSMENT', forceNew = 
         ...(result.matching_skills || []),
         ...(result.missing_skills || []),
       ],
+      match_analysis_payload: result,
     })
 
     uiStore.showToast(`Updated '${res.data.company || 'Job'}' in ${targetStatus}!`, 'success')

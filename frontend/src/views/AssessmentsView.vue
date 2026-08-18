@@ -128,6 +128,7 @@ async function bulkMarkAsApplied() {
         location: result.location,
         work_model: result.work_model,
         required_skills: [...(result.matching_skills || []), ...(result.missing_skills || [])],
+        match_analysis_payload: result,
       })
       await IntakeAPI.deleteEvaluation(task.id)
       passedTaskIds.value.delete(String(task.id))

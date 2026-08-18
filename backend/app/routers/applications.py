@@ -37,6 +37,14 @@ from app.services.llm import (
 
 logger = logging.getLogger(__name__)
 
+def _to_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
 router = APIRouter(prefix="/applications", tags=["Applications"])
 
 
@@ -132,7 +140,7 @@ async def list_applications(
 
         # Compute nearest pending due date across action items & payload deadlines
         due_dates = [
-            a.due_date
+            _to_utc(a.due_date)
             for a in (app.action_items or [])
             if a.status == "PENDING" and a.due_date is not None
         ]
@@ -140,11 +148,12 @@ async def list_applications(
             payload_deadline = latest_evt.raw_payload.get("decision_deadline")
             if payload_deadline:
                 try:
-                    due_dates.append(datetime.fromisoformat(payload_deadline))
+                    due_dates.append(_to_utc(datetime.fromisoformat(str(payload_deadline))))
                 except Exception:
                     pass
 
-        nearest_due = min(due_dates) if due_dates else None
+        valid_due_dates = [d for d in due_dates if d is not None]
+        nearest_due = min(valid_due_dates) if valid_due_dates else None
 
         # Compute match score from assessment event payload
         match_score = None
@@ -305,7 +314,77 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
         reverse=True,
     )
     latest_evt = sorted_events[0] if sorted_events else None
-    has_action = any(e.email_action_required for e in app.events)
+    # Compute match_score and match_analysis_payload
+    match_payload = app.match_analysis_payload
+    match_score = None
+    if match_payload:
+        score_val = (
+            match_payload.get("match_score")
+            or match_payload.get("fit_score")
+            or match_payload.get("overall_fit_score")
+        )
+        if score_val is not None:
+            try:
+                match_score = int(score_val)
+            except (ValueError, TypeError):
+                pass
+
+    if not match_payload or match_score is None:
+        for evt in sorted_events:
+            if evt.raw_payload and isinstance(evt.raw_payload, dict):
+                if not match_payload and (
+                    evt.raw_payload.get("fit_score")
+                    or evt.raw_payload.get("match_score")
+                    or evt.raw_payload.get("hard_matches")
+                ):
+                    match_payload = evt.raw_payload
+                if match_score is None:
+                    score_val = (
+                        evt.raw_payload.get("match_score")
+                        or evt.raw_payload.get("fit_score")
+                        or evt.raw_payload.get("overall_fit_score")
+                    )
+                    if score_val is not None:
+                        try:
+                            match_score = int(score_val)
+                        except (ValueError, TypeError):
+                            pass
+
+    # Compute scheduled interview date
+    scheduled_interview = None
+    for evt in sorted_events:
+        if evt.raw_payload and isinstance(evt.raw_payload, dict):
+            sched_val = evt.raw_payload.get("scheduled_at")
+            if sched_val:
+                try:
+                    scheduled_interview = datetime.fromisoformat(str(sched_val))
+                    break
+                except Exception:
+                    pass
+    if not scheduled_interview:
+        for act in app.action_items or []:
+            if "interview" in act.title.lower() and act.due_date:
+                scheduled_interview = act.due_date
+                break
+
+    due_dates = [
+        _to_utc(a.due_date)
+        for a in (app.action_items or [])
+        if a.status == "PENDING" and a.due_date is not None
+    ]
+    if latest_evt and latest_evt.raw_payload:
+        payload_deadline = latest_evt.raw_payload.get("decision_deadline")
+        if payload_deadline:
+            try:
+                due_dates.append(_to_utc(datetime.fromisoformat(str(payload_deadline))))
+            except Exception:
+                pass
+    valid_due_dates = [d for d in due_dates if d is not None]
+    nearest_due = min(valid_due_dates) if valid_due_dates else None
+
+    has_pending_tasks = any(a.status == "PENDING" for a in (app.action_items or []))
+    has_email_action = any(e.email_action_required for e in (app.events or []))
+    has_action = has_pending_tasks or has_email_action
 
     return ApplicationDetailResponse(
         id=app.id,
@@ -322,6 +401,10 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
         interview_guide_language=app.interview_guide_language,
         interview_guide_generated_at=app.interview_guide_generated_at,
         interview_guide_preferences=app.interview_guide_preferences,
+        match_score=match_score,
+        match_analysis_payload=match_payload,
+        nearest_due_date=nearest_due,
+        scheduled_interview_at=scheduled_interview,
         latest_event=EventSummary(
             id=latest_evt.id,
             email_event_type=latest_evt.email_event_type,
@@ -329,6 +412,7 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
             email_action_required=latest_evt.email_action_required,
             email_action=latest_evt.email_action,
             email_received_at=latest_evt.email_received_at,
+            raw_payload=latest_evt.raw_payload,
         )
         if latest_evt
         else None,
@@ -405,37 +489,7 @@ async def update_application(
             async_enqueue_application_embedding, app.id, skip_llm_summary=True
         )
 
-    latest_evt = app.events[0] if app.events else None
-    has_action = any(e.email_action_required for e in app.events)
-
-    return ApplicationDetailResponse(
-        id=app.id,
-        company=CompanySummary(
-            id=app.company.id,
-            name=app.company.name,
-            domain=app.company.domain,
-        ),
-        position=app.position,
-        status=app.status,
-        application_date=app.application_date,
-        last_activity_at=app.last_activity_at,
-        has_action_required=has_action,
-        latest_event=EventSummary(
-            id=latest_evt.id,
-            email_event_type=latest_evt.email_event_type,
-            email_subject=latest_evt.email_subject,
-            email_action_required=latest_evt.email_action_required,
-            email_action=latest_evt.email_action,
-            email_received_at=latest_evt.email_received_at,
-        )
-        if latest_evt
-        else None,
-        external_job_id=app.external_job_id,
-        job_url=app.job_url,
-        application_key=app.application_key,
-        created_at=app.created_at,
-        updated_at=app.updated_at,
-    )
+    return await get_application(app.id, db)
 
 
 @router.post(
@@ -598,50 +652,7 @@ async def transition_application(
     res_refreshed = await db.execute(stmt_reload)
     app_refreshed = res_refreshed.scalar_one()
 
-    sorted_events = sorted(
-        app_refreshed.events or [],
-        key=lambda e: e.email_received_at or e.created_at,
-        reverse=True,
-    )
-    latest_evt = sorted_events[0] if sorted_events else event
-    has_action = any(e.email_action_required for e in app_refreshed.events)
-
-    return ApplicationDetailResponse(
-        id=app_refreshed.id,
-        company=CompanySummary(
-            id=app_refreshed.company.id,
-            name=app_refreshed.company.name,
-            domain=app_refreshed.company.domain,
-        ),
-        position=app_refreshed.position,
-        status=app_refreshed.status,
-        application_date=app_refreshed.application_date,
-        last_activity_at=app_refreshed.last_activity_at,
-        has_action_required=has_action,
-        latest_event=EventSummary(
-            id=latest_evt.id,
-            email_event_type=latest_evt.email_event_type,
-            email_subject=latest_evt.email_subject,
-            email_action_required=latest_evt.email_action_required,
-            email_action=latest_evt.email_action,
-            email_received_at=latest_evt.email_received_at,
-        )
-        if latest_evt
-        else None,
-        external_job_id=app_refreshed.external_job_id,
-        job_url=app_refreshed.job_url,
-        application_key=app_refreshed.application_key,
-        created_at=app_refreshed.created_at,
-        updated_at=app_refreshed.updated_at,
-        events=[ApplicationEventDetail.model_validate(e) for e in sorted_events],
-        job_posting=JobPostingDetail.model_validate(app_refreshed.job_posting)
-        if app_refreshed.job_posting
-        else None,
-        action_items=[
-            ActionItemDetail.model_validate(a)
-            for a in (app_refreshed.action_items or [])
-        ],
-    )
+    return await get_application(app_refreshed.id, db)
 
 
 @router.delete(

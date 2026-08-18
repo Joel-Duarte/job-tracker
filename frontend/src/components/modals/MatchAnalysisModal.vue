@@ -41,7 +41,7 @@ async function loadApplication() {
     const res = await ApplicationsAPI.get(props.applicationId)
     application.value = res.data
 
-    if (!application.value.match_analysis_payload) {
+    if (!analysisData.value) {
       error.value = 'No structured match analysis data found for this application.'
     }
   } catch (err) {
@@ -52,25 +52,28 @@ async function loadApplication() {
   }
 }
 
-const parsedTailoringStrategy = computed(() => {
-  if (!analysisData.value) return null
-  const raw = analysisData.value.tailoring_strategy || analysisData.value.strategic_tips
-  if (!raw) return null
-  try {
-    if (typeof raw === 'object') return raw // already parsed
-    let cleaned = String(raw).trim()
-    if (cleaned.startsWith('```json')) cleaned = cleaned.replace(/^```json/, '')
-    if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```/, '')
-    if (cleaned.endsWith('```')) cleaned = cleaned.replace(/```$/, '')
-    return JSON.parse(cleaned)
-  } catch (err) {
-    return null
-  }
-})
-
 const analysisData = computed(() => {
   if (!application.value) return null
-  return application.value.match_analysis_payload || null
+  if (application.value.match_analysis_payload) return application.value.match_analysis_payload
+  for (const evt of application.value.events || []) {
+    if (
+      evt.raw_payload &&
+      (evt.raw_payload.fit_score ||
+        evt.raw_payload.match_score ||
+        evt.raw_payload.hard_matches ||
+        evt.raw_payload.matching_skills)
+    ) {
+      return evt.raw_payload
+    }
+  }
+  if (
+    application.value.latest_event?.raw_payload &&
+    (application.value.latest_event.raw_payload.fit_score ||
+      application.value.latest_event.raw_payload.match_score)
+  ) {
+    return application.value.latest_event.raw_payload
+  }
+  return null
 })
 
 const summaryText = computed(() => {
