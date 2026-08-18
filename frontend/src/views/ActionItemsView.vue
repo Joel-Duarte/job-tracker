@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { ActionItemsAPI, ApplicationsAPI } from '../api/endpoints'
 import { useUIStore } from '../stores/uiStore'
 import DateTimePicker from '../components/common/DateTimePicker.vue'
+import PageHeader from '../components/common/PageHeader.vue'
 import {
   CheckSquare,
   Square,
@@ -20,6 +21,7 @@ import {
   Filter,
   CheckCircle2,
   Layers,
+  Search,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
@@ -36,12 +38,21 @@ const metrics = ref({
 const filterTab = ref('PENDING') // 'ALL' | 'PENDING' | 'URGENCY' | 'COMPLETED'
 const applicationsList = ref([])
 
-// Filters for Urgency tab
-const urgencyFilters = ref({
-  HIGH: false,
-  MEDIUM: false,
-  LOW: false
-})
+// Unified Filters & Sorting
+const searchQuery = ref('')
+const selectedUrgency = ref(null) // null | 'HIGH' | 'MEDIUM' | 'LOW'
+const sortBy = ref('due_asc') // 'due_asc' | 'due_desc' | 'urgency' | 'created_desc'
+
+function selectMetricTab(tab) {
+  filterTab.value = tab
+  searchQuery.value = ''
+  if (tab === 'URGENCY') {
+    selectedUrgency.value = 'HIGH'
+  } else {
+    selectedUrgency.value = null
+  }
+  fetchActionItems()
+}
 
 const activeUrgencyDropdown = ref(null)
 
@@ -64,12 +75,10 @@ async function fetchActionItems() {
   isLoading.value = true
   try {
     const params = {}
-    if (filterTab.value === 'PENDING') {
+    if (filterTab.value === 'PENDING' || filterTab.value === 'URGENCY') {
       params.status = 'PENDING'
     } else if (filterTab.value === 'COMPLETED') {
       params.status = 'COMPLETED'
-    } else if (filterTab.value === 'URGENCY') {
-      params.status = 'PENDING'
     }
 
     const res = await ActionItemsAPI.list(params)
@@ -132,51 +141,43 @@ async function handleSaveTask() {
 
   isSubmitting.value = true
   try {
-    const payload = {
-      title: taskForm.value.title.trim(),
-      urgency: taskForm.value.urgency,
-      status: taskForm.value.status,
-      due_date: taskForm.value.due_date ? new Date(taskForm.value.due_date).toISOString() : null,
-      action_url: taskForm.value.action_url || null,
-      application_id: taskForm.value.application_id || null,
-    }
-
-    if (isEditing.value && currentEditId.value) {
-      await ActionItemsAPI.update(currentEditId.value, payload)
-      uiStore.showToast('Task updated successfully', 'success')
+    if (isEditing.value) {
+      await ActionItemsAPI.update(currentEditId.value, {
+        title: taskForm.value.title.trim(),
+        due_date: taskForm.value.due_date ? new Date(taskForm.value.due_date).toISOString() : null,
+        urgency: taskForm.value.urgency,
+        status: taskForm.value.status,
+        action_url: taskForm.value.action_url ? taskForm.value.action_url.trim() : null,
+      })
+      uiStore.showToast('Action item updated', 'success')
     } else {
-      await ActionItemsAPI.create(payload)
-      uiStore.showToast('Task created successfully', 'success')
+      await ActionItemsAPI.create({
+        application_id: taskForm.value.application_id,
+        title: taskForm.value.title.trim(),
+        due_date: taskForm.value.due_date ? new Date(taskForm.value.due_date).toISOString() : null,
+        urgency: taskForm.value.urgency,
+        status: taskForm.value.status,
+        action_url: taskForm.value.action_url ? taskForm.value.action_url.trim() : null,
+      })
+      uiStore.showToast('Action item created', 'success')
     }
-
     showModal.value = false
     await fetchActionItems()
   } catch (err) {
-    uiStore.showToast(err.message || 'Failed to save task', 'error')
+    uiStore.showToast(err.message || 'Failed to save action item', 'error')
   } finally {
     isSubmitting.value = false
   }
 }
 
 async function toggleTaskStatus(item) {
-  const newStatus = item.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED'
-  // Optimistic update
+  const nextStatus = item.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED'
   const prevStatus = item.status
-  item.status = newStatus
-  if (newStatus === 'COMPLETED') {
-    metrics.value.completed += 1
-    metrics.value.pending = Math.max(0, metrics.value.pending - 1)
-  } else {
-    metrics.value.completed = Math.max(0, metrics.value.completed - 1)
-    metrics.value.pending += 1
-  }
+  item.status = nextStatus
 
   try {
-    await ActionItemsAPI.update(item.id, { status: newStatus })
-    uiStore.showToast(
-      newStatus === 'COMPLETED' ? 'Marked task as completed' : 'Task moved back to pending',
-      'info'
-    )
+    await ActionItemsAPI.update(item.id, { status: nextStatus })
+    uiStore.showToast(nextStatus === 'COMPLETED' ? 'Task marked as completed! 🎉' : 'Task moved back to Pending', 'info')
     if (filterTab.value !== 'ALL') {
       await fetchActionItems()
     }
@@ -240,24 +241,49 @@ async function setManualUrgency(item, level) {
   }
 }
 
-function toggleUrgencyFilter(level) {
-  urgencyFilters.value[level] = !urgencyFilters.value[level]
-}
-
 const displayedTasks = computed(() => {
   let tasks = actionItems.value
 
   if (filterTab.value === 'URGENCY') {
-    const activeFilters = Object.entries(urgencyFilters.value)
-      .filter(([_, isActive]) => isActive)
-      .map(([level, _]) => level)
-
-    if (activeFilters.length > 0) {
-      tasks = tasks.filter(t => activeFilters.includes(t.urgency))
-    }
+    tasks = tasks.filter(t => t.urgency === 'HIGH' || isOverdue(t.due_date, t.status))
   }
 
-  return tasks
+  // Urgency chip filter
+  if (selectedUrgency.value) {
+    tasks = tasks.filter(t => t.urgency === selectedUrgency.value)
+  }
+
+  // Search filter
+  if (searchQuery.value.trim()) {
+    const q = searchQuery.value.toLowerCase()
+    tasks = tasks.filter(t => 
+      (t.title || '').toLowerCase().includes(q) ||
+      (t.application?.company?.name || '').toLowerCase().includes(q) ||
+      (t.application?.position || '').toLowerCase().includes(q)
+    )
+  }
+
+  // Sorting
+  return [...tasks].sort((a, b) => {
+    if (sortBy.value === 'due_asc') {
+      if (!a.due_date) return 1
+      if (!b.due_date) return -1
+      return new Date(a.due_date) - new Date(b.due_date)
+    }
+    if (sortBy.value === 'due_desc') {
+      if (!a.due_date) return 1
+      if (!b.due_date) return -1
+      return new Date(b.due_date) - new Date(a.due_date)
+    }
+    if (sortBy.value === 'urgency') {
+      const weights = { HIGH: 3, MEDIUM: 2, LOW: 1 }
+      return (weights[b.urgency] || 0) - (weights[a.urgency] || 0)
+    }
+    if (sortBy.value === 'created_desc') {
+      return new Date(b.created_at) - new Date(a.created_at)
+    }
+    return 0
+  })
 })
 
 // Close dropdowns when clicking outside
@@ -281,25 +307,18 @@ onUnmounted(() => {
 
 <template>
   <div class="tasks-page">
-    <!-- Header -->
-    <div class="tasks-header">
-      <div>
-        <h1 class="page-title">Action Items & Reminders</h1>
-        <p class="page-subtitle">Track follow-ups, scheduled interview deadlines, and qualification tasks across all applications.</p>
-      </div>
+    <!-- Standardized Page Header -->
+    <PageHeader
+      title="Action Items & Reminders"
+      subtitle="Track follow-ups, scheduled interview deadlines, and qualification tasks across all applications."
+    />
 
-      <button class="btn btn-secondary" @click="openCreateModal()">
-        <Plus :size="16" />
-        <span>New Action Item</span>
-      </button>
-    </div>
-
-    <!-- Metrics Bar -->
+    <!-- Interactive Metrics Filter Bar -->
     <div class="metrics-grid">
       <div
         class="metric-card"
         :class="{ active: filterTab === 'PENDING' }"
-        @click="filterTab = 'PENDING'; fetchActionItems()"
+        @click="selectMetricTab('PENDING')"
       >
         <div class="metric-icon pending-icon">
           <Clock :size="20" />
@@ -313,21 +332,21 @@ onUnmounted(() => {
       <div
         class="metric-card"
         :class="{ active: filterTab === 'URGENCY' }"
-        @click="filterTab = 'URGENCY'; fetchActionItems()"
+        @click="selectMetricTab('URGENCY')"
       >
         <div class="metric-icon high-icon">
           <AlertCircle :size="20" />
         </div>
         <div class="metric-info">
           <span class="metric-val">{{ metrics.high_urgency }}</span>
-          <span class="metric-lbl">Urgency</span>
+          <span class="metric-lbl">Urgent / Overdue</span>
         </div>
       </div>
 
       <div
         class="metric-card"
         :class="{ active: filterTab === 'COMPLETED' }"
-        @click="filterTab = 'COMPLETED'; fetchActionItems()"
+        @click="selectMetricTab('COMPLETED')"
       >
         <div class="metric-icon completed-icon">
           <CheckCircle2 :size="20" />
@@ -337,50 +356,82 @@ onUnmounted(() => {
           <span class="metric-lbl">Completed</span>
         </div>
       </div>
+
+      <div
+        class="metric-card"
+        :class="{ active: filterTab === 'ALL' }"
+        @click="selectMetricTab('ALL')"
+      >
+        <div class="metric-icon all-icon">
+          <Layers :size="20" />
+        </div>
+        <div class="metric-info">
+          <span class="metric-val">{{ metrics.total }}</span>
+          <span class="metric-lbl">All Tasks</span>
+        </div>
+      </div>
     </div>
 
-    <!-- Filter Tabs Bar -->
-    <div class="filter-tabs-bar">
-      <div class="filter-tabs">
+    <!-- Unified Filter & Search Toolbar -->
+    <div class="tasks-toolbar">
+      <div class="search-box">
+        <Search :size="15" class="text-muted" />
+        <input
+          v-model="searchQuery"
+          type="text"
+          placeholder="Search task title, company, or role..."
+          class="search-input"
+        />
+        <button v-if="searchQuery" class="clear-btn" @click="searchQuery = ''">
+          <X :size="13" />
+        </button>
+      </div>
+
+      <div class="urgency-chips">
+        <span class="filter-label">Urgency:</span>
         <button
-          class="filter-tab"
-          :class="{ active: filterTab === 'PENDING' }"
-          @click="filterTab = 'PENDING'; fetchActionItems()"
+          class="urgency-filter-pill"
+          :class="{ active: selectedUrgency === null }"
+          @click="selectedUrgency = null"
         >
-          Pending
+          All
         </button>
         <button
-          class="filter-tab"
-          :class="{ active: filterTab === 'URGENCY' }"
-          @click="filterTab = 'URGENCY'; fetchActionItems()"
+          class="urgency-filter-pill urgency-high"
+          :class="{ active: selectedUrgency === 'HIGH' }"
+          @click="selectedUrgency = selectedUrgency === 'HIGH' ? null : 'HIGH'"
         >
-          Urgency
+          High
         </button>
         <button
-          class="filter-tab"
-          :class="{ active: filterTab === 'COMPLETED' }"
-          @click="filterTab = 'COMPLETED'; fetchActionItems()"
+          class="urgency-filter-pill urgency-medium"
+          :class="{ active: selectedUrgency === 'MEDIUM' }"
+          @click="selectedUrgency = selectedUrgency === 'MEDIUM' ? null : 'MEDIUM'"
         >
-          Completed
+          Medium
         </button>
         <button
-          class="filter-tab"
-          :class="{ active: filterTab === 'ALL' }"
-          @click="filterTab = 'ALL'; fetchActionItems()"
+          class="urgency-filter-pill urgency-low"
+          :class="{ active: selectedUrgency === 'LOW' }"
+          @click="selectedUrgency = selectedUrgency === 'LOW' ? null : 'LOW'"
         >
-          All Tasks
+          Low
         </button>
+      </div>
+
+      <div class="sort-wrapper">
+        <span class="sort-label">Sort:</span>
+        <select v-model="sortBy" class="sort-select">
+          <option value="due_asc">Due Date (Soonest)</option>
+          <option value="due_desc">Due Date (Latest)</option>
+          <option value="urgency">Highest Urgency</option>
+          <option value="created_desc">Newest Created</option>
+        </select>
       </div>
     </div>
 
     <!-- Task List -->
     <div class="tasks-container">
-      <div v-if="filterTab === 'URGENCY'" class="urgency-filters">
-        <span class="filter-label">Filter:</span>
-        <button class="chip" :class="{ active: urgencyFilters.LOW }" @click="toggleUrgencyFilter('LOW')">🟢 Low</button>
-        <button class="chip" :class="{ active: urgencyFilters.MEDIUM }" @click="toggleUrgencyFilter('MEDIUM')">🟡 Medium</button>
-        <button class="chip" :class="{ active: urgencyFilters.HIGH }" @click="toggleUrgencyFilter('HIGH')">🔴 High</button>
-      </div>
 
       <div v-if="isLoading" class="loading-state">
         <Loader2 class="animate-spin" :size="24" />
@@ -594,54 +645,37 @@ onUnmounted(() => {
 
 <style scoped>
 .tasks-page {
-  max-width: 1100px;
+  max-width: 1240px;
   margin: 0 auto;
-  padding: 32px 24px;
+  padding: 32px 24px 80px;
+  min-height: calc(100vh - var(--navbar-height));
+  width: 100%;
 }
 
-.tasks-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 24px;
-  flex-wrap: wrap;
-}
 
-.tasks-header > div {
-  flex: 1;
-  min-width: 260px;
-}
-
-.tasks-header .btn {
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-.page-title {
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: 24px;
-  color: var(--text-main);
-  margin-bottom: 4px;
-}
-
-.page-subtitle {
-  font-size: 14px;
-  color: var(--text-secondary);
-}
 
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
   margin-bottom: 24px;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 900px) {
+  .metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 540px) {
   .metrics-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.all-icon {
+  background-color: var(--primary-subtle);
+  color: var(--primary);
 }
 
 .metric-card {
@@ -700,39 +734,112 @@ onUnmounted(() => {
   color: var(--text-secondary);
 }
 
-.filter-tabs-bar {
+/* Unified Tasks Toolbar */
+.tasks-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.filter-tabs {
-  display: flex;
-  gap: 8px;
-  background-color: var(--bg-sidebar);
-  padding: 4px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
-}
-
-.filter-tab {
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  border-radius: 4px;
-  color: var(--text-secondary);
-  transition: all var(--transition-fast);
-}
-
-.filter-tab:hover {
-  color: var(--text-main);
-}
-
-.filter-tab.active {
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
   background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  flex: 1;
+  min-width: 220px;
+}
+
+.search-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 13px;
   color: var(--text-main);
-  box-shadow: var(--shadow-sm);
+  width: 100%;
+}
+
+.search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.clear-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.urgency-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-label, .sort-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.urgency-filter-pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-main);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  opacity: 0.75;
+}
+
+.urgency-filter-pill:hover {
+  opacity: 1;
+}
+
+.urgency-filter-pill.active {
+  opacity: 1;
+  box-shadow: 0 0 0 2px var(--primary);
+  font-weight: 800;
+}
+
+.urgency-filter-pill.active:not(.urgency-high):not(.urgency-medium):not(.urgency-low) {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-contrast, #0a0d14);
+}
+
+.sort-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sort-select {
+  padding: 5px 10px;
+  font-size: 12px;
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  cursor: pointer;
 }
 
 .tasks-container {

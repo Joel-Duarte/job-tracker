@@ -28,6 +28,7 @@ const uiStore = useUIStore()
 const pendingStagingCount = ref(0)
 const pendingTasksCount = ref(0)
 const activeQueueCount = ref(0)
+const failedQueueCount = ref(0)
 const readyAssessmentsCount = ref(0)
 
 async function fetchBadgeCounts() {
@@ -49,6 +50,7 @@ async function fetchBadgeCounts() {
     const resQueue = await IntakeAPI.getEvaluations(100)
     if (Array.isArray(resQueue.data)) {
       activeQueueCount.value = resQueue.data.filter((t) => ['QUEUED', 'PROCESSING'].includes(t.status)).length
+      failedQueueCount.value = resQueue.data.filter((t) => t.status === 'FAILED').length
       const passedSet = new Set(JSON.parse(localStorage.getItem('job_tracker_passed_assessments') || '[]'))
       readyAssessmentsCount.value = resQueue.data.filter(
         (t) => (t.task_type === 'JOB_ASSESSMENT' || !t.task_type) && t.status === 'COMPLETED' && !passedSet.has(String(t.id))
@@ -82,16 +84,7 @@ onMounted(() => {
           :class="{ active: route.path === '/' }"
         >
           <Briefcase :size="16" />
-          <span>Board</span>
-        </router-link>
-
-        <router-link
-          to="/analytics"
-          class="nav-link"
-          :class="{ active: route.path === '/analytics' }"
-        >
-          <BarChart3 :size="16" />
-          <span>Analytics</span>
+          <span>Applications</span>
         </router-link>
 
         <router-link
@@ -103,18 +96,6 @@ onMounted(() => {
           <span>Assessments</span>
           <span v-if="readyAssessmentsCount > 0" class="nav-badge" title="Ready for review">
             {{ readyAssessmentsCount }}
-          </span>
-        </router-link>
-
-        <router-link
-          to="/queue"
-          class="nav-link"
-          :class="{ active: route.path === '/queue' }"
-        >
-          <Cpu :size="16" />
-          <span>AI Queue</span>
-          <span v-if="activeQueueCount > 0" class="nav-badge nav-badge-pulse" title="Tasks currently processing">
-            {{ activeQueueCount }}
           </span>
         </router-link>
 
@@ -131,21 +112,12 @@ onMounted(() => {
         </router-link>
 
         <router-link
-          to="/profile"
+          to="/analytics"
           class="nav-link"
-          :class="{ active: route.path === '/profile' }"
+          :class="{ active: route.path === '/analytics' }"
         >
-          <UserCheck :size="16" />
-          <span>My Profile / CV</span>
-        </router-link>
-
-        <router-link
-          to="/chat"
-          class="nav-link"
-          :class="{ active: route.path === '/chat' }"
-        >
-          <Bot :size="16" />
-          <span>Agent Assistant</span>
+          <BarChart3 :size="16" />
+          <span>Analytics</span>
         </router-link>
 
         <router-link
@@ -160,14 +132,8 @@ onMounted(() => {
           </span>
         </router-link>
 
-        <router-link
-          to="/settings"
-          class="nav-link"
-          :class="{ active: route.path === '/settings' }"
-        >
-          <Settings :size="16" />
-          <span>Settings</span>
-        </router-link>
+
+
       </nav>
     </div>
 
@@ -198,6 +164,15 @@ onMounted(() => {
       >
         <Palette :size="17" />
       </button>
+
+      <router-link
+        to="/settings"
+        class="btn-icon"
+        :class="{ active: route.path.startsWith('/settings') }"
+        title="Settings & Preferences"
+      >
+        <Settings :size="17" />
+      </router-link>
 
       <ThemePalettePopover />
     </div>
@@ -278,6 +253,13 @@ onMounted(() => {
   border-bottom-right-radius: 0;
 }
 
+.nav-btn-link {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+
 .nav-badge {
   background-color: var(--primary);
   color: var(--primary-contrast, #0a0d14);
@@ -291,6 +273,11 @@ onMounted(() => {
   background-color: var(--primary);
   color: var(--primary-contrast, #0a0d14);
   animation: pulse-glow 2s infinite ease-in-out;
+}
+
+.nav-badge-danger {
+  background-color: var(--danger, #ef4444) !important;
+  color: #ffffff !important;
 }
 
 @keyframes pulse-glow {

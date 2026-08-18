@@ -29,6 +29,7 @@ import {
 
 const router = useRouter()
 const uiStore = useUIStore()
+import PageHeader from '../components/common/PageHeader.vue'
 
 const tasks = ref([])
 const loading = ref(false)
@@ -147,19 +148,17 @@ onUnmounted(() => {
 
 <template>
   <div class="page-container queue-page-layout">
-    <!-- Header Area (Centered, themed to match Settings and Staging) -->
-    <div class="page-header">
-      <div class="header-text-center">
-        <h1 class="page-title">AI Processing Queue</h1>
-        <p class="page-subtitle">
-          Real-time background execution queue for automated Job Lead evaluations and Candidate CV extractions.
-        </p>
-      </div>
-
-      <!-- Centered Filters & Controls Bar -->
-      <div class="header-controls-centered">
-        <!-- Status Filter Pills -->
-        <div class="tab-bar">
+    <!-- Standardized Page Header -->
+    <PageHeader
+      title="AI Processing Queue"
+      subtitle="Real-time background execution queue for automated Job Lead evaluations and Candidate CV extractions."
+      align="center"
+    >
+      <template #tabs>
+        <!-- Centered Filters & Controls Bar -->
+        <div class="header-controls-centered">
+          <!-- Status Filter Pills -->
+          <div class="tab-bar">
           <button
             class="tab-pill"
             :class="{ active: statusFilter === 'ALL' }"
@@ -265,7 +264,8 @@ onUnmounted(() => {
           </button>
         </div>
       </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <!-- Main Content Area -->
     <div class="queue-content-scroll">
@@ -570,46 +570,11 @@ onUnmounted(() => {
 
 <style scoped>
 .queue-page-layout {
-  display: flex;
-  flex-direction: column;
-  height: calc(100vh - var(--navbar-height));
-  overflow: hidden;
-  background-color: var(--bg-app);
-}
-
-/* Header Section (Centered to match Settings & Staging) */
-.page-header {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: 22px 24px 16px;
-  background-color: var(--bg-sidebar);
-  border-bottom: 1px solid var(--border-color);
-  flex-shrink: 0;
-  gap: 14px;
-}
-
-.header-text-center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-}
-
-.page-title {
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: 24px;
-  color: var(--text-main);
-  margin: 0;
-}
-
-.page-subtitle {
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin: 4px 0 0 0;
-  max-width: 620px;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+  min-height: calc(100vh - var(--navbar-height));
+  width: 100%;
 }
 
 .header-controls-centered {

@@ -31,6 +31,13 @@ import {
   RotateCcw,
 } from 'lucide-vue-next'
 
+const props = defineProps({
+  isEmbedded: {
+    type: Boolean,
+    default: false,
+  },
+})
+
 const uiStore = useUIStore()
 
 const profile = ref(null)
@@ -323,9 +330,9 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="page-container">
+  <div class="page-container" :class="{ 'embedded-profile-container': isEmbedded }">
     <!-- Header -->
-    <div class="profile-header">
+    <div v-if="!isEmbedded" class="profile-header">
       <div>
         <div class="header-badge">
           <ShieldCheck :size="14" />
@@ -1504,5 +1511,10 @@ onMounted(async () => {
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.5;
+}
+
+.embedded-profile-container {
+  padding: 0 0 80px 0 !important;
+  max-width: 100% !important;
 }
 </style>

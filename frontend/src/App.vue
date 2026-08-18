@@ -7,6 +7,8 @@ import ApplicationDetailDrawer from './components/drawers/ApplicationDetailDrawe
 import IngestModal from './components/modals/IngestModal.vue'
 import JobIntakeModal from './components/modals/JobIntakeModal.vue'
 import IntakeQueueDrawer from './components/layout/IntakeQueueDrawer.vue'
+import FloatingQueueWidget from './components/layout/FloatingQueueWidget.vue'
+import FloatingAgentChatWidget from './components/agent/FloatingAgentChatWidget.vue'
 import ToastNotification from './components/common/ToastNotification.vue'
 
 const uiStore = useUIStore()
@@ -37,6 +39,8 @@ onMounted(async () => {
     <IngestModal />
     <JobIntakeModal />
     <IntakeQueueDrawer />
+    <FloatingQueueWidget />
+    <FloatingAgentChatWidget />
     <ToastNotification />
   </div>
 </template>

@@ -40,6 +40,7 @@ import {
   RotateCcw,
   CheckSquare,
 } from 'lucide-vue-next'
+import PageHeader from '../components/common/PageHeader.vue'
 
 const router = useRouter()
 const uiStore = useUIStore()
@@ -95,26 +96,26 @@ function toggleTaskSelection(taskId) {
   }
 }
 function selectAllVisibleTasks() {
-  const visibleTasks = filteredReadyEvaluations.value
-  if (selectedTaskIds.value.size === visibleTasks.length) {
+  const currentList = activeTab.value === 'ready' ? filteredReadyEvaluations.value : filteredPassedEvaluations.value
+  if (selectedTaskIds.value.size === currentList.length && currentList.length > 0) {
     selectedTaskIds.value.clear()
   } else {
-    visibleTasks.forEach(t => selectedTaskIds.value.add(t.id))
+    currentList.forEach(t => selectedTaskIds.value.add(t.id))
   }
 }
 
 async function bulkMarkAsApplied() {
-  const tasksToApply = filteredReadyEvaluations.value.filter(t => selectedTaskIds.value.has(t.id))
+  const currentList = activeTab.value === 'ready' ? filteredReadyEvaluations.value : filteredPassedEvaluations.value
+  const tasksToApply = currentList.filter(t => selectedTaskIds.value.has(t.id))
   if (!tasksToApply.length) return
 
-  // We process them sequentially
   let successCount = 0
   for (const task of tasksToApply) {
     if (!task.result_json) continue
     processingTaskIds.value.add(task.id)
     try {
       const result = task.result_json
-      const res = await IntakeAPI.confirmAssessment({
+      await IntakeAPI.confirmAssessment({
         application_id: result.application_id,
         company: result.company || task.title_hint || 'Company',
         position: result.position || 'Software Engineer',
@@ -129,6 +130,7 @@ async function bulkMarkAsApplied() {
         required_skills: [...(result.matching_skills || []), ...(result.missing_skills || [])],
       })
       await IntakeAPI.deleteEvaluation(task.id)
+      passedTaskIds.value.delete(String(task.id))
       successCount++
     } catch (err) {
       console.error("Failed to apply task", task.id, err)
@@ -137,6 +139,7 @@ async function bulkMarkAsApplied() {
     }
   }
 
+  localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
   uiStore.showToast(`Successfully moved ${successCount} leads to Applications (Applied)`, 'success')
   selectedTaskIds.value.clear()
   appStore.fetchApplications()
@@ -144,6 +147,18 @@ async function bulkMarkAsApplied() {
 }
 
 async function bulkArchive() {
+  if (activeTab.value === 'passed') {
+    const tasksToDelete = filteredPassedEvaluations.value.filter(t => selectedTaskIds.value.has(t.id))
+    for (const task of tasksToDelete) {
+      await IntakeAPI.deleteEvaluation(task.id)
+      passedTaskIds.value.delete(String(task.id))
+    }
+    localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
+    selectedTaskIds.value.clear()
+    await loadEvaluations(true)
+    return
+  }
+
   const tasksToArchive = filteredReadyEvaluations.value.filter(t => selectedTaskIds.value.has(t.id))
   if (!tasksToArchive.length) return
 
@@ -218,6 +233,57 @@ const filteredReadyEvaluations = computed(() => {
       return compA.localeCompare(compB)
     } else {
       // Date desc
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0)
+    }
+  })
+
+  return list
+})
+
+const filteredPassedEvaluations = computed(() => {
+  let list = [...passedEvaluations.value]
+
+  // Search filter (company, position, skills)
+  if (searchQuery.value.trim()) {
+    const q = searchQuery.value.toLowerCase()
+    list = list.filter((t) => {
+      const res = t.result_json || {}
+      const comp = (res.company || t.title_hint || '').toLowerCase()
+      const pos = (res.position || '').toLowerCase()
+      const skills = (res.matching_skills || []).concat(res.missing_skills || []).join(' ').toLowerCase()
+      return comp.includes(q) || pos.includes(q) || skills.includes(q)
+    })
+  }
+
+  // Min Fit % filter
+  if (minFitFilter.value !== null && minFitFilter.value > 0) {
+    const targetMin = Number(minFitFilter.value)
+    list = list.filter((t) => {
+      const score = t.result_json?.match_score ?? t.result_json?.fit_score ?? 0
+      return Number(score) >= targetMin
+    })
+  }
+
+  // Max Fit % filter
+  if (maxMatchFilter.value !== null && maxMatchFilter.value < 100) {
+    const targetMax = Number(maxMatchFilter.value)
+    list = list.filter((t) => {
+      const score = t.result_json?.match_score ?? t.result_json?.fit_score ?? 0
+      return Number(score) <= targetMax
+    })
+  }
+
+  // Sorting
+  list.sort((a, b) => {
+    if (sortBy.value === 'match_score') {
+      const scoreA = Number(a.result_json?.match_score ?? a.result_json?.fit_score ?? 0)
+      const scoreB = Number(b.result_json?.match_score ?? b.result_json?.fit_score ?? 0)
+      return scoreB - scoreA
+    } else if (sortBy.value === 'company') {
+      const compA = (a.result_json?.company || a.title_hint || '').toLowerCase()
+      const compB = (b.result_json?.company || b.title_hint || '').toLowerCase()
+      return compA.localeCompare(compB)
+    } else {
       return new Date(b.created_at || 0) - new Date(a.created_at || 0)
     }
   })
@@ -384,27 +450,12 @@ onUnmounted(() => {
 
 <template>
   <div class="assessments-page">
-    <!-- Header -->
-    <div class="assessments-header">
-      <div>
-        <h1 class="page-title">Job Lead Assessments</h1>
-        <p class="page-subtitle">
-          Pre-screen job opportunities with AI qualification, analyze CV keyword overlap, and decide which leads enter your active pipeline.
-        </p>
-      </div>
-
-      <div class="header-actions">
-        <button
-          class="btn btn-secondary btn-sm"
-          :disabled="loadingEvaluations"
-          @click="loadEvaluations(false)"
-          title="Refresh evaluations"
-        >
-          <RefreshCw :class="{ 'animate-spin': loadingEvaluations }" :size="14" />
-          <span>Refresh</span>
-        </button>
-      </div>
-    </div>
+    <!-- Standardized Page Header (Centered) -->
+    <PageHeader
+      title="Job Lead Assessments"
+      subtitle="Pre-screen job opportunities with AI qualification, analyze CV keyword overlap, and decide which leads enter your active pipeline."
+      align="center"
+    />
 
     <!-- Active Processing Queue Banner (When background tasks are running) -->
     <div v-if="activeQueueTasks.length > 0" class="active-queue-banner animate-fade-in">
@@ -796,43 +847,233 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- TAB 2: PASSED / ARCHIVED -->
+    <!-- TAB 2: PASSED / ARCHIVED (FULL FILTERING & INFORMATION PARITY) -->
     <div v-else-if="activeTab === 'passed'" class="tab-view animate-fade-in">
-      <div class="passed-list-container">
-        <div class="passed-header">
-          <div>
-            <h2 class="section-title">Passed Opportunities</h2>
-            <p class="section-desc">Evaluations you chose not to apply for. You can restore them to Ready Reviews or apply anytime.</p>
-          </div>
+      <!-- Toolbar Filter Bar matching Ready tab -->
+      <div class="eval-filter-toolbar">
+        <input
+          type="checkbox"
+          class="form-checkbox"
+          style="margin-right: 8px;"
+          @change="selectAllVisibleTasks"
+          :checked="selectedTaskIds.size > 0 && selectedTaskIds.size === filteredPassedEvaluations.length"
+          title="Select All Visible"
+        />
+        <div class="search-box">
+          <Search :size="15" class="text-muted" />
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search company, role, or required skill..."
+            class="search-input"
+          />
+          <button v-if="searchQuery" class="clear-btn" @click="searchQuery = ''">
+            <X :size="13" />
+          </button>
         </div>
 
-        <div v-if="passedEvaluations.length === 0" class="empty-state-box">
-          <Archive :size="40" class="empty-state-icon" />
-          <h3 class="empty-state-title">No passed evaluations</h3>
-          <p class="empty-state-desc">Evaluations you archive as 'Passed' will be safely stored here without cluttering your active pipeline.</p>
+        <!-- Match Score Quick Filter Chips matching 40 60 80 -->
+        <div class="fit-chips-group">
+          <span class="fit-filter-label">Min Fit:</span>
+          <button
+            class="fit-chip"
+            :class="{ active: minFitFilter === null }"
+            @click="minFitFilter = null"
+          >
+            All
+          </button>
+          <button
+            class="fit-chip"
+            :class="{ active: minFitFilter === 40 }"
+            @click="minFitFilter = minFitFilter === 40 ? null : 40"
+          >
+            40%+
+          </button>
+          <button
+            class="fit-chip"
+            :class="{ active: minFitFilter === 60 }"
+            @click="minFitFilter = minFitFilter === 60 ? null : 60"
+          >
+            60%+
+          </button>
+          <button
+            class="fit-chip"
+            :class="{ active: minFitFilter === 80 }"
+            @click="minFitFilter = minFitFilter === 80 ? null : 80"
+          >
+            80%+
+          </button>
         </div>
 
-        <div v-else class="passed-cards-list">
-          <div v-for="task in passedEvaluations" :key="task.id" class="passed-card">
-            <div class="passed-card-main">
-              <div class="passed-title-group">
-                <span class="passed-company font-semibold">{{ task.result_json?.company || task.title_hint }}</span>
-                <span class="passed-role text-secondary">{{ task.result_json?.position || 'Role' }}</span>
-              </div>
-              <div class="passed-meta font-mono text-xs text-muted">
-                <span>Fit Score: {{ task.result_json?.match_score ?? task.result_json?.fit_score ?? 0 }}%</span>
-                <span v-if="task.result_json?.location">&bull; {{ task.result_json.location }}</span>
+        <div class="max-fit-group">
+          <span class="fit-filter-label">Max Fit:</span>
+          <button class="fit-chip" :class="{ active: maxMatchFilter === 100 }" @click="maxMatchFilter = 100">All</button>
+          <button class="fit-chip" :class="{ active: maxMatchFilter === 60 }" @click="maxMatchFilter = 60">&lt;60%</button>
+          <button class="fit-chip" :class="{ active: maxMatchFilter === 40 }" @click="maxMatchFilter = 40">&lt;40%</button>
+          <button class="fit-chip" :class="{ active: maxMatchFilter === 20 }" @click="maxMatchFilter = 20">&lt;20%</button>
+        </div>
+
+        <div class="sort-select-wrapper">
+          <span class="sort-label">Sort:</span>
+          <select v-model="sortBy" class="sort-select">
+            <option value="match_score">Highest Fit %</option>
+            <option value="date_desc">Newest First</option>
+            <option value="company">Company A-Z</option>
+          </select>
+        </div>
+      </div>
+
+      <div v-if="filteredPassedEvaluations.length === 0" class="empty-state-box">
+        <Archive :size="40" class="empty-state-icon" />
+        <h3 class="empty-state-title">No passed evaluations found</h3>
+        <p class="empty-state-desc">Evaluations you archive as 'Passed' will be safely stored here with full dossier context.</p>
+      </div>
+
+      <div v-else class="eval-cards-grid">
+        <div
+          v-for="task in filteredPassedEvaluations"
+          :key="task.id"
+          class="eval-card passed-eval-card"
+          :class="{ expanded: expandedTaskIds.has(task.id) }"
+        >
+          <!-- Card Header Row -->
+          <div class="eval-card-header">
+            <div class="eval-title-group" style="flex-direction: row; align-items: flex-start; gap: 12px;">
+              <input
+                type="checkbox"
+                class="form-checkbox mt-1"
+                :checked="selectedTaskIds.has(task.id)"
+                @change="toggleTaskSelection(task.id)"
+              />
+              <div>
+                <div class="company-badge-line">
+                  <span class="eval-company">{{ task.result_json?.company || task.title_hint || 'Target Company' }}</span>
+                  <span v-if="task.job_url" class="eval-url-link">
+                    <a :href="task.job_url" target="_blank" rel="noopener noreferrer" title="Open original job posting">
+                      <Globe :size="12" />
+                      <span>External Posting</span>
+                      <ArrowUpRight :size="11" />
+                    </a>
+                  </span>
+                </div>
+                <h2 class="eval-role">{{ task.result_json?.position || 'Software Engineer' }}</h2>
               </div>
             </div>
 
-            <div class="passed-card-actions">
-              <button class="btn btn-secondary btn-sm" @click="restorePassed(task)">
-                <RotateCcw :size="13" />
-                <span>Restore to Ready</span>
+            <!-- Fit Score Gauge -->
+            <div class="eval-fit-container">
+              <div class="fit-gauge" :class="getFitBadgeClass(task.result_json?.match_score ?? task.result_json?.fit_score ?? 0)">
+                <span class="fit-val">{{ task.result_json?.match_score ?? task.result_json?.fit_score ?? 0 }}%</span>
+                <span class="fit-lbl">{{ getFitLabel(task.result_json?.match_score ?? task.result_json?.fit_score ?? 0) }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Metadata Tags Row (Salary, Location, Work Mode) -->
+          <div class="eval-meta-chips">
+            <span v-if="task.result_json?.salary_min || task.result_json?.salary_max" class="meta-chip">
+              <DollarSign :size="12" />
+              <span>
+                {{ task.result_json.currency || '$' }}{{ task.result_json.salary_min ? task.result_json.salary_min.toLocaleString() : '' }}
+                {{ task.result_json.salary_max ? ' - ' + task.result_json.salary_max.toLocaleString() : '+' }}
+              </span>
+            </span>
+
+            <span v-if="task.result_json?.location" class="meta-chip">
+              <MapPin :size="12" />
+              <span>{{ task.result_json.location }}</span>
+            </span>
+
+            <span v-if="task.result_json?.work_model" class="meta-chip font-mono">
+              <Building2 :size="12" />
+              <span>{{ task.result_json.work_model }}</span>
+            </span>
+
+            <span class="meta-chip date-chip text-muted">
+              <Clock :size="11" />
+              <span>Assessed {{ formatDate(task.created_at) }}</span>
+            </span>
+          </div>
+
+          <!-- AI Qualitative Highlights -->
+          <div v-if="task.result_json?.summary" class="eval-summary-box">
+            <p>{{ task.result_json.summary }}</p>
+          </div>
+
+          <!-- Expandable Deep-Dive Dossier -->
+          <div v-if="expandedTaskIds.has(task.id)" class="eval-deep-dive animate-fade-in">
+            <!-- Pros & Cons Grid -->
+            <div v-if="task.result_json?.pros?.length || task.result_json?.cons?.length" class="pros-cons-grid">
+              <div class="pro-column">
+                <div class="column-header text-success">
+                  <Check :size="13" />
+                  <span>Strategic Match Pros</span>
+                </div>
+                <ul class="dossier-list">
+                  <li v-for="(pro, idx) in task.result_json.pros" :key="idx">{{ pro }}</li>
+                </ul>
+              </div>
+
+              <div class="con-column">
+                <div class="column-header text-warning">
+                  <AlertTriangle :size="13" />
+                  <span>Missing Gaps &amp; Considerations</span>
+                </div>
+                <ul class="dossier-list">
+                  <li v-for="(con, idx) in task.result_json.cons" :key="idx">{{ con }}</li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- Skills Matrix -->
+            <div class="skills-matrix">
+              <div v-if="task.result_json?.matching_skills?.length" class="skills-group" style="background-color: var(--status-offer-bg); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--status-offer-border);">
+                <span class="group-title text-success">Matching CV Skills ({{ task.result_json.matching_skills.length }}):</span>
+                <div class="skill-tags">
+                  <span v-for="s in task.result_json.matching_skills" :key="s" class="skill-tag match-tag">
+                    <Check :size="11" />
+                    <span>{{ s }}</span>
+                  </span>
+                </div>
+              </div>
+
+              <div v-if="task.result_json?.missing_skills?.length" class="skills-group" style="background-color: var(--status-rejected-bg); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--status-rejected-border);">
+                <span class="group-title text-warning">Missing / Required Skills ({{ task.result_json.missing_skills.length }}):</span>
+                <div class="skill-tags">
+                  <span v-for="s in task.result_json.missing_skills" :key="s" class="skill-tag gap-tag">
+                    <span>{{ s }}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Decision Action Footer -->
+          <div class="eval-card-footer">
+            <button
+              class="expand-toggle-btn"
+              @click="toggleExpandTask(task.id)"
+            >
+              <span>{{ expandedTaskIds.has(task.id) ? 'Collapse Dossier' : 'View Full Assessment Dossier' }}</span>
+              <ChevronUp v-if="expandedTaskIds.has(task.id)" :size="14" />
+              <ChevronDown v-else :size="14" />
+            </button>
+
+            <div class="action-buttons-group">
+              <button
+                class="btn btn-ghost btn-sm text-muted"
+                title="Permanently delete evaluation"
+                @click="deleteEvaluation(task.id)"
+              >
+                <Trash2 :size="14" />
               </button>
 
-              <button class="btn btn-primary btn-sm" @click="markAsApplied(task)">
-                <ArrowRight :size="13" />
+              <button
+                class="btn btn-primary btn-sm"
+                title="Convert to active application"
+                @click="markAsApplied(task)"
+              >
+                <CheckCircle2 :size="13" />
                 <span>Apply Anyway</span>
               </button>
             </div>
@@ -865,45 +1106,14 @@ onUnmounted(() => {
 
 <style scoped>
 .assessments-page {
-  max-width: 1200px;
+  max-width: 1240px;
   margin: 0 auto;
-  padding: 32px 24px 60px;
+  padding: 32px 24px 80px;
+  min-height: calc(100vh - var(--navbar-height));
+  width: 100%;
 }
 
-.assessments-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 24px;
-  flex-wrap: wrap;
-}
 
-.assessments-header > div:first-child {
-  flex: 1;
-  min-width: 260px;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.page-title {
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: 24px;
-  color: var(--text-main);
-  margin-bottom: 4px;
-}
-
-.page-subtitle {
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
 
 /* Stats Overview Bar */
 .stats-grid {

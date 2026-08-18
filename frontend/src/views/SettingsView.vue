@@ -1,7 +1,10 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
 import { AIConfigAPI, EmailAccountsAPI, IntakeAPI, PromptsAPI, DiagnosticsAPI } from '../api/endpoints'
+import CandidateProfileView from './CandidateProfileView.vue'
+import PageHeader from '../components/common/PageHeader.vue'
 import {
   Cpu,
   Layers,
@@ -45,11 +48,17 @@ import {
   EyeOff,
   Info,
   BookOpen,
+  UserCheck,
 } from 'lucide-vue-next'
 
+const route = useRoute()
 const uiStore = useUIStore()
 
-const activeTab = ref('studio') // 'studio' | 'providers' | 'email_accounts' | 'preferences'
+const activeTab = ref(route.query.tab || 'studio') // 'studio' | 'providers' | 'email_accounts' | 'profile' | 'preferences'
+
+watch(() => route.query.tab, (newTab) => {
+  if (newTab) activeTab.value = newTab
+})
 
 // AI Providers state
 const providers = ref([])
@@ -922,52 +931,61 @@ onMounted(async () => {
 
 <template>
   <div class="page-container">
-    <div class="page-header">
-      <div class="header-text-center">
-        <h1 class="page-title">AI &amp; System Settings</h1>
-        <p class="page-subtitle">
-          Configure model bindings, thinking/reasoning parameters, custom prompt templates, AI providers, and email integrations.
-        </p>
-      </div>
+    <!-- Standardized Page Header -->
+    <PageHeader
+      title="Settings & Preferences"
+      subtitle="Configure model bindings, thinking/reasoning parameters, custom prompt templates, AI providers, and email integrations."
+      align="center"
+    >
+      <template #tabs>
+        <div class="tab-bar">
+          <button
+            class="tab-pill"
+            :class="{ active: activeTab === 'studio' }"
+            @click="activeTab = 'studio'"
+          >
+            <Sparkles :size="15" />
+            <span>Unified Task Studio</span>
+          </button>
 
-      <div class="tab-bar">
-        <button
-          class="tab-pill"
-          :class="{ active: activeTab === 'studio' }"
-          @click="activeTab = 'studio'"
-        >
-          <Sparkles :size="15" />
-          <span>Unified Task Studio</span>
-        </button>
+          <button
+            class="tab-pill"
+            :class="{ active: activeTab === 'providers' }"
+            @click="activeTab = 'providers'"
+          >
+            <Server :size="15" />
+            <span>AI Providers ({{ providers.length }})</span>
+          </button>
 
-        <button
-          class="tab-pill"
-          :class="{ active: activeTab === 'providers' }"
-          @click="activeTab = 'providers'"
-        >
-          <Server :size="15" />
-          <span>AI Providers ({{ providers.length }})</span>
-        </button>
+          <button
+            class="tab-pill"
+            :class="{ active: activeTab === 'email_accounts' }"
+            @click="activeTab = 'email_accounts'"
+          >
+            <Mail :size="15" />
+            <span>Email Accounts ({{ emailAccounts.length }})</span>
+          </button>
 
-        <button
-          class="tab-pill"
-          :class="{ active: activeTab === 'email_accounts' }"
-          @click="activeTab = 'email_accounts'"
-        >
-          <Mail :size="15" />
-          <span>Email Accounts ({{ emailAccounts.length }})</span>
-        </button>
+          <button
+            class="tab-pill"
+            :class="{ active: activeTab === 'profile' }"
+            @click="activeTab = 'profile'"
+          >
+            <UserCheck :size="15" />
+            <span>My Profile / CV</span>
+          </button>
 
-        <button
-          class="tab-pill"
-          :class="{ active: activeTab === 'preferences' }"
-          @click="activeTab = 'preferences'"
-        >
-          <SlidersHorizontal :size="15" />
-          <span>Preferences</span>
-        </button>
-      </div>
-    </div>
+          <button
+            class="tab-pill"
+            :class="{ active: activeTab === 'preferences' }"
+            @click="activeTab = 'preferences'"
+          >
+            <SlidersHorizontal :size="15" />
+            <span>Preferences</span>
+          </button>
+        </div>
+      </template>
+    </PageHeader>
 
     <!-- Scrollable Content Area with Stable Gutter -->
     <div class="settings-content-area">
@@ -1660,6 +1678,11 @@ onMounted(async () => {
         </div>
       </div>
     </div>
+
+    <!-- TAB 5: CANDIDATE PROFILE / CV -->
+    <div v-else-if="activeTab === 'profile'" class="tab-content animate-fade-in">
+      <CandidateProfileView :is-embedded="true" />
+    </div>
       </div>
     </div>
 
@@ -2035,14 +2058,12 @@ onMounted(async () => {
 
 <style scoped>
 .page-container {
-  display: flex;
-  flex-direction: column;
-  height: calc(100vh - var(--navbar-height));
-  background-color: var(--bg-app);
-  overflow: hidden;
-  padding: 0;
-  max-width: none;
-  margin: 0;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+  min-height: calc(100vh - var(--navbar-height));
+  background-color: transparent;
+  display: block;
 }
 
 .page-header {
@@ -2050,12 +2071,11 @@ onMounted(async () => {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 22px 24px 16px;
-  background-color: var(--bg-sidebar);
-  border-bottom: 1px solid var(--border-color);
-  flex-shrink: 0;
-  gap: 14px;
-  margin-bottom: 0;
+  margin-bottom: 28px;
+  gap: 16px;
+  padding: 0;
+  background-color: transparent;
+  border-bottom: none;
 }
 
 .header-text-center {
@@ -2068,7 +2088,7 @@ onMounted(async () => {
 .page-title {
   font-family: var(--font-heading);
   font-weight: var(--font-heading-weight);
-  font-size: 22px;
+  font-size: 24px;
   color: var(--text-main);
   letter-spacing: var(--font-tracking);
   margin: 0;
@@ -2102,7 +2122,7 @@ onMounted(async () => {
   gap: 6px;
   border: none;
   background: transparent;
-  padding: 5px 12px;
+  padding: 6px 14px;
   border-radius: 4px;
   font-size: 12px;
   font-weight: 500;
@@ -2123,14 +2143,12 @@ onMounted(async () => {
 }
 
 .settings-content-area {
-  flex: 1;
-  overflow-y: scroll;
-  scrollbar-gutter: stable;
-  padding: 24px;
+  padding: 0;
+  width: 100%;
 }
 
 .settings-inner-container {
-  max-width: 1240px;
+  max-width: 100%;
   margin: 0 auto;
   width: 100%;
 }

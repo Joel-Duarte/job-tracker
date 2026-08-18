@@ -22,6 +22,7 @@ import {
   ExternalLink,
   ChevronDown,
 } from 'lucide-vue-next'
+import PageHeader from '../components/common/PageHeader.vue'
 
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
@@ -131,8 +132,13 @@ function formatStatusLabel(status) {
   }
 }
 
+const includeArchivedApps = ref(false)
+
 const filteredExistingApps = computed(() => {
-  const apps = appStore.applications || []
+  let apps = appStore.applications || []
+  if (!includeArchivedApps.value) {
+    apps = apps.filter((a) => !['REJECTED', 'ARCHIVED'].includes(a.status))
+  }
   if (!appSearchQuery.value.trim()) return apps
   const q = appSearchQuery.value.toLowerCase()
   return apps.filter(
@@ -168,7 +174,8 @@ function openResolveModal(item) {
   resolvingItem.value = item
   resolutionMode.value = 'create'
   selectedExistingAppId.value = null
-  appSearchQuery.value = ''
+  includeArchivedApps.value = false
+  appSearchQuery.value = getItemCompany(item) || ''
 
   const extracted = item.extracted_data || {}
   const autoStatus = getAutoDetectedStatus(item)
@@ -309,32 +316,31 @@ async function dismissItem(item) {
 
 <template>
   <div class="page-container">
-    <!-- Header -->
-    <div class="page-header">
-      <div class="header-text-center">
-        <h1 class="page-title">Human-in-the-Loop Staging Queue</h1>
-        <p class="page-subtitle">
-          Review unmatched emails, resolve ambiguous job leads into new applications, or link them to existing pipeline records.
-        </p>
-      </div>
-
-      <div class="filter-pills">
-        <button
-          class="pill-btn"
-          :class="{ active: selectedFilter === 'PENDING' }"
-          @click="selectedFilter = 'PENDING'; fetchStagingItems()"
-        >
-          Pending Review
-        </button>
-        <button
-          class="pill-btn"
-          :class="{ active: selectedFilter === 'PROCESSED' }"
-          @click="selectedFilter = 'PROCESSED'; fetchStagingItems()"
-        >
-          Resolved
-        </button>
-      </div>
-    </div>
+    <!-- Standardized Page Header -->
+    <PageHeader
+      title="Human-in-the-Loop Staging Queue"
+      subtitle="Review unmatched emails, resolve ambiguous job leads into new applications, or link them to existing pipeline records."
+      align="center"
+    >
+      <template #tabs>
+        <div class="filter-pills">
+          <button
+            class="pill-btn"
+            :class="{ active: selectedFilter === 'PENDING' }"
+            @click="selectedFilter = 'PENDING'; fetchStagingItems()"
+          >
+            Pending Review
+          </button>
+          <button
+            class="pill-btn"
+            :class="{ active: selectedFilter === 'PROCESSED' }"
+            @click="selectedFilter = 'PROCESSED'; fetchStagingItems()"
+          >
+            Resolved
+          </button>
+        </div>
+      </template>
+    </PageHeader>
 
     <!-- Main Content -->
     <div class="content-area">
@@ -600,6 +606,13 @@ async function dismissItem(item) {
               />
             </div>
 
+            <div class="include-archived-row">
+              <label class="checkbox-label text-xs">
+                <input v-model="includeArchivedApps" type="checkbox" />
+                <span>Include Rejected / Archived applications</span>
+              </label>
+            </div>
+
             <div class="existing-apps-list">
               <div
                 v-for="app in filteredExistingApps"
@@ -648,48 +661,11 @@ async function dismissItem(item) {
 
 <style scoped>
 .page-container {
-  display: flex;
-  flex-direction: column;
-  height: calc(100vh - var(--navbar-height));
-  background-color: var(--bg-app);
-}
-
-.page-header {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: 22px 24px 16px;
-  background-color: var(--bg-sidebar);
-  border-bottom: 1px solid var(--border-color);
-  flex-shrink: 0;
-  gap: 14px;
-}
-
-.header-text-center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-}
-
-.page-title {
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  letter-spacing: var(--font-tracking);
-  font-size: 22px;
-  color: var(--text-main);
-  margin: 0;
-  text-align: center;
-}
-
-.page-subtitle {
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin: 4px 0 0 0;
-  line-height: 1.5;
-  max-width: 680px;
-  text-align: center;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+  min-height: calc(100vh - var(--navbar-height));
+  width: 100%;
 }
 
 .filter-pills {

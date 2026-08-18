@@ -331,21 +331,55 @@ async def delete_ai_provider(
             detail=f"AI Provider with ID {provider_id} not found.",
         )
 
-    # Check for active task bindings
+    # Check total available providers
+    all_providers_stmt = select(AIProviderModel).where(
+        AIProviderModel.id != provider_id
+    )
+    remaining_providers = (await db.execute(all_providers_stmt)).scalars().all()
+    if not remaining_providers:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete the only configured AI provider. At least one provider must remain.",
+        )
+
+    # Determine fallback provider (prefer existing GLOBAL_DEFAULT provider if not the one being deleted)
+    global_binding_stmt = select(AITaskBindingModel).where(
+        AITaskBindingModel.task_type == "GLOBAL_DEFAULT"
+    )
+    global_binding = (await db.execute(global_binding_stmt)).scalar_one_or_none()
+
+    fallback_provider = next(
+        (
+            p
+            for p in remaining_providers
+            if global_binding and p.id == global_binding.provider_id
+        ),
+        remaining_providers[0],
+    )
+
+    # Automatically re-assign any tasks referencing this provider to the fallback provider
     binding_check = select(AITaskBindingModel).where(
         AITaskBindingModel.provider_id == provider_id
     )
     bindings = (await db.execute(binding_check)).scalars().all()
-    if bindings:
-        bound_tasks = [b.task_type for b in bindings]
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot delete provider '{provider.name}': it is referenced by task bindings: {bound_tasks}.",
-        )
+    rebound_tasks = []
+    for b in bindings:
+        b.provider_id = fallback_provider.id
+        rebound_tasks.append(b.task_type)
 
     await db.delete(provider)
     await db.commit()
-    return {"message": f"AI Provider '{provider.name}' deleted successfully."}
+    logger.info(
+        "Deleted AI Provider '%s' (ID: %d). Reassigned tasks %s to '%s' (ID: %d).",
+        provider.name,
+        provider_id,
+        rebound_tasks,
+        fallback_provider.name,
+        fallback_provider.id,
+    )
+    return {
+        "message": f"AI Provider '{provider.name}' deleted. Re-assigned {len(rebound_tasks)} task binding(s) to '{fallback_provider.name}'."
+    }
 
 
 @router.post("/providers/{provider_id}/test", response_model=AIProviderTestResponse)

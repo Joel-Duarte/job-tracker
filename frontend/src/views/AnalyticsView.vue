@@ -20,6 +20,7 @@ import {
   Sparkles,
 } from 'lucide-vue-next'
 import { useUIStore } from '../stores/uiStore'
+import PageHeader from '../components/common/PageHeader.vue'
 
 const uiStore = useUIStore()
 
@@ -246,20 +247,14 @@ const sankeyData = computed(() => {
 
 <template>
   <div class="page-container">
-    <!-- Header -->
-    <div class="page-header">
-      <div class="header-text">
-        <h1 class="page-title">
-          <BarChart3 class="text-primary title-icon" :size="22" />
-          Market Intelligence &amp; Analytics
-        </h1>
-        <p class="page-subtitle">
-          Comprehensive skill demand, salary benchmarks, and pipeline conversion metrics across your tracked applications.
-        </p>
-      </div>
-
-      <div class="header-filters">
-        <!-- Date Filter -->
+    <!-- Standardized Page Header (Centered) -->
+    <PageHeader
+      title="Market Intelligence & Analytics"
+      subtitle="Comprehensive skill demand, salary benchmarks, and pipeline conversion metrics across your tracked applications."
+      :icon="BarChart3"
+      align="center"
+    >
+      <template #tabs>
         <div class="filter-pill">
           <CalendarDays :size="14" class="filter-icon" />
           <div class="select-wrapper">
@@ -271,8 +266,8 @@ const sankeyData = computed(() => {
             <ChevronDown :size="13" class="select-chevron" />
           </div>
         </div>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <!-- Main Content Area -->
     <div class="analytics-content">
@@ -685,50 +680,14 @@ const sankeyData = computed(() => {
 <style scoped>
 /* Page Layout */
 .page-container {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background-color: var(--bg-app);
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+  min-height: calc(100vh - var(--navbar-height));
+  width: 100%;
 }
 
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 18px 24px;
-  background-color: var(--bg-sidebar);
-  border-bottom: 1px solid var(--border-color);
-  flex-shrink: 0;
-  flex-wrap: wrap;
-  gap: 16px;
-}
 
-.header-text {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.page-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 19px;
-  font-weight: 700;
-  margin: 0;
-  color: var(--text-main);
-  letter-spacing: -0.02em;
-}
-
-.title-icon {
-  color: var(--primary);
-}
-
-.page-subtitle {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
 
 /* Theme-Aware Filter Bar */
 .header-filters {

@@ -40,8 +40,7 @@ const routes = [
   },
   {
     path: '/profile',
-    name: 'CandidateProfile',
-    component: CandidateProfileView,
+    redirect: '/settings?tab=profile',
   },
   {
     path: '/chat',
