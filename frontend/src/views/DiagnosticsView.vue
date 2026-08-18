@@ -201,21 +201,22 @@ onMounted(() => {
     </div>
 
     <!-- Deep Dive Modal -->
-    <div v-if="selectedTrace" class="modal-overlay" @click.self="closeDetails">
-      <div class="modal-content large" style="max-width: 900px; width: 90vw;">
+    <div v-if="selectedTrace" class="modal-backdrop" @click.self="closeDetails">
+      <div class="modal-card animate-fade-in" style="max-width: 900px; width: 90vw;">
         <div class="modal-header">
-          <div>
-            <h3 class="modal-title flex items-center gap-2">
-              <TerminalSquare :size="18" /> Trace Inspector
-            </h3>
-            <p class="text-xs text-secondary mt-1 font-mono">Run ID: {{ selectedTrace.run_id || '...' }}</p>
+          <div class="modal-title-group">
+            <div class="modal-icon text-primary"><TerminalSquare :size="18" /></div>
+            <div>
+              <h3 class="modal-title">Trace Inspector</h3>
+              <p class="text-xs text-secondary mt-1 font-mono">Run ID: {{ selectedTrace.run_id || '...' }}</p>
+            </div>
           </div>
           <button class="btn-icon" @click="closeDetails">
             <X :size="18" />
           </button>
         </div>
 
-        <div class="modal-body bg-dark" style="background: #0f172a; padding: 20px; max-height: 70vh; overflow-y: auto;">
+        <div class="modal-body" style="background: #0f172a; padding: 20px; max-height: 70vh; overflow-y: auto;">
           <div v-if="loadingDetail" class="flex flex-center py-8">
             <div class="spinner"></div>
           </div>
@@ -446,6 +447,48 @@ input:checked + .slider:before {
 }
 
 /* Modal styling overrides */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: var(--bg-backdrop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+.modal-card {
+  width: 100%;
+  max-width: 640px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  background-color: var(--bg-surface);
+}
+.modal-title-group {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
 .error-banner {
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);

@@ -1579,14 +1579,17 @@ onMounted(async () => {
                 <Save :size="18" />
               </div>
               <div>
-                <h4 class="preference-title">Export Diagnostic Logs</h4>
-                <p class="preference-desc">Download a zip file containing the last 500 tracer events and backend logs.</p>
+                <h4 class="preference-title">Diagnostics & Telemetry</h4>
+                <p class="preference-desc">Monitor LangGraph execution telemetry, trace errors, and export zip logs.</p>
               </div>
             </div>
-            <div style="margin-top: 1rem;">
-              <button class="btn btn-primary" @click="exportDiagnostics" :disabled="isExporting">
+            <div style="margin-top: 1rem; display: flex; gap: 8px;">
+              <button class="btn btn-primary" @click="$router.push('/diagnostics')">
+                View Dashboard
+              </button>
+              <button class="btn btn-outline" @click="exportDiagnostics" :disabled="isExporting">
                 <Loader2 v-if="isExporting" class="animate-spin" :size="14" />
-                <span v-else>Export Diagnostics</span>
+                <span v-else>Download Logs</span>
               </button>
             </div>
           </div>
