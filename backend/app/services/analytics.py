@@ -307,7 +307,7 @@ def add_months(sourcedate, months):
 def get_utc_bounds(
     period: str, start_date: str | None = None, end_date: str | None = None
 ) -> tuple[datetime.datetime, datetime.datetime]:
-    now = datetime.datetime.now(datetime.UTC)
+    now = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
     if period == "this_week":
         start = now - datetime.timedelta(days=now.weekday())
         start = start.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -330,8 +330,8 @@ def get_utc_bounds(
     elif period == "custom":
         if not start_date or not end_date:
             raise ValueError("start_date and end_date are required for custom period")
-        start = datetime.datetime.fromisoformat(start_date.replace("Z", "+00:00"))
-        end = datetime.datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+        start = datetime.datetime.fromisoformat(start_date.replace("Z", "+00:00")).replace(tzinfo=None)
+        end = datetime.datetime.fromisoformat(end_date.replace("Z", "+00:00")).replace(tzinfo=None)
     else:
         raise ValueError(f"Invalid period: {period}")
     return start, end
@@ -457,7 +457,7 @@ async def get_activity_analytics(
 
 
 async def get_activity_history(db: AsyncSession) -> ActivityHistoryResponse:
-    now = datetime.datetime.now(datetime.UTC)
+    now = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
     twelve_weeks_ago = now - datetime.timedelta(weeks=12)
 
     query = text("""
@@ -505,7 +505,7 @@ async def get_activity_history(db: AsyncSession) -> ActivityHistoryResponse:
     for row in rows:
         week_start = row.week_start
         if not isinstance(week_start, datetime.datetime):
-            week_start = datetime.datetime.fromisoformat(str(week_start))
+            week_start = datetime.datetime.fromisoformat(str(week_start)).replace(tzinfo=None)
         week_end = week_start + datetime.timedelta(
             days=6, hours=23, minutes=59, seconds=59
         )
