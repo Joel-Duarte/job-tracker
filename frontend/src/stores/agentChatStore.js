@@ -18,7 +18,7 @@ export const useAgentChatStore = defineStore('agentChat', () => {
   const isSending = ref(false)
 
   const isMockInterview = ref(false)
-  const interviewType = ref('Rapid Technical Screen')
+  const interviewType = ref('Mixed')
   const applicationId = ref(null)
 
   function generateThreadId() {
@@ -62,7 +62,7 @@ export const useAgentChatStore = defineStore('agentChat', () => {
     resetChat()
     messages.value = [{
       role: 'assistant',
-      content: `Starting mock interview (${type}). I'll be your technical interviewer. Let me review your profile and we'll begin when you're ready!`,
+      content: `Starting mock interview. I'll be your technical interviewer. Let me review your profile and we'll begin when you're ready!`,
       actions: []
     }]
   }

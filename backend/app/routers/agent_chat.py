@@ -77,11 +77,6 @@ async def chat_with_agent(
                             "PresentOpenEndedQuestion",
                         ):
                             reply_content = tc["args"].get("question", "")
-                            if tc["name"] == "PresentMultipleChoiceQuestion":
-                                options = tc["args"].get("options", [])
-                                reply_content += "\n\nOptions:\n" + "\n".join(
-                                    [f"- {opt}" for opt in options]
-                                )
                             actions_performed.append(
                                 {"action": tc["name"], "args": tc["args"]}
                             )

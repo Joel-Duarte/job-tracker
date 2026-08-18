@@ -1,5 +1,6 @@
 import json
 import logging
+import random
 from typing import Annotated, Any
 
 from langchain_core.messages import AnyMessage, RemoveMessage, ToolMessage
@@ -99,16 +100,22 @@ async def generator_node(
 
     llm = await get_task_chat_model(db, task_type="AGENT_REASONING")
 
-    interview_type = state.get("interview_type", "Rapid Technical Screen")
-    if interview_type == "Rapid Technical Screen":
+    interview_type = state.get("interview_type", "Mixed")
+    if interview_type == "Multiple Choice Only":
         tools = [PresentMultipleChoiceQuestion, SubmitEvaluation]
-    else:
+    elif interview_type == "Open Ended Only":
         tools = [PresentOpenEndedQuestion, SubmitEvaluation]
+    else:
+        # Mixed (Randomly pick one format per node execution)
+        question_tool = random.choice(
+            [PresentMultipleChoiceQuestion, PresentOpenEndedQuestion]
+        )
+        tools = [question_tool, SubmitEvaluation]
 
     model_with_tools = llm.bind_tools(tools)
 
     system_prompt = (
-        "You are a strict technical hiring manager conducting a {interview_type} mock interview.\n"
+        "You are a strict technical hiring manager conducting a mock interview.\n"
         "Here is the context of the job the candidate is interviewing for:\n{job_context}\n"
         "Your job is to either ask a relevant question using the provided tools, or if enough questions have been asked (at least 2), submit the final evaluation.\n"
         "Do not ask generic questions; tailor them specifically to the required skills."
@@ -121,7 +128,6 @@ async def generator_node(
     chain = prompt | model_with_tools
     response = await chain.ainvoke(
         {
-            "interview_type": interview_type,
             "job_context": state.get("job_context", ""),
             "messages": state["messages"],
         }

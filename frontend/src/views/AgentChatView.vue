@@ -24,7 +24,7 @@ const inputMessage = ref('')
 const chatContainer = ref(null)
 
 const showConfig = ref(false)
-const selectedInterviewType = ref('Rapid Technical Screen')
+const selectedInterviewType = ref('Mixed')
 const selectedAppId = ref('')
 
 onMounted(() => {
@@ -109,12 +109,6 @@ function formatActionLabel(act) {
   if (act.action === 'get_action_items') {
     return `Queried pending action items & deadlines`
   }
-  if (act.action === 'PresentMultipleChoiceQuestion') {
-    return `Asked Multiple Choice Question`
-  }
-  if (act.action === 'PresentOpenEndedQuestion') {
-    return `Asked Open Ended Question`
-  }
   if (act.action === 'SubmitEvaluation') {
     const s = act.args?.score || 0
     return `Evaluated Answers (Score: ${s})`
@@ -169,8 +163,9 @@ function formatActionLabel(act) {
       </div>
       <div class="config-fields">
         <select v-model="selectedInterviewType" class="select-input">
-          <option value="Rapid Technical Screen">Rapid Technical Screen</option>
-          <option value="Deep Dive">Deep Dive</option>
+          <option value="Multiple Choice Only">Multiple Choice Only</option>
+          <option value="Open Ended Only">Open Ended Only</option>
+          <option value="Mixed">Mixed (Both)</option>
         </select>
         <select v-model="selectedAppId" class="select-input">
           <option value="">General (No Context)</option>
@@ -198,13 +193,32 @@ function formatActionLabel(act) {
         <div class="message-bubble">
           <!-- Executed Actions Chips -->
           <div v-if="msg.actions && msg.actions.length > 0" class="actions-chips">
-            <div v-for="(act, aIdx) in msg.actions" :key="aIdx" class="action-chip">
-              <CheckCircle2 :size="13" class="text-success" />
-              <span>{{ formatActionLabel(act) }}</span>
-            </div>
+            <template v-for="(act, aIdx) in msg.actions" :key="aIdx">
+              <div v-if="act.action !== 'PresentMultipleChoiceQuestion' && act.action !== 'PresentOpenEndedQuestion'" class="action-chip">
+                <CheckCircle2 :size="13" class="text-success" />
+                <span>{{ formatActionLabel(act) }}</span>
+              </div>
+            </template>
           </div>
 
           <div class="message-text">{{ msg.content }}</div>
+
+          <!-- Render Options for Multiple Choice Questions -->
+          <template v-if="msg.actions && msg.actions.length > 0">
+            <div v-for="(act, aIdx) in msg.actions" :key="aIdx">
+              <div v-if="act.action === 'PresentMultipleChoiceQuestion' && act.args?.options" class="mcq-options">
+                <button
+                  v-for="(opt, oIdx) in act.args.options"
+                  :key="oIdx"
+                  class="mcq-btn"
+                  :disabled="chatStore.isSending || idx !== chatStore.messages.length - 1"
+                  @click="handleSendMessage(opt)"
+                >
+                  {{ opt }}
+                </button>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -459,6 +473,36 @@ function formatActionLabel(act) {
 
 .message-text {
   white-space: pre-wrap;
+}
+
+.mcq-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mcq-btn {
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.mcq-btn:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+  border-color: var(--primary);
+  color: var(--text-primary);
+}
+
+.mcq-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 .thinking-bubble {

@@ -170,7 +170,7 @@ function openGuideInNewTab() {
 
 function startMockInterview() {
   uiStore.closeDrawer('applicationDetail')
-  chatStore.configureMockInterview('Deep Dive', appStore.selectedApplication.id)
+  chatStore.configureMockInterview('Mixed', appStore.selectedApplication.id)
   router.push('/chat')
 }
 
