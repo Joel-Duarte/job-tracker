@@ -65,28 +65,31 @@ async def chat_with_agent(
         actions_performed = []
 
         try:
+            final_state = None
             async for s in mock_interview_graph.astream(
                 state_input, config, stream_mode="values"
             ):
-                if "messages" in s and s["messages"]:
-                    last_msg = s["messages"][-1]
-                    if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
-                        tc = last_msg.tool_calls[0]
-                        if tc["name"] in (
-                            "PresentMultipleChoiceQuestion",
-                            "PresentOpenEndedQuestion",
-                        ):
-                            reply_content = tc["args"].get("question", "")
-                            actions_performed.append(
-                                {"action": tc["name"], "args": tc["args"]}
-                            )
-                        elif tc["name"] == "SubmitEvaluation":
-                            score = tc["args"].get("score", 0)
-                            feedback = tc["args"].get("feedback", "")
-                            reply_content = f"Interview Complete!\nScore: {score}/100\n\nFeedback: {feedback}"
-                            actions_performed.append(
-                                {"action": tc["name"], "args": tc["args"]}
-                            )
+                final_state = s
+
+            if final_state and "messages" in final_state and final_state["messages"]:
+                last_msg = final_state["messages"][-1]
+                if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
+                    tc = last_msg.tool_calls[0]
+                    if tc["name"] in (
+                        "PresentMultipleChoiceQuestion",
+                        "PresentOpenEndedQuestion",
+                    ):
+                        reply_content = tc["args"].get("question", "")
+                        actions_performed.append(
+                            {"action": tc["name"], "args": tc["args"]}
+                        )
+                    elif tc["name"] == "SubmitEvaluation":
+                        score = tc["args"].get("score", 0)
+                        feedback = tc["args"].get("feedback", "")
+                        reply_content = f"Interview Complete!\nScore: {score}/100\n\nFeedback: {feedback}"
+                        actions_performed.append(
+                            {"action": tc["name"], "args": tc["args"]}
+                        )
 
             return AgentChatResponse(
                 reply=reply_content,

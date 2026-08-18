@@ -62,9 +62,11 @@ export const useAgentChatStore = defineStore('agentChat', () => {
     resetChat()
     messages.value = [{
       role: 'assistant',
-      content: `Starting mock interview. I'll be your technical interviewer. Let me review your profile and we'll begin when you're ready!`,
+      content: `Starting mock interview. I'll be your technical interviewer. Let me review your profile...`,
       actions: []
     }]
+    // Automatically trigger the first question without waiting for user input
+    sendMessage('I am ready to begin the mock interview.')
   }
 
   async function sendMessage(text) {

@@ -58,7 +58,7 @@ watch(() => chatStore.messages.length, () => {
 })
 
 async function handleSendMessage(textToSend = null) {
-  const text = textToSend || inputMessage.value.trim()
+  const text = (typeof textToSend === 'string' ? textToSend : inputMessage.value.trim())
   if (!text || chatStore.isSending) return
 
   inputMessage.value = ''
