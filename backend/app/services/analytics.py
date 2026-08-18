@@ -330,8 +330,12 @@ def get_utc_bounds(
     elif period == "custom":
         if not start_date or not end_date:
             raise ValueError("start_date and end_date are required for custom period")
-        start = datetime.datetime.fromisoformat(start_date.replace("Z", "+00:00")).replace(tzinfo=None)
-        end = datetime.datetime.fromisoformat(end_date.replace("Z", "+00:00")).replace(tzinfo=None)
+        start = datetime.datetime.fromisoformat(
+            start_date.replace("Z", "+00:00")
+        ).replace(tzinfo=None)
+        end = datetime.datetime.fromisoformat(end_date.replace("Z", "+00:00")).replace(
+            tzinfo=None
+        )
     else:
         raise ValueError(f"Invalid period: {period}")
     return start, end
@@ -505,7 +509,9 @@ async def get_activity_history(db: AsyncSession) -> ActivityHistoryResponse:
     for row in rows:
         week_start = row.week_start
         if not isinstance(week_start, datetime.datetime):
-            week_start = datetime.datetime.fromisoformat(str(week_start)).replace(tzinfo=None)
+            week_start = datetime.datetime.fromisoformat(str(week_start)).replace(
+                tzinfo=None
+            )
         week_end = week_start + datetime.timedelta(
             days=6, hours=23, minutes=59, seconds=59
         )

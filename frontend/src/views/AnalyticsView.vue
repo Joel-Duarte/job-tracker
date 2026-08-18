@@ -322,59 +322,45 @@ const sankeyData = computed(() => {
       align="center"
     >
       <template #tabs>
-        <div class="filter-pill">
-          <CalendarDays :size="14" class="filter-icon" />
-          <div class="select-wrapper">
-            <select v-model="filters.days" @change="fetchAnalytics">
-              <option v-for="opt in dateOptions" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-            <ChevronDown :size="13" class="select-chevron" />
-          </div>
+        <div class="tab-switcher">
+          <button
+            :class="['tab-btn', currentTab === 'velocity' ? 'active' : '']"
+            @click="currentTab = 'velocity'"
+          >
+            <Activity class="w-4 h-4" />
+            Search Velocity & Activity
+          </button>
+          <button
+            :class="['tab-btn', currentTab === 'market' ? 'active' : '']"
+            @click="currentTab = 'market'"
+          >
+            <PieChart class="w-4 h-4" />
+            Market Intelligence & Skills
+          </button>
         </div>
       </template>
     </PageHeader>
-
-    <div class="flex justify-center mb-6 mt-2">
-      <div class="tab-switcher">
-        <button
-          :class="['tab-btn', currentTab === 'velocity' ? 'active' : '']"
-          @click="currentTab = 'velocity'"
-        >
-          <Activity class="w-4 h-4 mr-2 inline" />
-          Search Velocity & Activity
-        </button>
-        <button
-          :class="['tab-btn', currentTab === 'market' ? 'active' : '']"
-          @click="currentTab = 'market'"
-        >
-          <PieChart class="w-4 h-4 mr-2 inline" />
-          Market Intelligence & Skills
-        </button>
-      </div>
-    </div>
 
     <!-- Main Content Area -->
     <div class="analytics-content">
       <div v-if="currentTab === 'velocity'" class="velocity-tab-container">
         <!-- Velocity Controls -->
-        <div class="velocity-controls flex justify-between items-center mb-5">
-          <div class="btn-group">
-            <button :class="['btn-toggle', velocityPeriod === 'this_week' ? 'active' : '']" @click="setPeriod('this_week')">Week</button>
-            <button :class="['btn-toggle', velocityPeriod === 'this_month' ? 'active' : '']" @click="setPeriod('this_month')">Month</button>
-            <button :class="['btn-toggle', velocityPeriod === 'custom' ? 'active' : '']" @click="velocityPeriod = 'custom'">Custom</button>
-          </div>
+        <div class="velocity-controls-card flex justify-between items-center mb-6">
+          <div class="flex items-center gap-4">
+            <span class="text-sm font-semibold text-secondary">Timeframe:</span>
+            <div class="btn-group">
+              <button :class="['btn-toggle', velocityPeriod === 'this_week' ? 'active' : '']" @click="setPeriod('this_week')">This Week</button>
+              <button :class="['btn-toggle', velocityPeriod === 'last_week' ? 'active' : '']" @click="setPeriod('last_week')">Last Week</button>
+              <button :class="['btn-toggle', velocityPeriod === 'this_month' ? 'active' : '']" @click="setPeriod('this_month')">This Month</button>
+              <button :class="['btn-toggle', velocityPeriod === 'last_month' ? 'active' : '']" @click="setPeriod('last_month')">Last Month</button>
+              <button :class="['btn-toggle', velocityPeriod === 'custom' ? 'active' : '']" @click="velocityPeriod = 'custom'">Custom Range</button>
+            </div>
 
-          <div class="relative-jump flex items-center gap-3">
-            <template v-if="velocityPeriod === 'custom'">
-              <input type="date" v-model="velocityCustomStart" class="form-input text-xs py-1" />
-              <span class="text-xs text-muted">to</span>
-              <input type="date" v-model="velocityCustomEnd" @change="fetchActivity" class="form-input text-xs py-1" />
-            </template>
-            <select v-model="velocityPeriod" @change="fetchActivity" class="form-input text-xs py-1 pr-6" style="min-width: 130px;">
-              <option v-for="opt in relativeJumpOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-            </select>
+            <div class="relative-jump flex items-center gap-3 ml-auto" v-if="velocityPeriod === 'custom'">
+              <input type="date" v-model="velocityCustomStart" class="form-input text-xs py-1.5" />
+              <span class="text-xs font-semibold text-muted">TO</span>
+              <input type="date" v-model="velocityCustomEnd" @change="fetchActivity" class="form-input text-xs py-1.5" />
+            </div>
           </div>
         </div>
 
@@ -949,34 +935,42 @@ const sankeyData = computed(() => {
 }
 
 /* Velocity Tab Specific Styles */
+.velocity-controls-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 14px 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
 .btn-group {
   display: inline-flex;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-full);
   overflow: hidden;
+  padding: 2px;
 }
 .btn-toggle {
-  padding: 4px 12px;
+  padding: 6px 14px;
   font-size: 12px;
   font-weight: 600;
   background: transparent;
   border: none;
-  border-right: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s;
 }
-.btn-toggle:last-child {
-  border-right: none;
-}
 .btn-toggle:hover {
-  background-color: var(--bg-elevated);
+  color: var(--text-main);
 }
 .btn-toggle.active {
   background-color: var(--primary);
   color: white;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
+
+
 
 .history-ribbon-widget {
   background-color: var(--bg-card);
@@ -1036,6 +1030,19 @@ const sankeyData = computed(() => {
   visibility: visible;
 }
 
+
+/* Velocity Charts */
+.daily-chart-container {
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 8px;
+}
+.daily-bar-wrap {
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.daily-bar-wrap:hover {
+  opacity: 0.8;
+}
 /* Page Layout */
 .page-container {
   max-width: 1240px;
