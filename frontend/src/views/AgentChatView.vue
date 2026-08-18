@@ -2,6 +2,8 @@
 import { ref, onMounted, nextTick, watch } from 'vue'
 import { useAgentChatStore } from '../stores/agentChatStore'
 import { AIConfigAPI } from '../api/endpoints'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import {
   Bot,
   User,
@@ -104,6 +106,23 @@ async function handleRetentionChange() {
   }
 }
 
+// Configure marked renderer for secure external links
+const markedRenderer = new marked.Renderer()
+const originalLinkRenderer = markedRenderer.link.bind(markedRenderer)
+markedRenderer.link = (token) => {
+  const html = originalLinkRenderer(token)
+  return html.replace('<a ', '<a target="_blank" rel="noopener noreferrer" ')
+}
+marked.setOptions({ renderer: markedRenderer, gfm: true, breaks: true })
+
+function renderMarkdown(text) {
+  if (!text) return ''
+  const rawHtml = marked.parse(text)
+  return DOMPurify.sanitize(rawHtml, {
+    ADD_ATTR: ['target', 'rel']
+  })
+}
+
 function formatActionLabel(act) {
   if (act.action === 'UPDATE_STATUS' || act.action === 'update_application_status') {
     const comp = act.args?.company_name || act.company || 'Application'
@@ -201,99 +220,113 @@ function formatActionLabel(act) {
     <!-- Main Chat Area -->
     <div class="chat-main">
       <div class="chat-header">
-        <div class="header-left">
-          <button
-            v-if="isSidebarCollapsed"
-            class="btn-icon-sidebar btn-expand-sidebar"
-            @click="toggleSidebar"
-            title="Expand Sidebar"
-          >
-            <PanelLeftOpen :size="18" />
-          </button>
-          <div class="agent-avatar">
-            <Bot :size="18" />
-          </div>
-          <div>
-            <h2 class="agent-title">Agent Assistant</h2>
-            <div class="agent-subtitle">
-              <span class="pulse-dot"></span>
-              <span>Equipped with pgvector semantic search & database mutation tools</span>
+        <div class="header-content-inner">
+          <div class="header-left">
+            <button
+              v-if="isSidebarCollapsed"
+              class="btn-icon-sidebar btn-expand-sidebar"
+              @click="toggleSidebar"
+              title="Expand Sidebar"
+            >
+              <PanelLeftOpen :size="18" />
+            </button>
+            <div class="agent-avatar">
+              <Bot :size="18" />
+            </div>
+            <div>
+              <h2 class="agent-title">Agent Assistant</h2>
+              <div class="agent-subtitle">
+                <span class="pulse-dot"></span>
+                <span>Equipped with pgvector semantic search & database mutation tools</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Chat Messages Stream -->
+      <!-- Centered Messages Stream -->
       <div ref="chatContainer" class="chat-messages">
-        <div
-          v-for="(msg, idx) in chatStore.messages"
-          :key="idx"
-          class="message-row"
-          :class="`msg-${msg.role}`"
-        >
-          <!-- Skip tool messages in UI normally unless needed -->
-          <template v-if="msg.role !== 'tool' && msg.role !== 'system'">
-            <div class="avatar-icon">
-              <Bot v-if="msg.role === 'assistant'" :size="16" />
-              <User v-else :size="16" />
-            </div>
-
-            <div class="message-bubble">
-              <!-- Executed Actions Chips -->
-              <div v-if="msg.actions && msg.actions.length > 0" class="actions-chips">
-                <div v-for="(act, aIdx) in msg.actions" :key="aIdx" class="action-chip">
-                  <CheckCircle2 :size="13" class="text-success" />
-                  <span>{{ formatActionLabel(act) }}</span>
-                </div>
+        <div class="chat-messages-inner">
+          <div
+            v-for="(msg, idx) in chatStore.messages"
+            :key="idx"
+            class="message-row"
+            :class="`msg-${msg.role}`"
+          >
+            <!-- Skip tool messages in UI normally unless needed -->
+            <template v-if="msg.role !== 'tool' && msg.role !== 'system'">
+              <div class="avatar-icon">
+                <Bot v-if="msg.role === 'assistant'" :size="16" />
+                <User v-else :size="16" />
               </div>
 
-              <div class="message-text">{{ msg.content }}</div>
+              <div class="message-bubble">
+                <!-- Executed Actions Chips -->
+                <div v-if="msg.actions && msg.actions.length > 0" class="actions-chips">
+                  <div v-for="(act, aIdx) in msg.actions" :key="aIdx" class="action-chip">
+                    <CheckCircle2 :size="13" class="text-success" />
+                    <span>{{ formatActionLabel(act) }}</span>
+                  </div>
+                </div>
+
+                <div
+                  v-if="msg.role === 'assistant'"
+                  class="message-text markdown-body"
+                  v-html="renderMarkdown(msg.content)"
+                ></div>
+                <div v-else class="message-text">{{ msg.content }}</div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Thinking Indicator -->
+          <div v-if="chatStore.isSending" class="message-row msg-assistant">
+            <div class="avatar-icon">
+              <Bot :size="16" />
             </div>
-          </template>
-        </div>
-
-        <!-- Thinking Indicator -->
-        <div v-if="chatStore.isSending" class="message-row msg-assistant">
-          <div class="avatar-icon">
-            <Bot :size="16" />
-          </div>
-          <div class="message-bubble thinking-bubble">
-            <Loader2 class="animate-spin" :size="16" />
-            <span>Agent is reasoning & searching records...</span>
+            <div class="message-bubble thinking-bubble">
+              <Loader2 class="animate-spin" :size="16" />
+              <span>Agent is reasoning & searching records...</span>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Starter Prompts (if chat is short) -->
-      <div v-if="chatStore.messages.length <= 2" class="starters-bar">
-        <button
-          v-for="prompt in starterPrompts"
-          :key="prompt"
-          class="starter-chip"
-          @click="handleSendMessage(prompt)"
-        >
-          <span>{{ prompt }}</span>
-          <ArrowRight :size="12" />
-        </button>
-      </div>
+      <!-- Bottom Dock: Starters & Input Box Centered Column -->
+      <div class="chat-bottom-dock">
+        <div class="bottom-dock-inner">
+          <!-- Starter Prompts (if chat is short) -->
+          <div v-if="chatStore.messages.length <= 2" class="starters-bar">
+            <button
+              v-for="prompt in starterPrompts"
+              :key="prompt"
+              class="starter-chip"
+              @click="handleSendMessage(prompt)"
+            >
+              <span>{{ prompt }}</span>
+              <ArrowRight :size="12" />
+            </button>
+          </div>
 
-      <!-- Input Bar -->
-      <div class="chat-input-bar">
-        <textarea
-          v-model="inputMessage"
-          rows="1"
-          placeholder="Ask the agent to search applications, check interview dates, or change statuses..."
-          class="chat-input"
-          @keydown="handleKeyDown"
-        ></textarea>
+          <!-- Input Bar -->
+          <div class="chat-input-bar">
+            <textarea
+              v-model="inputMessage"
+              rows="1"
+              placeholder="Ask the agent to search applications, check interview dates, or change statuses..."
+              class="chat-input"
+              @keydown="handleKeyDown"
+            ></textarea>
 
-        <button
-          class="btn btn-primary btn-send"
-          :disabled="chatStore.isSending || !inputMessage.trim()"
-          @click="handleSendMessage()"
-        >
-          <Send :size="15" />
-        </button>
+            <button
+              class="btn btn-primary btn-send"
+              :disabled="chatStore.isSending || !inputMessage.trim()"
+              @click="handleSendMessage()"
+            >
+              <Send :size="15" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -496,6 +529,8 @@ function formatActionLabel(act) {
   height: 100%;
   min-width: 0;
   margin-left: 0;
+  position: relative;
+  background-color: var(--bg-app);
 }
 
 .chat-header {
@@ -504,6 +539,15 @@ function formatActionLabel(act) {
   padding: 0 24px;
   border-bottom: 1px solid var(--border-color);
   background-color: var(--bg-app);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.header-content-inner {
+  width: 100%;
+  max-width: 860px;
+  margin: 0 auto;
   display: flex;
   align-items: center;
 }
@@ -543,16 +587,23 @@ function formatActionLabel(act) {
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: 24px 24px 16px;
+}
+
+.chat-messages-inner {
+  max-width: 860px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
+  width: 100%;
 }
 
 .message-row {
   display: flex;
-  gap: 12px;
-  max-width: 85%;
+  gap: 14px;
+  width: 100%;
+  max-width: 100%;
 }
 
 .msg-user {
@@ -619,6 +670,105 @@ function formatActionLabel(act) {
   white-space: pre-wrap;
 }
 
+/* Markdown Styling */
+.markdown-body {
+  white-space: normal;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-main);
+}
+
+.markdown-body p {
+  margin-bottom: 8px;
+}
+
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body ul, .markdown-body ol {
+  margin: 6px 0 10px 20px;
+  padding-left: 4px;
+}
+
+.markdown-body li {
+  margin-bottom: 4px;
+}
+
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
+  font-weight: 600;
+  color: var(--text-main);
+  margin: 12px 0 6px;
+}
+
+.markdown-body h1 { font-size: 16px; }
+.markdown-body h2 { font-size: 15px; }
+.markdown-body h3 { font-size: 14px; }
+
+.markdown-body code {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  padding: 2px 5px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface-hover);
+  border: 1px solid var(--border-color);
+  color: var(--primary);
+}
+
+.markdown-body pre {
+  margin: 10px 0;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-color);
+  overflow-x: auto;
+}
+
+.markdown-body pre code {
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+}
+
+.markdown-body blockquote {
+  margin: 8px 0;
+  padding: 4px 12px;
+  border-left: 3px solid var(--primary);
+  color: var(--text-secondary);
+  background: var(--bg-surface-hover);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 12.5px;
+}
+
+.markdown-body th, .markdown-body td {
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  text-align: left;
+}
+
+.markdown-body th {
+  background-color: var(--bg-surface-hover);
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.markdown-body a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-body a:hover {
+  opacity: 0.85;
+}
+
 .thinking-bubble {
   display: flex;
   align-items: center;
@@ -629,11 +779,24 @@ function formatActionLabel(act) {
   box-shadow: none;
 }
 
+.chat-bottom-dock {
+  flex-shrink: 0;
+  padding: 0 24px 24px;
+  background-color: var(--bg-app);
+}
+
+.bottom-dock-inner {
+  max-width: 860px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .starters-bar {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 0 24px 12px;
 }
 
 .starter-chip {
@@ -659,8 +822,27 @@ function formatActionLabel(act) {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 16px 24px 24px;
-  background-color: var(--bg-app);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 8px 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.chat-input {
+  flex: 1;
+  padding: 6px 8px;
+  resize: none;
+  border: none;
+  background: transparent;
+  font-size: 13.5px;
+  color: var(--text-main);
+  outline: none;
+}
+
+.chat-input:focus {
+  box-shadow: none;
+  border-color: transparent;
 }
 
 .chat-input {
