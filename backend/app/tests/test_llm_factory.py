@@ -118,11 +118,14 @@ async def test_extract_job_spec_runnable(db_session: AsyncSession):
         job_found=True,
         company="Stripe",
         position="Senior Staff Backend Engineer",
-        location_work_type="San Francisco, CA (Hybrid)",
-        salary_benefits="$220,000 - $280,000 + Equity",
-        core_responsibilities="Lead architecture of real-time payment pipelines.",
-        requirements_qualifications="10+ years experience, Distributed Systems, Python, Go.",
-        ats_keywords=["Python", "Go", "Distributed Systems", "Kafka", "PostgreSQL"],
+        why_hiring="Scaling payment infrastructure.",
+        what_you_will_build="Double-entry ledger engine.",
+        responsibilities=["Lead architecture of real-time payment pipelines."],
+        requirements=["10+ years experience", "Distributed Systems", "Python", "Go"],
+        extracted_skills=["Python", "Go", "Distributed Systems", "Kafka", "PostgreSQL"],
+        compensation_text="$220,000 - $280,000 + Equity",
+        location_text="San Francisco, CA",
+        workplace_type="Hybrid",
     )
 
     with patch("app.services.llm.get_task_chat_model") as mock_get_chat:
@@ -138,7 +141,7 @@ async def test_extract_job_spec_runnable(db_session: AsyncSession):
         assert res.job_found is True
         assert res.company == "Stripe"
         assert res.position == "Senior Staff Backend Engineer"
-        assert "Kafka" in res.ats_keywords
+        assert "Kafka" in res.extracted_skills
 
 
 @pytest.mark.asyncio

@@ -395,8 +395,12 @@ async def assess_job_lead(
 
     from app.services.llm import extract_job_spec
 
-    extracted_spec_obj = await extract_job_spec(db, content)
-    spec_dict = extracted_spec_obj.model_dump() if extracted_spec_obj else None
+    spec_dict = None
+    try:
+        extracted_spec_obj = await extract_job_spec(db, content)
+        spec_dict = extracted_spec_obj.model_dump() if extracted_spec_obj else None
+    except Exception as spec_err:
+        logger.warning("Optional job spec extraction skipped/failed: %s", spec_err)
 
     assessment = await assess_job_posting(
         db,
