@@ -330,7 +330,9 @@ function formatActionLabel(act) {
 }
 
 .sidebar-header {
-  padding: 16px;
+  height: 65px;
+  box-sizing: border-box;
+  padding: 0 16px;
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
@@ -497,7 +499,9 @@ function formatActionLabel(act) {
 }
 
 .chat-header {
-  padding: 14px 24px;
+  height: 65px;
+  box-sizing: border-box;
+  padding: 0 24px;
   border-bottom: 1px solid var(--border-color);
   background-color: var(--bg-app);
   display: flex;
