@@ -134,7 +134,7 @@ onMounted(() => {
 
         <router-link
           to="/chat"
-          class="nav-link nav-agent-link"
+          class="nav-link"
           :class="{ active: route.path === '/chat' }"
         >
           <Bot :size="16" />
@@ -258,23 +258,6 @@ onMounted(() => {
   border-bottom: 2px solid var(--primary);
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
-}
-
-.nav-agent-link {
-  background-color: var(--primary-subtle);
-  color: var(--primary);
-  border: 1px solid var(--status-offer-border);
-}
-
-.nav-agent-link:hover {
-  background-color: var(--primary-glow);
-  color: var(--primary);
-}
-
-.nav-agent-link.active {
-  background-color: var(--bg-surface);
-  color: var(--primary);
-  border-bottom: 2px solid var(--primary);
 }
 
 .nav-btn-link {
