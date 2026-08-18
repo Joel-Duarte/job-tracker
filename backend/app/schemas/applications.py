@@ -169,6 +169,9 @@ class AllowedApplicationStatus(StrEnum):
     TECHNICAL_INTERVIEW = "TECHNICAL_INTERVIEW"
     OFFER = "OFFER"
     REJECTED = "REJECTED"
+    HIRED = "HIRED"
+    ARCHIVED = "ARCHIVED"
+    WITHDRAWN = "WITHDRAWN"
 
 
 class ApplicationByStatusResult(BaseModel):
@@ -233,3 +236,23 @@ class ApplicationUpdate(BaseModel):
     rejection_date: date | None = Field(None, description="Rejection date")
     rejection_reason: str | None = Field(None, description="Rejection reason")
     notes: str | None = Field(None, description="Transition notes")
+
+
+class BulkTransitionRequest(BaseModel):
+    target_status: AllowedApplicationStatus = Field(
+        ..., description="Status to set on matched applications"
+    )
+    from_statuses: list[AllowedApplicationStatus] = Field(
+        ...,
+        description="Only transition applications currently in one of these statuses",
+    )
+    exclude_ids: list[int] = Field(
+        default_factory=list,
+        description="Application IDs to skip even if they match from_statuses",
+    )
+    notes: str | None = Field(None, description="Note appended to each timeline event")
+
+
+class BulkTransitionResult(BaseModel):
+    updated_count: int
+    updated_ids: list[int]
