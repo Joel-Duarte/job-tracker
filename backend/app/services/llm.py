@@ -3,6 +3,7 @@ import logging
 from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -25,6 +26,110 @@ from app.services.postgres_tracer import PostgresTracer
 from app.services.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
+
+
+def split_text_semantically(
+    text: str, chunk_size: int = 1000, chunk_overlap: int = 100
+) -> list[str]:
+    """
+    Splits text into chunks using RecursiveCharacterTextSplitter with section-aware separators.
+    Prevents splitting mid-sentence or mid-token while preserving Markdown structural headers.
+    """
+    if not text:
+        return []
+    separators = [
+        "\n\n# ",
+        "\n\n## ",
+        "\n\n### ",
+        "\n\n#### ",
+        "\n\n",
+        "\n",
+        ". ",
+        "? ",
+        "! ",
+        "; ",
+        " ",
+        "",
+    ]
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        separators=separators,
+    )
+    return splitter.split_text(text)
+
+
+def truncate_text_semantically(
+    text: str,
+    max_chars: int = 12000,
+    chunk_size: int = 1000,
+    chunk_overlap: int = 0,
+) -> str:
+    """
+    Truncates text semantically to stay within max_chars context thresholds.
+    Prioritizes key sections (requirements, responsibilities, skills, qualifications, experience)
+    and ensures clean sentence/paragraph boundaries without arbitrary character slicing.
+    """
+    if not text or len(text) <= max_chars:
+        return text or ""
+
+    eff_chunk_size = min(chunk_size, max_chars)
+    chunks = split_text_semantically(
+        text, chunk_size=eff_chunk_size, chunk_overlap=chunk_overlap
+    )
+    if not chunks:
+        return text[:max_chars]
+
+    priority_keywords = (
+        "requirement",
+        "responsibility",
+        "skill",
+        "qualification",
+        "experience",
+        "duty",
+        "about the role",
+        "overview",
+        "tech stack",
+        "must have",
+        "nice to have",
+        "competency",
+        "education",
+        "summary",
+        "project",
+    )
+
+    selected_chunks = []
+    current_length = 0
+
+    for chunk in chunks:
+        addition_length = len(chunk) + (2 if selected_chunks else 0)
+        if current_length + addition_length <= max_chars:
+            selected_chunks.append(chunk)
+            current_length += addition_length
+        else:
+            break
+
+    remaining_chunks = chunks[len(selected_chunks) :]
+    priority_missed = [
+        c for c in remaining_chunks if any(kw in c.lower() for kw in priority_keywords)
+    ]
+
+    for p_chunk in priority_missed:
+        p_len = len(p_chunk) + 2
+        if current_length + p_len <= max_chars:
+            selected_chunks.append(p_chunk)
+            current_length += p_len
+        else:
+            for idx in range(len(selected_chunks) - 1, -1, -1):
+                candidate = selected_chunks[idx]
+                if not any(kw in candidate.lower() for kw in priority_keywords):
+                    potential_len = current_length - len(candidate) + len(p_chunk)
+                    if potential_len <= max_chars:
+                        selected_chunks[idx] = p_chunk
+                        current_length = potential_len
+                        break
+
+    return "\n\n".join(selected_chunks)
 
 
 async def get_active_llm_config(db: AsyncSession) -> dict[str, Any]:
@@ -69,10 +174,13 @@ async def extract_job_spec(
         )
 
         chain = prompt | structured_llm
+        webpage_data_clean = truncate_text_semantically(
+            raw_webpage_data, max_chars=16000
+        )
         result = await chain.ainvoke(
             {
-                "raw_webpage_data": raw_webpage_data,
-                "email_content": raw_webpage_data,
+                "raw_webpage_data": webpage_data_clean,
+                "email_content": webpage_data_clean,
             },
             config={"callbacks": [PostgresTracer()]},
         )
@@ -178,10 +286,12 @@ async def assess_job_posting(
     )
 
     chain = prompt | structured_llm
+    jd_clean = truncate_text_semantically(job_description, max_chars=16000)
+    cv_clean = truncate_text_semantically(cv_text, max_chars=16000)
     result = await chain.ainvoke(
         {
-            "job_description": job_description,
-            "candidate_cv": cv_text,
+            "job_description": jd_clean,
+            "candidate_cv": cv_clean,
             "candidate_domain_breakdown": domain_text,
             "programmatic_baseline": str(programmatic_baseline),
         },
@@ -296,8 +406,9 @@ async def anonymize_and_parse_cv(
     )
 
     chain = prompt | structured_llm
+    scrubbed_clean = truncate_text_semantically(pre_scrubbed_text, max_chars=16000)
     result = await chain.ainvoke(
-        {"resume_text": pre_scrubbed_text},
+        {"resume_text": scrubbed_clean},
         config={"callbacks": [PostgresTracer()]},
     )
     if isinstance(result, CVAnonymizationResult):

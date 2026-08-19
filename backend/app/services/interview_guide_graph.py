@@ -7,6 +7,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.core.llm_factory import get_task_chat_model
 from app.core.prompts import get_prompt_template
+from app.services.llm import truncate_text_semantically
 from app.services.postgres_tracer import PostgresTracer
 
 logger = logging.getLogger(__name__)
@@ -97,7 +98,7 @@ async def web_researcher_node(
                     ),
                     (
                         "human",
-                        f"Target Company: {company}\n\nJob Details:\n{jd_text[:3000]}",
+                        f"Target Company: {company}\n\nJob Details:\n{truncate_text_semantically(jd_text, max_chars=12000)}",
                     ),
                 ]
             )
@@ -171,8 +172,8 @@ async def section_generator_node(
                     "company_name": company_name,
                     "position": position,
                     "company_context": company_context,
-                    "jd_text": jd_text[:4000],
-                    "cv_text": cv_text[:4000],
+                    "jd_text": truncate_text_semantically(jd_text, max_chars=12000),
+                    "cv_text": truncate_text_semantically(cv_text, max_chars=12000),
                     "target_section": section_desc,
                 },
                 config={"callbacks": [PostgresTracer()]},
