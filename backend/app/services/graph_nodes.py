@@ -563,9 +563,13 @@ async def cover_letter_node(
             res_payload = dict(task_record.result_json or {})
             res_payload["cover_letter_status"] = cl_status
             if cl_status == "GENERATED":
-                res_payload["cover_letter_note"] = "Cover letter generated successfully."
+                res_payload["cover_letter_note"] = (
+                    "Cover letter generated successfully."
+                )
             elif cl_status == "FAILED":
-                res_payload["cover_letter_note"] = "Cover letter generation failed during pipeline execution."
+                res_payload["cover_letter_note"] = (
+                    "Cover letter generation failed during pipeline execution."
+                )
             else:
                 res_payload["cover_letter_note"] = (
                     f"Cover letter generation skipped (auto_enabled={enable_auto}, "
