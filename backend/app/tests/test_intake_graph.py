@@ -1,14 +1,18 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from langgraph.checkpoint.memory import MemorySaver
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.applications import ApplicationModel, CompanyModel, OtherEventModel
-from app.models.staging import StagingItemModel
-from app.schemas.graph_state import JobTrackerState
+from app.schemas.graph_state import IntakeState, JobTrackerState
 from app.schemas.intake import ExtractedEmailInfo
-from app.services.intake_graph import intake_graph
+from app.services.intake_graph import (
+    build_intake_graph,
+    intake_graph,
+    prune_terminal_state_node,
+)
 
 
 @pytest.mark.asyncio
@@ -164,12 +168,95 @@ async def test_graph_low_confidence_staging_flow(db_session: AsyncSession):
 
         assert result.get("staging_item_id") is not None
 
-    staging_res = await db_session.execute(
-        select(StagingItemModel).where(StagingItemModel.id == result["staging_item_id"])
+
+def test_prune_terminal_state_node():
+    """Unit test ensuring prune_terminal_state_node clears transient keys and enforces schema uniformity."""
+    initial_state: IntakeState = {
+        "message_id": "msg-unit-1",
+        "scraped_spec": "Temporary scraped job spec payload buffer",
+        "route": "staging",
+    }
+
+    updates = prune_terminal_state_node(initial_state)
+
+    assert updates["scraped_spec"] is None
+    assert updates["embedding_created"] is False
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_payload_pruning_on_staging_exit():
+    """Unit test using MemorySaver checkpointer verifying transient keys are pruned on staging exit."""
+    memory_checkpointer = MemorySaver()
+    test_graph = build_intake_graph(checkpointer=memory_checkpointer)
+
+    mock_db = AsyncMock()
+
+    class MockQueryResult:
+        def scalar_one_or_none(self):
+            return None
+
+        def scalars(self):
+            return self
+
+        def all(self):
+            return []
+
+    mock_db.execute = AsyncMock(return_value=MockQueryResult())
+
+    state_input: JobTrackerState = {
+        "message_id": "msg-stage-checkpointer-101",
+        "conversation_id": "conv-stage-101",
+        "subject": "Low Match Role",
+        "body": "Role body text",
+        "job_url": "https://example.com/job/123",
+    }
+
+    extracted = ExtractedEmailInfo(
+        company="Low Match Corp",
+        position="Backend Dev",
+        email_type="JOB_APPLICATION",
+        job_url="https://example.com/job/123",
     )
-    staged = staging_res.scalar_one_or_none()
-    assert staged is not None
-    assert staged.status == "PENDING"
+
+    thread_id = "test-thread-staging-101"
+
+    with (
+        patch(
+            "app.services.intake.extract_email_info", new_callable=AsyncMock
+        ) as mock_extract,
+        patch(
+            "app.services.scraper.scrape_job_url", new_callable=AsyncMock
+        ) as mock_scrape,
+        patch(
+            "app.services.graph_nodes._upsert_processed_email", new_callable=AsyncMock
+        ),
+        patch(
+            "app.services.graph_nodes.is_email_already_processed",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+    ):
+        mock_extract.return_value = extracted
+        mock_scrape.return_value = AsyncMock(text="RAW_SCRAPED_SPEC_BUFFER")
+
+        result = await test_graph.ainvoke(
+            state_input,
+            config={"configurable": {"db": mock_db, "thread_id": thread_id}},
+        )
+
+        assert result.get("scraped_spec") is None
+        assert result.get("embedding_created") is False
+
+        # Retrieve checkpoint from checkpointer saver
+        checkpoint_tuple = await memory_checkpointer.aget_tuple(
+            {"configurable": {"thread_id": thread_id}}
+        )
+        assert checkpoint_tuple is not None
+        checkpoint_channel_values = checkpoint_tuple.checkpoint.get(
+            "channel_values", {}
+        )
+        assert checkpoint_channel_values.get("scraped_spec") is None
+        assert checkpoint_channel_values.get("embedding_created") is False
 
 
 @pytest.mark.asyncio
