@@ -10,7 +10,6 @@ import InterviewReaderModal from '../modals/InterviewReaderModal.vue'
 import LogActivityModal from '../modals/LogActivityModal.vue'
 import PostHireModal from '../modals/PostHireModal.vue'
 import CompanyLogo from '../common/CompanyLogo.vue'
-import { renderMarkdown } from '../../utils/markdown'
 
 import {
   X, Check,
@@ -290,6 +289,35 @@ const parsedJobSpecSections = computed(() => {
   return sections.filter(s => s.content || s.title !== 'Overview')
 })
 
+function renderMarkdownText(text) {
+  let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>')
+
+  const lines = html.split('\n')
+  let inList = false
+  let out = []
+
+  for (const line of lines) {
+    const bulletMatch = line.match(/^[\-\*]\s+(.*)$/)
+    if (bulletMatch) {
+      if (!inList) {
+        inList = true
+        out.push('<ul class="jd-list">')
+      }
+      out.push(`<li>${bulletMatch[1]}</li>`)
+    } else {
+      if (inList) {
+        inList = false
+        out.push('</ul>')
+      }
+      out.push(line)
+    }
+  }
+  if (inList) out.push('</ul>')
+
+  return out.join('\n').replace(/\n/g, '<br>').replace(/<br><ul/g, '<ul').replace(/\/ul><br>/g, '</ul>')
+}
 
 
 function handleStatusSelect(e) {
@@ -868,7 +896,7 @@ function formatDate(isoStr) {
                 <div v-if="!structuredSpec && parsedJobSpecSections.length > 0" class="job-structured-spec">
                   <div v-for="(sec, idx) in parsedJobSpecSections" :key="idx" class="job-spec-section">
                     <h3 class="job-spec-header">{{ sec.title }}</h3>
-                    <div class="job-spec-body" v-html="renderMarkdown(sec.content)"></div>
+                    <div class="job-spec-body" v-html="renderMarkdownText(sec.content)"></div>
                   </div>
                 </div>
               </div>

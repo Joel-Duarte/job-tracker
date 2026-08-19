@@ -9,7 +9,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.storage import get_storage_provider
 from app.core.security import verify_admin_access
 from app.models.diagnostics import TraceEventModel
 
@@ -44,12 +43,11 @@ async def export_diagnostics(db: AsyncSession = Depends(get_db)):
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         zip_file.writestr("diagnostics.json", json_bytes)
 
-        # Read standard application logs if they exist using StorageProvider interface
+        # Read standard application logs if they exist
         try:
-            storage = get_storage_provider()
-            log_content = storage.read_text("backend.log")
-            if log_content:
-                zip_file.writestr("backend.log", log_content)
+            with open("backend.log") as f:
+                log_content = f.read()
+            zip_file.writestr("backend.log", log_content)
         except Exception:
             pass
 
@@ -99,6 +97,7 @@ def _extract_tracer_task_name(
     """Helper to extract a human-readable task name from a run payload."""
     name = run_dict.get("name") or default_name
 
+    # Check tags for LangChain runs
     tags = run_dict.get("tags", [])
     if isinstance(tags, list) and len(tags) > 0:
         meaningful_tags = [t for t in tags if t not in ("seq:step:1", "seq:step:2")]
