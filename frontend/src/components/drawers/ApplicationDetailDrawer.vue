@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
+import DOMPurify from 'dompurify'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
 import { ActionItemsAPI, ApplicationsAPI } from '../../api/endpoints'
@@ -316,7 +317,7 @@ function renderMarkdownText(text) {
   }
   if (inList) out.push('</ul>')
 
-  return out.join('\n').replace(/\n/g, '<br>').replace(/<br><ul/g, '<ul').replace(/\/ul><br>/g, '</ul>')
+  return DOMPurify.sanitize(out.join('\n').replace(/\n/g, '<br>').replace(/<br><ul/g, '<ul').replace(/\/ul><br>/g, '</ul>'))
 }
 
 
