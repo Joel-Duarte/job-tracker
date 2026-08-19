@@ -11,6 +11,25 @@ from sqlalchemy.orm import joinedload
 
 logger = logging.getLogger(__name__)
 
+_EMBEDDINGS_CACHE: dict[tuple, Embeddings] = {}
+
+
+def clear_embeddings_cache() -> None:
+    """Clears cached Embeddings model instances."""
+    _EMBEDDINGS_CACHE.clear()
+
+
+def _get_cached_embeddings_model(init_kwargs: dict[str, Any]) -> Embeddings:
+    """Returns cached Embeddings model instance or initializes and caches a new one."""
+    cache_key = tuple(sorted((k, str(v)) for k, v in init_kwargs.items()))
+    if cache_key in _EMBEDDINGS_CACHE:
+        return _EMBEDDINGS_CACHE[cache_key]
+
+    instance = init_embeddings(**init_kwargs)
+    _EMBEDDINGS_CACHE[cache_key] = instance
+    return instance
+
+
 UNCONFIGURED_PROVIDER = "openai"
 UNCONFIGURED_MODEL = "gpt-4o-mini"
 UNCONFIGURED_EMBEDDING_MODEL = "text-embedding-3-small"
@@ -205,7 +224,7 @@ async def get_embeddings_model(
         init_kwargs["tiktoken_enabled"] = False
 
     init_kwargs.update(override_kwargs)
-    return init_embeddings(**init_kwargs)
+    return _get_cached_embeddings_model(init_kwargs)
 
 
 TASK_RECOMMENDED_DEFAULTS = {
@@ -442,7 +461,7 @@ async def get_task_embeddings_model(
                     init_kwargs["api_key"] = api_key
 
                 init_kwargs.update(override_kwargs)
-                return init_embeddings(**init_kwargs)
+                return _get_cached_embeddings_model(init_kwargs)
         except Exception as err:
             logger.warning(
                 "Failed loading EMBEDDING task binding, falling back: %s", err

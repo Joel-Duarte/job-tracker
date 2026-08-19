@@ -13,9 +13,11 @@ from app.core.database import get_db
 from app.core.llm_factory import (
     _clean_base_url,
     _resolve_provider,
+    clear_embeddings_cache,
     get_task_chat_model,
     get_task_embeddings_model,
 )
+from app.core.security import verify_admin_access
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.schemas.ai_config import (
     AIProviderCreate,
@@ -197,7 +199,11 @@ async def _fetch_models_from_endpoint(
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/ai", tags=["AI Provider Registry & Task Bindings"])
+router = APIRouter(
+    prefix="/ai",
+    tags=["AI Provider Registry & Task Bindings"],
+    dependencies=[Depends(verify_admin_access)],
+)
 
 
 @router.get("/global-settings", response_model=GlobalSettingsRead)
@@ -292,6 +298,7 @@ async def create_ai_provider(
     db.add(provider)
     await db.commit()
     await db.refresh(provider)
+    clear_embeddings_cache()
     return _to_provider_read(provider)
 
 
@@ -590,6 +597,7 @@ async def set_ai_task_binding(
     await db.commit()
     await db.refresh(binding)
     binding.provider = provider
+    clear_embeddings_cache()
     return _to_binding_read(binding)
 
 

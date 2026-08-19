@@ -1,8 +1,10 @@
 import json
 import logging
+import re
 from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -27,6 +29,43 @@ from app.services.telemetry import trace_operation
 logger = logging.getLogger(__name__)
 
 
+def split_text_semantically(
+    text: str, chunk_size: int = 1000, chunk_overlap: int = 200
+) -> list[str]:
+    """
+    Splits text semantically using RecursiveCharacterTextSplitter on sentence
+    and Markdown section boundaries.
+    """
+    if not text:
+        return []
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        separators=["\n## ", "\n### ", "\n#### ", "\n\n", "\n", ". ", " ", ""],
+    )
+    return splitter.split_text(text)
+
+
+def truncate_text_semantically(text: str, max_chars: int = 12000) -> str:
+    """
+    Cleans raw text (normalizes whitespace, strips noise) and semantically bounds/truncates
+    the text along sentence and Markdown section boundaries while preserving essential content.
+    """
+    if not text:
+        return ""
+
+    cleaned = re.sub(r"[ \t]+", " ", text)
+    cleaned = re.sub(r"\n\s*\n\s*\n+", "\n\n", cleaned).strip()
+
+    if len(cleaned) <= max_chars:
+        return cleaned
+
+    chunks = split_text_semantically(cleaned, chunk_size=max_chars, chunk_overlap=0)
+    if chunks:
+        return chunks[0]
+    return cleaned[:max_chars]
+
+
 async def get_active_llm_config(db: AsyncSession) -> dict[str, Any]:
     """Backward compatibility helper returning active LLM config dictionary."""
     return await get_active_llm_config_dict(db)
@@ -40,12 +79,13 @@ async def extract_job_spec(
     Stage 1: Extracts structured job specs, responsibilities, requirements, and ATS keywords from raw webpage data.
     Uses JD_EXTRACTION task binding with temperature=0.0 and reasoning disabled.
     """
+    cleaned_data = truncate_text_semantically(raw_webpage_data)
     async with trace_operation(
         category="llm",
         name="extract_job_spec",
         inputs={
-            "char_count": len(raw_webpage_data),
-            "sample": raw_webpage_data[:200],
+            "char_count": len(cleaned_data),
+            "sample": cleaned_data[:200],
         },
         db=db,
     ) as trace_ctx:
@@ -71,8 +111,8 @@ async def extract_job_spec(
         chain = prompt | structured_llm
         result = await chain.ainvoke(
             {
-                "raw_webpage_data": raw_webpage_data,
-                "email_content": raw_webpage_data,
+                "raw_webpage_data": cleaned_data,
+                "email_content": cleaned_data,
             },
             config={"callbacks": [PostgresTracer()]},
         )

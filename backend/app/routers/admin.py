@@ -7,6 +7,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.security import verify_admin_access
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
@@ -17,7 +18,11 @@ from app.services.staleness_archiver import archive_stale_applications
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/admin", tags=["Deletion Operations"])
+router = APIRouter(
+    prefix="/admin",
+    tags=["Deletion Operations"],
+    dependencies=[Depends(verify_admin_access)],
+)
 
 
 @router.delete(
