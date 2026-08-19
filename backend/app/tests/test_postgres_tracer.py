@@ -107,7 +107,7 @@ async def test_postgres_tracer_db_error_handling(db_session: AsyncSession):
     run_id = "22222222-2222-2222-2222-222222222222"
 
     with patch(
-        "app.services.postgres_tracer.AsyncSessionLocal",
+        "app.core.database.AsyncSessionLocal",
         side_effect=Exception("Database connection failure"),
     ):
         await tracer.on_chain_start(
@@ -138,7 +138,7 @@ async def test_unit_async_background_persistence():
     mock_cm.__aenter__.return_value = mock_session
     mock_cm.__aexit__.return_value = None
 
-    with patch("app.services.postgres_tracer.AsyncSessionLocal", return_value=mock_cm):
+    with patch("app.core.database.AsyncSessionLocal", return_value=mock_cm):
         run_id = "11111111-1111-1111-1111-111111111111"
         await tracer.on_chain_start(
             serialized={"name": "test_chain"},
@@ -171,7 +171,7 @@ async def test_unit_concurrent_llm_runs():
     mock_cm.__aenter__.return_value = mock_session
     mock_cm.__aexit__.return_value = None
 
-    with patch("app.services.postgres_tracer.AsyncSessionLocal", return_value=mock_cm):
+    with patch("app.core.database.AsyncSessionLocal", return_value=mock_cm):
 
         async def execute_run(index: int):
             parent_id = f"00000000-0000-0000-0000-00000000000{index}"
@@ -211,7 +211,7 @@ async def test_unit_postgres_tracer_db_error_handling():
     run_id = "22222222-2222-2222-2222-222222222222"
 
     with patch(
-        "app.services.postgres_tracer.AsyncSessionLocal",
+        "app.core.database.AsyncSessionLocal",
         side_effect=Exception("Database connection failure"),
     ):
         await tracer.on_chain_start(

@@ -4,7 +4,7 @@ import logging
 from langchain_core.tracers.base import AsyncBaseTracer
 from langchain_core.tracers.schemas import Run
 
-from app.core.database import AsyncSessionLocal
+import app.core.database as db_module
 from app.models.diagnostics import TraceEventModel
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ class PostgresTracer(AsyncBaseTracer):
         self, run_dict: dict, run_id: str, event_type: str
     ) -> None:
         try:
-            async with AsyncSessionLocal() as session:
+            async with db_module.AsyncSessionLocal() as session:
                 event = TraceEventModel(
                     run_id=run_id,
                     category="llm",
