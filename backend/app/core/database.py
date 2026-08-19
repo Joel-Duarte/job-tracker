@@ -266,8 +266,10 @@ async def ensure_db_schema() -> None:
 
         logger.info("Database schema check and automatic column migration completed.")
 
-    # 4. Seed default prompts into email_prompts table if missing
+    # 4. Seed default prompts into email_prompts table if missing and ensure default system_settings
     async with AsyncSessionLocal() as session:
+        from app.core.config_manager import load_settings
         from app.core.prompts import seed_default_prompts
 
         await seed_default_prompts(session)
+        await load_settings(session)

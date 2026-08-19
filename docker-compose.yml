@@ -76,8 +76,6 @@ services:
       CAMOUFOX_ENDPOINT: http://scraper:9377
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    volumes:
-      - app_data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
@@ -116,8 +114,6 @@ services:
 volumes:
   postgres_data:
     name: job_tracker_postgres_data
-  app_data:
-    name: job_tracker_app_data
 
 networks:
   job-tracker-net:

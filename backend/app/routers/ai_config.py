@@ -207,25 +207,30 @@ router = APIRouter(
 
 
 @router.get("/global-settings", response_model=GlobalSettingsRead)
-async def get_global_settings() -> GlobalSettingsRead:
-    settings = load_settings()
+async def get_global_settings(
+    db: AsyncSession = Depends(get_db),
+) -> GlobalSettingsRead:
+    settings = await load_settings(db)
     return GlobalSettingsRead(
         ENABLE_EMBEDDINGS=settings.get("ENABLE_EMBEDDINGS", True),
-        AGENT_CHAT_RETENTION_DAYS=settings.get("AGENT_CHAT_RETENTION_DAYS", 0),
+        AGENT_CHAT_RETENTION_DAYS=settings.get("AGENT_CHAT_RETENTION_DAYS", 7),
     )
 
 
 @router.patch("/global-settings", response_model=GlobalSettingsRead)
-async def update_global_settings(payload: GlobalSettingsUpdate) -> GlobalSettingsRead:
-    settings = load_settings()
+async def update_global_settings(
+    payload: GlobalSettingsUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> GlobalSettingsRead:
+    settings = await load_settings(db)
     if payload.ENABLE_EMBEDDINGS is not None:
         settings["ENABLE_EMBEDDINGS"] = payload.ENABLE_EMBEDDINGS
     if payload.AGENT_CHAT_RETENTION_DAYS is not None:
         settings["AGENT_CHAT_RETENTION_DAYS"] = payload.AGENT_CHAT_RETENTION_DAYS
-    save_settings(settings)
+    await save_settings(settings, db)
     return GlobalSettingsRead(
         ENABLE_EMBEDDINGS=settings.get("ENABLE_EMBEDDINGS", True),
-        AGENT_CHAT_RETENTION_DAYS=settings.get("AGENT_CHAT_RETENTION_DAYS", 0),
+        AGENT_CHAT_RETENTION_DAYS=settings.get("AGENT_CHAT_RETENTION_DAYS", 7),
     )
 
 

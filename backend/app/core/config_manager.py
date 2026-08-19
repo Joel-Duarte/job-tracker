@@ -1,38 +1,91 @@
-import json
 import logging
-import os
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import AsyncSessionLocal
+from app.models.system_settings import SystemSettingsModel
 
 logger = logging.getLogger(__name__)
 
-CONFIG_FILE = os.path.join(
-    os.path.dirname(__file__), "..", "..", "global_settings.json"
-)
+
+async def get_system_settings_model(
+    db: AsyncSession | None = None,
+) -> SystemSettingsModel:
+    """Fetches the singleton system settings model (id=1), creating it if it does not exist."""
+
+    async def _fetch_or_create(session: AsyncSession) -> SystemSettingsModel:
+        stmt = select(SystemSettingsModel).where(SystemSettingsModel.id == 1)
+        res = await session.execute(stmt)
+        record = res.scalar_one_or_none()
+        if not record:
+            record = SystemSettingsModel(
+                id=1,
+                enable_embeddings=True,
+                agent_chat_retention_days=7,
+            )
+            session.add(record)
+            await session.commit()
+            await session.refresh(record)
+        return record
+
+    if db is not None:
+        return await _fetch_or_create(db)
+
+    async with AsyncSessionLocal() as session:
+        return await _fetch_or_create(session)
 
 
-def load_settings() -> dict:
-    if not os.path.exists(CONFIG_FILE):
-        return {"ENABLE_EMBEDDINGS": True}
+async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
+    """Loads system settings as a dictionary."""
     try:
-        with open(CONFIG_FILE) as f:
-            return json.load(f)
+        model = await get_system_settings_model(db)
+        return {
+            "ENABLE_EMBEDDINGS": model.enable_embeddings,
+            "AGENT_CHAT_RETENTION_DAYS": model.agent_chat_retention_days,
+        }
     except Exception as e:
-        logger.error(f"Failed to load global settings: {e}")
-        return {"ENABLE_EMBEDDINGS": True}
+        logger.error(f"Failed to load global settings from DB: {e}")
+        return {
+            "ENABLE_EMBEDDINGS": True,
+            "AGENT_CHAT_RETENTION_DAYS": 7,
+        }
 
 
-def save_settings(settings: dict) -> None:
+async def save_settings(
+    settings: dict[str, Any], db: AsyncSession | None = None
+) -> None:
+    """Saves system settings from a dictionary."""
+
+    async def _update_settings(session: AsyncSession) -> None:
+        model = await get_system_settings_model(session)
+        if "ENABLE_EMBEDDINGS" in settings:
+            model.enable_embeddings = bool(settings["ENABLE_EMBEDDINGS"])
+        if "AGENT_CHAT_RETENTION_DAYS" in settings:
+            model.agent_chat_retention_days = int(settings["AGENT_CHAT_RETENTION_DAYS"])
+        await session.commit()
+
     try:
-        with open(CONFIG_FILE, "w") as f:
-            json.dump(settings, f, indent=2)
+        if db is not None:
+            await _update_settings(db)
+        else:
+            async with AsyncSessionLocal() as session:
+                await _update_settings(session)
     except Exception as e:
-        logger.error(f"Failed to save global settings: {e}")
+        logger.error(f"Failed to save global settings to DB: {e}")
 
 
-def get_setting(key: str, default=None):
-    return load_settings().get(key, default)
+async def get_setting(
+    key: str, default: Any = None, db: AsyncSession | None = None
+) -> Any:
+    """Retrieves a specific system setting by key asynchronously."""
+    settings = await load_settings(db)
+    return settings.get(key, default)
 
 
-def set_setting(key: str, value):
-    settings = load_settings()
+async def set_setting(key: str, value: Any, db: AsyncSession | None = None) -> None:
+    """Sets a specific system setting by key asynchronously."""
+    settings = await load_settings(db)
     settings[key] = value
-    save_settings(settings)
+    await save_settings(settings, db)
