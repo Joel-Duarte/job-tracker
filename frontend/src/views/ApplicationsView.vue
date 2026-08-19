@@ -1478,6 +1478,23 @@ async function confirmDelete() {
         </button>
 
         <button
+          v-if="activeMenuApp.cover_letter_text || activeMenuApp.cover_letter_status === 'GENERATED'"
+          class="menu-item"
+          @click="uiStore.openDetail(activeMenuApp.id, 'cover_letter'); closeCardMenu()"
+        >
+          <FileText :size="13" class="text-primary" />
+          <span>See Cover Letter</span>
+        </button>
+        <button
+          v-else
+          class="menu-item"
+          @click="uiStore.openDetail(activeMenuApp.id, 'cover_letter'); closeCardMenu()"
+        >
+          <Sparkles :size="13" />
+          <span>Draft Cover Letter</span>
+        </button>
+
+        <button
           v-if="activeMenuApp.has_interview_guide"
           class="menu-item"
           @click="openInterviewReaderModal(activeMenuApp.id); closeCardMenu()"
