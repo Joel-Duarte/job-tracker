@@ -7,7 +7,6 @@ import {
   Cpu,
   Loader2,
   AlertCircle,
-  CheckCircle2,
   Clock,
   RotateCcw,
   ExternalLink,
@@ -32,21 +31,22 @@ const widgetContainerRef = ref(null)
 
 let pollTimer = null
 
+// Filter tasks strictly to active (running/queued) and failed/error tasks
 const activeTasks = computed(() =>
   tasks.value.filter((t) => ['QUEUED', 'PROCESSING'].includes(t.status))
 )
 const failedTasks = computed(() =>
   tasks.value.filter((t) => ['FAILED', 'CANCELLED'].includes(t.status))
 )
-const completedTasks = computed(() =>
-  tasks.value.filter((t) => t.status === 'COMPLETED')
-)
 
+// Active and Failed counters
 const activeCount = computed(() => activeTasks.value.length)
 const failedCount = computed(() => failedTasks.value.length)
-const completedCount = computed(() => completedTasks.value.length)
 
-// Determine state status for styling
+// Focus scope list strictly for the popover menu (active + failed tasks only)
+const focusedTasks = computed(() => [...activeTasks.value, ...failedTasks.value])
+
+// Determine widget health state for dynamic border & badge coloring
 const widgetState = computed(() => {
   if (failedCount.value > 0) return 'failed'
   if (activeCount.value > 0) return 'active'
@@ -61,7 +61,6 @@ async function pollQueueStatus(silent = true) {
       tasks.value = res.data
     }
   } catch (err) {
-    // Ignore silent errors during background polling
     if (!silent) {
       uiStore.showToast(err.message || 'Failed to update queue', 'error')
     }
@@ -160,7 +159,7 @@ onUnmounted(() => {
         <div class="popover-header">
           <div class="header-title-group">
             <Cpu :size="16" class="text-primary" />
-            <span class="header-title">AI Processing Queue</span>
+            <span class="header-title">Active AI Execution Queue</span>
             <span v-if="loading" class="loading-indicator">
               <Loader2 :size="12" class="animate-spin text-muted" />
             </span>
@@ -171,7 +170,7 @@ onUnmounted(() => {
               class="btn-icon-subtle"
               :disabled="loading"
               @click="pollQueueStatus(false)"
-              title="Refresh queue items"
+              title="Refresh active tasks"
             >
               <RefreshCw :size="13" :class="{ 'animate-spin': loading }" />
             </button>
@@ -194,7 +193,7 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- Summary Status Counter Bar -->
+        <!-- Summary Status Counter Bar (Focused: Active & Failed only) -->
         <div class="popover-stats-bar">
           <div class="stat-badge" :class="{ 'active-stat': activeCount > 0 }">
             <Loader2 v-if="activeCount > 0" class="animate-spin" :size="11" />
@@ -206,24 +205,19 @@ onUnmounted(() => {
             <AlertCircle :size="11" />
             <span>{{ failedCount }} Failed</span>
           </div>
-
-          <div class="stat-badge completed-stat">
-            <CheckCircle2 :size="11" />
-            <span>{{ completedCount }} Done</span>
-          </div>
         </div>
 
-        <!-- Task List Content Area -->
+        <!-- Task List Content Area (Focused on Active & Failed Tasks Only) -->
         <div class="popover-body">
-          <div v-if="tasks.length === 0" class="empty-queue-state">
+          <div v-if="focusedTasks.length === 0" class="empty-queue-state">
             <Cpu :size="28" class="text-muted opacity-50" />
             <p class="empty-title">Queue is idle</p>
-            <p class="empty-subtext">No active background tasks or failed items.</p>
+            <p class="empty-subtext">No running background tasks or failed items requiring attention.</p>
           </div>
 
           <div v-else class="popover-task-list">
             <div
-              v-for="task in tasks"
+              v-for="task in focusedTasks"
               :key="task.id"
               class="popover-task-item"
               :class="`task-state-${task.status.toLowerCase()}`"
@@ -243,7 +237,6 @@ onUnmounted(() => {
                 <div class="task-status-pill" :class="`pill-${task.status.toLowerCase()}`">
                   <Loader2 v-if="task.status === 'PROCESSING'" class="animate-spin" :size="10" />
                   <AlertCircle v-else-if="['FAILED', 'CANCELLED'].includes(task.status)" :size="10" />
-                  <CheckCircle2 v-else-if="task.status === 'COMPLETED'" :size="10" />
                   <Clock v-else :size="10" />
                   <span>{{ task.status }}</span>
                 </div>
@@ -291,17 +284,17 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- Popover Footer -->
+        <!-- Popover Footer with Dedicated View Shortcut -->
         <div class="popover-footer">
           <button class="btn-full-queue" @click="navigateToQueue">
-            <span>View Full Execution Queue</span>
+            <span>View Full Queue & History</span>
             <ExternalLink :size="12" />
           </button>
         </div>
       </div>
     </Transition>
 
-    <!-- Compact Floating Status Pill (Always visible) -->
+    <!-- Compact Floating Status Pill (Persistent across states) -->
     <div
       class="queue-status-pill-button"
       :class="[
@@ -593,10 +586,6 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-.stat-badge.completed-stat {
-  color: var(--status-offer-text);
-}
-
 /* Popover Body & Task List */
 .popover-body {
   max-height: 300px;
@@ -707,11 +696,6 @@ onUnmounted(() => {
 .pill-failed, .pill-cancelled {
   background-color: rgba(239, 68, 68, 0.15);
   color: var(--danger, #ef4444);
-}
-
-.pill-completed {
-  background-color: var(--status-offer-bg);
-  color: var(--status-offer-text);
 }
 
 .pill-queued {
