@@ -1,5 +1,5 @@
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -72,9 +72,9 @@ async def test_agent_chat_endpoint(db_session):
     )
 
     with patch("app.routers.agent_chat.get_task_chat_model") as mock_get_model:
-        mock_model = AsyncMock()
-        mock_model.bind_tools.return_value = mock_model
-        mock_model.ainvoke.return_value = mock_ai_response
+        mock_model = MagicMock()
+        mock_model.bind_tools = MagicMock(return_value=mock_model)
+        mock_model.ainvoke = AsyncMock(return_value=mock_ai_response)
         mock_get_model.return_value = mock_model
 
         async with AsyncClient(
@@ -108,9 +108,11 @@ async def test_agent_chat_stream_endpoint(db_session):
         yield mock_chunk1
         yield mock_chunk2
 
-    with patch("app.routers.agent_chat.get_task_chat_model") as mock_get_model:
-        mock_model = AsyncMock()
-        mock_model.bind_tools.return_value = mock_model
+    with patch(
+        "app.routers.agent_chat.get_task_chat_model", new_callable=AsyncMock
+    ) as mock_get_model:
+        mock_model = MagicMock()
+        mock_model.bind_tools = MagicMock(return_value=mock_model)
         mock_model.astream = mock_astream
         mock_get_model.return_value = mock_model
 
