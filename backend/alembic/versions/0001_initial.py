@@ -178,9 +178,7 @@ def upgrade() -> None:
         ["name_normalized"],
         unique=True,
     )
-    op.create_index(
-        "idx_email_companies_domain", "email_companies", ["domain"]
-    )
+    op.create_index("idx_email_companies_domain", "email_companies", ["domain"])
     op.create_index(
         "idx_email_companies_name_trgm",
         "email_companies",
