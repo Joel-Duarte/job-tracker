@@ -1,5 +1,10 @@
+import hashlib
+import hmac
 import logging
 import os
+import secrets
+import time
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -20,6 +25,49 @@ from app.services.oauth_adapters import GmailOAuthAdapter, MicrosoftGraphAdapter
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/email_accounts", tags=["Email Accounts"])
 
+_STATE_SECRET = secrets.token_bytes(32)
+_USED_STATES: set[str] = set()
+
+
+def generate_oauth_state() -> str:
+    """Generates a signed cryptographic state token for OAuth CSRF protection."""
+    raw_token = secrets.token_urlsafe(16)
+    timestamp = str(int(time.time()))
+    signature = hmac.new(
+        _STATE_SECRET, f"{raw_token}:{timestamp}".encode(), hashlib.sha256
+    ).hexdigest()
+    return f"{raw_token}.{timestamp}.{signature}"
+
+
+def validate_oauth_state(state: str | None) -> bool:
+    """Validates the OAuth CSRF state token and guards against replay attacks."""
+    if not state:
+        return False
+    parts = state.split(".")
+    if len(parts) != 3:
+        return False
+    raw_token, timestamp_str, signature = parts
+    try:
+        ts = int(timestamp_str)
+    except ValueError:
+        return False
+
+    now = int(time.time())
+    # 15 minutes TTL
+    if now - ts > 900 or ts > now + 60:
+        return False
+
+    expected_sig = hmac.new(
+        _STATE_SECRET, f"{raw_token}:{timestamp_str}".encode(), hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected_sig):
+        return False
+
+    if raw_token in _USED_STATES:
+        return False
+    _USED_STATES.add(raw_token)
+    return True
+
 
 def _resolve_base_url(request: Request) -> str:
     """Dynamically resolves the public base URL of the backend.
@@ -35,6 +83,19 @@ def _resolve_base_url(request: Request) -> str:
         or f"{request.url.hostname}:{request.url.port}"
     )
     return f"{forwarded_proto}://{forwarded_host}"
+
+
+def _resolve_frontend_origin(request: Request) -> str:
+    """Resolves the explicit frontend application origin for safe postMessage target rendering."""
+    origin = request.headers.get("origin")
+    if origin:
+        return origin.rstrip("/")
+    referer = request.headers.get("referer")
+    if referer:
+        parsed = urlparse(referer)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+    return _resolve_base_url(request)
 
 
 class OAuthUrlResponse(BaseModel):
@@ -81,6 +142,8 @@ async def get_oauth_authorize_url(
         redirect_uri or f"{base_url}/api/v1/email_accounts/oauth/callback/{prov}"
     )
 
+    state_token = generate_oauth_state()
+
     if prov == "google":
         resolved_client_id = client_id or os.getenv("GOOGLE_OAUTH_CLIENT_ID")
         if resolved_client_id:
@@ -92,7 +155,8 @@ async def get_oauth_authorize_url(
                 f"response_type=code&"
                 f"scope={scopes}&"
                 f"access_type=offline&"
-                f"prompt=consent"
+                f"prompt=consent&"
+                f"state={state_token}"
             )
             return OAuthUrlResponse(
                 provider="google",
@@ -120,7 +184,8 @@ async def get_oauth_authorize_url(
                 f"redirect_uri={effective_redirect_uri}&"
                 f"response_mode=query&"
                 f"scope={scopes}&"
-                f"prompt=consent"
+                f"prompt=consent&"
+                f"state={state_token}"
             )
             return OAuthUrlResponse(
                 provider="microsoft",
@@ -165,12 +230,30 @@ async def oauth_callback(
             </html>
             """,
             media_type="text/html",
+            status_code=400,
+        )
+
+    if not validate_oauth_state(state):
+        return Response(
+            content="""
+            <html>
+                <body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: #f8fafc;">
+                    <div style="text-align: center; background: #1e293b; padding: 32px 48px; border-radius: 12px; border: 1px solid #ef4444;">
+                        <h2 style="color: #ef4444; margin-bottom: 8px;">OAuth Authorization Failed</h2>
+                        <p style="color: #94a3b8; font-size: 14px;">Invalid or expired CSRF state parameter.</p>
+                    </div>
+                </body>
+            </html>
+            """,
+            media_type="text/html",
+            status_code=400,
         )
 
     if not code:
         return Response(
             content="<html><body><h3>OAuth Error: No authorization code received.</h3></body></html>",
             media_type="text/html",
+            status_code=400,
         )
 
     prov = provider.lower().strip()
@@ -276,17 +359,18 @@ async def oauth_callback(
 
             await db.commit()
 
+        frontend_origin = _resolve_frontend_origin(request)
         return Response(
-            content="""
+            content=f"""
             <html>
                 <body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: #f8fafc;">
                     <div style="text-align: center; background: #1e293b; padding: 32px 48px; border-radius: 12px; border: 1px solid #334155;">
                         <h2 style="color: #10b981; margin-bottom: 8px;">✓ Mailbox Connected Successfully!</h2>
                         <p style="color: #94a3b8; font-size: 14px;">Sync authorization established. Closing window...</p>
                         <script>
-                            if (window.opener) {
-                                window.opener.postMessage({ type: 'oauth_success' }, '*');
-                            }
+                            if (window.opener) {{
+                                window.opener.postMessage({{ type: 'oauth_success' }}, '{frontend_origin}');
+                            }}
                             setTimeout(() => window.close(), 1200);
                         </script>
                     </div>
@@ -402,7 +486,15 @@ async def update_account(
 
     try:
         update_data = payload.model_dump(exclude_unset=True)
+        masked_fields = {
+            "app_password",
+            "access_token",
+            "refresh_token",
+            "client_secret",
+        }
         for field, value in update_data.items():
+            if field in masked_fields and value == "********":
+                continue
             setattr(account, field, value)
 
         await db.commit()
