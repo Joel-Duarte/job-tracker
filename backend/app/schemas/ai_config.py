@@ -3,13 +3,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.security import mask_secret
 
-def mask_secret(secret: str | None) -> str | None:
-    if not secret:
-        return None
-    if len(secret) <= 6:
-        return "***"
-    return f"{secret[:3]}...{secret[-3:]}"
+__all__ = ["mask_secret"]
 
 
 class AIProviderCreate(BaseModel):
