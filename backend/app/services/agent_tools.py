@@ -77,7 +77,7 @@ async def execute_semantic_vector_search(
 
     from app.core.config_manager import get_setting
 
-    if not get_setting("ENABLE_EMBEDDINGS", True):
+    if not await get_setting("ENABLE_EMBEDDINGS", True, db):
         words = [w for w in query.strip().split() if len(w) > 2]
         stmt = (
             select(ApplicationModel)

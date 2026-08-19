@@ -73,13 +73,13 @@ fi
 
 if [ "$RESET_DB" = true ]; then
   echo "⚠️  RESETTING DATABASE & APPLICATION DATA..."
-  echo "   Stopping containers and wiping volumes: job_tracker_postgres_data, job_tracker_app_data..."
+  echo "   Stopping containers and wiping volume: job_tracker_postgres_data..."
   docker compose "${COMPOSE_FILES[@]}" down -v --remove-orphans
   
   # Ensure named volumes are explicitly removed if detached
-  docker volume rm -f job_tracker_postgres_data job_tracker_app_data 2>/dev/null || true
+  docker volume rm -f job_tracker_postgres_data 2>/dev/null || true
   
-  echo "🧹 Database and application volumes wiped clean."
+  echo "🧹 Database volume wiped clean."
   echo ""
 
   if [ "$RESET_ONLY" = true ]; then

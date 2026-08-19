@@ -18,6 +18,7 @@ from app.models.llm import LLMConfigModel
 from app.models.processed_email import ProcessedEmailModel
 from app.models.prompts import PromptModel
 from app.models.staging import StagingItemModel
+from app.models.system_settings import SystemSettingsModel
 
 __all__ = [
     "AIProviderModel",
@@ -39,4 +40,5 @@ __all__ = [
     "StagingItemModel",
     "AgentChatModel",
     "TraceEventModel",
+    "SystemSettingsModel",
 ]

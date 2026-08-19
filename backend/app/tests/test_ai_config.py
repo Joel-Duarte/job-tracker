@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config_manager import get_setting, load_settings, set_setting
 from app.core.database import get_db
 from app.core.llm_factory import get_task_chat_model
 from app.main import app
@@ -17,6 +18,53 @@ from app.models.applications import (
     CompanyModel,
     JobPostingModel,
 )
+from app.models.system_settings import SystemSettingsModel
+
+
+@pytest.mark.asyncio
+async def test_global_settings_db_backed(db_session: AsyncSession):
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # 1. Get initial global settings
+        get_res = await ac.get("/api/v1/ai/global-settings")
+        assert get_res.status_code == 200
+        data = get_res.json()
+        assert data["ENABLE_EMBEDDINGS"] is True
+        assert data["AGENT_CHAT_RETENTION_DAYS"] == 7
+
+        # 2. Patch global settings
+        patch_res = await ac.patch(
+            "/api/v1/ai/global-settings",
+            json={"ENABLE_EMBEDDINGS": False, "AGENT_CHAT_RETENTION_DAYS": 14},
+        )
+        assert patch_res.status_code == 200
+        patched_data = patch_res.json()
+        assert patched_data["ENABLE_EMBEDDINGS"] is False
+        assert patched_data["AGENT_CHAT_RETENTION_DAYS"] == 14
+
+        # 3. Verify direct DB row update
+        stmt = select(SystemSettingsModel).where(SystemSettingsModel.id == 1)
+        res = await db_session.execute(stmt)
+        record = res.scalar_one_or_none()
+        assert record is not None
+        assert record.enable_embeddings is False
+        assert record.agent_chat_retention_days == 14
+
+        # 4. Verify config_manager service methods with db_session
+        loaded = await load_settings(db_session)
+        assert loaded["ENABLE_EMBEDDINGS"] is False
+        assert loaded["AGENT_CHAT_RETENTION_DAYS"] == 14
+
+        val = await get_setting("ENABLE_EMBEDDINGS", default=True, db=db_session)
+        assert val is False
+
+        await set_setting("ENABLE_EMBEDDINGS", True, db=db_session)
+        val_after = await get_setting("ENABLE_EMBEDDINGS", default=False, db=db_session)
+        assert val_after is True
+
+    app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio

@@ -79,7 +79,7 @@ async def archive_stale_applications(
 
 
 async def delete_stale_agent_chats(db: AsyncSession) -> int:
-    settings = load_settings()
+    settings = await load_settings(db)
     retention_days = settings.get("AGENT_CHAT_RETENTION_DAYS", 0)
     if retention_days <= 0:
         return 0
