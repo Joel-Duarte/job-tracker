@@ -55,6 +55,7 @@ class InterviewGuideState(TypedDict):
     completed_sections: list[str]
     language: str
     error: str | None
+    iteration_count: int
 
 
 async def extractor_node(state: InterviewGuideState) -> dict[str, Any]:
@@ -66,6 +67,7 @@ async def extractor_node(state: InterviewGuideState) -> dict[str, Any]:
         "position": position or "Target Role",
         "current_section_index": 0,
         "completed_sections": [],
+        "iteration_count": 0,
     }
 
 
@@ -124,9 +126,14 @@ async def section_generator_node(
     target_sections = sorted(target_sections, key=lambda x: order_mapping.get(x, 999))
     idx = state.get("current_section_index", 0)
     completed = list(state.get("completed_sections", []))
+    iteration_count = state.get("iteration_count", 0) + 1
 
     if idx >= len(target_sections):
-        return {"current_section_index": idx + 1, "target_sections": target_sections}
+        return {
+            "current_section_index": idx + 1,
+            "target_sections": target_sections,
+            "iteration_count": iteration_count,
+        }
 
     section_key = target_sections[idx]
     section_desc = SECTION_DESCRIPTIONS.get(section_key, f"Section: {section_key}")
@@ -199,11 +206,20 @@ async def section_generator_node(
         "completed_sections": completed,
         "current_section_index": idx + 1,
         "target_sections": target_sections,
+        "iteration_count": iteration_count,
     }
 
 
 def should_continue_sections(state: InterviewGuideState) -> str:
-    """Routes back to section_generator_node if more sections remain."""
+    """Routes back to section_generator_node if more sections remain and iteration count is within bounds."""
+    iteration_count = state.get("iteration_count", 0)
+    if iteration_count >= 20:
+        logger.warning(
+            "Hard circuit breaker triggered in should_continue_sections (iteration_count=%d)",
+            iteration_count,
+        )
+        return END
+
     target_sections = state.get("target_sections", [])
     order_mapping = {key: i for i, key in enumerate(SECTION_DESCRIPTIONS.keys())}
     target_sections = sorted(target_sections, key=lambda x: order_mapping.get(x, 999))
