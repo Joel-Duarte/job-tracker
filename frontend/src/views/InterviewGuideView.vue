@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
+import DOMPurify from 'dompurify'
 import { ApplicationsAPI } from '../api/endpoints'
 import {
   Globe,
@@ -20,6 +21,12 @@ const isLoading = ref(true)
 const application = ref(null)
 const error = ref(null)
 const hasCopied = ref(false)
+
+const sanitizedGuideHtml = computed(() => {
+  return application.value?.interview_guide_html
+    ? DOMPurify.sanitize(application.value.interview_guide_html)
+    : ''
+})
 
 onMounted(async () => {
   if (!applicationId) {
@@ -134,7 +141,7 @@ function formatLanguageName(code) {
       <div class="guide-paper">
         <div
           class="guide-article"
-          v-html="application.interview_guide_html"
+          v-html="sanitizedGuideHtml"
         ></div>
       </div>
     </div>

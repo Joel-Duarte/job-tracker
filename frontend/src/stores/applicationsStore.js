@@ -101,36 +101,63 @@ export const useApplicationsStore = defineStore('applications', () => {
     })
 
     const nowTs = Date.now()
+    const timestampCache = new WeakMap()
 
     function getAppInterviewTimestamp(app) {
+      if (!app) return null
+      const cached = timestampCache.get(app)?.interview
+      if (cached !== undefined) return cached
+      let val = null
       const stage = (app.latest_event?.raw_payload?.interview_stage || '').trim()
-      if (stage === 'Task Completed / Awaiting Response') {
-        return null
+      if (stage !== 'Task Completed / Awaiting Response') {
+        const raw =
+          app.scheduled_interview_at ||
+          app.latest_event?.raw_payload?.scheduled_at ||
+          app.events?.find((e) => e.raw_payload?.scheduled_at)?.raw_payload?.scheduled_at
+        if (raw) {
+          const ts = new Date(raw).getTime()
+          val = isNaN(ts) ? null : ts
+        }
       }
-      const raw =
-        app.scheduled_interview_at ||
-        app.latest_event?.raw_payload?.scheduled_at ||
-        app.events?.find((e) => e.raw_payload?.scheduled_at)?.raw_payload?.scheduled_at
-      if (!raw) return null
-      const ts = new Date(raw).getTime()
-      return isNaN(ts) ? null : ts
+      const entry = timestampCache.get(app) || {}
+      entry.interview = val
+      timestampCache.set(app, entry)
+      return val
     }
 
     function getAppOfferDeadlineTimestamp(app) {
+      if (!app) return null
+      const cached = timestampCache.get(app)?.offer
+      if (cached !== undefined) return cached
+      let val = null
       const raw =
         app.nearest_due_date ||
         app.latest_event?.raw_payload?.decision_deadline ||
         app.events?.find((e) => e.raw_payload?.decision_deadline)?.raw_payload?.decision_deadline
-      if (!raw) return null
-      const ts = new Date(raw).getTime()
-      return isNaN(ts) ? null : ts
+      if (raw) {
+        const ts = new Date(raw).getTime()
+        val = isNaN(ts) ? null : ts
+      }
+      const entry = timestampCache.get(app) || {}
+      entry.offer = val
+      timestampCache.set(app, entry)
+      return val
     }
 
     function getAppActivityTimestamp(app) {
+      if (!app) return 0
+      const cached = timestampCache.get(app)?.activity
+      if (cached !== undefined) return cached
+      let val = 0
       const raw = app.last_activity_at || app.application_date || app.created_at
-      if (!raw) return 0
-      const ts = new Date(raw).getTime()
-      return isNaN(ts) ? 0 : ts
+      if (raw) {
+        const ts = new Date(raw).getTime()
+        val = isNaN(ts) ? 0 : ts
+      }
+      const entry = timestampCache.get(app) || {}
+      entry.activity = val
+      timestampCache.set(app, entry)
+      return val
     }
 
     // Sort APPLIED: newest activity first
@@ -181,6 +208,17 @@ export const useApplicationsStore = defineStore('applications', () => {
     return columns
   })
 
+  function toSummary(app) {
+    if (!app) return app
+    const {
+      events,
+      action_items,
+      interview_guide_html,
+      ...summary
+    } = app
+    return summary
+  }
+
   async function fetchApplications() {
     loading.value = true
     error.value = null
@@ -194,7 +232,8 @@ export const useApplicationsStore = defineStore('applications', () => {
       if (actionRequiredOnly.value) params.action_required = true
 
       const res = await ApplicationsAPI.list(params)
-      applications.value = res.data.items || []
+      const rawItems = res.data.items || []
+      applications.value = rawItems.map(toSummary)
       total.value = res.data.total || 0
     } catch (err) {
       error.value = err.message
@@ -244,7 +283,7 @@ export const useApplicationsStore = defineStore('applications', () => {
       const updated = res.data
       const idx = applications.value.findIndex((a) => a.id === applicationId)
       if (idx !== -1) {
-        applications.value[idx] = { ...applications.value[idx], ...updated }
+        applications.value[idx] = toSummary({ ...applications.value[idx], ...updated })
       }
       if (selectedApplication.value && selectedApplication.value.id === applicationId) {
         selectedApplication.value = { ...selectedApplication.value, ...updated }
