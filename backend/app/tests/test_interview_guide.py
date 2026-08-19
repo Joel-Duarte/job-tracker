@@ -10,69 +10,38 @@ from app.models.applications import ApplicationModel, CompanyModel, JobPostingMo
 from app.models.candidate_profile import CandidateCVModel
 from app.services.interview_guide_graph import (
     InterviewGuideState,
-    consolidate_node,
-    continue_to_sections,
     extractor_node,
-    section_generator_node,
+    should_continue_sections,
 )
 
 
 @pytest.mark.asyncio
 async def test_interview_guide_graph_node_logic():
-    """Unit test for fan-out state machine nodes and edge routing."""
+    """Unit test for state machine nodes and edge routing."""
     state: InterviewGuideState = {
         "cv_text": "Experienced Python Backend Engineer with 7 years in FastAPI and PostgreSQL.",
         "jd_text": "Looking for Senior Backend Engineer at Acme Corp.",
         "company_name": "Acme Corp",
         "position": "Senior Backend Engineer",
-        "company_context": ["Acme is a tech leader."],
+        "company_context": [],
         "target_sections": ["role_company_brief", "strategic_fit_pitch"],
-        "section_results": [],
+        "current_section_index": 0,
         "completed_sections": [],
         "language": "en",
         "error": None,
+        "db_session": None,
     }
 
     # 1. Extractor node
     ext_res = await extractor_node(state)
     assert ext_res["company_name"] == "Acme Corp"
     assert ext_res["position"] == "Senior Backend Engineer"
-    assert ext_res["section_results"] == []
 
-    # 2. Fan-out routing logic (continue_to_sections)
-    sends = continue_to_sections(state)
-    assert isinstance(sends, list)
-    assert len(sends) == 2
-    assert sends[0].node == "section_generator"
-    assert sends[0].arg["section_key"] == "role_company_brief"
-    assert sends[0].arg["section_index"] == 0
-    assert sends[0].arg["company_name"] == "Acme Corp"
-    assert "company_context" in sends[0].arg
-    assert "completed_sections" not in sends[0].arg  # State pruning check
-
-    # Test empty target_sections routes to consolidate
-    empty_state = dict(state, target_sections=[])
-    assert continue_to_sections(empty_state) == "consolidate"
-
-    # 3. Section generator node
-    worker_state = sends[0].arg
-    gen_res = await section_generator_node(worker_state)
-    assert "section_results" in gen_res
-    assert len(gen_res["section_results"]) == 1
-    assert gen_res["section_results"][0]["key"] == "role_company_brief"
-    assert gen_res["section_results"][0]["index"] == 0
-    assert "<h2>" in gen_res["section_results"][0]["html"]
-
-    # 4. Consolidate node
-    state_with_results: InterviewGuideState = dict(
-        state,
-        section_results=[
-            {"key": "strategic_fit_pitch", "index": 1, "html": "<p>Pitch</p>"},
-            {"key": "role_company_brief", "index": 0, "html": "<p>Brief</p>"},
-        ],
-    )
-    cons_res = await consolidate_node(state_with_results)
-    assert cons_res["completed_sections"] == ["<p>Brief</p>", "<p>Pitch</p>"]
+    # 2. Routing logic
+    state["current_section_index"] = 0
+    assert should_continue_sections(state) == "section_generator"
+    state["current_section_index"] = 2
+    assert should_continue_sections(state) == "__end__"
 
 
 @pytest.mark.asyncio
@@ -124,7 +93,6 @@ async def test_generate_and_clear_interview_guide_endpoint(db_session: AsyncSess
     with patch(
         "app.services.interview_guide_graph.get_task_chat_model", new_callable=AsyncMock
     ) as mock_get_llm:
-        mock_get_llm.return_value = mock_get_llm
         mock_get_llm.return_value = mock_llm
 
         transport = ASGITransport(app=app)

@@ -1,5 +1,6 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
+import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,16 +77,19 @@ async def test_oauth_callback_postmessage_origin(db_session: AsyncSession):
             "refresh_token": "mock-refresh-token",
         }
 
-        mock_profile_resp = MagicMock()
-        mock_profile_resp.status_code = 200
-        mock_profile_resp.json.return_value = {"emailAddress": "testuser@gmail.com"}
+        mock_profile_resp = httpx.Response(
+            200, json={"emailAddress": "testuser@gmail.com"}
+        )
 
         with (
             patch(
                 "app.services.oauth_adapters.GmailOAuthAdapter.exchange_code_for_tokens",
                 return_value=mock_tokens,
             ),
-            patch("httpx.AsyncClient.get", return_value=mock_profile_resp),
+            patch(
+                "app.routers.email_accounts.httpx.AsyncClient.get",
+                return_value=mock_profile_resp,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://testserver"

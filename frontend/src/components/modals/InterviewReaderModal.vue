@@ -1,6 +1,5 @@
 <script setup>
-import { ref, watch, computed } from 'vue'
-import DOMPurify from 'dompurify'
+import { ref, watch } from 'vue'
 import { ApplicationsAPI } from '../../api/endpoints'
 import { useUIStore } from '../../stores/uiStore'
 import {
@@ -33,12 +32,6 @@ const application = ref(null)
 const error = ref(null)
 const hasCopied = ref(false)
 const isFullScreen = ref(false)
-
-const sanitizedGuideHtml = computed(() => {
-  return application.value?.interview_guide_html
-    ? DOMPurify.sanitize(application.value.interview_guide_html)
-    : ''
-})
 
 watch(() => props.isOpen, async (newVal) => {
   if (newVal && props.applicationId) {
@@ -180,7 +173,7 @@ function formatLanguageName(code) {
           </div>
 
           <div class="guide-paper">
-            <div class="guide-article" v-html="sanitizedGuideHtml"></div>
+            <div class="guide-article" v-html="application.interview_guide_html"></div>
           </div>
         </div>
       </div>

@@ -23,7 +23,7 @@ async def search_companies(
     q: str | None = Query(None, description="Fuzzy match company name"),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-) -> list[CompanySearchResult]:
+):
     """Returns matching companies alongside total tracked application count."""
     stmt = (
         select(
@@ -68,7 +68,7 @@ async def semantic_search(
         description="Maximum cosine distance threshold (default 0.60, matches n8n)",
     ),
     db: AsyncSession = Depends(get_db),
-) -> list[SemanticSearchResult]:
+):
     query_vector = await generate_query_embedding(q)
 
     # Replicating (embedding <=> $1::vector)
@@ -94,7 +94,7 @@ async def semantic_search(
     )
 
     result = await db.execute(stmt)
-    results: list[SemanticSearchResult] = []
+    results = []
 
     for emb, app, company, distance in result.all():
         dist_val = float(distance) if distance is not None else 0.0

@@ -3,7 +3,6 @@ import logging
 from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -26,110 +25,6 @@ from app.services.postgres_tracer import PostgresTracer
 from app.services.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
-
-
-def split_text_semantically(
-    text: str, chunk_size: int = 1000, chunk_overlap: int = 100
-) -> list[str]:
-    """
-    Splits text into chunks using RecursiveCharacterTextSplitter with section-aware separators.
-    Prevents splitting mid-sentence or mid-token while preserving Markdown structural headers.
-    """
-    if not text:
-        return []
-    separators = [
-        "\n\n# ",
-        "\n\n## ",
-        "\n\n### ",
-        "\n\n#### ",
-        "\n\n",
-        "\n",
-        ". ",
-        "? ",
-        "! ",
-        "; ",
-        " ",
-        "",
-    ]
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        separators=separators,
-    )
-    return splitter.split_text(text)
-
-
-def truncate_text_semantically(
-    text: str,
-    max_chars: int = 12000,
-    chunk_size: int = 1000,
-    chunk_overlap: int = 0,
-) -> str:
-    """
-    Truncates text semantically to stay within max_chars context thresholds.
-    Prioritizes key sections (requirements, responsibilities, skills, qualifications, experience)
-    and ensures clean sentence/paragraph boundaries without arbitrary character slicing.
-    """
-    if not text or len(text) <= max_chars:
-        return text or ""
-
-    eff_chunk_size = min(chunk_size, max_chars)
-    chunks = split_text_semantically(
-        text, chunk_size=eff_chunk_size, chunk_overlap=chunk_overlap
-    )
-    if not chunks:
-        return text[:max_chars]
-
-    priority_keywords = (
-        "requirement",
-        "responsibility",
-        "skill",
-        "qualification",
-        "experience",
-        "duty",
-        "about the role",
-        "overview",
-        "tech stack",
-        "must have",
-        "nice to have",
-        "competency",
-        "education",
-        "summary",
-        "project",
-    )
-
-    selected_chunks = []
-    current_length = 0
-
-    for chunk in chunks:
-        addition_length = len(chunk) + (2 if selected_chunks else 0)
-        if current_length + addition_length <= max_chars:
-            selected_chunks.append(chunk)
-            current_length += addition_length
-        else:
-            break
-
-    remaining_chunks = chunks[len(selected_chunks) :]
-    priority_missed = [
-        c for c in remaining_chunks if any(kw in c.lower() for kw in priority_keywords)
-    ]
-
-    for p_chunk in priority_missed:
-        p_len = len(p_chunk) + 2
-        if current_length + p_len <= max_chars:
-            selected_chunks.append(p_chunk)
-            current_length += p_len
-        else:
-            for idx in range(len(selected_chunks) - 1, -1, -1):
-                candidate = selected_chunks[idx]
-                if not any(kw in candidate.lower() for kw in priority_keywords):
-                    potential_len = current_length - len(candidate) + len(p_chunk)
-                    if potential_len <= max_chars:
-                        selected_chunks[idx] = p_chunk
-                        current_length = potential_len
-                        break
-
-    return "\n\n".join(selected_chunks)
 
 
 async def get_active_llm_config(db: AsyncSession) -> dict[str, Any]:
@@ -174,13 +69,10 @@ async def extract_job_spec(
         )
 
         chain = prompt | structured_llm
-        webpage_data_clean = truncate_text_semantically(
-            raw_webpage_data, max_chars=16000
-        )
         result = await chain.ainvoke(
             {
-                "raw_webpage_data": webpage_data_clean,
-                "email_content": webpage_data_clean,
+                "raw_webpage_data": raw_webpage_data,
+                "email_content": raw_webpage_data,
             },
             config={"callbacks": [PostgresTracer()]},
         )
@@ -210,7 +102,7 @@ async def extract_email_info(
     """Extracts structured job application metadata from email body using LangChain EXTRACTION model."""
     llm = await get_task_chat_model(db, task_type="EXTRACTION", temperature=0.1)
     structured_llm = llm.with_structured_output(EmailExtractionResult)
-    template_str = await get_prompt_template(db, "extraction")
+    template_str = await get_prompt_template(db, "email_extraction")
 
     formatted_content = email_content
     if sender or subject or date:
@@ -286,12 +178,10 @@ async def assess_job_posting(
     )
 
     chain = prompt | structured_llm
-    jd_clean = truncate_text_semantically(job_description, max_chars=16000)
-    cv_clean = truncate_text_semantically(cv_text, max_chars=16000)
     result = await chain.ainvoke(
         {
-            "job_description": jd_clean,
-            "candidate_cv": cv_clean,
+            "job_description": job_description,
+            "candidate_cv": cv_text,
             "candidate_domain_breakdown": domain_text,
             "programmatic_baseline": str(programmatic_baseline),
         },
@@ -406,9 +296,8 @@ async def anonymize_and_parse_cv(
     )
 
     chain = prompt | structured_llm
-    scrubbed_clean = truncate_text_semantically(pre_scrubbed_text, max_chars=16000)
     result = await chain.ainvoke(
-        {"resume_text": scrubbed_clean},
+        {"resume_text": pre_scrubbed_text},
         config={"callbacks": [PostgresTracer()]},
     )
     if isinstance(result, CVAnonymizationResult):
@@ -442,10 +331,7 @@ async def summarize_application_status(
     return ApplicationSummaryResult.model_validate(result)
 
 
-async def generate_embedding(
-    db: AsyncSession | None = None,
-    text_input: str = "",
-) -> list[float]:
+async def generate_embedding(db: AsyncSession, text_input: str) -> list[float]:
     """Generates vector embedding for input text using configured LangChain EMBEDDING model."""
     if isinstance(text_input, str):
         cleaned_text = text_input.strip()
@@ -461,7 +347,6 @@ async def generate_embedding(
         category="embedding",
         name="generate_embedding",
         inputs={"text_sample": cleaned_text[:200], "char_count": len(cleaned_text)},
-        db=None,
     ) as ctx:
         embeddings = await get_task_embeddings_model(db)
 
@@ -487,17 +372,14 @@ async def generate_embedding(
 
 
 async def generate_and_save_application_embedding(
-    db: AsyncSession | None = None,
-    application_id: int = 0,
+    db: AsyncSession,
+    application_id: int,
     skip_llm_summary: bool = True,
 ) -> ApplicationEmbeddingModel:
     """
     Creates or updates 768-dim vector embedding record for an application.
     Constructs the embedding directly from structured application metadata and the latest timeline event.
-    Decouples database sessions from external embedding network requests.
     """
-    from app.core.database import AsyncSessionLocal
-
     stmt = (
         select(ApplicationModel)
         .options(
@@ -506,14 +388,8 @@ async def generate_and_save_application_embedding(
         )
         .where(ApplicationModel.id == application_id)
     )
-
-    if db is not None:
-        res = await db.execute(stmt)
-        application = res.scalar_one_or_none()
-    else:
-        async with AsyncSessionLocal() as read_session:
-            res = await read_session.execute(stmt)
-            application = res.scalar_one_or_none()
+    res = await db.execute(stmt)
+    application = res.scalar_one_or_none()
 
     if not application:
         raise ValueError(f"Application ID {application_id} not found.")
@@ -564,6 +440,14 @@ async def generate_and_save_application_embedding(
         f"Latest Update ({evt_date}): [{evt_type}] {evt_summary}.{action_info}"
     )
 
+    vector = await generate_embedding(db, str(content_to_embed))
+
+    emb_stmt = select(ApplicationEmbeddingModel).where(
+        ApplicationEmbeddingModel.email_application_id == application_id
+    )
+    emb_res = await db.execute(emb_stmt)
+    embedding_record = emb_res.scalar_one_or_none()
+
     metadata_payload = {
         "company": comp_name,
         "position": application.position,
@@ -573,52 +457,21 @@ async def generate_and_save_application_embedding(
         else None,
     }
 
-    # Generate vector embedding via external API (No DB session held open)
-    vector = await generate_embedding(None, str(content_to_embed))
-
-    emb_stmt = select(ApplicationEmbeddingModel).where(
-        ApplicationEmbeddingModel.email_application_id == application_id
-    )
-
-    if db is not None:
-        emb_res = await db.execute(emb_stmt)
-        embedding_record = emb_res.scalar_one_or_none()
-
-        if not embedding_record:
-            embedding_record = ApplicationEmbeddingModel(
-                email_application_id=application_id,
-                content=content_to_embed,
-                metadata_=metadata_payload,
-                embedding=vector,
-            )
-            db.add(embedding_record)
-        else:
-            embedding_record.content = content_to_embed
-            embedding_record.metadata_ = metadata_payload
-            embedding_record.embedding = vector
-
-        await db.commit()
-        return embedding_record
+    if not embedding_record:
+        embedding_record = ApplicationEmbeddingModel(
+            email_application_id=application_id,
+            content=content_to_embed,
+            metadata_=metadata_payload,
+            embedding=vector,
+        )
+        db.add(embedding_record)
     else:
-        async with AsyncSessionLocal() as save_session:
-            emb_res = await save_session.execute(emb_stmt)
-            embedding_record = emb_res.scalar_one_or_none()
+        embedding_record.content = content_to_embed
+        embedding_record.metadata_ = metadata_payload
+        embedding_record.embedding = vector
 
-            if not embedding_record:
-                embedding_record = ApplicationEmbeddingModel(
-                    email_application_id=application_id,
-                    content=content_to_embed,
-                    metadata_=metadata_payload,
-                    embedding=vector,
-                )
-                save_session.add(embedding_record)
-            else:
-                embedding_record.content = content_to_embed
-                embedding_record.metadata_ = metadata_payload
-                embedding_record.embedding = vector
-
-            await save_session.commit()
-            return embedding_record
+    await db.commit()
+    return embedding_record
 
 
 async def async_enqueue_application_embedding(
@@ -628,7 +481,6 @@ async def async_enqueue_application_embedding(
     """
     Non-blocking background worker task to generate and save application vector embeddings.
     Tracks state in IntakeEvaluationTaskModel and uses Priority 2 in the ConcurrencyManager.
-    Decouples database sessions from external embedding network requests.
     """
     from app.core.config_manager import get_setting
 
@@ -690,35 +542,31 @@ async def async_enqueue_application_embedding(
                 db_task.stage = "EMBEDDING"
                 await processing_session.commit()
 
-        try:
-            await generate_and_save_application_embedding(
-                db=None,
-                application_id=application_id,
-                skip_llm_summary=skip_llm_summary,
-            )
-            logger.info(
-                "Background vector embedding updated for Application ID %d",
-                application_id,
-            )
+            try:
+                await generate_and_save_application_embedding(
+                    processing_session,
+                    application_id=application_id,
+                    skip_llm_summary=skip_llm_summary,
+                )
+                logger.info(
+                    "Background vector embedding updated for Application ID %d",
+                    application_id,
+                )
 
-            # 4. On Success: Complete
-            async with AsyncSessionLocal() as success_session:
-                db_task = await success_session.get(IntakeEvaluationTaskModel, task_id)
+                # 4. On Success: Complete
                 if db_task:
                     db_task.status = "COMPLETED"
                     db_task.stage = "COMPLETE"
-                    await success_session.commit()
-        except Exception as err:
-            logger.warning(
-                "Background vector embedding failed for Application ID %d: %s",
-                application_id,
-                err,
-            )
+                    await processing_session.commit()
+            except Exception as err:
+                logger.warning(
+                    "Background vector embedding failed for Application ID %d: %s",
+                    application_id,
+                    err,
+                )
 
-            # 5. On Failure
-            async with AsyncSessionLocal() as failure_session:
-                db_task = await failure_session.get(IntakeEvaluationTaskModel, task_id)
+                # 5. On Failure
                 if db_task:
                     db_task.status = "FAILED"
                     db_task.error_message = str(err)
-                    await failure_session.commit()
+                    await processing_session.commit()

@@ -13,10 +13,8 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.security import decrypt_secret, encrypt_secret
 from app.models.applications import Base
 
 
@@ -27,7 +25,7 @@ class AIProviderModel(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     provider_type: Mapped[str] = mapped_column(Text, nullable=False, default="openai")
     base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    _api_key: Mapped[str | None] = mapped_column("api_key", Text, nullable=True)
+    api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     max_concurrency: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -37,14 +35,6 @@ class AIProviderModel(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
-
-    @hybrid_property
-    def api_key(self) -> str | None:
-        return decrypt_secret(self._api_key)
-
-    @api_key.setter
-    def api_key(self, value: str | None) -> None:
-        self._api_key = encrypt_secret(value)
 
     task_bindings: Mapped[list["AITaskBindingModel"]] = relationship(
         back_populates="provider",

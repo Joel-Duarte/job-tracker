@@ -12,10 +12,6 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "DEBUG"
     SEED_DEV_DATA: bool = False
 
-    # Security Configuration
-    SECRET_KEY: str = "default-development-secret-key-change-in-production"
-    ADMIN_SECRET: str = ""
-
     # Public exposed API base URL (for Docker port forwarding or reverse proxy)
     PUBLIC_API_URL: str | None = None
 

@@ -10,21 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.diagnostics import TraceEventModel
-from app.schemas.diagnostics import (
-    DiagnosticsPurgeResponse,
-    DiagnosticsStatsResponse,
-    TraceDetailResponse,
-    TracePayloadSummary,
-    TraceSummaryResponse,
-)
 
 router = APIRouter(prefix="/diagnostics", tags=["Diagnostics"])
 
 
-@router.get("/export", summary="Export diagnostic traces and backend logs")
-async def export_diagnostics(
-    db: AsyncSession = Depends(get_db),
-) -> StreamingResponse:
+@router.get("/export")
+async def export_diagnostics(db: AsyncSession = Depends(get_db)):
     stmt = select(TraceEventModel).order_by(TraceEventModel.timestamp.desc()).limit(500)
     result = await db.execute(stmt)
     records = result.scalars().all()
@@ -64,14 +55,8 @@ async def export_diagnostics(
     )
 
 
-@router.get(
-    "/stats",
-    response_model=DiagnosticsStatsResponse,
-    summary="Get aggregated trace statistics",
-)
-async def get_diagnostics_stats(
-    db: AsyncSession = Depends(get_db),
-) -> DiagnosticsStatsResponse:
+@router.get("/stats")
+async def get_diagnostics_stats(db: AsyncSession = Depends(get_db)):
     stmt = select(TraceEventModel.category, TraceEventModel.payload)
     result = await db.execute(stmt)
     records = result.all()
@@ -89,16 +74,16 @@ async def get_diagnostics_stats(
         if payload.get("error"):
             category_error_counts[cat_key] += 1
 
-    return DiagnosticsStatsResponse(
-        total_runs=total_runs,
-        success_count=success_count,
-        error_count=error_count,
-        success_rate=round(success_count / total_runs * 100, 2)
+    return {
+        "total_runs": total_runs,
+        "success_count": success_count,
+        "error_count": error_count,
+        "success_rate": round(success_count / total_runs * 100, 2)
         if total_runs > 0
-        else 0.0,
-        category_counts=dict(category_counts),
-        category_error_counts=dict(category_error_counts),
-    )
+        else 0,
+        "category_counts": dict(category_counts),
+        "category_error_counts": dict(category_error_counts),
+    }
 
 
 def _extract_tracer_task_name(
@@ -117,11 +102,7 @@ def _extract_tracer_task_name(
     return name
 
 
-@router.get(
-    "/traces",
-    response_model=list[TraceSummaryResponse],
-    summary="List diagnostic traces",
-)
+@router.get("/traces")
 async def get_traces(
     limit: int = 50,
     offset: int = 0,
@@ -131,7 +112,7 @@ async def get_traces(
         description="Filter traces by category (e.g. llm, scraper, email_sync, worker, embedding)",
     ),
     db: AsyncSession = Depends(get_db),
-) -> list[TraceSummaryResponse]:
+):
     stmt = select(TraceEventModel).order_by(TraceEventModel.timestamp.desc())
 
     if category and category.strip() and category.lower() != "all":
@@ -146,7 +127,7 @@ async def get_traces(
     result = await db.execute(stmt)
     records = result.scalars().all()
 
-    out: list[TraceSummaryResponse] = []
+    out = []
     for r in records:
         name = _extract_tracer_task_name(r.payload, default_name=r.event_type)
         error = r.payload.get("error")
@@ -156,33 +137,27 @@ async def get_traces(
         status = r.payload.get("status") or ("error" if error else "success")
 
         out.append(
-            TraceSummaryResponse(
-                id=r.id,
-                run_id=r.run_id,
-                category=r.category or "llm",
-                event_type=r.event_type,
-                status=status,
-                payload_summary=TracePayloadSummary(
-                    name=name,
-                    error=error,
-                    start_time=start_time,
-                    end_time=end_time,
-                    duration_ms=duration_ms,
-                ),
-                timestamp=r.timestamp,
-            )
+            {
+                "id": r.id,
+                "run_id": r.run_id,
+                "category": r.category or "llm",
+                "event_type": r.event_type,
+                "status": status,
+                "payload_summary": {
+                    "name": name,
+                    "error": error,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "duration_ms": duration_ms,
+                },
+                "timestamp": r.timestamp,
+            }
         )
     return out
 
 
-@router.get(
-    "/traces/{run_id}",
-    response_model=TraceDetailResponse,
-    summary="Get single trace details",
-)
-async def get_single_trace(
-    run_id: str, db: AsyncSession = Depends(get_db)
-) -> TraceDetailResponse:
+@router.get("/traces/{run_id}")
+async def get_single_trace(run_id: str, db: AsyncSession = Depends(get_db)):
     stmt = select(TraceEventModel).where(TraceEventModel.run_id == run_id)
     result = await db.execute(stmt)
     record = result.scalars().first()
@@ -190,29 +165,21 @@ async def get_single_trace(
     if not record:
         raise HTTPException(status_code=404, detail="Trace not found")
 
-    return TraceDetailResponse(
-        id=record.id,
-        run_id=record.run_id,
-        category=record.category or "llm",
-        event_type=record.event_type,
-        payload=record.payload,
-        timestamp=record.timestamp,
-    )
+    return {
+        "id": record.id,
+        "run_id": record.run_id,
+        "category": record.category or "llm",
+        "event_type": record.event_type,
+        "payload": record.payload,
+        "timestamp": record.timestamp,
+    }
 
 
-@router.delete(
-    "/purge",
-    response_model=DiagnosticsPurgeResponse,
-    summary="Purge diagnostic trace logs",
-)
-async def purge_traces(
-    db: AsyncSession = Depends(get_db),
-) -> DiagnosticsPurgeResponse:
+@router.delete("/purge")
+async def purge_traces(db: AsyncSession = Depends(get_db)):
     """Purges diagnostic traces for cleanup."""
     from sqlalchemy import delete
 
     await db.execute(delete(TraceEventModel))
     await db.commit()
-    return DiagnosticsPurgeResponse(
-        message="All diagnostic traces purged successfully."
-    )
+    return {"message": "All diagnostic traces purged successfully."}

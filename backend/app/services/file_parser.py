@@ -52,10 +52,8 @@ def parse_eml(content: bytes) -> EmailPayload:
             if parsed_dt.tzinfo is None:
                 parsed_dt = parsed_dt.replace(tzinfo=UTC)
             received_at = parsed_dt
-        except Exception as err:
-            logger.warning(
-                "Failed parsing Date header '%s' in .eml: %s", date_header, err
-            )
+        except Exception:
+            pass
 
     # Extract body and calendar attachments
     body_parts: list[str] = []
