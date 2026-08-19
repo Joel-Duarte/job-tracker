@@ -9,6 +9,10 @@ from app.core.database import check_db_connection, ensure_db_schema
 @pytest.mark.asyncio
 async def test_ensure_db_schema_runs_alembic(db_session: AsyncSession):
     """Test that ensure_db_schema runs extensions and Alembic migrations successfully."""
+    await db_session.execute(text("DROP SCHEMA public CASCADE"))
+    await db_session.execute(text("CREATE SCHEMA public"))
+    await db_session.commit()
+
     # Run schema verification / migration
     await ensure_db_schema()
 

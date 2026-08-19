@@ -6,13 +6,11 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import declarative_base
 
 import app.models  # noqa: F401
+from app.models.applications import Base
 from app.models.email_accounts import EmailAccountModel
 from app.schemas.intake import EmailPayload, ExtractedEmailInfo
-
-Base = declarative_base()
 
 
 def is_port_open(host: str, port: int, timeout: float = 1.0) -> bool:
@@ -131,12 +129,13 @@ async def db_session(postgres_container):
     async with session_factory() as session:
         yield session
 
-    # Clean up test pool and drop tables after test run
+    # Clean up test pool and reset the isolated test schema after each test.
     db_module.engine = orig_engine
     db_module.AsyncSessionLocal = orig_session_local
     await test_pool.close()
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.execute(text("DROP SCHEMA public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
 
     await engine.dispose()
 

@@ -12,7 +12,9 @@ async def test_search_companies_endpoint(db_session: AsyncSession):
     app.dependency_overrides[get_db] = lambda: db_session
     transport = ASGITransport(app=app)
 
-    company = CompanyModel(name="Acme Corp Test", domain="acme.test")
+    company = CompanyModel(
+        name="Acme Corp Test", name_normalized="acme corp test", domain="acme.test"
+    )
     db_session.add(company)
     await db_session.flush()
 

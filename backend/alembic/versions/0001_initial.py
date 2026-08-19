@@ -270,15 +270,15 @@ def upgrade() -> None:
     # email_prompts
     op.create_table(
         "email_prompts",
-        sa.Column("key", sa.Text(), nullable=False),
-        sa.Column("prompt_text", sa.Text(), nullable=False),
+        sa.Column("name", sa.String(length=50), nullable=False),
+        sa.Column("template", sa.Text(), nullable=False),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
             server_default=sa.text("NOW()"),
             nullable=False,
         ),
-        sa.PrimaryKeyConstraint("key"),
+        sa.PrimaryKeyConstraint("name"),
     )
 
     # intake_evaluation_tasks
