@@ -908,41 +908,39 @@ async function confirmDelete() {
                 </div>
 
                 <div class="card-header-actions" @click.stop>
-                  <!-- Fit Score Pill -->
-                  <div
-                    v-if="getAppMatchScore(app) !== null"
-                    class="match-score-pill"
-                    :class="getMatchScoreTierClass(getAppMatchScore(app))"
-                    :title="`Role Match Fit: ${getAppMatchScore(app)}% - Click to view assessment`"
-                    @click="openMatchAnalysisModal(app.id)"
-                  >
-                    <Sparkles :size="10" class="match-pill-icon" />
-                    <span>{{ getAppMatchScore(app) }}%</span>
-                  </div>
-
-                  <!-- Quick On-Hover Action Icons -->
                   <div class="card-hover-actions">
+                    <!-- Assessment Button -->
                     <button
-                      v-if="!['REJECTED', 'OFFER'].includes(app.status)"
+                      v-if="getAppMatchScore(app) !== null"
+                      class="match-score-pill"
+                      :class="getMatchScoreTierClass(getAppMatchScore(app))"
+                      :title="`Role Match Fit: ${getAppMatchScore(app)}% - View Assessment`"
+                      @click="openMatchAnalysisModal(app.id)"
+                    >
+                      <Sparkles :size="10" class="match-pill-icon" />
+                      <span>{{ getAppMatchScore(app) }}%</span>
+                    </button>
+                    <button
+                      v-else
+                      class="card-hover-icon-btn"
+                      title="View Assessment"
+                      @click="openMatchAnalysisModal(app.id)"
+                    >
+                      <Sparkles :size="12" />
+                    </button>
+
+                    <!-- Interview Guide Button (Generate / See Generated) -->
+                    <button
                       class="card-hover-icon-btn"
                       :class="{ 'has-guide': app.has_interview_guide }"
                       :title="app.has_interview_guide ? 'Open Interview Guide Reader' : 'Generate Interview Guide'"
                       @click="app.has_interview_guide ? openInterviewReaderModal(app.id) : openInterviewGuide(app.id)"
                     >
-                      <BookOpen v-if="app.has_interview_guide" :size="12" />
-                      <Sparkles v-else :size="12" />
-                    </button>
-
-                    <button
-                      class="card-hover-icon-btn"
-                      title="Log Activity"
-                      @click="openLogActivityModal(app.id)"
-                    >
-                      <PenLine :size="12" />
+                      <BookOpen :size="12" />
                     </button>
                   </div>
 
-                  <!-- Card Context Menu Trigger -->
+                  <!-- Card Context Menu Trigger (3-dot menu) -->
                   <div class="card-menu-container">
                     <button
                       class="card-menu-trigger"
@@ -2386,20 +2384,12 @@ async function confirmDelete() {
   gap: 5px;
 }
 
-/* On-hover quick action buttons */
+/* Card quick action buttons */
 .card-hover-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
-  opacity: 0;
-  transform: translateX(4px);
-  transition: all var(--transition-fast);
-  pointer-events: none;
-}
-
-.application-card:hover .card-hover-actions {
+  gap: 4px;
   opacity: 1;
-  transform: translateX(0);
   pointer-events: auto;
 }
 
