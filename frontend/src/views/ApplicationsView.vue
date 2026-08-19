@@ -8,6 +8,7 @@ import MatchAnalysisModal from '../components/modals/MatchAnalysisModal.vue'
 import LogActivityModal from '../components/modals/LogActivityModal.vue'
 import PostHireModal from '../components/modals/PostHireModal.vue'
 import CompanyLogo from '../components/common/CompanyLogo.vue'
+import KanbanBoard from '../components/applications/KanbanBoard.vue'
 import {
   formatRelativeDate,
   normalizeWorkModel,
@@ -17,39 +18,25 @@ import {
   Search,
   Kanban,
   Table as TableIcon,
-  Filter,
-  Building2,
   Calendar,
   Clock,
   FileText,
-  DollarSign,
   XCircle,
   Award,
-  Tag,
   AlertCircle,
   CheckCircle2,
-  ChevronRight,
-  ChevronDown,
   SlidersHorizontal,
   Sparkles,
-  Layers,
-  ArrowUpDown,
   Trash2,
   X,
   Send,
   Loader2,
-  GripVertical,
   Archive,
   RotateCcw,
-  Ban,
   Briefcase,
   BookOpen,
-  MessageSquare,
   ExternalLink,
   PenLine,
-  MapPin,
-  MoreHorizontal,
-  MoreVertical,
   Trophy,
 } from 'lucide-vue-next'
 
@@ -870,202 +857,27 @@ async function confirmDelete() {
       </div>
 
       <!-- 2. ACTIVE KANBAN VIEW (WITH DRAG & DROP) -->
-      <div v-else-if="uiStore.viewMode === 'kanban'" class="kanban-board">
-        <div
-          v-for="col in appStore.ACTIVE_STATUSES"
-          :key="col.key"
-          class="kanban-column"
-          :class="{ 'drag-over': dragOverCol === col.key }"
-          @dragover="onDragOver(col.key, $event)"
-          @dragleave="onDragLeave(col.key)"
-          @drop="onDrop(col.key, $event)"
-        >
-          <div class="column-header">
-            <div class="column-title-group">
-              <span class="column-dot" :class="`dot-${col.color}`"></span>
-              <span class="column-title">{{ col.label }}</span>
-            </div>
-            <span class="column-count">
-              {{ appStore.kanbanColumns[col.key]?.length || 0 }}
-            </span>
-          </div>
-
-          <div class="column-cards">
-            <div
-              v-for="app in appStore.kanbanColumns[col.key] || []"
-              :key="app.id"
-              class="application-card"
-              :class="[{ 'is-dragging': draggedApp?.id === app.id, 'has-open-menu': openMenuAppId === app.id }, app.has_action_required ? 'action-required-card' : '']"
-              draggable="true"
-              @dragstart="onDragStart(app, $event)"
-              @dragend="onDragEnd"
-              @click="uiStore.openDetail(app.id)"
-            >
-              <div class="card-header">
-                <div class="company-name-tag">
-                  <CompanyLogo :name="app.company?.name" :domain="app.company?.domain" :size="18" />
-                  <span class="company-name-text">{{ app.company?.name || 'Company' }}</span>
-                </div>
-
-                <div class="card-header-actions" @click.stop>
-                  <div class="card-hover-actions">
-                    <!-- Assessment Button -->
-                    <button
-                      v-if="getAppMatchScore(app) !== null"
-                      class="match-score-pill"
-                      :class="getMatchScoreTierClass(getAppMatchScore(app))"
-                      :title="`Role Match Fit: ${getAppMatchScore(app)}% - View Assessment`"
-                      @click="openMatchAnalysisModal(app.id)"
-                    >
-                      <Sparkles :size="10" class="match-pill-icon" />
-                      <span>{{ getAppMatchScore(app) }}%</span>
-                    </button>
-                    <button
-                      v-else
-                      class="card-hover-icon-btn"
-                      title="View Assessment"
-                      @click="openMatchAnalysisModal(app.id)"
-                    >
-                      <Sparkles :size="12" />
-                    </button>
-
-                    <!-- Interview Guide Button (Generate / See Generated) -->
-                    <button
-                      class="card-hover-icon-btn"
-                      :class="{ 'has-guide': app.has_interview_guide }"
-                      :title="app.has_interview_guide ? 'Open Interview Guide Reader' : 'Generate Interview Guide'"
-                      @click="app.has_interview_guide ? openInterviewReaderModal(app.id) : openInterviewGuide(app.id)"
-                    >
-                      <BookOpen :size="12" />
-                    </button>
-                  </div>
-
-                  <!-- Card Context Menu Trigger (3-dot menu) -->
-                  <div class="card-menu-container">
-                    <button
-                      class="card-menu-trigger"
-                      :class="{ active: activeMenuApp?.id === app.id }"
-                      title="More actions"
-                      @click="toggleCardMenu(app, $event)"
-                    >
-                      <MoreHorizontal :size="14" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Position Title -->
-              <div class="card-position">
-                {{ app.position || 'Position Not Specified' }}
-              </div>
-
-              <!-- Clean Mid-Dot Metadata Line (No Pill Soup) -->
-              <div v-if="getAppMetadataLine(app)" class="card-meta-line" @click.stop>
-                {{ getAppMetadataLine(app) }}
-              </div>
-
-              <!-- Phase Detail Pill, Interview Date, & Due Date -->
-              <div
-                v-if="app.status !== 'APPLIED' || getScheduledInterviewDate(app) || getDueDateStr(app)"
-                class="card-phase-row"
-                @click.stop
-              >
-                <!-- Only show sub-phase button if not generic applied stage -->
-                <button
-                  v-if="app.status !== 'APPLIED'"
-                  class="phase-detail-btn"
-                  :class="`phase-${(app.status || 'applied').toLowerCase()}`"
-                  @click="openTransitionModal(app, app.status)"
-                  :title="`Click to edit stage: ${getAppSubPhaseLabel(app)}`"
-                >
-                  <span class="phase-detail-text">{{ getAppSubPhaseLabel(app) }}</span>
-                  <SlidersHorizontal :size="11" class="phase-icon" />
-                </button>
-
-                <!-- Show Interview Scheduled Date if it exists -->
-                <div
-                  v-if="getScheduledInterviewDate(app)"
-                  class="interview-scheduled-badge"
-                  :class="getScheduleUrgencyClass(app)"
-                  title="Scheduled Interview Date & Time"
-                >
-                  <Calendar :size="11" />
-                  <span>{{ formatScheduledDateFriendly(app) }}</span>
-                </div>
-
-                <!-- Show Awaiting Response badge if task was completed -->
-                <div
-                  v-else-if="app.status === 'TECHNICAL_INTERVIEW' && getAppSubPhaseLabel(app) === 'Task Completed / Awaiting Response'"
-                  class="awaiting-response-tag"
-                  title="Action item completed - Awaiting company response"
-                >
-                  <CheckCircle2 :size="11" />
-                  <span>Awaiting Reply</span>
-                </div>
-
-                <!-- Show Needs Scheduling Warning if in interview column but no date is set -->
-                <button
-                  v-else-if="app.status === 'TECHNICAL_INTERVIEW'"
-                  class="scheduling-needed-tag"
-                  @click="openTransitionModal(app, 'TECHNICAL_INTERVIEW')"
-                  title="No interview date scheduled yet - Click to schedule"
-                >
-                  <Clock :size="11" />
-                  <span>⚡ Schedule</span>
-                </button>
-
-                <!-- Show Due Date / Deadline ONLY if NO scheduled interview date (prevents duplicate info) -->
-                <div
-                  v-if="!getScheduledInterviewDate(app) && getDueDateStr(app)"
-                  class="due-date-tag"
-                  :class="{ overdue: isOverdue(app) }"
-                  :title="`Task Deadline: ${getDueDate(app)}`"
-                >
-                  <Clock :size="11" />
-                  <span>Due {{ formatDueDateFriendly(app) }}</span>
-                </div>
-              </div>
-
-              <!-- Latest Event Summary Note (Compact) -->
-              <div v-if="app.latest_event?.email_summary" class="card-summary">
-                <span class="summary-prefix">{{ app.latest_event.email_event_type }}:</span>
-                {{ app.latest_event.email_summary }}
-              </div>
-
-              <!-- Offer Actions (Hired / Withdrawn) -->
-              <div v-if="app.status === 'OFFER'" class="offer-actions" @click.stop>
-                <button
-                  class="offer-action-btn btn-hired"
-                  @click="executeTransition(app.id, { status: 'HIRED' })"
-                  title="Accept Offer & Mark Hired"
-                >
-                  <Trophy :size="12" />
-                  <span>Hired</span>
-                </button>
-                <button
-                  class="offer-action-btn btn-withdrawn"
-                  @click="quickWithdrawApp(app)"
-                  title="Decline Offer & Withdraw"
-                >
-                  <Ban :size="12" />
-                  <span>Decline</span>
-                </button>
-              </div>
-
-
-
-            </div>
-
-            <!-- Empty Column State -->
-            <div
-              v-if="!appStore.kanbanColumns[col.key]?.length"
-              class="column-empty"
-            >
-              No applications in {{ col.label }}
-            </div>
-          </div>
-        </div>
-      </div>
+      <KanbanBoard
+        v-else-if="uiStore.viewMode === 'kanban'"
+        :columns="appStore.ACTIVE_STATUSES"
+        :kanban-columns="appStore.kanbanColumns"
+        :dragged-app="draggedApp"
+        :drag-over-col="dragOverCol"
+        :active-menu-app="activeMenuApp"
+        @dragover="onDragOver"
+        @dragleave="onDragLeave"
+        @drop="onDrop"
+        @card-dragstart="onDragStart"
+        @card-dragend="onDragEnd"
+        @card-click="uiStore.openDetail"
+        @match-click="openMatchAnalysisModal"
+        @guide-click="openInterviewGuide"
+        @reader-click="openInterviewReaderModal"
+        @toggle-menu="toggleCardMenu"
+        @transition-modal="openTransitionModal"
+        @execute-transition="executeTransition"
+        @quick-withdraw="quickWithdrawApp"
+      />
 
       <!-- 3. ACTIVE TABLE VIEW -->
       <div v-else class="table-view-container">
