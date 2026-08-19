@@ -2,6 +2,8 @@ import json
 import logging
 import os
 
+from app.core.storage import get_storage_provider
+
 logger = logging.getLogger(__name__)
 
 CONFIG_FILE = os.path.join(
@@ -10,11 +12,14 @@ CONFIG_FILE = os.path.join(
 
 
 def load_settings() -> dict:
-    if not os.path.exists(CONFIG_FILE):
+    storage = get_storage_provider()
+    if not storage.exists(CONFIG_FILE):
         return {"ENABLE_EMBEDDINGS": True}
     try:
-        with open(CONFIG_FILE) as f:
-            return json.load(f)
+        content = storage.read_text(CONFIG_FILE)
+        if content:
+            return json.loads(content)
+        return {"ENABLE_EMBEDDINGS": True}
     except Exception as e:
         logger.error(f"Failed to load global settings: {e}")
         return {"ENABLE_EMBEDDINGS": True}
@@ -22,8 +27,9 @@ def load_settings() -> dict:
 
 def save_settings(settings: dict) -> None:
     try:
-        with open(CONFIG_FILE, "w") as f:
-            json.dump(settings, f, indent=2)
+        storage = get_storage_provider()
+        content = json.dumps(settings, indent=2)
+        storage.write_text(CONFIG_FILE, content)
     except Exception as e:
         logger.error(f"Failed to save global settings: {e}")
 

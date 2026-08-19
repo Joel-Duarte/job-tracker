@@ -13,6 +13,12 @@ const ADDRESS_PATTERN = /\b\d{1,5}\s+[A-Za-z0-9.\s]{2,30}\s+(?:Street|St|Avenue|
 
 const ADDRESS_LINE_PREFIX_PATTERN = /^(?:Address|Location|Residential Address)\s*:\s*(.+)$/gim
 
+const EXCLUDED_HEADINGS = [
+  'summary', 'profile', 'objective', 'experience', 'education',
+  'skills', 'projects', 'work history', 'technical skills',
+  'certifications', 'about me', 'curriculum vitae', 'resume',
+]
+
 export function scrubCVText(rawText) {
   if (!rawText || !rawText.trim()) {
     return {
@@ -23,12 +29,6 @@ export function scrubCVText(rawText) {
 
   const stats = { emails: 0, phones: 0, urls: 0, addresses: 0, headerName: 0, total: 0 }
   const lines = rawText.split('\n')
-
-  const excludedHeadings = [
-    'summary', 'profile', 'objective', 'experience', 'education',
-    'skills', 'projects', 'work history', 'technical skills',
-    'certifications', 'about me', 'curriculum vitae', 'resume',
-  ]
 
   if (lines.length > 0) {
     let firstLineIdx = 0
@@ -41,8 +41,8 @@ export function scrubCVText(rawText) {
       const firstLineLower = firstLine.toLowerCase()
       if (
         firstLine.length <= 45 &&
-        !excludedHeadings.includes(firstLineLower) &&
-        !excludedHeadings.some((h) => firstLineLower.startsWith(h)) &&
+        !EXCLUDED_HEADINGS.includes(firstLineLower) &&
+        !EXCLUDED_HEADINGS.some((h) => firstLineLower.startsWith(h)) &&
         !/[:;{}#/]/.test(firstLine)
       ) {
         lines[firstLineIdx] = '[Candidate Name]'
@@ -53,28 +53,23 @@ export function scrubCVText(rawText) {
 
   let text = lines.join('\n')
 
-  // Address prefix lines
   text = text.replace(ADDRESS_LINE_PREFIX_PATTERN, () => {
     stats.addresses++
     return 'Address: [Address Redacted]'
   })
 
-  // Emails
   const emailMatches = text.match(EMAIL_PATTERN) || []
   stats.emails = emailMatches.length
   text = text.replace(EMAIL_PATTERN, '[Email Redacted]')
 
-  // URLs
   const urlMatches = text.match(URL_PATTERN) || []
   stats.urls = urlMatches.length
   text = text.replace(URL_PATTERN, '[Profile Link Redacted]')
 
-  // Addresses
   const addressMatches = text.match(ADDRESS_PATTERN) || []
   stats.addresses += addressMatches.length
   text = text.replace(ADDRESS_PATTERN, '[Address Redacted]')
 
-  // Phones
   text = text.replace(PHONE_PATTERN, (match) => {
     const digitCount = (match.match(/\d/g) || []).length
     if (digitCount >= 7 && digitCount <= 15) {
