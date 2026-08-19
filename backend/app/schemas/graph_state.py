@@ -34,3 +34,7 @@ class JobTrackerState(TypedDict, total=False):
     staging_item_id: int | None
     event_id: int | None
     embedding_created: bool
+
+
+# IntakeState alias for Intake graph execution state consistency across terminal nodes
+IntakeState = JobTrackerState
