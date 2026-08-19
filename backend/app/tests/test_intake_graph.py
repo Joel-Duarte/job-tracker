@@ -192,7 +192,7 @@ async def test_checkpoint_payload_pruning_on_staging_exit():
     mock_db = AsyncMock()
     # Configure non-async session methods to prevent unawaited coroutine warnings
     mock_db.add = MagicMock()
-    mock_db.flush = AsyncMock() # or MagicMock if sync
+    mock_db.flush = AsyncMock()  # or MagicMock if sync
     mock_db.commit = AsyncMock()
     mock_db.refresh = AsyncMock()
 

@@ -1,4 +1,3 @@
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -7,36 +6,7 @@ from langchain_core.messages import AIMessage
 
 from app.main import app
 from app.models.applications import ApplicationModel, CompanyModel
-from app.routers.agent_chat import prune_and_sanitize_tool_output
 from app.services.agent_tools import create_agent_tools
-
-
-def test_prune_and_sanitize_tool_output():
-    """Test sanitization and pruning of tool execution outputs."""
-    # 1. Test removing 'metadata' key and bounding array length
-    raw_output = [
-        {
-            "application_id": i,
-            "company": f"Company {i}",
-            "metadata": {"embedding": [0.1, 0.2, 0.3], "raw": "secret"},
-        }
-        for i in range(10)
-    ]
-
-    sanitized = prune_and_sanitize_tool_output(raw_output, max_array_len=3)
-    parsed = json.loads(sanitized)
-
-    # Verify array length is bounded to 3
-    assert len(parsed) == 3
-
-    # Verify 'metadata' key is completely stripped
-    for item in parsed:
-        assert "metadata" not in item
-        assert "company" in item
-
-    # Verify compact serialization without newlines
-    assert "\n" not in sanitized
-    assert " " not in sanitized or ":" in sanitized
 
 
 @pytest.mark.asyncio

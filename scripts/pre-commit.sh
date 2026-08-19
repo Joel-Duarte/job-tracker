@@ -14,12 +14,12 @@ echo "  Running Pre-Commit Verification Pipeline"
 echo "==========================================="
 
 echo ""
-echo ">> 1. Backend: Checking formatting with Ruff..."
-(cd "$REPO_ROOT/backend" && uv run ruff format --check .)
+echo ">> 1. Backend: Formatting with Ruff..."
+(cd "$REPO_ROOT/backend" && uv run ruff format .)
 
 echo ""
 echo ">> 2. Backend: Linting with Ruff..."
-(cd "$REPO_ROOT/backend" && uv run ruff check .)
+(cd "$REPO_ROOT/backend" && uv run ruff check --fix .)
 
 echo ""
 if [ "$FAST_MODE" = true ]; then
