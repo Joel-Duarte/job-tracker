@@ -26,8 +26,19 @@ while [[ $# -gt 0 ]]; do
       STOP_ONLY=true
       shift
       ;;
+    --seed-db|--seed)
+      echo "🌱 Seeding mock development dataset..."
+      COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.dev.yml)
+      if [ -x "$(command -v uv)" ]; then
+        (cd backend && uv run python -m app.services.seed_data --force)
+      else
+        docker compose "${COMPOSE_FILES[@]}" exec backend python -m app.services.seed_data --force
+      fi
+      exit 0
+      ;;
     --generate-mocks|--gen-mocks)
       echo "🤖 Running Dynamic Local LLM Mock Generator..."
+      COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.dev.yml)
       if [ -x "$(command -v uv)" ]; then
         (cd backend && uv run python -m app.services.mock_generator --seed-db)
       else
@@ -43,6 +54,7 @@ while [[ $# -gt 0 ]]; do
       echo "Options:"
       echo "  --reset, --clean, -r, --reset-db   Wipe PostgreSQL database & application data, then start fresh"
       echo "  --reset-only                       Wipe database & data volumes without restarting containers"
+      echo "  --seed-db, --seed                  Seed mock development dataset into backend database"
       echo "  --generate-mocks, --gen-mocks      Synthesize fresh mock domain data using Local LM Studio"
       echo "  --down, --stop                     Stop running development containers"
       echo "  --help, -h                         Show this help message"
