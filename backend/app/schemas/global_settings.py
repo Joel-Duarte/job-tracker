@@ -11,5 +11,5 @@ class GlobalSettingsUpdate(BaseModel):
 class GlobalSettingsRead(BaseModel):
     ENABLE_EMBEDDINGS: bool
     AGENT_CHAT_RETENTION_DAYS: int
-    ENABLE_AUTO_COVER_LETTER: bool
-    COVER_LETTER_MATCH_THRESHOLD: int
+    ENABLE_AUTO_COVER_LETTER: bool = False
+    COVER_LETTER_MATCH_THRESHOLD: int = 70

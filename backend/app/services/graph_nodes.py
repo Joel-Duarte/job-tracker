@@ -7,6 +7,7 @@ from rapidfuzz import fuzz
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm.attributes import flag_modified
 
 import app.services.llm as llm_service
 from app.core.config_manager import get_setting
@@ -558,13 +559,14 @@ async def cover_letter_node(
             if task_record:
                 task_record.status = "COMPLETED"
                 task_record.stage = "COMPLETE"
-                res_payload = task_record.result_json or {}
+                res_payload = dict(task_record.result_json or {})
                 res_payload["cover_letter_status"] = "SKIPPED"
                 res_payload["cover_letter_note"] = (
                     f"Cover letter generation skipped (auto_enabled={enable_auto}, "
                     f"score={score_pct:.1f}%, threshold={threshold}%)"
                 )
                 task_record.result_json = res_payload
+                flag_modified(task_record, "result_json")
                 await db.commit()
 
         return {"cover_letter_status": "SKIPPED"}
