@@ -45,7 +45,15 @@ async def lifespan(app: FastAPI):
         from app.core.database import AsyncSessionLocal
         from app.services.seed_data import maybe_seed_dev_data
 
-        await maybe_seed_dev_data(AsyncSessionLocal)
+        app.state.db_connected = True
+        try:
+            await maybe_seed_dev_data(AsyncSessionLocal)
+        except Exception as seed_err:
+            logger.error(
+                "Error during automatic development data seeding: %s",
+                seed_err,
+                exc_info=True,
+            )
 
         # Initialize the checkpointer pool and tables
         from app.core.database import checkpointer_pool, postgres_saver
@@ -65,8 +73,16 @@ async def lifespan(app: FastAPI):
     else:
         print("\n==================================================")
         print(" ERROR: Could not connect to the database!")
-        print(" Please check your container or .env configuration.")
+        print(" Initializing In-Memory Fallback Repository from seed_data.py...")
         print("==================================================\n")
+        from app.services.fallback_store import get_fallback_repository
+
+        app.state.db_connected = False
+        app.state.fallback_repo = get_fallback_repository()
+        logger.info(
+            "In-Memory Fallback Repository initialized with dataset stats: %s",
+            app.state.fallback_repo.get_stats(),
+        )
 
     yield
     # Executed on shutdown
@@ -78,8 +94,9 @@ async def lifespan(app: FastAPI):
 
     from app.core.database import checkpointer_pool, engine
 
-    await engine.dispose()
-    await checkpointer_pool.close()
+    if is_connected:
+        await engine.dispose()
+        await checkpointer_pool.close()
 
 
 app = FastAPI(
@@ -111,15 +128,25 @@ app.include_router(llm.router, prefix="/api/v1")
 async def health_check(response: Response):
     """
     Health check endpoint for application and database connectivity.
-    Returns 200 OK if healthy, or 503 Service Unavailable if DB connection fails.
+    Returns 200 OK if healthy, or degraded status if running on fallback memory store.
     """
     db_healthy = await check_db_connection()
 
     if not db_healthy:
-        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        fallback_repo = getattr(app.state, "fallback_repo", None)
+        if fallback_repo is None:
+            from app.services.fallback_store import get_fallback_repository
+
+            fallback_repo = get_fallback_repository()
+            app.state.fallback_repo = fallback_repo
+
+        response.status_code = status.HTTP_200_OK
         return {
-            "status": "unhealthy",
+            "status": "degraded",
             "database": "disconnected",
+            "fallback_mode": "in_memory_repository",
+            "message": "Operating using in-memory fallback state repository from seed_data.py",
+            "fallback_stats": fallback_repo.get_stats(),
         }
 
     return {

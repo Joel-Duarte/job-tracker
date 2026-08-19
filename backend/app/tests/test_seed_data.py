@@ -161,3 +161,98 @@ async def test_admin_seed_demo_data_endpoint(db_session: AsyncSession):
         assert conflict_resp.status_code == 409
 
     app.dependency_overrides.clear()
+
+
+def test_in_memory_fallback_repository():
+    from app.services.fallback_store import (
+        InMemoryFallbackRepository,
+        get_fallback_repository,
+    )
+
+    repo = InMemoryFallbackRepository()
+    stats = repo.get_stats()
+
+    assert stats["applications"] == 5
+    assert stats["companies"] == 5
+    assert stats["candidate_cvs"] == 1
+    assert stats["job_postings"] == 5
+    assert stats["action_items"] == 5
+    assert stats["staging_items"] == 2
+    assert stats["intake_tasks"] == 2
+
+    # Filtering applications
+    stripe_apps = repo.get_applications(q="stripe")
+    assert len(stripe_apps) == 1
+    assert stripe_apps[0]["company"]["name"] == "Stripe"
+
+    applied_apps = repo.get_applications(status_filter="APPLIED")
+    assert len(applied_apps) == 1
+
+    # App by ID
+    app_1 = repo.get_application_by_id(1)
+    assert app_1 is not None
+    assert app_1["id"] == 1
+
+    assert repo.get_application_by_id(999) is None
+
+    # Getters
+    assert repo.get_candidate_cv()["is_active"] is True
+    assert len(repo.get_companies()) == 5
+    assert len(repo.get_action_items()) == 5
+    assert len(repo.get_staging_items()) == 2
+    assert len(repo.get_intake_tasks()) == 2
+
+    # Singleton accessor
+    singleton_repo = get_fallback_repository()
+    assert singleton_repo is not None
+
+
+@pytest.mark.asyncio
+async def test_health_check_fallback_mode(monkeypatch):
+    import app.main as main_module
+    from app.main import app
+
+    async def mock_check_db_disconnected():
+        return False
+
+    monkeypatch.setattr(main_module, "check_db_connection", mock_check_db_disconnected)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "degraded"
+        assert data["database"] == "disconnected"
+        assert data["fallback_mode"] == "in_memory_repository"
+        assert "fallback_stats" in data
+        assert data["fallback_stats"]["applications"] == 5
+
+
+@pytest.mark.asyncio
+async def test_cli_main_entrypoint(monkeypatch):
+    import sys
+
+    from app.services.seed_data import cli_main
+
+    async def mock_db_check():
+        return True
+
+    async def mock_ensure_schema():
+        pass
+
+    async def mock_is_empty(session):
+        return True
+
+    async def mock_seed(session):
+        return {"applications": 5, "companies": 5}
+
+    monkeypatch.setattr("app.core.database.check_db_connection", mock_db_check)
+    monkeypatch.setattr("app.core.database.ensure_db_schema", mock_ensure_schema)
+    monkeypatch.setattr("app.services.seed_data.is_database_empty", mock_is_empty)
+    monkeypatch.setattr("app.services.seed_data.seed_development_dataset", mock_seed)
+
+    monkeypatch.setattr(sys, "argv", ["seed_data.py", "--force"])
+
+    # Should run without error
+    await cli_main()

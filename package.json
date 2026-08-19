@@ -1,0 +1,10 @@
+{
+  "name": "job-tracker",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "db:seed": "cd backend && uv run python -m app.services.seed_data",
+    "db:seed:force": "cd backend && uv run python -m app.services.seed_data --force",
+    "dev": "./dev.sh"
+  }
+}

@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "db:seed": "cd ../backend && uv run python -m app.services.seed_data",
+    "db:seed:force": "cd ../backend && uv run python -m app.services.seed_data --force"
   },
   "dependencies": {
     "@lucide/vue": "^1.31.0",

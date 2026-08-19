@@ -1299,3 +1299,65 @@ async def maybe_seed_dev_data(session_factory) -> bool:
         print(f"    - Email Accounts:     {stats.get('email_accounts', 0)}")
         print("=" * 60 + "\n")
         return True
+
+
+async def cli_main() -> None:
+    import argparse
+    import sys
+
+    from app.core.database import (
+        AsyncSessionLocal,
+        check_db_connection,
+        ensure_db_schema,
+    )
+
+    parser = argparse.ArgumentParser(
+        description="Seed local database with development dataset."
+    )
+    parser.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="Force seeding even if database is not empty.",
+    )
+    args = parser.parse_args()
+
+    print("Checking database connection...")
+    is_connected = await check_db_connection()
+    if not is_connected:
+        print(
+            "❌ Error: Unable to connect to the database. Please check your DB settings.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print("Ensuring database schema and migrations...")
+    await ensure_db_schema()
+
+    async with AsyncSessionLocal() as session:
+        if not args.force:
+            empty = await is_database_empty(session)
+            if not empty:
+                print("⚠️ Database is not empty. Use --force to seed anyway.")
+                sys.exit(0)
+
+        print("🌱 Seeding development dataset into database...")
+        stats = await seed_development_dataset(session)
+        print("\n" + "=" * 60)
+        print(" 🌱 SEED DATA LOADED: Job Tracker Development Dataset Initialized")
+        print(f"    - Companies:          {stats.get('companies', 0)}")
+        print(f"    - Applications:       {stats.get('applications', 0)}")
+        print(f"    - Job Postings:       {stats.get('job_postings', 0)}")
+        print(f"    - Action Items:       {stats.get('action_items', 0)}")
+        print(f"    - Timeline Events:    {stats.get('application_events', 0)}")
+        print(f"    - Staging Queue:      {stats.get('staging_items', 0)}")
+        print(f"    - AI Queue Tasks:     {stats.get('intake_tasks', 0)}")
+        print(f"    - AI Providers:       {stats.get('ai_providers', 0)}")
+        print(f"    - Email Accounts:     {stats.get('email_accounts', 0)}")
+        print("=" * 60 + "\n")
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(cli_main())
