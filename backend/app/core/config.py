@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     SEED_DEV_DATA: bool = False
 
     # Bootstrap security configuration; runtime provider credentials live in PostgreSQL.
-    SECRET_KEY: str = "default-development-secret-key-change-in-production"
+    SECRET_KEY: str = ""
     ADMIN_SECRET: str = ""
 
     # Public exposed API base URL (for Docker port forwarding or reverse proxy)
@@ -37,13 +37,23 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_production_secrets(self):
         env = (self.ENVIRONMENT or "development").strip().lower()
-        if env not in {"development", "test", "testing"} and self.SECRET_KEY in {
-            "",
-            "default-development-secret-key-change-in-production",
-        }:
+        allowed_auto_envs = {"development", "staging", "test", "testing"}
+
+        raw_key = (self.SECRET_KEY or "").strip()
+        is_explicit = bool(
+            raw_key and raw_key != "default-development-secret-key-change-in-production"
+        )
+
+        if env not in allowed_auto_envs and not is_explicit:
             raise ValueError(
                 "SECRET_KEY must be explicitly configured in non-development environments"
             )
+
+        if is_explicit:
+            self.SECRET_KEY = raw_key
+        else:
+            self.SECRET_KEY = _get_or_generate_secret_key()
+
         return self
 
     def get_database_url(self) -> str:
@@ -52,6 +62,32 @@ class Settings(BaseSettings):
             f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
+
+
+def _get_or_generate_secret_key() -> str:
+    """Reads persistent SECRET_KEY from PROJECT_ROOT/data/.sec_key or auto-generates a secure Fernet key."""
+    key_file = PROJECT_ROOT / "data" / ".sec_key"
+    if key_file.exists():
+        try:
+            key = key_file.read_text(encoding="utf-8").strip()
+            if key:
+                return key
+        except Exception:
+            pass
+
+    from cryptography.fernet import Fernet
+
+    new_key = Fernet.generate_key().decode("utf-8")
+    try:
+        key_file.parent.mkdir(parents=True, exist_ok=True)
+        key_file.write_text(new_key, encoding="utf-8")
+        try:
+            key_file.chmod(0o600)
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return new_key
 
 
 settings = Settings()

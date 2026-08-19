@@ -44,13 +44,33 @@ def test_secret_key_validation_in_non_dev_environments():
         )
 
     with pytest.raises(ValueError, match="SECRET_KEY must be explicitly configured"):
-        Settings(ENVIRONMENT="staging", SECRET_KEY="")
+        Settings(ENVIRONMENT="production", SECRET_KEY="")
 
     valid_settings = Settings(
         ENVIRONMENT="production",
         SECRET_KEY="secure-production-secret-1234567890",
     )
     assert valid_settings.SECRET_KEY == "secure-production-secret-1234567890"
+
+
+def test_secret_key_auto_generation_and_persistence(tmp_path):
+    fake_key_file = tmp_path / "data" / ".sec_key"
+    with patch("app.core.config.PROJECT_ROOT", tmp_path):
+        # 1. First init: auto-generate and persist key in dev/staging
+        s1 = Settings(ENVIRONMENT="development", SECRET_KEY="")
+        assert s1.SECRET_KEY != ""
+        assert fake_key_file.exists()
+        persisted_key = fake_key_file.read_text().strip()
+        assert s1.SECRET_KEY == persisted_key
+        assert oct(fake_key_file.stat().st_mode)[-3:] == "600"
+
+        # 2. Second init: read existing persisted key
+        s2 = Settings(ENVIRONMENT="staging", SECRET_KEY="")
+        assert s2.SECRET_KEY == persisted_key
+
+        # 3. Explicit secret key overrides persisted file
+        s3 = Settings(ENVIRONMENT="development", SECRET_KEY="custom-explicit-key")
+        assert s3.SECRET_KEY == "custom-explicit-key"
 
 
 def test_security_fernet_secret_key_validation():
