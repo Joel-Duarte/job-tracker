@@ -8,7 +8,9 @@ set -e
 RESET_DB=false
 RESET_ONLY=false
 STOP_ONLY=false
+REFRESH_MOCKS=false
 DOCKER_ARGS=()
+COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.dev.yml)
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -22,9 +24,22 @@ while [[ $# -gt 0 ]]; do
       RESET_ONLY=true
       shift
       ;;
+    --refresh-mocks|--refresh-seed)
+      REFRESH_MOCKS=true
+      shift
+      ;;
     --down|--stop)
       STOP_ONLY=true
       shift
+      ;;
+    --seed-db|--seed)
+      echo "🌱 Seeding mock development dataset..."
+      if [ -x "$(command -v uv)" ]; then
+        (cd backend && uv run python -m app.services.seed_data --force)
+      else
+        docker compose "${COMPOSE_FILES[@]}" exec backend python -m app.services.seed_data --force
+      fi
+      exit 0
       ;;
     --generate-mocks|--gen-mocks)
       echo "🤖 Running Dynamic Local LLM Mock Generator..."
@@ -43,6 +58,8 @@ while [[ $# -gt 0 ]]; do
       echo "Options:"
       echo "  --reset, --clean, -r, --reset-db   Wipe PostgreSQL database & application data, then start fresh"
       echo "  --reset-only                       Wipe database & data volumes without restarting containers"
+      echo "  --refresh-mocks, --refresh-seed    Reset and reseed mock data in running containers"
+      echo "  --seed-db, --seed                  Seed mock development dataset into backend database"
       echo "  --generate-mocks, --gen-mocks      Synthesize fresh mock domain data using Local LM Studio"
       echo "  --down, --stop                     Stop running development containers"
       echo "  --help, -h                         Show this help message"
@@ -52,6 +69,7 @@ while [[ $# -gt 0 ]]; do
       echo "  ./dev.sh --reset                   # Reset all DB & app data and start fresh"
       echo "  ./dev.sh --generate-mocks          # Generate synthetic mock leads from local LLM"
       echo "  ./dev.sh --reset-only              # Wipe volumes and exit"
+      echo "  ./dev.sh --refresh-mocks           # Refresh mock data without restarting containers"
       echo "  ./dev.sh --down                    # Stop containers"
       exit 0
       ;;
@@ -105,4 +123,14 @@ else
 fi
 echo ""
 
-docker compose "${COMPOSE_FILES[@]}" up --build "${DOCKER_ARGS[@]}"
+if [ "$REFRESH_MOCKS" = true ]; then
+  echo "🔄 Resetting and reseeding mock development data..."
+  docker compose "${COMPOSE_FILES[@]}" exec -T backend \
+    python -c "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://localhost:8000/api/v1/admin/reset-database?confirm=true', method='DELETE', headers={'X-Confirm-Reset': 'true'}), timeout=30).read()"
+  docker compose "${COMPOSE_FILES[@]}" exec -T backend \
+    python -m app.services.seed_data --force
+  echo "✅ Mock development data refreshed."
+  exit 0
+fi
+
+docker compose "${COMPOSE_FILES[@]}" up --build -d "${DOCKER_ARGS[@]}"

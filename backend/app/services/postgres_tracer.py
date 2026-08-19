@@ -9,9 +9,9 @@ class PostgresTracer(AsyncBaseTracer):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def on_llm_error(self, error: BaseException, *, run_id, **kwargs) -> None:
+    async def on_llm_error(self, error: BaseException, *, run_id, **kwargs) -> None:
         # Override to properly mark error on the run object if the tracer catches it directly
-        super().on_llm_error(error, run_id=run_id, **kwargs)
+        await super().on_llm_error(error, run_id=run_id, **kwargs)
 
     async def _persist_run(self, run: Run) -> None:
         try:

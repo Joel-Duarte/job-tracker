@@ -144,10 +144,16 @@ async def test_extension_intake_url_and_jd_routes(db_session: AsyncSession):
         summary="Strong profile match for distributed systems.",
     )
 
-    with patch(
-        "app.routers.intake.assess_job_posting", new_callable=AsyncMock
-    ) as mock_assess:
+    with (
+        patch(
+            "app.routers.intake.assess_job_posting", new_callable=AsyncMock
+        ) as mock_assess,
+        patch(
+            "app.services.llm.extract_job_spec", new_callable=AsyncMock
+        ) as mock_extract_spec,
+    ):
         mock_assess.return_value = mock_assessment
+        mock_extract_spec.return_value = None
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
