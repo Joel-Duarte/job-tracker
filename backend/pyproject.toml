@@ -28,6 +28,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.52",
     "ruff>=0.16.3",
     "uvicorn>=0.51.0",
+    "alembic>=1.19.1",
 ]
 
 [dependency-groups]
