@@ -106,9 +106,12 @@ async function handleDraftCoverLetter(task) {
   try {
     if (appId) {
       const res = await ApplicationsAPI.generateCoverLetter(appId)
-      task.result_json.cover_letter_text = res.data.cover_letter_text
-      task.result_json.cover_letter_status = res.data.cover_letter_status
-      task.result_json.cover_letter_generated_at = res.data.cover_letter_generated_at
+      task.result_json = {
+        ...task.result_json,
+        cover_letter_text: res.data.cover_letter_text,
+        cover_letter_status: res.data.cover_letter_status,
+        cover_letter_generated_at: res.data.cover_letter_generated_at,
+      }
       uiStore.showToast(`Drafted cover letter for ${task.result_json.company || 'job'}!`, 'success')
     } else {
       uiStore.showToast('Application ID missing. Confirm application first.', 'warning')
@@ -917,7 +920,7 @@ onUnmounted(() => {
               </button>
 
               <button
-                v-if="task.result_json?.cover_letter_text || task.result_json?.cover_letter_status === 'GENERATED'"
+                v-if="task.result_json?.cover_letter_text || ['GENERATED', 'DRAFTED'].includes(task.result_json?.cover_letter_status)"
                 class="btn btn-secondary btn-sm"
                 @click="openCoverLetterModal(task)"
                 title="View & Edit Cover Letter"

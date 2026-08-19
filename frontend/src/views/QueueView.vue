@@ -39,7 +39,7 @@ import { watch } from 'vue'
 const retryingTaskIds = ref(new Set())
 const selectedTaskIds = ref(new Set())
 const statusFilter = ref('ALL') // 'ALL' | 'FAILED' | 'RUNNING' | 'PENDING' | 'COMPLETED'
-const typeFilter = ref('ALL') // 'ALL' | 'JOB_ASSESSMENT' | 'CV_EXTRACTION' | 'EMBEDDING'
+const typeFilter = ref('ALL') // 'ALL' | 'JOB_ASSESSMENT' | 'CV_EXTRACTION' | 'EMBEDDING' | 'COVER_LETTER'
 const searchQuery = ref('')
 const showBulkDeleteConfirm = ref(false)
 const isBulkActing = ref(false)
@@ -331,6 +331,14 @@ onUnmounted(() => {
             <Layers :size="12" />
             <span>Vector Embeddings</span>
           </button>
+          <button
+            class="type-pill"
+            :class="{ active: typeFilter === 'COVER_LETTER' }"
+            @click="typeFilter = 'COVER_LETTER'"
+          >
+            <FileText :size="12" />
+            <span>Cover Letters</span>
+          </button>
         </div>
 
         <!-- Actions: Search, Refresh, Clear Completed -->
@@ -500,11 +508,12 @@ onUnmounted(() => {
                 :class="{
                   'type-cv': task.task_type === 'CV_EXTRACTION',
                   'type-job': task.task_type === 'JOB_ASSESSMENT' || !task.task_type,
-                  'type-embedding': task.task_type === 'EMBEDDING'
+                  'type-embedding': task.task_type === 'EMBEDDING',
+                  'type-cover-letter': task.task_type === 'COVER_LETTER'
                 }"
               >
-                <component :is="task.task_type === 'CV_EXTRACTION' ? UserCheck : (task.task_type === 'EMBEDDING' ? Layers : Briefcase)" :size="12" />
-                <span>{{ task.task_type === 'CV_EXTRACTION' ? 'CV Profile Extraction' : (task.task_type === 'EMBEDDING' ? 'Vector Embedding' : 'Job Assessment') }}</span>
+                <component :is="task.task_type === 'CV_EXTRACTION' ? UserCheck : (task.task_type === 'EMBEDDING' ? Layers : (task.task_type === 'COVER_LETTER' ? FileText : Briefcase))" :size="12" />
+                <span>{{ task.task_type === 'CV_EXTRACTION' ? 'CV Profile Extraction' : (task.task_type === 'EMBEDDING' ? 'Vector Embedding' : (task.task_type === 'COVER_LETTER' ? 'Cover Letter Generation' : 'Job Assessment')) }}</span>
               </span>
               <span class="task-title-text" :title="task.title_hint || task.job_url">
                 {{ task.title_hint || task.job_url || `Task #${task.id}` }}
@@ -555,13 +564,13 @@ onUnmounted(() => {
 
           <!-- DEDICATED PIPELINE STEPPERS -->
           <div class="task-pipeline-container">
-            <!-- 1. JOB ASSESSMENT STEPPER (5 Stages) -->
-            <div v-if="task.task_type !== 'CV_EXTRACTION' && task.task_type !== 'EMBEDDING'" class="pipeline-stepper job-stepper">
+            <!-- 1. JOB ASSESSMENT STEPPER (6 Stages) -->
+            <div v-if="task.task_type !== 'CV_EXTRACTION' && task.task_type !== 'EMBEDDING' && task.task_type !== 'COVER_LETTER'" class="pipeline-stepper job-stepper">
               <div
                 class="stepper-node"
                 :class="{
                   active: task.stage === 'FETCHING',
-                  done: ['EXTRACTING', 'MATCHING', 'ASSESSING', 'SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
+                  done: ['EXTRACTING', 'MATCHING', 'ASSESSING', 'COVER_LETTER', 'SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
                 }"
               >
                 <div class="node-bullet">1</div>
@@ -572,7 +581,7 @@ onUnmounted(() => {
                 class="stepper-node"
                 :class="{
                   active: task.stage === 'EXTRACTING',
-                  done: ['MATCHING', 'ASSESSING', 'SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
+                  done: ['MATCHING', 'ASSESSING', 'COVER_LETTER', 'SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
                 }"
               >
                 <div class="node-bullet">2</div>
@@ -583,7 +592,7 @@ onUnmounted(() => {
                 class="stepper-node"
                 :class="{
                   active: task.stage === 'MATCHING',
-                  done: ['ASSESSING', 'SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
+                  done: ['ASSESSING', 'COVER_LETTER', 'SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
                 }"
               >
                 <div class="node-bullet">3</div>
@@ -594,11 +603,22 @@ onUnmounted(() => {
                 class="stepper-node"
                 :class="{
                   active: task.stage === 'ASSESSING',
-                  done: ['SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
+                  done: ['COVER_LETTER', 'SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
                 }"
               >
                 <div class="node-bullet">4</div>
-                <span class="node-label">Qualitative Fit &amp; Tips</span>
+                <span class="node-label">Qualitative Fit</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'COVER_LETTER',
+                  done: ['SAVING', 'COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">5</div>
+                <span class="node-label">Cover Letter</span>
               </div>
 
               <div
@@ -607,7 +627,7 @@ onUnmounted(() => {
                   done: ['COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
                 }"
               >
-                <div class="node-bullet">5</div>
+                <div class="node-bullet">6</div>
                 <span class="node-label">{{ task.stage === 'STAGED_DUPLICATE' ? 'Staged' : 'Complete' }}</span>
               </div>
             </div>
@@ -692,6 +712,41 @@ onUnmounted(() => {
                 <span class="node-label">Vector Saved</span>
               </div>
             </div>
+
+            <!-- 4. COVER LETTER STEPPER (3 Stages) -->
+            <div v-else-if="task.task_type === 'COVER_LETTER'" class="pipeline-stepper cover-letter-stepper">
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'QUEUED',
+                  done: ['COVER_LETTER', 'GENERATING', 'COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">1</div>
+                <span class="node-label">Queued</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  active: ['COVER_LETTER', 'GENERATING'].includes(task.stage),
+                  done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">2</div>
+                <span class="node-label">Drafting Cover Letter</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">3</div>
+                <span class="node-label">Cover Letter Ready</span>
+              </div>
+            </div>
           </div>
           
           <!-- Error Alert Banner with 1-Click Retry -->
@@ -714,7 +769,7 @@ onUnmounted(() => {
           <!-- Result Footer & Contextual Actions -->
           <div v-else-if="task.status === 'COMPLETED' && task.result_json" class="task-card-footer">
             <!-- Job Assessment Context -->
-            <template v-if="task.task_type !== 'CV_EXTRACTION' && task.task_type !== 'EMBEDDING'">
+            <template v-if="task.task_type !== 'CV_EXTRACTION' && task.task_type !== 'EMBEDDING' && task.task_type !== 'COVER_LETTER'">
               <div class="footer-left">
                 <span v-if="task.result_json.match_score !== undefined || task.result_json.fit_score !== undefined" class="score-badge">
                   {{ task.result_json.match_score ?? task.result_json.fit_score }}% Match
@@ -764,6 +819,29 @@ onUnmounted(() => {
                   <Layers :size="12" />
                   <span>Vector Embedding Generated</span>
                 </span>
+              </div>
+            </template>
+
+            <!-- Cover Letter Context -->
+            <template v-else-if="task.task_type === 'COVER_LETTER'">
+              <div class="footer-left">
+                <span class="badge-cv-ready">
+                  <FileText :size="12" />
+                  <span>Cover Letter {{ task.result_json.cover_letter_status === 'SKIPPED' ? 'Skipped' : 'Drafted' }}</span>
+                </span>
+                <span v-if="task.result_json.company" class="footer-meta-text">
+                  {{ task.result_json.company }} • {{ task.result_json.position || 'Position' }}
+                </span>
+              </div>
+
+              <div class="footer-right">
+                <router-link
+                  to="/assessments"
+                  class="btn btn-primary btn-xs"
+                >
+                  <FileText :size="12" />
+                  <span>View in Dossier &rarr;</span>
+                </router-link>
               </div>
             </template>
           </div>
@@ -1197,6 +1275,12 @@ onUnmounted(() => {
   background-color: var(--primary-subtle);
   color: var(--primary);
   border: 1px solid var(--primary-glow);
+}
+
+.task-type-tag.type-cover-letter {
+  background-color: var(--status-interview-bg);
+  color: var(--status-interview-text);
+  border: 1px solid var(--status-interview-border);
 }
 
 .task-title-text {
