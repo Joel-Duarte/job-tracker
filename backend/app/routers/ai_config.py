@@ -16,7 +16,6 @@ from app.core.llm_factory import (
     get_task_chat_model,
     get_task_embeddings_model,
 )
-from app.core.security import verify_admin_access
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.schemas.ai_config import (
     AIProviderCreate,
@@ -198,11 +197,7 @@ async def _fetch_models_from_endpoint(
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(
-    prefix="/ai",
-    tags=["AI Provider Registry & Task Bindings"],
-    dependencies=[Depends(verify_admin_access)],
-)
+router = APIRouter(prefix="/ai", tags=["AI Provider Registry & Task Bindings"])
 
 
 @router.get("/global-settings", response_model=GlobalSettingsRead)

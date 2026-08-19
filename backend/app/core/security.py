@@ -26,44 +26,30 @@ def _get_fernet():
 
 
 def encrypt_secret(plain_text: str | None) -> str | None:
-    """Symmetrically encrypts a sensitive plain-text secret using Fernet.
-
-    If the string is already validly encrypted by Fernet, returns it as-is.
-    Returns None if input is None or empty.
-    """
+    """Encrypt a sensitive value, preserving already encrypted values."""
     if not plain_text:
         return plain_text
 
+    fernet = _get_fernet()
     try:
-        f = _get_fernet()
-        f.decrypt(plain_text.encode("utf-8"))
-        # Already encrypted
+        fernet.decrypt(plain_text.encode("utf-8"))
         return plain_text
     except Exception:
-        pass
-
-    f = _get_fernet()
-    return f.encrypt(plain_text.encode("utf-8")).decode("utf-8")
+        return fernet.encrypt(plain_text.encode("utf-8")).decode("utf-8")
 
 
 def decrypt_secret(cipher_text: str | None) -> str | None:
-    """Decrypts a Fernet ciphertext string into plain-text.
-
-    If decryption fails (e.g., legacy unencrypted string in DB), gracefully returns cipher_text.
-    Returns None if input is None.
-    """
+    """Decrypt a value, retaining compatibility with legacy plaintext rows."""
     if not cipher_text:
         return cipher_text
 
     try:
-        f = _get_fernet()
-        return f.decrypt(cipher_text.encode("utf-8")).decode("utf-8")
+        return _get_fernet().decrypt(cipher_text.encode("utf-8")).decode("utf-8")
     except Exception:
         return cipher_text
 
 
 def mask_secret(secret: str | None) -> str | None:
-    """Masks secret keys for API responses (e.g., returning sk-...xxxx or sec...xxxx)."""
     if not secret:
         return None
     decrypted = decrypt_secret(secret)
@@ -80,18 +66,17 @@ async def verify_admin_access(
     x_admin_token: str | None = Header(None, alias="X-Admin-Token"),
     authorization: str | None = Header(None),
 ) -> None:
-    """Security dependency ensuring administrative authorization if ADMIN_SECRET is configured."""
     expected_secret = getattr(settings, "ADMIN_SECRET", "") or ""
     if not expected_secret:
-        # Development mode without explicit admin secret configured
         return
 
     provided_token = x_admin_token
     if not provided_token and authorization:
-        if authorization.lower().startswith("bearer "):
-            provided_token = authorization[7:].strip()
-        else:
-            provided_token = authorization.strip()
+        provided_token = (
+            authorization[7:].strip()
+            if authorization.lower().startswith("bearer ")
+            else authorization.strip()
+        )
 
     if provided_token != expected_secret:
         raise HTTPException(
@@ -104,10 +89,6 @@ async def verify_reset_allowed(
     x_confirm_reset: str | None = Header(None, alias="X-Confirm-Reset"),
     x_admin_confirm: str | None = Header(None, alias="X-Admin-Confirm"),
 ) -> None:
-    """Security dependency ensuring database reset is allowed and confirmed.
-
-    Blocks database reset in production environment and requires explicit confirmation headers.
-    """
     env = (getattr(settings, "ENVIRONMENT", "development") or "").strip().lower()
     if env == "production":
         raise HTTPException(
@@ -115,14 +96,12 @@ async def verify_reset_allowed(
             detail="Database reset operations are disabled in production environment.",
         )
 
-    confirm_reset_val = (x_confirm_reset or "").strip().lower()
-    admin_confirm_val = (x_admin_confirm or "").strip().lower()
-
-    if confirm_reset_val not in ("true", "1") and admin_confirm_val not in (
-        "true",
-        "1",
-    ):
+    confirmations = {
+        (x_confirm_reset or "").strip().lower(),
+        (x_admin_confirm or "").strip().lower(),
+    }
+    if not confirmations.intersection({"true", "1"}):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Must pass explicit confirmation header ('X-Confirm-Reset: true' or 'X-Admin-Confirm: true') to execute database reset.",
+            detail="Must pass an explicit reset confirmation header.",
         )

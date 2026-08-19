@@ -1,9 +1,9 @@
 import logging
-from typing import Any, Literal
+from typing import Literal
 
 from langgraph.graph import END, START, StateGraph
 
-from app.schemas.graph_state import IntakeState, JobTrackerState
+from app.schemas.graph_state import JobTrackerState
 from app.services.graph_nodes import (
     db_commit_node,
     extraction_node,
@@ -17,11 +17,9 @@ from app.services.graph_nodes import (
 logger = logging.getLogger(__name__)
 
 
-def route_after_dedupe(
-    state: JobTrackerState,
-) -> Literal["extraction", "prune_terminal_state"]:
+def route_after_dedupe(state: JobTrackerState) -> Literal["extraction", "__end__"]:
     if state.get("is_duplicate"):
-        return "prune_terminal_state"
+        return END
     return "extraction"
 
 
@@ -43,30 +41,14 @@ def route_after_fuzzy_match(
     return "db_commit"
 
 
-def route_after_commit(
-    state: JobTrackerState,
-) -> Literal["summarize_embed", "prune_terminal_state"]:
+def route_after_commit(state: JobTrackerState) -> Literal["summarize_embed", "__end__"]:
     if state.get("application_id"):
         return "summarize_embed"
-    return "prune_terminal_state"
+    return END
 
 
-def prune_terminal_state_node(state: IntakeState) -> dict[str, Any]:
-    """Terminal consolidation step before checkpointer serialization.
-
-    Prunes transient attributes (such as raw scraped_spec buffers) and ensures exit state
-    schema uniformity across all terminal branches (completed, staging, failed).
-    """
-    updates: dict[str, Any] = {
-        "scraped_spec": None,
-    }
-    if "embedding_created" not in state:
-        updates["embedding_created"] = False
-    return updates
-
-
-def build_intake_graph(checkpointer: Any = None):
-    builder = StateGraph(IntakeState)
+def build_intake_graph():
+    builder = StateGraph(JobTrackerState)
 
     builder.add_node("normalize_and_dedupe", normalize_and_dedupe_node)
     builder.add_node("extraction", extraction_node)
@@ -75,24 +57,19 @@ def build_intake_graph(checkpointer: Any = None):
     builder.add_node("scrape_enrich", scrape_enrich_node)
     builder.add_node("db_commit", db_commit_node)
     builder.add_node("summarize_embed", summarize_embed_node)
-    builder.add_node("prune_terminal_state", prune_terminal_state_node)
 
     builder.add_edge(START, "normalize_and_dedupe")
     builder.add_conditional_edges("normalize_and_dedupe", route_after_dedupe)
     builder.add_conditional_edges("extraction", route_after_extraction)
     builder.add_conditional_edges("fuzzy_match", route_after_fuzzy_match)
-    builder.add_edge("staging", "prune_terminal_state")
+    builder.add_edge("staging", END)
     builder.add_edge("scrape_enrich", "db_commit")
     builder.add_conditional_edges("db_commit", route_after_commit)
-    builder.add_edge("summarize_embed", "prune_terminal_state")
-    builder.add_edge("prune_terminal_state", END)
+    builder.add_edge("summarize_embed", END)
 
-    if checkpointer is None:
-        from app.core.database import postgres_saver
+    from app.core.database import postgres_saver
 
-        checkpointer = postgres_saver
-
-    return builder.compile(checkpointer=checkpointer)
+    return builder.compile(checkpointer=postgres_saver)
 
 
 intake_graph = build_intake_graph()

@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 import app.models  # noqa: F401
-from app.models.applications import Base
+from app.core.database import Base
 from app.models.email_accounts import EmailAccountModel
 from app.schemas.intake import EmailPayload, ExtractedEmailInfo
 
@@ -129,13 +129,12 @@ async def db_session(postgres_container):
     async with session_factory() as session:
         yield session
 
-    # Clean up test pool and reset the isolated test schema after each test.
+    # Clean up test pool and drop tables after test run
     db_module.engine = orig_engine
     db_module.AsyncSessionLocal = orig_session_local
     await test_pool.close()
     async with engine.begin() as conn:
-        await conn.execute(text("DROP SCHEMA public CASCADE"))
-        await conn.execute(text("CREATE SCHEMA public"))
+        await conn.run_sync(Base.metadata.drop_all)
 
     await engine.dispose()
 

@@ -53,18 +53,26 @@ def _fetch_imap_emails_sync(
 
     email_ids = messages[0].split()
     results = []
+    batch_size = 50
 
-    for mail_id in email_ids:
-        status, msg_data = mail.fetch(mail_id, "(RFC822)")
-        if status != "OK":
+    for i in range(0, len(email_ids), batch_size):
+        batch_ids = email_ids[i : i + batch_size]
+        fetch_ids = b",".join(batch_ids)
+        status, msg_data = mail.fetch(fetch_ids, "(RFC822)")
+        if status != "OK" or not msg_data:
             continue
 
         for response_part in msg_data:
             if isinstance(response_part, tuple):
                 msg = email.message_from_bytes(response_part[1])
 
+                seq_num = (
+                    response_part[0].split()[0].decode(errors="ignore")
+                    if isinstance(response_part[0], bytes)
+                    else "unknown"
+                )
                 subject = _clean_header(msg.get("Subject", "No Subject"))
-                conversation_id = msg.get("Message-ID", f"msg-{mail_id.decode()}")
+                conversation_id = msg.get("Message-ID", f"msg-{seq_num}")
                 date_header = msg.get("Date", datetime.now().isoformat())
 
                 # Extract plain text body

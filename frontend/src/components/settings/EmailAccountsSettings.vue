@@ -117,6 +117,12 @@ function onAuthMethodChange(method) {
 
 async function startOAuthLogin(providerName) {
   try {
+    if (!emailAccountForm.value.client_id || !emailAccountForm.value.client_secret) {
+      uiStore.showToast('Enter and save OAuth client credentials before authorizing.', 'error')
+      return
+    }
+
+    await persistEmailAccount()
     const prov = providerName || emailAccountForm.value.provider_preset
     const redirectUri = prov === 'outlook'
       ? props.oauthConfig.microsoft_redirect_uri
@@ -135,6 +141,34 @@ async function startOAuthLogin(providerName) {
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to initiate OAuth', 'error')
   }
+}
+
+function buildEmailAccountPayload() {
+  return {
+    name: emailAccountForm.value.name.trim(),
+    auth_type: emailAccountForm.value.auth_type,
+    username: emailAccountForm.value.username.trim(),
+    app_password: emailAccountForm.value.app_password || undefined,
+    imap_host: emailAccountForm.value.imap_host.trim(),
+    imap_port: Number(emailAccountForm.value.imap_port),
+    folder: emailAccountForm.value.folder.trim() || 'INBOX',
+    client_id: emailAccountForm.value.client_id.trim() || undefined,
+    client_secret: emailAccountForm.value.client_secret.trim() || undefined,
+    sync_interval: emailAccountForm.value.sync_interval,
+    sync_schedule_time: `${emailAccountForm.value.sync_schedule_hour}:${emailAccountForm.value.sync_schedule_min}`,
+    sync_schedule_day: emailAccountForm.value.sync_schedule_day,
+    is_active: emailAccountForm.value.is_active,
+  }
+}
+
+async function persistEmailAccount() {
+  const payload = buildEmailAccountPayload()
+  const response = editingAccount.value
+    ? await EmailAccountsAPI.update(editingAccount.value.id, payload)
+    : await EmailAccountsAPI.create(payload)
+  editingAccount.value = response.data
+  emit('refresh')
+  return response.data
 }
 
 function openAddEmailAccountModal() {
@@ -204,29 +238,8 @@ function openEditEmailAccountModal(acc) {
 async function saveEmailAccount() {
   isSavingAccount.value = true
   try {
-    const payload = {
-      name: emailAccountForm.value.name.trim(),
-      auth_type: emailAccountForm.value.auth_type,
-      username: emailAccountForm.value.username.trim(),
-      app_password: emailAccountForm.value.app_password || undefined,
-      imap_host: emailAccountForm.value.imap_host.trim(),
-      imap_port: Number(emailAccountForm.value.imap_port),
-      folder: emailAccountForm.value.folder.trim() || 'INBOX',
-      client_id: emailAccountForm.value.client_id.trim() || undefined,
-      client_secret: emailAccountForm.value.client_secret.trim() || undefined,
-      sync_interval: emailAccountForm.value.sync_interval,
-      sync_schedule_time: `${emailAccountForm.value.sync_schedule_hour}:${emailAccountForm.value.sync_schedule_min}`,
-      sync_schedule_day: emailAccountForm.value.sync_schedule_day,
-      is_active: emailAccountForm.value.is_active,
-    }
-
-    if (editingAccount.value) {
-      await EmailAccountsAPI.update(editingAccount.value.id, payload)
-      uiStore.showToast('Email account updated successfully', 'success')
-    } else {
-      await EmailAccountsAPI.create(payload)
-      uiStore.showToast('Email account connected successfully', 'success')
-    }
+    await persistEmailAccount()
+    uiStore.showToast('Email account saved successfully', 'success')
     isEmailAccountModalOpen.value = false
     emit('refresh')
   } catch (err) {

@@ -82,7 +82,7 @@ async def generate_interview_guide(
         )
         jd_text = f"Position: {position} at {company_name}.\nRecent Communications & Timeline: {event_notes or 'Active recruitment process.'}"
 
-    # 4. Prepare Initial State & Invoke LangGraph via Streaming
+    # 4. Prepare Initial State & Invoke LangGraph
     initial_state = {
         "cv_text": cv_text,
         "jd_text": jd_text,
@@ -90,7 +90,7 @@ async def generate_interview_guide(
         "position": position,
         "company_context": [],
         "target_sections": request.selected_sections,
-        "section_results": [],
+        "current_section_index": 0,
         "completed_sections": [],
         "language": request.language,
         "error": None,
@@ -98,7 +98,7 @@ async def generate_interview_guide(
 
     recursion_limit = max(5, min(request.recursion_limit, 100))
     logger.info(
-        "Invoking parallel LangGraph interview guide generator for app %d (%s at %s), sections: %s, recursion_limit: %d",
+        "Invoking LangGraph interview guide generator for app %d (%s at %s), sections: %s, recursion_limit: %d",
         application_id,
         position,
         company_name,
@@ -106,28 +106,14 @@ async def generate_interview_guide(
         recursion_limit,
     )
 
-    final_state = dict(initial_state)
-    config = {
-        "recursion_limit": recursion_limit,
-        "configurable": {"db": db, "thread_id": str(application_id)},
-        "callbacks": [PostgresTracer()],
-    }
-
-    async for update in interview_guide_graph.astream(
-        initial_state, config=config, stream_mode="updates"
-    ):
-        for node_name, node_output in update.items():
-            if isinstance(node_output, dict):
-                final_state.update(node_output)
-                if node_name == "section_generator":
-                    sec_res = node_output.get("section_results", [])
-                    for res in sec_res:
-                        logger.info(
-                            "Interview guide section completed for app %d: %s (index %s)",
-                            application_id,
-                            res.get("key"),
-                            res.get("index"),
-                        )
+    final_state = await interview_guide_graph.ainvoke(
+        initial_state,
+        config={
+            "recursion_limit": recursion_limit,
+            "configurable": {"db": db, "thread_id": str(application_id)},
+            "callbacks": [PostgresTracer()],
+        },
+    )
 
     completed_sections = final_state.get("completed_sections", [])
     combined_html = "\n\n".join(completed_sections)

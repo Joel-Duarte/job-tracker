@@ -1,5 +1,5 @@
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -46,7 +46,6 @@ async def test_scrape_via_camofox_success():
     with (
         patch("httpx.AsyncClient.post") as mock_post,
         patch("httpx.AsyncClient.delete") as mock_delete,
-        patch("app.services.scraper.asyncio.sleep", new_callable=AsyncMock),
     ):
         # Mock /tabs/open
         open_resp = httpx.Response(200, json={"ok": True, "tabId": "tab-1234"})

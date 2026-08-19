@@ -12,13 +12,102 @@ DEFAULT_PROMPTS = {
         "--------------------------------------------------\n"
         "- This extraction MUST operate in total isolation from candidate CVs or candidate evaluation data. Focus strictly on what the employer posted.\n"
         "- Completely disregard navigation links, cookie banners, headers, footers, related job links, ads, and legal disclaimers.\n"
+        "- Do NOT add any introductory text, analysis, markdown commentary, candidate fit commentary, or pleasantries.\n"
         "- If the text does not contain an actual job vacancy, set job_found=False.\n"
-        "- If context for why_hiring or what_you_will_build is absent in the text, set them to null rather than hallucinating generic corporate filler.\n\n"
+        "- If context for why_hiring or what_you_will_build is absent in the text, MUST set them to null rather than hallucinating generic corporate filler.\n\n"
+        "--------------------------------------------------\n"
+        "EXTRACTION RULES\n"
+        "--------------------------------------------------\n"
+        "- position: Extract the exact position title (e.g. 'Staff Backend Engineer').\n"
+        "- company: Extract the hiring employer name (ignore portal or job board names like LinkedIn, Indeed, Glassdoor).\n"
+        "- company_url: Extract or infer the company's official website root domain into company_url (e.g. 'stripe.com', 'linear.app', 'datadoghq.com'). Strip protocols, www, and subpaths. Do not return ATS domains like greenhouse.io, lever.co, or ashbyhq.com.\n"
+        "- why_hiring: Extract explicit company expansion, scaling, or team creation reasons. Must be null if not explicitly mentioned.\n"
+        "- what_you_will_build: Extract concrete deliverables, systems, or product domains. Must be null if not explicitly mentioned.\n"
+        "- responsibilities: Extract an array of clean, itemized action items (e.g., 'Design distributed data pipelines', 'Conduct code reviews'). Company-specific introductory phrases (such as 'As an engineer here, you will...', 'In this role, you will...') MUST be stripped out.\n"
+        "- requirements: Extract an array of hard prerequisites, years of experience, and qualifications as clean itemized strings.\n"
+        "- extracted_skills: Extract an array of technical skills, tools, and competencies mentioned in the job description.\n"
+        "- compensation_text: Formatted salary or rate range string (e.g. '$195,000 - $245,000 USD' or '$80/hr'). Null if not stated.\n"
+        "- location_text: Clean city and country string (e.g. 'San Francisco, CA' or 'London, UK'). Null if not stated.\n"
+        "- workplace_type: Strictly one of 'Remote', 'Hybrid', 'On-site', or null.\n\n"
         "Raw Webpage / Job Data:\n{raw_webpage_data}"
+    ),
+    "email_extraction": (
+        "You are an information extraction engine for recruitment emails.\n\n"
+        "Your task is to analyze ONE email and determine whether it is related to a job application or recruitment process.\n\n"
+        "Do NOT explain your reasoning.\n"
+        "Do NOT output markdown.\n"
+        "Do NOT output code fences.\n"
+        "Do NOT output analysis.\n"
+        "Return ONLY valid JSON.\n\n"
+        "--------------------------------------------------\n"
+        "OUTPUT SCHEMA\n"
+        "--------------------------------------------------\n"
+        "Field specifications:\n"
+        "- email_type: string (JOB_APPLICATION, RECRUITER_OUTREACH, JOB_ALERT, NEWSLETTER, SPAM, OTHER)\n"
+        "- company: string | null (Hiring employer name. Ignore ATS domains like greenhouse/lever/workday)\n"
+        "- position: string | 'unknownPosition' (Job title. Use 'unknownPosition' if absent)\n"
+        "- external_job_id: string | null (Job reference ID or requisition number)\n"
+        "- job_url: string | null (URL to job post)\n"
+        "- event_type: string | null (APPLICATION_RECEIVED, RECRUITER_CONTACTED, INTERVIEW_REQUESTED, INTERVIEW_SCHEDULED, ASSESSMENT_REQUESTED, ASSESSMENT_COMPLETED, OFFER_RECEIVED, REJECTION_RECEIVED, WITHDRAWAL_CONFIRMED, STATUS_UPDATE, OTHER)\n"
+        "- status: string | null (APPLIED, RECRUITER_CONTACT, PHONE_SCREEN, ONLINE_ASSESSMENT, TECHNICAL_INTERVIEW, BEHAVIORAL_INTERVIEW, ONSITE_INTERVIEW, FINAL_INTERVIEW, OFFER, REJECTED, WITHDRAWN, OTHER)\n"
+        "- action_required: boolean (True only if candidate must take immediate action)\n"
+        "- action: string | null (Concise action to take, e.g. 'Schedule interview')\n"
+        "- summary: string (Maximum 20 words describing what happened)\n\n"
+        "--------------------------------------------------\n"
+        "EMAIL TYPE DEFINITIONS\n"
+        "--------------------------------------------------\n"
+        "- JOB_APPLICATION: Confirmations, interview invites, coding assessments, recruiter updates, rejections, offers.\n"
+        "- RECRUITER_OUTREACH: Recruiter sourcing or 'found your profile' not tied to an existing application.\n"
+        "- JOB_ALERT: Job vacancy recommendations or saved searches.\n"
+        "- NEWSLETTER: Career newsletters, marketing updates.\n"
+        "- SPAM: Phishing or spam.\n"
+        "- OTHER: Anything else.\n\n"
+        "IMPORTANT: If email_type is NOT JOB_APPLICATION, return company=null, position='unknownPosition', external_job_id=null, job_url=null, event_type=null, status=null, action_required=false, action=null.\n\n"
+        "--------------------------------------------------\n"
+        "COMPANY & DOMAIN RULES\n"
+        "--------------------------------------------------\n"
+        "- Extract the actual employer (e.g. 'Google', 'Stripe', 'Randstad').\n"
+        "- If the email is sent via an ATS platform (e.g. @greenhouse.io, @greenhouse-mail.io, @lever.co, @myworkday.com, @smartrecruiters.com, @ashbyhq.com, @workablemail.com, @icims.com, @taleo.net, @bamboohr.com, @jobvite.com), DO NOT output the ATS name as the company. Look in the subject, body, or footer for the true hiring company.\n"
+        "- If sent directly from a company domain (e.g. @uber.com), use it if not explicitly stated in the body.\n\n"
+        "--------------------------------------------------\n"
+        "STATUS RULES (For JOB_APPLICATION)\n"
+        "--------------------------------------------------\n"
+        "Return the application status AFTER this email:\n"
+        "- Application received/confirmed -> APPLIED\n"
+        "- Recruiter outreach on active app -> RECRUITER_CONTACT\n"
+        "- Phone screen / HR chat invite -> PHONE_SCREEN\n"
+        "- Coding challenge / test invite -> ONLINE_ASSESSMENT\n"
+        "- Technical round / system design -> TECHNICAL_INTERVIEW\n"
+        "- Behavioral / Culture round -> BEHAVIORAL_INTERVIEW\n"
+        "- Onsite round -> ONSITE_INTERVIEW\n"
+        "- Final round -> FINAL_INTERVIEW\n"
+        "- Job Offer extended -> OFFER\n"
+        "- Rejection notice -> REJECTED\n"
+        "- Application withdrawn -> WITHDRAWN\n\n"
+        "Email Content:\n{email_content}"
     ),
     "extraction": (
         "You are an information extraction engine for recruitment emails.\n\n"
         "Your task is to analyze ONE email and determine whether it is related to a job application or recruitment process.\n\n"
+        "Do NOT explain your reasoning.\n"
+        "Do NOT output markdown.\n"
+        "Do NOT output code fences.\n"
+        "Do NOT output analysis.\n"
+        "Return ONLY valid JSON.\n\n"
+        "--------------------------------------------------\n"
+        "OUTPUT SCHEMA\n"
+        "--------------------------------------------------\n"
+        "Field specifications:\n"
+        "- email_type: string (JOB_APPLICATION, RECRUITER_OUTREACH, JOB_ALERT, NEWSLETTER, SPAM, OTHER)\n"
+        "- company: string | null (Hiring employer name. Ignore ATS domains like greenhouse/lever/workday)\n"
+        "- position: string | 'unknownPosition' (Job title. Use 'unknownPosition' if absent)\n"
+        "- external_job_id: string | null (Job reference ID or requisition number)\n"
+        "- job_url: string | null (URL to job post)\n"
+        "- event_type: string | null (APPLICATION_RECEIVED, RECRUITER_CONTACTED, INTERVIEW_REQUESTED, INTERVIEW_SCHEDULED, ASSESSMENT_REQUESTED, ASSESSMENT_COMPLETED, OFFER_RECEIVED, REJECTION_RECEIVED, WITHDRAWAL_CONFIRMED, STATUS_UPDATE, OTHER)\n"
+        "- status: string | null (APPLIED, RECRUITER_CONTACT, PHONE_SCREEN, ONLINE_ASSESSMENT, TECHNICAL_INTERVIEW, BEHAVIORAL_INTERVIEW, ONSITE_INTERVIEW, FINAL_INTERVIEW, OFFER, REJECTED, WITHDRAWN, OTHER)\n"
+        "- action_required: boolean (True only if candidate must take immediate action)\n"
+        "- action: string | null (Concise action to take, e.g. 'Schedule interview')\n"
+        "- summary: string (Maximum 20 words describing what happened)\n\n"
         "--------------------------------------------------\n"
         "EMAIL TYPE DEFINITIONS\n"
         "--------------------------------------------------\n"
@@ -182,29 +271,22 @@ async def seed_default_prompts(session: AsyncSession) -> None:
 
 async def get_prompt_template(session: AsyncSession, prompt_name: str) -> str:
     """Retrieves prompt template from DB, falling back to default if missing."""
-    canonical_name = "extraction" if prompt_name == "email_extraction" else prompt_name
-
-    stmt = select(PromptModel.template).where(PromptModel.name == canonical_name)
+    stmt = select(PromptModel.template).where(PromptModel.name == prompt_name)
     result = await session.execute(stmt)
     template = result.scalar_one_or_none()
 
-    if not template and canonical_name != prompt_name:
-        stmt = select(PromptModel.template).where(PromptModel.name == prompt_name)
-        result = await session.execute(stmt)
-        template = result.scalar_one_or_none()
-
     if template:
-        if canonical_name == "cv_anonymization" and (
+        if prompt_name == "cv_anonymization" and (
             "{'domain'}" in template or "{'domain" in template
         ):
             return DEFAULT_PROMPTS["cv_anonymization"]
         return template
 
     # Fallback to defaults
-    if canonical_name in DEFAULT_PROMPTS:
-        return DEFAULT_PROMPTS[canonical_name]
-
     if prompt_name in DEFAULT_PROMPTS:
         return DEFAULT_PROMPTS[prompt_name]
+
+    if prompt_name == "email_extraction":
+        return DEFAULT_PROMPTS.get("extraction", "")
 
     return ""

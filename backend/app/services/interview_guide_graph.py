@@ -1,15 +1,12 @@
 import logging
-import operator
-from typing import Annotated, Any, TypedDict
+from typing import Any, TypedDict
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import Send
 
 from app.core.llm_factory import get_task_chat_model
 from app.core.prompts import get_prompt_template
-from app.services.llm import truncate_text_semantically
 from app.services.postgres_tracer import PostgresTracer
 
 logger = logging.getLogger(__name__)
@@ -54,22 +51,10 @@ class InterviewGuideState(TypedDict):
     position: str
     company_context: list[str]
     target_sections: list[str]
-    section_results: Annotated[list[dict[str, Any]], operator.add]
+    current_section_index: int
     completed_sections: list[str]
     language: str
     error: str | None
-
-
-class SectionWorkerState(TypedDict):
-    section_key: str
-    section_index: int
-    section_desc: str
-    language: str
-    company_name: str
-    position: str
-    company_context: str
-    jd_text: str
-    cv_text: str
 
 
 async def extractor_node(state: InterviewGuideState) -> dict[str, Any]:
@@ -79,7 +64,7 @@ async def extractor_node(state: InterviewGuideState) -> dict[str, Any]:
     return {
         "company_name": company or "Target Company",
         "position": position or "Target Role",
-        "section_results": [],
+        "current_section_index": 0,
         "completed_sections": [],
     }
 
@@ -112,7 +97,7 @@ async def web_researcher_node(
                     ),
                     (
                         "human",
-                        f"Target Company: {company}\n\nJob Details:\n{truncate_text_semantically(jd_text, max_chars=12000)}",
+                        f"Target Company: {company}\n\nJob Details:\n{jd_text[:3000]}",
                     ),
                 ]
             )
@@ -130,52 +115,25 @@ async def web_researcher_node(
     return {"company_context": [f"Company overview based on job spec for {company}."]}
 
 
-def continue_to_sections(state: InterviewGuideState) -> list[Send] | str:
-    """Fans out target_sections concurrently into parallel section_generator workers."""
+async def section_generator_node(
+    state: InterviewGuideState, config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """Generates the clean semantic HTML for the current section in the queue."""
     target_sections = state.get("target_sections", [])
     order_mapping = {key: i for i, key in enumerate(SECTION_DESCRIPTIONS.keys())}
-    sorted_sections = sorted(target_sections, key=lambda x: order_mapping.get(x, 999))
+    target_sections = sorted(target_sections, key=lambda x: order_mapping.get(x, 999))
+    idx = state.get("current_section_index", 0)
+    completed = list(state.get("completed_sections", []))
 
-    if not sorted_sections:
-        return "consolidate"
+    if idx >= len(target_sections):
+        return {"current_section_index": idx + 1, "target_sections": target_sections}
 
+    section_key = target_sections[idx]
+    section_desc = SECTION_DESCRIPTIONS.get(section_key, f"Section: {section_key}")
+    language = state.get("language", "en")
     company_name = state.get("company_name", "Target Company")
     position = state.get("position", "Target Role")
     company_context = "\n".join(state.get("company_context", []))
-    jd_text = state.get("jd_text", "")
-    cv_text = state.get("cv_text", "")
-    language = state.get("language", "en")
-
-    sends = []
-    for idx, sec_key in enumerate(sorted_sections):
-        sec_desc = SECTION_DESCRIPTIONS.get(sec_key, f"Section: {sec_key}")
-        worker_state: SectionWorkerState = {
-            "section_key": sec_key,
-            "section_index": idx,
-            "section_desc": sec_desc,
-            "language": language,
-            "company_name": company_name,
-            "position": position,
-            "company_context": company_context,
-            "jd_text": jd_text,
-            "cv_text": cv_text,
-        }
-        sends.append(Send("section_generator", worker_state))
-
-    return sends
-
-
-async def section_generator_node(
-    state: SectionWorkerState, config: RunnableConfig | None = None
-) -> dict[str, Any]:
-    """Generates the clean semantic HTML for a single section independently in parallel."""
-    section_key = state.get("section_key", "")
-    section_index = state.get("section_index", 0)
-    section_desc = state.get("section_desc", "")
-    language = state.get("language", "en")
-    company_name = state.get("company_name", "Target Company")
-    position = state.get("position", "Target Role")
-    company_context = state.get("company_context", "")
     jd_text = state.get("jd_text", "")
     cv_text = state.get("cv_text", "")
     db = (
@@ -213,8 +171,8 @@ async def section_generator_node(
                     "company_name": company_name,
                     "position": position,
                     "company_context": company_context,
-                    "jd_text": truncate_text_semantically(jd_text, max_chars=12000),
-                    "cv_text": truncate_text_semantically(cv_text, max_chars=12000),
+                    "jd_text": jd_text[:4000],
+                    "cv_text": cv_text[:4000],
                     "target_section": section_desc,
                 },
                 config={"callbacks": [PostgresTracer()]},
@@ -236,23 +194,23 @@ async def section_generator_node(
         logger.error("Error generating section %s: %s", section_key, exc, exc_info=True)
         section_html = f"<div class='guide-section'><h2>{section_desc.splitlines()[0]}</h2><p>Section generated based on profile for {position} at {company_name}.</p></div>"
 
+    completed.append(str(section_html))
     return {
-        "section_results": [
-            {
-                "key": section_key,
-                "index": section_index,
-                "html": section_html,
-            }
-        ]
+        "completed_sections": completed,
+        "current_section_index": idx + 1,
+        "target_sections": target_sections,
     }
 
 
-async def consolidate_node(state: InterviewGuideState) -> dict[str, Any]:
-    """Aggregates all completed parallel section results in canonical order."""
-    results = state.get("section_results", [])
-    sorted_results = sorted(results, key=lambda x: x.get("index", 0))
-    completed_htmls = [item["html"] for item in sorted_results]
-    return {"completed_sections": completed_htmls}
+def should_continue_sections(state: InterviewGuideState) -> str:
+    """Routes back to section_generator_node if more sections remain."""
+    target_sections = state.get("target_sections", [])
+    order_mapping = {key: i for i, key in enumerate(SECTION_DESCRIPTIONS.keys())}
+    target_sections = sorted(target_sections, key=lambda x: order_mapping.get(x, 999))
+    idx = state.get("current_section_index", 0)
+    if idx < len(target_sections):
+        return "section_generator"
+    return END
 
 
 def build_interview_guide_graph():
@@ -262,17 +220,18 @@ def build_interview_guide_graph():
     workflow.add_node("extractor", extractor_node)
     workflow.add_node("web_researcher", web_researcher_node)
     workflow.add_node("section_generator", section_generator_node)
-    workflow.add_node("consolidate", consolidate_node)
 
     workflow.add_edge(START, "extractor")
     workflow.add_edge("extractor", "web_researcher")
+    workflow.add_edge("web_researcher", "section_generator")
     workflow.add_conditional_edges(
-        "web_researcher",
-        continue_to_sections,
-        ["section_generator", "consolidate"],
+        "section_generator",
+        should_continue_sections,
+        {
+            "section_generator": "section_generator",
+            END: END,
+        },
     )
-    workflow.add_edge("section_generator", "consolidate")
-    workflow.add_edge("consolidate", END)
 
     from app.core.database import postgres_saver
 

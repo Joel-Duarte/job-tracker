@@ -1,8 +1,10 @@
 from datetime import UTC, datetime
 
 from sqlalchemy import Boolean, DateTime, Integer, String, Text
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.security import decrypt_secret, encrypt_secret
 from app.models.applications import Base
 
 
@@ -23,16 +25,22 @@ class EmailAccountModel(Base):
     )  # e.g., "imap.gmail.com"
     imap_port: Mapped[int | None] = mapped_column(Integer, default=993, nullable=True)
     username: Mapped[str] = mapped_column(String(255), nullable=False)  # Email / Login
-    app_password: Mapped[str | None] = mapped_column(
-        String(255), nullable=True
+    _app_password: Mapped[str | None] = mapped_column(
+        "app_password", String(255), nullable=True
     )  # Encrypted/Stored App Password
     folder: Mapped[str] = mapped_column(String(100), default="INBOX", nullable=False)
 
     # Modern OAuth2 Configuration
-    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
-    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    _access_token: Mapped[str | None] = mapped_column(
+        "access_token", Text, nullable=True
+    )
+    _refresh_token: Mapped[str | None] = mapped_column(
+        "refresh_token", Text, nullable=True
+    )
     client_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    client_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    _client_secret: Mapped[str | None] = mapped_column(
+        "client_secret", String(255), nullable=True
+    )
     sync_cursor: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )  # Gmail historyId or MS Graph deltaLink
@@ -53,3 +61,35 @@ class EmailAccountModel(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+
+    @hybrid_property
+    def app_password(self) -> str | None:
+        return decrypt_secret(self._app_password)
+
+    @app_password.setter
+    def app_password(self, value: str | None) -> None:
+        self._app_password = encrypt_secret(value)
+
+    @hybrid_property
+    def access_token(self) -> str | None:
+        return decrypt_secret(self._access_token)
+
+    @access_token.setter
+    def access_token(self, value: str | None) -> None:
+        self._access_token = encrypt_secret(value)
+
+    @hybrid_property
+    def refresh_token(self) -> str | None:
+        return decrypt_secret(self._refresh_token)
+
+    @refresh_token.setter
+    def refresh_token(self, value: str | None) -> None:
+        self._refresh_token = encrypt_secret(value)
+
+    @hybrid_property
+    def client_secret(self) -> str | None:
+        return decrypt_secret(self._client_secret)
+
+    @client_secret.setter
+    def client_secret(self, value: str | None) -> None:
+        self._client_secret = encrypt_secret(value)

@@ -1,8 +1,17 @@
+import base64
+import binascii
+import hashlib
+import hmac
+import html
+import json
 import logging
-import os
+import secrets
+import time
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +29,79 @@ from app.services.oauth_adapters import GmailOAuthAdapter, MicrosoftGraphAdapter
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/email_accounts", tags=["Email Accounts"])
 
+_USED_STATES: dict[str, int] = {}
+_STATE_COOKIE_NAME = "oauth_state"
+_STATE_TTL_SECONDS = 900
+
+
+def generate_oauth_state(client_id: str | None = None) -> str:
+    """Generates a signed cryptographic state token for OAuth CSRF protection."""
+    payload = json.dumps(
+        {"nonce": secrets.token_urlsafe(16), "client_id": client_id},
+        separators=(",", ":"),
+    ).encode()
+    raw_token = base64.urlsafe_b64encode(payload).decode().rstrip("=")
+    timestamp = str(int(time.time()))
+    signature = hmac.new(
+        settings.SECRET_KEY.encode(),
+        f"{raw_token}:{timestamp}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{raw_token}.{timestamp}.{signature}"
+
+
+def _oauth_state_client_id(state: str | None) -> str | None:
+    if not state:
+        return None
+    padding = "=" * (-len(state) % 4)
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(f"{state}{padding}"))
+    except (ValueError, TypeError, binascii.Error, json.JSONDecodeError):
+        return None
+    return payload.get("client_id") if isinstance(payload, dict) else None
+
+
+def validate_oauth_state(
+    state: str | None, expected_raw_token: str | None = None
+) -> bool:
+    """Validates the OAuth CSRF state token and guards against replay attacks."""
+    if not state:
+        return False
+    parts = state.split(".")
+    if len(parts) != 3:
+        return False
+    raw_token, timestamp_str, signature = parts
+    try:
+        ts = int(timestamp_str)
+    except ValueError:
+        return False
+
+    now = int(time.time())
+    if now - ts > _STATE_TTL_SECONDS or ts > now + 60:
+        return False
+
+    for used_token, expiry in list(_USED_STATES.items()):
+        if expiry < now:
+            del _USED_STATES[used_token]
+
+    if expected_raw_token is not None and not hmac.compare_digest(
+        raw_token, expected_raw_token
+    ):
+        return False
+
+    expected_sig = hmac.new(
+        settings.SECRET_KEY.encode(),
+        f"{raw_token}:{timestamp_str}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected_sig):
+        return False
+
+    if raw_token in _USED_STATES:
+        return False
+    _USED_STATES[raw_token] = ts + _STATE_TTL_SECONDS
+    return True
+
 
 def _resolve_base_url(request: Request) -> str:
     """Dynamically resolves the public base URL of the backend.
@@ -35,6 +117,28 @@ def _resolve_base_url(request: Request) -> str:
         or f"{request.url.hostname}:{request.url.port}"
     )
     return f"{forwarded_proto}://{forwarded_host}"
+
+
+def _resolve_frontend_origin(request: Request) -> str:
+    """Resolves the configured frontend origin for OAuth popup messaging."""
+    configured_origin = settings.PUBLIC_FRONTEND_URL
+    if configured_origin:
+        parsed = urlparse(configured_origin)
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+    return _resolve_base_url(request)
+
+
+def _set_oauth_state_cookie(response: Response, state: str, request: Request) -> None:
+    response.set_cookie(
+        _STATE_COOKIE_NAME,
+        state.split(".", 1)[0],
+        max_age=_STATE_TTL_SECONDS,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="lax",
+        path="/api/v1/email_accounts/oauth",
+    )
 
 
 class OAuthUrlResponse(BaseModel):
@@ -82,8 +186,9 @@ async def get_oauth_authorize_url(
     )
 
     if prov == "google":
-        resolved_client_id = client_id or os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+        resolved_client_id = client_id
         if resolved_client_id:
+            state_token = generate_oauth_state(resolved_client_id)
             scopes = "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email"
             auth_url = (
                 f"https://accounts.google.com/o/oauth2/v2/auth?"
@@ -92,15 +197,20 @@ async def get_oauth_authorize_url(
                 f"response_type=code&"
                 f"scope={scopes}&"
                 f"access_type=offline&"
-                f"prompt=consent"
+                f"prompt=consent&"
+                f"state={state_token}"
             )
-            return OAuthUrlResponse(
-                provider="google",
-                auth_url=auth_url,
-                client_id_configured=True,
-                redirect_uri=effective_redirect_uri,
-                message="Google OAuth authorization URL generated.",
+            response = JSONResponse(
+                content=OAuthUrlResponse(
+                    provider="google",
+                    auth_url=auth_url,
+                    client_id_configured=True,
+                    redirect_uri=effective_redirect_uri,
+                    message="Google OAuth authorization URL generated.",
+                ).model_dump()
             )
+            _set_oauth_state_cookie(response, state_token, request)
+            return response
         return OAuthUrlResponse(
             provider="google",
             auth_url=None,
@@ -110,8 +220,9 @@ async def get_oauth_authorize_url(
         )
 
     elif prov in ["microsoft", "outlook"]:
-        resolved_client_id = client_id or os.getenv("MS_OAUTH_CLIENT_ID")
+        resolved_client_id = client_id
         if resolved_client_id:
+            state_token = generate_oauth_state(resolved_client_id)
             scopes = "Mail.Read offline_access User.Read"
             auth_url = (
                 f"https://login.microsoftonline.com/common/oauth2/v2.0/authorize?"
@@ -120,15 +231,20 @@ async def get_oauth_authorize_url(
                 f"redirect_uri={effective_redirect_uri}&"
                 f"response_mode=query&"
                 f"scope={scopes}&"
-                f"prompt=consent"
+                f"prompt=consent&"
+                f"state={state_token}"
             )
-            return OAuthUrlResponse(
-                provider="microsoft",
-                auth_url=auth_url,
-                client_id_configured=True,
-                redirect_uri=effective_redirect_uri,
-                message="Microsoft Graph OAuth authorization URL generated.",
+            response = JSONResponse(
+                content=OAuthUrlResponse(
+                    provider="microsoft",
+                    auth_url=auth_url,
+                    client_id_configured=True,
+                    redirect_uri=effective_redirect_uri,
+                    message="Microsoft Graph OAuth authorization URL generated.",
+                ).model_dump()
             )
+            _set_oauth_state_cookie(response, state_token, request)
+            return response
         return OAuthUrlResponse(
             provider="microsoft",
             auth_url=None,
@@ -152,35 +268,61 @@ async def oauth_callback(
     db: AsyncSession = Depends(get_db),
 ):
     """Handles OAuth authorization redirect callback from Google Gmail or Microsoft Graph."""
-    if error:
+    state_cookie = request.cookies.get(_STATE_COOKIE_NAME)
+    if not validate_oauth_state(state, state_cookie):
         return Response(
+            content="""
+            <html><body><h3>OAuth Authorization Failed: Invalid or expired CSRF state.</h3></body></html>
+            """,
+            media_type="text/html",
+            status_code=400,
+        )
+
+    if error:
+        response = Response(
             content=f"""
             <html>
                 <body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: #f8fafc;">
                     <div style="text-align: center; background: #1e293b; padding: 32px 48px; border-radius: 12px; border: 1px solid #ef4444;">
                         <h2 style="color: #ef4444; margin-bottom: 8px;">OAuth Authorization Failed</h2>
-                        <p style="color: #94a3b8; font-size: 14px;">{error}</p>
+                        <p style="color: #94a3b8; font-size: 14px;">{html.escape(error)}</p>
                     </div>
                 </body>
             </html>
             """,
             media_type="text/html",
+            status_code=400,
         )
+        response.delete_cookie(_STATE_COOKIE_NAME, path="/api/v1/email_accounts/oauth")
+        return response
 
     if not code:
         return Response(
             content="<html><body><h3>OAuth Error: No authorization code received.</h3></body></html>",
             media_type="text/html",
+            status_code=400,
         )
 
     prov = provider.lower().strip()
+    state_client_id = _oauth_state_client_id(state)
+    auth_type = "GMAIL_OAUTH" if prov == "google" else "MS_GRAPH_OAUTH"
+    configured_account = None
+    if state_client_id:
+        configured_stmt = select(EmailAccountModel).where(
+            EmailAccountModel.client_id == state_client_id,
+            EmailAccountModel.auth_type == auth_type,
+        )
+        configured_account = (await db.execute(configured_stmt)).scalar_one_or_none()
+
     base_url = _resolve_base_url(request)
     redirect_uri = f"{base_url}/api/v1/email_accounts/oauth/callback/{prov}"
 
     try:
         if prov == "google":
-            client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID") or ""
-            client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET") or ""
+            client_id = state_client_id or ""
+            client_secret = (
+                configured_account.client_secret if configured_account else ""
+            )
             tokens = await GmailOAuthAdapter.exchange_code_for_tokens(
                 client_id=client_id,
                 client_secret=client_secret,
@@ -204,6 +346,7 @@ async def oauth_callback(
                 EmailAccountModel.auth_type == "GMAIL_OAUTH",
             )
             existing = (await db.execute(stmt)).scalar_one_or_none()
+            existing = existing or configured_account
             if not existing:
                 account = EmailAccountModel(
                     name=f"Gmail ({email_address})",
@@ -218,6 +361,8 @@ async def oauth_callback(
                 )
                 db.add(account)
             else:
+                existing.username = email_address
+                existing.name = existing.name or f"Gmail ({email_address})"
                 existing.access_token = access_token
                 if refresh_token:
                     existing.refresh_token = refresh_token
@@ -226,8 +371,10 @@ async def oauth_callback(
             await db.commit()
 
         elif prov in ["microsoft", "outlook"]:
-            client_id = os.getenv("MS_OAUTH_CLIENT_ID") or ""
-            client_secret = os.getenv("MS_OAUTH_CLIENT_SECRET") or ""
+            client_id = state_client_id or ""
+            client_secret = (
+                configured_account.client_secret if configured_account else ""
+            )
             tokens = await MicrosoftGraphAdapter.exchange_code_for_tokens(
                 client_id=client_id,
                 client_secret=client_secret,
@@ -255,6 +402,7 @@ async def oauth_callback(
                 EmailAccountModel.auth_type == "MS_GRAPH_OAUTH",
             )
             existing = (await db.execute(stmt)).scalar_one_or_none()
+            existing = existing or configured_account
             if not existing:
                 account = EmailAccountModel(
                     name=f"Outlook ({email_address})",
@@ -269,6 +417,8 @@ async def oauth_callback(
                 )
                 db.add(account)
             else:
+                existing.username = email_address
+                existing.name = existing.name or f"Outlook ({email_address})"
                 existing.access_token = access_token
                 if refresh_token:
                     existing.refresh_token = refresh_token
@@ -276,17 +426,18 @@ async def oauth_callback(
 
             await db.commit()
 
-        return Response(
-            content="""
+        frontend_origin = _resolve_frontend_origin(request)
+        response = Response(
+            content=f"""
             <html>
                 <body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: #f8fafc;">
                     <div style="text-align: center; background: #1e293b; padding: 32px 48px; border-radius: 12px; border: 1px solid #334155;">
                         <h2 style="color: #10b981; margin-bottom: 8px;">✓ Mailbox Connected Successfully!</h2>
                         <p style="color: #94a3b8; font-size: 14px;">Sync authorization established. Closing window...</p>
                         <script>
-                            if (window.opener) {
-                                window.opener.postMessage({ type: 'oauth_success' }, '*');
-                            }
+                            if (window.opener) {{
+                                window.opener.postMessage({{ type: 'oauth_success' }}, {json.dumps(frontend_origin)});
+                            }}
                             setTimeout(() => window.close(), 1200);
                         </script>
                     </div>
@@ -295,6 +446,8 @@ async def oauth_callback(
             """,
             media_type="text/html",
         )
+        response.delete_cookie(_STATE_COOKIE_NAME, path="/api/v1/email_accounts/oauth")
+        return response
     except Exception as err:
         logger.error("OAuth callback exchange failed: %s", err, exc_info=True)
         return Response(
@@ -303,7 +456,7 @@ async def oauth_callback(
                 <body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: #f8fafc;">
                     <div style="text-align: center; background: #1e293b; padding: 32px 48px; border-radius: 12px; border: 1px solid #ef4444;">
                         <h2 style="color: #ef4444; margin-bottom: 8px;">OAuth Exchange Failed</h2>
-                        <p style="color: #94a3b8; font-size: 14px;">{err!s}</p>
+                        <p style="color: #94a3b8; font-size: 14px;">{html.escape(str(err))}</p>
                     </div>
                 </body>
             </html>
@@ -402,7 +555,15 @@ async def update_account(
 
     try:
         update_data = payload.model_dump(exclude_unset=True)
+        masked_fields = {
+            "app_password",
+            "access_token",
+            "refresh_token",
+            "client_secret",
+        }
         for field, value in update_data.items():
+            if field in masked_fields and value == "********":
+                continue
             setattr(account, field, value)
 
         await db.commit()

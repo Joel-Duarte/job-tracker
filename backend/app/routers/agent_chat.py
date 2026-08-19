@@ -3,7 +3,6 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, desc, select
@@ -242,61 +241,3 @@ async def chat_with_agent(
         reply=str(reply_content).strip(),
         actions_performed=actions_performed,
     )
-
-
-@router.post("/chat/stream")
-async def chat_with_agent_stream(
-    payload: AgentChatRequest,
-    db: AsyncSession = Depends(get_db),
-) -> StreamingResponse:
-    """Stream agent response tokens as server-sent events."""
-    system_prompt = await get_prompt_template(db, "agent_system")
-    chat_model = await get_task_chat_model(db, task_type="AGENT_REASONING")
-    tools = create_agent_tools(db)
-
-    try:
-        model_with_tools = chat_model.bind_tools(tools)
-    except Exception as bind_err:
-        logger.warning("Native tool binding not available: %s", bind_err)
-        model_with_tools = chat_model
-
-    messages: list[Any] = [SystemMessage(content=system_prompt)]
-    for message in payload.messages:
-        if message.role == "user":
-            messages.append(HumanMessage(content=message.content))
-        elif message.role == "assistant":
-            messages.append(AIMessage(content=message.content))
-
-    async def event_generator():
-        content_parts: list[str] = []
-        try:
-            async for chunk in model_with_tools.astream(
-                messages,
-                config={"callbacks": [PostgresTracer()]},
-            ):
-                content = (
-                    chunk.content
-                    if isinstance(chunk.content, str)
-                    else str(chunk.content)
-                )
-                if content:
-                    content_parts.append(content)
-                    yield f"data: {json.dumps({'type': 'token', 'content': content})}\n\n"
-        except Exception as err:
-            logger.error("Agent chat streaming error: %s", err)
-            yield f"data: {json.dumps({'type': 'error', 'message': str(err)})}\n\n"
-            return
-
-        chat_record = AgentChatModel(
-            title=payload.messages[-1].content[:30],
-            messages=[
-                {"role": "user", "content": payload.messages[-1].content},
-                {"role": "assistant", "content": "".join(content_parts)},
-            ],
-        )
-        db.add(chat_record)
-        await db.commit()
-        await db.refresh(chat_record)
-        yield f"data: {json.dumps({'type': 'done', 'chat_id': chat_record.id, 'reply': ''.join(content_parts), 'actions_performed': []})}\n\n"
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")

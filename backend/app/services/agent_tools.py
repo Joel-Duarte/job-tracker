@@ -363,7 +363,7 @@ def create_agent_tools(db: AsyncSession) -> list[StructuredTool]:
 
     async def _vector_search(query: str, limit: int = 5) -> str:
         res = await execute_semantic_vector_search(db, query, limit)
-        return json.dumps(res, separators=(",", ":"))
+        return json.dumps(res, indent=2)
 
     async def _list_apps(
         status: str | None = None,
@@ -371,11 +371,11 @@ def create_agent_tools(db: AsyncSession) -> list[StructuredTool]:
         limit: int = 20,
     ) -> str:
         res = await execute_list_applications(db, status, action_required_only, limit)
-        return json.dumps(res, separators=(",", ":"))
+        return json.dumps(res, indent=2)
 
     async def _app_details(company_or_id: str) -> str:
         res = await execute_get_application_details(db, company_or_id)
-        return json.dumps(res, separators=(",", ":"))
+        return json.dumps(res, indent=2)
 
     async def _update_status(
         company_name: str, new_status: str, notes: str | None = None
@@ -383,11 +383,11 @@ def create_agent_tools(db: AsyncSession) -> list[StructuredTool]:
         res = await execute_update_application_status(
             db, company_name, new_status, notes
         )
-        return json.dumps(res, separators=(",", ":"))
+        return json.dumps(res, indent=2)
 
     async def _action_items(urgency: str | None = None) -> str:
         res = await execute_get_action_items(db, urgency)
-        return json.dumps(res, separators=(",", ":"))
+        return json.dumps(res, indent=2)
 
     return [
         StructuredTool.from_function(

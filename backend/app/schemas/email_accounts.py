@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class EmailAccountBase(BaseModel):
@@ -72,5 +72,28 @@ class EmailAccountResponse(EmailAccountBase):
     sync_cursor: str | None = None
     last_synced_at: datetime | None = None
     created_at: datetime
+
+    app_password: str | None = Field(
+        default=None, description="Masked app password for basic IMAP auth"
+    )
+    access_token: str | None = Field(
+        default=None, description="Masked OAuth2 access token"
+    )
+    refresh_token: str | None = Field(
+        default=None, description="Masked OAuth2 refresh token"
+    )
+    client_id: str | None = Field(default=None, description="OAuth2 client ID")
+    client_secret: str | None = Field(
+        default=None, description="Masked OAuth2 client secret"
+    )
+
+    @field_validator(
+        "app_password", "access_token", "refresh_token", "client_secret", mode="before"
+    )
+    @classmethod
+    def mask_credentials(cls, v: str | None) -> str | None:
+        if v is not None and str(v).strip() != "":
+            return "********"
+        return None
 
     model_config = ConfigDict(from_attributes=True)
