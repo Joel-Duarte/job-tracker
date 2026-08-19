@@ -81,6 +81,11 @@ class ApplicationModel(Base):
     match_analysis_payload: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB, nullable=True
     )
+    cover_letter_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cover_letter_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cover_letter_generated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

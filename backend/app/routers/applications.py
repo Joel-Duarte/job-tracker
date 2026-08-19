@@ -17,6 +17,7 @@ from app.models.applications import (
     CompanyModel,
     JobPostingModel,
 )
+from app.models.candidate_profile import CandidateCVModel
 from app.schemas.applications import (
     ActionItemDetail,
     AllowedApplicationStatus,
@@ -30,6 +31,8 @@ from app.schemas.applications import (
     BulkTransitionRequest,
     BulkTransitionResult,
     CompanySummary,
+    CoverLetterResponse,
+    CoverLetterUpdateRequest,
     EventSummary,
     GenerateInterviewGuideRequest,
     JobPostingDetail,
@@ -41,6 +44,7 @@ from app.services.interview_guide import (
 )
 from app.services.llm import (
     async_enqueue_application_embedding,
+    generate_cover_letter,
 )
 
 logger = logging.getLogger(__name__)
@@ -273,6 +277,8 @@ async def list_applications(
                 last_activity_at=app.last_activity_at,
                 has_action_required=has_action,
                 has_interview_guide=bool(app.interview_guide_html),
+                has_cover_letter=bool(app.cover_letter_text),
+                cover_letter_status=app.cover_letter_status,
                 match_score=match_score,
                 match_analysis_payload=app.match_analysis_payload,
                 nearest_due_date=nearest_due,
@@ -514,10 +520,14 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
         last_activity_at=app.last_activity_at,
         has_action_required=has_action,
         has_interview_guide=bool(app.interview_guide_html),
+        has_cover_letter=bool(app.cover_letter_text),
         interview_guide_html=app.interview_guide_html,
         interview_guide_language=app.interview_guide_language,
         interview_guide_generated_at=app.interview_guide_generated_at,
         interview_guide_preferences=app.interview_guide_preferences,
+        cover_letter_text=app.cover_letter_text,
+        cover_letter_status=app.cover_letter_status,
+        cover_letter_generated_at=app.cover_letter_generated_at,
         match_score=match_score,
         match_analysis_payload=match_payload,
         nearest_due_date=nearest_due,
@@ -903,6 +913,193 @@ async def generate_app_interview_guide(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(val_err))
     except Exception as exc:
         logger.error("Failed to generate interview guide: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+        )
+
+
+# --- Cover Letter Endpoints ---
+
+
+@router.get(
+    "/{application_id}/cover-letter",
+    response_model=CoverLetterResponse,
+    summary="Retrieve cover letter for an application",
+)
+async def get_cover_letter(
+    application_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(ApplicationModel).where(ApplicationModel.id == application_id)
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+
+    if not app:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
+        )
+
+    return CoverLetterResponse(
+        application_id=app.id,
+        cover_letter_text=app.cover_letter_text,
+        cover_letter_status=app.cover_letter_status,
+        cover_letter_generated_at=app.cover_letter_generated_at,
+    )
+
+
+async def _run_cover_letter_generation(
+    app: ApplicationModel, db: AsyncSession
+) -> ApplicationModel:
+    # Fetch active candidate CV
+    cv_stmt = (
+        select(CandidateCVModel).where(CandidateCVModel.is_active.is_(True)).limit(1)
+    )
+    cv_res = await db.execute(cv_stmt)
+    active_cv = cv_res.scalars().first()
+    if not active_cv:
+        cv_stmt_fallback = select(CandidateCVModel).limit(1)
+        cv_res_fallback = await db.execute(cv_stmt_fallback)
+        active_cv = cv_res_fallback.scalars().first()
+
+    cv_text = (active_cv.anonymized_text or active_cv.raw_text) if active_cv else ""
+    company_name = app.company.name if app.company else ""
+    position_name = app.position or ""
+    job_desc = (
+        app.job_posting.description_markdown
+        if app.job_posting and app.job_posting.description_markdown
+        else ""
+    )
+
+    text = await generate_cover_letter(
+        db,
+        company_name=company_name,
+        position=position_name,
+        job_description=job_desc,
+        candidate_cv=cv_text,
+    )
+
+    app.cover_letter_text = text
+    app.cover_letter_status = "GENERATED"
+    app.cover_letter_generated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(app)
+    return app
+
+
+@router.post(
+    "/{application_id}/cover-letter/generate",
+    response_model=CoverLetterResponse,
+    summary="Manually trigger or queue cover letter generation",
+)
+async def generate_app_cover_letter(
+    application_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = (
+        select(ApplicationModel)
+        .where(ApplicationModel.id == application_id)
+        .options(
+            joinedload(ApplicationModel.company),
+            selectinload(ApplicationModel.job_posting),
+        )
+    )
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+
+    if not app:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
+        )
+
+    try:
+        updated_app = await _run_cover_letter_generation(app, db)
+        return CoverLetterResponse(
+            application_id=updated_app.id,
+            cover_letter_text=updated_app.cover_letter_text,
+            cover_letter_status=updated_app.cover_letter_status,
+            cover_letter_generated_at=updated_app.cover_letter_generated_at,
+        )
+    except Exception as exc:
+        logger.error("Failed to generate cover letter: %s", exc, exc_info=True)
+        app.cover_letter_status = "FAILED"
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+        )
+
+
+@router.patch(
+    "/{application_id}/cover-letter",
+    response_model=CoverLetterResponse,
+    summary="Manually update/edit cover letter text or status",
+)
+async def update_cover_letter(
+    application_id: int,
+    payload: CoverLetterUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(ApplicationModel).where(ApplicationModel.id == application_id)
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+
+    if not app:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
+        )
+
+    if payload.cover_letter_text is not None:
+        app.cover_letter_text = payload.cover_letter_text
+    if payload.cover_letter_status is not None:
+        app.cover_letter_status = payload.cover_letter_status
+
+    await db.commit()
+    await db.refresh(app)
+
+    return CoverLetterResponse(
+        application_id=app.id,
+        cover_letter_text=app.cover_letter_text,
+        cover_letter_status=app.cover_letter_status,
+        cover_letter_generated_at=app.cover_letter_generated_at,
+    )
+
+
+@router.post(
+    "/{application_id}/cover-letter/regenerate",
+    response_model=CoverLetterResponse,
+    summary="Trigger cover letter regeneration",
+)
+async def regenerate_app_cover_letter(
+    application_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = (
+        select(ApplicationModel)
+        .where(ApplicationModel.id == application_id)
+        .options(
+            joinedload(ApplicationModel.company),
+            selectinload(ApplicationModel.job_posting),
+        )
+    )
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+
+    if not app:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
+        )
+
+    try:
+        updated_app = await _run_cover_letter_generation(app, db)
+        return CoverLetterResponse(
+            application_id=updated_app.id,
+            cover_letter_text=updated_app.cover_letter_text,
+            cover_letter_status=updated_app.cover_letter_status,
+            cover_letter_generated_at=updated_app.cover_letter_generated_at,
+        )
+    except Exception as exc:
+        logger.error("Failed to regenerate cover letter: %s", exc, exc_info=True)
+        app.cover_letter_status = "FAILED"
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         )

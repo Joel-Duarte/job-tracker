@@ -297,6 +297,69 @@ async def assess_job_posting(
     return result
 
 
+async def generate_cover_letter(
+    db: AsyncSession,
+    company_name: str,
+    position: str,
+    job_description: str,
+    candidate_cv: str,
+) -> str:
+    """
+    Generates a tailored cover letter using the COVER_LETTER task type and PostgresTracer.
+    Returns the cover letter markdown string.
+    """
+    cleaned_jd = truncate_text_semantically(job_description)
+    cleaned_cv = truncate_text_semantically(candidate_cv)
+
+    async with trace_operation(
+        category="llm",
+        name="generate_cover_letter",
+        inputs={
+            "company_name": company_name,
+            "position": position,
+            "jd_length": len(cleaned_jd),
+            "cv_length": len(cleaned_cv),
+        },
+        db=db,
+    ) as trace_ctx:
+        llm = await get_task_chat_model(db, task_type="COVER_LETTER", temperature=0.3)
+        template_str = await get_prompt_template(db, "cover_letter")
+
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    (
+                        "You are an expert executive resume and cover letter writer. "
+                        "Write a compelling, professional cover letter tailored to the target role and company using the candidate's CV. "
+                        "Never hallucinate experience or skills not present in the CV."
+                    ),
+                ),
+                ("human", template_str),
+            ]
+        )
+
+        chain = prompt | llm
+        response = await chain.ainvoke(
+            {
+                "company_name": company_name or "Target Company",
+                "position": position or "Target Role",
+                "job_description": cleaned_jd or "No detailed description provided.",
+                "candidate_cv": cleaned_cv or "No CV provided.",
+            },
+            config={"callbacks": [PostgresTracer()]},
+        )
+
+        content = response.content if hasattr(response, "content") else str(response)
+        if isinstance(content, list):
+            content = "".join(
+                [c.get("text", "") if isinstance(c, dict) else str(c) for c in content]
+            )
+
+        trace_ctx["outputs"] = {"cover_letter_length": len(content)}
+        return content.strip()
+
+
 async def anonymize_and_parse_cv(
     db: AsyncSession, raw_cv_text: str
 ) -> CVAnonymizationResult:

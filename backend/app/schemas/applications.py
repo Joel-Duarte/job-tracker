@@ -39,6 +39,8 @@ class ApplicationListItem(BaseModel):
     last_activity_at: datetime | None = None
     has_action_required: bool = False
     has_interview_guide: bool = False
+    has_cover_letter: bool = False
+    cover_letter_status: str | None = None
     match_score: int | None = None
     match_analysis_payload: dict[str, Any] | None = None
     latest_event: EventSummary | None = None
@@ -115,6 +117,9 @@ class ApplicationDetailResponse(ApplicationListItem):
     interview_guide_language: str | None = "en"
     interview_guide_generated_at: datetime | None = None
     interview_guide_preferences: dict | None = None
+    cover_letter_text: str | None = None
+    cover_letter_status: str | None = None
+    cover_letter_generated_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     events: list[ApplicationEventDetail] = []
@@ -257,3 +262,24 @@ class BulkTransitionRequest(BaseModel):
 class BulkTransitionResult(BaseModel):
     updated_count: int
     updated_ids: list[int]
+
+
+# --- Cover Letter Schemas ---
+
+
+class CoverLetterResponse(BaseModel):
+    application_id: int
+    cover_letter_text: str | None = None
+    cover_letter_status: str | None = None
+    cover_letter_generated_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CoverLetterUpdateRequest(BaseModel):
+    cover_letter_text: str | None = Field(
+        None, description="Updated cover letter content"
+    )
+    cover_letter_status: str | None = Field(
+        None, description="Updated cover letter status e.g. DRAFTED, GENERATED"
+    )

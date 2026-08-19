@@ -16,6 +16,12 @@ class SystemSettingsModel(Base):
     agent_chat_retention_days: Mapped[int] = mapped_column(
         Integer, nullable=False, default=7
     )
+    enable_auto_cover_letter: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    cover_letter_match_threshold: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=70
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

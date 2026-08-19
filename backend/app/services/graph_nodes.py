@@ -1,19 +1,23 @@
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from rapidfuzz import fuzz
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 
 import app.services.llm as llm_service
+from app.core.config_manager import get_setting
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
     CompanyModel,
     OtherEventModel,
 )
+from app.models.candidate_profile import CandidateCVModel
+from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.models.processed_email import ProcessedEmailModel
 from app.models.staging import StagingItemModel
 from app.schemas.graph_state import JobTrackerState
@@ -456,3 +460,111 @@ async def summarize_embed_node(
             return {"embedding_created": False, "reason": "assessment_status"}
 
     return {"embedding_created": False}
+
+
+async def cover_letter_node(
+    state: JobTrackerState, config: RunnableConfig
+) -> dict[str, Any]:
+    db = _get_db(config)
+    application_id = state.get("application_id")
+
+    if not application_id:
+        return {"cover_letter_status": "SKIPPED"}
+
+    enable_auto = await get_setting("ENABLE_AUTO_COVER_LETTER", False, db=db)
+    threshold = await get_setting("COVER_LETTER_MATCH_THRESHOLD", 70, db=db)
+
+    raw_score = state.get("match_score", 0.0)
+    score_pct = raw_score * 100.0 if (0.0 <= raw_score <= 1.0) else raw_score
+
+    # Query application record
+    stmt = (
+        select(ApplicationModel)
+        .options(
+            joinedload(ApplicationModel.company),
+            selectinload(ApplicationModel.job_posting),
+        )
+        .where(ApplicationModel.id == application_id)
+    )
+    res = await db.execute(stmt)
+    application = res.scalar_one_or_none()
+
+    if not application:
+        return {"cover_letter_status": "SKIPPED"}
+
+    if enable_auto and score_pct >= threshold:
+        # Fetch active candidate CV
+        cv_stmt = (
+            select(CandidateCVModel)
+            .where(CandidateCVModel.is_active.is_(True))
+            .limit(1)
+        )
+        cv_res = await db.execute(cv_stmt)
+        active_cv = cv_res.scalars().first()
+        if not active_cv:
+            cv_stmt_fallback = select(CandidateCVModel).limit(1)
+            cv_res_fallback = await db.execute(cv_stmt_fallback)
+            active_cv = cv_res_fallback.scalars().first()
+
+        cv_text = (active_cv.anonymized_text or active_cv.raw_text) if active_cv else ""
+
+        company_name = (
+            application.company.name
+            if application.company
+            else (state.get("company_name") or "")
+        )
+        position_name = application.position or state.get("position_name") or ""
+        job_desc = (
+            application.job_posting.description_markdown
+            if application.job_posting and application.job_posting.description_markdown
+            else (state.get("scraped_spec") or state.get("body") or "")
+        )
+
+        try:
+            letter_text = await llm_service.generate_cover_letter(
+                db,
+                company_name=company_name,
+                position=position_name,
+                job_description=job_desc,
+                candidate_cv=cv_text,
+            )
+            application.cover_letter_text = letter_text
+            application.cover_letter_status = "GENERATED"
+            application.cover_letter_generated_at = datetime.now(UTC)
+            await db.commit()
+            return {"cover_letter_status": "GENERATED"}
+        except Exception as err:
+            logger.error(
+                "Failed to generate cover letter for application %s: %s",
+                application_id,
+                err,
+                exc_info=True,
+            )
+            application.cover_letter_status = "FAILED"
+            await db.commit()
+            return {"cover_letter_status": "FAILED"}
+    else:
+        application.cover_letter_status = "SKIPPED"
+        await db.commit()
+
+        # Check if corresponding IntakeEvaluationTaskModel task exists for this intake state
+        task_id_input = state.get("task_id")
+        if task_id_input:
+            task_stmt = select(IntakeEvaluationTaskModel).where(
+                IntakeEvaluationTaskModel.id == task_id_input
+            )
+            task_res = await db.execute(task_stmt)
+            task_record = task_res.scalar_one_or_none()
+            if task_record:
+                task_record.status = "COMPLETED"
+                task_record.stage = "COMPLETE"
+                res_payload = task_record.result_json or {}
+                res_payload["cover_letter_status"] = "SKIPPED"
+                res_payload["cover_letter_note"] = (
+                    f"Cover letter generation skipped (auto_enabled={enable_auto}, "
+                    f"score={score_pct:.1f}%, threshold={threshold}%)"
+                )
+                task_record.result_json = res_payload
+                await db.commit()
+
+        return {"cover_letter_status": "SKIPPED"}

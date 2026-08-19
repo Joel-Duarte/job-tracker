@@ -24,6 +24,8 @@ async def get_system_settings_model(
                 id=1,
                 enable_embeddings=True,
                 agent_chat_retention_days=7,
+                enable_auto_cover_letter=False,
+                cover_letter_match_threshold=70,
             )
             session.add(record)
             await session.commit()
@@ -44,12 +46,16 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
         return {
             "ENABLE_EMBEDDINGS": model.enable_embeddings,
             "AGENT_CHAT_RETENTION_DAYS": model.agent_chat_retention_days,
+            "ENABLE_AUTO_COVER_LETTER": model.enable_auto_cover_letter,
+            "COVER_LETTER_MATCH_THRESHOLD": model.cover_letter_match_threshold,
         }
     except Exception as e:
         logger.error(f"Failed to load global settings from DB: {e}")
         return {
             "ENABLE_EMBEDDINGS": True,
             "AGENT_CHAT_RETENTION_DAYS": 7,
+            "ENABLE_AUTO_COVER_LETTER": False,
+            "COVER_LETTER_MATCH_THRESHOLD": 70,
         }
 
 
@@ -64,6 +70,12 @@ async def save_settings(
             model.enable_embeddings = bool(settings["ENABLE_EMBEDDINGS"])
         if "AGENT_CHAT_RETENTION_DAYS" in settings:
             model.agent_chat_retention_days = int(settings["AGENT_CHAT_RETENTION_DAYS"])
+        if "ENABLE_AUTO_COVER_LETTER" in settings:
+            model.enable_auto_cover_letter = bool(settings["ENABLE_AUTO_COVER_LETTER"])
+        if "COVER_LETTER_MATCH_THRESHOLD" in settings:
+            model.cover_letter_match_threshold = int(
+                settings["COVER_LETTER_MATCH_THRESHOLD"]
+            )
         await session.commit()
 
     try:
