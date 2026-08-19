@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -77,8 +77,11 @@ async def test_oauth_callback_postmessage_origin(db_session: AsyncSession):
             "refresh_token": "mock-refresh-token",
         }
 
-        mock_profile_resp = httpx.Response(
-            200, json={"emailAddress": "testuser@gmail.com"}
+        mock_client = MagicMock()
+        mock_client.__aenter__.return_value.get = AsyncMock(
+            return_value=httpx.Response(
+                200, json={"emailAddress": "testuser@gmail.com"}
+            )
         )
 
         with (
@@ -87,8 +90,8 @@ async def test_oauth_callback_postmessage_origin(db_session: AsyncSession):
                 return_value=mock_tokens,
             ),
             patch(
-                "app.routers.email_accounts.httpx.AsyncClient.get",
-                return_value=mock_profile_resp,
+                "app.routers.email_accounts.httpx.AsyncClient",
+                return_value=mock_client,
             ),
         ):
             async with AsyncClient(
