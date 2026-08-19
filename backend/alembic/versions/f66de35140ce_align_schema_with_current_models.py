@@ -283,7 +283,6 @@ def upgrade() -> None:
         existing_type=sa.BIGINT(),
         type_=sa.Integer(),
         existing_nullable=False,
-        autoincrement=True,
     )
     op.alter_column(
         "email_accounts",
@@ -637,7 +636,6 @@ def downgrade() -> None:
         existing_type=sa.Integer(),
         type_=sa.BIGINT(),
         existing_nullable=False,
-        autoincrement=True,
     )
     op.drop_column("email_accounts", "sync_cursor")
     op.add_column(

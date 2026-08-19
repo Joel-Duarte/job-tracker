@@ -26,7 +26,7 @@ async def test_ensure_db_schema_runs_alembic(db_session: AsyncSession):
 
     assert "alembic_version" in tables
     assert "email_applications" in tables
-    assert "companies" in tables
+    assert "email_companies" in tables
     assert "ai_providers" in tables
     assert "trace_events" in tables
 
