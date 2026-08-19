@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.prompts import DEFAULT_PROMPTS
+from app.core.prompts import DEFAULT_PROMPTS, clear_prompt_cache
 from app.models.prompts import PromptModel
 from app.schemas.prompts import PromptResponse, PromptUpdateRequest
 
@@ -81,6 +81,7 @@ async def update_prompt(
 
     await db.commit()
     await db.refresh(prompt)
+    clear_prompt_cache(name)
     return prompt
 
 
@@ -106,4 +107,5 @@ async def reset_prompt(name: str, db: AsyncSession = Depends(get_db)):
 
     await db.commit()
     await db.refresh(prompt)
+    clear_prompt_cache(name)
     return prompt

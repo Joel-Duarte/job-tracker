@@ -13,6 +13,7 @@ from app.core.database import get_db
 from app.core.llm_factory import (
     _clean_base_url,
     _resolve_provider,
+    clear_embeddings_cache,
     get_task_chat_model,
     get_task_embeddings_model,
 )
@@ -292,6 +293,7 @@ async def create_ai_provider(
     db.add(provider)
     await db.commit()
     await db.refresh(provider)
+    clear_embeddings_cache()
     return _to_provider_read(provider)
 
 
@@ -590,6 +592,7 @@ async def set_ai_task_binding(
     await db.commit()
     await db.refresh(binding)
     binding.provider = provider
+    clear_embeddings_cache()
     return _to_binding_read(binding)
 
 
