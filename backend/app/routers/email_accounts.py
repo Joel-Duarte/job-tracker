@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.security import verify_admin_access
 from app.models.email_accounts import EmailAccountModel
 from app.schemas.email_accounts import (
     EmailAccountCreate,
@@ -27,7 +28,11 @@ from app.schemas.email_accounts import (
 from app.services.oauth_adapters import GmailOAuthAdapter, MicrosoftGraphAdapter
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/email_accounts", tags=["Email Accounts"])
+router = APIRouter(
+    prefix="/email_accounts",
+    tags=["Email Accounts"],
+    dependencies=[Depends(verify_admin_access)],
+)
 
 _USED_STATES: dict[str, int] = {}
 _STATE_COOKIE_NAME = "oauth_state"
