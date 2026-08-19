@@ -55,7 +55,7 @@ async def test_generate_and_save_application_embedding_decoupled(
     await db_session.flush()
 
     event = ApplicationEventModel(
-        application_id=app_model.id,
+        email_application_id=app_model.id,
         email_event_type="APPLICATION_SUBMITTED",
         email_summary="Submitted application form online.",
         email_received_at=datetime.now(UTC),
@@ -201,7 +201,7 @@ async def test_pgvector_cosine_distance_query(db_session: AsyncSession):
     query_str = text(
         """
         SELECT email_application_id, content, embedding <=> :q_vec AS cosine_distance
-        FROM application_embeddings
+        FROM email_application_embeddings
         ORDER BY embedding <=> :q_vec ASC
         LIMIT 1
         """
