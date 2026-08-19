@@ -331,7 +331,11 @@ async def summarize_application_status(
     return ApplicationSummaryResult.model_validate(result)
 
 
-async def generate_embedding(db: AsyncSession, text_input: str) -> list[float]:
+async def generate_embedding(
+    db: AsyncSession,
+    text_input: str,
+    embeddings_model: Any | None = None,
+) -> list[float]:
     """Generates vector embedding for input text using configured LangChain EMBEDDING model."""
     if isinstance(text_input, str):
         cleaned_text = text_input.strip()
@@ -348,7 +352,7 @@ async def generate_embedding(db: AsyncSession, text_input: str) -> list[float]:
         name="generate_embedding",
         inputs={"text_sample": cleaned_text[:200], "char_count": len(cleaned_text)},
     ) as ctx:
-        embeddings = await get_task_embeddings_model(db)
+        embeddings = embeddings_model or await get_task_embeddings_model(db)
 
         # Local OpenAI-compatible servers (such as LM Studio / Ollama) often strictly require
         # an array of strings in the 'input' JSON payload (e.g. {"input": ["..."], "model": "..."}).
@@ -440,14 +444,6 @@ async def generate_and_save_application_embedding(
         f"Latest Update ({evt_date}): [{evt_type}] {evt_summary}.{action_info}"
     )
 
-    vector = await generate_embedding(db, str(content_to_embed))
-
-    emb_stmt = select(ApplicationEmbeddingModel).where(
-        ApplicationEmbeddingModel.email_application_id == application_id
-    )
-    emb_res = await db.execute(emb_stmt)
-    embedding_record = emb_res.scalar_one_or_none()
-
     metadata_payload = {
         "company": comp_name,
         "position": application.position,
@@ -456,6 +452,20 @@ async def generate_and_save_application_embedding(
         if application.updated_at
         else None,
     }
+
+    # Resolve embedding model before network I/O
+    embeddings_model = await get_task_embeddings_model(db)
+
+    # Execute network call without holding active DB query in flight
+    vector = await generate_embedding(
+        db, str(content_to_embed), embeddings_model=embeddings_model
+    )
+
+    emb_stmt = select(ApplicationEmbeddingModel).where(
+        ApplicationEmbeddingModel.email_application_id == application_id
+    )
+    emb_res = await db.execute(emb_stmt)
+    embedding_record = emb_res.scalar_one_or_none()
 
     if not embedding_record:
         embedding_record = ApplicationEmbeddingModel(
@@ -534,39 +544,45 @@ async def async_enqueue_application_embedding(
 
     # 2. Acquire Priority 2 Slot
     async with concurrency_manager.acquire(provider_id, max_concurrency, priority=2):
-        async with AsyncSessionLocal() as processing_session:
-            # 3. Update to Processing
-            db_task = await processing_session.get(IntakeEvaluationTaskModel, task_id)
+        # 3. Short transaction: Update to Processing
+        async with AsyncSessionLocal() as session_proc:
+            db_task = await session_proc.get(IntakeEvaluationTaskModel, task_id)
             if db_task:
                 db_task.status = "PROCESSING"
                 db_task.stage = "EMBEDDING"
-                await processing_session.commit()
+                await session_proc.commit()
 
-            try:
+        try:
+            # 4. Short transaction: Generate and persist embedding
+            async with AsyncSessionLocal() as embedding_session:
                 await generate_and_save_application_embedding(
-                    processing_session,
+                    embedding_session,
                     application_id=application_id,
                     skip_llm_summary=skip_llm_summary,
                 )
-                logger.info(
-                    "Background vector embedding updated for Application ID %d",
-                    application_id,
-                )
+            logger.info(
+                "Background vector embedding updated for Application ID %d",
+                application_id,
+            )
 
-                # 4. On Success: Complete
+            # 5. Short transaction: Mark as Completed
+            async with AsyncSessionLocal() as session_done:
+                db_task = await session_done.get(IntakeEvaluationTaskModel, task_id)
                 if db_task:
                     db_task.status = "COMPLETED"
                     db_task.stage = "COMPLETE"
-                    await processing_session.commit()
-            except Exception as err:
-                logger.warning(
-                    "Background vector embedding failed for Application ID %d: %s",
-                    application_id,
-                    err,
-                )
+                    await session_done.commit()
+        except Exception as err:
+            logger.warning(
+                "Background vector embedding failed for Application ID %d: %s",
+                application_id,
+                err,
+            )
 
-                # 5. On Failure
+            # 6. Short transaction: Mark as Failed
+            async with AsyncSessionLocal() as session_err:
+                db_task = await session_err.get(IntakeEvaluationTaskModel, task_id)
                 if db_task:
                     db_task.status = "FAILED"
                     db_task.error_message = str(err)
-                    await processing_session.commit()
+                    await session_err.commit()

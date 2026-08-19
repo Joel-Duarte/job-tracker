@@ -39,8 +39,15 @@ async def test_interview_guide_graph_node_logic():
 
     # 2. Routing logic
     state["current_section_index"] = 0
+    state["iteration_count"] = 1
     assert should_continue_sections(state) == "section_generator"
+
     state["current_section_index"] = 2
+    assert should_continue_sections(state) == "__end__"
+
+    # Circuit breaker test
+    state["current_section_index"] = 0
+    state["iteration_count"] = 20
     assert should_continue_sections(state) == "__end__"
 
 

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from typing import Any
@@ -148,7 +149,9 @@ async def chat_with_agent(
                 )
                 break
 
-            for tc in tool_calls:
+            async def execute_tool(
+                tc: Any, current_turn: int = turn
+            ) -> tuple[str, str, dict[str, Any] | None]:
                 tool_name = (
                     tc.get("name")
                     if isinstance(tc, dict)
@@ -160,9 +163,9 @@ async def chat_with_agent(
                     else getattr(tc, "args", {})
                 )
                 tool_id = (
-                    tc.get("id", f"call_{turn}")
+                    tc.get("id", f"call_{current_turn}")
                     if isinstance(tc, dict)
-                    else getattr(tc, "id", f"call_{turn}")
+                    else getattr(tc, "id", f"call_{current_turn}")
                 )
 
                 selected_tool = tool_map.get(tool_name)
@@ -182,23 +185,36 @@ async def chat_with_agent(
                             except Exception:
                                 parsed_res = tool_result
 
-                        actions_performed.append(
-                            {
-                                "action": tool_name,
-                                "args": tool_args,
-                                "result": parsed_res,
-                            }
-                        )
+                        action_data = {
+                            "action": tool_name,
+                            "args": tool_args,
+                            "result": parsed_res,
+                        }
+                        return tool_id, str(tool_result), action_data
                     except Exception as err:
                         logger.error("Error executing tool %s: %s", tool_name, err)
                         tool_result = json.dumps({"error": str(err)})
+                        return tool_id, tool_result, None
                 else:
                     tool_result = json.dumps(
                         {"error": f"Tool '{tool_name}' not available."}
                     )
+                    return tool_id, tool_result, None
 
+            tool_results = await asyncio.gather(
+                *(execute_tool(tc) for tc in tool_calls),
+                return_exceptions=True,
+            )
+
+            for res in tool_results:
+                if isinstance(res, Exception):
+                    logger.error("Error during parallel tool execution: %s", res)
+                    continue
+                tool_id, tool_result_str, action_data = res
+                if action_data:
+                    actions_performed.append(action_data)
                 messages.append(
-                    ToolMessage(content=str(tool_result), tool_call_id=tool_id)
+                    ToolMessage(content=tool_result_str, tool_call_id=tool_id)
                 )
 
         except Exception as err:

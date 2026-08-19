@@ -8,7 +8,18 @@ from app.models.applications import ApplicationModel, CompanyModel, OtherEventMo
 from app.models.staging import StagingItemModel
 from app.schemas.graph_state import JobTrackerState
 from app.schemas.intake import ExtractedEmailInfo
-from app.services.intake_graph import intake_graph
+from app.services.intake_graph import intake_graph, prune_terminal_state_node
+
+
+def test_prune_terminal_state_node():
+    state: JobTrackerState = {
+        "scraped_spec": "Large scraped webpage content...",
+        "body": "Large raw email body text...",
+        "subject": "Test Email",
+    }
+    result = prune_terminal_state_node(state)
+    assert result["scraped_spec"] is None
+    assert result["body"] == ""
 
 
 @pytest.mark.asyncio
