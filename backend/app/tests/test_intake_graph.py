@@ -4,7 +4,7 @@ import pytest
 from langgraph.checkpoint.memory import MemorySaver
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from unittest.mock import AsyncMock, MagicMock, patch
 from app.models.applications import ApplicationModel, CompanyModel, OtherEventModel
 from app.schemas.graph_state import IntakeState, JobTrackerState
 from app.schemas.intake import ExtractedEmailInfo
@@ -190,6 +190,11 @@ async def test_checkpoint_payload_pruning_on_staging_exit():
     test_graph = build_intake_graph(checkpointer=memory_checkpointer)
 
     mock_db = AsyncMock()
+    # Configure non-async session methods to prevent unawaited coroutine warnings
+    mock_db.add = MagicMock()
+    mock_db.flush = AsyncMock() # or MagicMock if sync
+    mock_db.commit = AsyncMock()
+    mock_db.refresh = AsyncMock()
 
     class MockQueryResult:
         def scalar_one_or_none(self):
