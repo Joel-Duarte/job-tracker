@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUIStore } from '../../stores/uiStore'
 import { StagingAPI, ActionItemsAPI, IntakeAPI } from '../../api/endpoints'
@@ -61,6 +61,68 @@ async function fetchBadgeCounts() {
   }
 }
 
+function getRouteTitle(path) {
+  if (!path || typeof path !== 'string') return 'Applications'
+  const cleanPath = path.split('?')[0]
+  switch (cleanPath) {
+    case '/':
+    case '/applications':
+      return 'Applications'
+    case '/assessments':
+    case '/intake':
+      return 'Assessments'
+    case '/tasks':
+      return 'Tasks'
+    case '/analytics':
+      return 'Analytics'
+    case '/staging':
+      return 'Staging'
+    case '/chat':
+      return 'Agent'
+    case '/diagnostics':
+      return 'Diagnostics'
+    case '/queue':
+      return 'Queue'
+    default:
+      return 'Applications'
+  }
+}
+
+const settingsTooltip = computed(() => {
+  if (!route.path.startsWith('/settings')) {
+    return 'Settings'
+  }
+  const dest = uiStore.lastNonSettingsRoute || route.query.returnTo
+  if (dest && typeof dest === 'string' && !dest.startsWith('/settings')) {
+    return `Back to ${getRouteTitle(dest)}`
+  }
+  return 'Close Settings (Return)'
+})
+
+function handleSettingsClick() {
+  if (!route.path.startsWith('/settings')) {
+    uiStore.setLastNonSettingsRoute(route.fullPath)
+    router.push('/settings')
+  } else {
+    let dest = uiStore.lastNonSettingsRoute || route.query.returnTo
+    uiStore.clearLastNonSettingsRoute()
+    if (dest && typeof dest === 'string' && !dest.startsWith('/settings')) {
+      router.push(dest)
+    } else {
+      router.push('/')
+    }
+  }
+}
+
+watch(
+  () => route.path,
+  (newPath, oldPath) => {
+    if (oldPath && oldPath.startsWith('/settings') && !newPath.startsWith('/settings')) {
+      uiStore.clearLastNonSettingsRoute()
+    }
+  }
+)
+
 onMounted(() => {
   fetchBadgeCounts()
   setInterval(fetchBadgeCounts, 10000)
@@ -70,7 +132,7 @@ onMounted(() => {
 <template>
   <header class="navbar">
     <div class="nav-left">
-      <router-link to="/" class="nav-brand">
+      <router-link to="/" class="nav-brand" @click="uiStore.clearLastNonSettingsRoute()">
         <div class="brand-icon">
           <Sparkles :size="18" class="text-primary" />
         </div>
@@ -82,6 +144,7 @@ onMounted(() => {
           to="/"
           class="nav-link"
           :class="{ active: route.path === '/' }"
+          @click="uiStore.clearLastNonSettingsRoute()"
         >
           <Briefcase :size="16" />
           <span>Applications</span>
@@ -91,6 +154,7 @@ onMounted(() => {
           to="/assessments"
           class="nav-link"
           :class="{ active: ['/assessments', '/intake'].includes(route.path) }"
+          @click="uiStore.clearLastNonSettingsRoute()"
         >
           <Sparkles :size="16" />
           <span>Assessments</span>
@@ -103,6 +167,7 @@ onMounted(() => {
           to="/tasks"
           class="nav-link"
           :class="{ active: route.path === '/tasks' }"
+          @click="uiStore.clearLastNonSettingsRoute()"
         >
           <CheckSquare :size="16" />
           <span>Tasks</span>
@@ -115,6 +180,7 @@ onMounted(() => {
           to="/analytics"
           class="nav-link"
           :class="{ active: route.path === '/analytics' }"
+          @click="uiStore.clearLastNonSettingsRoute()"
         >
           <BarChart3 :size="16" />
           <span>Analytics</span>
@@ -124,6 +190,7 @@ onMounted(() => {
           to="/staging"
           class="nav-link"
           :class="{ active: route.path === '/staging' }"
+          @click="uiStore.clearLastNonSettingsRoute()"
         >
           <Inbox :size="16" />
           <span>Staging</span>
@@ -136,6 +203,7 @@ onMounted(() => {
           to="/chat"
           class="nav-link"
           :class="{ active: route.path === '/chat' }"
+          @click="uiStore.clearLastNonSettingsRoute()"
         >
           <Bot :size="16" />
           <span>Agent</span>
@@ -172,14 +240,14 @@ onMounted(() => {
         <Palette :size="17" />
       </button>
 
-      <router-link
-        to="/settings"
+      <button
         class="btn-icon"
         :class="{ active: route.path.startsWith('/settings') }"
-        title="Settings & Preferences"
+        @click="handleSettingsClick"
+        :title="settingsTooltip"
       >
         <Settings :size="17" />
-      </router-link>
+      </button>
 
       <ThemePalettePopover />
     </div>

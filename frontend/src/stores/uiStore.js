@@ -291,6 +291,19 @@ export const useUIStore = defineStore('ui', () => {
   }
 
 
+  // Route Preservation State
+  const lastNonSettingsRoute = ref(null)
+
+  function setLastNonSettingsRoute(path) {
+    if (path && typeof path === 'string' && !path.startsWith('/settings')) {
+      lastNonSettingsRoute.value = path
+    }
+  }
+
+  function clearLastNonSettingsRoute() {
+    lastNonSettingsRoute.value = null
+  }
+
   // Theme Palette Popover State
   const isThemePopoverOpen = ref(false)
 
@@ -362,5 +375,8 @@ export const useUIStore = defineStore('ui', () => {
     autoArchiveDays,
     setAutoArchiveEnabled,
     setAutoArchiveDays,
+    lastNonSettingsRoute,
+    setLastNonSettingsRoute,
+    clearLastNonSettingsRoute,
   }
 })
