@@ -259,7 +259,7 @@ async def chat_with_agent(
                 tool_id, tool_result_str, action_data = res
                 if action_data:
                     actions_performed.append(action_data)
-                
+
                 sanitized_res = prune_and_sanitize_tool_output(tool_result_str)
                 messages.append(
                     ToolMessage(content=sanitized_res, tool_call_id=tool_id)
