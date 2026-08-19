@@ -81,7 +81,7 @@ async def test_agent_chat_endpoint(db_session):
             transport=ASGITransport(app=app), base_url="http://test"
         ) as ac:
             res = await ac.post(
-                "/api/agent/chat",
+                "/api/v1/agent/chat",
                 json={
                     "messages": [
                         {
@@ -118,7 +118,7 @@ async def test_agent_chat_stream_endpoint(db_session):
             transport=ASGITransport(app=app), base_url="http://test"
         ) as ac:
             res = await ac.post(
-                "/api/agent/chat/stream",
+                "/api/v1/agent/chat/stream",
                 json={"messages": [{"role": "user", "content": "Hello agent!"}]},
             )
 
