@@ -524,17 +524,19 @@ const sankeyData = computed(() => {
     <!-- Main Content Area -->
     <div class="analytics-content">
       <div v-if="currentTab === 'velocity'" class="velocity-tab-container">
-        <!-- Velocity Controls -->
-        <div class="velocity-controls-card flex justify-between items-center mb-6">
-          <div class="flex items-center gap-4">
-            <span class="text-sm font-semibold text-secondary">Timeframe:</span>
-            <div class="btn-group relative" ref="customPickerRef">
-              <button :class="['btn-toggle', velocityPeriod === 'this_week' ? 'active' : '']" @click="setPeriod('this_week')">This Week</button>
-              <button :class="['btn-toggle', velocityPeriod === 'last_week' ? 'active' : '']" @click="setPeriod('last_week')">Last Week</button>
-              <button :class="['btn-toggle', velocityPeriod === 'this_month' ? 'active' : '']" @click="setPeriod('this_month')">This Month</button>
-              <button :class="['btn-toggle', velocityPeriod === 'last_month' ? 'active' : '']" @click="setPeriod('last_month')">Last Month</button>
+        <!-- Velocity Controls (Centered Timeframe Filter) -->
+        <div class="timeframe-filter-container">
+          <div class="timeframe-bar">
+            <span class="timeframe-label">Timeframe:</span>
+            <button :class="['timeframe-btn', velocityPeriod === 'this_week' ? 'active' : '']" @click="setPeriod('this_week')">This Week</button>
+            <button :class="['timeframe-btn', velocityPeriod === 'last_week' ? 'active' : '']" @click="setPeriod('last_week')">Last Week</button>
+            <button :class="['timeframe-btn', velocityPeriod === 'this_month' ? 'active' : '']" @click="setPeriod('this_month')">This Month</button>
+            <button :class="['timeframe-btn', velocityPeriod === 'last_month' ? 'active' : '']" @click="setPeriod('last_month')">Last Month</button>
+
+            <!-- Custom Range Button with Anchored Popover -->
+            <div class="custom-picker-wrap" ref="customPickerRef">
               <button
-                :class="['btn-toggle', velocityPeriod === 'custom' ? 'active' : '']"
+                :class="['timeframe-btn', velocityPeriod === 'custom' ? 'active' : '']"
                 @click="toggleCustomPicker"
               >
                 <CalendarDays class="w-3.5 h-3.5 inline mr-1" />
@@ -542,7 +544,7 @@ const sankeyData = computed(() => {
                 <ChevronDown class="w-3.5 h-3.5 inline ml-1 opacity-70" />
               </button>
 
-              <!-- Custom Range Calendar Popover -->
+              <!-- Custom Range Calendar Popover Anchored Directly Under Trigger Button -->
               <div v-if="isCustomPickerOpen" class="custom-range-popover animate-fade-in" @click.stop>
                 <div class="popover-header">
                   <button class="nav-btn" type="button" @click="prevPickerMonth" title="Previous Month">
@@ -1192,53 +1194,82 @@ const sankeyData = computed(() => {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-/* Velocity Tab Specific Styles */
-.velocity-controls-card {
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 14px 20px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-}
-.btn-group {
-  display: inline-flex;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-full);
-  overflow: hidden;
-  padding: 2px;
-}
-.btn-toggle {
-  padding: 6px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-full);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.btn-toggle:hover {
-  color: var(--text-main);
-}
-.btn-toggle.active {
-  background-color: var(--primary);
-  color: white;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+
+/* Centered Timeframe Filter Bar & Buttons */
+.timeframe-filter-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 24px;
 }
 
-/* Custom Range Calendar Popover */
+.timeframe-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full, 9999px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.timeframe-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0 12px;
+  flex-shrink: 0;
+}
+
+.timeframe-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-full, 9999px);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.custom-picker-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.timeframe-btn:hover:not(.active) {
+  color: var(--text-main);
+  background-color: var(--bg-elevated);
+}
+
+.timeframe-btn.active {
+  background-color: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+/* Custom Range Calendar Popover Anchored Directly Under Trigger Button */
 .custom-range-popover {
   position: absolute;
   top: calc(100% + 8px);
-  right: 0;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 999;
   width: 280px;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-xl, 0 10px 25px -5px rgba(0, 0, 0, 0.2));
+  box-shadow: var(--shadow-xl, 0 10px 25px -5px rgba(0, 0, 0, 0.25));
   padding: 14px;
   box-sizing: border-box;
 }
@@ -1449,10 +1480,16 @@ const sankeyData = computed(() => {
 }
 /* Page Layout */
 .page-container {
-  max-width: 1240px;
+  max-width: 1140px;
   margin: 0 auto;
   padding: 32px 24px 80px;
   min-height: calc(100vh - var(--navbar-height));
+  width: 100%;
+}
+
+.velocity-tab-container {
+  max-width: 1100px;
+  margin: 0 auto;
   width: 100%;
 }
 
