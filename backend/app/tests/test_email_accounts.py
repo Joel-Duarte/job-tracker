@@ -65,7 +65,7 @@ async def test_oauth_callback_requires_matching_state_cookie():
         state = generate_oauth_state()
         client.cookies.set("oauth_state", "different-token")
         response = await client.get(
-            f"/api/v1/email_accounts/oauth/callback/google?code=fake-code&state={state}"
+            f"/api/v1/email_accounts/oauth/callback/google?code=fake-code&state={state}",
         )
         assert response.status_code == 400
         assert "Invalid or expired CSRF state" in response.text
@@ -80,7 +80,7 @@ async def test_oauth_callback_escapes_provider_error():
         client.cookies.set("oauth_state", state.split(".", 1)[0])
         response = await client.get(
             "/api/v1/email_accounts/oauth/callback/google"
-            f"?state={state}&error=%3Cscript%3Ealert(1)%3C%2Fscript%3E"
+            f"?state={state}&error=%3Cscript%3Ealert(1)%3C%2Fscript%3E",
         )
         assert response.status_code == 400
         assert "&lt;script&gt;alert(1)&lt;/script&gt;" in response.text
@@ -177,6 +177,10 @@ async def test_email_account_credential_masking(db_session: AsyncSession):
             assert data["refresh_token"] == "********"
             assert data["client_secret"] == "********"
             assert data["client_id"] == "my-client-id"
+            assert account._app_password != "super-secret-password"
+            assert account._access_token != "secret-access-token"
+            assert account._refresh_token != "secret-refresh-token"
+            assert account._client_secret != "secret-client-secret"
 
             # 2. Update account sending back "********"
             patch_resp = await client.patch(

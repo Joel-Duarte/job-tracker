@@ -1,8 +1,10 @@
 from datetime import datetime
 
 from sqlalchemy import BigInteger, Boolean, DateTime, Float, Integer, Text, func
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.security import decrypt_secret, encrypt_secret
 from app.models.applications import Base
 
 
@@ -12,7 +14,7 @@ class LLMConfigModel(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     provider_name: Mapped[str] = mapped_column(Text, nullable=False, default="custom")
     api_base: Mapped[str | None] = mapped_column(Text, nullable=True)
-    api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    _api_key: Mapped[str | None] = mapped_column("api_key", Text, nullable=True)
 
     # Default / Primary Model Settings
     model_name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -39,3 +41,11 @@ class LLMConfigModel(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+    @hybrid_property
+    def api_key(self) -> str | None:
+        return decrypt_secret(self._api_key)
+
+    @api_key.setter
+    def api_key(self, value: str | None) -> None:
+        self._api_key = encrypt_secret(value)

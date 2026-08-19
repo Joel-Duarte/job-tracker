@@ -7,9 +7,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.database import get_db
-from app.core.llm_factory import get_active_llm_config_dict, get_chat_model
+from app.core.llm_factory import (
+    UNCONFIGURED_EMBEDDING_MODEL,
+    UNCONFIGURED_MODEL,
+    UNCONFIGURED_PROVIDER,
+    get_active_llm_config_dict,
+    get_chat_model,
+)
+from app.core.security import mask_secret
 from app.models.llm import LLMConfigModel
 from app.services.postgres_tracer import PostgresTracer
 
@@ -84,7 +90,7 @@ async def get_current_llm_config(db: AsyncSession = Depends(get_db)) -> Any:
             id=db_config.id,
             provider_name=db_config.provider_name,
             api_base=db_config.api_base,
-            api_key=db_config.api_key,
+            api_key=mask_secret(db_config.api_key),
             model_name=db_config.model_name,
             embedding_model_name=db_config.embedding_model_name,
             temperature=db_config.temperature,
@@ -102,11 +108,11 @@ async def get_current_llm_config(db: AsyncSession = Depends(get_db)) -> Any:
         )
 
     return LLMConfigRead(
-        provider_name=settings.LLM_PROVIDER_NAME,
-        api_base=settings.LLM_API_BASE,
-        api_key=settings.LLM_API_KEY,
-        model_name=settings.LLM_MODEL_NAME,
-        embedding_model_name=settings.EMBEDDING_MODEL_NAME,
+        provider_name=UNCONFIGURED_PROVIDER,
+        api_base=None,
+        api_key=None,
+        model_name=UNCONFIGURED_MODEL,
+        embedding_model_name=UNCONFIGURED_EMBEDDING_MODEL,
         temperature=0.7,
         top_k=50,
         top_p=1.0,
@@ -135,12 +141,12 @@ async def update_llm_config(
 
     if not db_config:
         db_config = LLMConfigModel(
-            provider_name=update_data.get("provider_name", settings.LLM_PROVIDER_NAME),
-            api_base=update_data.get("api_base", settings.LLM_API_BASE),
-            api_key=update_data.get("api_key", settings.LLM_API_KEY),
-            model_name=update_data.get("model_name", settings.LLM_MODEL_NAME),
+            provider_name=update_data.get("provider_name", UNCONFIGURED_PROVIDER),
+            api_base=update_data.get("api_base"),
+            api_key=update_data.get("api_key"),
+            model_name=update_data.get("model_name", UNCONFIGURED_MODEL),
             embedding_model_name=update_data.get(
-                "embedding_model_name", settings.EMBEDDING_MODEL_NAME
+                "embedding_model_name", UNCONFIGURED_EMBEDDING_MODEL
             ),
             temperature=update_data.get("temperature", 0.7),
             top_k=update_data.get("top_k", 50),
@@ -166,7 +172,7 @@ async def update_llm_config(
         id=db_config.id,
         provider_name=db_config.provider_name,
         api_base=db_config.api_base,
-        api_key=db_config.api_key,
+        api_key=mask_secret(db_config.api_key),
         model_name=db_config.model_name,
         embedding_model_name=db_config.embedding_model_name,
         temperature=db_config.temperature,

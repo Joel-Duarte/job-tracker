@@ -1,4 +1,9 @@
+from pathlib import Path
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 class Settings(BaseSettings):
@@ -12,6 +17,10 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "DEBUG"
     SEED_DEV_DATA: bool = False
 
+    # Bootstrap security configuration; runtime provider credentials live in PostgreSQL.
+    SECRET_KEY: str = "default-development-secret-key-change-in-production"
+    ADMIN_SECRET: str = ""
+
     # Public exposed API base URL (for Docker port forwarding or reverse proxy)
     PUBLIC_API_URL: str | None = None
     PUBLIC_FRONTEND_URL: str | None = None
@@ -19,27 +28,20 @@ class Settings(BaseSettings):
     # Camofox Browser Automation Server URL
     CAMOUFOX_ENDPOINT: str = "http://localhost:9377"
 
-    # Embedding Service Configuration
-    ENABLE_EMBEDDINGS: bool = True
-    EMBEDDING_API_URL: str = "http://localhost:1234/v1/embeddings"
-    EMBEDDING_API_KEY: str = ""
-    EMBEDDING_MODEL_NAME: str = "nomic-embed-text-v2-moe"
-    EMBEDDING_DIMENSION: int = 768
-
-    LLM_PROVIDER_NAME: str = "openai"  # Options: "custom", "openai", "anthropic", etc.
-    LLM_API_BASE: str = "http://localhost:1234/v1"
-    LLM_API_KEY: str = (
-        "lm-1234"  # LM Studio ignores key value, but client requires non-empty string
-    )
-    LLM_MODEL_NAME: str = "qwen/qwen3.5-9b"
-
-    STAGING_MATCH_THRESHOLD: float = 0.75
-
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self):
+        if self.ENVIRONMENT.lower() == "production" and self.SECRET_KEY in {
+            "",
+            "default-development-secret-key-change-in-production",
+        }:
+            raise ValueError("SECRET_KEY must be explicitly configured in production")
+        return self
 
     def get_database_url(self) -> str:
         """Always constructs the connection URI dynamically from current settings."""

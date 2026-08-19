@@ -69,21 +69,11 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      SECRET_KEY: ${SECRET_KEY:-}
+      ADMIN_SECRET: ${ADMIN_SECRET:-}
       PUBLIC_API_URL: ${PUBLIC_API_URL:-}
       PUBLIC_FRONTEND_URL: ${PUBLIC_FRONTEND_URL:-}
       CAMOUFOX_ENDPOINT: http://scraper:9377
-      LLM_PROVIDER_NAME: ${LLM_PROVIDER_NAME:-openai}
-      LLM_API_BASE: ${LLM_API_BASE:-http://host.docker.internal:1234/v1}
-      LLM_API_KEY: ${LLM_API_KEY:-lm-1234}
-      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-qwen/qwen3.5-9b}
-      EMBEDDING_API_URL: ${EMBEDDING_API_URL:-http://host.docker.internal:1234/v1/embeddings}
-      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
-      EMBEDDING_MODEL_NAME: ${EMBEDDING_MODEL_NAME:-nomic-embed-text-v2-moe}
-      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-768}
-      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
-      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
-      MS_OAUTH_CLIENT_ID: ${MS_OAUTH_CLIENT_ID:-}
-      MS_OAUTH_CLIENT_SECRET: ${MS_OAUTH_CLIENT_SECRET:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

@@ -9,9 +9,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.core.config import settings
-
 logger = logging.getLogger(__name__)
+
+UNCONFIGURED_PROVIDER = "openai"
+UNCONFIGURED_MODEL = "gpt-4o-mini"
+UNCONFIGURED_EMBEDDING_MODEL = "text-embedding-3-small"
 
 PROVIDER_MAP = {
     "custom": "openai",
@@ -45,10 +47,49 @@ def _clean_base_url(url: str | None) -> str | None:
 
 
 async def get_active_llm_config_dict(db: AsyncSession | None = None) -> dict[str, Any]:
-    """Retrieves legacy LLM configuration from DB with fallback to settings (.env)."""
+    """Retrieves runtime LLM configuration from the database."""
+    if db is None:
+        try:
+            from app.core.database import AsyncSessionLocal
+
+            async with AsyncSessionLocal() as session:
+                return await get_active_llm_config_dict(session)
+        except Exception as err:
+            logger.warning("Failed loading database AI configuration: %s", err)
+
     if db is not None:
         try:
+            from app.models.ai_providers import AITaskBindingModel
             from app.models.llm import LLMConfigModel
+
+            binding_stmt = (
+                select(AITaskBindingModel)
+                .options(joinedload(AITaskBindingModel.provider))
+                .where(
+                    AITaskBindingModel.task_type == "GLOBAL_DEFAULT",
+                    AITaskBindingModel.is_active,
+                )
+            )
+            binding = (await db.execute(binding_stmt)).scalar_one_or_none()
+            if binding and binding.provider and binding.provider.is_active:
+                return {
+                    "source": "database",
+                    "provider_name": binding.provider.provider_type,
+                    "api_base": binding.provider.base_url,
+                    "api_key": binding.provider.api_key,
+                    "model_name": binding.model_name,
+                    "embedding_model_name": UNCONFIGURED_EMBEDDING_MODEL,
+                    "temperature": binding.temperature,
+                    "top_k": None,
+                    "top_p": binding.top_p,
+                    "max_tokens": binding.max_tokens,
+                    "agent_model_name": binding.model_name,
+                    "agent_temperature": binding.temperature,
+                    "agent_top_k": None,
+                    "agent_top_p": binding.top_p,
+                    "agent_max_tokens": binding.max_tokens,
+                    "agent_max_recursions": 15,
+                }
 
             stmt = select(LLMConfigModel).where(LLMConfigModel.is_active)
             res = await db.execute(stmt)
@@ -62,7 +103,7 @@ async def get_active_llm_config_dict(db: AsyncSession | None = None) -> dict[str
                     "api_key": db_config.api_key,
                     "model_name": db_config.model_name,
                     "embedding_model_name": db_config.embedding_model_name
-                    or settings.EMBEDDING_MODEL_NAME,
+                    or UNCONFIGURED_EMBEDDING_MODEL,
                     "temperature": db_config.temperature,
                     "top_k": db_config.top_k,
                     "top_p": db_config.top_p,
@@ -79,17 +120,17 @@ async def get_active_llm_config_dict(db: AsyncSession | None = None) -> dict[str
             logger.warning("Failed to fetch legacy LLM config from DB: %s", err)
 
     return {
-        "source": ".env",
-        "provider_name": settings.LLM_PROVIDER_NAME,
-        "api_base": settings.LLM_API_BASE,
-        "api_key": settings.LLM_API_KEY,
-        "model_name": settings.LLM_MODEL_NAME,
-        "embedding_model_name": settings.EMBEDDING_MODEL_NAME,
+        "source": "unconfigured",
+        "provider_name": UNCONFIGURED_PROVIDER,
+        "api_base": None,
+        "api_key": None,
+        "model_name": UNCONFIGURED_MODEL,
+        "embedding_model_name": UNCONFIGURED_EMBEDDING_MODEL,
         "temperature": 0.7,
         "top_k": 50,
         "top_p": 1.0,
         "max_tokens": None,
-        "agent_model_name": settings.LLM_MODEL_NAME,
+        "agent_model_name": UNCONFIGURED_MODEL,
         "agent_temperature": 0.2,
         "agent_top_k": 50,
         "agent_top_p": 1.0,
@@ -144,7 +185,7 @@ async def get_embeddings_model(
     cfg = await get_active_llm_config_dict(db)
 
     provider = _resolve_provider(cfg.get("provider_name"))
-    model = cfg.get("embedding_model_name", settings.EMBEDDING_MODEL_NAME)
+    model = cfg.get("embedding_model_name", UNCONFIGURED_EMBEDDING_MODEL)
     api_base = _clean_base_url(cfg.get("api_base"))
     api_key = cfg.get("api_key") or "dummy-key"
 

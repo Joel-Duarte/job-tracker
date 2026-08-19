@@ -26,6 +26,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
 - **Database:** PostgreSQL 16 with `pgvector` and `pg_trgm` extensions.
 - **ORM:** SQLAlchemy (AsyncSession / `asyncpg`).
 - **AI & LLM Orchestration:** LangChain and LangGraph for workflows (e.g., job evaluation, interview guide generation).
+- **Runtime Configuration:** AI providers, model bindings, OAuth client credentials, and email credentials are configured through the Settings UI and stored in PostgreSQL; deployment environment variables provide only bootstrap, infrastructure, and encryption settings.
 - **Stealth Scraper:** `camofox` running as a separate service for browser automation and anti-bot bypass.
 - **Key Services:**
   - `scraper.py`: Extracts job descriptions from URLs, bypassing cookie banners and "show more" toggles via Camofox Javascript evaluation.

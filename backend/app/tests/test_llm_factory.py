@@ -12,6 +12,7 @@ from app.core.llm_factory import (
     get_embeddings_model,
 )
 from app.core.prompts import seed_default_prompts
+from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.models.llm import LLMConfigModel
 from app.schemas.llm import (
     ApplicationSummaryResult,
@@ -43,7 +44,7 @@ def test_resolve_provider_and_clean_url():
 @pytest.mark.asyncio
 async def test_get_active_llm_config_fallback():
     cfg = await get_active_llm_config_dict(None)
-    assert cfg["source"] == ".env"
+    assert cfg["source"] in {"database", "unconfigured"}
     assert cfg["provider_name"] == "openai"
     assert "model_name" in cfg
 
@@ -67,6 +68,38 @@ async def test_get_active_llm_config_db(db_session: AsyncSession):
     assert cfg["provider_name"] == "custom"
     assert cfg["model_name"] == "qwen3.5-4b"
     assert cfg["temperature"] == 0.3
+
+
+@pytest.mark.asyncio
+async def test_get_active_llm_config_uses_global_provider_binding(
+    db_session: AsyncSession,
+):
+    provider = AIProviderModel(
+        name="Database Provider",
+        provider_type="custom",
+        base_url="http://provider.local/v1",
+        api_key="database-key",
+        is_active=True,
+    )
+    db_session.add(provider)
+    await db_session.flush()
+    db_session.add(
+        AITaskBindingModel(
+            task_type="GLOBAL_DEFAULT",
+            provider_id=provider.id,
+            model_name="database-model",
+            temperature=0.2,
+            is_active=True,
+        )
+    )
+    await db_session.commit()
+
+    cfg = await get_active_llm_config_dict(db_session)
+
+    assert cfg["source"] == "database"
+    assert cfg["provider_name"] == "custom"
+    assert cfg["model_name"] == "database-model"
+    assert cfg["api_key"] == "database-key"
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.services.llm as llm_service
-from app.core.config import settings
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
@@ -21,6 +20,7 @@ from app.schemas.graph_state import JobTrackerState
 from app.services.llm import generate_and_save_application_embedding
 
 logger = logging.getLogger(__name__)
+STAGING_MATCH_THRESHOLD = 0.75
 
 
 def _parse_email_date(date_val: str | datetime | None) -> datetime | None:
@@ -193,7 +193,7 @@ async def fuzzy_match_node(
             best_company_score = score
             best_company = comp
 
-    threshold = settings.STAGING_MATCH_THRESHOLD
+    threshold = STAGING_MATCH_THRESHOLD
     if not best_company or best_company_score < threshold:
         return {
             "match_score": best_company_score,

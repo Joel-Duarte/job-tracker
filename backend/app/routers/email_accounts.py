@@ -1,9 +1,10 @@
+import base64
+import binascii
 import hashlib
 import hmac
 import html
 import json
 import logging
-import os
 import secrets
 import time
 from urllib.parse import urlparse
@@ -33,9 +34,13 @@ _STATE_COOKIE_NAME = "oauth_state"
 _STATE_TTL_SECONDS = 900
 
 
-def generate_oauth_state() -> str:
+def generate_oauth_state(client_id: str | None = None) -> str:
     """Generates a signed cryptographic state token for OAuth CSRF protection."""
-    raw_token = secrets.token_urlsafe(16)
+    payload = json.dumps(
+        {"nonce": secrets.token_urlsafe(16), "client_id": client_id},
+        separators=(",", ":"),
+    ).encode()
+    raw_token = base64.urlsafe_b64encode(payload).decode().rstrip("=")
     timestamp = str(int(time.time()))
     signature = hmac.new(
         settings.SECRET_KEY.encode(),
@@ -43,6 +48,17 @@ def generate_oauth_state() -> str:
         hashlib.sha256,
     ).hexdigest()
     return f"{raw_token}.{timestamp}.{signature}"
+
+
+def _oauth_state_client_id(state: str | None) -> str | None:
+    if not state:
+        return None
+    padding = "=" * (-len(state) % 4)
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(f"{state}{padding}"))
+    except (ValueError, TypeError, binascii.Error, json.JSONDecodeError):
+        return None
+    return payload.get("client_id") if isinstance(payload, dict) else None
 
 
 def validate_oauth_state(
@@ -169,11 +185,10 @@ async def get_oauth_authorize_url(
         redirect_uri or f"{base_url}/api/v1/email_accounts/oauth/callback/{prov}"
     )
 
-    state_token = generate_oauth_state()
-
     if prov == "google":
-        resolved_client_id = client_id or os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+        resolved_client_id = client_id
         if resolved_client_id:
+            state_token = generate_oauth_state(resolved_client_id)
             scopes = "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email"
             auth_url = (
                 f"https://accounts.google.com/o/oauth2/v2/auth?"
@@ -205,8 +220,9 @@ async def get_oauth_authorize_url(
         )
 
     elif prov in ["microsoft", "outlook"]:
-        resolved_client_id = client_id or os.getenv("MS_OAUTH_CLIENT_ID")
+        resolved_client_id = client_id
         if resolved_client_id:
+            state_token = generate_oauth_state(resolved_client_id)
             scopes = "Mail.Read offline_access User.Read"
             auth_url = (
                 f"https://login.microsoftonline.com/common/oauth2/v2.0/authorize?"
@@ -288,13 +304,25 @@ async def oauth_callback(
         )
 
     prov = provider.lower().strip()
+    state_client_id = _oauth_state_client_id(state)
+    auth_type = "GMAIL_OAUTH" if prov == "google" else "MS_GRAPH_OAUTH"
+    configured_account = None
+    if state_client_id:
+        configured_stmt = select(EmailAccountModel).where(
+            EmailAccountModel.client_id == state_client_id,
+            EmailAccountModel.auth_type == auth_type,
+        )
+        configured_account = (await db.execute(configured_stmt)).scalar_one_or_none()
+
     base_url = _resolve_base_url(request)
     redirect_uri = f"{base_url}/api/v1/email_accounts/oauth/callback/{prov}"
 
     try:
         if prov == "google":
-            client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID") or ""
-            client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET") or ""
+            client_id = state_client_id or ""
+            client_secret = (
+                configured_account.client_secret if configured_account else ""
+            )
             tokens = await GmailOAuthAdapter.exchange_code_for_tokens(
                 client_id=client_id,
                 client_secret=client_secret,
@@ -318,6 +346,7 @@ async def oauth_callback(
                 EmailAccountModel.auth_type == "GMAIL_OAUTH",
             )
             existing = (await db.execute(stmt)).scalar_one_or_none()
+            existing = existing or configured_account
             if not existing:
                 account = EmailAccountModel(
                     name=f"Gmail ({email_address})",
@@ -332,6 +361,8 @@ async def oauth_callback(
                 )
                 db.add(account)
             else:
+                existing.username = email_address
+                existing.name = existing.name or f"Gmail ({email_address})"
                 existing.access_token = access_token
                 if refresh_token:
                     existing.refresh_token = refresh_token
@@ -340,8 +371,10 @@ async def oauth_callback(
             await db.commit()
 
         elif prov in ["microsoft", "outlook"]:
-            client_id = os.getenv("MS_OAUTH_CLIENT_ID") or ""
-            client_secret = os.getenv("MS_OAUTH_CLIENT_SECRET") or ""
+            client_id = state_client_id or ""
+            client_secret = (
+                configured_account.client_secret if configured_account else ""
+            )
             tokens = await MicrosoftGraphAdapter.exchange_code_for_tokens(
                 client_id=client_id,
                 client_secret=client_secret,
@@ -369,6 +402,7 @@ async def oauth_callback(
                 EmailAccountModel.auth_type == "MS_GRAPH_OAUTH",
             )
             existing = (await db.execute(stmt)).scalar_one_or_none()
+            existing = existing or configured_account
             if not existing:
                 account = EmailAccountModel(
                     name=f"Outlook ({email_address})",
@@ -383,6 +417,8 @@ async def oauth_callback(
                 )
                 db.add(account)
             else:
+                existing.username = email_address
+                existing.name = existing.name or f"Outlook ({email_address})"
                 existing.access_token = access_token
                 if refresh_token:
                     existing.refresh_token = refresh_token

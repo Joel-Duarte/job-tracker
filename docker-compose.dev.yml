@@ -21,6 +21,7 @@ services:
       ENVIRONMENT: development
       SEED_DEV_DATA: "true"
       LOG_LEVEL: DEBUG
+      SECRET_KEY: ${SECRET_KEY:-development-only-secret-key}
       PUBLIC_FRONTEND_URL: http://localhost:5173
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
