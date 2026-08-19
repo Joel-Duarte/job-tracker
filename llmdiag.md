@@ -1,6 +1,6 @@
 # Diagnostic Analysis Report: LLM, LangChain & Graph Workflows (llmdiag.md)
 
-This report presents a comprehensive static analysis of all LLM integrations, LangChain components, and LangGraph workflows within the application codebase. Findings are categorized into structural and operational degradation risks: **Graph & Chain Topology Issues**, **Prompt & Context Inefficiencies**, and **Implementation & Concurrency Bottlenecks**.
+This report presents a comprehensive static analysis of all LLM integrations, LangChain components, and LangGraph workflows within the application codebase. Findings are categorized into structural and operational degradation risks: **Graph & Chain Topology Issues**, **Prompt & Context Inefficiencies**, and **Implementation & Concurrency Bottlenecks**. Detailed step-by-step remediation instructions are provided for every identified issue.
 
 ---
 
@@ -22,7 +22,22 @@ This report presents a comprehensive static analysis of all LLM integrations, La
   * **Thread & Model Exhaustion**: A stuck worker thread will execute $N$ redundant LLM calls until hit by outer limits, consuming API quota and blocking worker concurrency slots.
 * **Implementation Strategy & Search Vectors**:
   * **Search Vectors**: `should_continue_sections`, `section_generator_node`, `build_interview_guide_graph`
-  * **Strategy**: Refactor sequential self-looping node to parallel section dispatch via `asyncio.gather` or LangGraph's `Send` API (Map-Reduce pattern). Enforce hard safety counter check in `should_continue_sections` (e.g. `if idx >= len(target_sections) or iteration_count > MAX_SECTIONS: return END`).
+* **Step-by-Step Remediation Plan**:
+  1. **Add Safety Counter to State**:
+     Modify `InterviewGuideState` in `interview_guide_graph.py` to include `iteration_count: int`. Initialize `iteration_count: 0` in `initial_state`.
+  2. **Increment Counter in Section Generator**:
+     Inside `section_generator_node`, increment `iteration_count` on every execution return (`"iteration_count": state.get("iteration_count", 0) + 1`).
+  3. **Enforce Hard Circuit Breaker in Conditional Edge**:
+     In `should_continue_sections`, enforce a hard threshold:
+     ```python
+     max_allowed = len(target_sections) + 2
+     if idx >= len(target_sections) or state.get("iteration_count", 0) >= max_allowed:
+         logger.warning("Reached section limit or safety circuit breaker in guide graph.")
+         return END
+     return "section_generator"
+     ```
+  4. **Alternative Refactoring (Map-Reduce Parallelization)**:
+     Replace the sequential self-loop with LangGraph's `Send` API or `asyncio.gather` inside a single generator node to execute all target sections concurrently, completely eliminating the loop edge.
 
 ---
 
@@ -46,7 +61,31 @@ This report presents a comprehensive static analysis of all LLM integrations, La
   * **Unbounded Context Growth**: Every intermediate `AIMessage` and `ToolMessage` is appended directly into the `messages` array without pruning, inflating token counts exponentially across subsequent turns in the loop.
 * **Implementation Strategy & Search Vectors**:
   * **Search Vectors**: `for turn in range(max_turns):`, `for tc in tool_calls:`, `model_with_tools.ainvoke`
-  * **Strategy**: Execute returned tool calls in parallel using `asyncio.gather(*[selected_tool.ainvoke(...) for tc in tool_calls])`. Prune or summarize historical `ToolMessage` payloads before sending `messages` to the next LLM invocation turn.
+* **Step-by-Step Remediation Plan**:
+  1. **Parallelize Tool Execution**:
+     Replace the sequential tool call loop in `chat_with_agent` with `asyncio.gather`:
+     ```python
+     async def run_tool(tc):
+         tool_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+         tool_args = tc.get("args", {}) if isinstance(tc, dict) else getattr(tc, "args", {})
+         tool_id = tc.get("id", f"call_{turn}") if isinstance(tc, dict) else getattr(tc, "id", f"call_{turn}")
+         selected_tool = tool_map.get(tool_name)
+         if selected_tool:
+             try:
+                 res = await selected_tool.ainvoke(tool_args, config={"callbacks": [PostgresTracer()]})
+                 return ToolMessage(content=str(res), tool_call_id=tool_id), tool_name, tool_args, res
+             except Exception as err:
+                 return ToolMessage(content=json.dumps({"error": str(err)}), tool_call_id=tool_id), tool_name, tool_args, None
+         return ToolMessage(content=json.dumps({"error": f"Tool '{tool_name}' missing"}), tool_call_id=tool_id), tool_name, tool_args, None
+
+     tool_results = await asyncio.gather(*[run_tool(tc) for tc in tool_calls])
+     for tool_msg, name, args, res in tool_results:
+         messages.append(tool_msg)
+         if res is not None:
+             actions_performed.append({"action": name, "args": args, "result": res})
+     ```
+  2. **Sanitize & Limit Tool Results**:
+     Apply JSON pruning on `tool_msg.content` before appending to `messages` to keep only relevant fields and cap result array lengths.
 
 ---
 
@@ -59,7 +98,17 @@ This report presents a comprehensive static analysis of all LLM integrations, La
   * **DB State Storage Accumulation**: Checkpoint tables accumulate historical state blobs containing duplicate raw text across processing runs.
 * **Implementation Strategy & Search Vectors**:
   * **Search Vectors**: `build_intake_graph`, `scrape_enrich_node`, `JobTrackerState`, `postgres_saver`
-  * **Strategy**: Introduce a state cleanup/pruning utility (or prune transient attributes like `scraped_spec` in terminal or exit nodes before checkpointer persistence). Retain only canonical entity IDs (`application_id`, `company_id`) in state transitions.
+* **Step-by-Step Remediation Plan**:
+  1. **Define Terminal State Pruning Node**:
+     In `graph_nodes.py`, add `prune_terminal_state_node(state: JobTrackerState)` that clears transient string fields:
+     ```python
+     async def prune_terminal_state_node(state: JobTrackerState, config: RunnableConfig) -> dict[str, Any]:
+         return {"scraped_spec": None, "body": ""}
+     ```
+  2. **Route Graph Exits Through Pruning**:
+     In `intake_graph.py`, insert `prune_terminal_state` before `END` in terminal branches so that final checkpointer state snapshots do not persist multi-kilobyte text fields.
+  3. **Use Transient Memory for Scraped Content**:
+     Pass scraped text out-of-band via temporary cache or ephemeral state attributes rather than accumulating them in the persistent `JobTrackerState` TypedDict.
 
 ---
 
@@ -79,7 +128,17 @@ This report presents a comprehensive static analysis of all LLM integrations, La
   * **Model Attention Degradation**: High noise-to-signal ratio impairs structured output extraction accuracy and increases generation latency.
 * **Implementation Strategy & Search Vectors**:
   * **Search Vectors**: `extract_job_spec`, `raw_webpage_data`, `jd_extraction`
-  * **Strategy**: Apply pre-LLM HTML/Markdown DOM cleaning and semantic truncation (`truncate_text_semantically`) to remove header/footer boilerplate and limit raw input text to relevant sections prior to prompt binding.
+* **Step-by-Step Remediation Plan**:
+  1. **Implement DOM/Markdown Cleaning Helper**:
+     In `file_parser.py` or `scraper.py`, strip out navigation boilerplate, cookie notices, header/footer text, and social share links using regex or BeautifulSoup / HTML-to-text filters.
+  2. **Apply Semantic Truncation in `extract_job_spec`**:
+     In `llm.py`, wrap incoming `raw_webpage_data` with `truncate_text_semantically` before prompt insertion:
+     ```python
+     from app.services.llm import truncate_text_semantically
+     cleaned_data = truncate_text_semantically(raw_webpage_data, max_chars=12000)
+     ```
+  3. **Update Prompt Context Variables**:
+     Pass `cleaned_data` into `chain.ainvoke({"raw_webpage_data": cleaned_data})` to bound token usage to maximum ~3,000 tokens per call.
 
 ---
 
@@ -96,7 +155,28 @@ This report presents a comprehensive static analysis of all LLM integrations, La
   * **Cost Escalation**: Users exchanging multiple messages re-submit massive historical tool payloads on every new question.
 * **Implementation Strategy & Search Vectors**:
   * **Search Vectors**: `m_data.get("role") == "tool"`, `ToolMessage`, `chat_with_agent`
-  * **Strategy**: Implement `prune_and_sanitize_tool_output` to truncate or sanitize array payloads in `ToolMessage` instances before restoring them into active chat context. Limit array outputs in tool responses to top $N$ relevant items.
+* **Step-by-Step Remediation Plan**:
+  1. **Create Tool Output Pruning Utility**:
+     In `agent_tools.py`, create `prune_and_sanitize_tool_output(content: str, max_items: int = 5)`:
+     ```python
+     def prune_and_sanitize_tool_output(content: str, max_items: int = 5) -> str:
+         try:
+             data = json.loads(content)
+             if isinstance(data, list):
+                 pruned = data[:max_items]
+                 return json.dumps(pruned, separators=(',', ':'))
+             elif isinstance(data, dict):
+                 # Strip redundant metadata
+                 data.pop("metadata", None)
+                 return json.dumps(data, separators=(',', ':'))
+         except Exception:
+             pass
+         return content[:2000]
+     ```
+  2. **Sanitize Restored History Tool Messages**:
+     When reconstructing `ToolMessage` instances from `chat_record.messages`, pass `m_data.get("content", "")` through `prune_and_sanitize_tool_output`.
+  3. **Enforce Response Limit Guards**:
+     Set lower default `limit` parameters on agent tools (e.g., `limit: int = 5` for `list_applications`).
 
 ---
 
@@ -112,7 +192,11 @@ This report presents a comprehensive static analysis of all LLM integrations, La
   * **Redundant Token Ingestion**: Generating a complete 6-section guide transmits the exact same ~3,000 tokens of input context 6 separate times, resulting in 18,000+ redundant input tokens per guide request.
 * **Implementation Strategy & Search Vectors**:
   * **Search Vectors**: `section_generator_node`, `SECTION_DESCRIPTIONS`, `interview_guide`
-  * **Strategy**: Perform single-pass structured JSON output generation for all requested sections in a single LLM request, or utilize LLM Provider Prompt Caching (e.g. Anthropic/OpenAI prompt cache headers) to reuse cached context tokens across section node invocations.
+* **Step-by-Step Remediation Plan**:
+  1. **Option A: Batch Single-Pass Generation**:
+     Modify the graph to issue a single LLM invocation that requests structured JSON/HTML output for all selected sections in `target_sections` simultaneously, returning a dictionary of section HTML blocks.
+  2. **Option B: Provider Prompt Caching Headers**:
+     If sequential section generation is required for UI streaming, append provider-specific prompt caching headers (such as Anthropic's `"type": "ephemeral"` or OpenAI's automatic prompt caching) on static prompt blocks (`jd_text`, `cv_text`, system prompt) so that subsequent turns reuse cached tokens at a 90% cost/latency reduction.
 
 ---
 
@@ -129,7 +213,15 @@ This report presents a comprehensive static analysis of all LLM integrations, La
   * **I/O Bottleneck**: Unnecessary SQL query overhead prior to every LLM invocation adds latency and database connection overhead.
 * **Implementation Strategy & Search Vectors**:
   * **Search Vectors**: `get_prompt_template`, `DEFAULT_PROMPTS`, `PromptModel`
-  * **Strategy**: Add an in-memory TTL cache (`_PROMPT_CACHE: dict[str, str]`) in `prompts.py` with cache invalidation when administrative endpoints update prompts. Consolidate duplicate static default prompt strings.
+* **Step-by-Step Remediation Plan**:
+  1. **Add In-Memory Prompt Cache**:
+     In `prompts.py`, introduce a global dict `_PROMPT_CACHE: dict[str, str] = {}` and an `asyncio.Lock()`.
+  2. **Check Cache Before DB Query**:
+     In `get_prompt_template`, check if `prompt_name` exists in `_PROMPT_CACHE`. If present, return immediately without touching PostgreSQL.
+  3. **Add Cache Invalidation Hook**:
+     Expose `invalidate_prompt_cache(prompt_name: str | None = None)` and call it inside the admin router when prompt templates are edited via API (`PUT /prompts/{name}`).
+  4. **Deduplicate Default Prompts**:
+     Alias `DEFAULT_PROMPTS["email_extraction"] = DEFAULT_PROMPTS["extraction"]` to eliminate duplicate prompt memory storage.
 
 ---
 
@@ -156,7 +248,15 @@ This report presents a comprehensive static analysis of all LLM integrations, La
   * **Concurrency Bug Risk**: Clearing `self.run_map` globally corrupts active run state for concurrent async LLM invocations.
 * **Implementation Strategy & Search Vectors**:
   * **Search Vectors**: `PostgresTracer`, `_persist_run`, `self.run_map.clear()`
-  * **Strategy**: Offload trace persistence to non-blocking background `asyncio.Task` instances (`_persist_run_async`), maintain an in-memory queue/task set (`self._background_tasks`), and remove global `self.run_map.clear()` so `AsyncBaseTracer` handles its own lifecycle.
+* **Step-by-Step Remediation Plan**:
+  1. **Background Task Offloading**:
+     In `PostgresTracer`, track pending background persistence tasks in `self._background_tasks: set[asyncio.Task] = set()`.
+  2. **Non-Blocking Task Dispatch**:
+     Refactor `_persist_run(self, run: Run)` to spawn `task = asyncio.create_task(self._persist_run_async(run))` without awaiting it in the critical request path. Add a completion callback to discard finished tasks (`task.add_done_callback(self._background_tasks.discard)`).
+  3. **Remove Global `self.run_map.clear()`**:
+     Delete `self.run_map.clear()` from the `finally:` block so that LangChain's `AsyncBaseTracer` cleans up run mappings per specific `run.id` without interfering with concurrent runs.
+  4. **Provide Explicit `flush()` Helper**:
+     Implement `async def flush(self) -> None:` that awaits `asyncio.gather(*self._background_tasks)` for test fixtures or graceful shutdown hooks.
 
 ---
 
@@ -177,7 +277,13 @@ This report presents a comprehensive static analysis of all LLM integrations, La
   * **Connection Pool Starvation**: When multiple application updates or background queue workers run concurrently, open database sessions are tied up awaiting external network I/O, leading to SQLAlchemy `TimeoutError` / pool starvation.
 * **Implementation Strategy & Search Vectors**:
   * **Search Vectors**: `generate_and_save_application_embedding`, `generate_embedding`, `aembed_query`
-  * **Strategy**: Decouple database reads from embedding network calls. Fetch required application fields in a short read transaction, release/close session during `aembed_query`, and persist vector results in a separate short write transaction.
+* **Step-by-Step Remediation Plan**:
+  1. **Separate Data Reading Phase**:
+     Read the required application metadata, company name, and timeline events in a short initial database transaction, then close/release the session.
+  2. **Execute Network Embedding Call Out-of-Session**:
+     Call `vector = await generate_embedding(None, str(content_to_embed))` using a standalone session or detached configuration lookup so that network I/O occurs with zero active DB transaction holds.
+  3. **Separate Data Persistence Phase**:
+     Open a new short-lived `AsyncSession` transaction solely to upsert the vector into `ApplicationEmbeddingModel` and call `await db.commit()`.
 
 ---
 
@@ -194,7 +300,20 @@ This report presents a comprehensive static analysis of all LLM integrations, La
   * **Poor Perceived UX**: User interface shows a spinner with zero progress feedback until the entire guide is finished.
 * **Implementation Strategy & Search Vectors**:
   * **Search Vectors**: `interview_guide_graph.ainvoke`, `generate_interview_guide`, `GenerateInterviewGuideRequest`
-  * **Strategy**: Expose an SSE endpoint (`POST /applications/{id}/interview-guide/stream`) using `interview_guide_graph.astream(...)` to push generated HTML sections incrementally to the frontend as each section node completes.
+* **Step-by-Step Remediation Plan**:
+  1. **Create Streaming Generator Function**:
+     In `interview_guide.py`, add `generate_interview_guide_stream(db, application_id, request)` utilizing `interview_guide_graph.astream(...)`:
+     ```python
+     async for event in interview_guide_graph.astream(initial_state, config=..., stream_mode="updates"):
+         for node_name, node_output in event.items():
+             if "completed_sections" in node_output:
+                 latest_section = node_output["completed_sections"][-1]
+                 yield f"data: {json.dumps({'node': node_name, 'section_html': latest_section})}\n\n"
+     ```
+  2. **Add SSE Endpoint to Application Router**:
+     In `routers/applications.py`, expose `POST /applications/{id}/interview-guide/stream` returning FastAPI's `StreamingResponse(generate_interview_guide_stream(...), media_type="text/event-stream")`.
+  3. **Update Frontend UI Handler**:
+     Connect the frontend `InterviewGuideView` to listen to SSE events and render section cards incrementally as events arrive.
 
 ---
 
@@ -206,25 +325,31 @@ This report presents a comprehensive static analysis of all LLM integrations, La
   * **Redundant Model Initialization**: Instantiating embedding model objects repeatedly during agent tool-calling turns adds unnecessary object creation and configuration resolution overhead.
 * **Implementation Strategy & Search Vectors**:
   * **Search Vectors**: `execute_semantic_vector_search`, `generate_embedding`, `get_task_embeddings_model`
-  * **Strategy**: Cache constructed embedding model instances across calls within `llm_factory.py` or `agent_tools.py` based on active configuration signatures.
+* **Step-by-Step Remediation Plan**:
+  1. **Add Embeddings Model Instance Cache**:
+     In `llm_factory.py`, maintain `_EMBEDDINGS_MODEL_CACHE: dict[str, Embeddings] = {}` keyed by `(provider_type, model_name, base_url)`.
+  2. **Reuse Cached Embedding Model**:
+     In `get_task_embeddings_model`, check if an identical configuration instance already exists in `_EMBEDDINGS_MODEL_CACHE`. If match exists, return the cached `Embeddings` instance directly.
+  3. **Provide Invalidation Mechanism**:
+     Clear `_EMBEDDINGS_MODEL_CACHE` whenever AI Provider settings or Task Bindings are updated via administrative routers (`/ai-config/bindings`).
 
 ---
 
-## Summary Matrix of Diagnostic Findings
+## Summary Matrix of Diagnostic Findings & Remediation Procedures
 
-| Diagnostic Area | Primary Affected Component | Root Cause | Severity / Impact |
-| :--- | :--- | :--- | :--- |
-| **Graph Topology** | `interview_guide_graph.py` | State index routing without safety loop bounds | High (Infinite loop risk) |
-| **Graph Topology** | `agent_chat.py` | Serial execution of multiple tool calls per turn | Medium (High latency) |
-| **Graph Topology** | `intake_graph.py` | Checkpointer serialization of unpruned raw text | Medium (Postgres DB bloat) |
-| **Prompt & Context** | `llm.py` (`extract_job_spec`) | Unbounded raw scraped HTML/markdown injection | High (Token cost & noise) |
-| **Prompt & Context** | `agent_chat.py` | Unsanitized historical `ToolMessage` array ingestion | High (Quadratic token bloat) |
-| **Prompt & Context** | `interview_guide_graph.py` | Duplicate transmission of 3,000+ token context | Medium (Redundant input tokens) |
-| **Prompt & Context** | `prompts.py` | Uncached SQL query per prompt lookup | Low (Unnecessary DB reads) |
-| **Concurrency** | `postgres_tracer.py` | Synchronous inline `commit()` during tracer callback | High (Pipeline latency & state bug) |
-| **Concurrency** | `llm.py` | DB session held open during network embedding I/O | High (DB connection pool exhaustion) |
-| **Concurrency** | `interview_guide.py` | Synchronous `ainvoke` blocking HTTP response | High (UX delay & HTTP timeout) |
-| **Concurrency** | `agent_tools.py` | Re-initialization of embedding model per vector query | Low (Minor tool execution overhead) |
+| Diagnostic Area | Primary Affected Component | Root Cause | Severity / Impact | Remediation Summary |
+| :--- | :--- | :--- | :--- | :--- |
+| **Graph Topology** | `interview_guide_graph.py` | State index routing without safety loop bounds | High (Infinite loop risk) | Add `iteration_count` state counter & circuit breaker guard in `should_continue_sections`. |
+| **Graph Topology** | `agent_chat.py` | Serial execution of multiple tool calls per turn | Medium (High latency) | Execute tool calls in parallel using `asyncio.gather(*[tool.ainvoke(...)])`. |
+| **Graph Topology** | `intake_graph.py` | Checkpointer serialization of unpruned raw text | Medium (Postgres DB bloat) | Route terminal graph exits through `prune_terminal_state_node` to clear transient strings. |
+| **Prompt & Context** | `llm.py` (`extract_job_spec`) | Unbounded raw scraped HTML/markdown injection | High (Token cost & noise) | Strip HTML DOM boilerplate & call `truncate_text_semantically(data, max_chars=12000)`. |
+| **Prompt & Context** | `agent_chat.py` | Unsanitized historical `ToolMessage` array ingestion | High (Quadratic token bloat) | Apply `prune_and_sanitize_tool_output` to limit array items in restored tool messages. |
+| **Prompt & Context** | `interview_guide_graph.py` | Duplicate transmission of 3,000+ token context | Medium (Redundant input tokens) | Use single-pass multi-section generation or provider prompt caching headers. |
+| **Prompt & Context** | `prompts.py` | Uncached SQL query per prompt lookup | Low (Unnecessary DB reads) | Wrap `get_prompt_template` with in-memory `_PROMPT_CACHE` and invalidation hooks. |
+| **Concurrency** | `postgres_tracer.py` | Synchronous inline `commit()` during tracer callback | High (Pipeline latency & state bug) | Offload trace persistence to non-blocking background `asyncio.Task` & remove global `run_map.clear()`. |
+| **Concurrency** | `llm.py` | DB session held open during network embedding I/O | High (DB connection pool exhaustion) | Decouple DB reads and vector updates into separate short transactions around network I/O. |
+| **Concurrency** | `interview_guide.py` | Synchronous `ainvoke` blocking HTTP response | High (UX delay & HTTP timeout) | Expose SSE endpoint `POST /applications/{id}/interview-guide/stream` using `astream`. |
+| **Concurrency** | `agent_tools.py` | Re-initialization of embedding model per vector query | Low (Minor tool execution overhead) | Cache initialized `Embeddings` model instances in `llm_factory.py`. |
 
 ---
 *End of Diagnostic Report (`llmdiag.md`).*
