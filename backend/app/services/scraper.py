@@ -204,7 +204,7 @@ async def _scrape_via_camofox(
                         )
 
     except Exception as err:
-        logger.warning("Camofox scraping error for %s: %s", url, err)
+        logger.exception("Camofox scraping error for %s: %s", url, err)
     finally:
         # 5. Always close the tab to prevent leaks
         if tab_id:
@@ -212,7 +212,7 @@ async def _scrape_via_camofox(
                 async with httpx.AsyncClient(timeout=5.0) as client:
                     await client.delete(f"{base_url}/tabs/{tab_id}?userId={user_id}")
             except Exception as close_err:
-                logger.debug(
+                logger.warning(
                     "Non-fatal error closing Camofox tab %s: %s", tab_id, close_err
                 )
 
@@ -267,8 +267,8 @@ async def _scrape_via_http_fallback(
 
 
 async def scrape_job_url(url: str, timeout_seconds: float = 25.0) -> ScrapedJobContent:
-    """
-    Central scraping gateway.
+    """Central scraping gateway.
+
     First attempts stealth browser execution via Camofox (clicks 'Show more', waits for dynamic hydration).
     If Camofox is offline or fails, falls back to direct HTTP request with BeautifulSoup parsing.
     """
@@ -306,7 +306,7 @@ async def scrape_job_url(url: str, timeout_seconds: float = 25.0) -> ScrapedJobC
             }
             return http_result
         except Exception as fallback_err:
-            logger.error(
+            logger.exception(
                 "Both Camofox and HTTP fallback failed for %s: %s",
                 cleaned_url,
                 fallback_err,
