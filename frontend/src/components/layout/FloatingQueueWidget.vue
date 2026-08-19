@@ -16,7 +16,6 @@ import {
   Briefcase,
   UserCheck,
   Layers,
-  ChevronUp,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -42,15 +41,17 @@ const failedTasks = computed(() =>
 // Active and Failed counters
 const activeCount = computed(() => activeTasks.value.length)
 const failedCount = computed(() => failedTasks.value.length)
+const notificationCount = computed(() => activeCount.value + failedCount.value)
 
 // Focus scope list strictly for the popover menu (active + failed tasks only)
 const focusedTasks = computed(() => [...activeTasks.value, ...failedTasks.value])
 
 // Determine widget health state for dynamic border & badge coloring
 const widgetState = computed(() => {
+  if (activeCount.value > 0 && failedCount.value > 0) return 'mixed'
   if (failedCount.value > 0) return 'failed'
   if (activeCount.value > 0) return 'active'
-  return 'healthy'
+  return 'hidden'
 })
 
 async function pollQueueStatus(silent = true) {
@@ -148,9 +149,10 @@ onUnmounted(() => {
 
 <template>
   <div
-    v-if="route.path !== '/queue'"
+    v-if="route.path !== '/queue' && notificationCount > 0"
     ref="widgetContainerRef"
     class="floating-queue-widget"
+    :class="{ 'queue-on-chat': route.path === '/chat' }"
   >
     <!-- Interactive Overlay Dropdown Menu (Positioned directly above status pill) -->
     <Transition name="popover-fade">
@@ -294,66 +296,25 @@ onUnmounted(() => {
       </div>
     </Transition>
 
-    <!-- Compact Floating Status Pill (Persistent across states) -->
-    <div
-      class="queue-status-pill-button"
-      :class="[
-        `state-${widgetState}`,
-        { 'is-expanded': isOpen }
-      ]"
-      @click="toggleMenu"
-      :title="failedCount > 0 ? `${failedCount} task(s) failed. Click to inspect & retry.` : 'AI Execution Queue Tracker'"
+    <!-- Floating Queue Trigger -->
+    <button
+      class="floating-queue-button"
+      :class="[`state-${widgetState}`, { 'is-expanded': isOpen }]"
+      type="button"
+      @click.stop="toggleMenu"
+      :title="`${notificationCount} queue task(s) need attention. Click to inspect.`"
     >
-      <div class="pill-left">
-        <!-- Processor SVG Icon -->
-        <div class="icon-wrapper">
-          <Loader2 v-if="activeCount > 0" :size="15" class="animate-spin icon-active" />
-          <AlertCircle v-else-if="failedCount > 0" :size="15" class="icon-failed" />
-          <Cpu v-else :size="15" class="icon-healthy" />
-        </div>
+      <Cpu v-if="!isOpen" :size="22" class="queue-button-icon" />
+      <X v-else :size="20" class="queue-button-icon" />
 
-        <!-- Status Text -->
-        <span class="pill-status-text">
-          <template v-if="failedCount > 0">
-            {{ failedCount }} task{{ failedCount > 1 ? 's' : '' }} failed
-          </template>
-          <template v-else-if="activeCount > 0">
-            {{ activeCount }} active task{{ activeCount > 1 ? 's' : '' }}
-          </template>
-          <template v-else>
-            AI Queue
-          </template>
-        </span>
-      </div>
-
-      <!-- State Counters & Dynamic Badges -->
-      <div class="pill-right">
-        <!-- Active Count Badge -->
-        <span
-          v-if="activeCount > 0"
-          class="count-badge badge-active-count"
-          title="Active running or queued tasks"
-        >
-          {{ activeCount }}
-        </span>
-
-        <!-- Failed Count Badge -->
-        <span
-          v-if="failedCount > 0"
-          class="count-badge badge-failed-count"
-          title="Failed tasks needing attention"
-        >
-          {{ failedCount }}
-        </span>
-
-        <!-- Chevron Toggle Indicator -->
-        <ChevronUp
-          :size="14"
-          class="chevron-indicator"
-          :class="{ 'is-rotated': isOpen }"
-        />
-      </div>
-    </div>
+      <span
+        v-if="activeCount > 0 || failedCount > 0"
+        class="queue-count-badge"
+        :class="widgetState === 'failed' ? 'badge-failed' : widgetState === 'mixed' ? 'badge-mixed' : 'badge-active'"
+      >
+        {{ notificationCount }}
+      </span>
+    </button>
   </div>
 </template>
 
@@ -366,118 +327,94 @@ onUnmounted(() => {
   user-select: none;
 }
 
-/* Compact Floating Status Pill Button */
-.queue-status-pill-button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 7px 14px;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
+.floating-queue-widget.queue-on-chat {
+  right: 24px;
+}
+
+/* Floating Trigger Bubble */
+.floating-queue-button {
+  position: relative;
+  width: 50px;
+  height: 50px;
   border-radius: var(--radius-full);
-  box-shadow: var(--shadow-lg);
-  backdrop-filter: blur(12px);
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  min-width: 140px;
-}
-
-.queue-status-pill-button:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-xl);
-}
-
-/* Dynamic State Styling */
-.queue-status-pill-button.state-healthy {
-  border-color: var(--status-offer-border, #22c55e);
-}
-
-.queue-status-pill-button.state-healthy:hover {
-  border-color: var(--primary);
-}
-
-.queue-status-pill-button.state-active {
-  border-color: var(--primary);
-  box-shadow: 0 0 12px var(--primary-glow);
-}
-
-.queue-status-pill-button.state-failed {
-  border-color: var(--danger, #ef4444);
-  background-color: rgba(239, 68, 68, 0.05);
-  box-shadow: 0 0 12px rgba(239, 68, 68, 0.2);
-}
-
-.queue-status-pill-button.is-expanded {
-  border-color: var(--primary);
-  background-color: var(--bg-elevated);
-}
-
-.pill-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.icon-wrapper {
+  background-color: var(--primary);
+  color: var(--primary-contrast, #0a0d14);
+  border: 1px solid var(--primary-glow);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28), 0 0 12px var(--primary-glow);
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-normal);
 }
 
-.icon-healthy {
-  color: var(--status-offer-text, #22c55e);
+.floating-queue-button:hover {
+  transform: scale(1.06);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35), 0 0 16px var(--primary);
 }
 
-.icon-active {
-  color: var(--primary);
+/* Dynamic State Styling */
+.floating-queue-button.state-active {
+  background-color: var(--status-applied-text, #10b981);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.32), 0 0 12px rgba(16, 185, 129, 0.28);
 }
 
-.icon-failed {
-  color: var(--danger, #ef4444);
+.floating-queue-button.state-failed {
+  background-color: var(--danger, #ef4444);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.35), 0 0 12px rgba(239, 68, 68, 0.3);
 }
 
-.pill-status-text {
-  font-size: 12px;
-  font-weight: 600;
+.floating-queue-button.state-mixed {
+  background-color: var(--status-interview-text, #fbbf24);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 4px 16px rgba(251, 191, 36, 0.35), 0 0 12px rgba(251, 191, 36, 0.3);
+}
+
+.floating-queue-button.is-expanded {
+  background-color: var(--bg-surface);
   color: var(--text-main);
-  letter-spacing: -0.01em;
-  white-space: nowrap;
+  border-color: var(--border-color);
+  box-shadow: var(--shadow-md);
 }
 
-.pill-right {
+.queue-button-icon {
+  transition: transform var(--transition-fast);
+}
+
+.queue-count-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 2px solid var(--bg-app);
+  border-radius: var(--radius-full);
+  color: #ffffff;
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-
-.count-badge {
+  justify-content: center;
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 700;
-  padding: 1px 6px;
-  border-radius: var(--radius-full);
-  line-height: 1.3;
+  line-height: 1;
 }
 
-.badge-active-count {
-  background-color: var(--primary-subtle);
-  color: var(--primary);
-  border: 1px solid var(--primary-glow);
+.queue-count-badge.badge-active {
+  background-color: var(--status-applied-text, #10b981);
 }
 
-.badge-failed-count {
+.queue-count-badge.badge-failed {
   background-color: var(--danger, #ef4444);
-  color: #ffffff;
 }
 
-.chevron-indicator {
-  color: var(--text-muted);
-  transition: transform 0.2s ease;
-}
-
-.chevron-indicator.is-rotated {
-  transform: rotate(180deg);
+.queue-count-badge.badge-mixed {
+  background-color: var(--status-interview-text, #fbbf24);
 }
 
 /* Dropdown Popover Overlay Menu */
