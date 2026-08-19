@@ -3,6 +3,7 @@ import { ref, onMounted, nextTick, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import { useAgentChatStore } from '../stores/agentChatStore'
 import { AIConfigAPI } from '../api/endpoints'
+import { renderMarkdown } from '../utils/markdown'
 import {
   Bot,
   User,
@@ -331,7 +332,6 @@ function formatActionLabel(act) {
             class="message-row"
             :class="`msg-${msg.role}`"
           >
-            <!-- Skip tool messages in UI normally unless needed -->
             <template v-if="msg.role !== 'tool' && msg.role !== 'system'">
               <div class="avatar-icon">
                 <Bot v-if="msg.role === 'assistant'" :size="16" />
@@ -339,7 +339,6 @@ function formatActionLabel(act) {
               </div>
 
               <div class="message-bubble">
-                <!-- Executed Actions Chips -->
                 <div v-if="msg.actions && msg.actions.length > 0" class="actions-chips">
                   <div v-for="(act, aIdx) in msg.actions" :key="aIdx" class="action-chip">
                     <CheckCircle2 :size="13" class="text-success" />
