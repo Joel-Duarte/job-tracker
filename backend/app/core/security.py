@@ -20,6 +20,15 @@ def _get_fernet():
         )
         or "default-development-secret-key-change-in-production"
     )
+    env = (getattr(settings, "ENVIRONMENT", "development") or "").strip().lower()
+    if env not in {"development", "test", "testing"} and secret_raw in {
+        "",
+        "default-development-secret-key-change-in-production",
+    }:
+        raise ValueError(
+            "SECRET_KEY must be explicitly configured in non-development environments"
+        )
+
     key_bytes = hashlib.sha256(secret_raw.encode("utf-8")).digest()
     fernet_key = base64.urlsafe_b64encode(key_bytes)
     return Fernet(fernet_key)

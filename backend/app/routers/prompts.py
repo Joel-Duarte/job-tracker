@@ -6,10 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.prompts import DEFAULT_PROMPTS, clear_prompt_cache
+from app.core.security import verify_admin_access
 from app.models.prompts import PromptModel
 from app.schemas.prompts import PromptResponse, PromptUpdateRequest
 
-router = APIRouter(prefix="/prompts", tags=["Prompts"])
+router = APIRouter(
+    prefix="/prompts", tags=["Prompts"], dependencies=[Depends(verify_admin_access)]
+)
 
 
 @router.get("", response_model=list[PromptResponse])
