@@ -1,10 +1,10 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from unittest.mock import AsyncMock, MagicMock, patch
+
 from app.models.applications import ApplicationModel, CompanyModel, OtherEventModel
 from app.schemas.graph_state import IntakeState, JobTrackerState
 from app.schemas.intake import ExtractedEmailInfo
