@@ -153,9 +153,10 @@ def upgrade() -> None:
 
     # companies
     op.create_table(
-        "companies",
+        "email_companies",
         sa.Column("id", sa.BigInteger(), nullable=False),
         sa.Column("name", sa.Text(), nullable=False),
+        sa.Column("name_normalized", sa.Text(), nullable=False),
         sa.Column("domain", sa.Text(), nullable=True),
         sa.Column(
             "created_at",
@@ -170,7 +171,22 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("name"),
+    )
+    op.create_index(
+        "idx_email_companies_name_normalized",
+        "email_companies",
+        ["name_normalized"],
+        unique=True,
+    )
+    op.create_index(
+        "idx_email_companies_domain", "email_companies", ["domain"]
+    )
+    op.create_index(
+        "idx_email_companies_name_trgm",
+        "email_companies",
+        ["name_normalized"],
+        postgresql_using="gin",
+        postgresql_ops={"name_normalized": "gin_trgm_ops"},
     )
 
     # email_accounts
@@ -263,7 +279,9 @@ def upgrade() -> None:
             server_default=sa.text("NOW()"),
             nullable=False,
         ),
-        sa.ForeignKeyConstraint(["company_id"], ["companies.id"], ondelete="RESTRICT"),
+        sa.ForeignKeyConstraint(
+            ["company_id"], ["email_companies.id"], ondelete="RESTRICT"
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
 
