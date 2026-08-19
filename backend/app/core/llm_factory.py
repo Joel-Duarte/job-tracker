@@ -366,45 +366,54 @@ async def get_task_embeddings_model(
     Dynamically loads and initializes a LangChain Embeddings model from 'EMBEDDING' task binding.
     Cascades gracefully to legacy/env config if task binding is not configured.
     """
-    if db is not None:
+    if db is None:
         try:
-            from app.models.ai_providers import AITaskBindingModel
+            from app.core.database import AsyncSessionLocal
 
-            stmt = (
-                select(AITaskBindingModel)
-                .options(joinedload(AITaskBindingModel.provider))
-                .where(
-                    AITaskBindingModel.task_type == "EMBEDDING",
-                    AITaskBindingModel.is_active,
-                )
-            )
-            res = await db.execute(stmt)
-            binding = res.scalar_one_or_none()
-
-            if binding and binding.provider and binding.provider.is_active:
-                provider_type = _resolve_provider(binding.provider.provider_type)
-                base_url = _clean_base_url(binding.provider.base_url)
-                api_key = binding.provider.api_key or "dummy-key"
-
-                init_kwargs: dict[str, Any] = {
-                    "model": binding.model_name,
-                    "provider": provider_type,
-                }
-
-                if provider_type == "openai":
-                    init_kwargs["check_embedding_ctx_length"] = False
-                    init_kwargs["tiktoken_enabled"] = False
-
-                if base_url:
-                    init_kwargs["base_url"] = base_url
-                if api_key:
-                    init_kwargs["api_key"] = api_key
-
-                init_kwargs.update(override_kwargs)
-                return init_embeddings(**init_kwargs)
+            async with AsyncSessionLocal() as session:
+                return await get_task_embeddings_model(session, **override_kwargs)
         except Exception as err:
             logger.warning(
-                "Failed loading EMBEDDING task binding, falling back: %s", err
+                "Failed loading EMBEDDING task binding with default session: %s", err
             )
+            return await get_embeddings_model(None, **override_kwargs)
+
+    try:
+        from app.models.ai_providers import AITaskBindingModel
+
+        stmt = (
+            select(AITaskBindingModel)
+            .options(joinedload(AITaskBindingModel.provider))
+            .where(
+                AITaskBindingModel.task_type == "EMBEDDING",
+                AITaskBindingModel.is_active,
+            )
+        )
+        res = await db.execute(stmt)
+        binding = res.scalar_one_or_none()
+
+        if binding and binding.provider and binding.provider.is_active:
+            provider_type = _resolve_provider(binding.provider.provider_type)
+            base_url = _clean_base_url(binding.provider.base_url)
+            api_key = binding.provider.api_key or "dummy-key"
+
+            init_kwargs: dict[str, Any] = {
+                "model": binding.model_name,
+                "provider": provider_type,
+            }
+
+            if provider_type == "openai":
+                init_kwargs["check_embedding_ctx_length"] = False
+                init_kwargs["tiktoken_enabled"] = False
+
+            if base_url:
+                init_kwargs["base_url"] = base_url
+            if api_key:
+                init_kwargs["api_key"] = api_key
+
+            init_kwargs.update(override_kwargs)
+            return init_embeddings(**init_kwargs)
+    except Exception as err:
+        logger.warning("Failed loading EMBEDDING task binding, falling back: %s", err)
 
     return await get_embeddings_model(db, **override_kwargs)

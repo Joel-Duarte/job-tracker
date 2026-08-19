@@ -442,7 +442,10 @@ async def summarize_application_status(
     return ApplicationSummaryResult.model_validate(result)
 
 
-async def generate_embedding(db: AsyncSession, text_input: str) -> list[float]:
+async def generate_embedding(
+    db: AsyncSession | None = None,
+    text_input: str = "",
+) -> list[float]:
     """Generates vector embedding for input text using configured LangChain EMBEDDING model."""
     if isinstance(text_input, str):
         cleaned_text = text_input.strip()
@@ -458,6 +461,7 @@ async def generate_embedding(db: AsyncSession, text_input: str) -> list[float]:
         category="embedding",
         name="generate_embedding",
         inputs={"text_sample": cleaned_text[:200], "char_count": len(cleaned_text)},
+        db=None,
     ) as ctx:
         embeddings = await get_task_embeddings_model(db)
 
@@ -483,14 +487,17 @@ async def generate_embedding(db: AsyncSession, text_input: str) -> list[float]:
 
 
 async def generate_and_save_application_embedding(
-    db: AsyncSession,
-    application_id: int,
+    db: AsyncSession | None = None,
+    application_id: int = 0,
     skip_llm_summary: bool = True,
 ) -> ApplicationEmbeddingModel:
     """
     Creates or updates 768-dim vector embedding record for an application.
     Constructs the embedding directly from structured application metadata and the latest timeline event.
+    Decouples database sessions from external embedding network requests.
     """
+    from app.core.database import AsyncSessionLocal
+
     stmt = (
         select(ApplicationModel)
         .options(
@@ -499,8 +506,14 @@ async def generate_and_save_application_embedding(
         )
         .where(ApplicationModel.id == application_id)
     )
-    res = await db.execute(stmt)
-    application = res.scalar_one_or_none()
+
+    if db is not None:
+        res = await db.execute(stmt)
+        application = res.scalar_one_or_none()
+    else:
+        async with AsyncSessionLocal() as read_session:
+            res = await read_session.execute(stmt)
+            application = res.scalar_one_or_none()
 
     if not application:
         raise ValueError(f"Application ID {application_id} not found.")
@@ -551,14 +564,6 @@ async def generate_and_save_application_embedding(
         f"Latest Update ({evt_date}): [{evt_type}] {evt_summary}.{action_info}"
     )
 
-    vector = await generate_embedding(db, str(content_to_embed))
-
-    emb_stmt = select(ApplicationEmbeddingModel).where(
-        ApplicationEmbeddingModel.email_application_id == application_id
-    )
-    emb_res = await db.execute(emb_stmt)
-    embedding_record = emb_res.scalar_one_or_none()
-
     metadata_payload = {
         "company": comp_name,
         "position": application.position,
@@ -568,21 +573,52 @@ async def generate_and_save_application_embedding(
         else None,
     }
 
-    if not embedding_record:
-        embedding_record = ApplicationEmbeddingModel(
-            email_application_id=application_id,
-            content=content_to_embed,
-            metadata_=metadata_payload,
-            embedding=vector,
-        )
-        db.add(embedding_record)
-    else:
-        embedding_record.content = content_to_embed
-        embedding_record.metadata_ = metadata_payload
-        embedding_record.embedding = vector
+    # Generate vector embedding via external API (No DB session held open)
+    vector = await generate_embedding(None, str(content_to_embed))
 
-    await db.commit()
-    return embedding_record
+    emb_stmt = select(ApplicationEmbeddingModel).where(
+        ApplicationEmbeddingModel.email_application_id == application_id
+    )
+
+    if db is not None:
+        emb_res = await db.execute(emb_stmt)
+        embedding_record = emb_res.scalar_one_or_none()
+
+        if not embedding_record:
+            embedding_record = ApplicationEmbeddingModel(
+                email_application_id=application_id,
+                content=content_to_embed,
+                metadata_=metadata_payload,
+                embedding=vector,
+            )
+            db.add(embedding_record)
+        else:
+            embedding_record.content = content_to_embed
+            embedding_record.metadata_ = metadata_payload
+            embedding_record.embedding = vector
+
+        await db.commit()
+        return embedding_record
+    else:
+        async with AsyncSessionLocal() as save_session:
+            emb_res = await save_session.execute(emb_stmt)
+            embedding_record = emb_res.scalar_one_or_none()
+
+            if not embedding_record:
+                embedding_record = ApplicationEmbeddingModel(
+                    email_application_id=application_id,
+                    content=content_to_embed,
+                    metadata_=metadata_payload,
+                    embedding=vector,
+                )
+                save_session.add(embedding_record)
+            else:
+                embedding_record.content = content_to_embed
+                embedding_record.metadata_ = metadata_payload
+                embedding_record.embedding = vector
+
+            await save_session.commit()
+            return embedding_record
 
 
 async def async_enqueue_application_embedding(
@@ -592,6 +628,7 @@ async def async_enqueue_application_embedding(
     """
     Non-blocking background worker task to generate and save application vector embeddings.
     Tracks state in IntakeEvaluationTaskModel and uses Priority 2 in the ConcurrencyManager.
+    Decouples database sessions from external embedding network requests.
     """
     from app.core.config_manager import get_setting
 
@@ -653,31 +690,35 @@ async def async_enqueue_application_embedding(
                 db_task.stage = "EMBEDDING"
                 await processing_session.commit()
 
-            try:
-                await generate_and_save_application_embedding(
-                    processing_session,
-                    application_id=application_id,
-                    skip_llm_summary=skip_llm_summary,
-                )
-                logger.info(
-                    "Background vector embedding updated for Application ID %d",
-                    application_id,
-                )
+        try:
+            await generate_and_save_application_embedding(
+                db=None,
+                application_id=application_id,
+                skip_llm_summary=skip_llm_summary,
+            )
+            logger.info(
+                "Background vector embedding updated for Application ID %d",
+                application_id,
+            )
 
-                # 4. On Success: Complete
+            # 4. On Success: Complete
+            async with AsyncSessionLocal() as success_session:
+                db_task = await success_session.get(IntakeEvaluationTaskModel, task_id)
                 if db_task:
                     db_task.status = "COMPLETED"
                     db_task.stage = "COMPLETE"
-                    await processing_session.commit()
-            except Exception as err:
-                logger.warning(
-                    "Background vector embedding failed for Application ID %d: %s",
-                    application_id,
-                    err,
-                )
+                    await success_session.commit()
+        except Exception as err:
+            logger.warning(
+                "Background vector embedding failed for Application ID %d: %s",
+                application_id,
+                err,
+            )
 
-                # 5. On Failure
+            # 5. On Failure
+            async with AsyncSessionLocal() as failure_session:
+                db_task = await failure_session.get(IntakeEvaluationTaskModel, task_id)
                 if db_task:
                     db_task.status = "FAILED"
                     db_task.error_message = str(err)
-                    await processing_session.commit()
+                    await failure_session.commit()
