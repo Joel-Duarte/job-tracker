@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.database import get_db
+from app.core.security import verify_admin_access
 from app.models.applications import (
     ActionItemModel,
     ApplicationEmbeddingModel,
@@ -551,6 +552,7 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
     "/{application_id}",
     response_model=ApplicationDetailResponse,
     summary="Partially update a job application",
+    dependencies=[Depends(verify_admin_access)],
 )
 async def update_application(
     application_id: int,
@@ -612,6 +614,7 @@ async def update_application(
     "/{application_id}/transition",
     response_model=ApplicationDetailResponse,
     summary="Transition application pipeline status and record structured timeline event",
+    dependencies=[Depends(verify_admin_access)],
 )
 async def transition_application(
     application_id: int,
@@ -788,6 +791,7 @@ async def transition_application(
     "/bulk-transition",
     response_model=BulkTransitionResult,
     summary="Bulk-transition multiple applications to a new status",
+    dependencies=[Depends(verify_admin_access)],
 )
 async def bulk_transition_applications(
     payload: BulkTransitionRequest,
@@ -852,6 +856,7 @@ async def bulk_transition_applications(
     "/{application_id}",
     status_code=status.HTTP_200_OK,
     summary="Delete an application from database",
+    dependencies=[Depends(verify_admin_access)],
 )
 async def delete_application(
     application_id: int,
@@ -902,6 +907,7 @@ async def generate_app_interview_guide(
     "/{application_id}/interview-guide",
     response_model=ApplicationDetailResponse,
     summary="Clear existing interview preparation guide",
+    dependencies=[Depends(verify_admin_access)],
 )
 async def clear_app_interview_guide(
     application_id: int,

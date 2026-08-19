@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, nextTick, watch } from 'vue'
+import DOMPurify from 'dompurify'
 import { useAgentChatStore } from '../stores/agentChatStore'
 import { AIConfigAPI } from '../api/endpoints'
 import {
@@ -197,7 +198,7 @@ function renderMarkdown(text) {
   html = html.replace(/<p>(<ul>.*?<\/ul>)<\/p>/gs, '$1')
   html = html.replace(/<p>(<blockquote>.*?<\/blockquote>)<\/p>/gs, '$1')
 
-  return html
+  return DOMPurify.sanitize(html)
 }
 
 function formatActionLabel(act) {

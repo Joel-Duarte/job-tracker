@@ -1,6 +1,9 @@
 import asyncio
+import ipaddress
 import logging
 import re
+import socket
+from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -107,6 +110,50 @@ EXTRACT_JS = """
     }
 })()
 """
+
+
+def validate_target_url(url: str) -> str:
+    """
+    Validates URL protocol and private IP / loopback address validation (SSRF prevention).
+    Returns the cleaned URL if valid, or raises ValueError if invalid or targeting private/local networks.
+    """
+    cleaned_url = url.strip()
+    if not cleaned_url.startswith(("http://", "https://")):
+        cleaned_url = f"https://{cleaned_url}"
+
+    parsed = urlparse(cleaned_url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Unsupported URL scheme: {parsed.scheme}")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("Invalid URL: missing hostname")
+
+    hostname_lower = hostname.lower()
+    if hostname_lower in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        raise ValueError("Targeting private IP or loopback addresses is forbidden.")
+
+    try:
+        ip = ipaddress.ip_address(hostname_lower)
+    except ValueError:
+        try:
+            ip_str = socket.gethostbyname(hostname)
+            ip = ipaddress.ip_address(ip_str)
+        except Exception as e:
+            raise ValueError(f"Could not resolve hostname '{hostname}': {e}")
+
+    if (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+    ):
+        raise ValueError(
+            f"Targeting private or local network address ({ip}) is forbidden."
+        )
+
+    return cleaned_url
 
 
 class ScrapedJobContent(BaseModel):
@@ -272,9 +319,16 @@ async def scrape_job_url(url: str, timeout_seconds: float = 25.0) -> ScrapedJobC
     First attempts stealth browser execution via Camofox (clicks 'Show more', waits for dynamic hydration).
     If Camofox is offline or fails, falls back to direct HTTP request with BeautifulSoup parsing.
     """
-    cleaned_url = url.strip()
-    if not cleaned_url.startswith(("http://", "https://")):
-        cleaned_url = f"https://{cleaned_url}"
+    try:
+        cleaned_url = validate_target_url(url)
+    except ValueError as val_err:
+        logger.warning("SSRF validation failed for URL '%s': %s", url, val_err)
+        return ScrapedJobContent(
+            title="",
+            text="",
+            source_url=url,
+            scraped_via="failed",
+        )
 
     async with trace_operation(
         category="scraper",
