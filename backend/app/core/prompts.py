@@ -3,6 +3,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.prompts import PromptModel
 
+_PROMPT_CACHE: dict[str, str] = {}
+
+
+def clear_prompt_cache(prompt_name: str | None = None) -> None:
+    """Invalidates the in-memory prompt cache for a specific prompt or all prompts."""
+    if prompt_name is not None:
+        _PROMPT_CACHE.pop(prompt_name, None)
+    else:
+        _PROMPT_CACHE.clear()
+
+
 DEFAULT_PROMPTS = {
     "jd_extraction": (
         "You are an expert recruitment data analyst and job spec parser.\n\n"
@@ -284,26 +295,32 @@ async def seed_default_prompts(session: AsyncSession) -> None:
             existing.template = default_template
 
     await session.commit()
+    clear_prompt_cache()
 
 
-async def get_prompt_template(session: AsyncSession, prompt_name: str) -> str:
-    """Retrieves prompt template from DB, falling back to default if missing."""
+async def get_prompt_template(
+    session: AsyncSession, prompt_name: str, force_reload: bool = False
+) -> str:
+    """Retrieves prompt template from DB with in-memory caching, falling back to default if missing."""
+    if not force_reload and prompt_name in _PROMPT_CACHE:
+        return _PROMPT_CACHE[prompt_name]
+
     stmt = select(PromptModel.template).where(PromptModel.name == prompt_name)
     result = await session.execute(stmt)
     template = result.scalar_one_or_none()
 
+    res_template = ""
     if template:
         if prompt_name == "cv_anonymization" and (
             "{'domain'}" in template or "{'domain" in template
         ):
-            return DEFAULT_PROMPTS["cv_anonymization"]
-        return template
+            res_template = DEFAULT_PROMPTS["cv_anonymization"]
+        else:
+            res_template = template
+    elif prompt_name in DEFAULT_PROMPTS:
+        res_template = DEFAULT_PROMPTS[prompt_name]
+    elif prompt_name == "email_extraction":
+        res_template = DEFAULT_PROMPTS.get("extraction", "")
 
-    # Fallback to defaults
-    if prompt_name in DEFAULT_PROMPTS:
-        return DEFAULT_PROMPTS[prompt_name]
-
-    if prompt_name == "email_extraction":
-        return DEFAULT_PROMPTS.get("extraction", "")
-
-    return ""
+    _PROMPT_CACHE[prompt_name] = res_template
+    return res_template

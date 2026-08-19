@@ -2,6 +2,7 @@ import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -33,7 +34,11 @@ from app.schemas.applications import (
     GenerateInterviewGuideRequest,
     JobPostingDetail,
 )
-from app.services.interview_guide import clear_interview_guide, generate_interview_guide
+from app.services.interview_guide import (
+    clear_interview_guide,
+    generate_interview_guide,
+    generate_interview_guide_stream,
+)
 from app.services.llm import (
     async_enqueue_application_embedding,
 )
@@ -901,6 +906,21 @@ async def generate_app_interview_guide(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         )
+
+
+@router.post(
+    "/{application_id}/interview-guide/stream",
+    summary="Stream tailored interview preparation guide generation via SSE",
+)
+async def generate_app_interview_guide_stream(
+    application_id: int,
+    payload: GenerateInterviewGuideRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return StreamingResponse(
+        generate_interview_guide_stream(db, application_id, payload),
+        media_type="text/event-stream",
+    )
 
 
 @router.delete(
