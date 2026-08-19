@@ -249,6 +249,8 @@ function formatStageLabel(stage) {
       return 'Matching CV Keyword Overlap'
     case 'ASSESSING':
       return 'Running Qualitative AI Fit'
+    case 'COVER_LETTER':
+      return 'Generating Cover Letter'
     case 'COMPLETE':
       return 'Ready for Review'
     case 'FAILED':
@@ -666,6 +668,22 @@ onUnmounted(() => {
                     {{ sa }}
                   </li>
                 </ul>
+              </div>
+            </div>
+
+            <!-- Cover Letter Status Banner if applicable -->
+            <div v-if="task.result_json?.cover_letter_status" class="advisory-banner mt-3">
+              <FileText :size="16" class="text-primary flex-shrink-0" />
+              <div class="flex flex-col gap-1">
+                <span>
+                  <strong>Cover Letter Status:</strong>
+                  <span v-if="task.result_json.cover_letter_status === 'GENERATED'" class="text-success font-semibold ml-1">Generated Successfully</span>
+                  <span v-else-if="task.result_json.cover_letter_status === 'SKIPPED'" class="text-muted font-semibold ml-1">Skipped (Match Score Below Threshold)</span>
+                  <span v-else-if="task.result_json.cover_letter_status === 'FAILED'" class="text-danger font-semibold ml-1">Generation Failed</span>
+                </span>
+                <span v-if="task.result_json.cover_letter_note" class="text-xs text-secondary">
+                  {{ task.result_json.cover_letter_note }}
+                </span>
               </div>
             </div>
 

@@ -10,6 +10,10 @@ export const ApplicationsAPI = {
   byStatus: () => apiClient.get('/applications/by-status'),
   generateInterviewGuide: (id, data = {}) => apiClient.post(`/applications/${id}/interview-guide`, data),
   clearInterviewGuide: (id) => apiClient.delete(`/applications/${id}/interview-guide`),
+  getCoverLetter: (id) => apiClient.get(`/applications/${id}/cover-letter`),
+  generateCoverLetter: (id) => apiClient.post(`/applications/${id}/cover-letter/generate`),
+  updateCoverLetter: (id, data) => apiClient.patch(`/applications/${id}/cover-letter`, data),
+  regenerateCoverLetter: (id) => apiClient.post(`/applications/${id}/cover-letter/regenerate`),
 }
 
 export const IntakeAPI = {

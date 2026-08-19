@@ -475,7 +475,7 @@ async def cover_letter_node(
     enable_auto = await get_setting("ENABLE_AUTO_COVER_LETTER", False, db=db)
     threshold = await get_setting("COVER_LETTER_MATCH_THRESHOLD", 70, db=db)
 
-    raw_score = state.get("match_score", 0.0)
+    raw_score = state.get("match_score") or 0.0
     score_pct = raw_score * 100.0 if (0.0 <= raw_score <= 1.0) else raw_score
 
     # Query application record
@@ -533,7 +533,7 @@ async def cover_letter_node(
             application.cover_letter_status = "GENERATED"
             application.cover_letter_generated_at = datetime.now(UTC)
             await db.commit()
-            return {"cover_letter_status": "GENERATED"}
+            cl_status = "GENERATED"
         except Exception as err:
             logger.error(
                 "Failed to generate cover letter for application %s: %s",
@@ -543,30 +543,36 @@ async def cover_letter_node(
             )
             application.cover_letter_status = "FAILED"
             await db.commit()
-            return {"cover_letter_status": "FAILED"}
+            cl_status = "FAILED"
     else:
         application.cover_letter_status = "SKIPPED"
         await db.commit()
+        cl_status = "SKIPPED"
 
-        # Check if corresponding IntakeEvaluationTaskModel task exists for this intake state
-        task_id_input = state.get("task_id")
-        if task_id_input:
-            task_stmt = select(IntakeEvaluationTaskModel).where(
-                IntakeEvaluationTaskModel.id == task_id_input
-            )
-            task_res = await db.execute(task_stmt)
-            task_record = task_res.scalar_one_or_none()
-            if task_record:
-                task_record.status = "COMPLETED"
-                task_record.stage = "COMPLETE"
-                res_payload = dict(task_record.result_json or {})
-                res_payload["cover_letter_status"] = "SKIPPED"
+    # Update corresponding IntakeEvaluationTaskModel task if present
+    task_id_input = state.get("task_id")
+    if task_id_input:
+        task_stmt = select(IntakeEvaluationTaskModel).where(
+            IntakeEvaluationTaskModel.id == task_id_input
+        )
+        task_res = await db.execute(task_stmt)
+        task_record = task_res.scalar_one_or_none()
+        if task_record:
+            task_record.status = "COMPLETED"
+            task_record.stage = "COMPLETE"
+            res_payload = dict(task_record.result_json or {})
+            res_payload["cover_letter_status"] = cl_status
+            if cl_status == "GENERATED":
+                res_payload["cover_letter_note"] = "Cover letter generated successfully."
+            elif cl_status == "FAILED":
+                res_payload["cover_letter_note"] = "Cover letter generation failed during pipeline execution."
+            else:
                 res_payload["cover_letter_note"] = (
                     f"Cover letter generation skipped (auto_enabled={enable_auto}, "
                     f"score={score_pct:.1f}%, threshold={threshold}%)"
                 )
-                task_record.result_json = res_payload
-                flag_modified(task_record, "result_json")
-                await db.commit()
+            task_record.result_json = res_payload
+            flag_modified(task_record, "result_json")
+            await db.commit()
 
-        return {"cover_letter_status": "SKIPPED"}
+    return {"cover_letter_status": cl_status}
