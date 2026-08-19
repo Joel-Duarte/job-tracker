@@ -15,6 +15,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.security import verify_admin_access
+from app.models.applications import (
+    ApplicationEventModel,
+    ApplicationModel,
+    CompanyModel,
+    JobPostingModel,
+)
+from app.models.email_accounts import EmailAccountModel
+from app.models.intake_tasks import IntakeEvaluationTaskModel
+from app.models.processed_email import ProcessedEmailModel
 from app.schemas.intake import (
     AssessJobRequest,
     BulkTaskActionRequest,
@@ -192,7 +202,10 @@ async def confirm_job_assessment(
 
 
 @router.post(
-    "/sync-account", response_model=TaskResponse, status_code=status.HTTP_202_ACCEPTED
+    "/sync-account",
+    response_model=TaskResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(verify_admin_access)],
 )
 async def sync_email_account(
     payload: SyncFolderRequest,
@@ -223,7 +236,11 @@ async def get_task_status(task_id: str):
     return task_info
 
 
-@router.post("/test-direct", status_code=status.HTTP_200_OK)
+@router.post(
+    "/test-direct",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_admin_access)],
+)
 async def intake_direct_raw_email(
     payload: DirectEmailIntakeRequest,
     db: AsyncSession = Depends(get_db),
@@ -261,7 +278,11 @@ async def list_evaluation_tasks(
     return await IntakeService.list_evaluation_tasks(db=db, limit=limit)
 
 
-@router.delete("/evaluations/{task_id}", status_code=status.HTTP_200_OK)
+@router.delete(
+    "/evaluations/{task_id}",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_admin_access)],
+)
 async def delete_evaluation_task(
     task_id: int,
     db: AsyncSession = Depends(get_db),
@@ -270,7 +291,11 @@ async def delete_evaluation_task(
     return await IntakeService.delete_evaluation_task(task_id=task_id, db=db)
 
 
-@router.post("/evaluations/clear-completed", status_code=status.HTTP_200_OK)
+@router.post(
+    "/evaluations/clear-completed",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_admin_access)],
+)
 async def clear_completed_evaluations(
     db: AsyncSession = Depends(get_db),
 ):
@@ -298,6 +323,7 @@ async def retry_evaluation_task(
     "/evaluations/bulk-retry",
     response_model=BulkTaskActionResult,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_admin_access)],
 )
 async def bulk_retry_evaluation_tasks(
     payload: BulkTaskActionRequest,
@@ -314,6 +340,7 @@ async def bulk_retry_evaluation_tasks(
     "/evaluations/bulk-delete",
     response_model=BulkTaskActionResult,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_admin_access)],
 )
 async def bulk_delete_evaluation_tasks(
     payload: BulkTaskActionRequest,

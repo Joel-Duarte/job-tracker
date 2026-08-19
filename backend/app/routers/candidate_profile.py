@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.security import verify_admin_access
 from app.models.candidate_profile import CandidateCVModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.schemas.candidate_profile import (
@@ -31,7 +32,10 @@ async def get_active_cv_profile(db: AsyncSession = Depends(get_db)):
 
 
 @router.post(
-    "", response_model=CVTaskStatusResponse, status_code=status.HTTP_202_ACCEPTED
+    "",
+    response_model=CVTaskStatusResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(verify_admin_access)],
 )
 async def enqueue_cv_profile_processing(
     payload: CandidateCVSaveRequest,
@@ -111,7 +115,11 @@ async def get_cv_task_status(
     )
 
 
-@router.patch("/{id}", response_model=CandidateCVResponse)
+@router.patch(
+    "/{id}",
+    response_model=CandidateCVResponse,
+    dependencies=[Depends(verify_admin_access)],
+)
 async def update_cv_profile(
     id: int,
     payload: CandidateCVUpdateRequest,
@@ -156,7 +164,11 @@ async def update_cv_profile(
     return profile
 
 
-@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(verify_admin_access)],
+)
 async def delete_cv_profile(
     id: int,
     db: AsyncSession = Depends(get_db),

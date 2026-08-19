@@ -10,6 +10,7 @@ from app.services.scraper import (
     _scrape_via_http_fallback,
     clean_extracted_text,
     scrape_job_url,
+    validate_target_url,
 )
 
 
@@ -141,3 +142,31 @@ async def test_scrape_job_url_normalizes_url_scheme():
 
         result = await scrape_job_url("company.com/jobs/1")
         assert result.source_url == "https://company.com/jobs/1"
+
+
+def test_validate_target_url_ssrf_protection():
+    # Valid public URLs
+    assert validate_target_url("https://example.com/job") == "https://example.com/job"
+    assert validate_target_url("http://google.com") == "http://google.com"
+
+    # Private / loopback targets must be blocked
+    invalid_targets = [
+        "http://localhost:8000",
+        "http://127.0.0.1/admin",
+        "http://0.0.0.0:80",
+        "http://10.0.0.1/secret",
+        "http://192.168.1.1/router",
+        "http://169.254.169.254/latest/meta-data",
+        "ftp://example.com/file",
+        "file:///etc/passwd",
+    ]
+    for target in invalid_targets:
+        with pytest.raises(ValueError):
+            validate_target_url(target)
+
+
+@pytest.mark.asyncio
+async def test_scrape_job_url_ssrf_target_returns_failed():
+    result = await scrape_job_url("http://127.0.0.1:8000/internal")
+    assert result.scraped_via == "failed"
+    assert result.text == ""

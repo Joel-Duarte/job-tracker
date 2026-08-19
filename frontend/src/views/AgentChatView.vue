@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, nextTick, watch } from 'vue'
+import DOMPurify from 'dompurify'
 import { useAgentChatStore } from '../stores/agentChatStore'
 import { AIConfigAPI } from '../api/endpoints'
 import { renderMarkdown } from '../utils/markdown'
@@ -103,6 +104,102 @@ async function handleRetentionChange() {
   } finally {
     isUpdatingRetention.value = false
   }
+}
+
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+function renderMarkdown(text) {
+  if (!text) return ''
+
+  // 1. First escape all raw HTML to prevent XSS
+  let html = escapeHtml(text)
+
+  // 2. Fenced code blocks ```code```
+  html = html.replace(/```([\s\S]*?)```/g, (match, p1) => {
+    return `<pre><code>${p1.trim()}</code></pre>`
+  })
+
+  // 3. Inline code `code`
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
+
+  // 4. Tables
+  const lines = html.split('\n')
+  let inTable = false
+  let tableHtml = ''
+  let newLines = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (line.startsWith('|') && line.endsWith('|')) {
+      const cells = line.split('|').slice(1, -1).map(c => c.trim())
+      // Check if separator line
+      if (cells.every(c => /^:?-+:?$/.test(c))) {
+        continue
+      }
+      if (!inTable) {
+        inTable = true
+        tableHtml = '<table><thead><tr>' + cells.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>'
+      } else {
+        tableHtml += '<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>'
+      }
+    } else {
+      if (inTable) {
+        tableHtml += '</tbody></table>'
+        newLines.push(tableHtml)
+        inTable = false
+        tableHtml = ''
+      }
+      newLines.push(lines[i])
+    }
+  }
+  if (inTable) {
+    tableHtml += '</tbody></table>'
+    newLines.push(tableHtml)
+  }
+  html = newLines.join('\n')
+
+  // 5. Headings
+  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>')
+  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>')
+  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>')
+
+  // 6. Blockquotes
+  html = html.replace(/^\&gt;\s?(.*$)/gim, '<blockquote>$1</blockquote>')
+
+  // 7. Bold and Italics
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>')
+
+  // 8. Unordered / Ordered Lists
+  html = html.replace(/^\s*[\-\*]\s+(.*$)/gim, '<li>$1</li>')
+  html = html.replace(/(<li>.*<\/li>)/gis, '<ul>$1</ul>')
+  html = html.replace(/<\/ul>\s*<ul>/g, '')
+
+  // 9. Links [text](url)
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, p1, p2) => {
+    // Ensure URL is safe (http/https or relative)
+    const safeUrl = (p2.startsWith('http://') || p2.startsWith('https://') || p2.startsWith('/')) ? p2 : '#'
+    return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${p1}</a>`
+  })
+
+  // 10. Paragraph breaks for double newlines
+  html = html.replace(/\n\n+/g, '</p><p>')
+  html = `<p>${html}</p>`
+  html = html.replace(/<p>\s*<\/p>/g, '')
+  html = html.replace(/<p>(<h[1-3]>.*?<\/h[1-3]>)<\/p>/g, '$1')
+  html = html.replace(/<p>(<pre>.*?<\/pre>)<\/p>/gs, '$1')
+  html = html.replace(/<p>(<table>.*?<\/table>)<\/p>/gs, '$1')
+  html = html.replace(/<p>(<ul>.*?<\/ul>)<\/p>/gs, '$1')
+  html = html.replace(/<p>(<blockquote>.*?<\/blockquote>)<\/p>/gs, '$1')
+
+  return DOMPurify.sanitize(html)
 }
 
 function formatActionLabel(act) {

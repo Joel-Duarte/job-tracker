@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from typing import Any
@@ -18,6 +19,49 @@ from app.services.postgres_tracer import PostgresTracer
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agent", tags=["Agent Chat Assistant"])
+
+
+def prune_and_sanitize_tool_output(content: Any, max_array_length: int = 5) -> str:
+    """
+    Sanitizes and prunes tool execution output payloads:
+    - Parses string payloads as JSON where applicable.
+    - Strips redundant metadata fields (e.g., 'metadata', 'raw_response').
+    - Bounds array lengths to at most `max_array_length` items.
+    - Returns a compact JSON string representation (separators=(',', ':')).
+    """
+    if content is None:
+        return ""
+
+    parsed = content
+    if isinstance(content, str):
+        trimmed = content.strip()
+        if (trimmed.startswith("{") and trimmed.endswith("}")) or (
+            trimmed.startswith("[") and trimmed.endswith("]")
+        ):
+            try:
+                parsed = json.loads(trimmed)
+            except Exception:
+                parsed = content
+        else:
+            return content
+
+    def _sanitize(obj: Any) -> Any:
+        if isinstance(obj, dict):
+            new_dict = {}
+            for k, v in obj.items():
+                if k in ("metadata", "raw_response"):
+                    continue
+                new_dict[k] = _sanitize(v)
+            return new_dict
+        elif isinstance(obj, list):
+            trimmed_list = obj[:max_array_length]
+            return [_sanitize(item) for item in trimmed_list]
+        return obj
+
+    sanitized = _sanitize(parsed)
+    if isinstance(sanitized, (dict, list)):
+        return json.dumps(sanitized, separators=(",", ":"))
+    return str(sanitized)
 
 
 class ChatMessage(BaseModel):
@@ -113,9 +157,12 @@ async def chat_with_agent(
             elif m_data.get("role") == "assistant":
                 messages.append(AIMessage(content=m_data.get("content", "")))
             elif m_data.get("role") == "tool":
+                sanitized_content = prune_and_sanitize_tool_output(
+                    m_data.get("content", "")
+                )
                 messages.append(
                     ToolMessage(
-                        content=m_data.get("content", ""),
+                        content=sanitized_content,
                         tool_call_id=m_data.get("tool_call_id", ""),
                     )
                 )
@@ -148,7 +195,9 @@ async def chat_with_agent(
                 )
                 break
 
-            for tc in tool_calls:
+            async def execute_tool(
+                tc: Any, current_turn: int = turn
+            ) -> tuple[str, str, dict[str, Any] | None]:
                 tool_name = (
                     tc.get("name")
                     if isinstance(tc, dict)
@@ -160,9 +209,9 @@ async def chat_with_agent(
                     else getattr(tc, "args", {})
                 )
                 tool_id = (
-                    tc.get("id", f"call_{turn}")
+                    tc.get("id", f"call_{current_turn}")
                     if isinstance(tc, dict)
-                    else getattr(tc, "id", f"call_{turn}")
+                    else getattr(tc, "id", f"call_{current_turn}")
                 )
 
                 selected_tool = tool_map.get(tool_name)
@@ -182,23 +231,38 @@ async def chat_with_agent(
                             except Exception:
                                 parsed_res = tool_result
 
-                        actions_performed.append(
-                            {
-                                "action": tool_name,
-                                "args": tool_args,
-                                "result": parsed_res,
-                            }
-                        )
+                        action_data = {
+                            "action": tool_name,
+                            "args": tool_args,
+                            "result": parsed_res,
+                        }
+                        return tool_id, str(tool_result), action_data
                     except Exception as err:
                         logger.error("Error executing tool %s: %s", tool_name, err)
                         tool_result = json.dumps({"error": str(err)})
+                        return tool_id, tool_result, None
                 else:
                     tool_result = json.dumps(
                         {"error": f"Tool '{tool_name}' not available."}
                     )
+                    return tool_id, tool_result, None
 
+            tool_results = await asyncio.gather(
+                *(execute_tool(tc) for tc in tool_calls),
+                return_exceptions=True,
+            )
+
+            for res in tool_results:
+                if isinstance(res, Exception):
+                    logger.error("Error during parallel tool execution: %s", res)
+                    continue
+                tool_id, tool_result_str, action_data = res
+                if action_data:
+                    actions_performed.append(action_data)
+
+                sanitized_res = prune_and_sanitize_tool_output(tool_result_str)
                 messages.append(
-                    ToolMessage(content=str(tool_result), tool_call_id=tool_id)
+                    ToolMessage(content=sanitized_res, tool_call_id=tool_id)
                 )
 
         except Exception as err:

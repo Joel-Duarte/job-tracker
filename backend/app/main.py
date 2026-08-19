@@ -2,7 +2,9 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response, status
+from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.config import settings
 from app.core.database import check_db_connection, ensure_db_schema
 from app.routers import (
     action_items,
@@ -86,6 +88,25 @@ app = FastAPI(
     title="Job Tracking API",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+cors_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+if settings.PUBLIC_FRONTEND_URL:
+    frontend_origin = settings.PUBLIC_FRONTEND_URL.rstrip("/")
+    if frontend_origin not in cors_origins:
+        cors_origins.append(frontend_origin)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Register routers

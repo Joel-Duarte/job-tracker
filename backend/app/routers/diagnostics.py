@@ -10,9 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.storage import get_storage_provider
+from app.core.security import verify_admin_access
 from app.models.diagnostics import TraceEventModel
 
-router = APIRouter(prefix="/diagnostics", tags=["Diagnostics"])
+router = APIRouter(
+    prefix="/diagnostics",
+    tags=["Diagnostics"],
+    dependencies=[Depends(verify_admin_access)],
+)
 
 
 @router.get("/export")

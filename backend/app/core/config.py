@@ -36,11 +36,14 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_secrets(self):
-        if self.ENVIRONMENT.lower() == "production" and self.SECRET_KEY in {
+        env = (self.ENVIRONMENT or "development").strip().lower()
+        if env not in {"development", "test", "testing"} and self.SECRET_KEY in {
             "",
             "default-development-secret-key-change-in-production",
         }:
-            raise ValueError("SECRET_KEY must be explicitly configured in production")
+            raise ValueError(
+                "SECRET_KEY must be explicitly configured in non-development environments"
+            )
         return self
 
     def get_database_url(self) -> str:
