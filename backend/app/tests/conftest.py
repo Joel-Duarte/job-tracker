@@ -13,6 +13,16 @@ from app.models.email_accounts import EmailAccountModel
 from app.schemas.intake import EmailPayload, ExtractedEmailInfo
 
 
+@pytest.fixture(autouse=True)
+def clear_fastapi_dependency_overrides():
+    """Prevent dependency overrides from leaking between tests."""
+    from app.main import app
+
+    app.dependency_overrides.clear()
+    yield
+    app.dependency_overrides.clear()
+
+
 def is_port_open(host: str, port: int, timeout: float = 1.0) -> bool:
     """Checks if a TCP port is open and listening."""
     try:
