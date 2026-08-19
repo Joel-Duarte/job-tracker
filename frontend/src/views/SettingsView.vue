@@ -383,7 +383,7 @@ const TASKS = [
   },
   {
     key: 'EXTRACTION',
-    promptKey: 'email_extraction',
+    promptKey: 'extraction',
     label: 'Email Metadata Extraction',
     icon: 'Mail',
     recommendedTemp: 0.1,

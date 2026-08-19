@@ -102,7 +102,7 @@ async def extract_email_info(
     """Extracts structured job application metadata from email body using LangChain EXTRACTION model."""
     llm = await get_task_chat_model(db, task_type="EXTRACTION", temperature=0.1)
     structured_llm = llm.with_structured_output(EmailExtractionResult)
-    template_str = await get_prompt_template(db, "email_extraction")
+    template_str = await get_prompt_template(db, "extraction")
 
     formatted_content = email_content
     if sender or subject or date:
