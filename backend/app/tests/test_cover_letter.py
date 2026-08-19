@@ -254,31 +254,18 @@ async def test_cover_letter_api_endpoints(db_session):
         assert data["cover_letter_text"] == "Custom edited cover letter."
         assert data["cover_letter_status"] == "DRAFTED"
 
-        # 3. POST generate cover letter
-        mock_generated = "Generated cover letter content."
-        with patch(
-            "app.routers.applications.generate_cover_letter",
-            new=AsyncMock(return_value=mock_generated),
-        ):
-            res = await ac.post(
-                f"/api/v1/applications/{application.id}/cover-letter/generate"
-            )
-            assert res.status_code == 200
-            data = res.json()
-            assert data["cover_letter_text"] == mock_generated
-            assert data["cover_letter_status"] == "GENERATED"
-            assert data["cover_letter_generated_at"] is not None
+        # 3. POST generate cover letter (Queues background task with HTTP 202)
+        res = await ac.post(
+            f"/api/v1/applications/{application.id}/cover-letter/generate"
+        )
+        assert res.status_code == 202
+        data = res.json()
+        assert data["cover_letter_status"] == "QUEUED"
 
         # 4. POST regenerate cover letter
-        mock_regenerated = "Regenerated fresh cover letter content."
-        with patch(
-            "app.routers.applications.generate_cover_letter",
-            new=AsyncMock(return_value=mock_regenerated),
-        ):
-            res = await ac.post(
-                f"/api/v1/applications/{application.id}/cover-letter/regenerate"
-            )
-            assert res.status_code == 200
-            data = res.json()
-            assert data["cover_letter_text"] == mock_regenerated
-            assert data["cover_letter_status"] == "GENERATED"
+        res = await ac.post(
+            f"/api/v1/applications/{application.id}/cover-letter/regenerate"
+        )
+        assert res.status_code == 202
+        data = res.json()
+        assert data["cover_letter_status"] == "QUEUED"

@@ -930,6 +930,16 @@ onUnmounted(() => {
               </button>
 
               <button
+                v-else-if="task.result_json?.cover_letter_status === 'QUEUED' || task.result_json?.cover_letter_status === 'GENERATING'"
+                class="btn btn-secondary btn-sm"
+                disabled
+                title="Cover letter generation in progress in AI Queue"
+              >
+                <Loader2 class="animate-spin text-primary" :size="14" />
+                <span>Queued in AI Queue...</span>
+              </button>
+
+              <button
                 v-else
                 class="btn btn-secondary btn-sm"
                 :disabled="draftingCoverLetterTaskIds.has(task.id)"

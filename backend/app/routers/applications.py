@@ -18,6 +18,7 @@ from app.models.applications import (
     JobPostingModel,
 )
 from app.models.candidate_profile import CandidateCVModel
+from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.schemas.applications import (
     ActionItemDetail,
     AllowedApplicationStatus,
@@ -37,6 +38,7 @@ from app.schemas.applications import (
     GenerateInterviewGuideRequest,
     JobPostingDetail,
 )
+from app.services.evaluation_worker import process_evaluation_task
 from app.services.interview_guide import (
     clear_interview_guide,
     generate_interview_guide,
@@ -989,10 +991,12 @@ async def _run_cover_letter_generation(
 @router.post(
     "/{application_id}/cover-letter/generate",
     response_model=CoverLetterResponse,
+    status_code=status.HTTP_202_ACCEPTED,
     summary="Manually trigger or queue cover letter generation",
 )
 async def generate_app_cover_letter(
     application_id: int,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     stmt = (
@@ -1011,21 +1015,36 @@ async def generate_app_cover_letter(
             status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
         )
 
-    try:
-        updated_app = await _run_cover_letter_generation(app, db)
-        return CoverLetterResponse(
-            application_id=updated_app.id,
-            cover_letter_text=updated_app.cover_letter_text,
-            cover_letter_status=updated_app.cover_letter_status,
-            cover_letter_generated_at=updated_app.cover_letter_generated_at,
-        )
-    except Exception as exc:
-        logger.error("Failed to generate cover letter: %s", exc, exc_info=True)
-        app.cover_letter_status = "FAILED"
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
-        )
+    comp_name = app.company.name if app.company else "Company"
+    pos_name = app.position or "Position"
+
+    # Enqueue task in AI Evaluation Queue
+    task_record = IntakeEvaluationTaskModel(
+        task_type="COVER_LETTER",
+        job_url=app.job_url,
+        raw_text=str(app.id),
+        title_hint=f"Cover Letter: {comp_name} - {pos_name}",
+        status="QUEUED",
+        stage="QUEUED",
+        result_json={
+            "application_id": app.id,
+            "company": comp_name,
+            "position": pos_name,
+        },
+    )
+    db.add(task_record)
+    app.cover_letter_status = "DRAFTED"
+    await db.commit()
+    await db.refresh(task_record)
+
+    background_tasks.add_task(process_evaluation_task, task_id=task_record.id)
+
+    return CoverLetterResponse(
+        application_id=app.id,
+        cover_letter_text=app.cover_letter_text,
+        cover_letter_status="QUEUED",
+        cover_letter_generated_at=app.cover_letter_generated_at,
+    )
 
 
 @router.patch(
@@ -1066,10 +1085,12 @@ async def update_cover_letter(
 @router.post(
     "/{application_id}/cover-letter/regenerate",
     response_model=CoverLetterResponse,
+    status_code=status.HTTP_202_ACCEPTED,
     summary="Trigger cover letter regeneration",
 )
 async def regenerate_app_cover_letter(
     application_id: int,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     stmt = (
@@ -1088,21 +1109,35 @@ async def regenerate_app_cover_letter(
             status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
         )
 
-    try:
-        updated_app = await _run_cover_letter_generation(app, db)
-        return CoverLetterResponse(
-            application_id=updated_app.id,
-            cover_letter_text=updated_app.cover_letter_text,
-            cover_letter_status=updated_app.cover_letter_status,
-            cover_letter_generated_at=updated_app.cover_letter_generated_at,
-        )
-    except Exception as exc:
-        logger.error("Failed to regenerate cover letter: %s", exc, exc_info=True)
-        app.cover_letter_status = "FAILED"
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
-        )
+    comp_name = app.company.name if app.company else "Company"
+    pos_name = app.position or "Position"
+
+    task_record = IntakeEvaluationTaskModel(
+        task_type="COVER_LETTER",
+        job_url=app.job_url,
+        raw_text=str(app.id),
+        title_hint=f"Cover Letter: {comp_name} - {pos_name}",
+        status="QUEUED",
+        stage="QUEUED",
+        result_json={
+            "application_id": app.id,
+            "company": comp_name,
+            "position": pos_name,
+        },
+    )
+    db.add(task_record)
+    app.cover_letter_status = "DRAFTED"
+    await db.commit()
+    await db.refresh(task_record)
+
+    background_tasks.add_task(process_evaluation_task, task_id=task_record.id)
+
+    return CoverLetterResponse(
+        application_id=app.id,
+        cover_letter_text=app.cover_letter_text,
+        cover_letter_status="QUEUED",
+        cover_letter_generated_at=app.cover_letter_generated_at,
+    )
 
 
 @router.post(

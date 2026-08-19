@@ -126,10 +126,10 @@ async function handleGenerateCoverLetter() {
   try {
     const res = await ApplicationsAPI.generateCoverLetter(appStore.selectedApplication.id)
     appStore.selectedApplication.cover_letter_text = res.data.cover_letter_text
-    appStore.selectedApplication.cover_letter_status = res.data.cover_letter_status
+    appStore.selectedApplication.cover_letter_status = res.data.cover_letter_status || 'QUEUED'
     appStore.selectedApplication.cover_letter_generated_at = res.data.cover_letter_generated_at
     editableCoverLetterText.value = res.data.cover_letter_text || ''
-    uiStore.showToast('Cover letter generated successfully!', 'success')
+    uiStore.showToast('Cover letter queued for background generation!', 'success')
   } catch (err) {
     uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to generate cover letter', 'error')
   } finally {
@@ -1238,13 +1238,13 @@ function formatDate(isoStr) {
 
             <!-- 5. COVER LETTER TAB -->
             <div v-if="activeTab === 'cover_letter'" class="cover-letter-panel animate-fade-in">
-              <div v-if="isCoverLetterGenerating" class="state-container generating-state">
+              <div v-if="isCoverLetterGenerating || appStore.selectedApplication.cover_letter_status === 'QUEUED' || appStore.selectedApplication.cover_letter_status === 'GENERATING'" class="state-container generating-state">
                 <div class="pulse-glow-ring">
                   <Sparkles :size="36" class="text-primary animate-pulse" />
                 </div>
                 <h3 class="generating-title">Drafting Cover Letter</h3>
                 <p class="generating-desc">
-                  Tailoring candidate experiences to employer responsibilities and skills...
+                  Task queued in AI Evaluation Queue. Tailoring candidate experiences to employer responsibilities...
                 </p>
               </div>
 

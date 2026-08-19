@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.ai_queue import concurrency_manager
 from app.core.database import AsyncSessionLocal
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
+from app.models.applications import ApplicationModel
 from app.models.candidate_profile import CandidateCVModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.services.job_saver import persist_or_stage_job_assessment
@@ -14,12 +15,120 @@ from app.services.llm import (
     anonymize_and_parse_cv,
     assess_job_posting,
     extract_job_spec,
+    generate_cover_letter,
 )
 from app.services.matcher import compute_programmatic_skill_match
 from app.services.scraper import scrape_job_url
 from app.services.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
+
+
+async def _execute_cover_letter_steps(
+    task: IntakeEvaluationTaskModel, db: AsyncSession
+) -> None:
+    try:
+        app_id = (task.result_json or {}).get("application_id")
+        if not app_id and task.raw_text and task.raw_text.isdigit():
+            app_id = int(task.raw_text)
+
+        if not app_id:
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = (
+                "MISSING_APP_ID: Cover letter task missing application_id."
+            )
+            task.completed_at = datetime.now(UTC)
+            await db.commit()
+            return
+
+        task.stage = "GENERATING"
+        await db.commit()
+
+        from sqlalchemy.orm import joinedload, selectinload
+
+        stmt = (
+            select(ApplicationModel)
+            .where(ApplicationModel.id == app_id)
+            .options(
+                joinedload(ApplicationModel.company),
+                selectinload(ApplicationModel.job_posting),
+            )
+        )
+        res = await db.execute(stmt)
+        app = res.scalar_one_or_none()
+
+        if not app:
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = (
+                f"APPLICATION_NOT_FOUND: Application ID {app_id} not found."
+            )
+            task.completed_at = datetime.now(UTC)
+            await db.commit()
+            return
+
+        # Fetch Candidate CV
+        cv_stmt = (
+            select(CandidateCVModel)
+            .where(CandidateCVModel.is_active.is_(True))
+            .limit(1)
+        )
+        cv_res = await db.execute(cv_stmt)
+        active_cv = cv_res.scalars().first()
+        if not active_cv:
+            cv_stmt_fallback = select(CandidateCVModel).limit(1)
+            cv_res_fallback = await db.execute(cv_stmt_fallback)
+            active_cv = cv_res_fallback.scalars().first()
+
+        cv_text = (active_cv.anonymized_text or active_cv.raw_text) if active_cv else ""
+        company_name = app.company.name if app.company else ""
+        position_name = app.position or ""
+        job_desc = (
+            app.job_posting.description_markdown
+            if app.job_posting and app.job_posting.description_markdown
+            else ""
+        )
+
+        cl_text = await generate_cover_letter(
+            db,
+            company_name=company_name,
+            position=position_name,
+            job_description=job_desc,
+            candidate_cv=cv_text,
+        )
+
+        app.cover_letter_text = cl_text
+        app.cover_letter_status = "GENERATED"
+        app.cover_letter_generated_at = datetime.now(UTC)
+
+        task.status = "COMPLETED"
+        task.stage = "COMPLETE"
+        task.result_json = {
+            "application_id": app.id,
+            "cover_letter_text": cl_text,
+            "cover_letter_status": "GENERATED",
+            "cover_letter_generated_at": app.cover_letter_generated_at.isoformat(),
+            "company": company_name,
+            "position": position_name,
+        }
+        task.completed_at = datetime.now(UTC)
+        await db.commit()
+        logger.info(
+            "Cover letter generation task %d completed for application %d",
+            task.id,
+            app.id,
+        )
+
+    except Exception as err:
+        logger.error(
+            "Failed processing cover letter task %d: %s", task.id, err, exc_info=True
+        )
+        task.status = "FAILED"
+        task.stage = "FAILED"
+        task.error_message = str(err)
+        task.completed_at = datetime.now(UTC)
+        await db.commit()
 
 
 async def _execute_cv_extraction_steps(
@@ -134,6 +243,13 @@ async def _execute_evaluation_steps(
     ) as ctx:
         if task.task_type == "CV_EXTRACTION":
             await _execute_cv_extraction_steps(task, db)
+            ctx["outputs"] = {"status": task.status, "stage": task.stage}
+            if task.status == "FAILED":
+                ctx["error"] = task.error_message
+            return
+
+        if task.task_type == "COVER_LETTER":
+            await _execute_cover_letter_steps(task, db)
             ctx["outputs"] = {"status": task.status, "stage": task.stage}
             if task.status == "FAILED":
                 ctx["error"] = task.error_message
