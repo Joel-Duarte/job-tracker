@@ -1105,11 +1105,10 @@ async function confirmDeleteAccount() {
 
 onMounted(async () => {
   window.addEventListener('message', async (event) => {
-    if (event.data?.type === 'oauth_success') {
-      uiStore.showToast('Mailbox OAuth connected successfully!', 'success')
-      isEmailAccountModalOpen.value = false
-      await loadEmailAccounts()
-    }
+    if (event.origin !== window.location.origin || event.data?.type !== 'oauth_success') return
+    uiStore.showToast('Mailbox OAuth connected successfully!', 'success')
+    isEmailAccountModalOpen.value = false
+    await loadEmailAccounts()
   })
 
   await Promise.all([

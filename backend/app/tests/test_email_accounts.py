@@ -5,6 +5,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.main import app
 from app.models.email_accounts import EmailAccountModel
@@ -53,6 +54,37 @@ async def test_get_oauth_authorize_url_includes_state():
         data_id = res_with_id.json()
         assert data_id["client_id_configured"] is True
         assert "state=" in data_id["auth_url"]
+        assert "oauth_state=" in res_with_id.headers["set-cookie"]
+
+
+@pytest.mark.asyncio
+async def test_oauth_callback_requires_matching_state_cookie():
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        state = generate_oauth_state()
+        client.cookies.set("oauth_state", "different-token")
+        response = await client.get(
+            f"/api/v1/email_accounts/oauth/callback/google?code=fake-code&state={state}"
+        )
+        assert response.status_code == 400
+        assert "Invalid or expired CSRF state" in response.text
+
+
+@pytest.mark.asyncio
+async def test_oauth_callback_escapes_provider_error():
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        state = generate_oauth_state()
+        client.cookies.set("oauth_state", state.split(".", 1)[0])
+        response = await client.get(
+            "/api/v1/email_accounts/oauth/callback/google"
+            f"?state={state}&error=%3Cscript%3Ealert(1)%3C%2Fscript%3E"
+        )
+        assert response.status_code == 400
+        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in response.text
+        assert "<script>alert(1)</script>" not in response.text
 
 
 @pytest.mark.asyncio
@@ -68,9 +100,12 @@ async def test_oauth_callback_invalid_state():
 
 
 @pytest.mark.asyncio
-async def test_oauth_callback_postmessage_origin(db_session: AsyncSession):
+async def test_oauth_callback_postmessage_origin(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+):
     app.dependency_overrides[get_db] = lambda: db_session
     try:
+        monkeypatch.setattr(settings, "PUBLIC_FRONTEND_URL", "http://localhost:5173")
         state = generate_oauth_state()
         mock_tokens = {
             "access_token": "mock-access-token",
@@ -98,6 +133,7 @@ async def test_oauth_callback_postmessage_origin(db_session: AsyncSession):
                 transport=ASGITransport(app=app), base_url="http://testserver"
             ) as client:
                 headers = {"origin": "http://localhost:5173"}
+                client.cookies.set("oauth_state", state.split(".", 1)[0])
                 response = await client.get(
                     f"/api/v1/email_accounts/oauth/callback/google?code=fake-code&state={state}",
                     headers=headers,

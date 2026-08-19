@@ -12,6 +12,7 @@ LOG_LEVEL=DEBUG
 
 # Public exposed API base URL (for Docker port forwarding or reverse proxy)
 PUBLIC_API_URL=
+PUBLIC_FRONTEND_URL=http://localhost:5173
 
 # Camofox Browser Automation Server URL
 CAMOUFOX_ENDPOINT=http://localhost:9377
@@ -32,4 +33,6 @@ STAGING_MATCH_THRESHOLD=0.75
 
 # OAuth Credentials
 GOOGLE_OAUTH_CLIENT_ID=
+GOOGLE_OAUTH_CLIENT_SECRET=
 MS_OAUTH_CLIENT_ID=
+MS_OAUTH_CLIENT_SECRET=

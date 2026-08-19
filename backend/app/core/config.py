@@ -14,6 +14,7 @@ class Settings(BaseSettings):
 
     # Public exposed API base URL (for Docker port forwarding or reverse proxy)
     PUBLIC_API_URL: str | None = None
+    PUBLIC_FRONTEND_URL: str | None = None
 
     # Camofox Browser Automation Server URL
     CAMOUFOX_ENDPOINT: str = "http://localhost:9377"
