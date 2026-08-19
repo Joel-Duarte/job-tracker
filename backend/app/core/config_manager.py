@@ -4,9 +4,10 @@ import os
 
 logger = logging.getLogger(__name__)
 
-CONFIG_FILE = os.path.join(
-    os.path.dirname(__file__), "..", "..", "global_settings.json"
+PRIMARY_CONFIG_FILE = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "global_settings.json")
 )
+FALLBACK_CONFIG_FILE = "/tmp/global_settings.json"
 
 DEFAULT_SETTINGS = {
     "ENABLE_EMBEDDINGS": True,
@@ -14,27 +15,52 @@ DEFAULT_SETTINGS = {
     "cover_letter_min_match_pct": 50,
 }
 
+_SETTINGS_CACHE: dict | None = None
+
 
 def load_settings() -> dict:
-    if not os.path.exists(CONFIG_FILE):
-        return dict(DEFAULT_SETTINGS)
-    try:
-        with open(CONFIG_FILE) as f:
-            loaded = json.load(f)
-            merged = dict(DEFAULT_SETTINGS)
-            merged.update(loaded)
-            return merged
-    except Exception as e:
-        logger.error(f"Failed to load global settings: {e}")
-        return dict(DEFAULT_SETTINGS)
+    global _SETTINGS_CACHE
+    if _SETTINGS_CACHE is not None:
+        return dict(_SETTINGS_CACHE)
+
+    loaded_data = None
+    for file_path in [PRIMARY_CONFIG_FILE, FALLBACK_CONFIG_FILE]:
+        if os.path.exists(file_path):
+            try:
+                with open(file_path) as f:
+                    loaded_data = json.load(f)
+                    break
+            except Exception as e:
+                logger.warning(f"Could not load global settings from {file_path}: {e}")
+
+    merged = dict(DEFAULT_SETTINGS)
+    if loaded_data and isinstance(loaded_data, dict):
+        merged.update(loaded_data)
+
+    _SETTINGS_CACHE = merged
+    return dict(_SETTINGS_CACHE)
 
 
 def save_settings(settings: dict) -> None:
-    try:
-        with open(CONFIG_FILE, "w") as f:
-            json.dump(settings, f, indent=2)
-    except Exception as e:
-        logger.error(f"Failed to save global settings: {e}")
+    global _SETTINGS_CACHE
+    merged = dict(DEFAULT_SETTINGS)
+    merged.update(settings)
+    _SETTINGS_CACHE = merged
+
+    saved = False
+    for file_path in [PRIMARY_CONFIG_FILE, FALLBACK_CONFIG_FILE]:
+        try:
+            with open(file_path, "w") as f:
+                json.dump(merged, f, indent=2)
+            saved = True
+            break
+        except Exception as e:
+            logger.warning(f"Could not save global settings to {file_path}: {e}")
+
+    if not saved:
+        logger.error(
+            "Failed to save global settings to any file path, kept in-memory cache."
+        )
 
 
 def get_setting(key: str, default=None):

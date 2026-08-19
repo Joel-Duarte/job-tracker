@@ -17,7 +17,9 @@ onMounted(async () => {
   try {
     const res = await AIConfigAPI.getGlobalSettings()
     if (res && res.data) {
-      uiStore.setEnableEmbeddings(res.data.ENABLE_EMBEDDINGS)
+      uiStore.setEnableEmbeddings(res.data.ENABLE_EMBEDDINGS ?? true)
+      uiStore.setAutoGenerateCoverLetter(res.data.auto_generate_cover_letter ?? false)
+      uiStore.setCoverLetterMinMatchPct(res.data.cover_letter_min_match_pct ?? 50)
     }
   } catch (error) {
     console.warn("Could not load global settings", error)
