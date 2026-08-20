@@ -498,6 +498,18 @@ async def cover_letter_node(
     if not application:
         return {"cover_letter_status": "SKIPPED"}
 
+    # If match_score wasn't provided or was 0, check application.match_analysis_payload fit_score
+    if raw_score == 0.0 and application.match_analysis_payload:
+        payload_score = application.match_analysis_payload.get(
+            "fit_score"
+        ) or application.match_analysis_payload.get("overall_fit_score")
+        if payload_score is not None:
+            try:
+                fit_val = float(payload_score)
+                score_pct = fit_val * 100.0 if (0.0 <= fit_val <= 1.0) else fit_val
+            except (ValueError, TypeError):
+                pass
+
     if enable_auto and score_pct >= threshold:
         # Fetch active candidate CV
         cv_stmt = (

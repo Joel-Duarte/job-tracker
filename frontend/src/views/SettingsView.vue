@@ -1333,19 +1333,19 @@ onMounted(async () => {
           </div>
 
           <!-- COVER LETTER AUTOMATION CARD -->
-          <div class="embeddings-control-card">
-            <div class="embeddings-control-header">
-              <div class="embeddings-title-group">
+          <div class="cover-letter-control-card">
+            <div class="cover-letter-control-header">
+              <div class="cover-letter-title-group">
                 <FileText class="text-primary" :size="20" />
                 <div>
-                  <h3 class="embeddings-title">Automated Cover Letter Generation</h3>
-                  <p class="embeddings-desc">
+                  <h3 class="cover-letter-title">Automated Cover Letter Generation</h3>
+                  <p class="cover-letter-desc">
                     Automatically draft tailored cover letters during job intake when fit score meets or exceeds your threshold.
                   </p>
                 </div>
               </div>
 
-              <div class="embeddings-actions">
+              <div class="cover-letter-actions">
                 <label class="switch-toggle" title="Toggle automatic cover letter generation">
                   <input
                     type="checkbox"
@@ -1358,19 +1358,19 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div v-if="enableAutoCoverLetter" class="embeddings-control-body">
-              <div class="embeddings-info-box flex-col items-start gap-2">
+            <div v-if="enableAutoCoverLetter" class="cover-letter-control-body">
+              <div class="cover-letter-info-box flex-col items-start gap-2">
                 <div class="flex items-center justify-between w-full">
-                  <span class="embeddings-status-text">
+                  <span class="cover-letter-status-text">
                     Minimum Match Score Threshold: <strong>{{ coverLetterMatchThreshold }}%</strong>
                   </span>
                 </div>
                 <div class="form-range-container w-full">
                   <input
                     type="range"
-                    min="40"
-                    max="95"
-                    step="5"
+                    min="0"
+                    max="100"
+                    step="1"
                     :value="coverLetterMatchThreshold"
                     :disabled="isUpdatingCoverLetterSettings"
                     class="form-range"
@@ -3811,6 +3811,7 @@ onMounted(async () => {
   gap: 12px;
 }
 
+.cover-letter-control-card,
 .embeddings-control-card {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
@@ -3819,6 +3820,7 @@ onMounted(async () => {
   margin-bottom: 24px;
 }
 
+.cover-letter-control-header,
 .embeddings-control-header {
   display: flex;
   justify-content: space-between;
@@ -3826,12 +3828,14 @@ onMounted(async () => {
   gap: 16px;
 }
 
+.cover-letter-title-group,
 .embeddings-title-group {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
+.cover-letter-title,
 .embeddings-title {
   font-size: 15px;
   font-weight: 700;
@@ -3839,18 +3843,21 @@ onMounted(async () => {
   margin: 0;
 }
 
+.cover-letter-desc,
 .embeddings-desc {
   font-size: 12px;
   color: var(--text-secondary);
   margin: 2px 0 0 0;
 }
 
+.cover-letter-control-body,
 .embeddings-control-body {
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--border-subtle);
 }
 
+.cover-letter-info-box,
 .embeddings-info-box {
   display: flex;
   align-items: center;
@@ -3862,6 +3869,7 @@ onMounted(async () => {
   border-radius: var(--radius-sm);
 }
 
+.cover-letter-status-text,
 .embeddings-status-text {
   font-size: 12px;
   color: var(--text-secondary);
