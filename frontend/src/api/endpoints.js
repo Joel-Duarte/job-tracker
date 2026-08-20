@@ -27,6 +27,7 @@ export const IntakeAPI = {
   getEvaluations: (limit = 50) => apiClient.get('/intake/evaluations', { params: { limit } }),
   deleteEvaluation: (taskId) => apiClient.delete(`/intake/evaluations/${taskId}`),
   retryEvaluation: (taskId) => apiClient.post(`/intake/evaluations/${taskId}/retry`),
+  fixJDEvaluation: (taskId, data) => apiClient.post(`/intake/evaluations/${taskId}/fix-jd`, data),
   bulkRetryEvaluations: (taskIds) => apiClient.post('/intake/evaluations/bulk-retry', { task_ids: taskIds }),
   bulkDeleteEvaluations: (taskIds) => apiClient.post('/intake/evaluations/bulk-delete', { task_ids: taskIds }),
   clearCompletedEvaluations: () => apiClient.post('/intake/evaluations/clear-completed'),

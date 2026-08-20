@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ai_queue import concurrency_manager
 from app.core.database import AsyncSessionLocal
+from app.core.url_utils import normalize_job_url
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.models.applications import ApplicationModel
 from app.models.candidate_profile import CandidateCVModel
@@ -18,7 +19,7 @@ from app.services.llm import (
     generate_cover_letter,
 )
 from app.services.matcher import compute_programmatic_skill_match
-from app.services.scraper import scrape_job_url
+from app.services.scraper import has_job_content_keywords, scrape_job_url
 from app.services.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
@@ -299,13 +300,14 @@ async def _execute_evaluation_steps(
             checkpoint = dict(current_json.get("_checkpoint") or {})
 
             content = task.raw_text or checkpoint.get("content")
+            clean_job_url = normalize_job_url(task.job_url)
 
             # Stage 1: Fetch URL if content not already provided
-            if not content and task.job_url:
+            if not content and clean_job_url:
                 task.stage = "FETCHING"
                 await db.commit()
 
-                scraped = await scrape_job_url(task.job_url)
+                scraped = await scrape_job_url(clean_job_url)
                 if scraped.text:
                     content = scraped.text
                     checkpoint["content"] = content
@@ -317,6 +319,17 @@ async def _execute_evaluation_steps(
                 task.status = "FAILED"
                 task.stage = "FAILED"
                 task.error_message = "SCRAPE_FAILED: Unable to scrape job portal automatically. Please provide job description text."
+                task.completed_at = datetime.now(UTC)
+                await db.commit()
+                ctx["error"] = task.error_message
+                ctx["outputs"] = {"status": task.status, "stage": task.stage}
+                return
+
+            # Lightweight Keyword Filtering Validation
+            if not has_job_content_keywords(content, min_matches=2):
+                task.status = "FAILED"
+                task.stage = "FAILED"
+                task.error_message = "INVALID_JOB_CONTENT: Scraped page does not appear to be a job description. Please use 'Fix JD' to manually enter description text."
                 task.completed_at = datetime.now(UTC)
                 await db.commit()
                 ctx["error"] = task.error_message
@@ -410,7 +423,7 @@ async def _execute_evaluation_steps(
                 db=db,
                 assessment=assessment,
                 raw_text=content,
-                job_url=task.job_url,
+                job_url=clean_job_url,
                 force_new=False,
                 target_status="ASSESSMENT",
                 structured_spec=spec_dict,

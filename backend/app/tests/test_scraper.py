@@ -9,9 +9,20 @@ from app.services.scraper import (
     _scrape_via_camofox,
     _scrape_via_http_fallback,
     clean_extracted_text,
+    has_job_content_keywords,
     scrape_job_url,
     validate_target_url,
 )
+
+
+def test_has_job_content_keywords():
+    valid_text = "We are seeking a Senior Developer. Requirements: Python and SQL. Responsibilities include system architecture."
+    assert has_job_content_keywords(valid_text, min_matches=2) is True
+
+    invalid_text = "Welcome to our homepage! Read our blog posts and company news here."
+    assert has_job_content_keywords(invalid_text, min_matches=2) is False
+
+    assert has_job_content_keywords("", min_matches=2) is False
 
 
 def test_clean_extracted_text():

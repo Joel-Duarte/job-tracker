@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.url_utils import normalize_job_url
 from app.services.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
@@ -117,7 +118,7 @@ def validate_target_url(url: str) -> str:
     Validates URL protocol and private IP / loopback address validation (SSRF prevention).
     Returns the cleaned URL if valid, or raises ValueError if invalid or targeting private/local networks.
     """
-    cleaned_url = url.strip()
+    cleaned_url = normalize_job_url(url) or url.strip()
     if not cleaned_url.startswith(("http://", "https://")):
         cleaned_url = f"https://{cleaned_url}"
 
@@ -161,6 +162,36 @@ class ScrapedJobContent(BaseModel):
     text: str = ""
     source_url: str
     scraped_via: str  # "camofox" or "http_fallback"
+
+
+DEFAULT_JOB_KEYWORDS: list[str] = [
+    "requirements",
+    "responsibilities",
+    "qualifications",
+    "experience",
+    "salary",
+    "skills",
+    "duties",
+    "benefits",
+    "role",
+    "compensation",
+    "position",
+    "job description",
+    "applicant",
+    "employment",
+]
+
+
+def has_job_content_keywords(text: str, min_matches: int = 2) -> bool:
+    """
+    Validates scraped output to check for key job indicators before running LLM operations.
+    Returns True if at least min_matches unique job-related keywords are found in text.
+    """
+    if not text or not text.strip():
+        return False
+    text_lower = text.lower()
+    match_count = sum(1 for kw in DEFAULT_JOB_KEYWORDS if kw in text_lower)
+    return match_count >= min_matches
 
 
 def clean_extracted_text(raw_text: str, max_chars: int = 15000) -> str:
