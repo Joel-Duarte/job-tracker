@@ -223,7 +223,7 @@ const filteredReadyEvaluations = computed(() => {
   if (minFitFilter.value !== null && minFitFilter.value > 0) {
     const targetMin = Number(minFitFilter.value)
     list = list.filter((t) => {
-      const score = t.result_json?.match_score ?? t.result_json?.fit_score ?? 0
+      const score = getFitScores(t).aiScore ?? 0
       return Number(score) >= targetMin
     })
   }
@@ -232,7 +232,7 @@ const filteredReadyEvaluations = computed(() => {
   if (maxMatchFilter.value !== null && maxMatchFilter.value < 100) {
     const targetMax = Number(maxMatchFilter.value)
     list = list.filter((t) => {
-      const score = t.result_json?.match_score ?? t.result_json?.fit_score ?? 0
+      const score = getFitScores(t).aiScore ?? 0
       return Number(score) <= targetMax
     })
   }
@@ -240,8 +240,8 @@ const filteredReadyEvaluations = computed(() => {
   // Sorting
   list.sort((a, b) => {
     if (sortBy.value === 'match_score') {
-      const scoreA = Number(a.result_json?.match_score ?? a.result_json?.fit_score ?? 0)
-      const scoreB = Number(b.result_json?.match_score ?? b.result_json?.fit_score ?? 0)
+      const scoreA = Number(getFitScores(a).aiScore ?? 0)
+      const scoreB = Number(getFitScores(b).aiScore ?? 0)
       return scoreB - scoreA
     } else if (sortBy.value === 'company') {
       const compA = (a.result_json?.company || a.title_hint || '').toLowerCase()
@@ -275,7 +275,7 @@ const filteredPassedEvaluations = computed(() => {
   if (minFitFilter.value !== null && minFitFilter.value > 0) {
     const targetMin = Number(minFitFilter.value)
     list = list.filter((t) => {
-      const score = t.result_json?.match_score ?? t.result_json?.fit_score ?? 0
+      const score = getFitScores(t).aiScore ?? 0
       return Number(score) >= targetMin
     })
   }
@@ -284,7 +284,7 @@ const filteredPassedEvaluations = computed(() => {
   if (maxMatchFilter.value !== null && maxMatchFilter.value < 100) {
     const targetMax = Number(maxMatchFilter.value)
     list = list.filter((t) => {
-      const score = t.result_json?.match_score ?? t.result_json?.fit_score ?? 0
+      const score = getFitScores(t).aiScore ?? 0
       return Number(score) <= targetMax
     })
   }
@@ -292,8 +292,8 @@ const filteredPassedEvaluations = computed(() => {
   // Sorting
   list.sort((a, b) => {
     if (sortBy.value === 'match_score') {
-      const scoreA = Number(a.result_json?.match_score ?? a.result_json?.fit_score ?? 0)
-      const scoreB = Number(b.result_json?.match_score ?? b.result_json?.fit_score ?? 0)
+      const scoreA = Number(getFitScores(a).aiScore ?? 0)
+      const scoreB = Number(getFitScores(b).aiScore ?? 0)
       return scoreB - scoreA
     } else if (sortBy.value === 'company') {
       const compA = (a.result_json?.company || a.title_hint || '').toLowerCase()
@@ -310,7 +310,7 @@ const filteredPassedEvaluations = computed(() => {
 const averageFitScore = computed(() => {
   if (readyEvaluations.value.length === 0) return 0
   const total = readyEvaluations.value.reduce((acc, t) => {
-    return acc + Number(t.result_json?.match_score ?? t.result_json?.fit_score ?? 0)
+    return acc + Number(getFitScores(t).aiScore ?? 0)
   }, 0)
   return Math.round(total / readyEvaluations.value.length)
 })
@@ -685,12 +685,12 @@ onUnmounted(() => {
             <div class="eval-fit-container">
               <div class="scores-side-by-side">
                 <div class="score-badge-card algo-card">
-                  <span class="score-badge-val font-mono">{{ getFitScores(task.result_json).computedText }}</span>
+                  <span class="score-badge-val font-mono">{{ getFitScores(task).computedText }}</span>
                   <span class="score-badge-lbl">Algo Overlap</span>
                 </div>
-                <div class="fit-gauge" :class="getFitBadgeClass(getFitScores(task.result_json).aiScore ?? 0)">
-                  <span class="fit-val">{{ getFitScores(task.result_json).aiText }}</span>
-                  <span class="fit-lbl">{{ getFitLabel(getFitScores(task.result_json).aiScore ?? 0) }}</span>
+                <div class="fit-gauge" :class="getFitBadgeClass(getFitScores(task).aiScore ?? 0)">
+                  <span class="fit-val">{{ getFitScores(task).aiText }}</span>
+                  <span class="fit-lbl">{{ getFitLabel(getFitScores(task).aiScore ?? 0) }}</span>
                 </div>
               </div>
             </div>
@@ -1026,12 +1026,12 @@ onUnmounted(() => {
             <div class="eval-fit-container">
               <div class="scores-side-by-side">
                 <div class="score-badge-card algo-card">
-                  <span class="score-badge-val font-mono">{{ getFitScores(task.result_json).computedText }}</span>
+                  <span class="score-badge-val font-mono">{{ getFitScores(task).computedText }}</span>
                   <span class="score-badge-lbl">Algo Overlap</span>
                 </div>
-                <div class="fit-gauge" :class="getFitBadgeClass(getFitScores(task.result_json).aiScore ?? 0)">
-                  <span class="fit-val">{{ getFitScores(task.result_json).aiText }}</span>
-                  <span class="fit-lbl">{{ getFitLabel(getFitScores(task.result_json).aiScore ?? 0) }}</span>
+                <div class="fit-gauge" :class="getFitBadgeClass(getFitScores(task).aiScore ?? 0)">
+                  <span class="fit-val">{{ getFitScores(task).aiText }}</span>
+                  <span class="fit-lbl">{{ getFitLabel(getFitScores(task).aiScore ?? 0) }}</span>
                 </div>
               </div>
             </div>
