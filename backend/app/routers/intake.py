@@ -912,6 +912,35 @@ async def clear_completed_evaluations(
 
 
 @router.post(
+    "/evaluations/{task_id}/cancel",
+    response_model=IntakeEvaluationTaskResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def cancel_evaluation_task(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> IntakeEvaluationTaskResponse:
+    """
+    Cancels an active evaluation task (QUEUED or PROCESSING), setting status to CANCELLED
+    with an explanatory error message.
+    """
+    task = await db.get(IntakeEvaluationTaskModel, task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Evaluation task {task_id} not found.",
+        )
+
+    task.status = "FAILED"
+    task.stage = "FAILED"
+    task.error_message = "Task stopped by user"
+    task.completed_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(task)
+    return task
+
+
+@router.post(
     "/evaluations/{task_id}/retry",
     response_model=IntakeEvaluationTaskResponse,
     status_code=status.HTTP_200_OK,

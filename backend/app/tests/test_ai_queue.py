@@ -314,6 +314,40 @@ async def test_fix_jd_evaluation_task(db_session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_cancel_evaluation_task(db_session: AsyncSession):
+    app.dependency_overrides[get_db] = lambda: db_session
+
+    task = IntakeEvaluationTaskModel(
+        job_url="https://example.com/running-job",
+        raw_text="Job text",
+        title_hint="Running Task",
+        status="PROCESSING",
+        stage="FETCHING",
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        res = await ac.post(f"/api/v1/intake/evaluations/{task.id}/cancel")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["id"] == task.id
+        assert data["status"] == "FAILED"
+        assert data["stage"] == "FAILED"
+        assert data["error_message"] == "Task stopped by user"
+
+        # Verify task state in database
+        updated_task = await db_session.get(IntakeEvaluationTaskModel, task.id)
+        assert updated_task.status == "FAILED"
+        assert updated_task.error_message == "Task stopped by user"
+
+    app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
 async def test_retry_evaluation_task(db_session: AsyncSession):
     app.dependency_overrides[get_db] = lambda: db_session
 
