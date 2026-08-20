@@ -255,17 +255,19 @@ async def test_cover_letter_api_endpoints(db_session):
         assert data["cover_letter_status"] == "DRAFTED"
 
         # 3. POST generate cover letter (Queues background task with HTTP 202)
-        res = await ac.post(
-            f"/api/v1/applications/{application.id}/cover-letter/generate"
-        )
-        assert res.status_code == 202
-        data = res.json()
-        assert data["cover_letter_status"] == "QUEUED"
+        with patch("app.routers.applications.process_evaluation_task"):
+            res = await ac.post(
+                f"/api/v1/applications/{application.id}/cover-letter/generate"
+            )
+            assert res.status_code == 202
+            data = res.json()
+            assert data["cover_letter_status"] == "QUEUED"
 
         # 4. POST regenerate cover letter
-        res = await ac.post(
-            f"/api/v1/applications/{application.id}/cover-letter/regenerate"
-        )
-        assert res.status_code == 202
-        data = res.json()
-        assert data["cover_letter_status"] == "QUEUED"
+        with patch("app.routers.applications.process_evaluation_task"):
+            res = await ac.post(
+                f"/api/v1/applications/{application.id}/cover-letter/regenerate"
+            )
+            assert res.status_code == 202
+            data = res.json()
+            assert data["cover_letter_status"] == "QUEUED"

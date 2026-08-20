@@ -442,6 +442,18 @@ const TASKS = [
     variables: ['{language}', '{company_name}', '{position}', '{company_context}', '{jd_text}', '{cv_text}', '{target_section}']
   },
   {
+    key: 'COVER_LETTER',
+    promptKey: 'cover_letter',
+    label: 'Cover Letter Generation',
+    icon: 'FileText',
+    recommendedTemp: 0.3,
+    recommendedReasoning: 'medium',
+    recommendedMaxTokens: null,
+    hasPrompt: true,
+    desc: 'Generates tailored cover letters referencing candidate experiences against target role and company requirements.',
+    variables: ['{company_name}', '{position}', '{job_description}', '{candidate_cv}']
+  },
+  {
     key: 'EMBEDDING',
     promptKey: null,
     label: 'Vector Embeddings (pgvector)',
