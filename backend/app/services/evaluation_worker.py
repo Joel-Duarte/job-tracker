@@ -20,7 +20,7 @@ from app.services.llm import (
     generate_cover_letter,
 )
 from app.services.matcher import compute_programmatic_skill_match
-from app.services.scraper import has_job_content_keywords, scrape_job_url
+from app.services.scraper import scrape_job_url, validate_job_content
 from app.services.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
@@ -327,10 +327,10 @@ async def _execute_evaluation_steps(
                 return
 
             # Lightweight Keyword Filtering Validation
-            if not has_job_content_keywords(content, min_matches=2):
+            if not validate_job_content(content, min_matches=2):
                 task.status = "FAILED"
                 task.stage = "FAILED"
-                task.error_message = "INVALID_JOB_CONTENT: Scraped page does not appear to be a job description. Please use 'Fix JD' to manually enter description text."
+                task.error_message = "INVALID_JOB_CONTENT: Scraped page does not appear to be a job description."
                 task.completed_at = datetime.now(UTC)
                 await db.commit()
                 ctx["error"] = task.error_message
