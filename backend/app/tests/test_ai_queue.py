@@ -275,6 +275,45 @@ async def test_intake_queue_duplicate_staging_and_resolution(db_session: AsyncSe
 
 
 @pytest.mark.asyncio
+async def test_fix_jd_evaluation_task(db_session: AsyncSession):
+    app.dependency_overrides[get_db] = lambda: db_session
+
+    task = IntakeEvaluationTaskModel(
+        job_url="https://example.com/non-job-page",
+        raw_text="",
+        title_hint="Non Job Page",
+        status="FAILED",
+        stage="FAILED",
+        error_message="INVALID_JOB_CONTENT: Scraped page does not appear to be a job description.",
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        with patch("app.routers.intake.process_evaluation_task"):
+            res = await ac.post(
+                f"/api/v1/intake/evaluations/{task.id}/fix-jd",
+                json={
+                    "raw_text": "Company: Acme Corp\nPosition: Senior Software Engineer\nRequirements: Python, Postgres, FastAPI\nResponsibilities: Build scalable backend systems\nSalary: $150,000",
+                    "job_url": "https://example.com/fixed-job",
+                },
+            )
+            assert res.status_code == 200
+            data = res.json()
+            assert data["id"] == task.id
+            assert data["status"] == "QUEUED"
+            assert data["stage"] == "EXTRACTING"
+            assert data["error_message"] is None
+            assert data["job_url"] == "https://example.com/fixed-job"
+            assert "Requirements: Python" in data["raw_text"]
+
+    app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
 async def test_retry_evaluation_task(db_session: AsyncSession):
     app.dependency_overrides[get_db] = lambda: db_session
 
