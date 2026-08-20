@@ -7,6 +7,8 @@ export const useUIStore = defineStore('ui', () => {
   const isIngestModalOpen = ref(false)
   const isJobIntakeModalOpen = ref(false)
   const isCommandPaletteOpen = ref(false)
+  const isCoverLetterModalOpen = ref(false)
+  const coverLetterAppId = ref(null)
   const activeDetailId = ref(null)
   const detailActiveTab = ref('timeline')
 
@@ -44,6 +46,16 @@ export const useUIStore = defineStore('ui', () => {
 
   function closeIngestModal() {
     isIngestModalOpen.value = false
+  }
+
+  function openCoverLetterModal(appId) {
+    coverLetterAppId.value = appId
+    isCoverLetterModalOpen.value = true
+  }
+
+  function closeCoverLetterModal() {
+    isCoverLetterModalOpen.value = false
+    coverLetterAppId.value = null
   }
 
   const customDarkBg = ref(localStorage.getItem('jt_custom_dark_bg') || '')
@@ -346,6 +358,10 @@ export const useUIStore = defineStore('ui', () => {
     isIngestModalOpen,
     isJobIntakeModalOpen,
     isCommandPaletteOpen,
+    isCoverLetterModalOpen,
+    coverLetterAppId,
+    openCoverLetterModal,
+    closeCoverLetterModal,
     activeDetailId,
     detailActiveTab,
     intakeQueue,

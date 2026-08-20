@@ -6,6 +6,7 @@ import AppNavbar from './components/layout/AppNavbar.vue'
 import ApplicationDetailDrawer from './components/drawers/ApplicationDetailDrawer.vue'
 import IngestModal from './components/modals/IngestModal.vue'
 import JobIntakeModal from './components/modals/JobIntakeModal.vue'
+import CoverLetterModal from './components/modals/CoverLetterModal.vue'
 import IntakeQueueDrawer from './components/layout/IntakeQueueDrawer.vue'
 import FloatingQueueWidget from './components/layout/FloatingQueueWidget.vue'
 import FloatingAgentChatWidget from './components/agent/FloatingAgentChatWidget.vue'
@@ -38,6 +39,7 @@ onMounted(async () => {
     <ApplicationDetailDrawer />
     <IngestModal />
     <JobIntakeModal />
+    <CoverLetterModal />
     <IntakeQueueDrawer />
     <FloatingQueueWidget />
     <FloatingAgentChatWidget />
