@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { IntakeAPI } from '../api/endpoints'
+import { getFitScores } from '../utils/fitScores'
 import {
   Sparkles,
   Link as LinkIcon,
@@ -508,11 +509,11 @@ onUnmounted(() => {
             <div class="review-header-right">
               <div class="scores-compact">
                 <div class="score-pill">
-                  <span class="score-pill-num font-mono">{{ task.result_json.programmatic_match_score || 0 }}%</span>
-                  <span class="score-pill-lbl">Overlap</span>
+                  <span class="score-pill-num font-mono">{{ getFitScores(task.result_json).computedText }}</span>
+                  <span class="score-pill-lbl">Algo Overlap</span>
                 </div>
                 <div class="score-pill score-pill-ai">
-                  <span class="score-pill-num font-mono">{{ task.result_json.fit_score }}%</span>
+                  <span class="score-pill-num font-mono">{{ getFitScores(task.result_json).aiText }}</span>
                   <span class="score-pill-lbl">AI Fit</span>
                 </div>
               </div>

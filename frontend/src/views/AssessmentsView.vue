@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { IntakeAPI, ApplicationsAPI } from '../api/endpoints'
+import { getFitScores } from '../utils/fitScores'
 import {
   Sparkles,
   Link as LinkIcon,
@@ -764,11 +765,17 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <!-- Fit Score Gauge -->
+            <!-- Side-by-Side Fit Score Badges: Programmatic Overlap + AI Gauge -->
             <div class="eval-fit-container">
-              <div class="fit-gauge" :class="getFitBadgeClass(task.result_json?.match_score ?? task.result_json?.fit_score ?? 0)">
-                <span class="fit-val">{{ task.result_json?.match_score ?? task.result_json?.fit_score ?? 0 }}%</span>
-                <span class="fit-lbl">{{ getFitLabel(task.result_json?.match_score ?? task.result_json?.fit_score ?? 0) }}</span>
+              <div class="scores-side-by-side">
+                <div class="score-badge-card algo-card">
+                  <span class="score-badge-val font-mono">{{ getFitScores(task.result_json).computedText }}</span>
+                  <span class="score-badge-lbl">Algo Overlap</span>
+                </div>
+                <div class="fit-gauge" :class="getFitBadgeClass(getFitScores(task.result_json).aiScore ?? 0)">
+                  <span class="fit-val">{{ getFitScores(task.result_json).aiText }}</span>
+                  <span class="fit-lbl">{{ getFitLabel(getFitScores(task.result_json).aiScore ?? 0) }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -1101,11 +1108,17 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <!-- Fit Score Gauge -->
+            <!-- Side-by-Side Fit Score Badges: Programmatic Overlap + AI Gauge -->
             <div class="eval-fit-container">
-              <div class="fit-gauge" :class="getFitBadgeClass(task.result_json?.match_score ?? task.result_json?.fit_score ?? 0)">
-                <span class="fit-val">{{ task.result_json?.match_score ?? task.result_json?.fit_score ?? 0 }}%</span>
-                <span class="fit-lbl">{{ getFitLabel(task.result_json?.match_score ?? task.result_json?.fit_score ?? 0) }}</span>
+              <div class="scores-side-by-side">
+                <div class="score-badge-card algo-card">
+                  <span class="score-badge-val font-mono">{{ getFitScores(task.result_json).computedText }}</span>
+                  <span class="score-badge-lbl">Algo Overlap</span>
+                </div>
+                <div class="fit-gauge" :class="getFitBadgeClass(getFitScores(task.result_json).aiScore ?? 0)">
+                  <span class="fit-val">{{ getFitScores(task.result_json).aiText }}</span>
+                  <span class="fit-lbl">{{ getFitLabel(getFitScores(task.result_json).aiScore ?? 0) }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -1696,6 +1709,46 @@ onUnmounted(() => {
   font-size: 17px;
   font-weight: 700;
   color: var(--text-main);
+}
+
+.scores-side-by-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.score-badge-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  min-width: 75px;
+}
+
+.algo-card {
+  background-color: var(--bg-surface);
+  border-color: var(--border-color);
+}
+
+.score-badge-val {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-main);
+  line-height: 1;
+}
+
+.score-badge-lbl {
+  font-size: 8.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 3px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
 }
 
 .fit-gauge {

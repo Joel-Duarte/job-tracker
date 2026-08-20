@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
 import { IntakeAPI } from '../api/endpoints'
+import { getFitScores } from '../utils/fitScores'
 import {
   Cpu,
   Layers,
@@ -876,8 +877,11 @@ onUnmounted(() => {
             <!-- Job Assessment Context -->
             <template v-if="task.task_type !== 'CV_EXTRACTION' && task.task_type !== 'EMBEDDING' && task.task_type !== 'COVER_LETTER'">
               <div class="footer-left">
-                <span v-if="task.result_json.match_score !== undefined || task.result_json.fit_score !== undefined" class="score-badge">
-                  {{ task.result_json.match_score ?? task.result_json.fit_score }}% Match
+                <span class="score-badge algo-score-badge">
+                  Algo: {{ getFitScores(task.result_json).computedText }}
+                </span>
+                <span class="score-badge ai-score-badge">
+                  AI: {{ getFitScores(task.result_json).aiText }}
                 </span>
                 <span class="footer-meta-text">
                   {{ task.result_json.company || 'Company' }} • {{ task.result_json.position || 'Position' }}
@@ -1630,12 +1634,21 @@ onUnmounted(() => {
 .score-badge {
   padding: 2px 7px;
   border-radius: 4px;
-  background-color: var(--status-offer-bg);
-  color: var(--status-offer-text);
-  border: 1px solid var(--status-offer-border);
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 700;
+}
+
+.algo-score-badge {
+  background-color: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.ai-score-badge {
+  background-color: var(--status-offer-bg);
+  color: var(--status-offer-text);
+  border: 1px solid var(--status-offer-border);
 }
 
 .badge-cv-ready {
