@@ -315,6 +315,13 @@ async def _execute_evaluation_steps(
             "title_hint": task.title_hint,
         },
     ) as ctx:
+        # Check if task was cancelled before starting execution steps
+        await db.refresh(task)
+        if task.status == "CANCELLED":
+            logger.info("Task %d was cancelled before execution started.", task.id)
+            ctx["outputs"] = {"status": "CANCELLED", "stage": "CANCELLED"}
+            return
+
         if task.task_type == "CV_EXTRACTION":
             await _execute_cv_extraction_steps(task, db)
             ctx["outputs"] = {"status": task.status, "stage": task.stage}

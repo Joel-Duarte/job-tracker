@@ -150,6 +150,29 @@ async function enqueueLead() {
     return
   }
 
+  // Derive title hint optimistically
+  const titleHint = urlVal
+    ? `Lead: ${urlVal.split('/').pop() || urlVal.slice(0, 50)}`
+    : (textVal.split('\n')[0] || 'Job Lead').slice(0, 50)
+
+  // Optimistic task item
+  const tempId = Date.now()
+  const tempTask = {
+    id: tempId,
+    job_url: urlVal || null,
+    raw_text: textVal || null,
+    title_hint: titleHint,
+    status: 'QUEUED',
+    stage: 'FETCHING',
+    created_at: new Date().toISOString(),
+  }
+
+  evaluationTasks.value = [tempTask, ...evaluationTasks.value]
+
+  // Immediately clear input fields for continuous workflow
+  jobUrl.value = ''
+  jobText.value = ''
+
   isEnqueuing.value = true
   try {
     const res = await IntakeAPI.enqueueAssessment({
@@ -157,13 +180,17 @@ async function enqueueLead() {
       text: textVal || null,
     })
 
-    // Immediately clear input fields for continuous workflow
-    jobUrl.value = ''
-    jobText.value = ''
+    // Replace optimistic item with server response
+    const idx = evaluationTasks.value.findIndex((t) => t.id === tempId)
+    if (idx !== -1 && res.data) {
+      evaluationTasks.value[idx] = res.data
+    }
 
     uiStore.showToast(`Lead '${res.data.title_hint}' enqueued for AI evaluation!`, 'success')
     await loadEvaluations(true)
   } catch (err) {
+    // Remove optimistic item on error
+    evaluationTasks.value = evaluationTasks.value.filter((t) => t.id !== tempId)
     uiStore.showToast(err.message, 'error')
   } finally {
     isEnqueuing.value = false
@@ -218,11 +245,15 @@ async function confirmAndSaveLead(task, targetStatus = 'ASSESSMENT', forceNew = 
 }
 
 async function deleteTask(taskId) {
+  const originalTasks = [...evaluationTasks.value]
+  // Optimistically remove task
+  evaluationTasks.value = evaluationTasks.value.filter((t) => t.id !== taskId)
+
   try {
     await IntakeAPI.deleteEvaluation(taskId)
-    evaluationTasks.value = evaluationTasks.value.filter((t) => t.id !== taskId)
     uiStore.showToast('Evaluation dismissed', 'info')
   } catch (err) {
+    evaluationTasks.value = originalTasks
     uiStore.showToast(err.message, 'error')
   }
 }
