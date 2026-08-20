@@ -568,13 +568,7 @@ async def confirm_job_assessment(
     await db.refresh(app_record)
     await db.refresh(event)
 
-    # 5. Generate Vector Embedding in isolated background task (Deferred if still in ASSESSMENT stage)
-    if app_record.status != "ASSESSMENT":
-        from app.services.llm import async_enqueue_application_embedding
-
-        background_tasks.add_task(
-            async_enqueue_application_embedding, app_record.id, skip_llm_summary=True
-        )
+    # 5. Vector embedding generation is deferred during intake confirm-assessment; enqueued during application lifecycle events.
 
     return IntakeResultResponse(
         status="success",

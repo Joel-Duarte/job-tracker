@@ -23,7 +23,6 @@ from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.models.processed_email import ProcessedEmailModel
 from app.models.staging import StagingItemModel
 from app.schemas.graph_state import JobTrackerState
-from app.services.llm import generate_and_save_application_embedding
 
 logger = logging.getLogger(__name__)
 STAGING_MATCH_THRESHOLD = 0.75
@@ -441,31 +440,8 @@ async def db_commit_node(
 async def summarize_embed_node(
     state: JobTrackerState, config: RunnableConfig
 ) -> dict[str, Any]:
-    db = _get_db(config)
-    application_id = state.get("application_id")
-
-    if application_id:
-        # Only synthesize and save embeddings if the application has moved beyond ASSESSMENT
-        app_stmt = select(ApplicationModel.status).where(
-            ApplicationModel.id == application_id
-        )
-        app_res = await db.execute(app_stmt)
-        app_status = app_res.scalar_one_or_none()
-
-        if app_status and app_status != "ASSESSMENT":
-            try:
-                await generate_and_save_application_embedding(db, application_id)
-                return {"embedding_created": True}
-            except Exception as err:
-                logger.warning(
-                    "Embedding synthesis deferred for application %s: %s",
-                    application_id,
-                    err,
-                )
-        else:
-            return {"embedding_created": False, "reason": "assessment_status"}
-
-    return {"embedding_created": False}
+    # Vector embeddings are deferred during raw intake workflows and generated strictly during application lifecycle management events.
+    return {"embedding_created": False, "reason": "deferred_intake"}
 
 
 async def cover_letter_node(
