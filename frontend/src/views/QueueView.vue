@@ -564,7 +564,7 @@ onUnmounted(() => {
 
           <!-- DEDICATED PIPELINE STEPPERS -->
           <div class="task-pipeline-container">
-            <!-- 1. JOB ASSESSMENT STEPPER (6 Stages) -->
+            <!-- 1. JOB ASSESSMENT STEPPER (Conditional 5 or 6 Stages based on enableAutoCoverLetter) -->
             <div v-if="task.task_type !== 'CV_EXTRACTION' && task.task_type !== 'EMBEDDING' && task.task_type !== 'COVER_LETTER'" class="pipeline-stepper job-stepper">
               <div
                 class="stepper-node"
@@ -611,6 +611,7 @@ onUnmounted(() => {
               </div>
 
               <div
+                v-if="uiStore.enableAutoCoverLetter"
                 class="stepper-node"
                 :class="{
                   active: task.stage === 'COVER_LETTER',
@@ -627,7 +628,7 @@ onUnmounted(() => {
                   done: ['COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
                 }"
               >
-                <div class="node-bullet">6</div>
+                <div class="node-bullet">{{ uiStore.enableAutoCoverLetter ? 6 : 5 }}</div>
                 <span class="node-label">{{ task.stage === 'STAGED_DUPLICATE' ? 'Staged' : 'Complete' }}</span>
               </div>
             </div>

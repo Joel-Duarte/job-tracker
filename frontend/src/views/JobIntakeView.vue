@@ -672,7 +672,7 @@ onUnmounted(() => {
             </div>
 
             <!-- Cover Letter Status Banner if applicable -->
-            <div v-if="task.result_json?.cover_letter_status" class="advisory-banner mt-3">
+            <div v-if="uiStore.enableAutoCoverLetter && task.result_json?.cover_letter_status" class="advisory-banner mt-3">
               <FileText :size="16" class="text-primary flex-shrink-0" />
               <div class="flex flex-col gap-1">
                 <span>

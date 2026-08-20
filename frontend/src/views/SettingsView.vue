@@ -326,13 +326,59 @@ const enableEmbeddings = ref(true)
 const isUpdatingEmbeddings = ref(false)
 const isReindexingEmbeddings = ref(false)
 
+// Cover Letter Automation Settings State
+const enableAutoCoverLetter = ref(false)
+const coverLetterMatchThreshold = ref(70)
+const isUpdatingCoverLetterSettings = ref(false)
+
 async function loadGlobalSettings() {
   try {
     const res = await AIConfigAPI.getGlobalSettings()
     enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS ?? true
     uiStore.enableEmbeddings = enableEmbeddings.value
+
+    enableAutoCoverLetter.value = res.data.ENABLE_AUTO_COVER_LETTER ?? false
+    coverLetterMatchThreshold.value = res.data.COVER_LETTER_MATCH_THRESHOLD ?? 70
+    uiStore.enableAutoCoverLetter = enableAutoCoverLetter.value
+    uiStore.coverLetterMatchThreshold = coverLetterMatchThreshold.value
   } catch (err) {
     console.error('Failed to load global settings', err)
+  }
+}
+
+async function toggleAutoCoverLetter() {
+  isUpdatingCoverLetterSettings.value = true
+  try {
+    const newVal = !enableAutoCoverLetter.value
+    const res = await AIConfigAPI.updateGlobalSettings({ ENABLE_AUTO_COVER_LETTER: newVal })
+    enableAutoCoverLetter.value = res.data.ENABLE_AUTO_COVER_LETTER
+    uiStore.enableAutoCoverLetter = enableAutoCoverLetter.value
+    uiStore.showToast(
+      enableAutoCoverLetter.value
+        ? 'Automatic cover letter generation enabled.'
+        : 'Automatic cover letter generation disabled.',
+      'success'
+    )
+  } catch (err) {
+    uiStore.showToast('Failed to update cover letter setting', 'error')
+  } finally {
+    isUpdatingCoverLetterSettings.value = false
+  }
+}
+
+async function updateCoverLetterThreshold(event) {
+  const val = Number(event.target.value)
+  coverLetterMatchThreshold.value = val
+  isUpdatingCoverLetterSettings.value = true
+  try {
+    const res = await AIConfigAPI.updateGlobalSettings({ COVER_LETTER_MATCH_THRESHOLD: val })
+    coverLetterMatchThreshold.value = res.data.COVER_LETTER_MATCH_THRESHOLD
+    uiStore.coverLetterMatchThreshold = coverLetterMatchThreshold.value
+    uiStore.showToast(`Cover letter match threshold updated to ${val}%.`, 'success')
+  } catch (err) {
+    uiStore.showToast('Failed to update cover letter threshold', 'error')
+  } finally {
+    isUpdatingCoverLetterSettings.value = false
   }
 }
 
@@ -1282,6 +1328,58 @@ onMounted(async () => {
                     <span>{{ m.id }}</span>
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- COVER LETTER AUTOMATION CARD -->
+          <div class="embeddings-control-card">
+            <div class="embeddings-control-header">
+              <div class="embeddings-title-group">
+                <FileText class="text-primary" :size="20" />
+                <div>
+                  <h3 class="embeddings-title">Automated Cover Letter Generation</h3>
+                  <p class="embeddings-desc">
+                    Automatically draft tailored cover letters during job intake when fit score meets or exceeds your threshold.
+                  </p>
+                </div>
+              </div>
+
+              <div class="embeddings-actions">
+                <label class="switch-toggle" title="Toggle automatic cover letter generation">
+                  <input
+                    type="checkbox"
+                    :checked="enableAutoCoverLetter"
+                    :disabled="isUpdatingCoverLetterSettings"
+                    @change="toggleAutoCoverLetter"
+                  />
+                  <span class="slider round"></span>
+                </label>
+              </div>
+            </div>
+
+            <div v-if="enableAutoCoverLetter" class="embeddings-control-body">
+              <div class="embeddings-info-box flex-col items-start gap-2">
+                <div class="flex items-center justify-between w-full">
+                  <span class="embeddings-status-text">
+                    Minimum Match Score Threshold: <strong>{{ coverLetterMatchThreshold }}%</strong>
+                  </span>
+                </div>
+                <div class="form-range-container w-full">
+                  <input
+                    type="range"
+                    min="40"
+                    max="95"
+                    step="5"
+                    :value="coverLetterMatchThreshold"
+                    :disabled="isUpdatingCoverLetterSettings"
+                    class="form-range"
+                    @change="updateCoverLetterThreshold"
+                  />
+                </div>
+                <p class="text-xs text-muted">
+                  Jobs with fit score &ge; {{ coverLetterMatchThreshold }}% will trigger automatic cover letter drafting at the end of intake.
+                </p>
               </div>
             </div>
           </div>

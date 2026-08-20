@@ -251,6 +251,8 @@ export const useUIStore = defineStore('ui', () => {
 
   // Global Settings
   const enableEmbeddings = ref(true)
+  const enableAutoCoverLetter = ref(false)
+  const coverLetterMatchThreshold = ref(70)
 
   function setEnableEmbeddings(val) {
     enableEmbeddings.value = val
@@ -371,6 +373,8 @@ export const useUIStore = defineStore('ui', () => {
     clearCompletedIntakeTasks,
     enableEmbeddings,
     setEnableEmbeddings,
+    enableAutoCoverLetter,
+    coverLetterMatchThreshold,
     autoArchiveEnabled,
     autoArchiveDays,
     setAutoArchiveEnabled,
