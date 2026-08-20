@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ai_queue import concurrency_manager
+from app.core.config_manager import get_setting
 from app.core.database import AsyncSessionLocal
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.models.applications import ApplicationModel
@@ -361,6 +362,69 @@ async def _execute_evaluation_steps(
                 structured_spec=job_spec.model_dump(),
             )
 
+            # Check cover letter automation criteria
+            enable_auto = await get_setting("ENABLE_AUTO_COVER_LETTER", False, db=db)
+            threshold = await get_setting("COVER_LETTER_MATCH_THRESHOLD", 70, db=db)
+
+            fit_score_val = float(
+                assessment.fit_score if assessment.fit_score is not None else 0
+            )
+            score_pct = (
+                fit_score_val * 100.0
+                if (0.0 <= fit_score_val <= 1.0)
+                else fit_score_val
+            )
+
+            cl_status = "SKIPPED"
+            app_id = save_result.get("application_id")
+            if enable_auto and app_id and not save_result.get("is_duplicate"):
+                if score_pct >= threshold:
+                    try:
+                        cv_stmt = (
+                            select(CandidateCVModel)
+                            .where(CandidateCVModel.is_active.is_(True))
+                            .limit(1)
+                        )
+                        cv_res = await db.execute(cv_stmt)
+                        active_cv = cv_res.scalars().first()
+                        if not active_cv:
+                            cv_stmt_fb = select(CandidateCVModel).limit(1)
+                            cv_res_fb = await db.execute(cv_stmt_fb)
+                            active_cv = cv_res_fb.scalars().first()
+
+                        cv_text = (
+                            (active_cv.anonymized_text or active_cv.raw_text)
+                            if active_cv
+                            else ""
+                        )
+                        letter_text = await generate_cover_letter(
+                            db,
+                            company_name=assessment.company or "",
+                            position=assessment.position or "",
+                            job_description=content or "",
+                            candidate_cv=cv_text,
+                        )
+
+                        app_rec = await db.get(ApplicationModel, app_id)
+                        if app_rec:
+                            app_rec.cover_letter_text = letter_text
+                            app_rec.cover_letter_status = "GENERATED"
+                            app_rec.cover_letter_generated_at = datetime.now(UTC)
+                            await db.commit()
+                        cl_status = "GENERATED"
+                    except Exception as err:
+                        logger.error(
+                            "Failed auto cover letter generation in intake worker for app %s: %s",
+                            app_id,
+                            err,
+                            exc_info=True,
+                        )
+                        app_rec = await db.get(ApplicationModel, app_id)
+                        if app_rec:
+                            app_rec.cover_letter_status = "FAILED"
+                            await db.commit()
+                        cl_status = "FAILED"
+
             # Completed Successfully
             task.status = "COMPLETED"
             task.stage = (
@@ -371,6 +435,20 @@ async def _execute_evaluation_steps(
             result_payload["staging_item_id"] = save_result.get("staging_item_id")
             result_payload["is_duplicate"] = save_result.get("is_duplicate", False)
             result_payload["save_status"] = save_result.get("status")
+            result_payload["cover_letter_status"] = cl_status
+            if cl_status == "GENERATED":
+                result_payload["cover_letter_note"] = (
+                    "Cover letter generated successfully."
+                )
+            elif cl_status == "FAILED":
+                result_payload["cover_letter_note"] = (
+                    "Cover letter generation failed during pipeline execution."
+                )
+            else:
+                result_payload["cover_letter_note"] = (
+                    f"Cover letter generation skipped (auto_enabled={enable_auto}, "
+                    f"score={score_pct:.1f}%, threshold={threshold}%)"
+                )
             task.result_json = result_payload
             task.title_hint = f"{assessment.company} - {assessment.position}"
             task.completed_at = datetime.now(UTC)
