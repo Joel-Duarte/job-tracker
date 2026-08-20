@@ -17,7 +17,6 @@ from app.models.applications import (
     CompanyModel,
     JobPostingModel,
 )
-from app.models.candidate_profile import CandidateCVModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.schemas.applications import (
     ActionItemDetail,
@@ -46,7 +45,6 @@ from app.services.interview_guide import (
 )
 from app.services.llm import (
     async_enqueue_application_embedding,
-    generate_cover_letter,
 )
 
 logger = logging.getLogger(__name__)
@@ -947,45 +945,6 @@ async def get_cover_letter(
         cover_letter_status=app.cover_letter_status,
         cover_letter_generated_at=app.cover_letter_generated_at,
     )
-
-
-async def _run_cover_letter_generation(
-    app: ApplicationModel, db: AsyncSession
-) -> ApplicationModel:
-    # Fetch active candidate CV
-    cv_stmt = (
-        select(CandidateCVModel).where(CandidateCVModel.is_active.is_(True)).limit(1)
-    )
-    cv_res = await db.execute(cv_stmt)
-    active_cv = cv_res.scalars().first()
-    if not active_cv:
-        cv_stmt_fallback = select(CandidateCVModel).limit(1)
-        cv_res_fallback = await db.execute(cv_stmt_fallback)
-        active_cv = cv_res_fallback.scalars().first()
-
-    cv_text = (active_cv.anonymized_text or active_cv.raw_text) if active_cv else ""
-    company_name = app.company.name if app.company else ""
-    position_name = app.position or ""
-    job_desc = (
-        app.job_posting.description_markdown
-        if app.job_posting and app.job_posting.description_markdown
-        else ""
-    )
-
-    text = await generate_cover_letter(
-        db,
-        company_name=company_name,
-        position=position_name,
-        job_description=job_desc,
-        candidate_cv=cv_text,
-    )
-
-    app.cover_letter_text = text
-    app.cover_letter_status = "GENERATED"
-    app.cover_letter_generated_at = datetime.now(UTC)
-    await db.commit()
-    await db.refresh(app)
-    return app
 
 
 @router.post(

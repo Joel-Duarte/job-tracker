@@ -386,16 +386,6 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
     Processes a single queued intake evaluation task asynchronously within
     the provider's configured concurrency limits.
     """
-    if db is not None:
-        task = await db.get(IntakeEvaluationTaskModel, task_id)
-        if not task or task.status == "CANCELLED":
-            return
-        task.status = "PROCESSING"
-        task.stage = "SCRUBBING" if task.task_type == "CV_EXTRACTION" else "FETCHING"
-        await db.commit()
-        await _execute_evaluation_steps(task, db)
-        return
-
     async with AsyncSessionLocal() as session:
         stmt = select(IntakeEvaluationTaskModel).where(
             IntakeEvaluationTaskModel.id == task_id
@@ -407,24 +397,44 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
             logger.warning("Intake task %d not found or cancelled", task_id)
             return
 
-        # 1. Resolve Provider and Concurrency Limit for EXTRACTION / AGENT_REASONING
+        task_type = task.task_type or "JOB_ASSESSMENT"
+
+        # 1. Resolve Provider and Concurrency Limit for this task_type (or GLOBAL_DEFAULT)
         binding_stmt = (
             select(AITaskBindingModel, AIProviderModel)
             .join(AIProviderModel, AITaskBindingModel.provider_id == AIProviderModel.id)
             .where(
-                AITaskBindingModel.task_type.in_(["EXTRACTION", "AGENT_REASONING"]),
+                AITaskBindingModel.task_type.in_([task_type, "GLOBAL_DEFAULT"]),
                 AITaskBindingModel.is_active,
                 AIProviderModel.is_active,
             )
         )
         binding_res = await session.execute(binding_stmt)
-        row = binding_res.first()
+        rows = binding_res.all()
 
-        provider_id = row[1].id if row else None
-        max_concurrency = row[1].max_concurrency if row else 1
+        exact_row = next((r for r in rows if r[0].task_type == task_type), None)
+        global_row = next((r for r in rows if r[0].task_type == "GLOBAL_DEFAULT"), None)
+        selected_row = exact_row or global_row or (rows[0] if rows else None)
 
-    # 2. Acquire Provider Semaphore to prevent local VRAM thrashing
+        provider_id = selected_row[1].id if selected_row else None
+        max_concurrency = selected_row[1].max_concurrency if selected_row else 1
+
+    # 2. Acquire Provider Semaphore to strictly gate task execution based on provider's max concurrency setting
     async with concurrency_manager.acquire(provider_id, max_concurrency):
+        if db is not None:
+            task = await db.get(IntakeEvaluationTaskModel, task_id)
+            if not task or task.status == "CANCELLED":
+                return
+            task.status = "PROCESSING"
+            task.stage = (
+                "SCRUBBING"
+                if task.task_type == "CV_EXTRACTION"
+                else ("GENERATING" if task.task_type == "COVER_LETTER" else "FETCHING")
+            )
+            await db.commit()
+            await _execute_evaluation_steps(task, db)
+            return
+
         async with AsyncSessionLocal() as session:
             task = await session.get(IntakeEvaluationTaskModel, task_id)
             if not task or task.status == "CANCELLED":
@@ -432,7 +442,9 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
 
             task.status = "PROCESSING"
             task.stage = (
-                "SCRUBBING" if task.task_type == "CV_EXTRACTION" else "FETCHING"
+                "SCRUBBING"
+                if task.task_type == "CV_EXTRACTION"
+                else ("GENERATING" if task.task_type == "COVER_LETTER" else "FETCHING")
             )
             await session.commit()
 
