@@ -834,16 +834,6 @@ onUnmounted(() => {
                   {{ task.result_json.company }} • {{ task.result_json.position || 'Position' }}
                 </span>
               </div>
-
-              <div class="footer-right">
-                <router-link
-                  to="/assessments"
-                  class="btn btn-primary btn-xs"
-                >
-                  <FileText :size="12" />
-                  <span>View in Dossier &rarr;</span>
-                </router-link>
-              </div>
             </template>
           </div>
         </div>
