@@ -115,83 +115,6 @@ watch(
 )
 
 
-// Cover Letter state
-const isCoverLetterGenerating = ref(false)
-const isEditingCoverLetter = ref(false)
-const editableCoverLetterText = ref('')
-const drawerCoverLetterTone = ref('professional')
-const drawerCoverLetterInstructions = ref('')
-
-const DRAWER_COVER_LETTER_TONES = [
-  { code: 'professional', label: 'Professional & Confident' },
-  { code: 'enthusiastic', label: 'Enthusiastic & Passionate' },
-  { code: 'concise', label: 'Concise & Direct' },
-  { code: 'executive', label: 'Executive Leadership' },
-  { code: 'technical', label: 'Technical & Systems Focused' },
-]
-
-async function handleGenerateCoverLetter() {
-  if (!appStore.selectedApplication) return
-  isCoverLetterGenerating.value = true
-  try {
-    const res = await ApplicationsAPI.generateCoverLetter(appStore.selectedApplication.id, {
-      tone: drawerCoverLetterTone.value,
-      custom_instructions: drawerCoverLetterInstructions.value,
-    })
-    appStore.selectedApplication.cover_letter_text = res.data.cover_letter_text
-    appStore.selectedApplication.cover_letter_status = res.data.cover_letter_status || 'QUEUED'
-    appStore.selectedApplication.cover_letter_generated_at = res.data.cover_letter_generated_at
-    editableCoverLetterText.value = res.data.cover_letter_text || ''
-    uiStore.showToast('Cover letter queued for background generation!', 'success')
-  } catch (err) {
-    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to generate cover letter', 'error')
-  } finally {
-    isCoverLetterGenerating.value = false
-  }
-}
-
-async function handleRegenerateCoverLetter() {
-  if (!appStore.selectedApplication) return
-  isCoverLetterGenerating.value = true
-  try {
-    const res = await ApplicationsAPI.regenerateCoverLetter(appStore.selectedApplication.id, {
-      tone: drawerCoverLetterTone.value,
-      custom_instructions: drawerCoverLetterInstructions.value,
-    })
-    appStore.selectedApplication.cover_letter_text = res.data.cover_letter_text
-    appStore.selectedApplication.cover_letter_status = res.data.cover_letter_status || 'QUEUED'
-    appStore.selectedApplication.cover_letter_generated_at = res.data.cover_letter_generated_at
-    editableCoverLetterText.value = res.data.cover_letter_text || ''
-    isEditingCoverLetter.value = false
-    uiStore.showToast('Cover letter regeneration queued in AI queue!', 'success')
-  } catch (err) {
-    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to regenerate cover letter', 'error')
-  } finally {
-    isCoverLetterGenerating.value = false
-  }
-}
-
-async function handleSaveCoverLetterEdit() {
-  if (!appStore.selectedApplication) return
-  try {
-    const res = await ApplicationsAPI.updateCoverLetter(appStore.selectedApplication.id, {
-      cover_letter_text: editableCoverLetterText.value,
-      cover_letter_status: 'DRAFTED',
-    })
-    appStore.selectedApplication.cover_letter_text = res.data.cover_letter_text
-    appStore.selectedApplication.cover_letter_status = res.data.cover_letter_status
-    isEditingCoverLetter.value = false
-    uiStore.showToast('Cover letter changes saved!', 'success')
-  } catch (err) {
-    uiStore.showToast('Failed to save cover letter edits', 'error')
-  }
-}
-
-function startEditingCoverLetter() {
-  editableCoverLetterText.value = appStore.selectedApplication?.cover_letter_text || ''
-  isEditingCoverLetter.value = true
-}
-
 // Interview Guide state
 const isGenerating = ref(false)
 const showConfigPanel = ref(false)
@@ -765,15 +688,6 @@ function formatDate(isoStr) {
               <span v-if="appStore.selectedApplication.has_interview_guide" class="guide-ready-indicator"></span>
             </button>
 
-            <button
-              class="tab-item"
-              :class="{ active: activeTab === 'cover_letter' }"
-              @click="activeTab = 'cover_letter'"
-            >
-              <FileText :size="15" />
-              <span>Cover Letter</span>
-              <span v-if="appStore.selectedApplication.has_cover_letter" class="guide-ready-indicator"></span>
-            </button>
           </div>
 
           <!-- Tab Panels -->
@@ -1252,117 +1166,6 @@ function formatDate(isoStr) {
               </div>
             </div>
 
-            <!-- 5. COVER LETTER TAB -->
-            <div v-if="activeTab === 'cover_letter'" class="cover-letter-panel animate-fade-in">
-              <div v-if="isCoverLetterGenerating || appStore.selectedApplication.cover_letter_status === 'QUEUED' || appStore.selectedApplication.cover_letter_status === 'GENERATING'" class="state-container generating-state">
-                <div class="pulse-glow-ring">
-                  <Sparkles :size="36" class="text-primary animate-pulse" />
-                </div>
-                <h3 class="generating-title">Drafting Cover Letter</h3>
-                <p class="generating-desc">
-                  Task queued in AI Evaluation Queue. Tailoring candidate experiences to employer responsibilities...
-                </p>
-              </div>
-
-              <div v-else-if="appStore.selectedApplication.cover_letter_text || isEditingCoverLetter" class="cover-letter-card">
-                <div class="cl-header">
-                  <div class="cl-meta font-mono text-xs">
-                    <span class="badge badge-applied">
-                      STATUS: {{ appStore.selectedApplication.cover_letter_status || 'DRAFTED' }}
-                    </span>
-                    <span v-if="appStore.selectedApplication.cover_letter_generated_at" class="text-muted ml-2">
-                      Generated {{ formatDate(appStore.selectedApplication.cover_letter_generated_at) }}
-                    </span>
-                  </div>
-                  <div class="cl-actions">
-                    <button
-                      v-if="!isEditingCoverLetter"
-                      class="btn btn-secondary btn-xs"
-                      @click="startEditingCoverLetter"
-                    >
-                      <span>Edit Text</span>
-                    </button>
-                    <button
-                      v-if="isEditingCoverLetter"
-                      class="btn btn-primary btn-xs"
-                      @click="handleSaveCoverLetterEdit"
-                    >
-                      <Check :size="12" />
-                      <span>Save Changes</span>
-                    </button>
-                    <button
-                      class="btn btn-primary btn-xs"
-                      @click="handleRegenerateCoverLetter"
-                    >
-                      <RotateCcw :size="12" />
-                      <span>Regenerate</span>
-                    </button>
-                  </div>
-                </div>
-
-                <!-- Tone & Instructions Options -->
-                <div class="drawer-cl-options mt-3 p-3 bg-card border border-subtle rounded flex flex-col gap-2">
-                  <div class="flex items-center justify-between">
-                    <span class="text-xs font-semibold text-main">Redrafting Options &amp; Tone</span>
-                  </div>
-
-                  <div class="grid grid-cols-2 gap-2">
-                    <div class="form-group">
-                      <label class="text-xs text-muted">Desired Tone</label>
-                      <select v-model="drawerCoverLetterTone" class="form-select form-select-sm text-xs">
-                        <option v-for="t in DRAWER_COVER_LETTER_TONES" :key="t.code" :value="t.code">
-                          {{ t.label }}
-                        </option>
-                      </select>
-                    </div>
-
-                    <div class="form-group">
-                      <label class="text-xs text-muted">Custom Instructions</label>
-                      <input
-                        v-model="drawerCoverLetterInstructions"
-                        type="text"
-                        placeholder="e.g. Focus on scale and backend..."
-                        class="form-input form-input-sm text-xs"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div v-if="isEditingCoverLetter" class="cl-editor mt-3">
-                  <textarea
-                    v-model="editableCoverLetterText"
-                    rows="16"
-                    class="form-textarea font-mono text-xs w-full"
-                  ></textarea>
-                </div>
-                <div v-else class="cl-body mt-3 font-mono text-xs whitespace-pre-wrap">
-                  {{ appStore.selectedApplication.cover_letter_text }}
-                </div>
-              </div>
-
-              <!-- Empty State / No Cover Letter Yet -->
-              <div v-else class="guide-empty-state">
-                <div class="guide-empty-icon">
-                  <FileText :size="32" class="text-primary" />
-                </div>
-                <h4 class="guide-empty-title">Cover Letter</h4>
-                <p class="guide-empty-desc">
-                  <span v-if="appStore.selectedApplication.cover_letter_status === 'SKIPPED'">
-                    Cover letter generation was skipped during intake because match score fell below the configured threshold. You can manually generate one below.
-                  </span>
-                  <span v-else>
-                    Generate a tailored cover letter referencing your profile against company specifications.
-                  </span>
-                </p>
-                <button
-                  class="btn btn-primary"
-                  @click="handleGenerateCoverLetter"
-                >
-                  <Sparkles :size="15" />
-                  <span>Generate Cover Letter</span>
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -3020,44 +2823,6 @@ function formatDate(isoStr) {
   list-style-type: disc;
 }
 
-/* Cover Letter Panel Styles */
-.cover-letter-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.cover-letter-card {
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-}
-
-.cl-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.cl-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.cl-body {
-  line-height: 1.6;
-  color: var(--text-main);
-  background-color: var(--bg-surface);
-  padding: 16px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-subtle);
-}
 
 
 </style>

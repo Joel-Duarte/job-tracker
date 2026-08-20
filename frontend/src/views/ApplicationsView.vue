@@ -895,7 +895,7 @@ async function confirmDelete() {
               v-for="app in appStore.kanbanColumns[col.key] || []"
               :key="app.id"
               class="application-card"
-              :class="[{ 'is-dragging': draggedApp?.id === app.id, 'has-open-menu': openMenuAppId === app.id }, app.has_action_required ? 'action-required-card' : '']"
+              :class="[{ 'is-dragging': draggedApp?.id === app.id, 'has-open-menu': activeMenuApp?.id === app.id }, app.has_action_required ? 'action-required-card' : '']"
               draggable="true"
               @dragstart="onDragStart(app, $event)"
               @dragend="onDragEnd"
@@ -1480,7 +1480,7 @@ async function confirmDelete() {
         <button
           v-if="activeMenuApp.cover_letter_text || activeMenuApp.cover_letter_status === 'GENERATED'"
           class="menu-item"
-          @click="uiStore.openDetail(activeMenuApp.id, 'cover_letter'); closeCardMenu()"
+          @click="uiStore.openCoverLetterModal(activeMenuApp.id); closeCardMenu()"
         >
           <FileText :size="13" class="text-primary" />
           <span>See Cover Letter</span>
@@ -1488,7 +1488,7 @@ async function confirmDelete() {
         <button
           v-else
           class="menu-item"
-          @click="uiStore.openDetail(activeMenuApp.id, 'cover_letter'); closeCardMenu()"
+          @click="uiStore.openCoverLetterModal(activeMenuApp.id); closeCardMenu()"
         >
           <Sparkles :size="13" />
           <span>Draft Cover Letter</span>

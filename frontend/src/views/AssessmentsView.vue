@@ -91,96 +91,12 @@ const expandedTaskIds = ref(new Set())
 const processingTaskIds = ref(new Set())
 let pollTimer = null
 
-// Cover Letter State in AssessmentsView
-const draftingCoverLetterTaskIds = ref(new Set())
-const isCoverLetterModalOpen = ref(false)
-const selectedCoverLetterTask = ref(null)
-const editableCoverLetterText = ref('')
-const isEditingCoverLetterModal = ref(false)
-const isCoverLetterRegenerating = ref(false)
-const coverLetterTone = ref('professional')
-const coverLetterInstructions = ref('')
-
-const COVER_LETTER_TONES = [
-  { code: 'professional', label: 'Professional & Confident' },
-  { code: 'enthusiastic', label: 'Enthusiastic & Passionate' },
-  { code: 'concise', label: 'Concise & Direct' },
-  { code: 'executive', label: 'Executive Leadership' },
-  { code: 'technical', label: 'Technical & Systems Focused' },
-]
-
-async function handleDraftCoverLetter(task) {
-  if (!task.result_json) return
-  const appId = task.result_json.application_id
-  draftingCoverLetterTaskIds.value.add(task.id)
-  try {
-    if (appId) {
-      const res = await ApplicationsAPI.generateCoverLetter(appId)
-      task.result_json = {
-        ...task.result_json,
-        cover_letter_text: res.data.cover_letter_text,
-        cover_letter_status: res.data.cover_letter_status,
-        cover_letter_generated_at: res.data.cover_letter_generated_at,
-      }
-      uiStore.showToast(`Drafted cover letter for ${task.result_json.company || 'job'}!`, 'success')
-    } else {
-      uiStore.showToast('Application ID missing. Confirm application first.', 'warning')
-    }
-  } catch (err) {
-    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to draft cover letter', 'error')
-  } finally {
-    draftingCoverLetterTaskIds.value.delete(task.id)
-  }
-}
-
-function openCoverLetterModal(task) {
-  selectedCoverLetterTask.value = task
-  editableCoverLetterText.value = task.result_json?.cover_letter_text || ''
-  isEditingCoverLetterModal.value = false
-  isCoverLetterModalOpen.value = true
-}
-
-async function saveCoverLetterModalEdits() {
-  const task = selectedCoverLetterTask.value
-  const appId = task?.result_json?.application_id
-  if (!appId) return
-  try {
-    const res = await ApplicationsAPI.updateCoverLetter(appId, {
-      cover_letter_text: editableCoverLetterText.value,
-      cover_letter_status: 'DRAFTED',
-    })
-    task.result_json.cover_letter_text = res.data.cover_letter_text
-    task.result_json.cover_letter_status = res.data.cover_letter_status
-    isEditingCoverLetterModal.value = false
-    uiStore.showToast('Cover letter updated successfully!', 'success')
-  } catch (err) {
-    uiStore.showToast('Failed to save cover letter updates', 'error')
-  }
-}
-
-async function regenerateCoverLetterInModal() {
-  const task = selectedCoverLetterTask.value
-  const appId = task?.result_json?.application_id
-  if (!appId) return
-  isCoverLetterRegenerating.value = true
-  try {
-    const res = await ApplicationsAPI.regenerateCoverLetter(appId, {
-      tone: coverLetterTone.value,
-      custom_instructions: coverLetterInstructions.value,
-    })
-    task.result_json = {
-      ...task.result_json,
-      cover_letter_text: res.data.cover_letter_text,
-      cover_letter_status: res.data.cover_letter_status || 'QUEUED',
-      cover_letter_generated_at: res.data.cover_letter_generated_at,
-    }
-    editableCoverLetterText.value = res.data.cover_letter_text || ''
-    isEditingCoverLetterModal.value = false
-    uiStore.showToast('Cover letter regeneration queued in AI queue!', 'success')
-  } catch (err) {
-    uiStore.showToast('Failed to regenerate cover letter', 'error')
-  } finally {
-    isCoverLetterRegenerating.value = false
+function openCoverLetterModalForTask(task) {
+  const appId = task.result_json?.application_id
+  if (appId) {
+    uiStore.openCoverLetterModal(appId)
+  } else {
+    uiStore.showToast('Application ID missing. Confirm application first.', 'warning')
   }
 }
 
@@ -938,7 +854,7 @@ onUnmounted(() => {
               <button
                 v-if="task.result_json?.cover_letter_text || ['GENERATED', 'DRAFTED'].includes(task.result_json?.cover_letter_status)"
                 class="btn btn-secondary btn-sm"
-                @click="openCoverLetterModal(task)"
+                @click="openCoverLetterModalForTask(task)"
                 title="View & Edit Cover Letter"
               >
                 <FileText :size="14" class="text-primary" />
@@ -958,12 +874,10 @@ onUnmounted(() => {
               <button
                 v-else
                 class="btn btn-secondary btn-sm"
-                :disabled="draftingCoverLetterTaskIds.has(task.id)"
-                @click="handleDraftCoverLetter(task)"
+                @click="openCoverLetterModalForTask(task)"
                 title="Draft a tailored cover letter using CV profile"
               >
-                <Loader2 v-if="draftingCoverLetterTaskIds.has(task.id)" class="animate-spin" :size="14" />
-                <Sparkles v-else :size="14" />
+                <Sparkles :size="14" />
                 <span>Draft Cover Letter</span>
               </button>
 
@@ -1222,107 +1136,6 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
-    <!-- COVER LETTER MODAL & EDITOR -->
-    <Transition name="fade">
-      <div v-if="isCoverLetterModalOpen" class="inner-modal-backdrop" @click.self="isCoverLetterModalOpen = false">
-        <div class="inner-modal-box modal-lg">
-          <div class="inner-modal-header">
-            <div class="inner-modal-title">
-              <FileText :size="18" class="text-primary" />
-              <span>Cover Letter — {{ selectedCoverLetterTask?.result_json?.company }} ({{ selectedCoverLetterTask?.result_json?.position }})</span>
-            </div>
-            <button class="btn-close" @click="isCoverLetterModalOpen = false">
-              <X :size="16" />
-            </button>
-          </div>
-
-          <div class="inner-modal-body">
-            <div v-if="isCoverLetterRegenerating" class="state-container generating-state">
-              <Loader2 class="animate-spin text-primary mb-2" :size="28" />
-              <span>Queueing regeneration in AI queue...</span>
-            </div>
-
-            <div v-else class="cl-modal-content flex flex-col gap-3">
-              <div class="cl-modal-topbar flex items-center justify-between flex-wrap gap-2">
-                <span class="badge badge-applied font-mono text-xs">
-                  Status: {{ selectedCoverLetterTask?.result_json?.cover_letter_status || 'DRAFTED' }}
-                </span>
-
-                <div class="cl-modal-actions flex items-center gap-2">
-                  <button
-                    v-if="!isEditingCoverLetterModal"
-                    class="btn btn-secondary btn-xs"
-                    @click="isEditingCoverLetterModal = true"
-                  >
-                    <span>Edit Text</span>
-                  </button>
-                  <button
-                    v-else
-                    class="btn btn-primary btn-xs"
-                    @click="saveCoverLetterModalEdits"
-                  >
-                    <Check :size="12" />
-                    <span>Save Edits</span>
-                  </button>
-                  <button
-                    class="btn btn-primary btn-xs"
-                    :disabled="isCoverLetterRegenerating"
-                    @click="regenerateCoverLetterInModal"
-                  >
-                    <RotateCcw :size="12" />
-                    <span>Regenerate with Options</span>
-                  </button>
-                </div>
-              </div>
-
-              <!-- Tone & Custom Instructions Controls -->
-              <div class="regeneration-options-card p-3 bg-card border border-subtle rounded flex flex-col gap-2">
-                <div class="flex items-center justify-between">
-                  <span class="text-xs font-semibold text-main">Redrafting Options &amp; Tone</span>
-                </div>
-
-                <div class="grid grid-cols-2 gap-2">
-                  <div class="form-group">
-                    <label class="text-xs text-muted">Desired Tone</label>
-                    <select v-model="coverLetterTone" class="form-select form-select-sm text-xs">
-                      <option v-for="t in COVER_LETTER_TONES" :key="t.code" :value="t.code">
-                        {{ t.label }}
-                      </option>
-                    </select>
-                  </div>
-
-                  <div class="form-group">
-                    <label class="text-xs text-muted">Custom Instructions (Optional)</label>
-                    <input
-                      v-model="coverLetterInstructions"
-                      type="text"
-                      placeholder="e.g. Highlight distributed systems, emphasize remote leadership..."
-                      class="form-input form-input-sm text-xs"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="isEditingCoverLetterModal" class="mt-2">
-                <textarea
-                  v-model="editableCoverLetterText"
-                  rows="14"
-                  class="form-textarea font-mono text-xs w-full"
-                ></textarea>
-              </div>
-
-              <div v-else class="cl-modal-preview mt-2 font-mono text-xs whitespace-pre-wrap p-3 bg-card border border-subtle rounded max-h-96 overflow-y-auto">
-                {{ editableCoverLetterText || selectedCoverLetterTask?.result_json?.cover_letter_text }}
-              </div>
-            </div>
-          </div>
-
-          <div class="inner-modal-footer">
-            <button class="btn btn-secondary btn-sm" @click="isCoverLetterModalOpen = false">Close</button>
-          </div>
-        </div>
-      </div>
-    </Transition>
 
     <!-- Batch Actions Floating Bar -->
     <Transition name="slide-up">
