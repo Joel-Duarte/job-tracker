@@ -356,22 +356,6 @@ onUnmounted(() => {
                 </div>
               </Transition>
             </div>
-
-            <!-- Empty Drafting State vs Active Editor -->
-            <div v-if="!editableText && !application?.cover_letter_text" class="empty-draft-card">
-              <div class="empty-draft-icon">
-                <Sparkles :size="28" class="text-primary" />
-              </div>
-              <h4 class="empty-draft-title">No Cover Letter Drafted Yet</h4>
-              <p class="empty-draft-desc">
-                Select your preferred tone and custom instructions above, then click Generate New Version or start typing below.
-              </p>
-              <button class="btn btn-primary btn-generate" @click="handleGenerateCoverLetter">
-                <Sparkles :size="15" />
-                <span>Generate Cover Letter</span>
-              </button>
-            </div>
-
             <!-- Editor Section -->
             <div class="editor-container">
               <div class="editor-toolbar">
