@@ -168,15 +168,29 @@ async def _execute_cv_extraction_steps(
             await db.commit()
             return
 
+        current_json = dict(task.result_json or {})
+        checkpoint = dict(current_json.get("_checkpoint") or {})
+
         # Stage 1: SCRUBBING
-        task.stage = "SCRUBBING"
-        await db.commit()
+        if not checkpoint.get("scrubbed"):
+            task.stage = "SCRUBBING"
+            checkpoint["scrubbed"] = True
+            current_json["_checkpoint"] = checkpoint
+            task.result_json = current_json
+            await db.commit()
 
         # Stage 2: EXTRACTING
-        task.stage = "EXTRACTING"
-        await db.commit()
+        extracted_data = checkpoint.get("extracted_data")
+        if not extracted_data:
+            task.stage = "EXTRACTING"
+            await db.commit()
 
-        anonymized_result = await anonymize_and_parse_cv(db, raw_text)
+            anonymized_result = await anonymize_and_parse_cv(db, raw_text)
+            extracted_data = anonymized_result.model_dump()
+            checkpoint["extracted_data"] = extracted_data
+            current_json["_checkpoint"] = checkpoint
+            task.result_json = current_json
+            await db.commit()
 
         # Stage 3: SAVING
         task.stage = "SAVING"
@@ -188,37 +202,39 @@ async def _execute_cv_extraction_steps(
         stmt_delete = delete(CandidateCVModel)
         await db.execute(stmt_delete)
 
-        # Build domain_experience list of dicts
+        domain_breakdown = extracted_data.get("domain_breakdown") or []
+        domain_expertise = extracted_data.get("domain_expertise") or []
+        total_years = extracted_data.get("total_years_experience") or 0.0
+
         raw_breakdown = [
             item.model_dump() if hasattr(item, "model_dump") else item
-            for item in (anonymized_result.domain_breakdown or [])
+            for item in domain_breakdown
         ]
-        if not raw_breakdown and anonymized_result.domain_expertise:
+        if not raw_breakdown and domain_expertise:
             raw_breakdown = [
                 {
                     "domain": d,
                     "years": max(
                         1.0,
                         round(
-                            anonymized_result.total_years_experience
-                            / max(1, len(anonymized_result.domain_expertise)),
+                            total_years / max(1, len(domain_expertise)),
                             1,
                         ),
                     ),
                     "is_active": True,
                 }
-                for d in anonymized_result.domain_expertise
+                for d in domain_expertise
             ]
 
         cv_record = CandidateCVModel(
             raw_text=raw_text,
-            anonymized_text=anonymized_result.anonymized_resume,
-            extracted_skills=anonymized_result.extracted_skills,
-            years_of_experience=anonymized_result.total_years_experience,
-            domain_expertise=anonymized_result.domain_expertise,
+            anonymized_text=extracted_data.get("anonymized_resume"),
+            extracted_skills=extracted_data.get("extracted_skills") or [],
+            years_of_experience=total_years,
+            domain_expertise=domain_expertise,
             domain_experience=raw_breakdown,
-            core_competencies=anonymized_result.core_competencies,
-            summary=anonymized_result.summary,
+            core_competencies=extracted_data.get("core_competencies") or [],
+            summary=extracted_data.get("summary"),
             is_active=True,
         )
         db.add(cv_record)
@@ -280,14 +296,24 @@ async def _execute_evaluation_steps(
             return
 
         try:
-            content = task.raw_text
+            current_json = dict(task.result_json or {})
+            checkpoint = dict(current_json.get("_checkpoint") or {})
+
+            content = task.raw_text or checkpoint.get("content")
             clean_job_url = normalize_job_url(task.job_url)
 
             # Stage 1: Fetch URL if content not already provided
             if not content and clean_job_url:
+                task.stage = "FETCHING"
+                await db.commit()
+
                 scraped = await scrape_job_url(clean_job_url)
                 if scraped.text:
                     content = scraped.text
+                    checkpoint["content"] = content
+                    current_json["_checkpoint"] = checkpoint
+                    task.result_json = current_json
+                    await db.commit()
 
             if not content or not content.strip():
                 task.status = "FAILED"
@@ -311,42 +337,70 @@ async def _execute_evaluation_steps(
                 return
 
             # Stage 2: Extract Specs
-            task.stage = "EXTRACTING"
-            await db.commit()
-
-            job_spec = await extract_job_spec(db, content)
-            if not job_spec.job_found:
-                task.status = "FAILED"
-                task.stage = "FAILED"
-                task.error_message = "NO_JOB_FOUND: The scraped page or input text did not contain an active job description or vacancy."
-                task.completed_at = datetime.now(UTC)
+            spec_dict = checkpoint.get("structured_spec")
+            if not spec_dict:
+                task.stage = "EXTRACTING"
                 await db.commit()
-                ctx["error"] = task.error_message
-                ctx["outputs"] = {"status": task.status, "stage": task.stage}
-                return
+
+                job_spec = await extract_job_spec(db, content)
+                if not job_spec.job_found:
+                    task.status = "FAILED"
+                    task.stage = "FAILED"
+                    task.error_message = "NO_JOB_FOUND: The scraped page or input text did not contain an active job description or vacancy."
+                    task.completed_at = datetime.now(UTC)
+                    await db.commit()
+                    ctx["error"] = task.error_message
+                    ctx["outputs"] = {"status": task.status, "stage": task.stage}
+                    return
+
+                spec_dict = job_spec.model_dump()
+                checkpoint["structured_spec"] = spec_dict
+                current_json["_checkpoint"] = checkpoint
+                task.result_json = current_json
+                await db.commit()
 
             # Stage 3: CV Keyword Overlap Matching
-            task.stage = "MATCHING"
-            cv_stmt = select(CandidateCVModel).limit(1)
-            cv_res = await db.execute(cv_stmt)
-            active_cv = cv_res.scalars().first()
-            candidate_skills = active_cv.extracted_skills if active_cv else []
+            match_info = checkpoint.get("match_info")
+            candidate_skills = checkpoint.get("candidate_skills")
+            active_domains_str = checkpoint.get("active_domains_str")
+            candidate_cv_text = checkpoint.get("candidate_cv_text")
 
-            match_info = compute_programmatic_skill_match(candidate_skills, content)
-            await db.commit()
+            if match_info is None or candidate_skills is None:
+                task.stage = "MATCHING"
+                await db.commit()
 
-            # Format active domain experience breakdown string
-            active_domains_str = None
-            if active_cv and active_cv.domain_experience:
-                active_list = [
-                    f"{item['domain']} ({item['years']} yrs)"
-                    for item in active_cv.domain_experience
-                    if item.get("is_active", True)
-                ]
-                if active_list:
-                    active_domains_str = ", ".join(active_list)
-            elif active_cv and active_cv.domain_expertise:
-                active_domains_str = ", ".join(active_cv.domain_expertise)
+                cv_stmt = select(CandidateCVModel).limit(1)
+                cv_res = await db.execute(cv_stmt)
+                active_cv = cv_res.scalars().first()
+                candidate_skills = active_cv.extracted_skills if active_cv else []
+
+                match_info = compute_programmatic_skill_match(candidate_skills, content)
+
+                active_domains_str = None
+                if active_cv and active_cv.domain_experience:
+                    active_list = [
+                        f"{item['domain']} ({item['years']} yrs)"
+                        for item in active_cv.domain_experience
+                        if item.get("is_active", True)
+                    ]
+                    if active_list:
+                        active_domains_str = ", ".join(active_list)
+                elif active_cv and active_cv.domain_expertise:
+                    active_domains_str = ", ".join(active_cv.domain_expertise)
+
+                candidate_cv_text = (
+                    active_cv.anonymized_text or active_cv.raw_text
+                    if active_cv
+                    else None
+                )
+
+                checkpoint["match_info"] = match_info
+                checkpoint["candidate_skills"] = candidate_skills
+                checkpoint["active_domains_str"] = active_domains_str
+                checkpoint["candidate_cv_text"] = candidate_cv_text
+                current_json["_checkpoint"] = checkpoint
+                task.result_json = current_json
+                await db.commit()
 
             # Stage 4: Qualitative AI Fit Assessment
             task.stage = "ASSESSING"
@@ -356,12 +410,13 @@ async def _execute_evaluation_steps(
                 db,
                 content,
                 candidate_skills=candidate_skills,
-                candidate_cv=active_cv.anonymized_text or active_cv.raw_text
-                if active_cv
-                else None,
+                candidate_cv=candidate_cv_text,
                 candidate_domain_breakdown=active_domains_str,
                 programmatic_baseline=match_info.get("programmatic_score", 0),
             )
+
+            task.stage = "SAVING"
+            await db.commit()
 
             # Persist to database (or route to staging if duplicate)
             save_result = await persist_or_stage_job_assessment(
@@ -371,7 +426,7 @@ async def _execute_evaluation_steps(
                 job_url=clean_job_url,
                 force_new=False,
                 target_status="ASSESSMENT",
-                structured_spec=job_spec.model_dump(),
+                structured_spec=spec_dict,
             )
 
             # Completed Successfully
@@ -462,11 +517,14 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
             if not task or task.status == "CANCELLED":
                 return
             task.status = "PROCESSING"
-            task.stage = (
-                "SCRUBBING"
-                if task.task_type == "CV_EXTRACTION"
-                else ("GENERATING" if task.task_type == "COVER_LETTER" else "FETCHING")
-            )
+            if not task.stage or task.stage in ["QUEUED", "FAILED", "CANCELLED"]:
+                task.stage = (
+                    "SCRUBBING"
+                    if task.task_type == "CV_EXTRACTION"
+                    else (
+                        "GENERATING" if task.task_type == "COVER_LETTER" else "FETCHING"
+                    )
+                )
             await db.commit()
             await _execute_evaluation_steps(task, db)
             return
@@ -477,11 +535,14 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
                 return
 
             task.status = "PROCESSING"
-            task.stage = (
-                "SCRUBBING"
-                if task.task_type == "CV_EXTRACTION"
-                else ("GENERATING" if task.task_type == "COVER_LETTER" else "FETCHING")
-            )
+            if not task.stage or task.stage in ["QUEUED", "FAILED", "CANCELLED"]:
+                task.stage = (
+                    "SCRUBBING"
+                    if task.task_type == "CV_EXTRACTION"
+                    else (
+                        "GENERATING" if task.task_type == "COVER_LETTER" else "FETCHING"
+                    )
+                )
             await session.commit()
 
             await _execute_evaluation_steps(task, session)
