@@ -632,12 +632,23 @@ onMounted(() => {
 }
 
 /* Data Table */
+.table-responsive {
+  max-height: 560px;
+  overflow: auto;
+  position: relative;
+}
+
 .data-table {
   width: 100%;
-  border-collapse: collapse;
+  min-width: 750px;
+  border-collapse: separate;
+  border-spacing: 0;
 }
 
 .data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   text-align: left;
   padding: 12px 18px;
   font-size: 11px;

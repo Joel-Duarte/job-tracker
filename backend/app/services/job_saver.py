@@ -15,7 +15,6 @@ from app.models.applications import (
 from app.models.staging import StagingItemModel
 from app.schemas.llm import JobAssessmentResult
 from app.services.domain_resolver import resolve_company_domain
-from app.services.llm import generate_and_save_application_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -167,23 +166,11 @@ async def persist_or_stage_job_assessment(
     await db.refresh(app_record)
     await db.refresh(event)
 
-    # 6. Generate Vector Embedding (Only when application is moved into active stages e.g. APPLIED, TECHNICAL_INTERVIEW, etc., never in ASSESSMENT)
-    if app_record.status != "ASSESSMENT":
-        try:
-            await generate_and_save_application_embedding(
-                db, app_record.id, skip_llm_summary=True
-            )
-        except Exception as err:
-            logger.warning(
-                "Vector embedding generation deferred for Application %d: %s",
-                app_record.id,
-                err,
-            )
-    else:
-        logger.info(
-            "Application %d is in ASSESSMENT stage; vector embedding deferred until moved to APPLIED.",
-            app_record.id,
-        )
+    # 6. Vector embedding generation is deferred during job assessment persistence in intake flows.
+    logger.info(
+        "Application %d created via intake job assessment; vector embedding deferred to application management lifecycle.",
+        app_record.id,
+    )
 
     logger.info(
         "Successfully persisted job assessment for '%s - %s' to Application %d",
