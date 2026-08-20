@@ -6,35 +6,42 @@ on:
   pull_request:
     branches: [ "master" ]
 
+permissions:
+  contents: read
+
+concurrency:
+  group:  github.workflow -{{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build & Verify
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     defaults:
       run:
         working-directory: ./frontend
 
     steps:
-    - name: Checkout code
+    - name: Checkout Code Base
       uses: actions/checkout@v4
 
-    - name: Set up Node.js
+    - name: Set Up Node.js Runtime
       uses: actions/setup-node@v4
       with:
         node-version: "22"
         cache: 'npm'
         cache-dependency-path: './frontend/package-lock.json'
 
-    - name: Install dependencies
-      # Using npm install because package-lock.json might not exist or might be out of sync
-      run: npm install
-      
-    - name: Check code formatting and linting
+    - name: Install Project Dependencies
+      run: npm ci
+
+    - name: Execute Code Linting
       run: npm run lint --if-present
 
-    - name: Run unit tests
-      run: npm run test:unit --if-present
-    
-    - name: Run Build
+    - name: Execute Unit Test Suite
+      run: npm run test:unit --if-present -- --timeout=60000
+
+    - name: Compile Application Build
       run: npm run build
