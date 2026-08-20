@@ -31,9 +31,7 @@ async def test_evaluation_task_checkpoint_and_resume_unit():
     mock_db = AsyncMock()
     mock_db.execute = AsyncMock(return_value=mock_exec_res)
 
-    mock_scraped_text = (
-        "Acme Corp - Senior Software Engineer\nRequirements: Python, Postgres"
-    )
+    mock_scraped_text = "Acme Corp - Senior Software Engineer\nRequirements and Responsibilities: Python, Postgres\nSkills: Python, Postgres"
     mock_job_spec = ExtractedJobSpec(
         job_found=True,
         company="Acme Corp",
@@ -142,7 +140,7 @@ async def test_evaluation_task_checkpoint_and_resume(db_session):
     await db_session.commit()
     await db_session.refresh(task)
 
-    mock_scraped_text = "Beta Co - Frontend Engineer\nRequirements: Vue, TypeScript"
+    mock_scraped_text = "Beta Co - Frontend Engineer\nRequirements and Responsibilities: Vue, TypeScript\nSkills: Vue, TypeScript"
     mock_job_spec = ExtractedJobSpec(
         job_found=True,
         company="Beta Co",
