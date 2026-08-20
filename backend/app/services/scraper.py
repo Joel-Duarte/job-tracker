@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.url_utils import normalize_job_url
 from app.services.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
@@ -117,7 +118,7 @@ def validate_target_url(url: str) -> str:
     Validates URL protocol and private IP / loopback address validation (SSRF prevention).
     Returns the cleaned URL if valid, or raises ValueError if invalid or targeting private/local networks.
     """
-    cleaned_url = url.strip()
+    cleaned_url = normalize_job_url(url) or url.strip()
     if not cleaned_url.startswith(("http://", "https://")):
         cleaned_url = f"https://{cleaned_url}"
 

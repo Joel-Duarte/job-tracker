@@ -11,6 +11,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 import app.services.llm as llm_service
 from app.core.config_manager import get_setting
+from app.core.url_utils import normalize_job_url
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
@@ -147,13 +148,16 @@ async def extraction_node(
     pos_clean = None if (not pos or pos == "unknownPosition") else pos
     comp = extracted_dict.get("company")
 
+    raw_job_url = extracted_dict.get("job_url")
+    clean_job_url = normalize_job_url(raw_job_url) if raw_job_url else None
+
     is_app = (email_type == "JOB_APPLICATION") or bool(comp and pos_clean)
     return {
         "extracted_data": extracted_dict,
         "is_application": is_app,
         "company_name": comp,
         "position_name": pos_clean,
-        "job_url": extracted_dict.get("job_url"),
+        "job_url": clean_job_url,
         "route": "match" if is_app else "other_event",
     }
 
@@ -300,7 +304,7 @@ async def staging_node(
 async def scrape_enrich_node(
     state: JobTrackerState, config: RunnableConfig
 ) -> dict[str, Any]:
-    job_url = state.get("job_url")
+    job_url = normalize_job_url(state.get("job_url"))
     scraped_text = None
     if job_url:
         logger.info("External job URL detected: %s. Scrape hook triggered.", job_url)
@@ -383,12 +387,13 @@ async def db_commit_node(
     status_val = stage_mapping.get(raw_status, "APPLIED")
 
     if not application_id:
+        raw_job_url = extracted.get("job_url") or state.get("job_url")
         application = ApplicationModel(
             company_id=company_id,
             position=position,
             position_normalized=position.strip().lower(),
             external_job_id=extracted.get("external_job_id"),
-            job_url=extracted.get("job_url"),
+            job_url=normalize_job_url(raw_job_url) if raw_job_url else None,
             status=status_val,
         )
         db.add(application)

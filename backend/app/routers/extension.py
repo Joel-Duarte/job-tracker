@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.url_utils import normalize_job_url
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
@@ -53,6 +54,7 @@ async def clip_job_url(
     Receives a job posting URL, scrapes page text (or uses pre-captured HTML),
     and routes through the LangGraph extraction and ingestion pipeline.
     """
+    clean_url = normalize_job_url(payload.url) or payload.url
     page_text = ""
 
     if payload.raw_html:
@@ -60,13 +62,13 @@ async def clip_job_url(
     else:
         from app.services.scraper import scrape_job_url
 
-        scraped = await scrape_job_url(payload.url)
-        page_text = scraped.text or f"Job Posting URL: {payload.url}"
+        scraped = await scrape_job_url(clean_url)
+        page_text = scraped.text or f"Job Posting URL: {clean_url}"
 
     if not page_text:
-        page_text = f"Job URL: {payload.url}\nNotes: {payload.notes or ''}"
+        page_text = f"Job URL: {clean_url}\nNotes: {payload.notes or ''}"
 
-    content_hash = hashlib.sha256(payload.url.encode("utf-8")).hexdigest()[:16]
+    content_hash = hashlib.sha256(clean_url.encode("utf-8")).hexdigest()[:16]
     msg_id = f"ext-url-{content_hash}"
     conv_id = f"conv-ext-{content_hash}"
 
@@ -74,7 +76,7 @@ async def clip_job_url(
         conversation_id=conv_id,
         message_id=msg_id,
         received_at=datetime.now(UTC),
-        subject=f"Job Clip: {payload.url}",
+        subject=f"Job Clip: {clean_url}",
         body=page_text[:15000],  # Guard token length
     )
 
@@ -117,6 +119,7 @@ async def clip_job_pre_extracted(
     """
     company_norm = payload.company.strip().lower()
     position_norm = payload.position.strip().lower()
+    clean_url = normalize_job_url(payload.url)
 
     # Find or create Company
     comp_stmt = select(CompanyModel).where(CompanyModel.name_normalized == company_norm)
@@ -146,7 +149,7 @@ async def clip_job_pre_extracted(
             position=payload.position.strip(),
             position_normalized=position_norm,
             external_job_id=payload.external_job_id,
-            job_url=payload.url,
+            job_url=clean_url,
             status=payload.status or "APPLIED",
         )
         db.add(application)
@@ -154,8 +157,8 @@ async def clip_job_pre_extracted(
     else:
         if payload.status:
             application.status = payload.status
-        if payload.url and not application.job_url:
-            application.job_url = payload.url
+        if clean_url and not application.job_url:
+            application.job_url = clean_url
 
     # Upsert Job Posting
     jp_stmt = select(JobPostingModel).where(
@@ -167,7 +170,7 @@ async def clip_job_pre_extracted(
     if not job_posting:
         job_posting = JobPostingModel(
             application_id=application.id,
-            job_url=payload.url or f"clip-{application.id}",
+            job_url=clean_url or f"clip-{application.id}",
             description_markdown=payload.description,
             location=payload.location,
             work_model=payload.work_model if hasattr(payload, "work_model") else None,

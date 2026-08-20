@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.url_utils import normalize_job_url
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
@@ -38,7 +39,7 @@ async def persist_or_stage_job_assessment(
     company_norm = company_name.lower()
     position_name = (assessment.position or "Unspecified Position").strip()
     position_norm = position_name.lower()
-    clean_url = job_url.strip() if job_url else None
+    clean_url = normalize_job_url(job_url)
 
     # 1. Check for Duplicate / Existing Application
     if not force_new:
