@@ -1,8 +1,9 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
-import { IntakeAPI } from '../api/endpoints'
+import { useQueueStore } from '../stores/queueStore'
+import PageHeader from '../components/common/PageHeader.vue'
 import {
   Cpu,
   Layers,
@@ -29,13 +30,9 @@ import {
 
 const router = useRouter()
 const uiStore = useUIStore()
-import PageHeader from '../components/common/PageHeader.vue'
+const queueStore = useQueueStore()
 
-const tasks = ref([])
-const loading = ref(false)
 const isClearing = ref(false)
-import { watch } from 'vue'
-
 const retryingTaskIds = ref(new Set())
 const selectedTaskIds = ref(new Set())
 const statusFilter = ref('ALL') // 'ALL' | 'FAILED' | 'RUNNING' | 'PENDING' | 'COMPLETED'
@@ -45,6 +42,9 @@ const showBulkDeleteConfirm = ref(false)
 const isBulkActing = ref(false)
 
 let pollTimer = null
+
+const tasks = computed(() => queueStore.tasks)
+const loading = computed(() => queueStore.loading)
 
 const filteredTasks = computed(() => {
   return tasks.value.filter((t) => {
@@ -70,11 +70,11 @@ const filteredTasks = computed(() => {
   })
 })
 
-const runningCount = computed(() => tasks.value.filter((t) => t.status === 'PROCESSING').length)
-const pendingCount = computed(() => tasks.value.filter((t) => t.status === 'QUEUED').length)
-const activeCount = computed(() => runningCount.value + pendingCount.value)
-const completedCount = computed(() => tasks.value.filter((t) => t.status === 'COMPLETED').length)
-const failedCount = computed(() => tasks.value.filter((t) => ['FAILED', 'CANCELLED'].includes(t.status)).length)
+const runningCount = computed(() => queueStore.runningCount)
+const pendingCount = computed(() => queueStore.pendingCount)
+const activeCount = computed(() => queueStore.activeCount)
+const completedCount = computed(() => queueStore.completedCount)
+const failedCount = computed(() => queueStore.failedCount)
 
 const isAllSelected = computed(() => {
   if (filteredTasks.value.length === 0) return false
@@ -121,25 +121,15 @@ function clearSelection() {
 }
 
 async function fetchTasks(silent = false) {
-  if (!silent) loading.value = true
-  try {
-    const res = await IntakeAPI.getEvaluations(100)
-    tasks.value = res.data || []
-  } catch (err) {
-    if (!silent) uiStore.showToast(err.message, 'error')
-  } finally {
-    if (!silent) loading.value = false
-  }
+  await queueStore.fetchTasks(silent)
 }
 
 async function retryTask(taskId) {
   retryingTaskIds.value.add(taskId)
   try {
-    await IntakeAPI.retryEvaluation(taskId)
-    uiStore.showToast(`Task #${taskId} re-queued for execution!`, 'success')
-    await fetchTasks(true)
+    await queueStore.retryTask(taskId)
   } catch (err) {
-    uiStore.showToast(err.message || 'Failed to retry task', 'error')
+    // Error handled in store
   } finally {
     retryingTaskIds.value.delete(taskId)
   }
@@ -147,16 +137,14 @@ async function retryTask(taskId) {
 
 async function deleteTask(taskId) {
   try {
-    await IntakeAPI.deleteEvaluation(taskId)
-    tasks.value = tasks.value.filter((t) => t.id !== taskId)
+    await queueStore.deleteTask(taskId)
     if (selectedTaskIds.value.has(taskId)) {
       const newSet = new Set(selectedTaskIds.value)
       newSet.delete(taskId)
       selectedTaskIds.value = newSet
     }
-    uiStore.showToast(`Task #${taskId} dismissed`, 'info')
   } catch (err) {
-    uiStore.showToast(err.message, 'error')
+    // Error handled in store
   }
 }
 
@@ -165,14 +153,10 @@ async function bulkRetrySelected() {
   isBulkActing.value = true
   const ids = Array.from(selectedTaskIds.value)
   try {
-    const res = await IntakeAPI.bulkRetryEvaluations(ids)
-    const affected = res.data?.affected_count ?? 0
-    const skipped = res.data?.skipped_count ?? 0
-    uiStore.showToast(`Bulk retry completed: ${affected} retried, ${skipped} skipped`, 'success')
+    await queueStore.bulkRetryTasks(ids)
     clearSelection()
-    await fetchTasks(true)
   } catch (err) {
-    uiStore.showToast(err.message || 'Failed to bulk retry tasks', 'error')
+    // Error handled in store
   } finally {
     isBulkActing.value = false
   }
@@ -183,15 +167,11 @@ async function bulkDeleteSelected() {
   isBulkActing.value = true
   const ids = Array.from(selectedTaskIds.value)
   try {
-    const res = await IntakeAPI.bulkDeleteEvaluations(ids)
-    const deleted = res.data?.deleted_count ?? 0
-    const skipped = res.data?.skipped_count ?? 0
-    uiStore.showToast(`Bulk delete completed: ${deleted} deleted, ${skipped} skipped`, 'info')
+    await queueStore.bulkDeleteTasks(ids)
     showBulkDeleteConfirm.value = false
     clearSelection()
-    await fetchTasks(true)
   } catch (err) {
-    uiStore.showToast(err.message || 'Failed to bulk delete tasks', 'error')
+    // Error handled in store
   } finally {
     isBulkActing.value = false
   }
@@ -200,11 +180,9 @@ async function bulkDeleteSelected() {
 async function clearCompleted() {
   isClearing.value = true
   try {
-    const res = await IntakeAPI.clearCompletedEvaluations()
-    uiStore.showToast(`Cleared ${res.data.cleared_count || 0} completed/failed tasks`, 'success')
-    await fetchTasks(true)
+    await queueStore.clearCompletedTasks()
   } catch (err) {
-    uiStore.showToast(err.message, 'error')
+    // Error handled in store
   } finally {
     isClearing.value = false
   }
@@ -1439,7 +1417,7 @@ onUnmounted(() => {
 @keyframes pulse-ring {
   0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.8); }
   70% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(255, 255, 255, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.8); }
 }
 
 @media (max-width: 768px) {
