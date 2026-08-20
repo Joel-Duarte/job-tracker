@@ -216,6 +216,7 @@ async def get_global_settings(
         AGENT_CHAT_RETENTION_DAYS=settings.get("AGENT_CHAT_RETENTION_DAYS", 7),
         ENABLE_AUTO_COVER_LETTER=settings.get("ENABLE_AUTO_COVER_LETTER", False),
         COVER_LETTER_MATCH_THRESHOLD=settings.get("COVER_LETTER_MATCH_THRESHOLD", 70),
+        COVER_LETTER_LENGTH=settings.get("COVER_LETTER_LENGTH", "standard"),
     )
 
 
@@ -233,12 +234,15 @@ async def update_global_settings(
         settings["ENABLE_AUTO_COVER_LETTER"] = payload.ENABLE_AUTO_COVER_LETTER
     if payload.COVER_LETTER_MATCH_THRESHOLD is not None:
         settings["COVER_LETTER_MATCH_THRESHOLD"] = payload.COVER_LETTER_MATCH_THRESHOLD
+    if payload.COVER_LETTER_LENGTH is not None:
+        settings["COVER_LETTER_LENGTH"] = payload.COVER_LETTER_LENGTH
     await save_settings(settings, db)
     return GlobalSettingsRead(
         ENABLE_EMBEDDINGS=settings.get("ENABLE_EMBEDDINGS", True),
         AGENT_CHAT_RETENTION_DAYS=settings.get("AGENT_CHAT_RETENTION_DAYS", 7),
         ENABLE_AUTO_COVER_LETTER=settings.get("ENABLE_AUTO_COVER_LETTER", False),
         COVER_LETTER_MATCH_THRESHOLD=settings.get("COVER_LETTER_MATCH_THRESHOLD", 70),
+        COVER_LETTER_LENGTH=settings.get("COVER_LETTER_LENGTH", "standard"),
     )
 
 

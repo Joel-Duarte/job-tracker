@@ -6,6 +6,7 @@ class GlobalSettingsUpdate(BaseModel):
     AGENT_CHAT_RETENTION_DAYS: int | None = None
     ENABLE_AUTO_COVER_LETTER: bool | None = None
     COVER_LETTER_MATCH_THRESHOLD: int | None = None
+    COVER_LETTER_LENGTH: str | None = None
 
 
 class GlobalSettingsRead(BaseModel):
@@ -13,3 +14,4 @@ class GlobalSettingsRead(BaseModel):
     AGENT_CHAT_RETENTION_DAYS: int
     ENABLE_AUTO_COVER_LETTER: bool = False
     COVER_LETTER_MATCH_THRESHOLD: int = 70
+    COVER_LETTER_LENGTH: str = "standard"

@@ -93,6 +93,7 @@ async def _execute_cover_letter_steps(
         )
 
         tone_val = (task.result_json or {}).get("tone") or "professional"
+        length_val = (task.result_json or {}).get("length")
         instructions_val = (task.result_json or {}).get("custom_instructions")
 
         cl_text = await generate_cover_letter(
@@ -102,6 +103,7 @@ async def _execute_cover_letter_steps(
             job_description=job_desc,
             candidate_cv=cv_text,
             tone=tone_val,
+            length=length_val,
             custom_instructions=instructions_val,
         )
 
@@ -119,6 +121,7 @@ async def _execute_cover_letter_steps(
             "company": company_name,
             "position": position_name,
             "tone": tone_val,
+            "length": length_val,
         }
         task.completed_at = datetime.now(UTC)
 

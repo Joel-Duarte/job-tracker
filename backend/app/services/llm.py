@@ -304,15 +304,30 @@ async def generate_cover_letter(
     job_description: str,
     candidate_cv: str,
     tone: str | None = "professional",
+    length: str | None = None,
     custom_instructions: str | None = None,
 ) -> str:
     """
     Generates a tailored cover letter using the COVER_LETTER task type and PostgresTracer.
     Returns the cover letter markdown string.
     """
+    from app.core.config_manager import get_setting
+
     cleaned_jd = truncate_text_semantically(job_description)
     cleaned_cv = truncate_text_semantically(candidate_cv)
     tone_str = (tone or "professional").strip().lower()
+
+    if not length:
+        length = await get_setting("COVER_LETTER_LENGTH", "standard", db=db)
+    length_code = str(length or "standard").strip().lower()
+
+    length_map = {
+        "concise": "Concise (~150 words)",
+        "standard": "Standard (~300 words)",
+        "detailed": "Detailed (~450 words)",
+    }
+    length_formatted = length_map.get(length_code, f"{length_code.capitalize()} length")
+
     instructions_str = (
         f"\nCustom User Instructions: {custom_instructions.strip()}"
         if custom_instructions and custom_instructions.strip()
@@ -326,6 +341,7 @@ async def generate_cover_letter(
             "company_name": company_name,
             "position": position,
             "tone": tone_str,
+            "length": length_code,
             "jd_length": len(cleaned_jd),
             "cv_length": len(cleaned_cv),
         },
@@ -356,6 +372,7 @@ async def generate_cover_letter(
                 "job_description": cleaned_jd or "No detailed description provided.",
                 "candidate_cv": cleaned_cv or "No CV provided.",
                 "tone": tone_str,
+                "length": length_formatted,
                 "custom_instructions": instructions_str,
             },
             config={"callbacks": [PostgresTracer()]},

@@ -41,16 +41,20 @@ def test_cover_letter_schemas():
         AGENT_CHAT_RETENTION_DAYS=7,
         ENABLE_AUTO_COVER_LETTER=True,
         COVER_LETTER_MATCH_THRESHOLD=75,
+        COVER_LETTER_LENGTH="concise",
     )
     assert gs_read.ENABLE_AUTO_COVER_LETTER is True
     assert gs_read.COVER_LETTER_MATCH_THRESHOLD == 75
+    assert gs_read.COVER_LETTER_LENGTH == "concise"
 
     gs_update = GlobalSettingsUpdate(
         ENABLE_AUTO_COVER_LETTER=False,
         COVER_LETTER_MATCH_THRESHOLD=80,
+        COVER_LETTER_LENGTH="detailed",
     )
     assert gs_update.ENABLE_AUTO_COVER_LETTER is False
     assert gs_update.COVER_LETTER_MATCH_THRESHOLD == 80
+    assert gs_update.COVER_LETTER_LENGTH == "detailed"
 
 
 def test_cover_letter_prompt_template_exists():
@@ -60,6 +64,7 @@ def test_cover_letter_prompt_template_exists():
     assert "{position}" in template
     assert "{job_description}" in template
     assert "{candidate_cv}" in template
+    assert "{length}" in template
 
 
 @pytest.mark.asyncio
