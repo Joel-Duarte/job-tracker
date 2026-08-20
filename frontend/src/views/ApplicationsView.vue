@@ -13,6 +13,7 @@ import {
   normalizeWorkModel,
   formatSalaryRange,
 } from '../utils/formatters'
+import { getFitScores } from '../utils/fitScores'
 import {
   Search,
   Kanban,
@@ -280,17 +281,8 @@ function formatDate(isoStr) {
   }
 }
 
-function getAppMatchScore(app) {
-  if (!app) return null
-  if (app.match_score !== undefined && app.match_score !== null) {
-    return Number(app.match_score)
-  }
-  const payload = app.match_analysis_payload || {}
-  const score = payload.match_score ?? payload.fit_score ?? payload.overall_fit_score
-  if (score !== undefined && score !== null) {
-    return Number(score)
-  }
-  return null
+function getAppFitScores(app) {
+  return getFitScores(app)
 }
 
 function getMatchScoreTierClass(score) {
@@ -795,14 +787,20 @@ async function confirmDelete() {
 
                 <td class="cell-match">
                   <div
-                    v-if="getAppMatchScore(app) !== null"
-                    class="match-score-pill table-match-pill"
-                    :class="getMatchScoreTierClass(getAppMatchScore(app))"
+                    class="dual-match-pills table-match-pills"
+                    :title="`Algo Overlap: ${getAppFitScores(app).computedText} | AI Fit: ${getAppFitScores(app).aiText}`"
                   >
-                    <Sparkles :size="10" class="match-pill-icon" />
-                    <span>{{ getAppMatchScore(app) }}%</span>
+                    <span class="match-score-pill algo-pill">
+                      Algo: {{ getAppFitScores(app).computedText }}
+                    </span>
+                    <span
+                      class="match-score-pill ai-pill"
+                      :class="getMatchScoreTierClass(getAppFitScores(app).aiScore)"
+                    >
+                      <Sparkles :size="10" class="match-pill-icon" />
+                      <span>AI: {{ getAppFitScores(app).aiText }}</span>
+                    </span>
                   </div>
-                  <span v-else class="text-muted text-xs">—</span>
                 </td>
 
                 <td class="text-right cell-actions" @click.stop>
@@ -909,25 +907,23 @@ async function confirmDelete() {
 
                 <div class="card-header-actions" @click.stop>
                   <div class="card-hover-actions">
-                    <!-- Assessment Button -->
-                    <button
-                      v-if="getAppMatchScore(app) !== null"
-                      class="match-score-pill"
-                      :class="getMatchScoreTierClass(getAppMatchScore(app))"
-                      :title="`Role Match Fit: ${getAppMatchScore(app)}% - View Assessment`"
+                    <!-- Assessment Dual Badges -->
+                    <div
+                      class="dual-match-pills card-match-pills"
+                      :title="`Algo Overlap: ${getAppFitScores(app).computedText} | AI Fit: ${getAppFitScores(app).aiText} - View Assessment`"
                       @click="openMatchAnalysisModal(app.id)"
                     >
-                      <Sparkles :size="10" class="match-pill-icon" />
-                      <span>{{ getAppMatchScore(app) }}%</span>
-                    </button>
-                    <button
-                      v-else
-                      class="card-hover-icon-btn"
-                      title="View Assessment"
-                      @click="openMatchAnalysisModal(app.id)"
-                    >
-                      <Sparkles :size="12" />
-                    </button>
+                      <span class="match-score-pill algo-pill">
+                        Algo: {{ getAppFitScores(app).computedText }}
+                      </span>
+                      <span
+                        class="match-score-pill ai-pill"
+                        :class="getMatchScoreTierClass(getAppFitScores(app).aiScore)"
+                      >
+                        <Sparkles :size="10" class="match-pill-icon" />
+                        <span>AI: {{ getAppFitScores(app).aiText }}</span>
+                      </span>
+                    </div>
 
                     <!-- Interview Guide Button (Generate / See Generated) -->
                     <button
@@ -1099,14 +1095,20 @@ async function confirmDelete() {
                   <div class="position-title-row">
                     <span class="position-title">{{ app.position || '—' }}</span>
                     <div
-                      v-if="getAppMatchScore(app) !== null"
-                      class="match-score-pill table-match-pill"
-                      :class="getMatchScoreTierClass(getAppMatchScore(app))"
-                      :title="`Role Match Fit: ${getAppMatchScore(app)}%`"
+                      class="dual-match-pills table-match-pills"
+                      :title="`Algo Overlap: ${getAppFitScores(app).computedText} | AI Fit: ${getAppFitScores(app).aiText}`"
                       @click="openMatchAnalysisModal(app.id)"
                     >
-                      <Sparkles :size="10" class="match-pill-icon" />
-                      <span>{{ getAppMatchScore(app) }}%</span>
+                      <span class="match-score-pill algo-pill">
+                        Algo: {{ getAppFitScores(app).computedText }}
+                      </span>
+                      <span
+                        class="match-score-pill ai-pill"
+                        :class="getMatchScoreTierClass(getAppFitScores(app).aiScore)"
+                      >
+                        <Sparkles :size="10" class="match-pill-icon" />
+                        <span>AI: {{ getAppFitScores(app).aiText }}</span>
+                      </span>
                     </div>
                   </div>
                   <div
@@ -1830,7 +1832,14 @@ async function confirmDelete() {
   color: #ffffff;
 }
 
-/* Match Score Pill in Cards & Tables */
+/* Dual Match Pills in Cards & Tables */
+.dual-match-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
 .match-score-pill {
   display: inline-flex;
   align-items: center;
@@ -1842,6 +1851,12 @@ async function confirmDelete() {
   border: 1px solid transparent;
   font-family: var(--font-mono);
   white-space: nowrap;
+}
+
+.match-score-pill.algo-pill {
+  background-color: var(--bg-surface);
+  color: var(--text-secondary);
+  border-color: var(--border-color);
 }
 
 .position-cell-wrapper {

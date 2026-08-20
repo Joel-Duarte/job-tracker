@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useUIStore } from '../stores/uiStore'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { StagingAPI } from '../api/endpoints'
+import { getFitScores } from '../utils/fitScores'
 import {
   Inbox,
   CheckCircle2,
@@ -376,8 +377,8 @@ async function dismissItem(item) {
                 Duplicate Match
               </span>
               <span v-else class="confidence-badge">
-                <span class="confidence-lbl">Match Score:</span>
-                <span class="confidence-val">{{ ((item.match_score || 0) * 100).toFixed(0) }}%</span>
+                <span class="confidence-lbl">Algo: {{ getFitScores(item).computedText }} | AI Fit:</span>
+                <span class="confidence-val">{{ getFitScores(item).aiText }}</span>
               </span>
             </div>
           </div>
