@@ -49,7 +49,8 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
             "AGENT_CHAT_RETENTION_DAYS": model.agent_chat_retention_days,
             "ENABLE_AUTO_COVER_LETTER": model.enable_auto_cover_letter,
             "COVER_LETTER_MATCH_THRESHOLD": model.cover_letter_match_threshold,
-            "COVER_LETTER_LENGTH": getattr(model, "cover_letter_length", "standard") or "standard",
+            "COVER_LETTER_LENGTH": getattr(model, "cover_letter_length", "standard")
+            or "standard",
         }
     except Exception as e:
         logger.error(f"Failed to load global settings from DB: {e}")
@@ -80,7 +81,9 @@ async def save_settings(
                 settings["COVER_LETTER_MATCH_THRESHOLD"]
             )
         if "COVER_LETTER_LENGTH" in settings:
-            model.cover_letter_length = str(settings["COVER_LETTER_LENGTH"]).strip().lower()
+            model.cover_letter_length = (
+                str(settings["COVER_LETTER_LENGTH"]).strip().lower()
+            )
         await session.commit()
 
     try:

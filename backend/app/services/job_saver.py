@@ -3,7 +3,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.url_utils import normalize_job_url
@@ -13,7 +13,6 @@ from app.models.applications import (
     CompanyModel,
     JobPostingModel,
 )
-from app.models.staging import StagingItemModel
 from app.schemas.llm import JobAssessmentResult
 from app.services.domain_resolver import resolve_company_domain
 
@@ -30,9 +29,8 @@ async def persist_or_stage_job_assessment(
     structured_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Persists an AI job assessment to the database in ASSESSMENT status.
-    If an existing application for the normalized company and position (or matching URL) exists,
-    routes to the Staging queue with match_reason="DUPLICATE_APPLICATION_FOUND" unless force_new=True.
+    Persists an AI job assessment to the database in ASSESSMENT status unconditionally as a new application entry.
+    Unrestricted submissions are allowed without duplicate blocking or staging redirects.
     """
     company_name = (assessment.company or "Unknown Company").strip()
     company_norm = company_name.lower()
@@ -40,57 +38,7 @@ async def persist_or_stage_job_assessment(
     position_norm = position_name.lower()
     clean_url = normalize_job_url(job_url)
 
-    # 1. Check for Duplicate / Existing Application
-    if not force_new:
-        # Search by company + position or exact URL
-        dup_query = (
-            select(ApplicationModel)
-            .join(CompanyModel, ApplicationModel.company_id == CompanyModel.id)
-            .where(
-                or_(
-                    (CompanyModel.name_normalized == company_norm)
-                    & (ApplicationModel.position_normalized == position_norm),
-                    (ApplicationModel.job_url == clean_url) if clean_url else False,
-                )
-            )
-        )
-        dup_res = await db.execute(dup_query)
-        existing_app = dup_res.scalars().first()
-
-        if existing_app:
-            logger.info(
-                "Duplicate application detected for '%s' - '%s' (Application ID %d). Routing to Staging.",
-                company_name,
-                position_name,
-                existing_app.id,
-            )
-            staging_item = StagingItemModel(
-                email_subject=f"Duplicate Application Lead: {position_name} at {company_name}",
-                email_raw_body=raw_text
-                or assessment.summary
-                or f"Job assessment for {position_name} at {company_name}",
-                extracted_data=assessment.model_dump(),
-                match_score=1.0,
-                match_reason="DUPLICATE_APPLICATION_FOUND",
-                status="PENDING",
-            )
-            db.add(staging_item)
-            await db.commit()
-            await db.refresh(staging_item)
-
-            return {
-                "status": "staged",
-                "route": "staging",
-                "is_duplicate": True,
-                "staging_item_id": staging_item.id,
-                "existing_application_id": existing_app.id,
-                "company": company_name,
-                "position": position_name,
-                "message": f"Existing application found for '{company_name} - {position_name}'. Routed to Staging Queue for review.",
-                "assessment": assessment.model_dump(),
-            }
-
-    # 2. Find or Create Company
+    # 1. Find or Create Company
     resolved_domain = await resolve_company_domain(
         company_name=company_name,
         source_url=clean_url,

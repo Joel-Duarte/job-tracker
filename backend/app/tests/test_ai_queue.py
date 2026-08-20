@@ -15,7 +15,6 @@ from app.models.applications import (
     JobPostingModel,
 )
 from app.models.intake_tasks import IntakeEvaluationTaskModel
-from app.models.staging import StagingItemModel
 from app.schemas.llm import ExtractedJobSpec, JobAssessmentResult
 from app.services.evaluation_worker import process_evaluation_task
 
@@ -161,7 +160,7 @@ async def test_intake_queue_endpoints_and_worker(db_session: AsyncSession):
 
 
 @pytest.mark.asyncio
-async def test_intake_queue_duplicate_staging_and_resolution(db_session: AsyncSession):
+async def test_intake_queue_unrestricted_submissions(db_session: AsyncSession):
     app.dependency_overrides[get_db] = lambda: db_session
     transport = ASGITransport(app=app)
 
@@ -180,7 +179,7 @@ async def test_intake_queue_duplicate_staging_and_resolution(db_session: AsyncSe
         db_session.add(app_orig)
         await db_session.commit()
 
-        # 2. Enqueue duplicate lead
+        # 2. Enqueue new lead for the same company and position
         with patch("fastapi.BackgroundTasks.add_task"):
             enqueue_res = await ac.post(
                 "/api/v1/intake/enqueue-assessment",
@@ -229,32 +228,13 @@ async def test_intake_queue_duplicate_staging_and_resolution(db_session: AsyncSe
         ):
             await process_evaluation_task(task_id, db=db_session)
 
-        # 3. Verify task stage is STAGED_DUPLICATE
-        dup_task = await db_session.get(IntakeEvaluationTaskModel, task_id)
-        assert dup_task.stage == "STAGED_DUPLICATE"
-        assert dup_task.result_json["is_duplicate"] is True
-        staging_id = dup_task.result_json["staging_item_id"]
-        assert staging_id is not None
-
-        # 4. Verify Staging Item exists
-        staging_item = await db_session.get(StagingItemModel, staging_id)
-        assert staging_item is not None
-        assert staging_item.match_reason == "DUPLICATE_APPLICATION_FOUND"
-        assert staging_item.status == "PENDING"
-
-        # 5. Resolve as NEW application (e.g. re-application)
-        resolve_res = await ac.post(
-            f"/api/v1/staging/{staging_id}/resolve",
-            json={
-                "company_name": "GitHub",
-                "position": "Staff AI Engineer",
-                "status": "ASSESSMENT",
-                "create_new": True,
-            },
-        )
-        assert resolve_res.status_code == 200
-        data = resolve_res.json()
-        new_app_id = data["application_id"]
+        # 3. Verify task stage is COMPLETE and creates a fresh application unconditionally
+        new_task = await db_session.get(IntakeEvaluationTaskModel, task_id)
+        assert new_task.status == "COMPLETED"
+        assert new_task.stage == "COMPLETE"
+        assert new_task.result_json["is_duplicate"] is False
+        new_app_id = new_task.result_json["application_id"]
+        assert new_app_id is not None
         assert new_app_id != app_orig.id
 
         # Verify two distinct applications now exist
