@@ -919,8 +919,8 @@ async def retry_evaluation_task(
     db: AsyncSession = Depends(get_db),
 ) -> IntakeEvaluationTaskResponse:
     """
-    Retries a failed or cancelled evaluation task by resetting its state
-    and re-dispatching to the background worker.
+    Retries a failed or cancelled evaluation task by setting status to QUEUED
+    while preserving intermediate checkpoints in result_json to allow resuming.
     """
     task = await db.get(IntakeEvaluationTaskModel, task_id)
     if not task:
@@ -930,9 +930,9 @@ async def retry_evaluation_task(
         )
 
     task.status = "QUEUED"
-    task.stage = "FETCHING" if task.task_type != "CV_EXTRACTION" else "SCRUBBING"
+    if not task.stage or task.stage in ["FAILED", "CANCELLED", "QUEUED"]:
+        task.stage = "FETCHING" if task.task_type != "CV_EXTRACTION" else "SCRUBBING"
     task.error_message = None
-    task.result_json = None
     task.completed_at = None
     task.created_at = datetime.now(UTC)
     await db.commit()
@@ -954,7 +954,7 @@ async def bulk_retry_evaluation_tasks(
     db: AsyncSession = Depends(get_db),
 ) -> BulkTaskActionResult:
     """
-    Bulk retries AI queue evaluation tasks by resetting state and re-dispatching worker execution.
+    Bulk retries AI queue evaluation tasks by preserving intermediate checkpoints and re-dispatching worker execution.
     Only tasks in FAILED or CANCELLED status are retried; others are skipped.
     """
     async with trace_operation(
@@ -1004,11 +1004,11 @@ async def bulk_retry_evaluation_tasks(
                 continue
 
             task.status = "QUEUED"
-            task.stage = (
-                "FETCHING" if task.task_type != "CV_EXTRACTION" else "SCRUBBING"
-            )
+            if not task.stage or task.stage in ["FAILED", "CANCELLED", "QUEUED"]:
+                task.stage = (
+                    "FETCHING" if task.task_type != "CV_EXTRACTION" else "SCRUBBING"
+                )
             task.error_message = None
-            task.result_json = None
             task.completed_at = None
             task.created_at = datetime.now(UTC)
 
