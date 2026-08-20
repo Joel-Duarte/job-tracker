@@ -88,20 +88,20 @@ async def test_persist_or_stage_job_assessment_uses_normalized_url():
 
     url_raw = "https://testcorp.com/jobs/456?utm_source=newsletter&ref=ref123#apply"
 
-    # Mock duplicate search query result (existing application found)
-    mock_existing_app = MagicMock()
-    mock_existing_app.id = 42
-
-    mock_scalars = MagicMock()
-    mock_scalars.first.return_value = mock_existing_app
+    mock_company = MagicMock()
+    mock_company.id = 10
+    mock_company.name = "TestCorp"
+    mock_company.domain = "testcorp.com"
 
     mock_execute_result = MagicMock()
-    mock_execute_result.scalars.return_value = mock_scalars
+    mock_execute_result.scalar_one_or_none.return_value = mock_company
 
     mock_db.execute = AsyncMock(return_value=mock_execute_result)
+    mock_db.flush = AsyncMock()
     mock_db.commit = AsyncMock()
     mock_db.refresh = AsyncMock()
-    mock_db.add = MagicMock()
+    added_models = []
+    mock_db.add = MagicMock(side_effect=lambda obj: added_models.append(obj))
 
     res = await persist_or_stage_job_assessment(
         db=mock_db,
@@ -110,9 +110,19 @@ async def test_persist_or_stage_job_assessment_uses_normalized_url():
         job_url=url_raw,
     )
 
-    assert res["status"] == "staged"
-    assert res["is_duplicate"] is True
-    assert res["existing_application_id"] == 42
+    assert res["status"] == "success"
+    assert res["is_duplicate"] is False
+
+    # Verify that added ApplicationModel and JobPostingModel received the normalized URL
+    app_added = next((m for m in added_models if hasattr(m, "company_id")), None)
+    jp_added = next(
+        (m for m in added_models if hasattr(m, "description_markdown")), None
+    )
+
+    assert app_added is not None
+    assert app_added.job_url == "https://testcorp.com/jobs/456"
+    assert jp_added is not None
+    assert jp_added.job_url == "https://testcorp.com/jobs/456"
 
 
 class AsyncSessionMock:

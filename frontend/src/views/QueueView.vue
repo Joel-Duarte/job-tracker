@@ -46,6 +46,11 @@ const searchQuery = ref('')
 const showBulkDeleteConfirm = ref(false)
 const isBulkActing = ref(false)
 
+// Cancel Task Modal State
+const showCancelConfirm = ref(false)
+const activeCancelTask = ref(null)
+const isCancelingTask = ref(false)
+
 // Fix JD Modal State
 const showFixJDModal = ref(false)
 const activeFixJDTask = ref(null)
@@ -142,12 +147,28 @@ async function fetchTasks(silent = false) {
 }
 
 async function retryTask(taskId) {
+  const taskIndex = tasks.value.findIndex((t) => t.id === taskId)
+  let originalTask = null
+  if (taskIndex !== -1) {
+    originalTask = { ...tasks.value[taskIndex] }
+    // Optimistic local state update
+    tasks.value[taskIndex].status = 'QUEUED'
+    tasks.value[taskIndex].stage = tasks.value[taskIndex].task_type === 'CV_EXTRACTION' ? 'SCRUBBING' : 'FETCHING'
+    tasks.value[taskIndex].error_message = null
+  }
+
   retryingTaskIds.value.add(taskId)
   try {
-    await IntakeAPI.retryEvaluation(taskId)
+    const res = await IntakeAPI.retryEvaluation(taskId)
+    if (taskIndex !== -1 && res.data) {
+      tasks.value[taskIndex] = res.data
+    }
     uiStore.showToast(`Task #${taskId} re-queued for execution!`, 'success')
     await fetchTasks(true)
   } catch (err) {
+    if (taskIndex !== -1 && originalTask) {
+      tasks.value[taskIndex] = originalTask
+    }
     uiStore.showToast(err.message || 'Failed to retry task', 'error')
   } finally {
     retryingTaskIds.value.delete(taskId)
@@ -180,34 +201,101 @@ async function submitFixJD() {
     return
   }
 
+  const taskId = activeFixJDTask.value.id
+  const taskIndex = tasks.value.findIndex((t) => t.id === taskId)
+  let originalTask = null
+  if (taskIndex !== -1) {
+    originalTask = { ...tasks.value[taskIndex] }
+    tasks.value[taskIndex].status = 'QUEUED'
+    tasks.value[taskIndex].stage = 'EXTRACTING'
+    tasks.value[taskIndex].raw_text = fixJDRawText.value
+    if (fixJDJobUrl.value) tasks.value[taskIndex].job_url = fixJDJobUrl.value
+    tasks.value[taskIndex].error_message = null
+  }
+
   isSubmittingFixJD.value = true
   try {
-    await IntakeAPI.fixJDEvaluation(activeFixJDTask.value.id, {
+    const res = await IntakeAPI.fixJDEvaluation(taskId, {
       raw_text: fixJDRawText.value,
       job_url: fixJDJobUrl.value || null,
     })
-    uiStore.showToast(`Job description updated for Task #${activeFixJDTask.value.id}. Processing restarted!`, 'success')
+    if (taskIndex !== -1 && res.data) {
+      tasks.value[taskIndex] = res.data
+    }
+    uiStore.showToast(`Job description updated for Task #${taskId}. Processing restarted!`, 'success')
     showFixJDModal.value = false
     activeFixJDTask.value = null
     await fetchTasks(true)
   } catch (err) {
+    if (taskIndex !== -1 && originalTask) {
+      tasks.value[taskIndex] = originalTask
+    }
     uiStore.showToast(err.message || 'Failed to update job description', 'error')
   } finally {
     isSubmittingFixJD.value = false
   }
 }
 
+function handleDismissOrCancel(task) {
+  if (['PROCESSING', 'QUEUED'].includes(task.status)) {
+    activeCancelTask.value = task
+    showCancelConfirm.value = true
+  } else {
+    deleteTask(task.id)
+  }
+}
+
+async function confirmCancelTask() {
+  if (!activeCancelTask.value) return
+  const task = activeCancelTask.value
+  const taskId = task.id
+  const taskIndex = tasks.value.findIndex((t) => t.id === taskId)
+  let originalTask = null
+
+  if (taskIndex !== -1) {
+    originalTask = { ...tasks.value[taskIndex] }
+    // Optimistic local state update
+    tasks.value[taskIndex].status = 'FAILED'
+    tasks.value[taskIndex].stage = 'FAILED'
+    tasks.value[taskIndex].error_message = 'Task stopped by user'
+  }
+
+  isCancelingTask.value = true
+  try {
+    const res = await IntakeAPI.cancelEvaluation(taskId)
+    if (taskIndex !== -1 && res.data) {
+      tasks.value[taskIndex] = res.data
+    }
+    uiStore.showToast(`Task #${taskId} stopped`, 'info')
+    showCancelConfirm.value = false
+    activeCancelTask.value = null
+    await fetchTasks(true)
+  } catch (err) {
+    if (taskIndex !== -1 && originalTask) {
+      tasks.value[taskIndex] = originalTask
+    }
+    uiStore.showToast(err.message || 'Failed to cancel task', 'error')
+  } finally {
+    isCancelingTask.value = false
+  }
+}
+
 async function deleteTask(taskId) {
+  const originalTasks = [...tasks.value]
+  // Optimistically remove from local array
+  tasks.value = tasks.value.filter((t) => t.id !== taskId)
+  if (selectedTaskIds.value.has(taskId)) {
+    const newSet = new Set(selectedTaskIds.value)
+    newSet.delete(taskId)
+    selectedTaskIds.value = newSet
+  }
+
   try {
     await IntakeAPI.deleteEvaluation(taskId)
-    tasks.value = tasks.value.filter((t) => t.id !== taskId)
-    if (selectedTaskIds.value.has(taskId)) {
-      const newSet = new Set(selectedTaskIds.value)
-      newSet.delete(taskId)
-      selectedTaskIds.value = newSet
-    }
     uiStore.showToast(`Task #${taskId} dismissed`, 'info')
   } catch (err) {
+    // Rollback on error
+    tasks.value = originalTasks
     uiStore.showToast(err.message, 'error')
   }
 }
@@ -546,6 +634,38 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- Task Cancellation Confirmation Dialog Modal -->
+    <div v-if="showCancelConfirm" class="modal-backdrop" @click.self="showCancelConfirm = false">
+      <div class="modal-card animate-scale-in">
+        <div class="modal-header">
+          <AlertCircle :size="20" class="text-danger flex-shrink-0" />
+          <h3 class="modal-title">Stop Running Task?</h3>
+        </div>
+        <div class="modal-body">
+          <p>Are you sure you want to stop active task <strong>#{{ activeCancelTask?.id }}</strong> (<em>{{ activeCancelTask?.title_hint }}</em>)?</p>
+          <p class="modal-subtext text-muted">The task will transition to CANCELLED status with error explanation and can be retried later.</p>
+        </div>
+        <div class="modal-footer">
+          <button
+            class="btn btn-secondary btn-sm"
+            :disabled="isCancelingTask"
+            @click="showCancelConfirm = false"
+          >
+            Cancel
+          </button>
+          <button
+            class="btn btn-danger btn-sm"
+            :disabled="isCancelingTask"
+            @click="confirmCancelTask"
+          >
+            <Loader2 v-if="isCancelingTask" class="animate-spin" :size="13" />
+            <XCircle v-else :size="13" />
+            <span>Confirm Stop</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Bulk Delete Confirmation Dialog Modal -->
     <div v-if="showBulkDeleteConfirm" class="modal-backdrop" @click.self="showBulkDeleteConfirm = false">
       <div class="modal-card animate-scale-in">
@@ -650,13 +770,14 @@ onUnmounted(() => {
                 <span>{{ task.status }}</span>
               </div>
 
-              <!-- Delete/Dismiss Button -->
+              <!-- Delete/Dismiss or Cancel Button -->
               <button
                 class="btn-icon-dismiss"
-                title="Dismiss task"
-                @click="deleteTask(task.id)"
+                :title="['PROCESSING', 'QUEUED'].includes(task.status) ? 'Stop active task' : 'Dismiss task'"
+                @click="handleDismissOrCancel(task)"
               >
-                <Trash2 :size="13" />
+                <XCircle v-if="['PROCESSING', 'QUEUED'].includes(task.status)" :size="13" class="text-danger" />
+                <Trash2 v-else :size="13" />
               </button>
             </div>
           </div>
