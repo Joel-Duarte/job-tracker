@@ -152,11 +152,27 @@ async def _execute_cover_letter_steps(
         logger.error(
             "Failed processing cover letter task %d: %s", task.id, err, exc_info=True
         )
-        task.status = "FAILED"
-        task.stage = "FAILED"
-        task.error_message = str(err)
-        task.completed_at = datetime.now(UTC)
-        await db.commit()
+        try:
+            await db.rollback()
+            refreshed = await db.get(IntakeEvaluationTaskModel, task.id)
+            target_task = (
+                refreshed if isinstance(refreshed, IntakeEvaluationTaskModel) else task
+            )
+            target_task.status = "FAILED"
+            target_task.stage = "FAILED"
+            target_task.error_message = str(err)
+            target_task.completed_at = datetime.now(UTC)
+            await db.commit()
+        except Exception as rollback_err:
+            logger.error(
+                "Error setting failure state for cover letter task %d: %s",
+                task.id,
+                rollback_err,
+            )
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = str(err)
+            task.completed_at = datetime.now(UTC)
 
 
 async def _execute_cv_extraction_steps(
@@ -265,11 +281,25 @@ async def _execute_cv_extraction_steps(
 
     except Exception as err:
         logger.error("Failed processing CV task %d: %s", task.id, err, exc_info=True)
-        task.status = "FAILED"
-        task.stage = "FAILED"
-        task.error_message = str(err)
-        task.completed_at = datetime.now(UTC)
-        await db.commit()
+        try:
+            await db.rollback()
+            refreshed = await db.get(IntakeEvaluationTaskModel, task.id)
+            target_task = (
+                refreshed if isinstance(refreshed, IntakeEvaluationTaskModel) else task
+            )
+            target_task.status = "FAILED"
+            target_task.stage = "FAILED"
+            target_task.error_message = str(err)
+            target_task.completed_at = datetime.now(UTC)
+            await db.commit()
+        except Exception as rollback_err:
+            logger.error(
+                "Error setting failure state for CV task %d: %s", task.id, rollback_err
+            )
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = str(err)
+            task.completed_at = datetime.now(UTC)
 
 
 async def _execute_evaluation_steps(
@@ -429,7 +459,7 @@ async def _execute_evaluation_steps(
             task.stage = "SAVING"
             await db.commit()
 
-            # Persist to database (or route to staging if duplicate)
+            # Persist to database
             save_result = await persist_or_stage_job_assessment(
                 db=db,
                 assessment=assessment,
@@ -455,7 +485,7 @@ async def _execute_evaluation_steps(
 
             cl_status = "SKIPPED"
             app_id = save_result.get("application_id")
-            if enable_auto and app_id and not save_result.get("is_duplicate"):
+            if enable_auto and app_id:
                 if score_pct >= threshold:
                     try:
                         cv_stmt = (
@@ -505,13 +535,11 @@ async def _execute_evaluation_steps(
 
             # Completed Successfully
             task.status = "COMPLETED"
-            task.stage = (
-                "STAGED_DUPLICATE" if save_result.get("is_duplicate") else "COMPLETE"
-            )
+            task.stage = "COMPLETE"
             result_payload = assessment.model_dump()
             result_payload["application_id"] = save_result.get("application_id")
             result_payload["staging_item_id"] = save_result.get("staging_item_id")
-            result_payload["is_duplicate"] = save_result.get("is_duplicate", False)
+            result_payload["is_duplicate"] = False
             result_payload["save_status"] = save_result.get("status")
             result_payload["cover_letter_status"] = cl_status
             if cl_status == "GENERATED":
@@ -551,11 +579,29 @@ async def _execute_evaluation_steps(
             logger.error(
                 "Failed processing intake task %d: %s", task.id, err, exc_info=True
             )
-            task.status = "FAILED"
-            task.stage = "FAILED"
-            task.error_message = str(err)
-            task.completed_at = datetime.now(UTC)
-            await db.commit()
+            try:
+                await db.rollback()
+                refreshed = await db.get(IntakeEvaluationTaskModel, task.id)
+                target_task = (
+                    refreshed
+                    if isinstance(refreshed, IntakeEvaluationTaskModel)
+                    else task
+                )
+                target_task.status = "FAILED"
+                target_task.stage = "FAILED"
+                target_task.error_message = str(err)
+                target_task.completed_at = datetime.now(UTC)
+                await db.commit()
+            except Exception as rollback_err:
+                logger.error(
+                    "Error setting failure state for intake task %d: %s",
+                    task.id,
+                    rollback_err,
+                )
+                task.status = "FAILED"
+                task.stage = "FAILED"
+                task.error_message = str(err)
+                task.completed_at = datetime.now(UTC)
             ctx["error"] = str(err)
             ctx["outputs"] = {"status": "FAILED", "stage": "FAILED"}
 
