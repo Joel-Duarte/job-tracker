@@ -283,3 +283,13 @@ class CoverLetterUpdateRequest(BaseModel):
     cover_letter_status: str | None = Field(
         None, description="Updated cover letter status e.g. DRAFTED, GENERATED"
     )
+
+
+class GenerateCoverLetterRequest(BaseModel):
+    tone: str | None = Field(
+        "professional",
+        description="Desired tone e.g. professional, enthusiastic, concise, executive, technical",
+    )
+    custom_instructions: str | None = Field(
+        None, description="Optional custom instructions to guide cover letter drafting"
+    )

@@ -119,12 +119,25 @@ watch(
 const isCoverLetterGenerating = ref(false)
 const isEditingCoverLetter = ref(false)
 const editableCoverLetterText = ref('')
+const drawerCoverLetterTone = ref('professional')
+const drawerCoverLetterInstructions = ref('')
+
+const DRAWER_COVER_LETTER_TONES = [
+  { code: 'professional', label: 'Professional & Confident' },
+  { code: 'enthusiastic', label: 'Enthusiastic & Passionate' },
+  { code: 'concise', label: 'Concise & Direct' },
+  { code: 'executive', label: 'Executive Leadership' },
+  { code: 'technical', label: 'Technical & Systems Focused' },
+]
 
 async function handleGenerateCoverLetter() {
   if (!appStore.selectedApplication) return
   isCoverLetterGenerating.value = true
   try {
-    const res = await ApplicationsAPI.generateCoverLetter(appStore.selectedApplication.id)
+    const res = await ApplicationsAPI.generateCoverLetter(appStore.selectedApplication.id, {
+      tone: drawerCoverLetterTone.value,
+      custom_instructions: drawerCoverLetterInstructions.value,
+    })
     appStore.selectedApplication.cover_letter_text = res.data.cover_letter_text
     appStore.selectedApplication.cover_letter_status = res.data.cover_letter_status || 'QUEUED'
     appStore.selectedApplication.cover_letter_generated_at = res.data.cover_letter_generated_at
@@ -141,13 +154,16 @@ async function handleRegenerateCoverLetter() {
   if (!appStore.selectedApplication) return
   isCoverLetterGenerating.value = true
   try {
-    const res = await ApplicationsAPI.regenerateCoverLetter(appStore.selectedApplication.id)
+    const res = await ApplicationsAPI.regenerateCoverLetter(appStore.selectedApplication.id, {
+      tone: drawerCoverLetterTone.value,
+      custom_instructions: drawerCoverLetterInstructions.value,
+    })
     appStore.selectedApplication.cover_letter_text = res.data.cover_letter_text
-    appStore.selectedApplication.cover_letter_status = res.data.cover_letter_status
+    appStore.selectedApplication.cover_letter_status = res.data.cover_letter_status || 'QUEUED'
     appStore.selectedApplication.cover_letter_generated_at = res.data.cover_letter_generated_at
     editableCoverLetterText.value = res.data.cover_letter_text || ''
     isEditingCoverLetter.value = false
-    uiStore.showToast('Cover letter regenerated!', 'success')
+    uiStore.showToast('Cover letter regeneration queued in AI queue!', 'success')
   } catch (err) {
     uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to regenerate cover letter', 'error')
   } finally {
@@ -1275,12 +1291,40 @@ function formatDate(isoStr) {
                       <span>Save Changes</span>
                     </button>
                     <button
-                      class="btn btn-secondary btn-xs"
+                      class="btn btn-primary btn-xs"
                       @click="handleRegenerateCoverLetter"
                     >
                       <RotateCcw :size="12" />
                       <span>Regenerate</span>
                     </button>
+                  </div>
+                </div>
+
+                <!-- Tone & Instructions Options -->
+                <div class="drawer-cl-options mt-3 p-3 bg-card border border-subtle rounded flex flex-col gap-2">
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold text-main">Redrafting Options &amp; Tone</span>
+                  </div>
+
+                  <div class="grid grid-cols-2 gap-2">
+                    <div class="form-group">
+                      <label class="text-xs text-muted">Desired Tone</label>
+                      <select v-model="drawerCoverLetterTone" class="form-select form-select-sm text-xs">
+                        <option v-for="t in DRAWER_COVER_LETTER_TONES" :key="t.code" :value="t.code">
+                          {{ t.label }}
+                        </option>
+                      </select>
+                    </div>
+
+                    <div class="form-group">
+                      <label class="text-xs text-muted">Custom Instructions</label>
+                      <input
+                        v-model="drawerCoverLetterInstructions"
+                        type="text"
+                        placeholder="e.g. Focus on scale and backend..."
+                        class="form-input form-input-sm text-xs"
+                      />
+                    </div>
                   </div>
                 </div>
 

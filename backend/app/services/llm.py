@@ -303,6 +303,8 @@ async def generate_cover_letter(
     position: str,
     job_description: str,
     candidate_cv: str,
+    tone: str | None = "professional",
+    custom_instructions: str | None = None,
 ) -> str:
     """
     Generates a tailored cover letter using the COVER_LETTER task type and PostgresTracer.
@@ -310,6 +312,12 @@ async def generate_cover_letter(
     """
     cleaned_jd = truncate_text_semantically(job_description)
     cleaned_cv = truncate_text_semantically(candidate_cv)
+    tone_str = (tone or "professional").strip().lower()
+    instructions_str = (
+        f"\nCustom User Instructions: {custom_instructions.strip()}"
+        if custom_instructions and custom_instructions.strip()
+        else ""
+    )
 
     async with trace_operation(
         category="llm",
@@ -317,6 +325,7 @@ async def generate_cover_letter(
         inputs={
             "company_name": company_name,
             "position": position,
+            "tone": tone_str,
             "jd_length": len(cleaned_jd),
             "cv_length": len(cleaned_cv),
         },
@@ -346,6 +355,8 @@ async def generate_cover_letter(
                 "position": position or "Target Role",
                 "job_description": cleaned_jd or "No detailed description provided.",
                 "candidate_cv": cleaned_cv or "No CV provided.",
+                "tone": tone_str,
+                "custom_instructions": instructions_str,
             },
             config={"callbacks": [PostgresTracer()]},
         )

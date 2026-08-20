@@ -34,6 +34,7 @@ from app.schemas.applications import (
     CoverLetterResponse,
     CoverLetterUpdateRequest,
     EventSummary,
+    GenerateCoverLetterRequest,
     GenerateInterviewGuideRequest,
     JobPostingDetail,
 )
@@ -956,6 +957,7 @@ async def get_cover_letter(
 async def generate_app_cover_letter(
     application_id: int,
     background_tasks: BackgroundTasks,
+    payload: GenerateCoverLetterRequest | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     stmt = (
@@ -976,19 +978,23 @@ async def generate_app_cover_letter(
 
     comp_name = app.company.name if app.company else "Company"
     pos_name = app.position or "Position"
+    tone_val = payload.tone if payload else "professional"
+    instructions_val = payload.custom_instructions if payload else None
 
     # Enqueue task in AI Evaluation Queue
     task_record = IntakeEvaluationTaskModel(
         task_type="COVER_LETTER",
         job_url=app.job_url,
         raw_text=str(app.id),
-        title_hint=f"Cover Letter: {comp_name} - {pos_name}",
+        title_hint=f"Cover Letter ({tone_val}): {comp_name} - {pos_name}",
         status="QUEUED",
         stage="QUEUED",
         result_json={
             "application_id": app.id,
             "company": comp_name,
             "position": pos_name,
+            "tone": tone_val,
+            "custom_instructions": instructions_val,
         },
     )
     db.add(task_record)
@@ -1050,6 +1056,7 @@ async def update_cover_letter(
 async def regenerate_app_cover_letter(
     application_id: int,
     background_tasks: BackgroundTasks,
+    payload: GenerateCoverLetterRequest | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     stmt = (
@@ -1070,18 +1077,22 @@ async def regenerate_app_cover_letter(
 
     comp_name = app.company.name if app.company else "Company"
     pos_name = app.position or "Position"
+    tone_val = payload.tone if payload else "professional"
+    instructions_val = payload.custom_instructions if payload else None
 
     task_record = IntakeEvaluationTaskModel(
         task_type="COVER_LETTER",
         job_url=app.job_url,
         raw_text=str(app.id),
-        title_hint=f"Cover Letter: {comp_name} - {pos_name}",
+        title_hint=f"Cover Letter ({tone_val}): {comp_name} - {pos_name}",
         status="QUEUED",
         stage="QUEUED",
         result_json={
             "application_id": app.id,
             "company": comp_name,
             "position": pos_name,
+            "tone": tone_val,
+            "custom_instructions": instructions_val,
         },
     )
     db.add(task_record)

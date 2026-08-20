@@ -90,12 +90,17 @@ async def _execute_cover_letter_steps(
             else ""
         )
 
+        tone_val = (task.result_json or {}).get("tone") or "professional"
+        instructions_val = (task.result_json or {}).get("custom_instructions")
+
         cl_text = await generate_cover_letter(
             db,
             company_name=company_name,
             position=position_name,
             job_description=job_desc,
             candidate_cv=cv_text,
+            tone=tone_val,
+            custom_instructions=instructions_val,
         )
 
         app.cover_letter_text = cl_text
@@ -111,8 +116,26 @@ async def _execute_cover_letter_steps(
             "cover_letter_generated_at": app.cover_letter_generated_at.isoformat(),
             "company": company_name,
             "position": position_name,
+            "tone": tone_val,
         }
         task.completed_at = datetime.now(UTC)
+
+        # Sync cover_letter_status and cover_letter_text to matching JOB_ASSESSMENT tasks for this application
+        stmt_tasks = select(IntakeEvaluationTaskModel).where(
+            IntakeEvaluationTaskModel.result_json.op("->>")("application_id")
+            == str(app.id)
+        )
+        tasks_res = await db.execute(stmt_tasks)
+        for t in tasks_res.scalars().all():
+            if t.result_json:
+                updated_json = dict(t.result_json)
+                updated_json["cover_letter_text"] = cl_text
+                updated_json["cover_letter_status"] = "GENERATED"
+                updated_json["cover_letter_generated_at"] = (
+                    app.cover_letter_generated_at.isoformat()
+                )
+                t.result_json = updated_json
+
         await db.commit()
         logger.info(
             "Cover letter generation task %d completed for application %d",
