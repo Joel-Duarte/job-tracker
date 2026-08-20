@@ -39,6 +39,7 @@ from app.schemas.intake import (
     DirectEmailIntakeRequest,
     EmailPayload,
     EnqueueAssessmentRequest,
+    FixJDRequest,
     IntakeEvaluationTaskResponse,
     IntakeResultResponse,
     PasteIntakeRequest,
@@ -939,6 +940,52 @@ async def retry_evaluation_task(
 
     task.status = "QUEUED"
     task.stage = "FETCHING" if task.task_type != "CV_EXTRACTION" else "SCRUBBING"
+    task.error_message = None
+    task.result_json = None
+    task.completed_at = None
+    task.created_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(task)
+
+    background_tasks.add_task(process_evaluation_task, task_id=task.id)
+    return task
+
+
+@router.post(
+    "/evaluations/{task_id}/fix-jd",
+    response_model=IntakeEvaluationTaskResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def fix_jd_evaluation_task(
+    task_id: int,
+    payload: FixJDRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> IntakeEvaluationTaskResponse:
+    """
+    Updates the raw job description text (and optional URL) for a failed or errored job evaluation task,
+    resets its state to QUEUED, and re-dispatches worker execution to bypass automatic scraping.
+    """
+    task = await db.get(IntakeEvaluationTaskModel, task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Evaluation task {task_id} not found.",
+        )
+
+    raw_text_clean = payload.raw_text.strip()
+    if not raw_text_clean:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provided job description text cannot be empty.",
+        )
+
+    task.raw_text = raw_text_clean
+    if payload.job_url is not None:
+        task.job_url = payload.job_url.strip() or None
+
+    task.status = "QUEUED"
+    task.stage = "EXTRACTING"
     task.error_message = None
     task.result_json = None
     task.completed_at = None

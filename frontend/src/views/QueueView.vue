@@ -25,6 +25,7 @@ import {
   ArrowRight,
   SlidersHorizontal,
   RotateCcw,
+  Edit3,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -43,6 +44,13 @@ const typeFilter = ref('ALL') // 'ALL' | 'JOB_ASSESSMENT' | 'CV_EXTRACTION' | 'E
 const searchQuery = ref('')
 const showBulkDeleteConfirm = ref(false)
 const isBulkActing = ref(false)
+
+// Fix JD Modal State
+const showFixJDModal = ref(false)
+const activeFixJDTask = ref(null)
+const fixJDRawText = ref('')
+const fixJDJobUrl = ref('')
+const isSubmittingFixJD = ref(false)
 
 let pollTimer = null
 
@@ -142,6 +150,37 @@ async function retryTask(taskId) {
     uiStore.showToast(err.message || 'Failed to retry task', 'error')
   } finally {
     retryingTaskIds.value.delete(taskId)
+  }
+}
+
+function openFixJDModal(task) {
+  activeFixJDTask.value = task
+  fixJDRawText.value = task.raw_text || ''
+  fixJDJobUrl.value = task.job_url || ''
+  showFixJDModal.value = true
+}
+
+async function submitFixJD() {
+  if (!activeFixJDTask.value) return
+  if (!fixJDRawText.value.trim()) {
+    uiStore.showToast('Job description text cannot be empty', 'error')
+    return
+  }
+
+  isSubmittingFixJD.value = true
+  try {
+    await IntakeAPI.fixJDEvaluation(activeFixJDTask.value.id, {
+      raw_text: fixJDRawText.value,
+      job_url: fixJDJobUrl.value || null,
+    })
+    uiStore.showToast(`Job description updated for Task #${activeFixJDTask.value.id}. Processing restarted!`, 'success')
+    showFixJDModal.value = false
+    activeFixJDTask.value = null
+    await fetchTasks(true)
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to update job description', 'error')
+  } finally {
+    isSubmittingFixJD.value = false
   }
 }
 
@@ -438,6 +477,59 @@ onUnmounted(() => {
         </div>
       </div>
     </Transition>
+
+    <!-- Fix JD Modal Dialog -->
+    <div v-if="showFixJDModal" class="modal-backdrop" @click.self="showFixJDModal = false">
+      <div class="modal-card modal-card-large animate-scale-in">
+        <div class="modal-header">
+          <Edit3 :size="20" class="text-primary flex-shrink-0" />
+          <h3 class="modal-title">Fix Job Description — Task #{{ activeFixJDTask?.id }}</h3>
+        </div>
+        <div class="modal-body">
+          <p class="modal-subtext text-muted">
+            Supply or paste the full job description text below to retry evaluation without relying on automated web scraping.
+          </p>
+
+          <div class="form-group">
+            <label class="form-label">Job URL (Optional)</label>
+            <input
+              v-model="fixJDJobUrl"
+              type="url"
+              placeholder="https://company.com/careers/job"
+              class="form-input"
+            />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Job Description Text *</label>
+            <textarea
+              v-model="fixJDRawText"
+              rows="10"
+              placeholder="Paste complete job description, requirements, responsibilities, and qualifications here..."
+              class="form-textarea"
+            ></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button
+            class="btn btn-secondary btn-sm"
+            :disabled="isSubmittingFixJD"
+            @click="showFixJDModal = false"
+          >
+            Cancel
+          </button>
+          <button
+            class="btn btn-primary btn-sm"
+            :disabled="isSubmittingFixJD || !fixJDRawText.trim()"
+            @click="submitFixJD"
+          >
+            <Loader2 v-if="isSubmittingFixJD" class="animate-spin" :size="13" />
+            <RotateCcw v-else :size="13" />
+            <span>Save &amp; Retry Evaluation</span>
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Bulk Delete Confirmation Dialog Modal -->
     <div v-if="showBulkDeleteConfirm" class="modal-backdrop" @click.self="showBulkDeleteConfirm = false">
@@ -750,21 +842,33 @@ onUnmounted(() => {
             </div>
           </div>
           
-          <!-- Error Alert Banner with 1-Click Retry -->
+          <!-- Error Alert Banner with Fix JD / Retry Actions -->
           <div v-if="task.error_message" class="task-error-box">
             <div class="error-msg-left">
               <AlertCircle :size="14" class="text-danger flex-shrink-0" />
               <span>{{ task.error_message }}</span>
             </div>
-            <button
-              class="btn btn-secondary btn-xs btn-retry-error"
-              :disabled="retryingTaskIds.has(task.id)"
-              @click="retryTask(task.id)"
-            >
-              <Loader2 v-if="retryingTaskIds.has(task.id)" class="animate-spin" :size="12" />
-              <RotateCcw v-else :size="12" />
-              <span>Retry Execution</span>
-            </button>
+            <div class="error-actions-right">
+              <!-- Fix JD Action for Job Assessment Tasks -->
+              <button
+                v-if="task.task_type !== 'CV_EXTRACTION' && task.task_type !== 'EMBEDDING' && task.task_type !== 'COVER_LETTER'"
+                class="btn btn-primary btn-xs btn-fix-jd"
+                @click="openFixJDModal(task)"
+                title="Manually supply or fix the job description text"
+              >
+                <Edit3 :size="12" />
+                <span>Fix JD</span>
+              </button>
+              <button
+                class="btn btn-secondary btn-xs btn-retry-error"
+                :disabled="retryingTaskIds.has(task.id)"
+                @click="retryTask(task.id)"
+              >
+                <Loader2 v-if="retryingTaskIds.has(task.id)" class="animate-spin" :size="12" />
+                <RotateCcw v-else :size="12" />
+                <span>Retry Execution</span>
+              </button>
+            </div>
           </div>
 
           <!-- Result Footer & Contextual Actions -->
@@ -1458,13 +1562,53 @@ onUnmounted(() => {
   flex: 1;
 }
 
-.btn-retry-task, .btn-retry-error {
+.error-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-retry-task, .btn-retry-error, .btn-fix-jd {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.modal-card-large {
+  max-width: 600px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.form-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.form-input, .form-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  font-family: inherit;
+  transition: border-color var(--transition-fast);
+}
+
+.form-input:focus, .form-textarea:focus {
+  border-color: var(--primary);
+  outline: none;
 }
 
 /* Card Footer */

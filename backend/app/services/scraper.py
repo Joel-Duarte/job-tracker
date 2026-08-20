@@ -164,6 +164,36 @@ class ScrapedJobContent(BaseModel):
     scraped_via: str  # "camofox" or "http_fallback"
 
 
+DEFAULT_JOB_KEYWORDS: list[str] = [
+    "requirements",
+    "responsibilities",
+    "qualifications",
+    "experience",
+    "salary",
+    "skills",
+    "duties",
+    "benefits",
+    "role",
+    "compensation",
+    "position",
+    "job description",
+    "applicant",
+    "employment",
+]
+
+
+def has_job_content_keywords(text: str, min_matches: int = 2) -> bool:
+    """
+    Validates scraped output to check for key job indicators before running LLM operations.
+    Returns True if at least min_matches unique job-related keywords are found in text.
+    """
+    if not text or not text.strip():
+        return False
+    text_lower = text.lower()
+    match_count = sum(1 for kw in DEFAULT_JOB_KEYWORDS if kw in text_lower)
+    return match_count >= min_matches
+
+
 def clean_extracted_text(raw_text: str, max_chars: int = 15000) -> str:
     """Normalizes whitespace and removes noise lines from scraped web text."""
     if not raw_text:
