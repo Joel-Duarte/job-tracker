@@ -257,16 +257,6 @@ onMounted(() => {
             </div>
 
             <div class="filters-actions">
-              <!-- Status Select Filter -->
-              <div class="filter-item">
-                <label class="filter-label">Status:</label>
-                <select v-model="selectedStatus" class="filter-select" @change="onStatusChange">
-                  <option value="all">All Statuses</option>
-                  <option value="success">Success Only</option>
-                  <option value="error">Errors Only</option>
-                </select>
-              </div>
-
               <!-- Errors Only Toggle -->
               <label class="toggle-switch ml-2">
                 <input type="checkbox" v-model="showErrorsOnly" @change="toggleErrorsOnly" />
@@ -1012,6 +1002,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   cursor: pointer;
+  gap: 8px;
 }
 .toggle-switch input { opacity: 0; width: 0; height: 0; }
 .slider {
