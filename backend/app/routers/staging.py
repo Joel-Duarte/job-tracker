@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Adjust imports based on your database session setup
 from app.core.database import get_db
+from app.core.url_utils import normalize_job_url
 from app.models.applications import (
     ActionItemModel,
     ApplicationEventModel,
@@ -105,6 +106,7 @@ async def resolve_staging_item(
         ).strip()
         company_norm = effective_company.lower()
         position_norm = payload.position.strip().lower()
+        clean_job_url = normalize_job_url(payload.job_url)
 
         # Option A: User provided explicit application_id
         if payload.application_id and not payload.create_new:
@@ -150,7 +152,7 @@ async def resolve_staging_item(
                     position=payload.position.strip(),
                     position_normalized=position_norm,
                     external_job_id=payload.external_job_id,
-                    job_url=payload.job_url,
+                    job_url=clean_job_url,
                     status=payload.status or "ASSESSMENT",
                 )
                 db.add(application)
@@ -159,8 +161,8 @@ async def resolve_staging_item(
         # Update application status if modified
         if payload.status:
             application.status = payload.status
-        if payload.job_url and not application.job_url:
-            application.job_url = payload.job_url
+        if clean_job_url and not application.job_url:
+            application.job_url = clean_job_url
 
         # Extract specs from payload or staged item
         extracted = (
@@ -208,7 +210,7 @@ async def resolve_staging_item(
         if not job_posting:
             job_posting = JobPostingModel(
                 application_id=application.id,
-                job_url=payload.job_url or f"lead-{application.id}",
+                job_url=clean_job_url or f"lead-{application.id}",
                 description_markdown=desc_md,
                 salary_min=salary_min,
                 salary_max=salary_max,

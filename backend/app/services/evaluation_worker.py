@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ai_queue import concurrency_manager
 from app.core.database import AsyncSessionLocal
+from app.core.url_utils import normalize_job_url
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.models.applications import ApplicationModel
 from app.models.candidate_profile import CandidateCVModel
@@ -280,10 +281,11 @@ async def _execute_evaluation_steps(
 
         try:
             content = task.raw_text
+            clean_job_url = normalize_job_url(task.job_url)
 
             # Stage 1: Fetch URL if content not already provided
-            if not content and task.job_url:
-                scraped = await scrape_job_url(task.job_url)
+            if not content and clean_job_url:
+                scraped = await scrape_job_url(clean_job_url)
                 if scraped.text:
                     content = scraped.text
 
@@ -355,7 +357,7 @@ async def _execute_evaluation_steps(
                 db=db,
                 assessment=assessment,
                 raw_text=content,
-                job_url=task.job_url,
+                job_url=clean_job_url,
                 force_new=False,
                 target_status="ASSESSMENT",
                 structured_spec=job_spec.model_dump(),
