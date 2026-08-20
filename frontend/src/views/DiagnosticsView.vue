@@ -28,8 +28,6 @@ const loadingTraces = ref(false)
 const showErrorsOnly = ref(false)
 const activeCategory = ref('all')
 const selectedStatus = ref('all') // 'all' | 'success' | 'error'
-const startDate = ref('')
-const endDate = ref('')
 const selectedTrace = ref(null)
 const loadingDetail = ref(false)
 const modalTab = ref('overview') // 'overview' or 'raw'
@@ -73,12 +71,6 @@ async function loadTraces() {
     if (showErrorsOnly.value) {
       params.errors_only = true
     }
-    if (startDate.value) {
-      params.start_date = startDate.value
-    }
-    if (endDate.value) {
-      params.end_date = endDate.value
-    }
     const resTraces = await DiagnosticsAPI.getTraces(params)
     traces.value = resTraces.data
   } catch (err) {
@@ -108,12 +100,6 @@ function toggleErrorsOnly() {
   } else {
     selectedStatus.value = 'all'
   }
-  loadTraces()
-}
-
-function clearDateFilters() {
-  startDate.value = ''
-  endDate.value = ''
   loadTraces()
 }
 
@@ -279,22 +265,6 @@ onMounted(() => {
                   <option value="success">Success Only</option>
                   <option value="error">Errors Only</option>
                 </select>
-              </div>
-
-              <!-- Date Range Filters -->
-              <div class="filter-item date-range-group">
-                <label class="filter-label">From:</label>
-                <input type="date" v-model="startDate" class="filter-date-input" @change="loadTraces" />
-                <label class="filter-label">To:</label>
-                <input type="date" v-model="endDate" class="filter-date-input" @change="loadTraces" />
-                <button
-                  v-if="startDate || endDate"
-                  class="btn-xs-clear"
-                  @click="clearDateFilters"
-                  title="Clear date filters"
-                >
-                  <X :size="12" />
-                </button>
               </div>
 
               <!-- Errors Only Toggle -->
@@ -556,7 +526,7 @@ onMounted(() => {
 .settings-content-area {
   flex: 1;
   overflow-y: auto;
-  padding: 28px 32px;
+  padding: 28px 32px 64px 32px;
   background-color: var(--bg-app);
   display: flex;
   justify-content: center;
@@ -704,7 +674,7 @@ onMounted(() => {
   color: var(--text-secondary);
 }
 
-.filter-select, .filter-date-input {
+.filter-select {
   padding: 4px 8px;
   font-size: 12px;
   border-radius: var(--radius-sm);
@@ -714,31 +684,12 @@ onMounted(() => {
   outline: none;
 }
 
-.filter-select:focus, .filter-date-input:focus {
-  border-color: var(--primary);
-}
-
-.btn-xs-clear {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  background: transparent;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.btn-xs-clear:hover {
-  color: var(--text-main);
+.filter-select:focus {
   border-color: var(--primary);
 }
 
 /* Data Table */
 .table-responsive {
-  max-height: 560px;
-  overflow: auto;
   position: relative;
 }
 
