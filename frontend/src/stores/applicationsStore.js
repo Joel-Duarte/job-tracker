@@ -1,8 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ApplicationsAPI } from '../api/endpoints'
+import { useUIStore } from './uiStore'
 
 export const useApplicationsStore = defineStore('applications', () => {
+  const uiStore = useUIStore()
+
   const applications = ref([])
   const total = ref(0)
   const loading = ref(false)
@@ -221,28 +224,49 @@ export const useApplicationsStore = defineStore('applications', () => {
     }
   }
 
+  // Optimistic updateStatus
   async function updateStatus(applicationId, newStatus) {
+    const appsSnapshot = JSON.parse(JSON.stringify(applications.value))
+    const selectedSnapshot = selectedApplication.value ? JSON.parse(JSON.stringify(selectedApplication.value)) : null
+
+    // Optimistic local update
+    const target = applications.value.find((a) => a.id === applicationId)
+    if (target) {
+      target.status = newStatus
+    }
+    if (selectedApplication.value && selectedApplication.value.id === applicationId) {
+      selectedApplication.value.status = newStatus
+    }
+
     try {
       await ApplicationsAPI.update(applicationId, { status: newStatus })
-      // Update local array
-      const target = applications.value.find((a) => a.id === applicationId)
-      if (target) {
-        target.status = newStatus
-      }
-      if (selectedApplication.value && selectedApplication.value.id === applicationId) {
-        selectedApplication.value.status = newStatus
-      }
     } catch (err) {
+      // Rollback
+      applications.value = appsSnapshot
+      selectedApplication.value = selectedSnapshot
       error.value = err.message
+      uiStore.showToast(err.message || 'Failed to update application status', 'error')
       throw err
     }
   }
 
+  // Optimistic transitionApplication
   async function transitionApplication(applicationId, transitionData) {
+    const appsSnapshot = JSON.parse(JSON.stringify(applications.value))
+    const selectedSnapshot = selectedApplication.value ? JSON.parse(JSON.stringify(selectedApplication.value)) : null
+
+    // Optimistic local update
+    const idx = applications.value.findIndex((a) => a.id === applicationId)
+    if (idx !== -1) {
+      applications.value[idx] = { ...applications.value[idx], ...transitionData }
+    }
+    if (selectedApplication.value && selectedApplication.value.id === applicationId) {
+      selectedApplication.value = { ...selectedApplication.value, ...transitionData }
+    }
+
     try {
       const res = await ApplicationsAPI.transition(applicationId, transitionData)
       const updated = res.data
-      const idx = applications.value.findIndex((a) => a.id === applicationId)
       if (idx !== -1) {
         applications.value[idx] = { ...applications.value[idx], ...updated }
       }
@@ -251,7 +275,11 @@ export const useApplicationsStore = defineStore('applications', () => {
       }
       return updated
     } catch (err) {
+      // Rollback
+      applications.value = appsSnapshot
+      selectedApplication.value = selectedSnapshot
       error.value = err.message
+      uiStore.showToast(err.message || 'Failed to transition application', 'error')
       throw err
     }
   }
@@ -272,7 +300,19 @@ export const useApplicationsStore = defineStore('applications', () => {
     })
   }
 
+  // Optimistic bulkTransition
   async function bulkTransition(targetStatus, fromStatuses, excludeIds = [], notes = null) {
+    const appsSnapshot = JSON.parse(JSON.stringify(applications.value))
+    const excludeSet = new Set(excludeIds)
+    const fromSet = new Set(fromStatuses)
+
+    // Optimistically update eligible applications
+    applications.value.forEach((a) => {
+      if (fromSet.has(a.status) && !excludeSet.has(a.id)) {
+        a.status = targetStatus
+      }
+    })
+
     try {
       const res = await ApplicationsAPI.bulkTransition({
         target_status: targetStatus,
@@ -288,7 +328,10 @@ export const useApplicationsStore = defineStore('applications', () => {
       })
       return res.data
     } catch (err) {
+      // Rollback
+      applications.value = appsSnapshot
       error.value = err.message
+      uiStore.showToast(err.message || 'Failed bulk application transition', 'error')
       throw err
     }
   }
@@ -300,16 +343,29 @@ export const useApplicationsStore = defineStore('applications', () => {
     })
   }
 
+  // Optimistic deleteApplication
   async function deleteApplication(applicationId) {
+    const appsSnapshot = JSON.parse(JSON.stringify(applications.value))
+    const totalSnapshot = total.value
+    const selectedSnapshot = selectedApplication.value ? JSON.parse(JSON.stringify(selectedApplication.value)) : null
+
+    // Optimistically remove application
+    applications.value = applications.value.filter((a) => a.id !== applicationId)
+    total.value = Math.max(0, total.value - 1)
+    if (selectedApplication.value && selectedApplication.value.id === applicationId) {
+      selectedApplication.value = null
+    }
+
     try {
       await ApplicationsAPI.delete(applicationId)
-      applications.value = applications.value.filter((a) => a.id !== applicationId)
-      total.value = Math.max(0, total.value - 1)
-      if (selectedApplication.value && selectedApplication.value.id === applicationId) {
-        selectedApplication.value = null
-      }
+      uiStore.showToast('Application deleted', 'info')
     } catch (err) {
+      // Rollback
+      applications.value = appsSnapshot
+      total.value = totalSnapshot
+      selectedApplication.value = selectedSnapshot
       error.value = err.message
+      uiStore.showToast(err.message || 'Failed to delete application', 'error')
       throw err
     }
   }

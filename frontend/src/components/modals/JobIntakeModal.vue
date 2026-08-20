@@ -2,6 +2,7 @@
 import { ref, computed, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUIStore } from '../../stores/uiStore'
+import { useQueueStore } from '../../stores/queueStore'
 import { IntakeAPI } from '../../api/endpoints'
 import {
   Sparkles,
@@ -21,6 +22,7 @@ import {
 
 const router = useRouter()
 const uiStore = useUIStore()
+const queueStore = useQueueStore()
 
 const activeTab = ref('url') // 'url' | 'jd' | 'extension'
 const jobUrl = ref('')
@@ -62,32 +64,25 @@ async function executeEnqueue(urls, textVal) {
     if (urls && urls.length > 0) {
       for (const u of urls) {
         try {
-          await IntakeAPI.enqueueAssessment({ url: u, text: null })
+          await queueStore.enqueueAssessment({ url: u, text: null })
           successCount++
         } catch(e) {
           failCount++
         }
       }
-      if (successCount > 0) {
-        uiStore.showToast(`Enqueued ${successCount} job(s) for AI assessment!` + (failCount ? ` (${failCount} failed)` : ''), 'success')
-      } else if (failCount > 0) {
-        uiStore.showToast(`Failed to enqueue jobs.`, 'error')
-      }
     } else if (textVal) {
-      const res = await IntakeAPI.enqueueAssessment({ url: null, text: textVal })
-      uiStore.showToast(`Lead '${res.data.title_hint}' enqueued for AI assessment!`, 'success')
+      await queueStore.enqueueAssessment({ url: null, text: textVal })
     }
 
     jobUrl.value = ''
     jobText.value = ''
     uiStore.closeJobIntakeModal()
   } catch (err) {
-    uiStore.showToast(err.message || 'Failed to enqueue job lead', 'error')
+    // Handled in store with toast & rollback
   } finally {
     isEnqueuing.value = false
   }
 }
-
 
 // Extension tokens
 const copiedUrl = ref(false)

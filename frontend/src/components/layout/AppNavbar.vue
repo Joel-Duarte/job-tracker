@@ -2,7 +2,8 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUIStore } from '../../stores/uiStore'
-import { StagingAPI, ActionItemsAPI, IntakeAPI } from '../../api/endpoints'
+import { useQueueStore } from '../../stores/queueStore'
+import { StagingAPI, ActionItemsAPI } from '../../api/endpoints'
 import ThemePalettePopover from './ThemePalettePopover.vue'
 import {
   Briefcase,
@@ -24,12 +25,12 @@ import {
 const router = useRouter()
 const route = useRoute()
 const uiStore = useUIStore()
+const queueStore = useQueueStore()
 
 const pendingStagingCount = ref(0)
 const pendingTasksCount = ref(0)
-const activeQueueCount = ref(0)
-const failedQueueCount = ref(0)
-const readyAssessmentsCount = ref(0)
+
+const readyAssessmentsCount = computed(() => queueStore.readyAssessmentsCount)
 
 async function fetchBadgeCounts() {
   try {
@@ -47,15 +48,7 @@ async function fetchBadgeCounts() {
   }
 
   try {
-    const resQueue = await IntakeAPI.getEvaluations(100)
-    if (Array.isArray(resQueue.data)) {
-      activeQueueCount.value = resQueue.data.filter((t) => ['QUEUED', 'PROCESSING'].includes(t.status)).length
-      failedQueueCount.value = resQueue.data.filter((t) => t.status === 'FAILED').length
-      const passedSet = new Set(JSON.parse(localStorage.getItem('job_tracker_passed_assessments') || '[]'))
-      readyAssessmentsCount.value = resQueue.data.filter(
-        (t) => (t.task_type === 'JOB_ASSESSMENT' || !t.task_type) && t.status === 'COMPLETED' && !passedSet.has(String(t.id))
-      ).length
-    }
+    await queueStore.fetchTasks(true)
   } catch (err) {
     // ignore
   }
