@@ -27,6 +27,9 @@ const loading = ref(true)
 const loadingTraces = ref(false)
 const showErrorsOnly = ref(false)
 const activeCategory = ref('all')
+const selectedStatus = ref('all') // 'all' | 'success' | 'error'
+const startDate = ref('')
+const endDate = ref('')
 const selectedTrace = ref(null)
 const loadingDetail = ref(false)
 const modalTab = ref('overview') // 'overview' or 'raw'
@@ -59,11 +62,22 @@ async function loadTraces() {
   loadingTraces.value = true
   try {
     const params = {
-      errors_only: showErrorsOnly.value,
       limit: 100
     }
     if (activeCategory.value && activeCategory.value !== 'all') {
       params.category = activeCategory.value
+    }
+    if (selectedStatus.value && selectedStatus.value !== 'all') {
+      params.status = selectedStatus.value
+    }
+    if (showErrorsOnly.value) {
+      params.errors_only = true
+    }
+    if (startDate.value) {
+      params.start_date = startDate.value
+    }
+    if (endDate.value) {
+      params.end_date = endDate.value
     }
     const resTraces = await DiagnosticsAPI.getTraces(params)
     traces.value = resTraces.data
@@ -79,8 +93,27 @@ function selectCategory(catId) {
   loadTraces()
 }
 
+function onStatusChange() {
+  if (selectedStatus.value === 'error') {
+    showErrorsOnly.value = true
+  } else if (selectedStatus.value === 'all' || selectedStatus.value === 'success') {
+    showErrorsOnly.value = false
+  }
+  loadTraces()
+}
+
 function toggleErrorsOnly() {
-  showErrorsOnly.value = !showErrorsOnly.value
+  if (showErrorsOnly.value) {
+    selectedStatus.value = 'error'
+  } else {
+    selectedStatus.value = 'all'
+  }
+  loadTraces()
+}
+
+function clearDateFilters() {
+  startDate.value = ''
+  endDate.value = ''
   loadTraces()
 }
 
@@ -238,10 +271,37 @@ onMounted(() => {
             </div>
 
             <div class="filters-actions">
-              <label class="toggle-switch">
-                <input type="checkbox" v-model="showErrorsOnly" @change="loadTraces" />
+              <!-- Status Select Filter -->
+              <div class="filter-item">
+                <label class="filter-label">Status:</label>
+                <select v-model="selectedStatus" class="filter-select" @change="onStatusChange">
+                  <option value="all">All Statuses</option>
+                  <option value="success">Success Only</option>
+                  <option value="error">Errors Only</option>
+                </select>
+              </div>
+
+              <!-- Date Range Filters -->
+              <div class="filter-item date-range-group">
+                <label class="filter-label">From:</label>
+                <input type="date" v-model="startDate" class="filter-date-input" @change="loadTraces" />
+                <label class="filter-label">To:</label>
+                <input type="date" v-model="endDate" class="filter-date-input" @change="loadTraces" />
+                <button
+                  v-if="startDate || endDate"
+                  class="btn-xs-clear"
+                  @click="clearDateFilters"
+                  title="Clear date filters"
+                >
+                  <X :size="12" />
+                </button>
+              </div>
+
+              <!-- Errors Only Toggle -->
+              <label class="toggle-switch ml-2">
+                <input type="checkbox" v-model="showErrorsOnly" @change="toggleErrorsOnly" />
                 <span class="slider round"></span>
-                <span class="toggle-label ml-2 text-sm font-medium">Show Errors Only</span>
+                <span class="toggle-label ml-2 text-sm font-medium">Errors Only</span>
               </label>
             </div>
           </div>
@@ -629,6 +689,50 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.filter-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.filter-select, .filter-date-input {
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  outline: none;
+}
+
+.filter-select:focus, .filter-date-input:focus {
+  border-color: var(--primary);
+}
+
+.btn-xs-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.btn-xs-clear:hover {
+  color: var(--text-main);
+  border-color: var(--primary);
 }
 
 /* Data Table */
