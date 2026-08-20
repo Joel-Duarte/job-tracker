@@ -329,6 +329,7 @@ const isReindexingEmbeddings = ref(false)
 // Cover Letter Automation Settings State
 const enableAutoCoverLetter = ref(false)
 const coverLetterMatchThreshold = ref(70)
+const coverLetterLength = ref('standard')
 const isUpdatingCoverLetterSettings = ref(false)
 
 async function loadGlobalSettings() {
@@ -339,8 +340,10 @@ async function loadGlobalSettings() {
 
     enableAutoCoverLetter.value = res.data.ENABLE_AUTO_COVER_LETTER ?? false
     coverLetterMatchThreshold.value = res.data.COVER_LETTER_MATCH_THRESHOLD ?? 70
+    coverLetterLength.value = res.data.COVER_LETTER_LENGTH ?? 'standard'
     uiStore.enableAutoCoverLetter = enableAutoCoverLetter.value
     uiStore.coverLetterMatchThreshold = coverLetterMatchThreshold.value
+    uiStore.coverLetterLength = coverLetterLength.value
   } catch (err) {
     console.error('Failed to load global settings', err)
   }
@@ -361,6 +364,22 @@ async function toggleAutoCoverLetter() {
     )
   } catch (err) {
     uiStore.showToast('Failed to update cover letter setting', 'error')
+  } finally {
+    isUpdatingCoverLetterSettings.value = false
+  }
+}
+
+async function updateCoverLetterLength(event) {
+  const val = event.target.value
+  coverLetterLength.value = val
+  isUpdatingCoverLetterSettings.value = true
+  try {
+    const res = await AIConfigAPI.updateGlobalSettings({ COVER_LETTER_LENGTH: val })
+    coverLetterLength.value = res.data.COVER_LETTER_LENGTH
+    uiStore.coverLetterLength = res.data.COVER_LETTER_LENGTH
+    uiStore.showToast(`Default cover letter length updated to ${val}.`, 'success')
+  } catch (err) {
+    uiStore.showToast('Failed to update cover letter length setting', 'error')
   } finally {
     isUpdatingCoverLetterSettings.value = false
   }
@@ -497,7 +516,7 @@ const TASKS = [
     recommendedMaxTokens: null,
     hasPrompt: true,
     desc: 'Generates tailored cover letters referencing candidate experiences against target role and company requirements.',
-    variables: ['{company_name}', '{position}', '{job_description}', '{candidate_cv}']
+    variables: ['{company_name}', '{position}', '{job_description}', '{candidate_cv}', '{tone}', '{length}']
   },
   {
     key: 'EMBEDDING',
@@ -1380,6 +1399,26 @@ onMounted(async () => {
                 <p class="text-xs text-muted">
                   Jobs with fit score &ge; {{ coverLetterMatchThreshold }}% will trigger automatic cover letter drafting at the end of intake.
                 </p>
+                <div class="flex items-center justify-between w-full mt-2 pt-2 border-t border-subtle">
+                  <div class="flex flex-col">
+                    <span class="cover-letter-status-text font-semibold">
+                      Default Cover Letter Length:
+                    </span>
+                    <span class="text-xs text-muted">
+                      Target length guidelines passed into the prompt runner.
+                    </span>
+                  </div>
+                  <select
+                    :value="coverLetterLength"
+                    :disabled="isUpdatingCoverLetterSettings"
+                    class="form-select form-select-sm font-mono text-xs"
+                    @change="updateCoverLetterLength"
+                  >
+                    <option value="concise">Concise (~150 words)</option>
+                    <option value="standard">Standard (~300 words)</option>
+                    <option value="detailed">Detailed (~450 words)</option>
+                  </select>
+                </div>
               </div>
             </div>
           </div>

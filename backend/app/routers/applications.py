@@ -979,6 +979,7 @@ async def generate_app_cover_letter(
     comp_name = app.company.name if app.company else "Company"
     pos_name = app.position or "Position"
     tone_val = payload.tone if payload else "professional"
+    length_val = payload.length if payload and payload.length else None
     instructions_val = payload.custom_instructions if payload else None
 
     # Enqueue task in AI Evaluation Queue
@@ -994,6 +995,7 @@ async def generate_app_cover_letter(
             "company": comp_name,
             "position": pos_name,
             "tone": tone_val,
+            "length": length_val,
             "custom_instructions": instructions_val,
         },
     )
@@ -1078,6 +1080,7 @@ async def regenerate_app_cover_letter(
     comp_name = app.company.name if app.company else "Company"
     pos_name = app.position or "Position"
     tone_val = payload.tone if payload else "professional"
+    length_val = payload.length if payload and payload.length else None
     instructions_val = payload.custom_instructions if payload else None
 
     task_record = IntakeEvaluationTaskModel(
@@ -1092,6 +1095,7 @@ async def regenerate_app_cover_letter(
             "company": comp_name,
             "position": pos_name,
             "tone": tone_val,
+            "length": length_val,
             "custom_instructions": instructions_val,
         },
     )

@@ -290,6 +290,10 @@ class GenerateCoverLetterRequest(BaseModel):
         "professional",
         description="Desired tone e.g. professional, enthusiastic, concise, executive, technical",
     )
+    length: str | None = Field(
+        "standard",
+        description="Desired length constraint e.g. concise (~150 words), standard (~300 words), detailed (~450 words)",
+    )
     custom_instructions: str | None = Field(
         None, description="Optional custom instructions to guide cover letter drafting"
     )

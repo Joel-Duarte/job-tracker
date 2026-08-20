@@ -32,6 +32,7 @@ const isGenerating = ref(false)
 // Editor state
 const editableText = ref('')
 const tone = ref('professional')
+const length = ref(uiStore.coverLetterLength || 'standard')
 const customInstructions = ref('')
 const isPreviewMode = ref(false)
 const isOptionsExpanded = ref(false)
@@ -48,6 +49,12 @@ const COVER_LETTER_TONES = [
   { code: 'technical', label: 'Technical & Systems Focused' },
 ]
 
+const COVER_LETTER_LENGTHS = [
+  { code: 'concise', label: 'Concise (~150 words)' },
+  { code: 'standard', label: 'Standard (~300 words)' },
+  { code: 'detailed', label: 'Detailed (~450 words)' },
+]
+
 const charCount = computed(() => editableText.value.length)
 const wordCount = computed(() => {
   const trimmed = editableText.value.trim()
@@ -57,6 +64,11 @@ const wordCount = computed(() => {
 const currentToneLabel = computed(() => {
   const found = COVER_LETTER_TONES.find((t) => t.code === tone.value)
   return found ? found.label : 'Professional & Confident'
+})
+
+const currentLengthLabel = computed(() => {
+  const found = COVER_LETTER_LENGTHS.find((l) => l.code === length.value)
+  return found ? found.label : 'Standard (~300 words)'
 })
 
 const renderedMarkdown = computed(() => {
@@ -97,6 +109,7 @@ watch(
     if (isOpen && appId) {
       isLoadingApp.value = true
       autoSaveStatus.value = 'saved'
+      length.value = uiStore.coverLetterLength || 'standard'
       try {
         const res = await ApplicationsAPI.getCoverLetter(appId)
         application.value = res.data
@@ -120,6 +133,7 @@ watch(
       editableText.value = ''
       customInstructions.value = ''
       tone.value = 'professional'
+      length.value = uiStore.coverLetterLength || 'standard'
       isPreviewMode.value = false
       isOptionsExpanded.value = false
     }
@@ -169,6 +183,7 @@ async function handleGenerateCoverLetter() {
   try {
     const res = await ApplicationsAPI.generateCoverLetter(coverLetterAppId.value, {
       tone: tone.value,
+      length: length.value,
       custom_instructions: customInstructions.value,
     })
     if (application.value) {
@@ -192,6 +207,7 @@ async function handleRegenerateCoverLetter() {
   try {
     const res = await ApplicationsAPI.regenerateCoverLetter(coverLetterAppId.value, {
       tone: tone.value,
+      length: length.value,
       custom_instructions: customInstructions.value,
     })
     if (application.value) {
@@ -286,7 +302,7 @@ onUnmounted(() => {
                   <Sliders :size="14" class="text-primary" />
                   <span class="options-title">Regenerate & Tone Options</span>
                   <span v-if="!isOptionsExpanded" class="options-tone-badge">
-                    {{ currentToneLabel }}
+                    {{ currentToneLabel }} • {{ currentLengthLabel }}
                   </span>
                 </div>
                 <div class="options-header-right">
@@ -310,6 +326,14 @@ onUnmounted(() => {
                       </select>
                     </div>
                     <div class="form-group">
+                      <label class="form-label text-xs">Length Target</label>
+                      <select v-model="length" class="form-select form-select-sm">
+                        <option v-for="l in COVER_LETTER_LENGTHS" :key="l.code" :value="l.code">
+                          {{ l.label }}
+                        </option>
+                      </select>
+                    </div>
+                    <div class="form-group form-group-wide">
                       <label class="form-label text-xs">Custom Instructions (Optional)</label>
                       <input
                         v-model="customInstructions"
@@ -618,7 +642,7 @@ onUnmounted(() => {
 
 .controls-grid {
   display: grid;
-  grid-template-columns: 200px 1fr;
+  grid-template-columns: 180px 180px 1fr;
   gap: 12px;
 }
 

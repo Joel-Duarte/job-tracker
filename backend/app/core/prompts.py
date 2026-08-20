@@ -255,6 +255,7 @@ DEFAULT_PROMPTS = {
         "- Do NOT invent skills, projects, degrees, or experience not present in the candidate CV.\n"
         "- Match candidate achievements directly to key job requirements.\n"
         "- Desired Tone & Style: {tone}\n"
+        "- Desired Length Constraint: {length}\n"
         "{custom_instructions}\n"
         "- Do NOT include generic placeholder greetings if hiring company/position is known.\n"
         "- Format in clean Markdown.\n\n"
