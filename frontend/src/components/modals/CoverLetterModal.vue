@@ -16,6 +16,8 @@ import {
   Edit3,
   Eye,
   Sliders,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
@@ -32,6 +34,7 @@ const editableText = ref('')
 const tone = ref('professional')
 const customInstructions = ref('')
 const isPreviewMode = ref(false)
+const isOptionsExpanded = ref(false)
 
 // Auto-save state
 const autoSaveStatus = ref('saved') // 'saved' | 'saving' | 'error' | 'unsaved'
@@ -49,6 +52,11 @@ const charCount = computed(() => editableText.value.length)
 const wordCount = computed(() => {
   const trimmed = editableText.value.trim()
   return trimmed ? trimmed.split(/\s+/).length : 0
+})
+
+const currentToneLabel = computed(() => {
+  const found = COVER_LETTER_TONES.find((t) => t.code === tone.value)
+  return found ? found.label : 'Professional & Confident'
 })
 
 const renderedMarkdown = computed(() => {
@@ -104,6 +112,8 @@ watch(
         }
       } finally {
         isLoadingApp.value = false
+        // Collapsed if letter exists, expanded if empty draft
+        isOptionsExpanded.value = !editableText.value && !application.value?.cover_letter_text
       }
     } else {
       application.value = null
@@ -111,10 +121,15 @@ watch(
       customInstructions.value = ''
       tone.value = 'professional'
       isPreviewMode.value = false
+      isOptionsExpanded.value = false
     }
   },
   { immediate: true }
 )
+
+function toggleOptionsPanel() {
+  isOptionsExpanded.value = !isOptionsExpanded.value
+}
 
 function onTextChange() {
   autoSaveStatus.value = 'unsaved'
@@ -259,31 +274,63 @@ onUnmounted(() => {
           </div>
 
           <div v-else class="modal-content-layout">
-            <!-- Controls Bar: Tone & Custom Instructions -->
-            <div class="controls-card">
-              <div class="controls-header">
-                <Sliders :size="14" class="text-primary" />
-                <span>Generation & Tone Controls</span>
-              </div>
-              <div class="controls-grid">
-                <div class="form-group">
-                  <label class="form-label text-xs">Desired Tone</label>
-                  <select v-model="tone" class="form-select form-select-sm">
-                    <option v-for="t in COVER_LETTER_TONES" :key="t.code" :value="t.code">
-                      {{ t.label }}
-                    </option>
-                  </select>
+            <!-- Collapsible Regenerate & Tone Options Panel -->
+            <div class="options-accordion" :class="{ expanded: isOptionsExpanded }">
+              <button
+                type="button"
+                class="options-header-btn"
+                @click="toggleOptionsPanel"
+                :aria-expanded="isOptionsExpanded"
+              >
+                <div class="options-header-left">
+                  <Sliders :size="14" class="text-primary" />
+                  <span class="options-title">Regenerate & Tone Options</span>
+                  <span v-if="!isOptionsExpanded" class="options-tone-badge">
+                    {{ currentToneLabel }}
+                  </span>
                 </div>
-                <div class="form-group">
-                  <label class="form-label text-xs">Custom Instructions (Optional)</label>
-                  <input
-                    v-model="customInstructions"
-                    type="text"
-                    placeholder="e.g. Focus on distributed systems & leadership..."
-                    class="form-input form-input-sm"
-                  />
+                <div class="options-header-right">
+                  <span class="options-toggle-label">
+                    {{ isOptionsExpanded ? 'Hide Options' : 'Customize Tone & Prompt' }}
+                  </span>
+                  <ChevronUp v-if="isOptionsExpanded" :size="16" class="accordion-chevron" />
+                  <ChevronDown v-else :size="16" class="accordion-chevron" />
                 </div>
-              </div>
+              </button>
+
+              <Transition name="accordion">
+                <div v-if="isOptionsExpanded" class="options-body">
+                  <div class="controls-grid">
+                    <div class="form-group">
+                      <label class="form-label text-xs">Desired Tone</label>
+                      <select v-model="tone" class="form-select form-select-sm">
+                        <option v-for="t in COVER_LETTER_TONES" :key="t.code" :value="t.code">
+                          {{ t.label }}
+                        </option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label text-xs">Custom Instructions (Optional)</label>
+                      <input
+                        v-model="customInstructions"
+                        type="text"
+                        placeholder="e.g. Focus on distributed systems & leadership..."
+                        class="form-input form-input-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="options-action-row">
+                    <button
+                      class="btn btn-primary btn-sm btn-generate-new"
+                      @click="editableText || application?.cover_letter_text ? handleRegenerateCoverLetter() : handleGenerateCoverLetter()"
+                    >
+                      <RotateCcw :size="14" />
+                      <span>Generate New Version</span>
+                    </button>
+                  </div>
+                </div>
+              </Transition>
             </div>
 
             <!-- Empty Drafting State vs Active Editor -->
@@ -293,7 +340,7 @@ onUnmounted(() => {
               </div>
               <h4 class="empty-draft-title">No Cover Letter Drafted Yet</h4>
               <p class="empty-draft-desc">
-                Select your preferred tone and custom instructions above, then generate a tailored cover letter or start typing below.
+                Select your preferred tone and custom instructions above, then click Generate New Version or start typing below.
               </p>
               <button class="btn btn-primary btn-generate" @click="handleGenerateCoverLetter">
                 <Sparkles :size="15" />
@@ -349,15 +396,6 @@ onUnmounted(() => {
                   >
                     <Copy :size="13" />
                     <span>Copy</span>
-                  </button>
-
-                  <button
-                    v-if="editableText || application?.cover_letter_text"
-                    class="btn btn-primary btn-xs"
-                    @click="handleRegenerateCoverLetter"
-                  >
-                    <RotateCcw :size="13" />
-                    <span>Regenerate</span>
                   </button>
                 </div>
               </div>
@@ -501,23 +539,81 @@ onUnmounted(() => {
   gap: 16px;
 }
 
-.controls-card {
-  padding: 14px;
+/* Accordion Options Panel */
+.options-accordion {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  overflow: hidden;
+  transition: border-color var(--transition-fast);
 }
 
-.controls-header {
+.options-accordion.expanded {
+  border-color: var(--primary-glow);
+}
+
+.options-header-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-main);
+  text-align: left;
+  transition: background-color var(--transition-fast);
+}
+
+.options-header-btn:hover {
+  background-color: var(--bg-elevated);
+}
+
+.options-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.options-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.options-tone-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background-color: var(--primary-subtle);
+  color: var(--primary);
+  border: 1px solid var(--primary-glow);
+}
+
+.options-header-right {
   display: flex;
   align-items: center;
   gap: 6px;
+  color: var(--text-secondary);
+}
+
+.options-toggle-label {
   font-size: 12px;
-  font-weight: 600;
-  color: var(--text-main);
+  font-weight: 500;
+}
+
+.accordion-chevron {
+  color: var(--text-muted);
+}
+
+.options-body {
+  padding: 12px 14px 14px 14px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .controls-grid {
@@ -530,6 +626,19 @@ onUnmounted(() => {
   .controls-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.options-action-row {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.btn-generate-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
 }
 
 .empty-draft-card {
@@ -735,5 +844,16 @@ onUnmounted(() => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+.accordion-enter-active,
+.accordion-leave-active {
+  transition: all 0.2s ease;
+}
+
+.accordion-enter-from,
+.accordion-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 </style>

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { Calendar, Clock, ChevronLeft, ChevronRight, X, Check } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -25,6 +25,8 @@ const emit = defineEmits(['update:modelValue', 'change'])
 
 const isOpen = ref(false)
 const containerRef = ref(null)
+const popoverRef = ref(null)
+const popoverStyle = ref({})
 
 // Current view year & month in calendar
 const viewYear = ref(new Date().getFullYear())
@@ -53,6 +55,47 @@ const TIME_PRESETS_24H = [
   '18:00',
   '23:59',
 ]
+
+// Position updating for teleported popover
+function updatePosition() {
+  if (!containerRef.value || !isOpen.value) return
+  const rect = containerRef.value.getBoundingClientRect()
+  const popoverWidth = props.type === 'datetime' ? 440 : 280
+
+  let top = rect.bottom + 4
+  let left = rect.left
+
+  // Ensure menu doesn't overflow right edge of viewport
+  if (left + popoverWidth > window.innerWidth - 12) {
+    left = Math.max(12, window.innerWidth - popoverWidth - 12)
+  }
+
+  // Flip vertically if not enough space below but enough space above
+  const popoverEstimatedHeight = 360
+  if (top + popoverEstimatedHeight > window.innerHeight && rect.top - popoverEstimatedHeight - 4 > 0) {
+    top = rect.top - popoverEstimatedHeight - 4
+  }
+
+  popoverStyle.value = {
+    position: 'fixed',
+    top: `${top}px`,
+    left: `${left}px`,
+    zIndex: 99999,
+  }
+}
+
+watch(isOpen, (newVal) => {
+  if (newVal) {
+    nextTick(() => {
+      updatePosition()
+      window.addEventListener('scroll', updatePosition, true)
+      window.addEventListener('resize', updatePosition)
+    })
+  } else {
+    window.removeEventListener('scroll', updatePosition, true)
+    window.removeEventListener('resize', updatePosition)
+  }
+})
 
 // Initialize from modelValue
 watch(
@@ -229,7 +272,13 @@ function toggleOpen() {
 }
 
 function handleClickOutside(e) {
-  if (containerRef.value && !containerRef.value.contains(e.target)) {
+  const target = e.target
+  if (
+    containerRef.value &&
+    !containerRef.value.contains(target) &&
+    popoverRef.value &&
+    !popoverRef.value.contains(target)
+  ) {
     isOpen.value = false
   }
 }
@@ -240,6 +289,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside)
+  window.removeEventListener('scroll', updatePosition, true)
+  window.removeEventListener('resize', updatePosition)
 })
 </script>
 
@@ -262,128 +313,132 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <!-- Popover Dropdown (Side-by-Side when type === 'datetime') -->
-    <div
-      v-if="isOpen"
-      class="datepicker-popover animate-fade-in"
-      :class="{ 'has-time-panel': type === 'datetime' }"
-      @click.stop
-    >
-      <div class="popover-main-content">
-        <!-- LEFT PANEL: Calendar Grid -->
-        <div class="calendar-panel">
-          <!-- Header with Month/Year Navigation -->
-          <div class="popover-header">
-            <button class="nav-btn" type="button" @click="prevMonth" title="Previous Month">
-              <ChevronLeft :size="16" />
-            </button>
-            <span class="month-year-label">{{ MONTH_NAMES[viewMonth] }} {{ viewYear }}</span>
-            <button class="nav-btn" type="button" @click="nextMonth" title="Next Month">
-              <ChevronRight :size="16" />
-            </button>
-          </div>
-
-          <!-- Days of Week Header -->
-          <div class="days-header-row">
-            <span v-for="d in DAYS_OF_WEEK" :key="d" class="day-name">{{ d }}</span>
-          </div>
-
-          <!-- Calendar Days Grid -->
-          <div class="calendar-grid">
-            <button
-              v-for="(cell, idx) in calendarDays"
-              :key="idx"
-              type="button"
-              class="calendar-day-btn"
-              :class="{
-                'out-of-month': !cell.isCurrentMonth,
-                'is-today': cell.isToday,
-                'is-selected': cell.isSelected,
-              }"
-              @click="selectDay(cell)"
-            >
-              {{ cell.day }}
-            </button>
-          </div>
-        </div>
-
-        <!-- RIGHT PANEL: 24-Hour Time Picker (rendered side-by-side) -->
-        <div v-if="type === 'datetime'" class="time-panel">
-          <div class="time-panel-header">
-            <Clock :size="13" class="time-icon" />
-            <span class="time-title">Time (24h)</span>
-          </div>
-
-          <!-- Time Spinners / Selectors -->
-          <div class="time-selectors-row">
-            <div class="time-select-block">
-              <span class="time-unit-label">Hour</span>
-              <select v-model="selectedHour" class="time-select-24">
-                <option v-for="h in 24" :key="h" :value="String(h - 1).padStart(2, '0')">
-                  {{ String(h - 1).padStart(2, '0') }}
-                </option>
-              </select>
+    <!-- Teleported Popover Dropdown (Side-by-Side when type === 'datetime') -->
+    <Teleport to="body">
+      <div
+        v-if="isOpen"
+        ref="popoverRef"
+        class="datepicker-popover animate-fade-in"
+        :class="{ 'has-time-panel': type === 'datetime' }"
+        :style="popoverStyle"
+        @click.stop
+      >
+        <div class="popover-main-content">
+          <!-- LEFT PANEL: Calendar Grid -->
+          <div class="calendar-panel">
+            <!-- Header with Month/Year Navigation -->
+            <div class="popover-header">
+              <button class="nav-btn" type="button" @click="prevMonth" title="Previous Month">
+                <ChevronLeft :size="16" />
+              </button>
+              <span class="month-year-label">{{ MONTH_NAMES[viewMonth] }} {{ viewYear }}</span>
+              <button class="nav-btn" type="button" @click="nextMonth" title="Next Month">
+                <ChevronRight :size="16" />
+              </button>
             </div>
 
-            <span class="time-separator">:</span>
-
-            <div class="time-select-block">
-              <span class="time-unit-label">Min</span>
-              <select v-model="selectedMinute" class="time-select-24">
-                <option value="00">00</option>
-                <option value="05">05</option>
-                <option value="10">10</option>
-                <option value="15">15</option>
-                <option value="20">20</option>
-                <option value="25">25</option>
-                <option value="30">30</option>
-                <option value="35">35</option>
-                <option value="40">40</option>
-                <option value="45">45</option>
-                <option value="50">50</option>
-                <option value="55">55</option>
-              </select>
+            <!-- Days of Week Header -->
+            <div class="days-header-row">
+              <span v-for="d in DAYS_OF_WEEK" :key="d" class="day-name">{{ d }}</span>
             </div>
-          </div>
 
-          <!-- Quick Time Presets List -->
-          <div class="presets-section">
-            <span class="presets-label">Presets</span>
-            <div class="presets-grid">
+            <!-- Calendar Days Grid -->
+            <div class="calendar-grid">
               <button
-                v-for="timeStr in TIME_PRESETS_24H"
-                :key="timeStr"
+                v-for="(cell, idx) in calendarDays"
+                :key="idx"
                 type="button"
-                class="preset-time-chip"
-                :class="{ active: selectedHour + ':' + selectedMinute === timeStr }"
-                @click="applyPresetTime(timeStr)"
+                class="calendar-day-btn"
+                :class="{
+                  'out-of-month': !cell.isCurrentMonth,
+                  'is-today': cell.isToday,
+                  'is-selected': cell.isSelected,
+                }"
+                @click="selectDay(cell)"
               >
-                {{ timeStr }}
+                {{ cell.day }}
               </button>
             </div>
           </div>
+
+          <!-- RIGHT PANEL: 24-Hour Time Picker (rendered side-by-side) -->
+          <div v-if="type === 'datetime'" class="time-panel">
+            <div class="time-panel-header">
+              <Clock :size="13" class="time-icon" />
+              <span class="time-title">Time (24h)</span>
+            </div>
+
+            <!-- Time Spinners / Selectors -->
+            <div class="time-selectors-row">
+              <div class="time-select-block">
+                <span class="time-unit-label">Hour</span>
+                <select v-model="selectedHour" class="time-select-24">
+                  <option v-for="h in 24" :key="h" :value="String(h - 1).padStart(2, '0')">
+                    {{ String(h - 1).padStart(2, '0') }}
+                  </option>
+                </select>
+              </div>
+
+              <span class="time-separator">:</span>
+
+              <div class="time-select-block">
+                <span class="time-unit-label">Min</span>
+                <select v-model="selectedMinute" class="time-select-24">
+                  <option value="00">00</option>
+                  <option value="05">05</option>
+                  <option value="10">10</option>
+                  <option value="15">15</option>
+                  <option value="20">20</option>
+                  <option value="25">25</option>
+                  <option value="30">30</option>
+                  <option value="35">35</option>
+                  <option value="40">40</option>
+                  <option value="45">45</option>
+                  <option value="50">50</option>
+                  <option value="55">55</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Quick Time Presets List -->
+            <div class="presets-section">
+              <span class="presets-label">Presets</span>
+              <div class="presets-grid">
+                <button
+                  v-for="timeStr in TIME_PRESETS_24H"
+                  :key="timeStr"
+                  type="button"
+                  class="preset-time-chip"
+                  :class="{ active: selectedHour + ':' + selectedMinute === timeStr }"
+                  @click="applyPresetTime(timeStr)"
+                >
+                  {{ timeStr }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action Footer with CONFIRM Button spanning full width -->
+        <div class="popover-footer">
+          <button
+            class="btn-footer-clear"
+            type="button"
+            @click="clearValue"
+          >
+            Clear
+          </button>
+          <button
+            class="btn-footer-confirm"
+            type="button"
+            @click="confirmSelection"
+          >
+            <Check :size="14" />
+            <span>Confirm</span>
+          </button>
         </div>
       </div>
-
-      <!-- Action Footer with CONFIRM Button spanning full width -->
-      <div class="popover-footer">
-        <button
-          class="btn-footer-clear"
-          type="button"
-          @click="clearValue"
-        >
-          Clear
-        </button>
-        <button
-          class="btn-footer-confirm"
-          type="button"
-          @click="confirmSelection"
-        >
-          <Check :size="14" />
-          <span>Confirm</span>
-        </button>
-      </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
@@ -452,12 +507,8 @@ onBeforeUnmount(() => {
   background-color: var(--bg-elevated);
 }
 
-/* Popover Dropdown */
+/* Popover Dropdown (Teleported) */
 .datepicker-popover {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 9999;
   width: 280px;
   background-color: var(--bg-card);
   border: var(--card-border);
