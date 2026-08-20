@@ -887,16 +887,6 @@ onUnmounted(() => {
                   {{ task.result_json.company || 'Company' }} • {{ task.result_json.position || 'Position' }}
                 </span>
               </div>
-
-              <div class="footer-right">
-                <router-link
-                  to="/assessments"
-                  class="btn btn-primary btn-xs"
-                >
-                  <span>Review Dossier</span>
-                  <ArrowRight :size="12" />
-                </router-link>
-              </div>
             </template>
 
             <!-- CV Extraction Context -->
