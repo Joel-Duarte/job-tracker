@@ -154,6 +154,18 @@ async function retryTask(taskId) {
   }
 }
 
+function isManualDescriptionEligible(task) {
+  if (!task || !task.error_message) return false
+  if (['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER'].includes(task.task_type)) return false
+  const msg = task.error_message.toUpperCase()
+  return (
+    msg.startsWith('SCRAPE_FAILED:') ||
+    msg.startsWith('INVALID_JOB_CONTENT:') ||
+    task.stage === 'FETCHING' ||
+    task.stage === 'SCRAPING'
+  )
+}
+
 function openFixJDModal(task) {
   activeFixJDTask.value = task
   fixJDRawText.value = task.raw_text || ''
@@ -479,12 +491,14 @@ onUnmounted(() => {
       </div>
     </Transition>
 
-    <!-- Fix JD Modal Dialog -->
+    <!-- Manual Job Description Modal Dialog -->
     <div v-if="showFixJDModal" class="modal-backdrop" @click.self="showFixJDModal = false">
       <div class="modal-card modal-card-large animate-scale-in">
         <div class="modal-header">
           <Edit3 :size="20" class="text-primary flex-shrink-0" />
-          <h3 class="modal-title">Fix Job Description — Task #{{ activeFixJDTask?.id }}</h3>
+          <h3 class="modal-title">
+            {{ activeFixJDTask?.raw_text && activeFixJDTask.raw_text.trim() ? 'Edit Job Description' : 'Provide Job Description' }} — Task #{{ activeFixJDTask?.id }}
+          </h3>
         </div>
         <div class="modal-body">
           <p class="modal-subtext text-muted">
@@ -843,22 +857,22 @@ onUnmounted(() => {
             </div>
           </div>
           
-          <!-- Error Alert Banner with Fix JD / Retry Actions -->
+          <!-- Error Alert Banner with Provide/Edit Description & Retry Actions -->
           <div v-if="task.error_message" class="task-error-box">
             <div class="error-msg-left">
               <AlertCircle :size="14" class="text-danger flex-shrink-0" />
               <span>{{ task.error_message }}</span>
             </div>
             <div class="error-actions-right">
-              <!-- Fix JD Action for Job Assessment Tasks -->
+              <!-- Manual Description Action for Scraping/Keyword Failures -->
               <button
-                v-if="task.task_type !== 'CV_EXTRACTION' && task.task_type !== 'EMBEDDING' && task.task_type !== 'COVER_LETTER'"
+                v-if="isManualDescriptionEligible(task)"
                 class="btn btn-primary btn-xs btn-fix-jd"
                 @click="openFixJDModal(task)"
-                title="Manually supply or fix the job description text"
+                :title="task.raw_text && task.raw_text.trim() ? 'Manually edit the job description text' : 'Manually supply the job description text'"
               >
                 <Edit3 :size="12" />
-                <span>Fix JD</span>
+                <span>{{ task.raw_text && task.raw_text.trim() ? 'Edit Job Description' : 'Provide Description' }}</span>
               </button>
               <button
                 class="btn btn-secondary btn-xs btn-retry-error"
