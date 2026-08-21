@@ -31,8 +31,8 @@ const uiStore = useUIStore()
 .toast-container {
   position: fixed;
   bottom: 24px;
-  right: 24px;
-  z-index: 1000;
+  left: 24px;
+  z-index: 9999;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -86,6 +86,6 @@ const uiStore = useUIStore()
 .toast-slide-enter-from,
 .toast-slide-leave-to {
   opacity: 0;
-  transform: translateX(32px) scale(0.95);
+  transform: translateX(-32px) scale(0.95);
 }
 </style>
