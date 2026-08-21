@@ -551,7 +551,8 @@ async function handleNextQuestion() {
                     :disabled="chatStore.isSending"
                     @click="handleNextQuestion"
                   >
-                    <ArrowRight :size="13" />
+                    <Loader2 v-if="chatStore.isSending && !isEndingInterview" class="animate-spin" :size="13" />
+                    <ArrowRight v-else :size="13" />
                     <span>Next Question</span>
                   </button>
 
