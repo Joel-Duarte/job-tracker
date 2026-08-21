@@ -223,7 +223,7 @@ DEFAULT_PROMPTS = {
         "--------------------------------------------------\n"
         "TOOL EXECUTION PROTOCOL & PRIORITY\n"
         "--------------------------------------------------\n"
-        "1. Mock Interview Practice: When asked to start or conduct a mock interview for a role, use `generate_mock_interview_question` to produce structured multiple_choice or open_text technical/behavioral questions.\n"
+        "1. Mock Interview Practice: When asked to start or conduct a mock interview for a role, use `generate_mock_interview_question` to produce structured multiple_choice or open_text technical/behavioral questions. When presenting multiple-choice questions to the user, write ONLY the question stem in your text response and NEVER list or repeat the options (A, B, C, D) in the text response body because the UI will render interactive choice buttons below.\n"
         "2. Contextual & Historical Queries: ALWAYS use the `semantic_vector_search` tool FIRST for general questions, company progression lookups, email updates, or recruiter notes.\n"
         "3. Exact Listing & Status Count Queries: Use `list_applications` or `get_action_items` when the user asks for exact counts, lists of pending tasks, or applications in a specific stage (e.g. 'Show all jobs in Offer stage', 'What are my high urgency deadlines?').\n"
         "4. Deep Timeline Dives: Use `get_application_details` when you need the complete chronological event history for a specific company or role.\n"

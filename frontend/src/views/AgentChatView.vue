@@ -222,6 +222,26 @@ function renderMarkdown(text) {
   return DOMPurify.sanitize(html)
 }
 
+function getCleanMessageContent(msg) {
+  if (!msg || !msg.content) return ''
+  let text = msg.content
+  const qData = getQuestionData(msg)
+  if (qData && qData.question_type === 'multiple_choice' && qData.options?.length) {
+    const lines = text.split('\n')
+    const cleaned = lines.filter(line => {
+      const trimmed = line.trim()
+      if (/^[A-D][\.\)\:]\s+/i.test(trimmed)) return false
+      if (/^[1-4][\.\)\:]\s+/i.test(trimmed)) return false
+      for (const opt of qData.options) {
+        if (opt && (trimmed === opt.trim() || trimmed.endsWith(opt.trim()))) return false
+      }
+      return true
+    })
+    text = cleaned.join('\n')
+  }
+  return text
+}
+
 function getQuestionData(msg) {
   if (!msg || msg.role !== 'assistant') return null
 
@@ -247,6 +267,28 @@ function getQuestionData(msg) {
     }
   }
   return null
+}
+
+function getSelectedOption(msg, idx) {
+  if (msg.selectedOption !== undefined) return msg.selectedOption
+
+  if (idx !== undefined && chatStore.messages && idx < chatStore.messages.length - 1) {
+    const nextMsg = chatStore.messages[idx + 1]
+    if (nextMsg && nextMsg.role === 'user' && nextMsg.content) {
+      const qData = getQuestionData(msg)
+      if (qData && qData.options) {
+        for (const opt of qData.options) {
+          if (nextMsg.content.trim() === opt.trim() || nextMsg.content.trim().includes(opt.trim())) {
+            msg.selectedOption = opt
+            return opt
+          }
+        }
+        msg.selectedOption = nextMsg.content
+        return nextMsg.content
+      }
+    }
+  }
+  return undefined
 }
 
 async function handleSelectOption(msg, optionText) {
@@ -410,7 +452,7 @@ function formatActionLabel(act) {
                 <div
                   v-if="msg.role === 'assistant'"
                   class="message-text markdown-body"
-                  v-html="renderMarkdown(msg.content)"
+                  v-html="renderMarkdown(getCleanMessageContent(msg))"
                 ></div>
                 <div v-else class="message-text">{{ msg.content }}</div>
 
@@ -425,8 +467,8 @@ function formatActionLabel(act) {
                       v-for="(opt, optIdx) in getQuestionData(msg).options"
                       :key="optIdx"
                       class="mock-option-btn"
-                      :class="{ 'selected': msg.selectedOption === opt }"
-                      :disabled="msg.selectedOption !== undefined || chatStore.isSending"
+                      :class="{ 'selected': getSelectedOption(msg, idx) === opt }"
+                      :disabled="getSelectedOption(msg, idx) !== undefined || chatStore.isSending"
                       @click="handleSelectOption(msg, opt)"
                     >
                       <span>{{ opt }}</span>

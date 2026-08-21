@@ -552,15 +552,16 @@ async def execute_generate_mock_interview_question(
         "--------------------------------------------------\n"
         "You MUST return ONLY a valid JSON object matching this exact structure:\n"
         "{\n"
-        '  "question_text": "<Clear, concise, professional question>",\n'
+        '  "question_text": "<Clear, concise, professional question prompt STEM ONLY without listing choices A, B, C, D>",\n'
         '  "question_type": "multiple_choice" | "open_text",\n'
         '  "options": ["A) ...", "B) ...", "C) ...", "D) ..."]\n'
         "}\n\n"
         "Rules:\n"
-        "1. question_type MUST be either 'multiple_choice' or 'open_text'.\n"
-        "2. If question_type is 'multiple_choice', options MUST be an array of 3 or 4 clear string choices (e.g. ['A) Option 1', 'B) Option 2', 'C) Option 3', 'D) Option 4']).\n"
-        "3. If question_type is 'open_text', options MUST be an empty array [].\n"
-        "4. Return strictly raw JSON. Do NOT include markdown code fences or commentary.\n"
+        "1. question_text MUST contain ONLY the question prompt/stem. Do NOT list, repeat, or write out choices (A, B, C, D) inside question_text.\n"
+        "2. question_type MUST be either 'multiple_choice' or 'open_text'.\n"
+        "3. If question_type is 'multiple_choice', options MUST be an array of 3 or 4 clear string choices (e.g. ['A) Option 1', 'B) Option 2', 'C) Option 3', 'D) Option 4']).\n"
+        "4. If question_type is 'open_text', options MUST be an empty array [].\n"
+        "5. Return strictly raw JSON. Do NOT include markdown code fences or commentary.\n"
     )
 
     if question_type in ("multiple_choice", "open_text"):

@@ -280,7 +280,10 @@ async def chat_with_agent(
         if isinstance(m, HumanMessage):
             db_messages.append({"role": "user", "content": m.content})
         elif isinstance(m, AIMessage):
-            db_messages.append({"role": "assistant", "content": m.content})
+            msg_dict: dict[str, Any] = {"role": "assistant", "content": m.content}
+            if actions_performed:
+                msg_dict["actions"] = actions_performed
+            db_messages.append(msg_dict)
         elif isinstance(m, ToolMessage):
             db_messages.append(
                 {"role": "tool", "content": m.content, "tool_call_id": m.tool_call_id}
