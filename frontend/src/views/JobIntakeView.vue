@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
 import { useApplicationsStore } from '../stores/applicationsStore'
+import { useQueueStore } from '../stores/queueStore'
 import { IntakeAPI } from '../api/endpoints'
 import { getFitScores } from '../utils/fitScores'
 import {
@@ -37,6 +38,7 @@ import {
 const router = useRouter()
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
+const queueStore = useQueueStore()
 
 // Input Form State
 const jobUrl = ref('')
@@ -66,8 +68,8 @@ function handlePasteTextInstead() {
 }
 
 // Queue & Evaluations State
-const evaluationTasks = ref([])
-const loadingEvaluations = ref(false)
+const evaluationTasks = computed(() => queueStore.tasks)
+const loadingEvaluations = computed(() => queueStore.loading)
 const expandedTaskIds = ref(new Set())
 const processingTaskIds = ref(new Set())
 let pollingInterval = null
@@ -125,19 +127,9 @@ function clearForm() {
 }
 
 async function loadEvaluations(silent = false) {
-  if (!silent) loadingEvaluations.value = true
-  try {
-    const res = await IntakeAPI.getEvaluations(50)
-    evaluationTasks.value = res.data || []
-
-    // Auto-expand the latest completed task if none expanded
-    if (expandedTaskIds.value.size === 0 && completedTasks.value.length > 0) {
-      expandedTaskIds.value.add(completedTasks.value[0].id)
-    }
-  } catch (err) {
-    if (!silent) uiStore.showToast(err.message, 'error')
-  } finally {
-    if (!silent) loadingEvaluations.value = false
+  await queueStore.fetchTasks(silent)
+  if (expandedTaskIds.value.size === 0 && completedTasks.value.length > 0) {
+    expandedTaskIds.value.add(completedTasks.value[0].id)
   }
 }
 
@@ -175,23 +167,12 @@ async function enqueueLead() {
 
   isEnqueuing.value = true
   try {
-    const res = await IntakeAPI.enqueueAssessment({
+    await queueStore.enqueueAssessment({
       url: urlVal || null,
       text: textVal || null,
     })
-
-    // Replace optimistic item with server response
-    const idx = evaluationTasks.value.findIndex((t) => t.id === tempId)
-    if (idx !== -1 && res.data) {
-      evaluationTasks.value[idx] = res.data
-    }
-
-    uiStore.showToast(`Lead '${res.data.title_hint}' enqueued for AI evaluation!`, 'success')
-    await loadEvaluations(true)
   } catch (err) {
-    // Remove optimistic item on error
-    evaluationTasks.value = evaluationTasks.value.filter((t) => t.id !== tempId)
-    uiStore.showToast(err.message, 'error')
+    // Handled in store
   } finally {
     isEnqueuing.value = false
   }
@@ -250,11 +231,9 @@ async function deleteTask(taskId) {
   evaluationTasks.value = evaluationTasks.value.filter((t) => t.id !== taskId)
 
   try {
-    await IntakeAPI.deleteEvaluation(taskId)
-    uiStore.showToast('Evaluation dismissed', 'info')
+    await queueStore.deleteTask(taskId)
   } catch (err) {
     evaluationTasks.value = originalTasks
-    uiStore.showToast(err.message, 'error')
   }
 }
 

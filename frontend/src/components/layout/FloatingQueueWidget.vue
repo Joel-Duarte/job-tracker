@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUIStore } from '../../stores/uiStore'
-import { IntakeAPI } from '../../api/endpoints'
+import { useQueueStore } from '../../stores/queueStore'
 import {
   Cpu,
   Loader2,
@@ -22,10 +22,9 @@ import {
 const router = useRouter()
 const route = useRoute()
 const uiStore = useUIStore()
+const queueStore = useQueueStore()
 
 const isOpen = ref(false)
-const tasks = ref([])
-const loading = ref(false)
 const retryingTaskIds = ref(new Set())
 const widgetContainerRef = ref(null)
 
@@ -81,18 +80,15 @@ async function submitFixJD() {
 
 let pollTimer = null
 
-// Filter tasks strictly to active (running/queued) and failed/error tasks
-const activeTasks = computed(() =>
-  tasks.value.filter((t) => ['QUEUED', 'PROCESSING'].includes(t.status))
-)
-const failedTasks = computed(() =>
-  tasks.value.filter((t) => ['FAILED', 'CANCELLED'].includes(t.status))
-)
+// Filter tasks strictly to active (running/queued) and failed/error tasks from centralized queue store
+const activeTasks = computed(() => queueStore.activeTasks)
+const failedTasks = computed(() => queueStore.failedTasks)
 
-// Active and Failed counters
-const activeCount = computed(() => activeTasks.value.length)
-const failedCount = computed(() => failedTasks.value.length)
-const notificationCount = computed(() => activeCount.value + failedCount.value)
+// Active and Failed counters directly from store getters
+const activeCount = computed(() => queueStore.activeCount)
+const failedCount = computed(() => queueStore.failedCount)
+const notificationCount = computed(() => queueStore.notificationCount)
+const loading = computed(() => queueStore.loading)
 
 // Focus scope list strictly for the popover menu (active + failed tasks only)
 const focusedTasks = computed(() => [...activeTasks.value, ...failedTasks.value])
@@ -106,19 +102,7 @@ const widgetState = computed(() => {
 })
 
 async function pollQueueStatus(silent = true) {
-  if (!silent) loading.value = true
-  try {
-    const res = await IntakeAPI.getEvaluations(50)
-    if (Array.isArray(res.data)) {
-      tasks.value = res.data
-    }
-  } catch (err) {
-    if (!silent) {
-      uiStore.showToast(err.message || 'Failed to update queue', 'error')
-    }
-  } finally {
-    if (!silent) loading.value = false
-  }
+  await queueStore.fetchTasks(silent)
 }
 
 function toggleMenu() {
@@ -149,11 +133,9 @@ async function retryTask(taskId) {
   retryingTaskIds.value = newSet
 
   try {
-    await IntakeAPI.retryEvaluation(taskId)
-    uiStore.showToast(`Task #${taskId} re-queued for execution!`, 'success')
-    await pollQueueStatus(true)
+    await queueStore.retryTask(taskId)
   } catch (err) {
-    uiStore.showToast(err.message || 'Failed to retry task', 'error')
+    // Handled in store with toast & rollback
   } finally {
     const s = new Set(retryingTaskIds.value)
     s.delete(taskId)
@@ -163,11 +145,9 @@ async function retryTask(taskId) {
 
 async function deleteTask(taskId) {
   try {
-    await IntakeAPI.deleteEvaluation(taskId)
-    tasks.value = tasks.value.filter((t) => t.id !== taskId)
-    uiStore.showToast(`Task #${taskId} dismissed`, 'info')
+    await queueStore.deleteTask(taskId)
   } catch (err) {
-    uiStore.showToast(err.message || 'Failed to dismiss task', 'error')
+    // Handled in store with toast & rollback
   }
 }
 

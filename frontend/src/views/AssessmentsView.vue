@@ -3,7 +3,8 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
 import { useApplicationsStore } from '../stores/applicationsStore'
-import { IntakeAPI, ApplicationsAPI } from '../api/endpoints'
+import { useQueueStore } from '../stores/queueStore'
+import { IntakeAPI } from '../api/endpoints'
 import { getFitScores } from '../utils/fitScores'
 import {
   Sparkles,
@@ -51,6 +52,7 @@ import {
 const router = useRouter()
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
+const queueStore = useQueueStore()
 
 // Active Tab
 const activeTab = ref('ready') // 'ready' | 'queue' | 'passed'
@@ -86,8 +88,8 @@ const sortBy = ref('match_score') // 'match_score' | 'date_desc' | 'company'
 const passedTaskIds = ref(new Set(JSON.parse(localStorage.getItem('job_tracker_passed_assessments') || '[]')))
 
 // Queue & Tasks State
-const evaluationTasks = ref([])
-const loadingEvaluations = ref(false)
+const evaluationTasks = computed(() => queueStore.tasks)
+const loadingEvaluations = computed(() => queueStore.loading)
 const expandedTaskIds = ref(new Set())
 const processingTaskIds = ref(new Set())
 let pollTimer = null
@@ -316,15 +318,7 @@ const averageFitScore = computed(() => {
 })
 
 async function loadEvaluations(silent = false) {
-  if (!silent) loadingEvaluations.value = true
-  try {
-    const res = await IntakeAPI.getEvaluations(100)
-    evaluationTasks.value = res.data || []
-  } catch (err) {
-    if (!silent) uiStore.showToast(err.message, 'error')
-  } finally {
-    if (!silent) loadingEvaluations.value = false
-  }
+  await queueStore.fetchTasks(silent)
 }
 
 function toggleExpandTask(taskId) {
@@ -387,23 +381,19 @@ function restorePassed(task) {
 
 async function deleteEvaluation(taskId) {
   try {
-    await IntakeAPI.deleteEvaluation(taskId)
-    evaluationTasks.value = evaluationTasks.value.filter((t) => t.id !== taskId)
+    await queueStore.deleteTask(taskId)
     passedTaskIds.value.delete(String(taskId))
     localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
-    uiStore.showToast('Evaluation dismissed', 'info')
   } catch (err) {
-    uiStore.showToast(err.message, 'error')
+    // Handled in store
   }
 }
 
 async function clearCompleted() {
   try {
-    const res = await IntakeAPI.clearCompletedEvaluations()
-    uiStore.showToast(`Cleared ${res.data.cleared_count || 0} completed evaluations`, 'success')
-    await loadEvaluations(true)
+    await queueStore.clearCompletedTasks()
   } catch (err) {
-    uiStore.showToast(err.message, 'error')
+    // Handled in store
   }
 }
 
