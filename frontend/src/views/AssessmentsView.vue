@@ -1441,7 +1441,7 @@ onUnmounted(() => {
 
 .sort-select {
   height: 34px;
-  padding: 0 10px;
+  padding: 0 28px 0 10px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
   background-color: var(--bg-surface);

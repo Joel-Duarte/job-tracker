@@ -1895,8 +1895,15 @@ function formatDate(isoStr) {
   gap: 10px;
 }
 
-.form-input-sm, .form-select-sm {
+.form-input-sm {
   padding: 6px 10px;
+}
+
+.form-select-sm {
+  padding: 6px 26px 6px 10px;
+}
+
+.form-input-sm, .form-select-sm {
   font-size: 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);

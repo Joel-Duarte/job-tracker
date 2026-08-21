@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   Layers,
   Search,
+  RotateCcw,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
@@ -480,19 +481,46 @@ onUnmounted(() => {
               <div class="urgency-dropdown-wrapper" @click.stop>
                 <button
                   class="urgency-pill dropdown-trigger"
-                  :class="`urgency-${item.urgency?.toLowerCase() || 'medium'}`"
+                  :class="[`urgency-${item.urgency?.toLowerCase() || 'medium'}`, { active: activeUrgencyDropdown === item.id }]"
                   @click="activeUrgencyDropdown === item.id ? activeUrgencyDropdown = null : activeUrgencyDropdown = item.id"
                 >
                   {{ item.urgency || 'MEDIUM' }}
                   <span v-if="item.manual_urgency_override" class="override-indicator">*</span>
                 </button>
 
-                <div v-if="activeUrgencyDropdown === item.id" class="urgency-dropdown">
-                  <button class="dropdown-item" @click="setManualUrgency(item, 'HIGH')">High</button>
-                  <button class="dropdown-item" @click="setManualUrgency(item, 'MEDIUM')">Medium</button>
-                  <button class="dropdown-item" @click="setManualUrgency(item, 'LOW')">Low</button>
+                <div v-if="activeUrgencyDropdown === item.id" class="dropdown-menu urgency-dropdown animate-fade-in">
+                  <button
+                    class="dropdown-item"
+                    :class="{ selected: item.urgency === 'HIGH' }"
+                    @click="setManualUrgency(item, 'HIGH')"
+                  >
+                    <span class="urgency-dot urgency-high-dot"></span>
+                    <span>High Urgency</span>
+                  </button>
+                  <button
+                    class="dropdown-item"
+                    :class="{ selected: item.urgency === 'MEDIUM' }"
+                    @click="setManualUrgency(item, 'MEDIUM')"
+                  >
+                    <span class="urgency-dot urgency-medium-dot"></span>
+                    <span>Medium Urgency</span>
+                  </button>
+                  <button
+                    class="dropdown-item"
+                    :class="{ selected: item.urgency === 'LOW' }"
+                    @click="setManualUrgency(item, 'LOW')"
+                  >
+                    <span class="urgency-dot urgency-low-dot"></span>
+                    <span>Low Urgency</span>
+                  </button>
                   <div class="dropdown-divider"></div>
-                  <button class="dropdown-item text-muted" @click="setManualUrgency(item, null)">Reset to Auto</button>
+                  <button
+                    class="dropdown-item text-muted"
+                    @click="setManualUrgency(item, null)"
+                  >
+                    <RotateCcw :size="12" />
+                    <span>Reset to Auto</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -833,9 +861,10 @@ onUnmounted(() => {
 }
 
 .sort-select {
-  padding: 5px 10px;
+  height: 32px;
+  padding: 0 28px 0 10px;
   font-size: 12px;
-  background-color: var(--bg-main);
+  background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-main);
@@ -971,7 +1000,7 @@ onUnmounted(() => {
 }
 
 .dropdown-trigger:hover {
-  opacity: 0.8;
+  opacity: 0.85;
 }
 
 .override-indicator {
@@ -981,39 +1010,33 @@ onUnmounted(() => {
 
 .urgency-dropdown {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 6px);
   left: 0;
-  margin-top: 4px;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-md);
-  z-index: 10;
-  min-width: 120px;
-  display: flex;
-  flex-direction: column;
-  padding: 4px 0;
+  min-width: 160px;
+  z-index: 50;
 }
 
-.dropdown-item {
-  padding: 6px 12px;
-  font-size: 12px;
-  text-align: left;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--text-main);
-  transition: background-color var(--transition-fast);
+.urgency-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  display: inline-block;
+  flex-shrink: 0;
 }
 
-.dropdown-item:hover {
-  background-color: var(--bg-card);
+.urgency-high-dot {
+  background-color: var(--status-rejected-text);
+  box-shadow: 0 0 6px var(--status-rejected-border);
 }
 
-.dropdown-divider {
-  height: 1px;
-  background-color: var(--border-color);
-  margin: 4px 0;
+.urgency-medium-dot {
+  background-color: var(--status-interview-text);
+  box-shadow: 0 0 6px var(--status-interview-border);
+}
+
+.urgency-low-dot {
+  background-color: var(--status-applied-text);
+  box-shadow: 0 0 6px var(--status-applied-border);
 }
 
 .urgency-filters {
