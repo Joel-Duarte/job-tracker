@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
 import { useQueueStore } from '../stores/queueStore'
 import PageHeader from '../components/common/PageHeader.vue'
+import { getFitScores } from '../utils/fitScores'
 import {
   Cpu,
   Layers,
@@ -53,8 +54,6 @@ const activeFixJDTask = ref(null)
 const fixJDRawText = ref('')
 const fixJDJobUrl = ref('')
 const isSubmittingFixJD = ref(false)
-
-let pollTimer = null
 
 const tasks = computed(() => queueStore.tasks)
 const loading = computed(() => queueStore.loading)
@@ -275,27 +274,8 @@ function formatDate(isoStr) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
-function startPolling() {
-  stopPolling()
-  pollTimer = setInterval(() => {
-    fetchTasks(true)
-  }, activeCount.value > 0 ? 1500 : 4000)
-}
-
-function stopPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-}
-
 onMounted(() => {
   fetchTasks()
-  startPolling()
-})
-
-onUnmounted(() => {
-  stopPolling()
 })
 </script>
 

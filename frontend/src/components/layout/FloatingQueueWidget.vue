@@ -78,8 +78,6 @@ async function submitFixJD() {
   }
 }
 
-let pollTimer = null
-
 // Filter tasks strictly to active (running/queued) and failed/error tasks from centralized queue store
 const activeTasks = computed(() => queueStore.activeTasks)
 const failedTasks = computed(() => queueStore.failedTasks)
@@ -164,16 +162,10 @@ function getTaskTypeLabel(type) {
 }
 
 onMounted(() => {
-  pollQueueStatus(true)
-  pollTimer = setInterval(() => {
-    pollQueueStatus(true)
-  }, activeCount.value > 0 ? 2500 : 6000)
-
   document.addEventListener('click', handleClickOutside)
 })
 
 onUnmounted(() => {
-  if (pollTimer) clearInterval(pollTimer)
   document.removeEventListener('click', handleClickOutside)
 })
 </script>

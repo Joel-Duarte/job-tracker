@@ -51,6 +51,28 @@ export const useQueueStore = defineStore('queue', () => {
     ).length
   })
 
+  let pollTimer = null
+
+  function stopPolling() {
+    if (pollTimer) {
+      clearTimeout(pollTimer)
+      pollTimer = null
+    }
+  }
+
+  function scheduleNextPoll() {
+    stopPolling()
+    const interval = activeCount.value > 0 ? 1500 : 4000
+    pollTimer = setTimeout(async () => {
+      await fetchTasks(true)
+    }, interval)
+  }
+
+  function startPolling() {
+    stopPolling()
+    scheduleNextPoll()
+  }
+
   // Fetch Queue Evaluations from API
   async function fetchTasks(silent = false) {
     if (!silent) loading.value = true
@@ -67,8 +89,12 @@ export const useQueueStore = defineStore('queue', () => {
       }
     } finally {
       if (!silent) loading.value = false
+      scheduleNextPoll()
     }
   }
+
+  // Auto-initialize hydration & central polling loop on store creation
+  fetchTasks(true)
 
   // 1. Enqueue Assessment Optimistically
   async function enqueueAssessment(payload) {
@@ -259,6 +285,58 @@ export const useQueueStore = defineStore('queue', () => {
     }
   }
 
+  // 8. Cancel Task Optimistically
+  async function cancelTask(taskId) {
+    const previousSnapshot = [...tasks.value]
+
+    // Optimistically update status to CANCELLED
+    const idx = tasks.value.findIndex((t) => t.id === taskId)
+    if (idx !== -1) {
+      tasks.value[idx] = {
+        ...tasks.value[idx],
+        status: 'CANCELLED',
+        error_message: 'Task stopped by user',
+      }
+    }
+
+    try {
+      const res = await IntakeAPI.cancelEvaluation(taskId)
+      uiStore.showToast(`Task #${taskId} stopped`, 'info')
+      if (res.data) {
+        const updatedIdx = tasks.value.findIndex((t) => t.id === taskId)
+        if (updatedIdx !== -1) {
+          tasks.value[updatedIdx] = { ...tasks.value[updatedIdx], ...res.data }
+        }
+      }
+      return res.data
+    } catch (err) {
+      // Rollback
+      tasks.value = previousSnapshot
+      uiStore.showToast(err.message || `Failed to cancel task #${taskId}`, 'error')
+      throw err
+    }
+  }
+
+  // 9. Fix JD Evaluation
+  async function fixJDEvaluation(taskId, payload) {
+    try {
+      const res = await IntakeAPI.fixJDEvaluation(taskId, payload)
+      uiStore.showToast(`Job description updated for Task #${taskId}. Processing restarted!`, 'success')
+      if (res.data) {
+        const idx = tasks.value.findIndex((t) => t.id === taskId)
+        if (idx !== -1) {
+          tasks.value[idx] = { ...tasks.value[idx], ...res.data }
+        }
+      } else {
+        await fetchTasks(true)
+      }
+      return res.data
+    } catch (err) {
+      uiStore.showToast(err.message || `Failed to update job description for Task #${taskId}`, 'error')
+      throw err
+    }
+  }
+
   return {
     tasks,
     loading,
@@ -274,8 +352,12 @@ export const useQueueStore = defineStore('queue', () => {
     notificationCount,
     readyAssessmentsCount,
     fetchTasks,
+    startPolling,
+    stopPolling,
     enqueueAssessment,
     retryTask,
+    cancelTask,
+    fixJDEvaluation,
     deleteTask,
     bulkRetryTasks,
     bulkDeleteTasks,
