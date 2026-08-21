@@ -83,6 +83,8 @@ async function handleFileUpload(event) {
 
   isParsingFile.value = true
 
+  const actionText = profile.value ? 'updating profile' : 'activating profile'
+
   try {
     if (ext === 'txt') {
       const reader = new FileReader()
@@ -91,7 +93,7 @@ async function handleFileUpload(event) {
         if (typeof text === 'string' && text.trim()) {
           rawCVInput.value = text.trim()
           activeInputTab.value = 'raw'
-          uiStore.showToast(`Loaded ${file.name}. Please review text before activating profile.`, 'success')
+          uiStore.showToast(`Loaded ${file.name}. Please review text before ${actionText}.`, 'success')
         } else {
           uiStore.showToast('Uploaded text file is empty.', 'error')
         }
@@ -112,7 +114,7 @@ async function handleFileUpload(event) {
       if (text && text.trim()) {
         rawCVInput.value = text.trim()
         activeInputTab.value = 'raw'
-        uiStore.showToast(`Extracted text from ${file.name}. Please review text before activating profile.`, 'success')
+        uiStore.showToast(`Extracted text from ${file.name}. Please review text before ${actionText}.`, 'success')
       } else {
         uiStore.showToast('Could not extract text from document file.', 'error')
       }
