@@ -151,3 +151,52 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
             assert get_after_del.json() is None
 
     app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_parse_cv_document_file_endpoint():
+    import io
+    import docx
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Test .txt file upload
+        txt_content = b"John Candidate - Full Stack Engineer with Vue and Python experience."
+        resp_txt = await client.post(
+            "/api/v1/profile/cv/parse-file",
+            files={"file": ("resume.txt", txt_content, "text/plain")},
+        )
+        assert resp_txt.status_code == 200
+        data_txt = resp_txt.json()
+        assert "John Candidate" in data_txt["text"]
+        assert data_txt["filename"] == "resume.txt"
+
+        # 2. Test .docx file upload
+        doc = docx.Document()
+        doc.add_paragraph("Jane Developer - Lead Software Architect")
+        doc.add_paragraph("Expert in FastAPI, Vue, and PostgreSQL")
+        docx_buf = io.BytesIO()
+        doc.save(docx_buf)
+
+        resp_docx = await client.post(
+            "/api/v1/profile/cv/parse-file",
+            files={
+                "file": (
+                    "jane_cv.docx",
+                    docx_buf.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
+        )
+        assert resp_docx.status_code == 200
+        data_docx = resp_docx.json()
+        assert "Jane Developer" in data_docx["text"]
+        assert "FastAPI, Vue, and PostgreSQL" in data_docx["text"]
+
+        # 3. Test empty file upload validation
+        resp_empty = await client.post(
+            "/api/v1/profile/cv/parse-file",
+            files={"file": ("empty.txt", b"", "text/plain")},
+        )
+        assert resp_empty.status_code == 400
+        assert "Uploaded file is empty" in resp_empty.json()["detail"]

@@ -56,6 +56,11 @@ class CandidateCVSaveRequest(BaseModel):
     )
 
 
+class CVParsedDocumentResponse(BaseModel):
+    text: str = Field(description="Extracted plain text from uploaded document.")
+    filename: str = Field(description="Name of uploaded document file.")
+
+
 class CandidateCVUpdateRequest(BaseModel):
     anonymized_text: str | None = None
     extracted_skills: list[str] | None = None

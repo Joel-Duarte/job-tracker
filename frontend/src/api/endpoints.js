@@ -45,6 +45,10 @@ export const CandidateProfileAPI = {
   getTaskStatus: (taskId) => apiClient.get(`/profile/cv/tasks/${taskId}`),
   update: (id, data) => apiClient.patch(`/profile/cv/${id}`, data),
   delete: (id) => apiClient.delete(`/profile/cv/${id}`),
+  parseFile: (formData) =>
+    apiClient.post('/profile/cv/parse-file', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
 }
 
 export const AgentAPI = {

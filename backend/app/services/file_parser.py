@@ -213,3 +213,82 @@ def parse_uploaded_file(filename: str, content: bytes) -> EmailPayload:
     else:
         # Default to text parser for other formats (e.g. .log, .raw)
         return parse_txt(content, filename=filename)
+
+
+def parse_cv_document(filename: str, content: bytes) -> str:
+    """Extracts text content from uploaded resume documents (.pdf, .docx, .doc, .txt)."""
+    fn_lower = filename.lower()
+
+    if fn_lower.endswith(".pdf"):
+        import pypdf
+
+        try:
+            reader = pypdf.PdfReader(io.BytesIO(content))
+            text_parts = []
+            for page in reader.pages:
+                extracted = page.extract_text()
+                if extracted:
+                    text_parts.append(extracted)
+            text = "\n\n".join(text_parts).strip()
+            if not text:
+                raise ValueError("Could not extract any text from PDF document.")
+            return text
+        except Exception as err:
+            logger.error("Failed parsing PDF file '%s': %s", filename, err)
+            raise ValueError(f"Failed parsing PDF document: {err!s}") from err
+
+    elif fn_lower.endswith(".docx"):
+        import docx
+
+        try:
+            doc = docx.Document(io.BytesIO(content))
+            text_parts = [p.text for p in doc.paragraphs if p.text.strip()]
+            for table in doc.tables:
+                for row in table.rows:
+                    row_text = " | ".join(
+                        cell.text.strip() for cell in row.cells if cell.text.strip()
+                    )
+                    if row_text:
+                        text_parts.append(row_text)
+            text = "\n".join(text_parts).strip()
+            if not text:
+                raise ValueError("Could not extract any text from Word document.")
+            return text
+        except Exception as err:
+            logger.error("Failed parsing DOCX file '%s': %s", filename, err)
+            raise ValueError(f"Failed parsing Word document: {err!s}") from err
+
+    elif fn_lower.endswith(".txt"):
+        try:
+            text = content.decode("utf-8", errors="replace").strip()
+            if not text:
+                raise ValueError("Uploaded text file is empty.")
+            return text
+        except Exception as err:
+            raise ValueError(f"Failed reading text file: {err!s}") from err
+
+    elif fn_lower.endswith(".doc"):
+        try:
+            raw_text = content.decode("utf-8", errors="ignore")
+            printable = "".join(
+                c for c in raw_text if c.isprintable() or c in ("\n", "\r", "\t")
+            )
+            cleaned = "\n".join(
+                line.strip()
+                for line in printable.splitlines()
+                if len(line.strip()) > 3
+            )
+            if cleaned and len(cleaned) > 20:
+                return cleaned
+            raise ValueError(
+                "Legacy .doc format text extraction yielded empty or unreadable content. Please convert file to .docx or .pdf format."
+            )
+        except Exception as err:
+            raise ValueError(
+                "Legacy .doc format requires conversion to .docx or .pdf."
+            ) from err
+
+    else:
+        raise ValueError(
+            f"Unsupported file type: {filename}. Supported formats are .pdf, .docx, .doc, and .txt."
+        )

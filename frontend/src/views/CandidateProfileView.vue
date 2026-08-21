@@ -29,6 +29,8 @@ import {
   Check,
   Power,
   RotateCcw,
+  Upload,
+  AlertTriangle,
 } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -49,6 +51,81 @@ const isEditingSummary = ref(false)
 const editedSummaryText = ref('')
 const showUpdateDrawer = ref(false)
 const isDocExpanded = ref(true)
+
+// File upload & parsing
+const fileInput = ref(null)
+const isParsingFile = ref(false)
+
+function triggerFileInput() {
+  fileInput.value?.click()
+}
+
+async function handleFileUpload(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+
+  // 10 MB file size limit check
+  const MAX_SIZE = 10 * 1024 * 1024
+  if (file.size > MAX_SIZE) {
+    uiStore.showToast('File size exceeds the 10 MB limit.', 'error')
+    if (event.target) event.target.value = ''
+    return
+  }
+
+  // File extension check
+  const ext = file.name.split('.').pop()?.toLowerCase()
+  const allowed = ['pdf', 'docx', 'doc', 'txt']
+  if (!ext || !allowed.includes(ext)) {
+    uiStore.showToast('Unsupported file format. Please select a .pdf, .docx, .doc, or .txt file.', 'error')
+    if (event.target) event.target.value = ''
+    return
+  }
+
+  isParsingFile.value = true
+
+  try {
+    if (ext === 'txt') {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const text = e.target?.result
+        if (typeof text === 'string' && text.trim()) {
+          rawCVInput.value = text.trim()
+          activeInputTab.value = 'raw'
+          uiStore.showToast(`Loaded ${file.name}. Please review text before activating profile.`, 'success')
+        } else {
+          uiStore.showToast('Uploaded text file is empty.', 'error')
+        }
+        isParsingFile.value = false
+        if (event.target) event.target.value = ''
+      }
+      reader.onerror = () => {
+        uiStore.showToast('Failed to read text file.', 'error')
+        isParsingFile.value = false
+        if (event.target) event.target.value = ''
+      }
+      reader.readAsText(file)
+    } else {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await CandidateProfileAPI.parseFile(formData)
+      const text = res.data?.text
+      if (text && text.trim()) {
+        rawCVInput.value = text.trim()
+        activeInputTab.value = 'raw'
+        uiStore.showToast(`Extracted text from ${file.name}. Please review text before activating profile.`, 'success')
+      } else {
+        uiStore.showToast('Could not extract text from document file.', 'error')
+      }
+      isParsingFile.value = false
+      if (event.target) event.target.value = ''
+    }
+  } catch (err) {
+    const errMsg = err.response?.data?.detail || err.message || 'Failed to extract text from file'
+    uiStore.showToast(errMsg, 'error')
+    isParsingFile.value = false
+    if (event.target) event.target.value = ''
+  }
+}
 
 // Local scrubber preview
 const localScrubResult = computed(() => {
@@ -376,23 +453,44 @@ onMounted(async () => {
             <span>{{ profile ? 'Update Resume Source Text' : 'Import Candidate Resume / CV' }}</span>
           </div>
 
-          <!-- Input Tabs -->
-          <div class="input-tabs">
+          <div class="panel-header-actions">
+            <input
+              ref="fileInput"
+              type="file"
+              accept=".pdf,.docx,.doc,.txt"
+              class="hidden-file-input"
+              @change="handleFileUpload"
+            />
+
             <button
-              class="tab-btn"
-              :class="{ active: activeInputTab === 'raw' }"
-              @click="activeInputTab = 'raw'"
+              type="button"
+              class="btn btn-secondary btn-xs"
+              :disabled="isParsingFile || isProcessing"
+              @click="triggerFileInput"
             >
-              Raw Input
+              <Loader2 v-if="isParsingFile" class="animate-spin" :size="13" />
+              <Upload v-else :size="13" />
+              <span>{{ isParsingFile ? 'Extracting File...' : 'Upload Resume File' }}</span>
             </button>
-            <button
-              class="tab-btn"
-              :class="{ active: activeInputTab === 'preview' }"
-              @click="activeInputTab = 'preview'"
-            >
-              <Lock :size="12" />
-              <span>Local Scrubbed Preview</span>
-            </button>
+
+            <!-- Input Tabs -->
+            <div class="input-tabs">
+              <button
+                class="tab-btn"
+                :class="{ active: activeInputTab === 'raw' }"
+                @click="activeInputTab = 'raw'"
+              >
+                Raw Input
+              </button>
+              <button
+                class="tab-btn"
+                :class="{ active: activeInputTab === 'preview' }"
+                @click="activeInputTab = 'preview'"
+              >
+                <Lock :size="12" />
+                <span>Local Scrubbed Preview</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -413,13 +511,24 @@ onMounted(async () => {
           <span v-if="localScrubResult.stats.addresses">{{ localScrubResult.stats.addresses }} address(es)</span>
         </div>
 
+        <!-- Privacy Review Advisory Banner -->
+        <div v-if="activeInputTab === 'raw'" class="privacy-review-banner animate-fade-in">
+          <AlertTriangle :size="16" class="banner-icon flex-shrink-0" />
+          <div class="banner-content">
+            <strong class="banner-title">Manual Privacy Review Recommended</strong>
+            <p class="banner-desc">
+              Please review and edit the loaded text below to scan for any phone numbers, home addresses, personal email addresses, or specific former company names before submitting. You can edit the text directly in the raw input box to scrub any missed details prior to triggering the de-anonymization and profile activation pipeline.
+            </p>
+          </div>
+        </div>
+
         <!-- Raw Textarea -->
         <textarea
           v-if="activeInputTab === 'raw'"
           v-model="rawCVInput"
           rows="10"
           class="form-textarea font-mono text-xs"
-          placeholder="Paste your complete resume or CV text here..."
+          placeholder="Paste your complete resume or CV text here or use the 'Upload Resume File' button above..."
         ></textarea>
 
         <!-- Local Preview -->
@@ -908,6 +1017,50 @@ onMounted(async () => {
   font-size: 14px;
   font-weight: 700;
   color: var(--text-main);
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.privacy-review-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background-color: rgba(234, 179, 8, 0.1);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  color: var(--text-main);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.banner-icon {
+  color: #eab308;
+  margin-top: 1px;
+}
+
+.banner-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.banner-title {
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.banner-desc {
+  color: var(--text-secondary);
 }
 
 .input-tabs {
