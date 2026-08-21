@@ -169,15 +169,7 @@ onMounted(() => {
           </span>
         </router-link>
 
-        <router-link
-          to="/analytics"
-          class="nav-link"
-          :class="{ active: route.path === '/analytics' }"
-          @click="uiStore.clearLastNonSettingsRoute()"
-        >
-          <BarChart3 :size="16" />
-          <span>Analytics</span>
-        </router-link>
+        
 
         <router-link
           to="/staging"
@@ -190,6 +182,16 @@ onMounted(() => {
           <span v-if="pendingStagingCount > 0" class="nav-badge">
             {{ pendingStagingCount }}
           </span>
+        </router-link>
+
+        <router-link
+          to="/analytics"
+          class="nav-link"
+          :class="{ active: route.path === '/analytics' }"
+          @click="uiStore.clearLastNonSettingsRoute()"
+        >
+          <BarChart3 :size="16" />
+          <span>Analytics</span>
         </router-link>
 
         <router-link
