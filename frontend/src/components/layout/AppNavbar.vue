@@ -20,12 +20,24 @@ import {
   Cpu,
   Mail,
   BarChart3,
+  Menu,
+  X,
 } from 'lucide-vue-next'
 
 const router = useRouter()
 const route = useRoute()
 const uiStore = useUIStore()
 const queueStore = useQueueStore()
+
+const isMobileMenuOpen = ref(false)
+
+function toggleMobileMenu() {
+  isMobileMenuOpen.value = !isMobileMenuOpen.value
+}
+
+function closeMobileMenu() {
+  isMobileMenuOpen.value = false
+}
 
 const pendingStagingCount = ref(0)
 const pendingTasksCount = ref(0)
@@ -110,6 +122,7 @@ function handleSettingsClick() {
 watch(
   () => route.path,
   (newPath, oldPath) => {
+    closeMobileMenu()
     if (oldPath && oldPath.startsWith('/settings') && !newPath.startsWith('/settings')) {
       uiStore.clearLastNonSettingsRoute()
     }
@@ -125,6 +138,15 @@ onMounted(() => {
 <template>
   <header class="navbar">
     <div class="nav-left">
+      <!-- Mobile Hamburger Button -->
+      <button
+        class="btn-icon mobile-hamburger-btn"
+        @click="toggleMobileMenu"
+        title="Toggle Menu"
+      >
+        <Menu :size="18" />
+      </button>
+
       <router-link to="/" class="nav-brand" @click="uiStore.clearLastNonSettingsRoute()">
         <div class="brand-icon">
           <Sparkles :size="18" class="text-primary" />
@@ -132,7 +154,7 @@ onMounted(() => {
         <span class="brand-title">JobTracker</span>
       </router-link>
 
-      <nav class="nav-links">
+      <nav class="nav-links desktop-nav">
         <router-link
           to="/"
           class="nav-link"
@@ -168,8 +190,6 @@ onMounted(() => {
             {{ pendingTasksCount }}
           </span>
         </router-link>
-
-        
 
         <router-link
           to="/staging"
@@ -207,7 +227,7 @@ onMounted(() => {
       </nav>
     </div>
 
-    <div class="nav-right">
+    <div class="nav-right desktop-nav">
       <button
         class="btn btn-primary btn-ingest"
         @click="uiStore.openJobIntakeModal"
@@ -246,6 +266,142 @@ onMounted(() => {
 
       <ThemePalettePopover />
     </div>
+
+    <!-- Mobile Slide-out Side Drawer -->
+    <Teleport to="body">
+      <Transition name="mobile-menu-slide">
+        <div
+          v-if="isMobileMenuOpen"
+          class="mobile-menu-backdrop"
+          @click="closeMobileMenu"
+        >
+          <div class="mobile-menu-drawer" @click.stop>
+            <div class="mobile-menu-header">
+              <div class="nav-brand">
+                <div class="brand-icon">
+                  <Sparkles :size="18" class="text-primary" />
+                </div>
+                <span class="brand-title">JobTracker</span>
+              </div>
+              <button class="btn-icon" @click="closeMobileMenu" title="Close Menu">
+                <X :size="18" />
+              </button>
+            </div>
+
+            <div class="mobile-menu-body">
+              <div class="mobile-section-title">Navigation</div>
+              <nav class="mobile-nav-links">
+                <router-link
+                  to="/"
+                  class="mobile-nav-link"
+                  :class="{ active: route.path === '/' }"
+                  @click="uiStore.clearLastNonSettingsRoute(); closeMobileMenu()"
+                >
+                  <Briefcase :size="18" />
+                  <span>Applications</span>
+                </router-link>
+
+                <router-link
+                  to="/assessments"
+                  class="mobile-nav-link"
+                  :class="{ active: ['/assessments', '/intake'].includes(route.path) }"
+                  @click="uiStore.clearLastNonSettingsRoute(); closeMobileMenu()"
+                >
+                  <Sparkles :size="18" />
+                  <span>Assessments</span>
+                  <span v-if="readyAssessmentsCount > 0" class="nav-badge ml-auto">
+                    {{ readyAssessmentsCount }}
+                  </span>
+                </router-link>
+
+                <router-link
+                  to="/tasks"
+                  class="mobile-nav-link"
+                  :class="{ active: route.path === '/tasks' }"
+                  @click="uiStore.clearLastNonSettingsRoute(); closeMobileMenu()"
+                >
+                  <CheckSquare :size="18" />
+                  <span>Tasks</span>
+                  <span v-if="pendingTasksCount > 0" class="nav-badge ml-auto">
+                    {{ pendingTasksCount }}
+                  </span>
+                </router-link>
+
+                <router-link
+                  to="/staging"
+                  class="mobile-nav-link"
+                  :class="{ active: route.path === '/staging' }"
+                  @click="uiStore.clearLastNonSettingsRoute(); closeMobileMenu()"
+                >
+                  <Inbox :size="18" />
+                  <span>Staging</span>
+                  <span v-if="pendingStagingCount > 0" class="nav-badge ml-auto">
+                    {{ pendingStagingCount }}
+                  </span>
+                </router-link>
+
+                <router-link
+                  to="/analytics"
+                  class="mobile-nav-link"
+                  :class="{ active: route.path === '/analytics' }"
+                  @click="uiStore.clearLastNonSettingsRoute(); closeMobileMenu()"
+                >
+                  <BarChart3 :size="18" />
+                  <span>Analytics</span>
+                </router-link>
+
+                <router-link
+                  to="/chat"
+                  class="mobile-nav-link"
+                  :class="{ active: route.path === '/chat' }"
+                  @click="uiStore.clearLastNonSettingsRoute(); closeMobileMenu()"
+                >
+                  <Bot :size="18" />
+                  <span>Agent</span>
+                </router-link>
+              </nav>
+
+              <div class="mobile-section-title">Quick Actions</div>
+              <div class="mobile-actions-group">
+                <button
+                  class="btn btn-primary mobile-action-btn"
+                  @click="uiStore.openJobIntakeModal(); closeMobileMenu()"
+                >
+                  <Sparkles :size="16" />
+                  <span>Job Intake</span>
+                </button>
+
+                <button
+                  class="btn btn-primary mobile-action-btn"
+                  @click="uiStore.openIngestModal(); closeMobileMenu()"
+                >
+                  <Mail :size="16" />
+                  <span>Email Intake</span>
+                </button>
+
+                <div class="mobile-util-buttons">
+                  <button
+                    class="btn btn-secondary mobile-util-btn"
+                    @click="uiStore.toggleThemePopover(); closeMobileMenu()"
+                  >
+                    <Palette :size="16" />
+                    <span>Theme Studio</span>
+                  </button>
+
+                  <button
+                    class="btn btn-secondary mobile-util-btn"
+                    @click="handleSettingsClick(); closeMobileMenu()"
+                  >
+                    <Settings :size="16" />
+                    <span>Settings</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </header>
 </template>
 
@@ -390,5 +546,152 @@ onMounted(() => {
   border-color: var(--primary);
   color: var(--primary-contrast, #0a0d14);
   box-shadow: 0 0 0 2px var(--primary-subtle);
+}
+
+.mobile-hamburger-btn {
+  display: none;
+}
+
+.ml-auto {
+  margin-left: auto;
+}
+
+/* Mobile Drawer Styles */
+.mobile-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background-color: var(--bg-backdrop);
+  backdrop-filter: blur(4px);
+  display: flex;
+}
+
+.mobile-menu-drawer {
+  width: 280px;
+  max-width: 85vw;
+  height: 100vh;
+  background-color: var(--bg-sidebar);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-xl);
+}
+
+.mobile-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--navbar-height);
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.mobile-menu-body {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.mobile-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+.mobile-nav-links {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mobile-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.mobile-nav-link:hover, .mobile-nav-link.active {
+  color: var(--text-main);
+  background-color: var(--bg-surface);
+}
+
+.mobile-nav-link.active {
+  border-left: 3px solid var(--primary);
+  font-weight: 600;
+}
+
+.mobile-actions-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mobile-action-btn {
+  width: 100%;
+  justify-content: flex-start;
+  padding: 10px 14px;
+  font-size: 13px;
+}
+
+.mobile-util-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+
+}
+
+.mobile-util-btn {
+  justify-content: center;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.mobile-menu-slide-enter-active,
+.mobile-menu-slide-leave-active {
+  transition: opacity var(--transition-smooth);
+}
+
+.mobile-menu-slide-enter-active .mobile-menu-drawer,
+.mobile-menu-slide-leave-active .mobile-menu-drawer {
+  transition: transform var(--transition-smooth);
+}
+
+.mobile-menu-slide-enter-from,
+.mobile-menu-slide-leave-to {
+  opacity: 0;
+}
+
+.mobile-menu-slide-enter-from .mobile-menu-drawer,
+.mobile-menu-slide-leave-to .mobile-menu-drawer {
+  transform: translateX(-100%);
+}
+
+@media (max-width: 767px) {
+  .desktop-nav {
+    display: none !important;
+  }
+
+  .mobile-hamburger-btn {
+    display: flex;
+  }
+
+  .navbar {
+    padding: 0 16px;
+  }
+
+  .nav-left {
+    gap: 12px;
+  }
 }
 </style>

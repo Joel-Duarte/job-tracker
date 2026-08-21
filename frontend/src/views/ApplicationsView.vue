@@ -1995,6 +1995,57 @@ async function confirmDelete() {
   width: 100%;
 }
 
+@media (max-width: 767px) {
+  .kanban-board {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    gap: 12px;
+    padding-bottom: 8px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .kanban-column {
+    min-width: 85vw;
+    max-width: 85vw;
+    scroll-snap-align: center;
+    flex-shrink: 0;
+  }
+
+  .controls-bar {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 12px 16px;
+    gap: 12px;
+  }
+
+  .search-filter-group {
+    flex-wrap: wrap;
+  }
+
+  .search-input-wrapper {
+    max-width: 100%;
+  }
+
+  .pipeline-mode-toggle {
+    width: 100%;
+    justify-content: space-between;
+    overflow-x: auto;
+  }
+
+  .pipeline-mode-btn {
+    flex: 1;
+    justify-content: center;
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+
+  .content-wrapper {
+    padding: 12px 16px;
+  }
+}
+
 .kanban-column {
   background-color: var(--bg-sidebar);
   border: 1px solid var(--border-color);

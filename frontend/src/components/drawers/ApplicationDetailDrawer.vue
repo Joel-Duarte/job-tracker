@@ -1461,6 +1461,22 @@ function formatDate(isoStr) {
   overflow-y: auto;
 }
 
+@media (max-width: 767px) {
+  .drawer-panel {
+    max-width: 100%;
+  }
+
+  .drawer-header, .status-bar, .drawer-tabs, .drawer-body {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .latest-event-banner {
+    margin-left: 16px;
+    margin-right: 16px;
+  }
+}
+
 .drawer-loading {
   display: flex;
   align-items: center;

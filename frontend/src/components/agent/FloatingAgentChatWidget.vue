@@ -301,6 +301,20 @@ function formatActionLabel(act) {
   overflow: hidden;
 }
 
+@media (max-width: 767px) {
+  .floating-agent-wrapper {
+    bottom: 16px;
+    right: 16px;
+  }
+
+  .agent-chat-popover {
+    bottom: 60px;
+    right: 0;
+    width: calc(100vw - 32px);
+    height: calc(100vh - 100px);
+  }
+}
+
 /* Popover Header */
 .popover-header {
   display: flex;

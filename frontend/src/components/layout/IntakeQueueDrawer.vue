@@ -139,6 +139,16 @@ const STAGES = {
   overflow: hidden;
 }
 
+@media (max-width: 767px) {
+  .queue-floating-container {
+    bottom: 16px;
+    right: 16px;
+    left: 16px;
+    width: auto;
+    max-width: none;
+  }
+}
+
 .queue-header {
   display: flex;
   align-items: center;

@@ -615,6 +615,52 @@ h1, h2, h3, .heading {
 }
 
 /* ==========================================================================
+   Responsive Base Containers & Breakpoints
+   ========================================================================== */
+
+.page-container {
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+@media (min-width: 768px) {
+  .page-container {
+    padding: 24px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .page-container {
+    padding: 32px;
+  }
+}
+
+@media (max-width: 767px) {
+  body {
+    font-size: 14px;
+  }
+
+  /* Modals on small screens */
+  .modal-card, .inner-modal-box {
+    max-width: 100% !important;
+    margin: 12px;
+  }
+
+  /* Form grids stacking on mobile */
+  .form-grid-2, .form-grid-3, .form-row-2 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Empty state container padding */
+  .empty-state-box {
+    padding: 36px 16px;
+  }
+}
+
+/* ==========================================================================
    Global Loading & Spinning Animations
    ========================================================================== */
 
