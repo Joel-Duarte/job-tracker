@@ -49,6 +49,7 @@ import {
   Info,
   BookOpen,
   UserCheck,
+  FileText,
 } from 'lucide-vue-next'
 
 const route = useRoute()
