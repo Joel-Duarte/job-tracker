@@ -232,16 +232,16 @@ function getFitLabel(score) {
               </div>
             </div>
 
-            <!-- Side-by-Side Fit Score Badges: Programmatic Overlap + AI Gauge -->
+            <!-- Side-by-Side Fit Score Badges: Programmatic Overlap + AI Score Badge Card -->
             <div class="eval-fit-container">
               <div class="scores-side-by-side">
                 <div class="score-badge-card algo-card">
                   <span class="score-badge-val font-mono">{{ computedScoreText }}</span>
                   <span class="score-badge-lbl">Algo Overlap</span>
                 </div>
-                <div class="fit-gauge" :class="getFitBadgeClass(matchScore)">
-                  <span class="fit-val">{{ matchScore }}%</span>
-                  <span class="fit-lbl">{{ getFitLabel(matchScore) }}</span>
+                <div class="score-badge-card ai-card" :class="getFitBadgeClass(matchScore)">
+                  <span class="score-badge-val font-mono">{{ matchScore }}%</span>
+                  <span class="score-badge-lbl">{{ getFitLabel(matchScore) }}</span>
                 </div>
               </div>
             </div>
@@ -524,6 +524,40 @@ function getFitLabel(score) {
   border-color: var(--border-color);
 }
 
+.ai-card.fit-elite {
+  border-color: var(--status-offer-border);
+  color: var(--status-offer-text);
+  background-color: var(--status-offer-bg);
+}
+
+.ai-card.fit-high {
+  border-color: var(--status-applied-border);
+  color: var(--status-applied-text);
+  background-color: var(--status-applied-bg);
+}
+
+.ai-card.fit-medium {
+  border-color: var(--status-interview-border);
+  color: var(--status-interview-text);
+  background-color: var(--status-interview-bg);
+}
+
+.ai-card.fit-low {
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
+  background-color: var(--bg-surface);
+}
+
+.ai-card.fit-elite .score-badge-val { color: var(--status-offer-text); }
+.ai-card.fit-high .score-badge-val { color: var(--status-applied-text); }
+.ai-card.fit-medium .score-badge-val { color: var(--status-interview-text); }
+.ai-card.fit-low .score-badge-val { color: var(--text-muted); }
+
+.ai-card.fit-elite .score-badge-lbl { color: var(--status-offer-text); opacity: 0.9; }
+.ai-card.fit-high .score-badge-lbl { color: var(--status-applied-text); opacity: 0.9; }
+.ai-card.fit-medium .score-badge-lbl { color: var(--status-interview-text); opacity: 0.9; }
+.ai-card.fit-low .score-badge-lbl { color: var(--text-muted); opacity: 0.9; }
+
 .score-badge-val {
   font-size: 18px;
   font-weight: 800;
@@ -539,62 +573,6 @@ function getFitLabel(score) {
   margin-top: 4px;
   letter-spacing: 0.3px;
   white-space: nowrap;
-}
-
-.fit-gauge {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 78px;
-  height: 78px;
-  border-radius: 50%;
-  border: 4px solid var(--border-color);
-  background-color: var(--bg-card);
-  box-shadow: var(--shadow-sm);
-}
-
-.fit-gauge.fit-elite {
-  border-color: var(--status-offer-border);
-  color: var(--status-offer-text);
-  background-color: var(--status-offer-bg);
-  box-shadow: 0 0 12px rgba(16, 185, 129, 0.18);
-}
-
-.fit-gauge.fit-high {
-  border-color: var(--status-applied-border);
-  color: var(--status-applied-text);
-  background-color: var(--status-applied-bg);
-  box-shadow: 0 0 12px rgba(59, 130, 246, 0.18);
-}
-
-.fit-gauge.fit-medium {
-  border-color: var(--status-interview-border);
-  color: var(--status-interview-text);
-  background-color: var(--status-interview-bg);
-}
-
-.fit-gauge.fit-low {
-  border-color: var(--border-subtle);
-  color: var(--text-muted);
-  background-color: var(--bg-surface);
-}
-
-.fit-val {
-  font-size: 22px;
-  font-weight: 800;
-  font-family: var(--font-heading);
-  line-height: 1;
-}
-
-.fit-lbl {
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  opacity: 0.9;
-  margin-top: 3px;
-  text-align: center;
 }
 
 /* Sections */
