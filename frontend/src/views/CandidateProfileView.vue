@@ -49,7 +49,7 @@ const isEditingCV = ref(false)
 const editedCVText = ref('')
 const isEditingSummary = ref(false)
 const editedSummaryText = ref('')
-const showUpdateDrawer = ref(false)
+const showCvModal = ref(false)
 const isDocExpanded = ref(true)
 
 // File upload & parsing
@@ -189,7 +189,7 @@ async function pollTaskUntilComplete(taskId) {
         uiStore.showToast('Resume de-identified and canonical profile activated!', 'success')
         isProcessing.value = false
         currentTaskId.value = null
-        showUpdateDrawer.value = false
+        showCvModal.value = false
         return
       }
 
@@ -423,181 +423,25 @@ onMounted(async () => {
         </p>
       </div>
 
-      <div v-if="profile" class="header-actions">
+      <div class="header-actions">
         <button
           class="btn btn-secondary btn-sm"
-          @click="showUpdateDrawer = !showUpdateDrawer"
+          @click="showCvModal = true"
         >
-          <Edit3 :size="14" />
-          <span>{{ showUpdateDrawer ? 'Close Resume Input' : 'Update / Re-Paste Resume' }}</span>
+          <FileText :size="14" />
+          <span>{{ profile ? 'Input / Update CV' : 'Input CV' }}</span>
         </button>
 
         <button
+          v-if="profile"
           class="btn btn-ghost btn-sm text-danger"
           :disabled="isDeleting"
           @click="deleteProfile"
-          title="Delete profile"
+          title="Remove candidate profile"
         >
           <Trash2 :size="14" />
-          <span>Clear Profile</span>
+          <span>Remove CV</span>
         </button>
-      </div>
-    </div>
-
-    <!-- =================================================================== -->
-    <!-- COLLAPSIBLE RESUME SOURCE & SANITIZATION DRAWER / TOP PANEL        -->
-    <!-- =================================================================== -->
-    <div v-if="showUpdateDrawer || !profile" class="resume-input-panel animate-fade-in">
-      <div class="panel-card">
-        <div class="panel-header">
-          <div class="panel-title">
-            <FileText :size="16" class="text-primary" />
-            <span>{{ profile ? 'Update Resume Source Text' : 'Import Candidate Resume / CV' }}</span>
-          </div>
-
-          <div class="panel-header-actions">
-            <input
-              ref="fileInput"
-              type="file"
-              accept=".pdf,.docx,.doc,.txt"
-              class="hidden-file-input"
-              @change="handleFileUpload"
-            />
-
-            <button
-              type="button"
-              class="btn btn-secondary btn-xs"
-              :disabled="isParsingFile || isProcessing"
-              @click="triggerFileInput"
-            >
-              <Loader2 v-if="isParsingFile" class="animate-spin" :size="13" />
-              <Upload v-else :size="13" />
-              <span>{{ isParsingFile ? 'Extracting File...' : 'Upload Resume File' }}</span>
-            </button>
-
-            <!-- Input Tabs -->
-            <div class="input-tabs">
-              <button
-                class="tab-btn"
-                :class="{ active: activeInputTab === 'raw' }"
-                @click="activeInputTab = 'raw'"
-              >
-                Raw Input
-              </button>
-              <button
-                class="tab-btn"
-                :class="{ active: activeInputTab === 'preview' }"
-                @click="activeInputTab = 'preview'"
-              >
-                <Lock :size="12" />
-                <span>Local Scrubbed Preview</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Cloud vs Local Advisory -->
-        <div class="privacy-callout">
-          <Info :size="15" class="text-primary flex-shrink-0" />
-          <span>
-            <strong>Zero-Cloud Contact Sanitization:</strong> Real names, emails, phone numbers, addresses, and personal links are redacted client-side via regex before AI dispatch.
-          </span>
-        </div>
-
-        <!-- Live Redaction Stats -->
-        <div v-if="localScrubResult.stats.total > 0" class="redaction-stats-pill font-mono">
-          🛡️ <strong>{{ localScrubResult.stats.total }}</strong> PII item(s) sanitized locally:
-          <span v-if="localScrubResult.stats.emails">{{ localScrubResult.stats.emails }} email(s) </span>
-          <span v-if="localScrubResult.stats.phones">{{ localScrubResult.stats.phones }} phone(s) </span>
-          <span v-if="localScrubResult.stats.urls">{{ localScrubResult.stats.urls }} link(s) </span>
-          <span v-if="localScrubResult.stats.addresses">{{ localScrubResult.stats.addresses }} address(es)</span>
-        </div>
-
-        <!-- Privacy Review Advisory Banner -->
-        <div v-if="activeInputTab === 'raw'" class="privacy-review-banner animate-fade-in">
-          <AlertTriangle :size="16" class="banner-icon flex-shrink-0" />
-          <div class="banner-content">
-            <strong class="banner-title">Manual Privacy Review Recommended</strong>
-            <p class="banner-desc">
-              Please review and edit the loaded text below to scan for any phone numbers, home addresses, personal email addresses, or specific former company names before submitting. You can edit the text directly in the raw input box to scrub any missed details prior to triggering the de-anonymization and profile activation pipeline.
-            </p>
-          </div>
-        </div>
-
-        <!-- Raw Textarea -->
-        <textarea
-          v-if="activeInputTab === 'raw'"
-          v-model="rawCVInput"
-          rows="10"
-          class="form-textarea font-mono text-xs"
-          placeholder="Paste your complete resume or CV text here or use the 'Upload Resume File' button above..."
-        ></textarea>
-
-        <!-- Local Preview -->
-        <div
-          v-else
-          class="local-preview-box font-mono text-xs"
-        >
-          {{ localScrubResult.scrubbedText || 'Paste resume text to see live local sanitization preview...' }}
-        </div>
-
-        <!-- Queue Processing Stepper Card -->
-        <div v-if="isProcessing" class="queue-progress-card animate-fade-in">
-          <div class="queue-progress-header">
-            <div class="queue-status-title">
-              <Loader2 class="animate-spin text-primary" :size="16" />
-              <span>Processing in AI Queue (Task #{{ currentTaskId || '...' }})</span>
-            </div>
-            <span class="queue-stage-badge">{{ currentTaskStage }}</span>
-          </div>
-
-          <div class="stepper-track">
-            <div
-              class="stepper-step"
-              :class="{
-                active: currentTaskStage === 'SCRUBBING',
-                complete: ['EXTRACTING', 'SAVING', 'COMPLETE'].includes(currentTaskStage),
-              }"
-            >
-              <div class="step-dot">1</div>
-              <span class="step-label">Local PII Scrubbing</span>
-            </div>
-
-            <div
-              class="stepper-step"
-              :class="{
-                active: currentTaskStage === 'EXTRACTING',
-                complete: ['SAVING', 'COMPLETE'].includes(currentTaskStage),
-              }"
-            >
-              <div class="step-dot">2</div>
-              <span class="step-label">AI Extraction</span>
-            </div>
-
-            <div
-              class="stepper-step"
-              :class="{
-                active: currentTaskStage === 'SAVING',
-                complete: currentTaskStage === 'COMPLETE',
-              }"
-            >
-              <div class="step-dot">3</div>
-              <span class="step-label">Profile Activation</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="panel-actions">
-          <button
-            class="btn btn-primary"
-            :disabled="isProcessing || !rawCVInput.trim()"
-            @click="processCV"
-          >
-            <Loader2 v-if="isProcessing" class="animate-spin" :size="16" />
-            <Sparkles v-else :size="16" />
-            <span>{{ isProcessing ? 'Processing in Queue...' : (profile ? 'Re-Analyze & Update Profile' : 'De-Identify & Activate Profile') }}</span>
-          </button>
-        </div>
       </div>
     </div>
 
@@ -930,8 +774,173 @@ onMounted(async () => {
         <ShieldCheck :size="42" class="text-primary" />
         <h2 class="empty-title">No Candidate Profile Active</h2>
         <p class="empty-sub">
-          Paste your resume or CV in the form above to activate your privacy-first profile. The system scrubs PII locally and extracts skills for AI job matching.
+          Upload or paste your resume/CV to activate your privacy-first profile. The system scrubs PII locally and extracts skills for AI job matching.
         </p>
+        <button class="btn btn-primary btn-sm mt-2" @click="showCvModal = true">
+          <FileText :size="15" />
+          <span>Input / Update CV</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- DEDICATED CV INTAKE & UPDATE MODAL POPUP                           -->
+    <!-- =================================================================== -->
+    <div v-if="showCvModal" class="modal-backdrop" @click.self="showCvModal = false">
+      <div class="modal-card modal-lg animate-fade-in">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <FileText :size="18" class="text-primary" />
+            <h3 class="modal-title">{{ profile ? 'Update Candidate Resume / CV' : 'Input Candidate Resume / CV' }}</h3>
+          </div>
+          <button class="btn-close" @click="showCvModal = false">×</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="panel-header-actions">
+            <input
+              ref="fileInput"
+              type="file"
+              accept=".pdf,.docx,.doc,.txt"
+              class="hidden-file-input"
+              @change="handleFileUpload"
+            />
+
+            <button
+              type="button"
+              class="btn btn-secondary btn-xs"
+              :disabled="isParsingFile || isProcessing"
+              @click="triggerFileInput"
+            >
+              <Loader2 v-if="isParsingFile" class="animate-spin" :size="13" />
+              <Upload v-else :size="13" />
+              <span>{{ isParsingFile ? 'Extracting File...' : 'Upload Resume File' }}</span>
+            </button>
+
+            <!-- Input Tabs -->
+            <div class="input-tabs">
+              <button
+                class="tab-btn"
+                :class="{ active: activeInputTab === 'raw' }"
+                @click="activeInputTab = 'raw'"
+              >
+                Raw Input
+              </button>
+              <button
+                class="tab-btn"
+                :class="{ active: activeInputTab === 'preview' }"
+                @click="activeInputTab = 'preview'"
+              >
+                <Lock :size="12" />
+                <span>Local Scrubbed Preview</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Cloud vs Local Advisory -->
+          <div class="privacy-callout">
+            <Info :size="15" class="text-primary flex-shrink-0" />
+            <span>
+              <strong>Zero-Cloud Contact Sanitization:</strong> Real names, emails, phone numbers, addresses, and personal links are redacted client-side via regex before AI dispatch.
+            </span>
+          </div>
+
+          <!-- Live Redaction Stats -->
+          <div v-if="localScrubResult.stats.total > 0" class="redaction-stats-pill font-mono">
+            🛡️ <strong>{{ localScrubResult.stats.total }}</strong> PII item(s) sanitized locally:
+            <span v-if="localScrubResult.stats.emails">{{ localScrubResult.stats.emails }} email(s) </span>
+            <span v-if="localScrubResult.stats.phones">{{ localScrubResult.stats.phones }} phone(s) </span>
+            <span v-if="localScrubResult.stats.urls">{{ localScrubResult.stats.urls }} link(s) </span>
+            <span v-if="localScrubResult.stats.addresses">{{ localScrubResult.stats.addresses }} address(es)</span>
+          </div>
+
+          <!-- Privacy Review Advisory Banner -->
+          <div v-if="activeInputTab === 'raw'" class="privacy-review-banner animate-fade-in">
+            <AlertTriangle :size="16" class="banner-icon flex-shrink-0" />
+            <div class="banner-content">
+              <strong class="banner-title">Manual Privacy Review Recommended</strong>
+              <p class="banner-desc">
+                Please review and edit the loaded text below to scan for any phone numbers, home addresses, personal email addresses, or specific former company names before submitting. You can edit the text directly in the raw input box to scrub any missed details prior to triggering the de-anonymization and profile activation pipeline.
+              </p>
+            </div>
+          </div>
+
+          <!-- Raw Textarea -->
+          <textarea
+            v-if="activeInputTab === 'raw'"
+            v-model="rawCVInput"
+            rows="10"
+            class="form-textarea font-mono text-xs"
+            placeholder="Paste your complete resume or CV text here or click 'Upload Resume File' above..."
+          ></textarea>
+
+          <!-- Local Preview -->
+          <div
+            v-else
+            class="local-preview-box font-mono text-xs"
+          >
+            {{ localScrubResult.scrubbedText || 'Paste resume text to see live local sanitization preview...' }}
+          </div>
+
+          <!-- Queue Processing Stepper Card -->
+          <div v-if="isProcessing" class="queue-progress-card animate-fade-in">
+            <div class="queue-progress-header">
+              <div class="queue-status-title">
+                <Loader2 class="animate-spin text-primary" :size="16" />
+                <span>Processing in AI Queue (Task #{{ currentTaskId || '...' }})</span>
+              </div>
+              <span class="queue-stage-badge">{{ currentTaskStage }}</span>
+            </div>
+
+            <div class="stepper-track">
+              <div
+                class="stepper-step"
+                :class="{
+                  active: currentTaskStage === 'SCRUBBING',
+                  complete: ['EXTRACTING', 'SAVING', 'COMPLETE'].includes(currentTaskStage),
+                }"
+              >
+                <div class="step-dot">1</div>
+                <span class="step-label">Local PII Scrubbing</span>
+              </div>
+
+              <div
+                class="stepper-step"
+                :class="{
+                  active: currentTaskStage === 'EXTRACTING',
+                  complete: ['SAVING', 'COMPLETE'].includes(currentTaskStage),
+                }"
+              >
+                <div class="step-dot">2</div>
+                <span class="step-label">AI Extraction</span>
+              </div>
+
+              <div
+                class="stepper-step"
+                :class="{
+                  active: currentTaskStage === 'SAVING',
+                  complete: currentTaskStage === 'COMPLETE',
+                }"
+              >
+                <div class="step-dot">3</div>
+                <span class="step-label">Profile Activation</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-secondary btn-sm" @click="showCvModal = false">Cancel</button>
+          <button
+            class="btn btn-primary btn-sm"
+            :disabled="isProcessing || !rawCVInput.trim()"
+            @click="processCV"
+          >
+            <Loader2 v-if="isProcessing" class="animate-spin" :size="15" />
+            <Sparkles v-else :size="15" />
+            <span>{{ isProcessing ? 'Processing in Queue...' : (profile ? 'Re-Analyze & Update Profile' : 'De-Identify & Activate Profile') }}</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -1671,5 +1680,86 @@ onMounted(async () => {
 .embedded-profile-container {
   padding: 0 0 80px 0 !important;
   max-width: 100% !important;
+}
+
+/* Modal Popup Styles */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 20px;
+}
+
+.modal-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  width: 100%;
+  max-width: 520px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+  overflow: hidden;
+}
+
+.modal-card.modal-lg {
+  max-width: 720px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.btn-close {
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.btn-close:hover {
+  color: var(--text-main);
+}
+
+.modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
 }
 </style>
