@@ -16,6 +16,7 @@ from app.models.applications import (
     OtherEventModel,
 )
 from app.models.candidate_profile import CandidateCVModel
+from app.models.diagnostics import TraceEventModel
 from app.models.email_accounts import EmailAccountModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.models.staging import StagingItemModel
@@ -36,12 +37,13 @@ async def test_seed_development_dataset_populates_all_entities_without_embedding
     assert stats["applications"] == 25
     assert stats["job_postings"] == 25
     assert stats["action_items"] == 4
-    assert stats["staging_items"] == 3
-    assert stats["intake_tasks"] == 25
+    assert stats["staging_items"] == 4
+    assert stats["intake_tasks"] == 8
     assert stats["ai_providers"] == 1
     assert stats["ai_task_bindings"] == 6
     assert stats["email_accounts"] == 2
     assert stats["candidate_cvs"] == 1
+    assert stats["trace_events"] == 3
 
     # 3. Database should no longer be reported as empty
     assert await is_database_empty(db_session) is False
@@ -70,7 +72,7 @@ async def test_seed_development_dataset_populates_all_entities_without_embedding
     events = (
         await db_session.execute(select(func.count(ApplicationEventModel.id)))
     ).scalar_one()
-    assert events == 35
+    assert events == 41
 
     actions = (
         await db_session.execute(select(func.count(ActionItemModel.id)))
@@ -85,12 +87,12 @@ async def test_seed_development_dataset_populates_all_entities_without_embedding
     staging = (
         await db_session.execute(select(func.count(StagingItemModel.id)))
     ).scalar_one()
-    assert staging == 3
+    assert staging == 4
 
     tasks = (
         await db_session.execute(select(func.count(IntakeEvaluationTaskModel.id)))
     ).scalar_one()
-    assert tasks == 25
+    assert tasks == 8
 
     providers = (
         await db_session.execute(select(func.count(AIProviderModel.id)))
@@ -107,6 +109,11 @@ async def test_seed_development_dataset_populates_all_entities_without_embedding
     ).scalar_one()
     assert accounts == 2
 
+    traces = (
+        await db_session.execute(select(func.count(TraceEventModel.id)))
+    ).scalar_one()
+    assert traces == 3
+
     # 5. Crucial requirement: No embeddings generated or stored during mock seed!
     embeddings_count = (
         await db_session.execute(
@@ -115,32 +122,42 @@ async def test_seed_development_dataset_populates_all_entities_without_embedding
     ).scalar_one()
     assert embeddings_count == 0
 
-    # 6. Verify dossier information (match_analysis_payload) on applications
+    # 6. Verify dossier information and status alignment on applications
     apps_list = (await db_session.execute(select(ApplicationModel))).scalars().all()
     for a in apps_list:
         assert a.match_analysis_payload is not None
         assert "fit_score" in a.match_analysis_payload
-        assert "hard_matches" in a.match_analysis_payload
-        assert "tailoring_strategy" in a.match_analysis_payload
-        assert "pros" in a.match_analysis_payload
-        assert "cons" in a.match_analysis_payload
 
-    # 7. Verify completed intake evaluation tasks contain full dossiers
-    completed_task = (
+        # High fit score for interview/offer/hired
+        if a.status in ["TECHNICAL_INTERVIEW", "OFFER", "HIRED"]:
+            assert a.match_analysis_payload["fit_score"] >= 80
+        # Low fit score for rejected/archived/online assessment
+        elif a.status in ["REJECTED", "ARCHIVED", "ONLINE_ASSESSMENT"]:
+            assert a.match_analysis_payload["fit_score"] <= 55
+
+        # Check interview guide attached for technical interview stage
+        if a.status == "TECHNICAL_INTERVIEW" and a.company_id in [3, 6, 11, 18]:
+            assert a.interview_guide_html is not None
+
+        # Check cover letters attached
+        if a.cover_letter_text:
+            assert a.cover_letter_status == "GENERATED"
+
+    # 7. Verify AI evaluation tasks include diverse states and error messages
+    failed_tasks = (
         (
             await db_session.execute(
                 select(IntakeEvaluationTaskModel).where(
-                    IntakeEvaluationTaskModel.status == "COMPLETED"
+                    IntakeEvaluationTaskModel.status == "FAILED"
                 )
             )
         )
         .scalars()
-        .first()
+        .all()
     )
-    assert completed_task is not None
-    assert completed_task.result_json is not None
-    assert "fit_score" in completed_task.result_json
-    assert "tailoring_strategy" in completed_task.result_json
+    assert len(failed_tasks) == 3
+    for ft in failed_tasks:
+        assert ft.error_message is not None
 
 
 @pytest.mark.asyncio

@@ -15,6 +15,7 @@ from app.models.applications import (
     OtherEventModel,
 )
 from app.models.candidate_profile import CandidateCVModel
+from app.models.diagnostics import TraceEventModel
 from app.models.email_accounts import EmailAccountModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.models.staging import StagingItemModel
@@ -55,7 +56,9 @@ def build_dossier(
             ]
             if missing_skills
             else [],
-            "experience_mismatch": None,
+            "experience_mismatch": f"Role requires skills delta: {', '.join(missing_skills)}"
+            if missing_skills
+            else None,
         },
         "tailoring_strategy": {
             "vocabulary_translation": [
@@ -138,11 +141,13 @@ async def is_database_empty(session: AsyncSession) -> bool:
 
 async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
     """
-    Populates a rich, 90-day rolling development test dataset following the rules in `guide.md`:
-    - Entity relationship hierarchy order (CV & Company -> Application -> JobPosting -> Events -> Action Items)
-    - 90-day rolling window timestamps (Current Period 0-14d, Previous Period 15-30d, Historical 31-90d)
-    - Realistic status ratios: ~40% Applied/In-Progress, ~15% Assessment, ~20% Interview, ~10% Offer/Hired, ~15% Rejected/Archived
-    - Full structured_spec and match_analysis_payload JSONB specifications
+    Populates a rich, 90-day rolling development test dataset following `guide.md` specs and edge cases:
+    - Strictly aligned ApplicationModel.status and ApplicationEventModel timeline events
+    - Realistic distribution of Cover Letters and Interview Guides according to pipeline stage
+    - Diverse AI Task Queue states (QUEUED, PROCESSING, COMPLETED, FAILED with rate limits/scraping timeouts)
+    - Fit score alignment: high fit scores (80-98%) for Interview/Offer stages vs low fit scores (30-55%) for Assessment/Rejected/Archived
+    - Full email staging items triage workflow (PENDING, APPROVED, REJECTED, PROCESSED)
+    - Diagnostics trace telemetry records (TraceEventModel)
     """
     now = datetime.now(UTC)
     stats: dict[str, int] = {}
@@ -220,7 +225,6 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
     # 2. Companies & Applications (25 Companies spanning rolling 90-day window)
     # -------------------------------------------------------------------------
 
-    # Define 25 companies spanning the 90-day historical window with status distribution ratios
     company_seed_specs = [
         # --- Days 0-14 (Current Period: ~35% of apps) ---
         {
@@ -241,6 +245,11 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "action_title": "Book 30-minute intro call via Calendly link",
             "action_urgency": "HIGH",
             "action_due_days": 2,
+            "has_cover_letter": True,
+            "cover_letter_status": "GENERATED",
+            "cover_letter_text": (
+                "Dear Hiring Manager at Stripe,\n\nI am writing to express my strong enthusiasm for the Senior Backend Engineer position..."
+            ),
         },
         {
             "name": "Datadog",
@@ -251,11 +260,11 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "sal_min": 185000,
             "sal_max": 235000,
             "work_model": "Hybrid",
-            "fit_score": 84,
-            "prog_score": 82,
-            "fit_tier": "STRONG_MATCH",
+            "fit_score": 52,
+            "prog_score": 48,
+            "fit_tier": "LOW_MATCH",
             "skills": ["Go", "Python", "eBPF", "OpenTelemetry", "Linux Internals"],
-            "missing": ["eBPF"],
+            "missing": ["eBPF", "OpenTelemetry Internals", "Linux Kernel Probing"],
             "has_action": True,
             "action_title": "Complete Datadog 90-minute online coding & systems assessment",
             "action_urgency": "HIGH",
@@ -290,8 +299,8 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "sal_min": 240000,
             "sal_max": 310000,
             "work_model": "Hybrid",
-            "fit_score": 86,
-            "prog_score": 80,
+            "fit_score": 96,
+            "prog_score": 92,
             "fit_tier": "STRONG_MATCH",
             "skills": ["Rust", "Go", "Kubernetes", "WebAssembly", "C++"],
             "missing": ["C++ Canvas Engine Rendering"],
@@ -299,6 +308,11 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "action_title": "Review Figma offer package details ($285k base + equity) and send questions",
             "action_urgency": "MEDIUM",
             "action_due_days": 4,
+            "has_cover_letter": True,
+            "cover_letter_status": "GENERATED",
+            "cover_letter_text": (
+                "Dear Figma Engineering Team,\n\nThank you for extending this Principal Platform Engineer offer. I am thrilled..."
+            ),
         },
         {
             "name": "Vercel",
@@ -315,6 +329,9 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "skills": ["TypeScript", "Go", "WebAssembly", "Edge Compute", "Redis"],
             "missing": ["Rust WASM Compiler Tools"],
             "has_action": False,
+            "has_cover_letter": True,
+            "cover_letter_status": "GENERATED",
+            "cover_letter_text": "Dear Vercel Hiring Team,\n\nI am excited to apply for the Staff Edge Infrastructure Engineer role...",
         },
         {
             "name": "Supabase",
@@ -331,6 +348,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "skills": ["PostgreSQL", "Go", "Distributed Systems", "Elixir"],
             "missing": ["Elixir / Erlang VM"],
             "has_action": False,
+            "has_guide": True,
         },
         {
             "name": "Resend",
@@ -357,11 +375,11 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "sal_min": 180000,
             "sal_max": 230000,
             "work_model": "Remote",
-            "fit_score": 88,
-            "prog_score": 85,
-            "fit_tier": "STRONG_MATCH",
+            "fit_score": 45,
+            "prog_score": 42,
+            "fit_tier": "LOW_MATCH",
             "skills": ["Python", "ClickHouse", "Kafka", "Django"],
-            "missing": ["ClickHouse Internal Sharding"],
+            "missing": ["ClickHouse Internal Sharding", "Django Legacy ORM"],
             "has_action": False,
         },
         # --- Days 15-30 (Previous Period: ~30% of apps) ---
@@ -390,11 +408,11 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "sal_min": 190000,
             "sal_max": 240000,
             "work_model": "Remote",
-            "fit_score": 78,
-            "prog_score": 75,
-            "fit_tier": "MODERATE_MATCH",
+            "fit_score": 38,
+            "prog_score": 35,
+            "fit_tier": "LOW_MATCH",
             "skills": ["Java", "Kubernetes", "AWS", "Spring Boot"],
-            "missing": ["Java", "Spring Boot"],
+            "missing": ["Java", "Spring Boot", "Spinnaker"],
             "has_action": False,
         },
         {
@@ -406,12 +424,13 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "sal_min": 210000,
             "sal_max": 270000,
             "work_model": "Hybrid",
-            "fit_score": 85,
-            "prog_score": 82,
+            "fit_score": 88,
+            "prog_score": 84,
             "fit_tier": "STRONG_MATCH",
             "skills": ["Rust", "Go", "BGP Protocols", "Linux Kernel"],
             "missing": ["Linux Kernel eBPF"],
             "has_action": False,
+            "has_guide": True,
         },
         {
             "name": "Retool",
@@ -438,11 +457,11 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "sal_min": 210000,
             "sal_max": 280000,
             "work_model": "Remote",
-            "fit_score": 90,
-            "prog_score": 88,
-            "fit_tier": "STRONG_MATCH",
+            "fit_score": 49,
+            "prog_score": 45,
+            "fit_tier": "LOW_MATCH",
             "skills": ["Python", "Rust", "Linux Containers", "CUDA"],
-            "missing": ["CUDA Driver Kernels"],
+            "missing": ["CUDA Driver Kernels", "Low-level Memory Isolation"],
             "has_action": False,
         },
         {
@@ -454,8 +473,8 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "sal_min": 190000,
             "sal_max": 240000,
             "work_model": "Remote",
-            "fit_score": 95,
-            "prog_score": 92,
+            "fit_score": 97,
+            "prog_score": 94,
             "fit_tier": "STRONG_MATCH",
             "skills": ["Python", "Django", "ClickHouse", "PostgreSQL", "Kafka"],
             "missing": [],
@@ -503,9 +522,9 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "sal_min": 180000,
             "sal_max": 230000,
             "work_model": "Remote",
-            "fit_score": 79,
-            "prog_score": 76,
-            "fit_tier": "MODERATE_MATCH",
+            "fit_score": 42,
+            "prog_score": 40,
+            "fit_tier": "LOW_MATCH",
             "skills": ["Python", "Rust", "SQLite", "Vector Embeddings"],
             "missing": ["Rust Internal Memory Safety"],
             "has_action": False,
@@ -519,12 +538,13 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "sal_min": 195000,
             "sal_max": 255000,
             "work_model": "Remote",
-            "fit_score": 92,
-            "prog_score": 89,
+            "fit_score": 94,
+            "prog_score": 90,
             "fit_tier": "STRONG_MATCH",
             "skills": ["Python", "TypeScript", "LangGraph", "AsyncIO", "LLM APIs"],
             "missing": [],
             "has_action": False,
+            "has_guide": True,
         },
         {
             "name": "Scale AI",
@@ -551,9 +571,9 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "sal_min": 190000,
             "sal_max": 250000,
             "work_model": "Remote",
-            "fit_score": 81,
-            "prog_score": 78,
-            "fit_tier": "STRONG_MATCH",
+            "fit_score": 55,
+            "prog_score": 50,
+            "fit_tier": "LOW_MATCH",
             "skills": ["Rust", "Python ASTs", "Compiler Design"],
             "missing": ["Compiler AST Parsing"],
             "has_action": False,
@@ -567,9 +587,9 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "sal_min": 220000,
             "sal_max": 290000,
             "work_model": "Remote",
-            "fit_score": 75,
-            "prog_score": 72,
-            "fit_tier": "MODERATE_MATCH",
+            "fit_score": 35,
+            "prog_score": 30,
+            "fit_tier": "LOW_MATCH",
             "skills": ["C++", "Columnar Storage", "SIMD"],
             "missing": ["C++20 SIMD Primitives"],
             "has_action": False,
@@ -615,9 +635,9 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "sal_min": 190000,
             "sal_max": 245000,
             "work_model": "Remote",
-            "fit_score": 76,
-            "prog_score": 73,
-            "fit_tier": "MODERATE_MATCH",
+            "fit_score": 32,
+            "prog_score": 30,
+            "fit_tier": "LOW_MATCH",
             "skills": ["Go", "MySQL Internals", "Vitess Sharding"],
             "missing": ["MySQL Storage Engine Internals"],
             "has_action": False,
@@ -645,7 +665,6 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
     total_job_postings = len(company_seed_specs)
     total_events = 0
     total_actions = 0
-    total_tasks = 0
 
     for spec in company_seed_specs:
         app_date = now - timedelta(days=spec["days_ago"])
@@ -673,7 +692,9 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             sal_max=float(spec["sal_max"]),
             location=f"{spec['work_model']} (US / Europe)",
             work_model=spec["work_model"],
-            recommendation="APPLY_STRONGLY" if spec["fit_score"] >= 85 else "APPLY",
+            recommendation="APPLY_STRONGLY"
+            if spec["fit_score"] >= 85
+            else ("APPLY" if spec["fit_score"] >= 65 else "CAUTION"),
         )
 
         # 2b. Application Model
@@ -696,6 +717,11 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             interview_guide_html=guide_html,
             interview_guide_generated_at=app_date + timedelta(hours=10)
             if guide_html
+            else None,
+            cover_letter_text=spec.get("cover_letter_text"),
+            cover_letter_status=spec.get("cover_letter_status"),
+            cover_letter_generated_at=app_date + timedelta(hours=2)
+            if spec.get("has_cover_letter")
             else None,
             match_analysis_payload=dossier,
         )
@@ -737,7 +763,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         )
         session.add(jp)
 
-        # 2d. Application Events
+        # 2d. Application Events (Strict status alignment with ApplicationModel.status)
         evt1 = ApplicationEventModel(
             email_application_id=app.id,
             email_message_id=f"msg-{app.id}-sub",
@@ -746,7 +772,9 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             email_subject=f"Application Confirmation: {spec['pos']}",
             email_received_at=app_date,
             email_event_type="APPLICATION_SUBMITTED",
-            email_status_after_event="APPLIED",
+            email_status_after_event="APPLIED"
+            if spec["status"] == "APPLIED"
+            else "APPLIED",
             email_summary=f"Application for {spec['pos']} received.",
             email_action_required=False,
             email_raw_body=f"Hi Alex, thank you for applying to {spec['name']}!",
@@ -754,17 +782,14 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         session.add(evt1)
         total_events += 1
 
-        if spec["status"] in [
-            "ONLINE_ASSESSMENT",
-            "TECHNICAL_INTERVIEW",
-            "OFFER",
-            "REJECTED",
-        ]:
+        if spec["status"] != "APPLIED":
             evt_type_map = {
                 "ONLINE_ASSESSMENT": "ASSESSMENT_REQUEST",
                 "TECHNICAL_INTERVIEW": "INTERVIEW_INVITE",
                 "OFFER": "OFFER_RECEIVED",
+                "HIRED": "OFFER_RECEIVED",
                 "REJECTED": "REJECTION",
+                "ARCHIVED": "REJECTION",
             }
             evt2 = ApplicationEventModel(
                 email_application_id=app.id,
@@ -773,7 +798,9 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
                 email_sender_name=f"{spec['name']} Recruiting",
                 email_subject=f"Update regarding your application at {spec['name']}",
                 email_received_at=app_date + timedelta(days=1),
-                email_event_type=evt_type_map[spec["status"]],
+                email_event_type=evt_type_map.get(
+                    spec["status"], "APPLICATION_SUBMITTED"
+                ),
                 email_status_after_event=spec["status"],
                 email_summary=f"Status update: moved to {spec['status']}.",
                 email_action_required=spec.get("has_action", False),
@@ -798,29 +825,118 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
                 session.add(action)
                 total_actions += 1
 
-        # 2f. Intake Evaluation Task
-        task = IntakeEvaluationTaskModel(
-            task_type="JOB_ASSESSMENT",
-            job_url=f"https://{spec['domain']}/careers/{company.name_normalized}",
-            title_hint=f"{spec['name']} - {spec['pos']}",
-            status="COMPLETED",
-            stage="COMPLETE",
-            result_json=dossier,
-            created_at=app_date,
-            completed_at=app_date + timedelta(minutes=2),
-        )
-        session.add(task)
-        total_tasks += 1
-
     stats["companies"] = total_companies
     stats["applications"] = total_apps
     stats["job_postings"] = total_job_postings
     stats["application_events"] = total_events
     stats["action_items"] = total_actions
-    stats["intake_tasks"] = total_tasks
 
     # -------------------------------------------------------------------------
-    # 3. Other Recruitment & Tech Events
+    # 3. AI Queue & Task Variations (IntakeEvaluationTaskModel)
+    # -------------------------------------------------------------------------
+    tasks_to_seed = [
+        # Successful completions across task types
+        IntakeEvaluationTaskModel(
+            task_type="JOB_ASSESSMENT",
+            job_url="https://stripe.com/careers/senior-backend",
+            title_hint="Stripe - Senior Backend Engineer",
+            status="COMPLETED",
+            stage="COMPLETE",
+            result_json=build_dossier(
+                "Stripe",
+                "Senior Backend Engineer",
+                94,
+                90,
+                "STRONG_MATCH",
+                "Evaluated Stripe lead",
+                ["Python", "FastAPI"],
+                ["ISO 20022"],
+                195000,
+                245000,
+                "Remote",
+                "Remote",
+                "APPLY_STRONGLY",
+            ),
+            created_at=now - timedelta(days=2),
+            completed_at=now - timedelta(days=2, minutes=-2),
+        ),
+        IntakeEvaluationTaskModel(
+            task_type="CV_ANONYMIZATION",
+            title_hint="Alex Morgan CV Anonymization",
+            status="COMPLETED",
+            stage="COMPLETE",
+            result_json={
+                "anonymized_text": "[Candidate] - Staff Software Engineer",
+                "extracted_skills": ["Python", "FastAPI", "Go", "PostgreSQL"],
+            },
+            created_at=now - timedelta(days=5),
+            completed_at=now - timedelta(days=5, minutes=-1),
+        ),
+        IntakeEvaluationTaskModel(
+            task_type="COVER_LETTER",
+            title_hint="Vercel Cover Letter Draft",
+            status="COMPLETED",
+            stage="COMPLETE",
+            result_json={
+                "cover_letter_text": "Dear Vercel Hiring Team,\n\nI am writing to express my enthusiasm...",
+            },
+            created_at=now - timedelta(days=1),
+            completed_at=now - timedelta(days=1, minutes=-1),
+        ),
+        # Active processing & queued tasks
+        IntakeEvaluationTaskModel(
+            task_type="JOB_ASSESSMENT",
+            job_url="https://anthropic.com/careers/systems-engineer",
+            title_hint="Anthropic - Systems Engineer",
+            status="PROCESSING",
+            stage="MATCHING",
+            created_at=now - timedelta(minutes=5),
+        ),
+        IntakeEvaluationTaskModel(
+            task_type="COVER_LETTER",
+            title_hint="Anthropic Cover Letter Draft",
+            status="QUEUED",
+            stage="FETCHING",
+            created_at=now - timedelta(minutes=2),
+        ),
+        # Explicit error states for queue retry testing
+        IntakeEvaluationTaskModel(
+            task_type="JOB_ASSESSMENT",
+            job_url="https://openai.com/careers/research-engineer",
+            title_hint="OpenAI - Research Engineer",
+            status="FAILED",
+            stage="FETCHING",
+            error_message="FETCH_FAILED: 429 Too Many Requests - Provider rate limit exceeded.",
+            created_at=now - timedelta(hours=3),
+            completed_at=now - timedelta(hours=3, minutes=-1),
+        ),
+        IntakeEvaluationTaskModel(
+            task_type="JOB_ASSESSMENT",
+            job_url="https://notion.so/careers/backend-lead",
+            title_hint="Notion - Backend Lead",
+            status="FAILED",
+            stage="SCRUBBING",
+            error_message="INVALID_JOB_CONTENT: Scraped page does not appear to be a job description.",
+            created_at=now - timedelta(hours=6),
+            completed_at=now - timedelta(hours=6, minutes=-1),
+        ),
+        IntakeEvaluationTaskModel(
+            task_type="JOB_ASSESSMENT",
+            job_url="https://snowflake.com/careers/cloud-architect",
+            title_hint="Snowflake - Principal Cloud Architect",
+            status="FAILED",
+            stage="ASSESSING",
+            error_message="NetworkTimeout: Connection timed out after 30s while fetching model response.",
+            created_at=now - timedelta(hours=12),
+            completed_at=now - timedelta(hours=12, minutes=-1),
+        ),
+    ]
+
+    session.add_all(tasks_to_seed)
+    stats["intake_tasks"] = len(tasks_to_seed)
+
+    # -------------------------------------------------------------------------
+    # 4. Other Recruitment & Tech Events
     # -------------------------------------------------------------------------
     other_1 = OtherEventModel(
         email_message_id="other-msg-001",
@@ -859,7 +975,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
     stats["other_events"] = 3
 
     # -------------------------------------------------------------------------
-    # 4. Staging Queue Items (Ambiguous Leads for Triage)
+    # 5. Staging Queue Items (Email Triage Workflow)
     # -------------------------------------------------------------------------
     staging_1 = StagingItemModel(
         email_message_id="staging-msg-001",
@@ -895,7 +1011,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         },
         match_score=0.62,
         match_reason="MULTIPLE_COMPANY_MATCHES: Ambiguous company match against Nexa Global vs NexaCorp",
-        status="PENDING",
+        status="APPROVED",
     )
     staging_3 = StagingItemModel(
         email_message_id="staging-msg-003",
@@ -913,13 +1029,31 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         },
         match_score=0.35,
         match_reason="UNSPECIFIED_ROLE: Missing company identifier in subject and body",
-        status="PENDING",
+        status="REJECTED",
     )
-    session.add_all([staging_1, staging_2, staging_3])
-    stats["staging_items"] = 3
+    staging_4 = StagingItemModel(
+        email_message_id="staging-msg-004",
+        email_sender="recruiting@linear.app",
+        email_sender_name="Tuomas Artman (Linear)",
+        email_subject="Linear Technical Architecture Interview Schedule",
+        email_received_at=now - timedelta(hours=6),
+        email_raw_body="Confirmed for Thursday 2:00 PM PST. Here is the Google Meet link.",
+        extracted_data={
+            "company": "Linear",
+            "position": "Staff Systems & Sync Engineer",
+            "status": "TECHNICAL_INTERVIEW",
+            "event_type": "INTERVIEW_INVITE",
+            "summary": "Confirmed technical interview calendar invite.",
+        },
+        match_score=0.95,
+        match_reason="HIGH_CONFIDENCE_MATCH",
+        status="PROCESSED",
+    )
+    session.add_all([staging_1, staging_2, staging_3, staging_4])
+    stats["staging_items"] = 4
 
     # -------------------------------------------------------------------------
-    # 5. AI Providers & Task Bindings (Local LM Studio Default)
+    # 6. AI Providers & Task Bindings (Local LM Studio Default)
     # -------------------------------------------------------------------------
     provider_local = AIProviderModel(
         name="Local LM studio",
@@ -981,7 +1115,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
     stats["ai_task_bindings"] = 6
 
     # -------------------------------------------------------------------------
-    # 6. Connected Email Accounts
+    # 7. Connected Email Accounts
     # -------------------------------------------------------------------------
     account_1 = EmailAccountModel(
         name="Personal Gmail (Recruitment)",
@@ -1007,9 +1141,47 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
     session.add_all([account_1, account_2])
     stats["email_accounts"] = 2
 
+    # -------------------------------------------------------------------------
+    # 8. Diagnostics Telemetry Traces (TraceEventModel)
+    # -------------------------------------------------------------------------
+    trace_1 = TraceEventModel(
+        run_id="run-stripe-eval-001",
+        category="llm",
+        event_type="llm_start",
+        payload={
+            "model": "qwen/qwen3.5-9b",
+            "prompt": "Evaluate candidate alignment for Stripe Senior Backend Engineer...",
+        },
+        timestamp=now - timedelta(hours=4),
+    )
+    trace_2 = TraceEventModel(
+        run_id="run-stripe-eval-001",
+        category="llm",
+        event_type="llm_end",
+        payload={
+            "output": {"fit_score": 94, "recommendation": "APPLY_STRONGLY"},
+            "token_usage": {"prompt_tokens": 850, "completion_tokens": 420},
+        },
+        timestamp=now - timedelta(hours=4, seconds=-2),
+    )
+    trace_3 = TraceEventModel(
+        run_id="run-snowflake-err-002",
+        category="llm",
+        event_type="llm_error",
+        payload={
+            "error": "NetworkTimeout: Connection timed out after 30s while fetching model response.",
+            "retry_count": 3,
+        },
+        timestamp=now - timedelta(hours=12),
+    )
+    session.add_all([trace_1, trace_2, trace_3])
+    stats["trace_events"] = 3
+
     # Commit all seeded data in a single clean transaction
     await session.commit()
-    logger.info("Successfully seeded 90-day rolling development dataset: %s", stats)
+    logger.info(
+        "Successfully seeded expanded development dataset with edge cases: %s", stats
+    )
     return stats
 
 
@@ -1035,7 +1207,7 @@ async def maybe_seed_dev_data(session_factory) -> bool:
             return False
 
         logger.info(
-            "🌱 Clean database detected in development mode. Populating 90-day rolling test dataset..."
+            "🌱 Clean database detected in development mode. Populating expanded test dataset..."
         )
         stats = await seed_development_dataset(session)
         print("\n" + "=" * 60)
@@ -1049,5 +1221,6 @@ async def maybe_seed_dev_data(session_factory) -> bool:
         print(f"    - AI Queue Tasks:     {stats.get('intake_tasks', 0)}")
         print(f"    - AI Providers:       {stats.get('ai_providers', 0)}")
         print(f"    - Email Accounts:     {stats.get('email_accounts', 0)}")
+        print(f"    - Telemetry Traces:   {stats.get('trace_events', 0)}")
         print("=" * 60 + "\n")
         return True
