@@ -24,32 +24,51 @@ router = APIRouter(prefix="/agent", tags=["Agent Chat Assistant"])
 
 def sanitize_mock_question_reply(content: str, actions: list[dict[str, Any]]) -> str:
     """
-    Backend Safety Guardrail: If a mock question was generated, strips accidentally
-    duplicated inline options (e.g., A) ..., B) ..., 1. ...) from the assistant text content.
+    Backend Safety Guardrail:
+    1. If a mock question was generated, strips accidentally duplicated inline options
+       (e.g., A) ..., B) ..., 1. ...) from the assistant text content.
+    2. If evaluating an answer (i.e. generate_mock_interview_question was NOT called in this turn),
+       strips any accidental trailing follow-up/next question lines or transition headers.
     """
-    if not content or not actions:
+    if not content:
         return content
 
     has_mock_question = any(
-        act.get("action") == "generate_mock_interview_question" for act in actions
-    )
-    if not has_mock_question:
-        return content
-
-    # Regex matching lines like 'A) ...', 'B. ...', '1) ...', '2: ...'
-    lines = content.split("\n")
-    cleaned_lines = []
-    option_line_pattern = re.compile(
-        r"^\s*([A-Da-d1-4])[\.\)\:]\s+.*", re.IGNORECASE
+        act.get("action") == "generate_mock_interview_question" for act in (actions or [])
     )
 
-    for line in lines:
-        if option_line_pattern.match(line):
-            continue
-        cleaned_lines.append(line)
+    if has_mock_question:
+        # Strip option lines
+        lines = content.split("\n")
+        cleaned_lines = []
+        option_line_pattern = re.compile(
+            r"^\s*([A-Da-d1-4])[\.\)\:]\s+.*", re.IGNORECASE
+        )
+        for line in lines:
+            if option_line_pattern.match(line):
+                continue
+            cleaned_lines.append(line)
+        cleaned = "\n".join(cleaned_lines).strip()
+        return cleaned if cleaned else content
+    else:
+        # Truncation fallback when evaluating an answer:
+        # If the text contains accidental trailing question sections like 'Next question:',
+        # 'Follow-up question:', 'Ready for the next question?', or trailing lines ending with '?', strip them.
+        trailing_question_headers = re.compile(
+            r"(?i)\n+\s*(next question|follow-?up question|ready for the next question|question \d+)[\:\?].*",
+            re.DOTALL,
+        )
+        cleaned_content = trailing_question_headers.sub("", content).strip()
 
-    cleaned = "\n".join(cleaned_lines).strip()
-    return cleaned if cleaned else content
+        # If a trailing sentence ends with '?' at the very end of feedback, strip that trailing question
+        lines = [line for line in cleaned_content.split("\n") if line.strip()]
+        if lines:
+            last_line = lines[-1].strip()
+            if last_line.endswith("?") and ("question" in last_line.lower() or "what" in last_line.lower() or "how" in last_line.lower() or "can you" in last_line.lower()):
+                lines.pop()
+                cleaned_content = "\n".join(lines).strip()
+
+        return cleaned_content if cleaned_content else content
 
 
 def prune_and_sanitize_tool_output(content: Any, max_array_length: int = 5) -> str:
