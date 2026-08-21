@@ -140,98 +140,86 @@ async function handleRetentionChange() {
   }
 }
 
-function escapeHtml(str) {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
-
 function renderMarkdown(text) {
   if (!text) return ''
 
-  // 1. First escape all raw HTML to prevent XSS
-  let html = escapeHtml(text)
-
-  // 2. Fenced code blocks ```code```
-  html = html.replace(/```([\s\S]*?)```/g, (match, p1) => {
-    return `<pre><code>${p1.trim()}</code></pre>`
+  // Preserve code blocks before escaping
+  const codeBlocks = []
+  let placeholderText = text.replace(/```([\s\S]*?)```/g, (match, code) => {
+    const placeholder = `__CODE_BLOCK_${codeBlocks.length}__`
+    codeBlocks.push(code)
+    return placeholder
   })
 
-  // 3. Inline code `code`
+  // Basic HTML escaping
+  let html = placeholderText
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+
+  // Inline code
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
 
-  // 4. Tables
-  const lines = html.split('\n')
-  let inTable = false
-  let tableHtml = ''
-  let newLines = []
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (line.startsWith('|') && line.endsWith('|')) {
-      const cells = line.split('|').slice(1, -1).map(c => c.trim())
-      // Check if separator line
-      if (cells.every(c => /^:?-+:?$/.test(c))) {
-        continue
-      }
-      if (!inTable) {
-        inTable = true
-        tableHtml = '<table><thead><tr>' + cells.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>'
-      } else {
-        tableHtml += '<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>'
-      }
-    } else {
-      if (inTable) {
-        tableHtml += '</tbody></table>'
-        newLines.push(tableHtml)
-        inTable = false
-        tableHtml = ''
-      }
-      newLines.push(lines[i])
-    }
-  }
-  if (inTable) {
-    tableHtml += '</tbody></table>'
-    newLines.push(tableHtml)
-  }
-  html = newLines.join('\n')
-
-  // 5. Headings
+  // Headings
   html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>')
   html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>')
   html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>')
 
-  // 6. Blockquotes
-  html = html.replace(/^\&gt;\s?(.*$)/gim, '<blockquote>$1</blockquote>')
+  // Blockquotes
+  html = html.replace(/^&gt;\s?(.*$)/gim, '<blockquote>$1</blockquote>')
 
-  // 7. Bold and Italics
+  // Bold & Italics
+  html = html.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>')
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
   html = html.replace(/\*(.*?)\*/g, '<em>$1</em>')
 
-  // 8. Unordered / Ordered Lists
-  html = html.replace(/^\s*[\-\*]\s+(.*$)/gim, '<li>$1</li>')
-  html = html.replace(/(<li>.*<\/li>)/gis, '<ul>$1</ul>')
-  html = html.replace(/<\/ul>\s*<ul>/g, '')
+  // Lists: group bullet lines into <ul> and ordered into <ol>
+  const lines = html.split('\n')
+  let inUl = false
+  let inOl = false
+  const processedLines = []
 
-  // 9. Links [text](url)
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, p1, p2) => {
-    // Ensure URL is safe (http/https or relative)
-    const safeUrl = (p2.startsWith('http://') || p2.startsWith('https://') || p2.startsWith('/')) ? p2 : '#'
-    return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${p1}</a>`
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const ulMatch = line.match(/^\s*[\-\*]\s+(.*)$/)
+    const olMatch = line.match(/^\s*\d+[\.\)]\s+(.*)$/)
+
+    if (ulMatch) {
+      if (inOl) { processedLines.push('</ol>'); inOl = false }
+      if (!inUl) { processedLines.push('<ul>'); inUl = true }
+      processedLines.push(`<li>${ulMatch[1]}</li>`)
+    } else if (olMatch) {
+      if (inUl) { processedLines.push('</ul>'); inUl = false }
+      if (!inOl) { processedLines.push('<ol>'); inOl = true }
+      processedLines.push(`<li>${olMatch[1]}</li>`)
+    } else {
+      if (inUl) { processedLines.push('</ul>'); inUl = false }
+      if (inOl) { processedLines.push('</ol>'); inOl = false }
+      processedLines.push(line)
+    }
+  }
+  if (inUl) processedLines.push('</ul>')
+  if (inOl) processedLines.push('</ol>')
+  html = processedLines.join('\n')
+
+  // Paragraphs
+  html = html.split(/\n\n+/).map(block => {
+    const trimmed = block.trim()
+    if (!trimmed) return ''
+    if (/^<(h[1-3]|ul|ol|blockquote)/.test(trimmed)) {
+      return trimmed
+    }
+    return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`
+  }).join('')
+
+  // Restore code blocks safely
+  codeBlocks.forEach((code, i) => {
+    const escapedCode = code
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+    html = html.replace(`__CODE_BLOCK_${i}__`, `<pre><code>${escapedCode.trim()}</code></pre>`)
   })
-
-  // 10. Paragraph breaks for double newlines
-  html = html.replace(/\n\n+/g, '</p><p>')
-  html = `<p>${html}</p>`
-  html = html.replace(/<p>\s*<\/p>/g, '')
-  html = html.replace(/<p>(<h[1-3]>.*?<\/h[1-3]>)<\/p>/g, '$1')
-  html = html.replace(/<p>(<pre>.*?<\/pre>)<\/p>/gs, '$1')
-  html = html.replace(/<p>(<table>.*?<\/table>)<\/p>/gs, '$1')
-  html = html.replace(/<p>(<ul>.*?<\/ul>)<\/p>/gs, '$1')
-  html = html.replace(/<p>(<blockquote>.*?<\/blockquote>)<\/p>/gs, '$1')
 
   return DOMPurify.sanitize(html)
 }
@@ -358,6 +346,21 @@ function formatActionLabel(act) {
     return `Queried pending action items & deadlines`
   }
   return `Executed: ${act.action || 'Tool'}`
+}
+
+function isLastAssistantMessage(idx) {
+  if (!chatStore.messages || chatStore.messages.length === 0) return false
+  for (let i = chatStore.messages.length - 1; i >= 0; i--) {
+    if (chatStore.messages[i].role === 'assistant') {
+      return i === idx
+    }
+  }
+  return false
+}
+
+async function handleNextQuestion() {
+  if (chatStore.isSending) return
+  await handleSendMessage("Please generate the next interview question.")
 }
 </script>
 
@@ -536,6 +539,31 @@ function formatActionLabel(act) {
                       <span>{{ opt }}</span>
                     </button>
                   </div>
+                </div>
+
+                <!-- Last Agent Message Actions Bar (Next Question & End Interview) -->
+                <div
+                  v-if="isMockInterview && !isMockEnded && isLastAssistantMessage(idx)"
+                  class="mock-actions-bar"
+                >
+                  <button
+                    class="btn btn-secondary btn-sm btn-action-next"
+                    :disabled="chatStore.isSending"
+                    @click="handleNextQuestion"
+                  >
+                    <ArrowRight :size="13" />
+                    <span>Next Question</span>
+                  </button>
+
+                  <button
+                    class="btn btn-warning btn-sm btn-action-end"
+                    :disabled="chatStore.isSending || isEndingInterview"
+                    @click="handleEndInterview"
+                  >
+                    <Loader2 v-if="isEndingInterview" class="animate-spin" :size="13" />
+                    <CheckCircle2 v-else :size="13" />
+                    <span>End Interview &amp; Debrief</span>
+                  </button>
                 </div>
               </div>
             </template>
@@ -1207,5 +1235,24 @@ function formatActionLabel(act) {
 .mock-option-btn:disabled {
   opacity: 0.65;
   cursor: not-allowed;
+}
+
+/* Mock Actions Bar on Last Message */
+.mock-actions-bar {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-subtle);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-action-next, .btn-action-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
 }
 </style>
