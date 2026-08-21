@@ -1068,7 +1068,7 @@ const maxCohortVolume = computed(() => {
 
 .tab-btn.active {
   background-color: var(--primary);
-  color: #ffffff;
+  color: var(--primary-contrast, #0a0d14);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }
 
@@ -1103,20 +1103,20 @@ const maxCohortVolume = computed(() => {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   padding: 3px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-full);
   gap: 2px;
 }
 
 .toggle-btn {
   padding: 4px 12px;
-  border-radius: var(--radius-xs);
-  border: none;
+  border-radius: var(--radius-full);
+  border: 1px solid transparent;
   background: transparent;
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .toggle-btn:hover {
@@ -1124,9 +1124,16 @@ const maxCohortVolume = computed(() => {
 }
 
 .toggle-btn.active {
-  background-color: var(--bg-elevated);
-  color: var(--text-main);
-  border: 1px solid var(--border-color);
+  background-color: var(--primary);
+  color: var(--primary-contrast, #0a0d14);
+  border-color: var(--primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.toggle-btn.active:hover {
+  background-color: var(--primary-hover);
+  border-color: var(--primary-hover);
+  color: var(--primary-contrast, #0a0d14);
 }
 
 /* Theme-Aware Filter Bar */
