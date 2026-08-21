@@ -467,31 +467,14 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- Overall Years Stepper -->
-          <div class="experience-counter-box">
-            <span class="counter-label">Cumulative Experience</span>
-            <div class="stepper-controls">
-              <button
-                type="button"
-                class="step-btn"
-                title="Decrease overall experience by 0.5 yrs"
-                @click="adjustTotalYears(-0.5)"
-              >
-                -
-              </button>
-              <span class="counter-val font-mono font-bold">
-                {{ profile.years_of_experience || 0 }} <span class="counter-unit">yrs</span>
-              </span>
-              <button
-                type="button"
-                class="step-btn"
-                title="Increase overall experience by 0.5 yrs"
-                @click="adjustTotalYears(0.5)"
-              >
-                +
-              </button>
-            </div>
-          </div>
+          <!-- Update CV Action Button -->
+          <button
+            class="btn btn-secondary btn-sm"
+            @click="showCvModal = true"
+          >
+            <Edit3 :size="14" />
+            <span>Update CV</span>
+          </button>
         </div>
 
         <!-- Executive Summary -->
@@ -534,6 +517,32 @@ onMounted(async () => {
             <p class="card-sub">
               Granular durations across your core industry specializations. Muted domains are preserved on your profile but automatically excluded from AI match qualifications.
             </p>
+          </div>
+
+          <!-- Cumulative Experience Stepper Controls -->
+          <div class="experience-counter-box">
+            <span class="counter-label">Cumulative Experience</span>
+            <div class="stepper-controls">
+              <button
+                type="button"
+                class="step-btn"
+                title="Decrease overall experience by 0.5 yrs"
+                @click="adjustTotalYears(-0.5)"
+              >
+                -
+              </button>
+              <span class="counter-val font-mono font-bold">
+                {{ profile.years_of_experience || 0 }} <span class="counter-unit">yrs</span>
+              </span>
+              <button
+                type="button"
+                class="step-btn"
+                title="Increase overall experience by 0.5 yrs"
+                @click="adjustTotalYears(0.5)"
+              >
+                +
+              </button>
+            </div>
           </div>
         </div>
 
@@ -700,70 +709,6 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- 4. Sanitized Resume Document Viewer / Editor -->
-      <div class="content-card">
-        <div class="card-header-clean">
-          <div>
-            <h3 class="card-title">Sanitized Resume Document</h3>
-            <p class="card-sub">
-              Clean markdown document with contact info stripped and dates converted to duration windows. Used for AI qualification audits.
-            </p>
-          </div>
-
-          <div class="header-actions-group">
-            <button
-              v-if="!isEditingCV"
-              class="btn btn-ghost btn-xs"
-              title="Edit sanitized resume text"
-              @click="startEditingCV"
-            >
-              <Edit3 :size="13" />
-              <span>Edit Document</span>
-            </button>
-
-            <button
-              v-if="!isEditingCV"
-              class="btn btn-ghost btn-xs"
-              title="Copy sanitized resume text"
-              @click="copyAnonymizedCV"
-            >
-              <Copy :size="13" />
-              <span>Copy</span>
-            </button>
-
-            <button
-              class="btn btn-ghost btn-xs"
-              @click="isDocExpanded = !isDocExpanded"
-            >
-              <component :is="isDocExpanded ? ChevronUp : ChevronDown" :size="14" />
-              <span>{{ isDocExpanded ? 'Collapse' : 'Expand' }}</span>
-            </button>
-          </div>
-        </div>
-
-        <div v-if="isDocExpanded" class="doc-container animate-fade-in">
-          <!-- Read-only Document View -->
-          <div v-if="!isEditingCV" class="sanitized-doc-body font-mono text-xs">
-            {{ profile.anonymized_text || 'No anonymized text generated yet.' }}
-          </div>
-
-          <!-- In-place Markdown Editor -->
-          <div v-else class="doc-editor-box">
-            <textarea
-              v-model="editedCVText"
-              rows="16"
-              class="form-textarea font-mono text-xs"
-            ></textarea>
-            <div class="editor-actions-row">
-              <button class="btn btn-secondary btn-sm" @click="isEditingCV = false">Cancel</button>
-              <button class="btn btn-primary btn-sm" @click="saveEditedCV">
-                <Save :size="14" />
-                <span>Save Sanitized Document</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- =================================================================== -->
@@ -834,6 +779,15 @@ onMounted(async () => {
                 <Lock :size="12" />
                 <span>Local Scrubbed Preview</span>
               </button>
+              <button
+                v-if="profile?.anonymized_text"
+                class="tab-btn"
+                :class="{ active: activeInputTab === 'sanitized' }"
+                @click="activeInputTab = 'sanitized'"
+              >
+                <ShieldCheck :size="12" />
+                <span>Sanitized Document</span>
+              </button>
             </div>
           </div>
 
@@ -876,10 +830,49 @@ onMounted(async () => {
 
           <!-- Local Preview -->
           <div
-            v-else
+            v-else-if="activeInputTab === 'preview'"
             class="local-preview-box font-mono text-xs"
           >
             {{ localScrubResult.scrubbedText || 'Paste resume text to see live local sanitization preview...' }}
+          </div>
+
+          <!-- Relocated Sanitized Resume Document Viewer & Editor -->
+          <div
+            v-else-if="activeInputTab === 'sanitized'"
+            class="sanitized-doc-box font-mono text-xs animate-fade-in"
+          >
+            <div class="sanitized-doc-toolbar mb-2 flex items-center justify-between">
+              <span class="text-xs text-muted font-sans font-semibold">De-Identified Canonical Document</span>
+              <div class="flex items-center gap-2">
+                <button v-if="!isEditingCV" class="btn btn-ghost btn-xs" @click="startEditingCV">
+                  <Edit3 :size="12" />
+                  <span>Edit</span>
+                </button>
+                <button v-if="!isEditingCV" class="btn btn-ghost btn-xs" @click="copyAnonymizedCV">
+                  <Copy :size="12" />
+                  <span>Copy</span>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="!isEditingCV" class="sanitized-doc-body font-mono text-xs">
+              {{ profile?.anonymized_text || 'No anonymized text generated yet.' }}
+            </div>
+
+            <div v-else class="doc-editor-box">
+              <textarea
+                v-model="editedCVText"
+                rows="10"
+                class="form-textarea font-mono text-xs"
+              ></textarea>
+              <div class="editor-actions-row">
+                <button class="btn btn-secondary btn-xs" @click="isEditingCV = false">Cancel</button>
+                <button class="btn btn-primary btn-xs" @click="saveEditedCV">
+                  <Save :size="12" />
+                  <span>Save Document</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- Queue Processing Stepper Card -->
