@@ -1031,14 +1031,6 @@ async function confirmDelete() {
               <!-- Offer Actions (Hired / Withdrawn) -->
               <div v-if="app.status === 'OFFER'" class="offer-actions" @click.stop>
                 <button
-                  class="offer-action-btn btn-hired"
-                  @click="executeTransition(app.id, { status: 'HIRED' })"
-                  title="Accept Offer & Mark Hired"
-                >
-                  <Trophy :size="12" />
-                  <span>Hired</span>
-                </button>
-                <button
                   class="offer-action-btn btn-withdrawn"
                   @click="quickWithdrawApp(app)"
                   title="Decline Offer & Withdraw"
@@ -1046,6 +1038,15 @@ async function confirmDelete() {
                   <Ban :size="12" />
                   <span>Decline</span>
                 </button>
+                <button
+                  class="offer-action-btn btn-hired"
+                  @click="executeTransition(app.id, { status: 'HIRED' })"
+                  title="Accept Offer & Mark Hired"
+                >
+                  <Trophy :size="12" />
+                  <span>Hired</span>
+                </button>
+                
               </div>
 
 
@@ -1551,13 +1552,6 @@ async function confirmDelete() {
           <span>Reject / Archive</span>
         </button>
 
-        <button
-          class="menu-item text-danger"
-          @click="openDeleteConfirm(activeMenuApp); closeCardMenu()"
-        >
-          <Trash2 :size="13" />
-          <span>Delete</span>
-        </button>
       </div>
     </Teleport>
 
