@@ -254,7 +254,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: var(--navbar-height);
+  min-height: var(--navbar-height);
   padding: 0 24px;
   background-color: var(--bg-sidebar);
   border-bottom: 1px solid var(--border-color);
@@ -267,6 +267,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 32px;
+  min-width: 0;
 }
 
 .nav-brand {
@@ -295,6 +296,13 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.nav-links::-webkit-scrollbar {
+  display: none;
 }
 
 .nav-link {
@@ -390,5 +398,33 @@ onMounted(() => {
   border-color: var(--primary);
   color: var(--primary-contrast, #0a0d14);
   box-shadow: 0 0 0 2px var(--primary-subtle);
+}
+
+@media (max-width: 850px) {
+  .navbar {
+    padding: 8px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .nav-left {
+    gap: 12px;
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .nav-right {
+    gap: 6px;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .btn-ingest span {
+    display: none;
+  }
+
+  .btn-ingest {
+    padding: 6px 10px;
+  }
 }
 </style>

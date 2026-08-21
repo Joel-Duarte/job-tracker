@@ -1995,6 +1995,24 @@ async function confirmDelete() {
   width: 100%;
 }
 
+@media (max-width: 900px) {
+  .kanban-board {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 8px;
+    gap: 12px;
+  }
+
+  .kanban-column {
+    flex: 0 0 85vw;
+    max-width: 360px;
+    scroll-snap-align: start;
+  }
+}
+
 .kanban-column {
   background-color: var(--bg-sidebar);
   border: 1px solid var(--border-color);
@@ -2646,11 +2664,64 @@ async function confirmDelete() {
 .inner-modal-box {
   width: 100%;
   max-width: 480px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xl);
   position: relative;
+}
+
+@media (max-width: 600px) {
+  .inner-modal-box {
+    max-width: 90vw;
+  }
+
+  .inner-modal-body {
+    overflow-y: auto;
+  }
+
+  .controls-bar {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 12px 16px;
+    gap: 12px;
+  }
+
+  .search-filter-group {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .pipeline-mode-toggle {
+    width: 100%;
+    justify-content: space-between;
+    overflow-x: auto;
+  }
+
+  .pipeline-mode-btn {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .search-input-wrapper {
+    max-width: 100%;
+  }
+
+  .view-switch-group {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .content-wrapper {
+    padding: 12px 16px;
+  }
+
+  .form-row-2 {
+    grid-template-columns: 1fr;
+  }
 }
 
 .inner-modal-header {

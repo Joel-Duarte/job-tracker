@@ -1177,15 +1177,9 @@ onUnmounted(() => {
 /* Stats Overview Bar */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 14px;
   margin-bottom: 24px;
-}
-
-@media (max-width: 800px) {
-  .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
 }
 
 .stat-card {
@@ -2116,6 +2110,57 @@ onUnmounted(() => {
   gap: 24px;
   padding: 12px 24px;
   z-index: 100;
+}
+
+@media (max-width: 768px) {
+  .assessments-page {
+    padding: 16px 12px 80px;
+  }
+
+  .eval-card-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .scores-side-by-side {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .eval-card-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .action-buttons-group {
+    flex-wrap: wrap;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .eval-filter-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .search-box {
+    max-width: 100%;
+  }
+
+  .fit-chips-group, .max-fit-group, .sort-select-wrapper {
+    flex-wrap: wrap;
+    margin-left: 0;
+  }
+
+  .batch-actions-bar {
+    max-width: 90vw;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 16px;
+  }
 }
 
 .batch-info {
