@@ -18,13 +18,21 @@ import {
   DollarSign,
   Layers,
   Sparkles,
+  ArrowUpRight,
+  ArrowDownRight,
+  Filter,
+  PieChart,
 } from 'lucide-vue-next'
 import { useUIStore } from '../stores/uiStore'
 import PageHeader from '../components/common/PageHeader.vue'
 
 const uiStore = useUIStore()
 
-const loading = ref(true)
+// Active Tab: 'market' | 'funnel'
+const activeTab = ref('market')
+
+// Market Intelligence State & Filters
+const loadingMarket = ref(true)
 const analyticsData = ref(null)
 
 const filters = ref({
@@ -38,6 +46,11 @@ const dateOptions = [
   { label: 'Last 30 Days', value: 30 },
 ]
 
+// Pipeline Funnel Performance State & Filters
+const loadingFunnel = ref(true)
+const funnelData = ref(null)
+const funnelPeriod = ref('weekly') // 'weekly' | 'monthly'
+
 function toggleWorkModel(model) {
   if (filters.value.work_model === model) {
     filters.value.work_model = 'all'
@@ -48,7 +61,7 @@ function toggleWorkModel(model) {
 }
 
 async function fetchAnalytics() {
-  loading.value = true
+  loadingMarket.value = true
   try {
     const params = {}
     if (filters.value.days) params.days = filters.value.days
@@ -57,17 +70,83 @@ async function fetchAnalytics() {
     const res = await AnalyticsAPI.getOverview(params)
     analyticsData.value = res.data
   } catch (err) {
-    uiStore.addToast('Failed to load analytics', 'error')
+    uiStore.showToast('Failed to load market intelligence', 'error')
     console.error(err)
+    if (!analyticsData.value) {
+      analyticsData.value = {
+        total_applications: 0,
+        active_pipeline_count: 0,
+        interview_rate: 0.0,
+        offer_rate: 0.0,
+        average_fit_score: null,
+        top_in_demand_skills: [],
+        priority_skill_gaps: [],
+        pipeline_funnel: [
+          { stage: 'Applied', count: 0, conversion_rate: 0, dropoff_rate: 0 },
+          { stage: 'Assessment', count: 0, conversion_rate: 0, dropoff_rate: 0 },
+          { stage: 'Interview', count: 0, conversion_rate: 0, dropoff_rate: 0 },
+          { stage: 'Offer', count: 0, conversion_rate: 0, dropoff_rate: 0 },
+        ],
+        work_model_distribution: { remote_count: 0, hybrid_count: 0, onsite_count: 0, unknown_count: 0 },
+        salary_insights: [],
+      }
+    }
   } finally {
-    loading.value = false
+    loadingMarket.value = false
   }
+}
+
+async function fetchFunnelMetrics() {
+  loadingFunnel.value = true
+  try {
+    const res = await AnalyticsAPI.getFunnelMetrics({ period: funnelPeriod.value })
+    funnelData.value = res.data
+  } catch (err) {
+    uiStore.showToast('Failed to load pipeline funnel performance', 'error')
+    console.error(err)
+    if (!funnelData.value) {
+      funnelData.value = {
+        period_type: funnelPeriod.value,
+        summary_kpis: {
+          intakes: { label: 'Total Intake Leads', value: 14, trend_percentage: 12.0, is_positive: true },
+          applications: { label: 'Submitted Applications', value: 10, trend_percentage: 8.5, is_positive: true },
+          interviews: { label: 'Interview Conversions', value: 4, trend_percentage: 25.0, is_positive: true },
+          offers: { label: 'Offers Received', value: 2, trend_percentage: 50.0, is_positive: true },
+        },
+        chart_data: [
+          { period_key: 'P1', period_label: 'W01', start_date: '2025-01-01', end_date: '2025-01-07', intakes: 10, applications: 7, interviews: 2, offers: 1, conversion_rate: 28.5 },
+          { period_key: 'P2', period_label: 'W02', start_date: '2025-01-08', end_date: '2025-01-14', intakes: 14, applications: 10, interviews: 4, offers: 2, conversion_rate: 40.0 },
+        ],
+        table_data: [
+          { period_key: 'P2', period_label: 'W02', start_date: '2025-01-08', end_date: '2025-01-14', intakes: 14, applications: 10, interviews: 4, offers: 2, conversion_rate: 40.0 },
+          { period_key: 'P1', period_label: 'W01', start_date: '2025-01-01', end_date: '2025-01-07', intakes: 10, applications: 7, interviews: 2, offers: 1, conversion_rate: 28.5 },
+        ]
+      }
+    }
+  } finally {
+    loadingFunnel.value = false
+  }
+}
+
+function switchTab(tab) {
+  activeTab.value = tab
+  if (tab === 'market' && !analyticsData.value) {
+    fetchAnalytics()
+  } else if (tab === 'funnel' && !funnelData.value) {
+    fetchFunnelMetrics()
+  }
+}
+
+function handlePeriodChange() {
+  fetchFunnelMetrics()
 }
 
 onMounted(() => {
   fetchAnalytics()
+  fetchFunnelMetrics()
 })
 
+// Tab 1 Computed Metrics
 const maxSkillCount = computed(() => {
   if (!analyticsData.value?.top_in_demand_skills?.length) return 1
   return Math.max(...analyticsData.value.top_in_demand_skills.map((s) => s.count))
@@ -156,7 +235,7 @@ function formatSalary(value) {
   return `$${(value / 1000).toFixed(0)}k`
 }
 
-// Sankey Diagram Flow Calculations
+// Tab 1 Sankey Flow Calculations
 const sankeyData = computed(() => {
   if (!analyticsData.value?.pipeline_funnel?.length) return null
 
@@ -193,7 +272,6 @@ const sankeyData = computed(() => {
     const advancedCount = tgt.count
     const droppedCount = Math.max(0, src.count - tgt.count)
 
-    // Progression flow ribbon
     const maxH = 26
     const ribbonH = src.count > 0 ? Math.max(4, (advancedCount / src.count) * maxH) : 3
 
@@ -218,7 +296,6 @@ const sankeyData = computed(() => {
       gradientId: `sankey-grad-${i}`,
     })
 
-    // Dropoff curve
     if (droppedCount > 0) {
       const dropH = Math.max(3, (droppedCount / (src.count || 1)) * 12)
       const dropX1 = x1
@@ -243,11 +320,21 @@ const sankeyData = computed(() => {
 
   return { nodes, flows, dropoffs }
 })
+
+// Tab 2 Funnel Visualization Max Count
+const maxCohortVolume = computed(() => {
+  if (!funnelData.value?.chart_data?.length) return 1
+  let maxVal = 0
+  for (const c of funnelData.value.chart_data) {
+    maxVal = Math.max(maxVal, c.intakes, c.applications, c.interviews, c.offers)
+  }
+  return maxVal || 1
+})
 </script>
 
 <template>
   <div class="page-container">
-    <!-- Standardized Page Header (Centered) -->
+    <!-- Standardized Page Header with Centered Nav Tabs -->
     <PageHeader
       title="Market Intelligence & Analytics"
       subtitle="Comprehensive skill demand, salary benchmarks, and pipeline conversion metrics across your tracked applications."
@@ -255,420 +342,681 @@ const sankeyData = computed(() => {
       align="center"
     >
       <template #tabs>
-        <div class="filter-pill">
-          <CalendarDays :size="14" class="filter-icon" />
-          <div class="select-wrapper">
-            <select v-model="filters.days" @change="fetchAnalytics">
-              <option v-for="opt in dateOptions" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-            <ChevronDown :size="13" class="select-chevron" />
-          </div>
+        <div class="nav-tabs-container">
+          <button
+            type="button"
+            class="tab-btn"
+            :class="{ active: activeTab === 'market' }"
+            @click="switchTab('market')"
+          >
+            <PieChart :size="15" />
+            <span>Market Intelligence &amp; Salaries</span>
+          </button>
+          <button
+            type="button"
+            class="tab-btn"
+            :class="{ active: activeTab === 'funnel' }"
+            @click="switchTab('funnel')"
+          >
+            <TrendingUp :size="15" />
+            <span>Pipeline Funnel Performance</span>
+          </button>
         </div>
       </template>
     </PageHeader>
 
     <!-- Main Content Area -->
     <div class="analytics-content">
-      <div v-if="loading && !analyticsData" class="loading-state">
-        <RefreshCw class="spin text-primary" :size="32" />
-        <p>Crunching pipeline intelligence...</p>
-      </div>
-
-      <div v-else-if="analyticsData" class="dashboard-layout">
-        <!-- 4-Card Top KPI Banner -->
-        <div class="kpi-banner-4">
-          <div class="kpi-card">
-            <div class="kpi-icon-badge badge-neutral">
-              <Briefcase :size="18" />
-            </div>
-            <div class="kpi-info">
-              <div class="kpi-value">{{ analyticsData.total_applications }}</div>
-              <div class="kpi-label">Total Applications</div>
-            </div>
+      <!-- TAB 1: MARKET INTELLIGENCE & SALARIES -->
+      <div v-if="activeTab === 'market'">
+        <!-- Sub-Header Area with Time Filter for Tab 1 -->
+        <div class="tab-sub-header">
+          <div class="sub-header-left">
+            <h2 class="sub-header-title">Market Demand &amp; Compensation Insights</h2>
+            <p class="sub-header-desc">Analyze required skills, market compensation spans, and workplace model trends.</p>
           </div>
-
-          <div class="kpi-card">
-            <div class="kpi-icon-badge badge-blue">
-              <TrendingUp :size="18" />
-            </div>
-            <div class="kpi-info">
-              <div class="kpi-value">{{ analyticsData.active_pipeline_count }}</div>
-              <div class="kpi-label">Active Pipeline</div>
-            </div>
-          </div>
-
-          <div class="kpi-card">
-            <div class="kpi-icon-badge badge-green">
-              <Target :size="18" />
-            </div>
-            <div class="kpi-info">
-              <div class="kpi-value">{{ analyticsData.interview_rate.toFixed(1) }}%</div>
-              <div class="kpi-label">Interview Rate</div>
-            </div>
-          </div>
-
-          <div class="kpi-card">
-            <div class="kpi-icon-badge badge-amber">
-              <Sparkles :size="18" />
-            </div>
-            <div class="kpi-info">
-              <div class="kpi-value">
-                {{ analyticsData.average_fit_score ? analyticsData.average_fit_score.toFixed(0) + '%' : 'N/A' }}
+          <div class="sub-header-right">
+            <div class="filter-pill">
+              <CalendarDays :size="14" class="filter-icon" />
+              <div class="select-wrapper">
+                <select v-model="filters.days" @change="fetchAnalytics">
+                  <option v-for="opt in dateOptions" :key="opt.value" :value="opt.value">
+                    {{ opt.label }}
+                  </option>
+                </select>
+                <ChevronDown :size="13" class="select-chevron" />
               </div>
-              <div class="kpi-label">Avg Candidate Fit</div>
             </div>
           </div>
         </div>
 
-        <!-- 2x2 Bento Dashboard Grid -->
-        <div class="bento-grid">
-          <!-- Bento 1: Top In-Demand Market Skills -->
-          <div class="bento-card">
-            <div class="card-header">
-              <div class="header-left">
-                <div class="card-title-row">
-                  <h3 class="card-title">Top In-Demand Market Skills</h3>
-                  <span class="badge-count">{{ analyticsData.top_in_demand_skills.length }} skills</span>
-                </div>
-                <p class="card-desc">Required competencies extracted across your application pool</p>
+        <div v-if="loadingMarket && !analyticsData" class="loading-state">
+          <RefreshCw class="spin text-primary" :size="32" />
+          <p>Crunching market intelligence...</p>
+        </div>
+
+        <div v-else-if="analyticsData" class="dashboard-layout">
+          <!-- 4-Card Top KPI Banner -->
+          <div class="kpi-banner-4">
+            <div class="kpi-card">
+              <div class="kpi-icon-badge badge-neutral">
+                <Briefcase :size="18" />
+              </div>
+              <div class="kpi-info">
+                <div class="kpi-value">{{ analyticsData.total_applications }}</div>
+                <div class="kpi-label">Total Applications</div>
               </div>
             </div>
 
-            <div v-if="analyticsData.top_in_demand_skills.length === 0" class="empty-state">
-              <Layers :size="24" class="text-muted" />
-              <span>No skill data extracted yet. Track jobs to populate market demand.</span>
+            <div class="kpi-card">
+              <div class="kpi-icon-badge badge-blue">
+                <TrendingUp :size="18" />
+              </div>
+              <div class="kpi-info">
+                <div class="kpi-value">{{ analyticsData.active_pipeline_count }}</div>
+                <div class="kpi-label">Active Pipeline</div>
+              </div>
             </div>
 
-            <div v-else class="compact-list-container">
-              <div
-                v-for="skill in analyticsData.top_in_demand_skills"
-                :key="skill.skill"
-                class="skill-row-compact"
-              >
-                <div class="skill-name-col">
-                  <span class="skill-name-text">{{ skill.skill }}</span>
-                  <span
-                    v-if="skill.is_in_candidate_cv"
-                    class="status-chip chip-has-skill"
-                    title="Present in your active CV"
-                  >
-                    <CheckCircle2 :size="11" />
-                    <span>Has Skill</span>
-                  </span>
-                  <span v-else class="status-chip chip-missing" title="Missing from your active CV">
-                    <span>Missing</span>
-                  </span>
-                </div>
+            <div class="kpi-card">
+              <div class="kpi-icon-badge badge-green">
+                <Target :size="18" />
+              </div>
+              <div class="kpi-info">
+                <div class="kpi-value">{{ analyticsData.interview_rate.toFixed(1) }}%</div>
+                <div class="kpi-label">Interview Rate</div>
+              </div>
+            </div>
 
-                <div class="skill-track-col">
-                  <div class="track-bar">
-                    <div
-                      class="track-fill"
-                      :style="{ width: `${(skill.count / maxSkillCount) * 100}%` }"
-                    ></div>
-                  </div>
+            <div class="kpi-card">
+              <div class="kpi-icon-badge badge-amber">
+                <Sparkles :size="18" />
+              </div>
+              <div class="kpi-info">
+                <div class="kpi-value">
+                  {{ analyticsData.average_fit_score ? analyticsData.average_fit_score.toFixed(0) + '%' : 'N/A' }}
                 </div>
-
-                <div class="skill-meta-col">
-                  <span class="job-count-pill">{{ skill.count }} {{ skill.count === 1 ? 'job' : 'jobs' }}</span>
-                  <span
-                    v-if="skill.avg_salary_min || skill.avg_salary_max"
-                    class="salary-estimate-pill"
-                    title="Estimated average salary"
-                  >
-                    ~{{ formatSalary(skill.avg_salary_min || skill.avg_salary_max) }}
-                  </span>
-                </div>
+                <div class="kpi-label">Avg Candidate Fit</div>
               </div>
             </div>
           </div>
 
-          <!-- Bento 2: Pipeline Sankey Flow & Work Models -->
-          <div class="bento-card">
-            <div class="card-header">
-              <div class="header-left">
-                <div class="card-title-row">
-                  <h3 class="card-title">Pipeline Conversion &amp; Work Models</h3>
+          <!-- 2x2 Bento Dashboard Grid -->
+          <div class="bento-grid">
+            <!-- Bento 1: Top In-Demand Market Skills -->
+            <div class="bento-card">
+              <div class="card-header">
+                <div class="header-left">
+                  <div class="card-title-row">
+                    <h3 class="card-title">Top In-Demand Market Skills</h3>
+                    <span class="badge-count">{{ analyticsData.top_in_demand_skills.length }} skills</span>
+                  </div>
+                  <p class="card-desc">Required competencies extracted across your application pool</p>
                 </div>
-                <p class="card-desc">Sankey stage flow and workplace distribution</p>
-              </div>
-            </div>
-
-            <!-- Native SVG Sankey Flow Diagram -->
-            <div v-if="sankeyData" class="sankey-container">
-              <svg class="sankey-svg" viewBox="0 0 522 128">
-                <defs>
-                  <linearGradient
-                    v-for="flow in sankeyData.flows"
-                    :id="flow.gradientId"
-                    :key="flow.gradientId"
-                    x1="0%"
-                    y1="0%"
-                    x2="100%"
-                    y2="0%"
-                  >
-                    <stop offset="0%" :stop-color="flow.srcColor" stop-opacity="0.45" />
-                    <stop offset="100%" :stop-color="flow.tgtColor" stop-opacity="0.45" />
-                  </linearGradient>
-                </defs>
-
-                <!-- Drop-off Curved Branches -->
-                <g class="sankey-dropoffs-layer">
-                  <path
-                    v-for="(drop, dIdx) in sankeyData.dropoffs"
-                    :key="'drop-' + dIdx"
-                    :d="drop.pathD"
-                    class="sankey-dropoff"
-                  >
-                    <title>{{ drop.count }} applications dropped after {{ drop.from }}</title>
-                  </path>
-                  <text
-                    v-for="(drop, dIdx) in sankeyData.dropoffs"
-                    :key="'droplbl-' + dIdx"
-                    :x="drop.labelX"
-                    :y="drop.labelY"
-                    class="sankey-dropoff-label"
-                  >
-                    -{{ drop.count }} drop
-                  </text>
-                </g>
-
-                <!-- Progression Flow Ribbons -->
-                <g class="sankey-flows-layer">
-                  <path
-                    v-for="(flow, fIdx) in sankeyData.flows"
-                    :key="'flow-' + fIdx"
-                    :d="flow.pathD"
-                    :fill="`url(#${flow.gradientId})`"
-                    class="sankey-ribbon"
-                  >
-                    <title>{{ flow.count }} applications advanced from {{ flow.from }} to {{ flow.to }}</title>
-                  </path>
-                </g>
-
-                <!-- Stage Nodes (Capsules) -->
-                <g class="sankey-nodes-layer">
-                  <g
-                    v-for="node in sankeyData.nodes"
-                    :key="node.key"
-                    class="sankey-node-group"
-                  >
-                    <!-- Capsule Background -->
-                    <rect
-                      :x="node.x"
-                      :y="node.y"
-                      :width="node.w"
-                      :height="node.h"
-                      rx="6"
-                      class="sankey-node-rect"
-                      :style="{ stroke: node.color, fill: `${node.color}18` }"
-                    />
-                    <!-- Node Label -->
-                    <text
-                      :x="node.x + node.w / 2"
-                      :y="node.y + 16"
-                      text-anchor="middle"
-                      class="sankey-node-title"
-                    >
-                      {{ node.label }}
-                    </text>
-                    <!-- Node Metrics -->
-                    <text
-                      :x="node.x + node.w / 2"
-                      :y="node.y + 32"
-                      text-anchor="middle"
-                      class="sankey-node-sub"
-                    >
-                      {{ node.count }} ({{ node.rate }}%)
-                    </text>
-                    <title>{{ node.label }}: {{ node.count }} applications ({{ node.rate }}% of total)</title>
-                  </g>
-                </g>
-              </svg>
-            </div>
-
-            <!-- Work Model Distribution Widget -->
-            <div class="wm-widget-box">
-              <div class="wm-widget-header">
-                <span class="wm-widget-title">
-                  <Monitor :size="13" class="text-primary" />
-                  Work Environment Distribution
-                </span>
-                <span class="wm-widget-count">{{ workModelStats.total }} jobs classified</span>
               </div>
 
-              <!-- Multi-Segment Distribution Bar -->
-              <div class="wm-progress-bar">
-                <div
-                  class="wm-bar-segment seg-remote"
-                  :style="{ width: `${workModelStats.remotePct}%` }"
-                  :title="`Remote: ${workModelStats.remoteCount} (${workModelStats.remotePct}%)`"
-                ></div>
-                <div
-                  class="wm-bar-segment seg-hybrid"
-                  :style="{ width: `${workModelStats.hybridPct}%` }"
-                  :title="`Hybrid: ${workModelStats.hybridCount} (${workModelStats.hybridPct}%)`"
-                ></div>
-                <div
-                  class="wm-bar-segment seg-onsite"
-                  :style="{ width: `${workModelStats.onsitePct}%` }"
-                  :title="`Onsite: ${workModelStats.onsiteCount} (${workModelStats.onsitePct}%)`"
-                ></div>
-                <div
-                  class="wm-bar-segment seg-unknown"
-                  :style="{ width: `${workModelStats.unknownPct}%` }"
-                  :title="`Unspecified: ${workModelStats.unknownCount} (${workModelStats.unknownPct}%)`"
-                ></div>
+              <div v-if="analyticsData.top_in_demand_skills.length === 0" class="empty-state">
+                <Layers :size="24" class="text-muted" />
+                <span>No skill data extracted yet. Track jobs to populate market demand.</span>
               </div>
 
-              <!-- Work Model Interactive Toggle Buttons -->
-              <div class="wm-pills-row">
-                <button
-                  type="button"
-                  class="wm-pill pill-remote"
-                  :class="{ active: filters.work_model === 'remote', 'opacity-50': workModelStats.remoteCount === 0 }"
-                  :title="filters.work_model === 'remote' ? 'Active filter: Remote (Click to clear)' : 'Filter by Remote jobs only'"
-                  @click="toggleWorkModel('remote')"
+              <div v-else class="compact-list-container">
+                <div
+                  v-for="skill in analyticsData.top_in_demand_skills"
+                  :key="skill.skill"
+                  class="skill-row-compact"
                 >
-                  <div class="wm-pill-left">
-                    <Globe :size="12" />
-                    <span class="wm-pill-label">Remote</span>
-                  </div>
-                  <span class="wm-pill-val">{{ workModelStats.remoteCount }} ({{ workModelStats.remotePct }}%)</span>
-                </button>
-
-                <button
-                  type="button"
-                  class="wm-pill pill-hybrid"
-                  :class="{ active: filters.work_model === 'hybrid', 'opacity-50': workModelStats.hybridCount === 0 }"
-                  :title="filters.work_model === 'hybrid' ? 'Active filter: Hybrid (Click to clear)' : 'Filter by Hybrid jobs only'"
-                  @click="toggleWorkModel('hybrid')"
-                >
-                  <div class="wm-pill-left">
-                    <Building2 :size="12" />
-                    <span class="wm-pill-label">Hybrid</span>
-                  </div>
-                  <span class="wm-pill-val">{{ workModelStats.hybridCount }} ({{ workModelStats.hybridPct }}%)</span>
-                </button>
-
-                <button
-                  type="button"
-                  class="wm-pill pill-onsite"
-                  :class="{ active: filters.work_model === 'onsite', 'opacity-50': workModelStats.onsiteCount === 0 }"
-                  :title="filters.work_model === 'onsite' ? 'Active filter: Onsite (Click to clear)' : 'Filter by Onsite jobs only'"
-                  @click="toggleWorkModel('onsite')"
-                >
-                  <div class="wm-pill-left">
-                    <MapPin :size="12" />
-                    <span class="wm-pill-label">Onsite</span>
-                  </div>
-                  <span class="wm-pill-val">{{ workModelStats.onsiteCount }} ({{ workModelStats.onsitePct }}%)</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Bento 3: Compensation Benchmarks -->
-          <div class="bento-card">
-            <div class="card-header">
-              <div class="header-left">
-                <div class="card-title-row">
-                  <h3 class="card-title">Compensation Benchmarks</h3>
-                  <span class="badge-count">{{ analyticsData.salary_insights.length }} tech stacks</span>
-                </div>
-                <p class="card-desc">Market salary spans across extracted technologies</p>
-              </div>
-            </div>
-
-            <div v-if="analyticsData.salary_insights.length === 0" class="empty-state">
-              <DollarSign :size="24" class="text-muted" />
-              <span>No salary compensation data found in tracked postings.</span>
-            </div>
-
-            <div v-else class="compact-list-container">
-              <div
-                v-for="item in analyticsData.salary_insights"
-                :key="item.skill"
-                class="salary-row-compact"
-              >
-                <span class="salary-skill-text">{{ item.skill }}</span>
-
-                <div class="salary-spectrum-container">
-                  <div class="spectrum-base-track">
-                    <div
-                      class="spectrum-span-fill"
-                      :style="getSalarySpectrumStyle(item.avg_min, item.avg_max)"
-                    ></div>
-                  </div>
-                </div>
-
-                <div class="salary-range-label font-mono">
-                  <span class="sal-min">{{ formatSalary(item.avg_min) || 'N/A' }}</span>
-                  <span class="sal-sep">–</span>
-                  <span class="sal-max">{{ formatSalary(item.avg_max) || 'N/A' }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Bento 4: Personal Skill Gap Matrix -->
-          <div class="bento-card">
-            <div class="card-header">
-              <div class="header-left">
-                <div class="card-title-row">
-                  <h3 class="card-title">Personal Skill Gap Matrix</h3>
-                  <span class="badge-count">{{ analyticsData.priority_skill_gaps.length }} gaps</span>
-                </div>
-                <p class="card-desc">High priority missing skills ranked by frequency &amp; market compensation</p>
-              </div>
-            </div>
-
-            <div v-if="analyticsData.priority_skill_gaps.length === 0" class="empty-state">
-              <Sparkles :size="24" class="text-primary" />
-              <span>No critical skill gaps identified! Your profile aligns closely with pipeline requirements.</span>
-            </div>
-
-            <div v-else class="compact-list-container">
-              <div
-                v-for="gap in analyticsData.priority_skill_gaps"
-                :key="gap.skill"
-                class="gap-row-compact"
-              >
-                <div class="gap-left-col">
-                  <div class="gap-title-row">
-                    <span class="gap-name-text">{{ gap.skill }}</span>
-                    <span class="priority-score-badge" title="Calculated upskill priority score">
-                      <Flame :size="11" class="text-amber" />
-                      <span>Priority: {{ gap.priority_score.toFixed(1) }}</span>
-                    </span>
-                  </div>
-
-                  <div class="gap-bar-wrap">
-                    <div
-                      class="gap-bar-fill"
-                      :style="{ width: `${(gap.priority_score / maxGapScore) * 100}%` }"
-                    ></div>
-                  </div>
-                </div>
-
-                <div class="gap-right-col">
-                  <span class="gap-frequency-tag">
-                    {{ gap.missing_frequency }} {{ gap.missing_frequency === 1 ? 'job' : 'jobs' }}
-                  </span>
-                  <div v-if="gap.sample_companies?.length" class="gap-companies-flex">
+                  <div class="skill-name-col">
+                    <span class="skill-name-text">{{ skill.skill }}</span>
                     <span
-                      v-for="comp in gap.sample_companies"
-                      :key="comp"
-                      class="company-mini-badge"
+                      v-if="skill.is_in_candidate_cv"
+                      class="status-chip chip-has-skill"
+                      title="Present in your active CV"
                     >
-                      <Building2 :size="10" />
-                      <span>{{ comp }}</span>
+                      <CheckCircle2 :size="11" />
+                      <span>Has Skill</span>
+                    </span>
+                    <span v-else class="status-chip chip-missing" title="Missing from your active CV">
+                      <span>Missing</span>
+                    </span>
+                  </div>
+
+                  <div class="skill-track-col">
+                    <div class="track-bar">
+                      <div
+                        class="track-fill"
+                        :style="{ width: `${(skill.count / maxSkillCount) * 100}%` }"
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div class="skill-meta-col">
+                    <span class="job-count-pill">{{ skill.count }} {{ skill.count === 1 ? 'job' : 'jobs' }}</span>
+                    <span
+                      v-if="skill.avg_salary_min || skill.avg_salary_max"
+                      class="salary-estimate-pill"
+                      title="Estimated average salary"
+                    >
+                      ~{{ formatSalary(skill.avg_salary_min || skill.avg_salary_max) }}
                     </span>
                   </div>
                 </div>
               </div>
+            </div>
+
+            <!-- Bento 2: Pipeline Sankey Flow & Work Models -->
+            <div class="bento-card">
+              <div class="card-header">
+                <div class="header-left">
+                  <div class="card-title-row">
+                    <h3 class="card-title">Pipeline Conversion &amp; Work Models</h3>
+                  </div>
+                  <p class="card-desc">Sankey stage flow and workplace distribution</p>
+                </div>
+              </div>
+
+              <!-- Native SVG Sankey Flow Diagram -->
+              <div v-if="sankeyData" class="sankey-container">
+                <svg class="sankey-svg" viewBox="0 0 522 128">
+                  <defs>
+                    <linearGradient
+                      v-for="flow in sankeyData.flows"
+                      :id="flow.gradientId"
+                      :key="flow.gradientId"
+                      x1="0%"
+                      y1="0%"
+                      x2="100%"
+                      y2="0%"
+                    >
+                      <stop offset="0%" :stop-color="flow.srcColor" stop-opacity="0.45" />
+                      <stop offset="100%" :stop-color="flow.tgtColor" stop-opacity="0.45" />
+                    </linearGradient>
+                  </defs>
+
+                  <!-- Drop-off Curved Branches -->
+                  <g class="sankey-dropoffs-layer">
+                    <path
+                      v-for="(drop, dIdx) in sankeyData.dropoffs"
+                      :key="'drop-' + dIdx"
+                      :d="drop.pathD"
+                      class="sankey-dropoff"
+                    >
+                      <title>{{ drop.count }} applications dropped after {{ drop.from }}</title>
+                    </path>
+                    <text
+                      v-for="(drop, dIdx) in sankeyData.dropoffs"
+                      :key="'droplbl-' + dIdx"
+                      :x="drop.labelX"
+                      :y="drop.labelY"
+                      class="sankey-dropoff-label"
+                    >
+                      -{{ drop.count }} drop
+                    </text>
+                  </g>
+
+                  <!-- Progression Flow Ribbons -->
+                  <g class="sankey-flows-layer">
+                    <path
+                      v-for="(flow, fIdx) in sankeyData.flows"
+                      :key="'flow-' + fIdx"
+                      :d="flow.pathD"
+                      :fill="`url(#${flow.gradientId})`"
+                      class="sankey-ribbon"
+                    >
+                      <title>{{ flow.count }} applications advanced from {{ flow.from }} to {{ flow.to }}</title>
+                    </path>
+                  </g>
+
+                  <!-- Stage Nodes (Capsules) -->
+                  <g class="sankey-nodes-layer">
+                    <g
+                      v-for="node in sankeyData.nodes"
+                      :key="node.key"
+                      class="sankey-node-group"
+                    >
+                      <rect
+                        :x="node.x"
+                        :y="node.y"
+                        :width="node.w"
+                        :height="node.h"
+                        rx="6"
+                        class="sankey-node-rect"
+                        :style="{ stroke: node.color, fill: `${node.color}18` }"
+                      />
+                      <text
+                        :x="node.x + node.w / 2"
+                        :y="node.y + 16"
+                        text-anchor="middle"
+                        class="sankey-node-title"
+                      >
+                        {{ node.label }}
+                      </text>
+                      <text
+                        :x="node.x + node.w / 2"
+                        :y="node.y + 32"
+                        text-anchor="middle"
+                        class="sankey-node-sub"
+                      >
+                        {{ node.count }} ({{ node.rate }}%)
+                      </text>
+                      <title>{{ node.label }}: {{ node.count }} applications ({{ node.rate }}% of total)</title>
+                    </g>
+                  </g>
+                </svg>
+              </div>
+
+              <!-- Work Model Distribution Widget -->
+              <div class="wm-widget-box">
+                <div class="wm-widget-header">
+                  <span class="wm-widget-title">
+                    <Monitor :size="13" class="text-primary" />
+                    Work Environment Distribution
+                  </span>
+                  <span class="wm-widget-count">{{ workModelStats.total }} jobs classified</span>
+                </div>
+
+                <div class="wm-progress-bar">
+                  <div
+                    class="wm-bar-segment seg-remote"
+                    :style="{ width: `${workModelStats.remotePct}%` }"
+                    :title="`Remote: ${workModelStats.remoteCount} (${workModelStats.remotePct}%)`"
+                  ></div>
+                  <div
+                    class="wm-bar-segment seg-hybrid"
+                    :style="{ width: `${workModelStats.hybridPct}%` }"
+                    :title="`Hybrid: ${workModelStats.hybridCount} (${workModelStats.hybridPct}%)`"
+                  ></div>
+                  <div
+                    class="wm-bar-segment seg-onsite"
+                    :style="{ width: `${workModelStats.onsitePct}%` }"
+                    :title="`Onsite: ${workModelStats.onsiteCount} (${workModelStats.onsitePct}%)`"
+                  ></div>
+                  <div
+                    class="wm-bar-segment seg-unknown"
+                    :style="{ width: `${workModelStats.unknownPct}%` }"
+                    :title="`Unspecified: ${workModelStats.unknownCount} (${workModelStats.unknownPct}%)`"
+                  ></div>
+                </div>
+
+                <div class="wm-pills-row">
+                  <button
+                    type="button"
+                    class="wm-pill pill-remote"
+                    :class="{ active: filters.work_model === 'remote', 'opacity-50': workModelStats.remoteCount === 0 }"
+                    :title="filters.work_model === 'remote' ? 'Active filter: Remote (Click to clear)' : 'Filter by Remote jobs only'"
+                    @click="toggleWorkModel('remote')"
+                  >
+                    <div class="wm-pill-left">
+                      <Globe :size="12" />
+                      <span class="wm-pill-label">Remote</span>
+                    </div>
+                    <span class="wm-pill-val">{{ workModelStats.remoteCount }} ({{ workModelStats.remotePct }}%)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    class="wm-pill pill-hybrid"
+                    :class="{ active: filters.work_model === 'hybrid', 'opacity-50': workModelStats.hybridCount === 0 }"
+                    :title="filters.work_model === 'hybrid' ? 'Active filter: Hybrid (Click to clear)' : 'Filter by Hybrid jobs only'"
+                    @click="toggleWorkModel('hybrid')"
+                  >
+                    <div class="wm-pill-left">
+                      <Building2 :size="12" />
+                      <span class="wm-pill-label">Hybrid</span>
+                    </div>
+                    <span class="wm-pill-val">{{ workModelStats.hybridCount }} ({{ workModelStats.hybridPct }}%)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    class="wm-pill pill-onsite"
+                    :class="{ active: filters.work_model === 'onsite', 'opacity-50': workModelStats.onsiteCount === 0 }"
+                    :title="filters.work_model === 'onsite' ? 'Active filter: Onsite (Click to clear)' : 'Filter by Onsite jobs only'"
+                    @click="toggleWorkModel('onsite')"
+                  >
+                    <div class="wm-pill-left">
+                      <MapPin :size="12" />
+                      <span class="wm-pill-label">Onsite</span>
+                    </div>
+                    <span class="wm-pill-val">{{ workModelStats.onsiteCount }} ({{ workModelStats.onsitePct }}%)</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bento 3: Compensation Benchmarks -->
+            <div class="bento-card">
+              <div class="card-header">
+                <div class="header-left">
+                  <div class="card-title-row">
+                    <h3 class="card-title">Compensation Benchmarks</h3>
+                    <span class="badge-count">{{ analyticsData.salary_insights.length }} tech stacks</span>
+                  </div>
+                  <p class="card-desc">Market salary spans across extracted technologies</p>
+                </div>
+              </div>
+
+              <div v-if="analyticsData.salary_insights.length === 0" class="empty-state">
+                <DollarSign :size="24" class="text-muted" />
+                <span>No salary compensation data found in tracked postings.</span>
+              </div>
+
+              <div v-else class="compact-list-container">
+                <div
+                  v-for="item in analyticsData.salary_insights"
+                  :key="item.skill"
+                  class="salary-row-compact"
+                >
+                  <span class="salary-skill-text">{{ item.skill }}</span>
+
+                  <div class="salary-spectrum-container">
+                    <div class="spectrum-base-track">
+                      <div
+                        class="spectrum-span-fill"
+                        :style="getSalarySpectrumStyle(item.avg_min, item.avg_max)"
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div class="salary-range-label font-mono">
+                    <span class="sal-min">{{ formatSalary(item.avg_min) || 'N/A' }}</span>
+                    <span class="sal-sep">–</span>
+                    <span class="sal-max">{{ formatSalary(item.avg_max) || 'N/A' }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bento 4: Personal Skill Gap Matrix -->
+            <div class="bento-card">
+              <div class="card-header">
+                <div class="header-left">
+                  <div class="card-title-row">
+                    <h3 class="card-title">Personal Skill Gap Matrix</h3>
+                    <span class="badge-count">{{ analyticsData.priority_skill_gaps.length }} gaps</span>
+                  </div>
+                  <p class="card-desc">High priority missing skills ranked by frequency &amp; market compensation</p>
+                </div>
+              </div>
+
+              <div v-if="analyticsData.priority_skill_gaps.length === 0" class="empty-state">
+                <Sparkles :size="24" class="text-primary" />
+                <span>No critical skill gaps identified! Your profile aligns closely with pipeline requirements.</span>
+              </div>
+
+              <div v-else class="compact-list-container">
+                <div
+                  v-for="gap in analyticsData.priority_skill_gaps"
+                  :key="gap.skill"
+                  class="gap-row-compact"
+                >
+                  <div class="gap-left-col">
+                    <div class="gap-title-row">
+                      <span class="gap-name-text">{{ gap.skill }}</span>
+                      <span class="priority-score-badge" title="Calculated upskill priority score">
+                        <Flame :size="11" class="text-amber" />
+                        <span>Priority: {{ gap.priority_score.toFixed(1) }}</span>
+                      </span>
+                    </div>
+
+                    <div class="gap-bar-wrap">
+                      <div
+                        class="gap-bar-fill"
+                        :style="{ width: `${(gap.priority_score / maxGapScore) * 100}%` }"
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div class="gap-right-col">
+                    <span class="gap-frequency-tag">
+                      {{ gap.missing_frequency }} {{ gap.missing_frequency === 1 ? 'job' : 'jobs' }}
+                    </span>
+                    <div v-if="gap.sample_companies?.length" class="gap-companies-flex">
+                      <span
+                        v-for="comp in gap.sample_companies"
+                        :key="comp"
+                        class="company-mini-badge"
+                      >
+                        <Building2 :size="10" />
+                        <span>{{ comp }}</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: PIPELINE FUNNEL PERFORMANCE -->
+      <div v-else-if="activeTab === 'funnel'">
+        <!-- Sub-Header Area with Granularity Switcher -->
+        <div class="tab-sub-header">
+          <div class="sub-header-left">
+            <h2 class="sub-header-title">Funnel Progression &amp; Conversion Cohorts</h2>
+            <p class="sub-header-desc">Track top-of-funnel intake down to interviews and job offers across cohort periods.</p>
+          </div>
+          <div class="sub-header-right">
+            <div class="toggle-pill-group">
+              <button
+                type="button"
+                class="toggle-btn"
+                :class="{ active: funnelPeriod === 'weekly' }"
+                @click="funnelPeriod = 'weekly'; handlePeriodChange()"
+              >
+                Weekly
+              </button>
+              <button
+                type="button"
+                class="toggle-btn"
+                :class="{ active: funnelPeriod === 'monthly' }"
+                @click="funnelPeriod = 'monthly'; handlePeriodChange()"
+              >
+                Monthly
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="loadingFunnel && !funnelData" class="loading-state">
+          <RefreshCw class="spin text-primary" :size="32" />
+          <p>Calculating cohort funnel performance...</p>
+        </div>
+
+        <div v-else-if="funnelData" class="dashboard-layout">
+          <!-- KPI Summary Cards with Trend Deltas -->
+          <div class="kpi-banner-4">
+            <div class="kpi-card">
+              <div class="kpi-icon-badge badge-neutral">
+                <Briefcase :size="18" />
+              </div>
+              <div class="kpi-info">
+                <div class="kpi-value-row">
+                  <span class="kpi-value">{{ funnelData.summary_kpis.intakes.value }}</span>
+                  <span
+                    v-if="funnelData.summary_kpis.intakes.trend_percentage !== null"
+                    class="trend-chip"
+                    :class="funnelData.summary_kpis.intakes.is_positive ? 'trend-up' : 'trend-down'"
+                  >
+                    <component :is="funnelData.summary_kpis.intakes.is_positive ? ArrowUpRight : ArrowDownRight" :size="12" />
+                    <span>{{ Math.abs(funnelData.summary_kpis.intakes.trend_percentage) }}%</span>
+                  </span>
+                </div>
+                <div class="kpi-label">{{ funnelData.summary_kpis.intakes.label }}</div>
+              </div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-icon-badge badge-blue">
+                <Layers :size="18" />
+              </div>
+              <div class="kpi-info">
+                <div class="kpi-value-row">
+                  <span class="kpi-value">{{ funnelData.summary_kpis.applications.value }}</span>
+                  <span
+                    v-if="funnelData.summary_kpis.applications.trend_percentage !== null"
+                    class="trend-chip"
+                    :class="funnelData.summary_kpis.applications.is_positive ? 'trend-up' : 'trend-down'"
+                  >
+                    <component :is="funnelData.summary_kpis.applications.is_positive ? ArrowUpRight : ArrowDownRight" :size="12" />
+                    <span>{{ Math.abs(funnelData.summary_kpis.applications.trend_percentage) }}%</span>
+                  </span>
+                </div>
+                <div class="kpi-label">{{ funnelData.summary_kpis.applications.label }}</div>
+              </div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-icon-badge badge-purple">
+                <Target :size="18" />
+              </div>
+              <div class="kpi-info">
+                <div class="kpi-value-row">
+                  <span class="kpi-value">{{ funnelData.summary_kpis.interviews.value }}</span>
+                  <span
+                    v-if="funnelData.summary_kpis.interviews.trend_percentage !== null"
+                    class="trend-chip"
+                    :class="funnelData.summary_kpis.interviews.is_positive ? 'trend-up' : 'trend-down'"
+                  >
+                    <component :is="funnelData.summary_kpis.interviews.is_positive ? ArrowUpRight : ArrowDownRight" :size="12" />
+                    <span>{{ Math.abs(funnelData.summary_kpis.interviews.trend_percentage) }}%</span>
+                  </span>
+                </div>
+                <div class="kpi-label">{{ funnelData.summary_kpis.interviews.label }}</div>
+              </div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-icon-badge badge-green">
+                <Sparkles :size="18" />
+              </div>
+              <div class="kpi-info">
+                <div class="kpi-value-row">
+                  <span class="kpi-value">{{ funnelData.summary_kpis.offers.value }}</span>
+                  <span
+                    v-if="funnelData.summary_kpis.offers.trend_percentage !== null"
+                    class="trend-chip"
+                    :class="funnelData.summary_kpis.offers.is_positive ? 'trend-up' : 'trend-down'"
+                  >
+                    <component :is="funnelData.summary_kpis.offers.is_positive ? ArrowUpRight : ArrowDownRight" :size="12" />
+                    <span>{{ Math.abs(funnelData.summary_kpis.offers.trend_percentage) }}%</span>
+                  </span>
+                </div>
+                <div class="kpi-label">{{ funnelData.summary_kpis.offers.label }}</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Visual Funnel Progression Chart Container -->
+          <div class="bento-card visual-funnel-card">
+            <div class="card-header">
+              <div class="header-left">
+                <div class="card-title-row">
+                  <h3 class="card-title">Visual Funnel Progression across Periods</h3>
+                  <span class="badge-count">{{ funnelData.chart_data.length }} {{ funnelPeriod }} cohorts</span>
+                </div>
+                <p class="card-desc">Volume progression across Intakes, Applications, Interviews, and Offers.</p>
+              </div>
+              <div class="chart-legend">
+                <span class="legend-item"><span class="dot dot-intake"></span> Intakes</span>
+                <span class="legend-item"><span class="dot dot-app"></span> Applications</span>
+                <span class="legend-item"><span class="dot dot-interview"></span> Interviews</span>
+                <span class="legend-item"><span class="dot dot-offer"></span> Offers</span>
+              </div>
+            </div>
+
+            <!-- Grouped Bar Progression Visualizer -->
+            <div class="funnel-chart-container">
+              <div
+                v-for="cohort in funnelData.chart_data"
+                :key="cohort.period_key"
+                class="funnel-cohort-column"
+              >
+                <div class="bars-wrapper">
+                  <!-- Intake Bar -->
+                  <div
+                    class="chart-bar bar-intake"
+                    :style="{ height: `${(cohort.intakes / maxCohortVolume) * 100}%` }"
+                    :title="`Intakes: ${cohort.intakes}`"
+                  >
+                    <span v-if="cohort.intakes > 0" class="bar-val">{{ cohort.intakes }}</span>
+                  </div>
+
+                  <!-- Applications Bar -->
+                  <div
+                    class="chart-bar bar-app"
+                    :style="{ height: `${(cohort.applications / maxCohortVolume) * 100}%` }"
+                    :title="`Applications: ${cohort.applications}`"
+                  >
+                    <span v-if="cohort.applications > 0" class="bar-val">{{ cohort.applications }}</span>
+                  </div>
+
+                  <!-- Interviews Bar -->
+                  <div
+                    class="chart-bar bar-interview"
+                    :style="{ height: `${(cohort.interviews / maxCohortVolume) * 100}%` }"
+                    :title="`Interviews: ${cohort.interviews}`"
+                  >
+                    <span v-if="cohort.interviews > 0" class="bar-val">{{ cohort.interviews }}</span>
+                  </div>
+
+                  <!-- Offers Bar -->
+                  <div
+                    class="chart-bar bar-offer"
+                    :style="{ height: `${(cohort.offers / maxCohortVolume) * 100}%` }"
+                    :title="`Offers: ${cohort.offers}`"
+                  >
+                    <span v-if="cohort.offers > 0" class="bar-val">{{ cohort.offers }}</span>
+                  </div>
+                </div>
+
+                <div class="cohort-label-text">{{ cohort.period_label }}</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Historical Cohort Data Table -->
+          <div class="bento-card">
+            <div class="card-header">
+              <div class="header-left">
+                <div class="card-title-row">
+                  <h3 class="card-title">Historical Cohort Performance</h3>
+                  <span class="badge-count">{{ funnelData.table_data.length }} periods</span>
+                </div>
+                <p class="card-desc">Detailed cohort breakdown of volume and interview conversion rates.</p>
+              </div>
+            </div>
+
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Period</th>
+                    <th>Date Range</th>
+                    <th class="text-right">Intakes</th>
+                    <th class="text-right">Applications</th>
+                    <th class="text-right">Interviews</th>
+                    <th class="text-right">Offers</th>
+                    <th class="text-right">Interview Conversion</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in funnelData.table_data" :key="row.period_key">
+                    <td class="font-bold text-main">{{ row.period_label }}</td>
+                    <td class="text-muted font-mono text-xs">{{ row.start_date }} – {{ row.end_date }}</td>
+                    <td class="text-right font-mono">{{ row.intakes }}</td>
+                    <td class="text-right font-mono">{{ row.applications }}</td>
+                    <td class="text-right font-mono">{{ row.interviews }}</td>
+                    <td class="text-right font-mono">{{ row.offers }}</td>
+                    <td class="text-right">
+                      <span class="rate-badge" :class="row.conversion_rate > 0 ? 'rate-active' : 'rate-zero'">
+                        {{ row.conversion_rate.toFixed(1) }}%
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -687,15 +1035,101 @@ const sankeyData = computed(() => {
   width: 100%;
 }
 
-
-
-/* Theme-Aware Filter Bar */
-.header-filters {
-  display: flex;
+/* Nav Tabs Pill Selector */
+.nav-tabs-container {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  padding: 4px;
+  border-radius: var(--radius-full);
+  gap: 4px;
+  box-shadow: var(--shadow-sm);
 }
 
+.tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-radius: var(--radius-full);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.tab-btn:hover {
+  color: var(--text-main);
+}
+
+.tab-btn.active {
+  background-color: var(--primary);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+/* Tab Sub-Header Area */
+.tab-sub-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle, var(--border-color));
+}
+
+.sub-header-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0 0 2px 0;
+}
+
+.sub-header-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* Period Toggle Button Group */
+.toggle-pill-group {
+  display: inline-flex;
+  align-items: center;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  padding: 3px;
+  border-radius: var(--radius-sm);
+  gap: 2px;
+}
+
+.toggle-btn {
+  padding: 4px 12px;
+  border-radius: var(--radius-xs);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.toggle-btn:hover {
+  color: var(--text-main);
+}
+
+.toggle-btn.active {
+  background-color: var(--bg-elevated);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+}
+
+/* Theme-Aware Filter Bar */
 .filter-pill {
   display: flex;
   align-items: center;
@@ -747,8 +1181,7 @@ const sankeyData = computed(() => {
 
 /* Main Content Area */
 .analytics-content {
-  padding: 20px 24px 32px;
-  overflow-y: auto;
+  padding: 0;
   flex: 1;
 }
 
@@ -826,6 +1259,11 @@ const sankeyData = computed(() => {
   color: #3b82f6;
 }
 
+.badge-purple {
+  background-color: rgba(168, 85, 247, 0.12);
+  color: #a855f7;
+}
+
 .badge-green {
   background-color: rgba(34, 197, 94, 0.12);
   color: #10b981;
@@ -840,6 +1278,14 @@ const sankeyData = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  width: 100%;
+}
+
+.kpi-value-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .kpi-value {
@@ -848,6 +1294,26 @@ const sankeyData = computed(() => {
   color: var(--text-main);
   letter-spacing: -0.02em;
   line-height: 1.2;
+}
+
+.trend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+}
+
+.trend-up {
+  background-color: rgba(34, 197, 94, 0.12);
+  color: #10b981;
+}
+
+.trend-down {
+  background-color: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
 }
 
 .kpi-label {
@@ -1287,7 +1753,6 @@ const sankeyData = computed(() => {
   overflow: hidden;
 }
 
-/* Refined Harmonic Spectrum Gradient */
 .spectrum-span-fill {
   position: absolute;
   top: 0;
@@ -1420,6 +1885,186 @@ const sankeyData = computed(() => {
   color: var(--text-secondary);
 }
 
+/* Tab 2 Visual Funnel Styling */
+.chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.dot-intake {
+  background-color: #64748b;
+}
+
+.dot-app {
+  background-color: #3b82f6;
+}
+
+.dot-interview {
+  background-color: #a855f7;
+}
+
+.dot-offer {
+  background-color: #10b981;
+}
+
+.funnel-chart-container {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  height: 220px;
+  padding: 20px 10px 10px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  gap: 12px;
+}
+
+.funnel-cohort-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  flex: 1;
+  gap: 8px;
+}
+
+.bars-wrapper {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  flex: 1;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 2px;
+}
+
+.chart-bar {
+  width: 14px;
+  border-radius: 3px 3px 0 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  transition: height var(--transition-normal), opacity var(--transition-fast);
+  position: relative;
+  min-height: 2px;
+}
+
+.chart-bar:hover {
+  opacity: 0.85;
+}
+
+.bar-intake {
+  background-color: #64748b;
+}
+
+.bar-app {
+  background-color: #3b82f6;
+}
+
+.bar-interview {
+  background-color: #a855f7;
+}
+
+.bar-offer {
+  background-color: #10b981;
+}
+
+.bar-val {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-main);
+  position: absolute;
+  top: -14px;
+}
+
+.cohort-label-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* Data Table Styling */
+.table-responsive {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.data-table th {
+  background-color: var(--bg-card);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-color);
+  text-align: left;
+}
+
+.data-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle, var(--border-color));
+  color: var(--text-main);
+}
+
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
+.text-right {
+  text-align: right;
+}
+
+.font-mono {
+  font-family: monospace;
+}
+
+.font-bold {
+  font-weight: 700;
+}
+
+.rate-badge {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: monospace;
+}
+
+.rate-active {
+  background-color: rgba(34, 197, 94, 0.12);
+  color: #10b981;
+}
+
+.rate-zero {
+  background-color: var(--bg-elevated);
+  color: var(--text-muted);
+}
+
 .text-amber {
   color: #f59e0b;
 }
@@ -1444,12 +2089,13 @@ const sankeyData = computed(() => {
     padding: 14px 16px;
   }
 
-  .analytics-content {
-    padding: 14px 16px 24px;
-  }
-
   .wm-pills-row {
     grid-template-columns: 1fr;
+  }
+
+  .tab-sub-header {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>

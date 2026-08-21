@@ -53,3 +53,44 @@ class AnalyticsOverviewResponse(BaseModel):
     salary_insights: list[dict]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class FunnelKpiCard(BaseModel):
+    label: str
+    value: int | float
+    unit: str = ""
+    trend_percentage: float | None = None
+    is_positive: bool = True
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FunnelChartStage(BaseModel):
+    stage: str
+    count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FunnelCohortPeriod(BaseModel):
+    period_key: str
+    period_label: str
+    start_date: str
+    end_date: str
+    intakes: int
+    applications: int
+    interviews: int
+    offers: int
+    conversion_rate: float
+    stages: list[FunnelChartStage] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FunnelMetricsResponse(BaseModel):
+    period_type: str  # 'weekly' or 'monthly'
+    summary_kpis: dict[str, FunnelKpiCard]
+    chart_data: list[FunnelCohortPeriod]
+    table_data: list[FunnelCohortPeriod]
+
+    model_config = ConfigDict(from_attributes=True)

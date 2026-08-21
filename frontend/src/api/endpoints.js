@@ -118,6 +118,6 @@ export const DiagnosticsAPI = {
 export const AnalyticsAPI = {
   getOverview: (params = {}) => apiClient.get('/analytics/overview', { params }),
   getWorkModelBreakdown: () => apiClient.get('/analytics/work-model-breakdown'),
-  getFunnelMetrics: () => apiClient.get('/analytics/funnel'),
+  getFunnelMetrics: (params = {}) => apiClient.get('/analytics/funnel', { params }),
 }
 

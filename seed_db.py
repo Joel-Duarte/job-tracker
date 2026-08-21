@@ -3,10 +3,13 @@ from app.core.database import AsyncSessionLocal
 from app.models.applications import ApplicationModel, CompanyModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 
+
 async def seed():
     async with AsyncSessionLocal() as session:
         # Check if company exists
-        company = CompanyModel(name="Acme Corp", name_normalized="acme corp", domain="acme.com")
+        company = CompanyModel(
+            name="Acme Corp", name_normalized="acme corp", domain="acme.com"
+        )
         session.add(company)
         await session.flush()
 
@@ -57,12 +60,13 @@ async def seed():
                 "summary": "Excellent match fit across Vue.js and TypeScript requirements.",
                 "matching_skills": ["Vue.js", "JavaScript", "CSS"],
                 "missing_skills": ["GraphQL"],
-            }
+            },
         )
         session.add(task1)
         await session.commit()
 
         print("Seeded successfully! App1 ID:", app1.id, "App2 ID:", app2.id)
+
 
 if __name__ == "__main__":
     asyncio.run(seed())

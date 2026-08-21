@@ -20,6 +20,7 @@ from app.routers import (
     extension,
     intake,
     llm,
+    metrics,
     prompts,
     search,
     staging,
@@ -112,6 +113,7 @@ app.add_middleware(
 # Register routers
 app.include_router(intake.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
+app.include_router(metrics.router, prefix="/api/v1")
 app.include_router(candidate_profile.router, prefix="/api/v1")
 app.include_router(extension.router, prefix="/api/v1")
 app.include_router(agent_chat.router, prefix="/api/v1")
