@@ -42,6 +42,7 @@ import {
   ListChecks,
   ChevronDown,
   ChevronUp,
+  Bot,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
@@ -59,6 +60,13 @@ const structuredSpec = computed(() => {
 
 function openLogActivity() {
   isLogActivityModalOpen.value = true
+}
+
+function startMockInterview() {
+  const appId = appStore.selectedApplication?.id
+  if (!appId) return
+  close()
+  router.push({ name: 'AgentChat', query: { appId, mock: 'true' } })
 }
 
 async function onActivityLogged() {
@@ -626,6 +634,15 @@ function formatDate(isoStr) {
               <ExternalLink :size="14" />
               <span>Job Link</span>
             </a>
+
+            <button
+              class="btn btn-secondary btn-xs"
+              title="Start Interactive Mock Interview Sandbox with Agent Assistant"
+              @click="startMockInterview"
+            >
+              <Bot :size="13" class="text-primary" />
+              <span>Start Mock Interview</span>
+            </button>
           </div>
 
           <!-- LATEST EVENT HIGHLIGHT BANNER -->

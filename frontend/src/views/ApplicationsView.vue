@@ -1,5 +1,6 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useUIStore } from '../stores/uiStore'
 import DateTimePicker from '../components/common/DateTimePicker.vue'
@@ -66,8 +67,14 @@ const pipelineCountLabel = computed(() => {
   return 'Archived'
 })
 
+const router = useRouter()
 const appStore = useApplicationsStore()
 const uiStore = useUIStore()
+
+function startMockInterview(appId) {
+  closeCardMenu()
+  router.push({ name: 'AgentChat', query: { appId, mock: 'true' } })
+}
 
 // Dropdown Context Menu State (Teleported Floating Menu)
 const activeMenuApp = ref(null)
@@ -1526,6 +1533,14 @@ async function confirmDelete() {
         >
           <Sparkles :size="13" />
           <span>Draft Cover Letter</span>
+        </button>
+
+        <button
+          class="menu-item"
+          @click="startMockInterview(activeMenuApp.id)"
+        >
+          <Bot :size="13" class="text-primary" />
+          <span>Start Mock Interview</span>
         </button>
 
         <button

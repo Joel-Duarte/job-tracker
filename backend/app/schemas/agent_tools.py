@@ -139,6 +139,28 @@ class UpdateApplicationPipelineInput(BaseModel):
     )
 
 
+# 9. Generate Mock Interview Question
+class GenerateMockInterviewQuestionInput(BaseModel):
+    company_name: str = Field(
+        description="Target company name (e.g. 'Stripe', 'Linear', 'Datadog')."
+    )
+    position: str = Field(
+        description="Position title (e.g. 'Senior Backend Engineer', 'Staff Systems Engineer')."
+    )
+    job_description: str | None = Field(
+        default=None,
+        description="Optional job description requirements and technical expectations.",
+    )
+    candidate_cv: str | None = Field(
+        default=None,
+        description="Optional candidate CV or background summary. If omitted, fetched automatically from active candidate profile.",
+    )
+    question_type: Literal["multiple_choice", "open_text"] | None = Field(
+        default=None,
+        description="Optional requested question format: 'multiple_choice' or 'open_text'.",
+    )
+
+
 # Legacy Tools Input Schemas
 class ListApplicationsInput(BaseModel):
     status: str | None = Field(

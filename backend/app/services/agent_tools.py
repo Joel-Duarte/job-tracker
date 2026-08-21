@@ -3,11 +3,13 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import StructuredTool
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
+from app.core.llm_factory import get_task_chat_model
 from app.models.applications import (
     ActionItemModel,
     ApplicationEmbeddingModel,
@@ -16,12 +18,14 @@ from app.models.applications import (
     CompanyModel,
     JobPostingModel,
 )
+from app.models.candidate_profile import CandidateCVModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.schemas.agent_tools import (
     AnalyzePipelineMetricsInput,
     ApplicationDetailsInput,
     DetectStalledApplicationsInput,
     EvaluateAIFitScoreInput,
+    GenerateMockInterviewQuestionInput,
     ListApplicationsInput,
     ManageActionItemsInput,
     ManageIntakeQueueInput,
@@ -31,6 +35,7 @@ from app.schemas.agent_tools import (
 )
 from app.services.analytics import get_funnel_performance_metrics
 from app.services.llm import generate_and_save_application_embedding, generate_embedding
+from app.services.postgres_tracer import PostgresTracer
 
 logger = logging.getLogger(__name__)
 
@@ -515,6 +520,112 @@ async def execute_semantic_vector_search(
     return results
 
 
+# 9. Generate Mock Interview Question Tool
+async def execute_generate_mock_interview_question(
+    db: AsyncSession,
+    company_name: str,
+    position: str,
+    job_description: str | None = None,
+    candidate_cv: str | None = None,
+    question_type: str | None = None,
+) -> dict[str, Any]:
+    """Generates an interactive technical or behavioral mock interview question tailored to application and candidate background."""
+    cv_text = candidate_cv
+    if not cv_text or not cv_text.strip():
+        stmt = (
+            select(CandidateCVModel)
+            .where(CandidateCVModel.is_active.is_(True))
+            .order_by(CandidateCVModel.id.desc())
+        )
+        res = await db.execute(stmt)
+        active_cv = res.scalars().first()
+        if active_cv:
+            cv_text = active_cv.summary or active_cv.raw_text
+
+    chat_model = await get_task_chat_model(db, task_type="INTERVIEW_GUIDE")
+
+    system_prompt = (
+        "You are an elite technical interviewer conducting a live mock interview for a candidate.\n"
+        "Your task is to generate ONE realistic interview question tailored specifically to the company, position, job requirements, and candidate background.\n\n"
+        "--------------------------------------------------\n"
+        "OUTPUT FORMAT REQUIREMENTS\n"
+        "--------------------------------------------------\n"
+        "You MUST return ONLY a valid JSON object matching this exact structure:\n"
+        "{\n"
+        '  "question_text": "<Clear, concise, professional question>",\n'
+        '  "question_type": "multiple_choice" | "open_text",\n'
+        '  "options": ["A) ...", "B) ...", "C) ...", "D) ..."]\n'
+        "}\n\n"
+        "Rules:\n"
+        "1. question_type MUST be either 'multiple_choice' or 'open_text'.\n"
+        "2. If question_type is 'multiple_choice', options MUST be an array of 3 or 4 clear string choices (e.g. ['A) Option 1', 'B) Option 2', 'C) Option 3', 'D) Option 4']).\n"
+        "3. If question_type is 'open_text', options MUST be an empty array [].\n"
+        "4. Return strictly raw JSON. Do NOT include markdown code fences or commentary.\n"
+    )
+
+    if question_type in ("multiple_choice", "open_text"):
+        system_prompt += (
+            f"\nNote: Explicitly produce a question of type '{question_type}'."
+        )
+
+    user_content = (
+        f"Company Name: {company_name}\n"
+        f"Position Title: {position}\n"
+        f"Job Description / Requirements: {job_description or 'Standard requirements for position'}\n"
+        f"Candidate Background / CV: {cv_text or 'Software engineering candidate'}"
+    )
+
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_content),
+    ]
+
+    try:
+        response = await chat_model.ainvoke(
+            messages, config={"callbacks": [PostgresTracer()]}
+        )
+        raw_text = (
+            response.content
+            if isinstance(response.content, str)
+            else str(response.content)
+        )
+        raw_text = raw_text.strip()
+        if raw_text.startswith("```"):
+            lines = raw_text.split("\n")
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            raw_text = "\n".join(lines).strip()
+
+        data = json.loads(raw_text)
+        q_text = data.get(
+            "question_text",
+            f"Can you explain your experience relevant to the {position} role at {company_name}?",
+        )
+        q_type = data.get("question_type", "open_text")
+        if q_type not in ("multiple_choice", "open_text"):
+            q_type = "multiple_choice" if data.get("options") else "open_text"
+        options = data.get("options", []) if q_type == "multiple_choice" else []
+
+        return {
+            "question_text": q_text,
+            "question_type": q_type,
+            "options": options,
+            "company_name": company_name,
+            "position": position,
+        }
+    except Exception as err:
+        logger.error("Failed generating mock interview question via LLM: %s", err)
+        return {
+            "question_text": f"What experience do you have with the core technologies required for the {position} role at {company_name}?",
+            "question_type": "open_text",
+            "options": [],
+            "company_name": company_name,
+            "position": position,
+        }
+
+
 # 8. Update Application Pipeline Tool
 async def execute_update_application_pipeline(
     db: AsyncSession,
@@ -766,11 +877,29 @@ def create_agent_tools(db: AsyncSession) -> list[StructuredTool]:
         res = await execute_list_applications(db, status, action_required_only, limit)
         return json.dumps(res, indent=2)
 
+    async def _generate_mock_interview_question(
+        company_name: str,
+        position: str,
+        job_description: str | None = None,
+        candidate_cv: str | None = None,
+        question_type: str | None = None,
+    ) -> str:
+        res = await execute_generate_mock_interview_question(
+            db, company_name, position, job_description, candidate_cv, question_type
+        )
+        return json.dumps(res, indent=2)
+
     async def _get_application_details(company_or_id: str) -> str:
         res = await execute_get_application_details(db, company_or_id)
         return json.dumps(res, indent=2)
 
     return [
+        StructuredTool.from_function(
+            coroutine=_generate_mock_interview_question,
+            name="generate_mock_interview_question",
+            description="Generates an interactive multiple_choice or open_text mock interview question tailored to company, role, job requirements, and candidate background.",
+            args_schema=GenerateMockInterviewQuestionInput,
+        ),
         StructuredTool.from_function(
             coroutine=_analyze_pipeline_metrics,
             name="analyze_pipeline_metrics",

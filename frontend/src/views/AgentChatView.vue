@@ -1,8 +1,9 @@
 <script setup>
 import { ref, onMounted, nextTick, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import DOMPurify from 'dompurify'
 import { useAgentChatStore } from '../stores/agentChatStore'
-import { AIConfigAPI } from '../api/endpoints'
+import { AIConfigAPI, ApplicationsAPI } from '../api/endpoints'
 import {
   Bot,
   User,
@@ -18,6 +19,8 @@ import {
   PanelLeftOpen
 } from 'lucide-vue-next'
 
+const route = useRoute()
+const router = useRouter()
 const chatStore = useAgentChatStore()
 const inputMessage = ref('')
 const chatContainer = ref(null)
@@ -48,6 +51,24 @@ function scrollToBottom() {
 
 onMounted(async () => {
   await chatStore.fetchChats()
+
+  if (route.query.mock === 'true' && route.query.appId) {
+    const appId = Number(route.query.appId)
+    try {
+      const res = await ApplicationsAPI.get(appId)
+      const appData = res.data
+      const companyName = appData.company?.name || 'Target Company'
+      const position = appData.position || 'Role'
+
+      chatStore.resetChat()
+
+      const seedText = `Let's start an interactive Mock Interview for the ${position} position at ${companyName}. Please generate a technical or behavioral interview question using my candidate CV and job description.`
+      await chatStore.sendMessage(seedText)
+    } catch (err) {
+      console.error('Failed seeding mock interview context:', err)
+    }
+  }
+
   scrollToBottom()
 
   try {
@@ -201,7 +222,46 @@ function renderMarkdown(text) {
   return DOMPurify.sanitize(html)
 }
 
+function getQuestionData(msg) {
+  if (!msg || msg.role !== 'assistant') return null
+
+  if (msg.questionData) return msg.questionData
+
+  if (msg.actions && Array.isArray(msg.actions)) {
+    for (const act of msg.actions) {
+      if (act.action === 'generate_mock_interview_question' && act.result) {
+        let res = act.result
+        if (typeof res === 'string') {
+          try { res = JSON.parse(res) } catch (e) {}
+        }
+        if (res && res.question_type) {
+          const qData = {
+            question_type: res.question_type,
+            options: Array.isArray(res.options) ? res.options : [],
+            question_text: res.question_text || ''
+          }
+          msg.questionData = qData
+          return qData
+        }
+      }
+    }
+  }
+  return null
+}
+
+async function handleSelectOption(msg, optionText) {
+  if (msg.selectedOption !== undefined || chatStore.isSending) return
+  msg.selectedOption = optionText
+  await chatStore.sendMessage(optionText)
+  scrollToBottom()
+}
+
 function formatActionLabel(act) {
+  if (act.action === 'generate_mock_interview_question') {
+    const comp = act.args?.company_name || 'Company'
+    const pos = act.args?.position || 'Role'
+    return `Generated mock question for ${comp} (${pos})`
+  }
   if (act.action === 'UPDATE_STATUS' || act.action === 'update_application_status') {
     const comp = act.args?.company_name || act.company || 'Application'
     const st = act.args?.new_status || act.new_status || 'Updated'
@@ -353,6 +413,26 @@ function formatActionLabel(act) {
                   v-html="renderMarkdown(msg.content)"
                 ></div>
                 <div v-else class="message-text">{{ msg.content }}</div>
+
+                <!-- Interactive Mock Question Options (Multiple Choice) -->
+                <div
+                  v-if="getQuestionData(msg) && getQuestionData(msg).question_type === 'multiple_choice' && getQuestionData(msg).options.length > 0"
+                  class="mock-options-block"
+                >
+                  <div class="mock-options-header">Select an option:</div>
+                  <div class="mock-options-grid">
+                    <button
+                      v-for="(opt, optIdx) in getQuestionData(msg).options"
+                      :key="optIdx"
+                      class="mock-option-btn"
+                      :class="{ 'selected': msg.selectedOption === opt }"
+                      :disabled="msg.selectedOption !== undefined || chatStore.isSending"
+                      @click="handleSelectOption(msg, opt)"
+                    >
+                      <span>{{ opt }}</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </template>
           </div>
@@ -939,5 +1019,63 @@ function formatActionLabel(act) {
   height: 40px;
   border-radius: var(--radius-md);
   padding: 0;
+}
+
+/* Interactive Mock Question Option Buttons */
+.mock-options-block {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mock-options-header {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+.mock-options-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mock-option-btn {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-surface-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.mock-option-btn:hover:not(:disabled) {
+  background-color: var(--primary-subtle);
+  border-color: var(--primary);
+  color: var(--primary);
+  transform: translateX(2px);
+}
+
+.mock-option-btn.selected {
+  background-color: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+  font-weight: 600;
+}
+
+.mock-option-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 </style>

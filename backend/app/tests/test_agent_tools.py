@@ -9,12 +9,14 @@ from app.models.applications import (
     CompanyModel,
     JobPostingModel,
 )
+from app.models.candidate_profile import CandidateCVModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.services.agent_tools import (
     create_agent_tools,
     execute_analyze_pipeline_metrics,
     execute_detect_stalled_applications,
     execute_evaluate_ai_fit_score,
+    execute_generate_mock_interview_question,
     execute_manage_action_items,
     execute_manage_intake_queue,
     execute_query_market_benchmarks,
@@ -161,9 +163,37 @@ async def test_agent_tools_unit_handlers():
         assert update_res["success"] is True
         assert mock_app_fit.status == "TECHNICAL_INTERVIEW"
 
-    # 8. Test LangChain Tool Factory Registration
+    # 8. Test generate_mock_interview_question
+    mock_cv = CandidateCVModel(
+        id=1,
+        raw_text="Staff Backend Engineer with 10 years experience in Distributed Systems and Python.",
+        is_active=True,
+    )
+    mock_cv_res = MagicMock()
+    mock_cv_res.scalars().first.return_value = mock_cv
+    db.execute.return_value = mock_cv_res
+
+    mock_model_res = MagicMock()
+    mock_model_res.content = '{"question_text": "How do you handle distributed consensus?", "question_type": "multiple_choice", "options": ["A) Raft", "B) Paxos", "C) Both", "D) None"]}'
+    mock_chat_model = AsyncMock()
+    mock_chat_model.ainvoke.return_value = mock_model_res
+
+    with patch(
+        "app.services.agent_tools.get_task_chat_model",
+        new_callable=AsyncMock,
+        return_value=mock_chat_model,
+    ):
+        q_res = await execute_generate_mock_interview_question(
+            db, company_name="Stripe", position="Staff Systems Engineer"
+        )
+        assert q_res["question_type"] == "multiple_choice"
+        assert len(q_res["options"]) == 4
+        assert "consensus" in q_res["question_text"]
+
+    # 9. Test LangChain Tool Factory Registration
     tools = create_agent_tools(db)
     tool_names = [t.name for t in tools]
-    assert len(tools) == 10
+    assert len(tools) == 11
+    assert "generate_mock_interview_question" in tool_names
     assert "analyze_pipeline_metrics" in tool_names
     assert "detect_stalled_applications" in tool_names
