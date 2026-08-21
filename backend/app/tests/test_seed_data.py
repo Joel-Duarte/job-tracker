@@ -32,12 +32,12 @@ async def test_seed_development_dataset_populates_all_entities_without_embedding
     # 2. Seed development dataset
     stats = await seed_development_dataset(db_session)
 
-    assert stats["companies"] == 5
-    assert stats["applications"] == 5
-    assert stats["job_postings"] == 5
-    assert stats["action_items"] == 5
+    assert stats["companies"] == 25
+    assert stats["applications"] == 25
+    assert stats["job_postings"] == 25
+    assert stats["action_items"] == 4
     assert stats["staging_items"] == 3
-    assert stats["intake_tasks"] == 3
+    assert stats["intake_tasks"] == 25
     assert stats["ai_providers"] == 1
     assert stats["ai_task_bindings"] == 6
     assert stats["email_accounts"] == 2
@@ -55,27 +55,27 @@ async def test_seed_development_dataset_populates_all_entities_without_embedding
     apps = (
         await db_session.execute(select(func.count(ApplicationModel.id)))
     ).scalar_one()
-    assert apps == 5
+    assert apps == 25
 
     companies = (
         await db_session.execute(select(func.count(CompanyModel.id)))
     ).scalar_one()
-    assert companies == 5
+    assert companies == 25
 
     job_postings = (
         await db_session.execute(select(func.count(JobPostingModel.id)))
     ).scalar_one()
-    assert job_postings == 5
+    assert job_postings == 25
 
     events = (
         await db_session.execute(select(func.count(ApplicationEventModel.id)))
     ).scalar_one()
-    assert events == 8
+    assert events == 35
 
     actions = (
         await db_session.execute(select(func.count(ActionItemModel.id)))
     ).scalar_one()
-    assert actions == 5
+    assert actions == 4
 
     other_events = (
         await db_session.execute(select(func.count(OtherEventModel.id)))
@@ -90,7 +90,7 @@ async def test_seed_development_dataset_populates_all_entities_without_embedding
     tasks = (
         await db_session.execute(select(func.count(IntakeEvaluationTaskModel.id)))
     ).scalar_one()
-    assert tasks == 3
+    assert tasks == 25
 
     providers = (
         await db_session.execute(select(func.count(AIProviderModel.id)))
@@ -154,7 +154,7 @@ async def test_admin_seed_demo_data_endpoint(db_session: AsyncSession):
         assert resp.status_code == 201
         data = resp.json()
         assert data["status"] == "success"
-        assert data["seeded_counts"]["applications"] == 5
+        assert data["seeded_counts"]["applications"] == 25
 
         # Second call without force=true conflicts (409)
         conflict_resp = await client.post("/api/v1/admin/seed-demo-data")
