@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -19,6 +20,36 @@ from app.services.postgres_tracer import PostgresTracer
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agent", tags=["Agent Chat Assistant"])
+
+
+def sanitize_mock_question_reply(content: str, actions: list[dict[str, Any]]) -> str:
+    """
+    Backend Safety Guardrail: If a mock question was generated, strips accidentally
+    duplicated inline options (e.g., A) ..., B) ..., 1. ...) from the assistant text content.
+    """
+    if not content or not actions:
+        return content
+
+    has_mock_question = any(
+        act.get("action") == "generate_mock_interview_question" for act in actions
+    )
+    if not has_mock_question:
+        return content
+
+    # Regex matching lines like 'A) ...', 'B. ...', '1) ...', '2: ...'
+    lines = content.split("\n")
+    cleaned_lines = []
+    option_line_pattern = re.compile(
+        r"^\s*([A-Da-d1-4])[\.\)\:]\s+.*", re.IGNORECASE
+    )
+
+    for line in lines:
+        if option_line_pattern.match(line):
+            continue
+        cleaned_lines.append(line)
+
+    cleaned = "\n".join(cleaned_lines).strip()
+    return cleaned if cleaned else content
 
 
 def prune_and_sanitize_tool_output(content: Any, max_array_length: int = 5) -> str:
@@ -273,6 +304,9 @@ async def chat_with_agent(
     if not reply_content and messages:
         last_msg = messages[-1]
         reply_content = getattr(last_msg, "content", "Processing completed.")
+
+    # Apply backend safety guardrail sanitization if mock question was generated
+    reply_content = sanitize_mock_question_reply(str(reply_content), actions_performed)
 
     # Save to DB
     db_messages = []
