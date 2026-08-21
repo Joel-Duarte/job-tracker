@@ -29,6 +29,8 @@ import {
   Check,
   Power,
   RotateCcw,
+  Upload,
+  AlertTriangle,
 } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -47,8 +49,85 @@ const isEditingCV = ref(false)
 const editedCVText = ref('')
 const isEditingSummary = ref(false)
 const editedSummaryText = ref('')
-const showUpdateDrawer = ref(false)
+const showCvModal = ref(false)
 const isDocExpanded = ref(true)
+
+// File upload & parsing
+const fileInput = ref(null)
+const isParsingFile = ref(false)
+
+function triggerFileInput() {
+  fileInput.value?.click()
+}
+
+async function handleFileUpload(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+
+  // 10 MB file size limit check
+  const MAX_SIZE = 10 * 1024 * 1024
+  if (file.size > MAX_SIZE) {
+    uiStore.showToast('File size exceeds the 10 MB limit.', 'error')
+    if (event.target) event.target.value = ''
+    return
+  }
+
+  // File extension check
+  const ext = file.name.split('.').pop()?.toLowerCase()
+  const allowed = ['pdf', 'docx', 'doc', 'txt']
+  if (!ext || !allowed.includes(ext)) {
+    uiStore.showToast('Unsupported file format. Please select a .pdf, .docx, .doc, or .txt file.', 'error')
+    if (event.target) event.target.value = ''
+    return
+  }
+
+  isParsingFile.value = true
+
+  const actionText = profile.value ? 'updating profile' : 'activating profile'
+
+  try {
+    if (ext === 'txt') {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const text = e.target?.result
+        if (typeof text === 'string' && text.trim()) {
+          rawCVInput.value = text.trim()
+          activeInputTab.value = 'raw'
+          uiStore.showToast(`Loaded ${file.name}. Please review text before ${actionText}.`, 'success')
+        } else {
+          uiStore.showToast('Uploaded text file is empty.', 'error')
+        }
+        isParsingFile.value = false
+        if (event.target) event.target.value = ''
+      }
+      reader.onerror = () => {
+        uiStore.showToast('Failed to read text file.', 'error')
+        isParsingFile.value = false
+        if (event.target) event.target.value = ''
+      }
+      reader.readAsText(file)
+    } else {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await CandidateProfileAPI.parseFile(formData)
+      const text = res.data?.text
+      if (text && text.trim()) {
+        rawCVInput.value = text.trim()
+        activeInputTab.value = 'raw'
+        uiStore.showToast(`Extracted text from ${file.name}. Please review text before ${actionText}.`, 'success')
+      } else {
+        uiStore.showToast('Could not extract text from document file.', 'error')
+      }
+      isParsingFile.value = false
+      if (event.target) event.target.value = ''
+    }
+  } catch (err) {
+    const errMsg = err.response?.data?.detail || err.message || 'Failed to extract text from file'
+    uiStore.showToast(errMsg, 'error')
+    isParsingFile.value = false
+    if (event.target) event.target.value = ''
+  }
+}
 
 // Local scrubber preview
 const localScrubResult = computed(() => {
@@ -110,7 +189,7 @@ async function pollTaskUntilComplete(taskId) {
         uiStore.showToast('Resume de-identified and canonical profile activated!', 'success')
         isProcessing.value = false
         currentTaskId.value = null
-        showUpdateDrawer.value = false
+        showCvModal.value = false
         return
       }
 
@@ -344,149 +423,25 @@ onMounted(async () => {
         </p>
       </div>
 
-      <div v-if="profile" class="header-actions">
+      <div class="header-actions">
         <button
           class="btn btn-secondary btn-sm"
-          @click="showUpdateDrawer = !showUpdateDrawer"
+          @click="showCvModal = true"
         >
-          <Edit3 :size="14" />
-          <span>{{ showUpdateDrawer ? 'Close Resume Input' : 'Update / Re-Paste Resume' }}</span>
+          <FileText :size="14" />
+          <span>{{ profile ? 'Input / Update CV' : 'Input CV' }}</span>
         </button>
 
         <button
+          v-if="profile"
           class="btn btn-ghost btn-sm text-danger"
           :disabled="isDeleting"
           @click="deleteProfile"
-          title="Delete profile"
+          title="Remove candidate profile"
         >
           <Trash2 :size="14" />
-          <span>Clear Profile</span>
+          <span>Remove CV</span>
         </button>
-      </div>
-    </div>
-
-    <!-- =================================================================== -->
-    <!-- COLLAPSIBLE RESUME SOURCE & SANITIZATION DRAWER / TOP PANEL        -->
-    <!-- =================================================================== -->
-    <div v-if="showUpdateDrawer || !profile" class="resume-input-panel animate-fade-in">
-      <div class="panel-card">
-        <div class="panel-header">
-          <div class="panel-title">
-            <FileText :size="16" class="text-primary" />
-            <span>{{ profile ? 'Update Resume Source Text' : 'Import Candidate Resume / CV' }}</span>
-          </div>
-
-          <!-- Input Tabs -->
-          <div class="input-tabs">
-            <button
-              class="tab-btn"
-              :class="{ active: activeInputTab === 'raw' }"
-              @click="activeInputTab = 'raw'"
-            >
-              Raw Input
-            </button>
-            <button
-              class="tab-btn"
-              :class="{ active: activeInputTab === 'preview' }"
-              @click="activeInputTab = 'preview'"
-            >
-              <Lock :size="12" />
-              <span>Local Scrubbed Preview</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Cloud vs Local Advisory -->
-        <div class="privacy-callout">
-          <Info :size="15" class="text-primary flex-shrink-0" />
-          <span>
-            <strong>Zero-Cloud Contact Sanitization:</strong> Real names, emails, phone numbers, addresses, and personal links are redacted client-side via regex before AI dispatch.
-          </span>
-        </div>
-
-        <!-- Live Redaction Stats -->
-        <div v-if="localScrubResult.stats.total > 0" class="redaction-stats-pill font-mono">
-          🛡️ <strong>{{ localScrubResult.stats.total }}</strong> PII item(s) sanitized locally:
-          <span v-if="localScrubResult.stats.emails">{{ localScrubResult.stats.emails }} email(s) </span>
-          <span v-if="localScrubResult.stats.phones">{{ localScrubResult.stats.phones }} phone(s) </span>
-          <span v-if="localScrubResult.stats.urls">{{ localScrubResult.stats.urls }} link(s) </span>
-          <span v-if="localScrubResult.stats.addresses">{{ localScrubResult.stats.addresses }} address(es)</span>
-        </div>
-
-        <!-- Raw Textarea -->
-        <textarea
-          v-if="activeInputTab === 'raw'"
-          v-model="rawCVInput"
-          rows="10"
-          class="form-textarea font-mono text-xs"
-          placeholder="Paste your complete resume or CV text here..."
-        ></textarea>
-
-        <!-- Local Preview -->
-        <div
-          v-else
-          class="local-preview-box font-mono text-xs"
-        >
-          {{ localScrubResult.scrubbedText || 'Paste resume text to see live local sanitization preview...' }}
-        </div>
-
-        <!-- Queue Processing Stepper Card -->
-        <div v-if="isProcessing" class="queue-progress-card animate-fade-in">
-          <div class="queue-progress-header">
-            <div class="queue-status-title">
-              <Loader2 class="animate-spin text-primary" :size="16" />
-              <span>Processing in AI Queue (Task #{{ currentTaskId || '...' }})</span>
-            </div>
-            <span class="queue-stage-badge">{{ currentTaskStage }}</span>
-          </div>
-
-          <div class="stepper-track">
-            <div
-              class="stepper-step"
-              :class="{
-                active: currentTaskStage === 'SCRUBBING',
-                complete: ['EXTRACTING', 'SAVING', 'COMPLETE'].includes(currentTaskStage),
-              }"
-            >
-              <div class="step-dot">1</div>
-              <span class="step-label">Local PII Scrubbing</span>
-            </div>
-
-            <div
-              class="stepper-step"
-              :class="{
-                active: currentTaskStage === 'EXTRACTING',
-                complete: ['SAVING', 'COMPLETE'].includes(currentTaskStage),
-              }"
-            >
-              <div class="step-dot">2</div>
-              <span class="step-label">AI Extraction</span>
-            </div>
-
-            <div
-              class="stepper-step"
-              :class="{
-                active: currentTaskStage === 'SAVING',
-                complete: currentTaskStage === 'COMPLETE',
-              }"
-            >
-              <div class="step-dot">3</div>
-              <span class="step-label">Profile Activation</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="panel-actions">
-          <button
-            class="btn btn-primary"
-            :disabled="isProcessing || !rawCVInput.trim()"
-            @click="processCV"
-          >
-            <Loader2 v-if="isProcessing" class="animate-spin" :size="16" />
-            <Sparkles v-else :size="16" />
-            <span>{{ isProcessing ? 'Processing in Queue...' : (profile ? 'Re-Analyze & Update Profile' : 'De-Identify & Activate Profile') }}</span>
-          </button>
-        </div>
       </div>
     </div>
 
@@ -512,31 +467,14 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- Overall Years Stepper -->
-          <div class="experience-counter-box">
-            <span class="counter-label">Cumulative Experience</span>
-            <div class="stepper-controls">
-              <button
-                type="button"
-                class="step-btn"
-                title="Decrease overall experience by 0.5 yrs"
-                @click="adjustTotalYears(-0.5)"
-              >
-                -
-              </button>
-              <span class="counter-val font-mono font-bold">
-                {{ profile.years_of_experience || 0 }} <span class="counter-unit">yrs</span>
-              </span>
-              <button
-                type="button"
-                class="step-btn"
-                title="Increase overall experience by 0.5 yrs"
-                @click="adjustTotalYears(0.5)"
-              >
-                +
-              </button>
-            </div>
-          </div>
+          <!-- Update CV Action Button -->
+          <button
+            class="btn btn-secondary btn-sm"
+            @click="showCvModal = true"
+          >
+            <Edit3 :size="14" />
+            <span>Update CV</span>
+          </button>
         </div>
 
         <!-- Executive Summary -->
@@ -579,6 +517,32 @@ onMounted(async () => {
             <p class="card-sub">
               Granular durations across your core industry specializations. Muted domains are preserved on your profile but automatically excluded from AI match qualifications.
             </p>
+          </div>
+
+          <!-- Cumulative Experience Stepper Controls -->
+          <div class="experience-counter-box">
+            <span class="counter-label">Cumulative Experience</span>
+            <div class="stepper-controls">
+              <button
+                type="button"
+                class="step-btn"
+                title="Decrease overall experience by 0.5 yrs"
+                @click="adjustTotalYears(-0.5)"
+              >
+                -
+              </button>
+              <span class="counter-val font-mono font-bold">
+                {{ profile.years_of_experience || 0 }} <span class="counter-unit">yrs</span>
+              </span>
+              <button
+                type="button"
+                class="step-btn"
+                title="Increase overall experience by 0.5 yrs"
+                @click="adjustTotalYears(0.5)"
+              >
+                +
+              </button>
+            </div>
           </div>
         </div>
 
@@ -745,70 +709,6 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- 4. Sanitized Resume Document Viewer / Editor -->
-      <div class="content-card">
-        <div class="card-header-clean">
-          <div>
-            <h3 class="card-title">Sanitized Resume Document</h3>
-            <p class="card-sub">
-              Clean markdown document with contact info stripped and dates converted to duration windows. Used for AI qualification audits.
-            </p>
-          </div>
-
-          <div class="header-actions-group">
-            <button
-              v-if="!isEditingCV"
-              class="btn btn-ghost btn-xs"
-              title="Edit sanitized resume text"
-              @click="startEditingCV"
-            >
-              <Edit3 :size="13" />
-              <span>Edit Document</span>
-            </button>
-
-            <button
-              v-if="!isEditingCV"
-              class="btn btn-ghost btn-xs"
-              title="Copy sanitized resume text"
-              @click="copyAnonymizedCV"
-            >
-              <Copy :size="13" />
-              <span>Copy</span>
-            </button>
-
-            <button
-              class="btn btn-ghost btn-xs"
-              @click="isDocExpanded = !isDocExpanded"
-            >
-              <component :is="isDocExpanded ? ChevronUp : ChevronDown" :size="14" />
-              <span>{{ isDocExpanded ? 'Collapse' : 'Expand' }}</span>
-            </button>
-          </div>
-        </div>
-
-        <div v-if="isDocExpanded" class="doc-container animate-fade-in">
-          <!-- Read-only Document View -->
-          <div v-if="!isEditingCV" class="sanitized-doc-body font-mono text-xs">
-            {{ profile.anonymized_text || 'No anonymized text generated yet.' }}
-          </div>
-
-          <!-- In-place Markdown Editor -->
-          <div v-else class="doc-editor-box">
-            <textarea
-              v-model="editedCVText"
-              rows="16"
-              class="form-textarea font-mono text-xs"
-            ></textarea>
-            <div class="editor-actions-row">
-              <button class="btn btn-secondary btn-sm" @click="isEditingCV = false">Cancel</button>
-              <button class="btn btn-primary btn-sm" @click="saveEditedCV">
-                <Save :size="14" />
-                <span>Save Sanitized Document</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- =================================================================== -->
@@ -819,8 +719,221 @@ onMounted(async () => {
         <ShieldCheck :size="42" class="text-primary" />
         <h2 class="empty-title">No Candidate Profile Active</h2>
         <p class="empty-sub">
-          Paste your resume or CV in the form above to activate your privacy-first profile. The system scrubs PII locally and extracts skills for AI job matching.
+          Upload or paste your resume/CV to activate your privacy-first profile. The system scrubs PII locally and extracts skills for AI job matching.
         </p>
+        <button class="btn btn-primary btn-sm mt-2" @click="showCvModal = true">
+          <FileText :size="15" />
+          <span>Input / Update CV</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- DEDICATED CV INTAKE & UPDATE MODAL POPUP                           -->
+    <!-- =================================================================== -->
+    <div v-if="showCvModal" class="modal-backdrop" @click.self="showCvModal = false">
+      <div class="modal-card modal-lg animate-fade-in">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <FileText :size="18" class="text-primary" />
+            <h3 class="modal-title">{{ profile ? 'Update Candidate Resume / CV' : 'Input Candidate Resume / CV' }}</h3>
+          </div>
+          <button class="btn-close" @click="showCvModal = false">×</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="panel-header-actions">
+            <input
+              ref="fileInput"
+              type="file"
+              accept=".pdf,.docx,.doc,.txt"
+              class="hidden-file-input"
+              @change="handleFileUpload"
+            />
+
+            <button
+              type="button"
+              class="btn btn-secondary btn-xs"
+              :disabled="isParsingFile || isProcessing"
+              @click="triggerFileInput"
+            >
+              <Loader2 v-if="isParsingFile" class="animate-spin" :size="13" />
+              <Upload v-else :size="13" />
+              <span>{{ isParsingFile ? 'Extracting File...' : 'Upload Resume File' }}</span>
+            </button>
+
+            <!-- Input Tabs -->
+            <div class="input-tabs">
+              <button
+                class="tab-btn"
+                :class="{ active: activeInputTab === 'raw' }"
+                @click="activeInputTab = 'raw'"
+              >
+                Raw Input
+              </button>
+              <button
+                class="tab-btn"
+                :class="{ active: activeInputTab === 'preview' }"
+                @click="activeInputTab = 'preview'"
+              >
+                <Lock :size="12" />
+                <span>Local Scrubbed Preview</span>
+              </button>
+              <button
+                v-if="profile?.anonymized_text"
+                class="tab-btn"
+                :class="{ active: activeInputTab === 'sanitized' }"
+                @click="activeInputTab = 'sanitized'"
+              >
+                <ShieldCheck :size="12" />
+                <span>Sanitized Document</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Cloud vs Local Advisory -->
+          <div class="privacy-callout">
+            <Info :size="15" class="text-primary flex-shrink-0" />
+            <span>
+              <strong>Zero-Cloud Contact Sanitization:</strong> Real names, emails, phone numbers, addresses, and personal links are redacted client-side via regex before AI dispatch.
+            </span>
+          </div>
+
+          <!-- Live Redaction Stats -->
+          <div v-if="localScrubResult.stats.total > 0" class="redaction-stats-pill font-mono">
+            🛡️ <strong>{{ localScrubResult.stats.total }}</strong> PII item(s) sanitized locally:
+            <span v-if="localScrubResult.stats.emails">{{ localScrubResult.stats.emails }} email(s) </span>
+            <span v-if="localScrubResult.stats.phones">{{ localScrubResult.stats.phones }} phone(s) </span>
+            <span v-if="localScrubResult.stats.urls">{{ localScrubResult.stats.urls }} link(s) </span>
+            <span v-if="localScrubResult.stats.addresses">{{ localScrubResult.stats.addresses }} address(es)</span>
+          </div>
+
+          <!-- Privacy Review Advisory Banner -->
+          <div v-if="activeInputTab === 'raw'" class="privacy-review-banner animate-fade-in">
+            <AlertTriangle :size="16" class="banner-icon flex-shrink-0" />
+            <div class="banner-content">
+              <strong class="banner-title">Manual Privacy Review Recommended</strong>
+              <p class="banner-desc">
+                Please review and edit the loaded text below to scan for any phone numbers, home addresses, personal email addresses, or specific former company names before submitting. You can edit the text directly in the raw input box to scrub any missed details prior to triggering the de-anonymization and profile activation pipeline.
+              </p>
+            </div>
+          </div>
+
+          <!-- Raw Textarea -->
+          <textarea
+            v-if="activeInputTab === 'raw'"
+            v-model="rawCVInput"
+            rows="10"
+            class="form-textarea font-mono text-xs"
+            placeholder="Paste your complete resume or CV text here or click 'Upload Resume File' above..."
+          ></textarea>
+
+          <!-- Local Preview -->
+          <div
+            v-else-if="activeInputTab === 'preview'"
+            class="local-preview-box font-mono text-xs"
+          >
+            {{ localScrubResult.scrubbedText || 'Paste resume text to see live local sanitization preview...' }}
+          </div>
+
+          <!-- Relocated Sanitized Resume Document Viewer & Editor -->
+          <div
+            v-else-if="activeInputTab === 'sanitized'"
+            class="sanitized-doc-box font-mono text-xs animate-fade-in"
+          >
+            <div class="sanitized-doc-toolbar mb-2 flex items-center justify-between">
+              <span class="text-xs text-muted font-sans font-semibold">De-Identified Canonical Document</span>
+              <div class="flex items-center gap-2">
+                <button v-if="!isEditingCV" class="btn btn-ghost btn-xs" @click="startEditingCV">
+                  <Edit3 :size="12" />
+                  <span>Edit</span>
+                </button>
+                <button v-if="!isEditingCV" class="btn btn-ghost btn-xs" @click="copyAnonymizedCV">
+                  <Copy :size="12" />
+                  <span>Copy</span>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="!isEditingCV" class="sanitized-doc-body font-mono text-xs">
+              {{ profile?.anonymized_text || 'No anonymized text generated yet.' }}
+            </div>
+
+            <div v-else class="doc-editor-box">
+              <textarea
+                v-model="editedCVText"
+                rows="10"
+                class="form-textarea font-mono text-xs"
+              ></textarea>
+              <div class="editor-actions-row">
+                <button class="btn btn-secondary btn-xs" @click="isEditingCV = false">Cancel</button>
+                <button class="btn btn-primary btn-xs" @click="saveEditedCV">
+                  <Save :size="12" />
+                  <span>Save Document</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Queue Processing Stepper Card -->
+          <div v-if="isProcessing" class="queue-progress-card animate-fade-in">
+            <div class="queue-progress-header">
+              <div class="queue-status-title">
+                <Loader2 class="animate-spin text-primary" :size="16" />
+                <span>Processing in AI Queue (Task #{{ currentTaskId || '...' }})</span>
+              </div>
+              <span class="queue-stage-badge">{{ currentTaskStage }}</span>
+            </div>
+
+            <div class="stepper-track">
+              <div
+                class="stepper-step"
+                :class="{
+                  active: currentTaskStage === 'SCRUBBING',
+                  complete: ['EXTRACTING', 'SAVING', 'COMPLETE'].includes(currentTaskStage),
+                }"
+              >
+                <div class="step-dot">1</div>
+                <span class="step-label">Local PII Scrubbing</span>
+              </div>
+
+              <div
+                class="stepper-step"
+                :class="{
+                  active: currentTaskStage === 'EXTRACTING',
+                  complete: ['SAVING', 'COMPLETE'].includes(currentTaskStage),
+                }"
+              >
+                <div class="step-dot">2</div>
+                <span class="step-label">AI Extraction</span>
+              </div>
+
+              <div
+                class="stepper-step"
+                :class="{
+                  active: currentTaskStage === 'SAVING',
+                  complete: currentTaskStage === 'COMPLETE',
+                }"
+              >
+                <div class="step-dot">3</div>
+                <span class="step-label">Profile Activation</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-secondary btn-sm" @click="showCvModal = false">Cancel</button>
+          <button
+            class="btn btn-primary btn-sm"
+            :disabled="isProcessing || !rawCVInput.trim()"
+            @click="processCV"
+          >
+            <Loader2 v-if="isProcessing" class="animate-spin" :size="15" />
+            <Sparkles v-else :size="15" />
+            <span>{{ isProcessing ? 'Processing in Queue...' : (profile ? 'Re-Analyze & Update Profile' : 'De-Identify & Activate Profile') }}</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -908,6 +1021,50 @@ onMounted(async () => {
   font-size: 14px;
   font-weight: 700;
   color: var(--text-main);
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.privacy-review-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background-color: rgba(234, 179, 8, 0.1);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  color: var(--text-main);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.banner-icon {
+  color: #eab308;
+  margin-top: 1px;
+}
+
+.banner-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.banner-title {
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.banner-desc {
+  color: var(--text-secondary);
 }
 
 .input-tabs {
@@ -1516,5 +1673,86 @@ onMounted(async () => {
 .embedded-profile-container {
   padding: 0 0 80px 0 !important;
   max-width: 100% !important;
+}
+
+/* Modal Popup Styles */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 20px;
+}
+
+.modal-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  width: 100%;
+  max-width: 520px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+  overflow: hidden;
+}
+
+.modal-card.modal-lg {
+  max-width: 720px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.btn-close {
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.btn-close:hover {
+  color: var(--text-main);
+}
+
+.modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
 }
 </style>
