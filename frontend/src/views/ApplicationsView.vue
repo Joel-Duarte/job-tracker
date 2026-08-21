@@ -3222,4 +3222,30 @@ async function confirmDelete() {
   border-color: rgba(251, 146, 60, 0.4);
 }
 
+@media (max-width: 768px) {
+  .hired-view-container {
+    padding: 1rem 0;
+  }
+
+  .hired-cards-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .hired-card {
+    padding: 1rem;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .hired-card-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .hired-card-meta {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
 </style>

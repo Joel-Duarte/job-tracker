@@ -667,6 +667,80 @@ onUnmounted(() => {
   }
 }
 
+@media (max-width: 768px) {
+  .tasks-page {
+    padding: 16px 12px 60px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .tasks-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .search-box {
+    min-width: 100%;
+    width: 100%;
+  }
+
+  .urgency-chips, .sort-wrapper {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .urgency-filters {
+    flex-wrap: wrap;
+    padding: 10px 12px;
+  }
+
+  .task-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px 12px;
+  }
+
+  .task-main {
+    width: 100%;
+  }
+
+  .task-title-line {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .task-meta {
+    flex-wrap: wrap;
+    width: 100%;
+    gap: 8px;
+  }
+
+  .app-link-text {
+    max-width: 180px;
+  }
+
+  .task-actions {
+    width: 100%;
+    justify-content: flex-end;
+    border-top: 1px solid var(--border-color);
+    padding-top: 8px;
+  }
+
+  .form-grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-card {
+    max-width: 100%;
+    width: 100%;
+  }
+}
+
 @media (max-width: 540px) {
   .metrics-grid {
     grid-template-columns: 1fr;

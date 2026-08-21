@@ -865,8 +865,79 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
+  .page-container {
+    padding: 16px 12px 40px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
   .endpoints-grid {
     grid-template-columns: 1fr;
+  }
+
+  .intake-card {
+    padding: 16px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .intake-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .intake-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .active-task-card, .failed-task-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .task-card-main, .failed-card-main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .failed-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .review-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .review-header-left, .review-header-right {
+    flex-wrap: wrap;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .review-body {
+    padding: 14px;
+  }
+
+  .review-action-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .confirm-buttons {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .confirm-buttons .btn {
+    width: 100%;
+    justify-content: center;
   }
 }
 

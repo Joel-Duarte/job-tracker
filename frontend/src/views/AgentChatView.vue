@@ -24,7 +24,11 @@ const chatContainer = ref(null)
 
 const retentionDays = ref(0)
 const isUpdatingRetention = ref(false)
-const isSidebarCollapsed = ref(localStorage.getItem('agentChatSidebarCollapsed') === 'true')
+const isSidebarCollapsed = ref(
+  localStorage.getItem('agentChatSidebarCollapsed') !== null
+    ? localStorage.getItem('agentChatSidebarCollapsed') === 'true'
+    : window.innerWidth < 768
+)
 
 function toggleSidebar() {
   isSidebarCollapsed.value = !isSidebarCollapsed.value
@@ -228,6 +232,12 @@ function formatActionLabel(act) {
 
 <template>
   <div class="chat-page-container" :class="{ 'sidebar-collapsed': isSidebarCollapsed }">
+    <!-- Mobile Sidebar Backdrop Overlay -->
+    <div
+      v-if="!isSidebarCollapsed"
+      class="mobile-sidebar-backdrop"
+      @click="toggleSidebar"
+    ></div>
 
     <!-- Sidebar -->
     <div class="chat-sidebar" :class="{ 'collapsed': isSidebarCollapsed }">
@@ -939,5 +949,77 @@ function formatActionLabel(act) {
   height: 40px;
   border-radius: var(--radius-md);
   padding: 0;
+}
+
+.mobile-sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 99;
+  }
+
+  .chat-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 100;
+    width: 280px;
+    box-shadow: var(--shadow-lg);
+    transform: translateX(0);
+    transition: transform var(--transition-smooth), opacity var(--transition-smooth);
+  }
+
+  .chat-sidebar.collapsed {
+    transform: translateX(-100%);
+    opacity: 0;
+    pointer-events: none;
+    width: 280px;
+  }
+
+  .chat-header {
+    padding: 0 12px;
+  }
+
+  .chat-messages {
+    padding: 16px 12px;
+  }
+
+  .chat-bottom-dock {
+    padding: 0 12px 16px;
+  }
+
+  .message-row {
+    gap: 8px;
+  }
+
+  .message-bubble {
+    padding: 10px 12px;
+    max-width: calc(100% - 36px);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  .markdown-body pre {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .markdown-body table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+
+  .chat-input-bar {
+    padding: 6px 10px;
+  }
 }
 </style>

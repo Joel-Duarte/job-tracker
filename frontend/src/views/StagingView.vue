@@ -1123,4 +1123,72 @@ async function dismissItem(item) {
 .space-y-4 > * + * {
   margin-top: 12px;
 }
+
+@media (max-width: 768px) {
+  .page-container {
+    padding: 16px 12px 60px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .filter-pills {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .pill-btn {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
+  .staging-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .staging-card {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .card-actions, .card-top {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .modal-backdrop {
+    padding: 10px;
+  }
+
+  .modal-card, .modal-lg {
+    max-width: 100%;
+    width: 100%;
+    max-height: 95vh;
+  }
+
+  .modal-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .modal-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .form-grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .existing-app-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .app-meta {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
 </style>

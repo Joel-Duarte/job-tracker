@@ -1559,8 +1559,66 @@ onMounted(async () => {
 }
 
 @media (max-width: 768px) {
+  .page-container {
+    padding: 16px 12px 40px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .profile-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .header-actions {
+    flex-wrap: wrap;
+    width: 100%;
+    gap: 8px;
+  }
+
+  .header-actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
   .skills-competencies-grid {
     grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .stepper-track {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .modal-backdrop {
+    padding: 10px;
+  }
+
+  .modal-card {
+    max-width: 100%;
+    width: 100%;
+    max-height: 95vh;
+  }
+
+  .modal-footer {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .modal-footer .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .add-chip-row {
+    flex-wrap: wrap;
+  }
+
+  .add-chip-row input {
+    width: 100%;
   }
 }
 
