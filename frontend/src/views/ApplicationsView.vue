@@ -973,7 +973,7 @@ async function confirmDelete() {
 
               <!-- Quick One-Click Advance Button (Middle-Right Side) -->
               <button
-                v-if="getNextStatus(app.status)"
+                v-if="getNextStatus(app.status) && app.status !== 'OFFER'"
                 class="card-advance-btn"
                 :title="`Advance to ${getNextStatus(app.status).replace('_', ' ')}`"
                 @click.stop="advanceAppStage(app, $event)"
