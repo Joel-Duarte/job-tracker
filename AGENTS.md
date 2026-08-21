@@ -18,20 +18,23 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - `JobIntakeView`: Tools to paste URLs or job descriptions for ingestion.
   - `ActionItemsView`: To-do list generated from emails and application updates.
   - `StagingView`: Review and manual resolution area for ambiguous or low-confidence extractions.
-  - `AgentChatView`: Conversational AI agent interface to query application data.
+  - `AgentChatView`: Conversational AI agent interface to query application data and execute pipeline actions.
   - `PastWinsView`: Archive and showcase for accepted offers, hired milestones, and celebration analytics.
 
 ### Backend
 - **Framework:** FastAPI
 - **Database:** PostgreSQL 16 with `pgvector` and `pg_trgm` extensions.
 - **ORM:** SQLAlchemy (AsyncSession / `asyncpg`).
-- **AI & LLM Orchestration:** LangChain and LangGraph for workflows (e.g., job evaluation, interview guide generation).
+- **AI & LLM Orchestration:** LangChain and LangGraph for workflows (e.g., job evaluation, interview guide generation, conversational AI agent execution).
 - **Runtime Configuration:** AI providers, model bindings, OAuth client credentials, and email credentials are configured through the Settings UI and stored in PostgreSQL; deployment environment variables provide only bootstrap, infrastructure, and encryption settings.
 - **Stealth Scraper:** `camofox` running as a separate service for browser automation and anti-bot bypass.
 - **Key Services:**
   - `scraper.py`: Extracts job descriptions from URLs, bypassing cookie banners and "show more" toggles via Camofox Javascript evaluation.
   - `domain_resolver.py`: Multi-tier company domain extraction engine (direct URL parsing, 20+ ATS host filtering, AI domain extraction, and Clearbit autocomplete fallback) ensuring accurate `CompanyModel.domain` and favicon resolution.
-  - `llm.py` / `llm_factory.py`: Abstractions over OpenAI, Anthropic, or local open-source models for various prompts (summarization, extraction, matching).
+  - `llm.py` / `llm_factory.py`: Abstractions over OpenAI, Anthropic, Google Gemini, Ollama, or local open-source models (LM Studio/vLLM) for prompts, embedding caching (`_EMBEDDINGS_CACHE`), and task-bound chat model resolution (`get_task_chat_model`).
+  - `agent_tools.py`: Factory `create_agent_tools` providing 10 StructuredTools for conversational agent actions, pipeline metrics analysis, queue management, stalled application checks, market benchmarks, fit evaluation, and vector search.
+  - `agent_chat.py`: Conversational agent router (`/api/v1/agent`) supporting chat persistence (`AgentChatModel`), prompt loading, 4-turn reasoning loop, concurrent tool execution via `asyncio.gather`, and output sanitization (`prune_and_sanitize_tool_output`).
+  - `prompts.py`: System prompt management with in-memory caching (`_PROMPT_CACHE`), DB persistence (`PromptModel`), auto-healing, and templates (`jd_extraction`, `email_extraction`, `extraction`, `assessment`, `cv_anonymization`, `agent_system`, `cover_letter`, `interview_guide`).
   - `intake_graph.py` & `interview_guide_graph.py`: LangGraph state machines managing complex data extraction and document generation.
   - `email_fetcher.py`: Connects to IMAP or OAuth to pull recruitment emails, deduplicating via `message_id`.
   - `evaluation_worker.py`: Background worker for processing async evaluations in a 4-stage pipeline.
@@ -65,6 +68,147 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
 - **Emails & Events:** `ApplicationEventModel` (tied to an app) or `OtherEventModel` (general recruitment spam/newsletters).
 - **Action Items:** `ActionItemModel` tracks tasks and deadlines (`PENDING`, `COMPLETED`, `DISMISSED`). An application's `has_action_required` badge strictly reflects whether active `PENDING` action items exist.
 - **Vector Embeddings:** Uses `pgvector` (`ApplicationEmbeddingModel`) to allow semantic search over job applications.
+- **Agent Chat Conversations:** `AgentChatModel` (`agent_chats` table) persists conversation titles and message histories as structured JSON arrays containing `user`, `assistant`, and `tool` messages (with `tool_call_id`).
+- **System Prompts:** `PromptModel` (`prompts` table) stores prompt templates (`agent_system`, `jd_extraction`, `email_extraction`, `assessment`, `cv_anonymization`, `cover_letter`, `interview_guide`).
+- **AI Providers & Task Bindings:** `AIProviderModel` and `AITaskBindingModel` map specific application task types (`GLOBAL_DEFAULT`, `AGENT_REASONING`, `JOB_ASSESSMENT`, `EMAIL_EXTRACTION`, `INTERVIEW_GUIDE`, `JD_EXTRACTION`, `COVER_LETTER`, `EMBEDDING`) to configured LLM providers and parameter sets.
+- **Telemetry & Tracing:** `TraceEventModel` (`trace_events` table) records execution latency, status, inputs, outputs, and error tracebacks via `PostgresTracer` and `trace_operation`.
+
+---
+
+## AI Agent Subsystem & Execution Framework
+
+### Overview & Router Endpoints
+The AI Agent subsystem provides a conversational, tool-augmented assistant capable of querying application data, analyzing pipeline metrics, managing intake queues, updating job statuses, and searching vectors.
+- **Primary Endpoint:** `POST /api/v1/agent/chat`
+  - **Request Schema (`AgentChatRequest`):** `messages: list[ChatMessage]` (where `role` is 'user', 'assistant', or 'system'), `chat_id: int | None`.
+  - **Response Schema (`AgentChatResponse`):** `chat_id: int`, `reply: str`, `actions_performed: list[dict]`.
+- **Management Endpoints:**
+  - `GET /api/v1/agent/chats`: Lists all stored agent conversations sorted by `updated_at` descending.
+  - `GET /api/v1/agent/chats/{chat_id}`: Retrieves full chat history for a specific conversation.
+  - `DELETE /api/v1/agent/chats/{chat_id}`: Deletes a conversation record.
+
+### Execution Mechanics & Turn Loop
+1. **Model Resolution:** Loads the model via `get_task_chat_model(db, task_type="AGENT_REASONING")`. Native tool bindings are attached using `model.bind_tools(tools)`.
+2. **System Prompt & History Assembly:** Prepends the `agent_system` prompt template loaded via `get_prompt_template(db, "agent_system")`. Loads previous message history from `AgentChatModel` if `chat_id` is provided, or appends the message chain from payload.
+3. **Reasoning Loop:** The agent turn loop is bounded to a maximum of **4 turns** (`max_turns = 4`).
+4. **Concurrent Tool Execution:** When the model outputs `tool_calls`, tools are executed in parallel across `asyncio.gather`. Each tool receives the active database session and runs with `PostgresTracer` callbacks enabled.
+5. **Output Sanitization & Pruning (`prune_and_sanitize_tool_output`):**
+   - Tool outputs are sanitized before appending into context as `ToolMessage`.
+   - Strips redundant metadata keys (`metadata`, `raw_response`).
+   - Caps array lengths to at most 5 items (`max_array_length = 5`) to conserve token context.
+   - Formats dictionaries and lists as compact JSON strings (`separators=(',', ':')`).
+6. **Telemetry & Diagnostics Tracing:** All model calls and tool executions pass `PostgresTracer()` in RunnableConfig callbacks to record execution metrics in `trace_events`.
+
+### Task Bindings & Recommended Defaults
+LLM invocations dynamically resolve configurations from `AITaskBindingModel` via `get_task_chat_model`. If no explicit task binding exists, the service cascades to `GLOBAL_DEFAULT`.
+
+Task-specific parameter defaults (`TASK_RECOMMENDED_DEFAULTS`):
+| Task Type | Default Temp | Reasoning Effort | Max Tokens |
+|---|---|---|---|
+| `JD_EXTRACTION` | 0.0 | none | null |
+| `EXTRACTION` | 0.1 | none | null |
+| `ASSESSMENT` | 0.2 | none | null |
+| `INTERVIEW_GUIDE` | 0.3 | none | null |
+| `COVER_LETTER` | 0.3 | none | null |
+| `AGENT_REASONING` (`AGENT`) | 0.2 | none | null |
+
+**Reasoning / Thinking Mode Integration:**
+When `reasoning_effort` is set (`low`, `medium`, `high`):
+- **OpenAI / OpenRouter:** Configures `extra_body: {"reasoning_effort": reasoning.lower()}`.
+- **Anthropic:** Configures `thinking: {"type": "enabled", "budget_tokens": budget}` (where budget is 1024, 2048, or 4096), overrides `temperature = 1.0`, and enforces `max_tokens > budget_tokens`.
+- **Google Gemini / Google GenAI:** Configures `extra_body: {"thinking_config": {"thinking_budget": budget}}`.
+
+### System Prompt Templates Reference
+Managed in `backend/app/core/prompts.py` and stored in `PromptModel`:
+1. **`agent_system`**: Instructions for conversational agent tool execution priorities, vector query constraints, knowledge base schema, and 3-attempt diagnostic retry protocol.
+2. **`jd_extraction`**: Raw job description spec extraction parser. Uses `<untrusted_job_data>` XML tags.
+3. **`email_extraction`** / **`extraction`**: Recruitment email categorizer and event extractor. Uses `<untrusted_email_content>` XML tags.
+4. **`assessment`**: Resume vs. job description match auditor. Uses `<untrusted_job_description>` and `<untrusted_candidate_cv>` XML tags.
+5. **`cv_anonymization`**: Resume de-identification officer and career metadata extractor. Uses `<untrusted_resume_content>` XML tags.
+6. **`cover_letter`**: Tailored executive cover letter writer with tone, length, and custom instructions.
+7. **`interview_guide`**: Tactical interview preparation guide generator producing clean semantic HTML.
+
+### Registered Agent Tools Reference (10 Tools)
+All tools are defined in `backend/app/services/agent_tools.py` with input schemas in `backend/app/schemas/agent_tools.py` and generated via `create_agent_tools(db)`:
+
+#### 1. `analyze_pipeline_metrics`
+- **Description:** Analyzes cohort funnel performance metrics, stage conversion counts, and period-over-period trend deltas.
+- **Input Schema (`AnalyzePipelineMetricsInput`):**
+  - `period`: `Literal["weekly", "monthly"]` (default `"weekly"`). Granularity of funnel metrics.
+  - `num_periods`: `int` (ge=1, le=52, default `8`). Number of past periods to aggregate.
+- **Output:** JSON object containing funnel stages (`intakes`, `applications`, `interviews`, `offers`, `hires`), conversion percentages, trend deltas, and cohort periods.
+
+#### 2. `detect_stalled_applications`
+- **Description:** Queries active job applications with no recruiter activity exceeding an inactivity threshold.
+- **Input Schema (`DetectStalledApplicationsInput`):**
+  - `inactivity_threshold_days`: `int` (ge=1, le=365, default `14`). Threshold days without activity.
+  - `status`: `str | None` (default `None`). Optional status filter (`APPLIED`, `TECHNICAL_INTERVIEW`, `ASSESSMENT`).
+  - `limit`: `int` (ge=1, le=50, default `10`). Max stalled items to return.
+- **Output:** JSON list of objects: `[{"application_id": int, "company": str, "position": str, "status": str, "days_inactive": int, "last_activity_at": str, "recommended_action": str}]`.
+
+#### 3. `query_market_benchmarks`
+- **Description:** Aggregates salary benchmarks, top demanded skills, and remote/hybrid work model distributions across job postings.
+- **Input Schema (`QueryMarketBenchmarksInput`):**
+  - `position_keyword`: `str | None` (default `None`). Filter title keyword (e.g., 'Python', 'Backend').
+  - `limit`: `int` (ge=1, le=200, default `50`). Max postings to aggregate.
+- **Output:** JSON object containing `sample_size`, `salary_benchmarks` (`currency`, `average_min`, `average_max`, `overall_min`, `overall_max`), `top_demanded_skills` (`[{"skill": str, "count": int}]`), and `work_model_distribution` (`{"remote": int, "hybrid": int, "on-site": int, "unknown": int}`).
+
+#### 4. `evaluate_ai_fit_score`
+- **Description:** Fetches programmatic match scores and qualitative AI fit evaluation details for an application.
+- **Input Schema (`EvaluateAIFitScoreInput`):**
+  - `company_or_id`: `str`. Company name (e.g. 'Stripe') or numeric Application ID (e.g. '12').
+- **Output:** JSON object containing `application_id`, `company`, `position`, `status`, `programmatic_match_score`, `fit_score`, `matching_skills`, `missing_skills`, `pros`, `cons`, and `recommendations`.
+
+#### 5. `manage_intake_queue`
+- **Description:** Interacts with background job intake evaluation tasks to list, retry, cancel, or fix job descriptions.
+- **Input Schema (`ManageIntakeQueueInput`):**
+  - `action`: `Literal["list", "retry", "cancel", "fix"]` (default `"list"`).
+  - `task_id`: `int | None` (default `None`). Task ID required for 'retry', 'cancel', or 'fix'.
+  - `fix_raw_text`: `str | None` (default `None`). Updated job text required when action='fix'.
+  - `limit`: `int` (ge=1, le=50, default `20`). Max tasks to list.
+- **Output:** JSON object containing execution result, task list, or action confirmation message.
+
+#### 6. `manage_action_items`
+- **Description:** Lists, completes, dismisses, or creates candidate tasks and action item deadlines.
+- **Input Schema (`ManageActionItemsInput`):**
+  - `action`: `Literal["list", "complete", "dismiss", "create"]` (default `"list"`).
+  - `item_id`: `int | None` (default `None`). Action item ID required for 'complete' or 'dismiss'.
+  - `urgency`: `str | None` (default `None`). Urgency filter or value ('HIGH', 'MEDIUM', 'LOW').
+  - `title`: `str | None` (default `None`). Task title required when action='create'.
+  - `due_date`: `str | None` (default `None`). Optional ISO due date string.
+  - `application_id`: `int | None` (default `None`). Optional target application ID.
+- **Output:** JSON object containing list of action items or action result confirmation.
+
+#### 7. `semantic_vector_search`
+- **Description:** Performs semantic cosine similarity search across `ApplicationEmbeddingModel`.
+- **Input Schema (`SemanticSearchInput`):**
+  - `query`: `str`. Search query text.
+  - `limit`: `int` (ge=1, le=10, default `5`). Max matches to return.
+- **Output:** JSON list of matching documents: `[{"application_id": int, "company": str, "position": str, "status": str, "similarity_score": str, "document_content": str, "metadata": dict}]`.
+- **Fallback Behavior:** If `ENABLE_EMBEDDINGS` system setting is `False`, falls back to fast SQL keyword ILIKE filtering across company names, positions, and statuses, returning `"similarity_score": "Keyword Match (Fast)"` and `{"fallback": True}` metadata.
+
+#### 8. `update_application_pipeline`
+- **Description:** Updates application pipeline status, creates a timeline event (`source_channel="AGENT"`), and refreshes vector embeddings.
+- **Input Schema (`UpdateApplicationPipelineInput`):**
+  - `company_or_id`: `str`. Company name or numeric Application ID.
+  - `new_status`: `str`. Status: `APPLIED`, `TECHNICAL_INTERVIEW`, `OFFER`, `REJECTED`, `ASSESSMENT`, or `HIRED`.
+  - `notes`: `str | None` (default `None`). Transition explanation.
+  - `event_type`: `str` (default `"STATUS_CHANGE"`). Timeline event type.
+- **Output:** JSON object: `{"success": bool, "application_id": int, "company": str, "old_status": str, "new_status": str, "message": str}`.
+
+#### 9. `list_applications` (Retained Helper)
+- **Description:** Lists job applications directly from the database with status or action-required filtering.
+- **Input Schema (`ListApplicationsInput`):**
+  - `status`: `str | None` (default `None`).
+  - `action_required_only`: `bool` (default `False`).
+  - `limit`: `int` (ge=1, le=50, default `20`).
+- **Output:** JSON list of applications with ID, company, position, status, and activity dates.
+
+#### 10. `get_application_details` (Retained Helper)
+- **Description:** Retrieves chronological timeline events, recruiter emails, and action items for an application.
+- **Input Schema (`ApplicationDetailsInput`):**
+  - `company_or_id`: `str`. Company name or numeric Application ID.
+- **Output:** JSON object containing application details, full events history array, and action items array.
 
 ---
 
