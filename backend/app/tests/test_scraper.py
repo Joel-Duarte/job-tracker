@@ -9,9 +9,56 @@ from app.services.scraper import (
     _scrape_via_camofox,
     _scrape_via_http_fallback,
     clean_extracted_text,
+    has_job_content_keywords,
     scrape_job_url,
+    validate_job_content,
     validate_target_url,
 )
+
+
+def test_validate_job_content_multi_language():
+    # English
+    en_text = "We are seeking a Senior Developer. Requirements: Python and SQL. Responsibilities include system architecture."
+    assert validate_job_content(en_text, min_matches=2) is True
+
+    # German
+    de_text = "Wir suchen einen Entwickler. Anforderungen: Erfahrung mit Python. Aufgaben: Entwicklung von Backend-Systemen."
+    assert validate_job_content(de_text, min_matches=2) is True
+
+    # French
+    fr_text = "Nous recherchons un ingénieur. Exigences: expérience en Python. Qualifications requises pour le poste."
+    assert validate_job_content(fr_text, min_matches=2) is True
+
+    # Spanish
+    es_text = "Buscamos un desarrollador. Requisitos: experiencia comprobable. Responsabilidades del puesto."
+    assert validate_job_content(es_text, min_matches=2) is True
+
+    # Portuguese
+    pt_text = "Procuramos um desenvolvedor. Requisitos: experiência prévia. Responsabilidades do cargo."
+    assert validate_job_content(pt_text, min_matches=2) is True
+
+    # Italian
+    it_text = "Cerciamo uno sviluppatore. Requisiti: esperienza con Python. Mansioni e responsabilità."
+    assert validate_job_content(it_text, min_matches=2) is True
+
+    # Polish
+    pl_text = "Poszukujemy programisty. Wymagania: doświadczenie w Pythonie. Obowiązki na stanowisku."
+    assert validate_job_content(pl_text, min_matches=2) is True
+
+    # Swedish
+    se_text = "Vi söker en utvecklare. Krav: erfarenhet av Python. Ansvar och arbetsuppgifter."
+    assert validate_job_content(se_text, min_matches=2) is True
+
+    # Non-job / Invalid
+    invalid_text = "Welcome to our homepage! Read our blog posts and company news here."
+    assert validate_job_content(invalid_text, min_matches=2) is False
+
+    # Empty string
+    assert validate_job_content("", min_matches=2) is False
+
+    # Test backward compatibility alias
+    assert has_job_content_keywords(en_text, min_matches=2) is True
+    assert has_job_content_keywords(invalid_text, min_matches=2) is False
 
 
 def test_clean_extracted_text():

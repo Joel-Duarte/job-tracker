@@ -297,6 +297,97 @@ async def assess_job_posting(
     return result
 
 
+async def generate_cover_letter(
+    db: AsyncSession,
+    company_name: str,
+    position: str,
+    job_description: str,
+    candidate_cv: str,
+    tone: str | None = "professional",
+    length: str | None = None,
+    custom_instructions: str | None = None,
+) -> str:
+    """
+    Generates a tailored cover letter using the COVER_LETTER task type and PostgresTracer.
+    Returns the cover letter markdown string.
+    """
+    from app.core.config_manager import get_setting
+
+    cleaned_jd = truncate_text_semantically(job_description)
+    cleaned_cv = truncate_text_semantically(candidate_cv)
+    tone_str = (tone or "professional").strip().lower()
+
+    if not length:
+        length = await get_setting("COVER_LETTER_LENGTH", "standard", db=db)
+    length_code = str(length or "standard").strip().lower()
+
+    length_map = {
+        "concise": "Concise (~150 words)",
+        "standard": "Standard (~300 words)",
+        "detailed": "Detailed (~450 words)",
+    }
+    length_formatted = length_map.get(length_code, f"{length_code.capitalize()} length")
+
+    instructions_str = (
+        f"\nCustom User Instructions: {custom_instructions.strip()}"
+        if custom_instructions and custom_instructions.strip()
+        else ""
+    )
+
+    async with trace_operation(
+        category="llm",
+        name="generate_cover_letter",
+        inputs={
+            "company_name": company_name,
+            "position": position,
+            "tone": tone_str,
+            "length": length_code,
+            "jd_length": len(cleaned_jd),
+            "cv_length": len(cleaned_cv),
+        },
+        db=db,
+    ) as trace_ctx:
+        llm = await get_task_chat_model(db, task_type="COVER_LETTER", temperature=0.3)
+        template_str = await get_prompt_template(db, "cover_letter")
+
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    (
+                        "You are an expert executive resume and cover letter writer. "
+                        "Write a compelling, professional cover letter tailored to the target role and company using the candidate's CV. "
+                        "Never hallucinate experience or skills not present in the CV."
+                    ),
+                ),
+                ("human", template_str),
+            ]
+        )
+
+        chain = prompt | llm
+        response = await chain.ainvoke(
+            {
+                "company_name": company_name or "Target Company",
+                "position": position or "Target Role",
+                "job_description": cleaned_jd or "No detailed description provided.",
+                "candidate_cv": cleaned_cv or "No CV provided.",
+                "tone": tone_str,
+                "length": length_formatted,
+                "custom_instructions": instructions_str,
+            },
+            config={"callbacks": [PostgresTracer()]},
+        )
+
+        content = response.content if hasattr(response, "content") else str(response)
+        if isinstance(content, list):
+            content = "".join(
+                [c.get("text", "") if isinstance(c, dict) else str(c) for c in content]
+            )
+
+        trace_ctx["outputs"] = {"cover_letter_length": len(content)}
+        return content.strip()
+
+
 async def anonymize_and_parse_cv(
     db: AsyncSession, raw_cv_text: str
 ) -> CVAnonymizationResult:

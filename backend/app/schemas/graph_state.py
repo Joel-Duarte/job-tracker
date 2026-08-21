@@ -11,6 +11,7 @@ class JobTrackerState(TypedDict, total=False):
     received_at: str | None
 
     # Processing metadata & flags
+    task_id: int | None
     is_duplicate: bool
     is_application: bool
     error: str | None
@@ -34,3 +35,4 @@ class JobTrackerState(TypedDict, total=False):
     staging_item_id: int | None
     event_id: int | None
     embedding_created: bool
+    cover_letter_status: str | None

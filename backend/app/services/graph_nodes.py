@@ -1,23 +1,28 @@
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from rapidfuzz import fuzz
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm.attributes import flag_modified
 
 import app.services.llm as llm_service
+from app.core.config_manager import get_setting
+from app.core.url_utils import normalize_job_url
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
     CompanyModel,
     OtherEventModel,
 )
+from app.models.candidate_profile import CandidateCVModel
+from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.models.processed_email import ProcessedEmailModel
 from app.models.staging import StagingItemModel
 from app.schemas.graph_state import JobTrackerState
-from app.services.llm import generate_and_save_application_embedding
 
 logger = logging.getLogger(__name__)
 STAGING_MATCH_THRESHOLD = 0.75
@@ -142,13 +147,16 @@ async def extraction_node(
     pos_clean = None if (not pos or pos == "unknownPosition") else pos
     comp = extracted_dict.get("company")
 
+    raw_job_url = extracted_dict.get("job_url")
+    clean_job_url = normalize_job_url(raw_job_url) if raw_job_url else None
+
     is_app = (email_type == "JOB_APPLICATION") or bool(comp and pos_clean)
     return {
         "extracted_data": extracted_dict,
         "is_application": is_app,
         "company_name": comp,
         "position_name": pos_clean,
-        "job_url": extracted_dict.get("job_url"),
+        "job_url": clean_job_url,
         "route": "match" if is_app else "other_event",
     }
 
@@ -295,7 +303,7 @@ async def staging_node(
 async def scrape_enrich_node(
     state: JobTrackerState, config: RunnableConfig
 ) -> dict[str, Any]:
-    job_url = state.get("job_url")
+    job_url = normalize_job_url(state.get("job_url"))
     scraped_text = None
     if job_url:
         logger.info("External job URL detected: %s. Scrape hook triggered.", job_url)
@@ -378,12 +386,13 @@ async def db_commit_node(
     status_val = stage_mapping.get(raw_status, "APPLIED")
 
     if not application_id:
+        raw_job_url = extracted.get("job_url") or state.get("job_url")
         application = ApplicationModel(
             company_id=company_id,
             position=position,
             position_normalized=position.strip().lower(),
             external_job_id=extracted.get("external_job_id"),
-            job_url=extracted.get("job_url"),
+            job_url=normalize_job_url(raw_job_url) if raw_job_url else None,
             status=status_val,
         )
         db.add(application)
@@ -431,28 +440,136 @@ async def db_commit_node(
 async def summarize_embed_node(
     state: JobTrackerState, config: RunnableConfig
 ) -> dict[str, Any]:
+    # Vector embeddings are deferred during raw intake workflows and generated strictly during application lifecycle management events.
+    return {"embedding_created": False, "reason": "deferred_intake"}
+
+
+async def cover_letter_node(
+    state: JobTrackerState, config: RunnableConfig
+) -> dict[str, Any]:
     db = _get_db(config)
     application_id = state.get("application_id")
 
-    if application_id:
-        # Only synthesize and save embeddings if the application has moved beyond ASSESSMENT
-        app_stmt = select(ApplicationModel.status).where(
-            ApplicationModel.id == application_id
+    if not application_id:
+        return {"cover_letter_status": "SKIPPED"}
+
+    enable_auto = await get_setting("ENABLE_AUTO_COVER_LETTER", False, db=db)
+    threshold = await get_setting("COVER_LETTER_MATCH_THRESHOLD", 70, db=db)
+
+    raw_score = state.get("match_score") or 0.0
+    score_pct = raw_score * 100.0 if (0.0 <= raw_score <= 1.0) else raw_score
+
+    # Query application record
+    stmt = (
+        select(ApplicationModel)
+        .options(
+            joinedload(ApplicationModel.company),
+            selectinload(ApplicationModel.job_posting),
         )
-        app_res = await db.execute(app_stmt)
-        app_status = app_res.scalar_one_or_none()
+        .where(ApplicationModel.id == application_id)
+    )
+    res = await db.execute(stmt)
+    application = res.scalar_one_or_none()
 
-        if app_status and app_status != "ASSESSMENT":
+    if not application:
+        return {"cover_letter_status": "SKIPPED"}
+
+    # If match_score wasn't provided or was 0, check application.match_analysis_payload fit_score
+    if raw_score == 0.0 and application.match_analysis_payload:
+        payload_score = application.match_analysis_payload.get(
+            "fit_score"
+        ) or application.match_analysis_payload.get("overall_fit_score")
+        if payload_score is not None:
             try:
-                await generate_and_save_application_embedding(db, application_id)
-                return {"embedding_created": True}
-            except Exception as err:
-                logger.warning(
-                    "Embedding synthesis deferred for application %s: %s",
-                    application_id,
-                    err,
-                )
-        else:
-            return {"embedding_created": False, "reason": "assessment_status"}
+                fit_val = float(payload_score)
+                score_pct = fit_val * 100.0 if (0.0 <= fit_val <= 1.0) else fit_val
+            except (ValueError, TypeError):
+                pass
 
-    return {"embedding_created": False}
+    if enable_auto and score_pct >= threshold:
+        # Fetch active candidate CV
+        cv_stmt = (
+            select(CandidateCVModel)
+            .where(CandidateCVModel.is_active.is_(True))
+            .limit(1)
+        )
+        cv_res = await db.execute(cv_stmt)
+        active_cv = cv_res.scalars().first()
+        if not active_cv:
+            cv_stmt_fallback = select(CandidateCVModel).limit(1)
+            cv_res_fallback = await db.execute(cv_stmt_fallback)
+            active_cv = cv_res_fallback.scalars().first()
+
+        cv_text = (active_cv.anonymized_text or active_cv.raw_text) if active_cv else ""
+
+        company_name = (
+            application.company.name
+            if application.company
+            else (state.get("company_name") or "")
+        )
+        position_name = application.position or state.get("position_name") or ""
+        job_desc = (
+            application.job_posting.description_markdown
+            if application.job_posting and application.job_posting.description_markdown
+            else (state.get("scraped_spec") or state.get("body") or "")
+        )
+
+        try:
+            letter_text = await llm_service.generate_cover_letter(
+                db,
+                company_name=company_name,
+                position=position_name,
+                job_description=job_desc,
+                candidate_cv=cv_text,
+            )
+            application.cover_letter_text = letter_text
+            application.cover_letter_status = "GENERATED"
+            application.cover_letter_generated_at = datetime.now(UTC)
+            await db.commit()
+            cl_status = "GENERATED"
+        except Exception as err:
+            logger.error(
+                "Failed to generate cover letter for application %s: %s",
+                application_id,
+                err,
+                exc_info=True,
+            )
+            application.cover_letter_status = "FAILED"
+            await db.commit()
+            cl_status = "FAILED"
+    else:
+        application.cover_letter_status = "SKIPPED"
+        await db.commit()
+        cl_status = "SKIPPED"
+
+    # Update corresponding IntakeEvaluationTaskModel task if present
+    task_id_input = state.get("task_id")
+    if task_id_input:
+        task_stmt = select(IntakeEvaluationTaskModel).where(
+            IntakeEvaluationTaskModel.id == task_id_input
+        )
+        task_res = await db.execute(task_stmt)
+        task_record = task_res.scalar_one_or_none()
+        if task_record:
+            task_record.status = "COMPLETED"
+            task_record.stage = "COMPLETE"
+            res_payload = dict(task_record.result_json or {})
+            res_payload["cover_letter_status"] = cl_status
+            if cl_status == "GENERATED":
+                res_payload["cover_letter_note"] = (
+                    "Cover letter generated successfully."
+                )
+            elif cl_status == "FAILED":
+                res_payload["cover_letter_note"] = (
+                    "Cover letter generation failed during pipeline execution."
+                )
+            else:
+                res_payload["cover_letter_note"] = (
+                    f"Cover letter generation skipped (auto_enabled={enable_auto}, "
+                    f"score={score_pct:.1f}%, threshold={threshold}%)"
+                )
+            task_record.result_json = res_payload
+            flag_modified(task_record, "result_json")
+            await db.commit()
+
+    return {"cover_letter_status": cl_status}

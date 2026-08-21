@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import verify_admin_access
+from app.core.url_utils import normalize_job_url
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
@@ -38,6 +39,7 @@ from app.schemas.intake import (
     DirectEmailIntakeRequest,
     EmailPayload,
     EnqueueAssessmentRequest,
+    FixJDRequest,
     IntakeEvaluationTaskResponse,
     IntakeResultResponse,
     PasteIntakeRequest,
@@ -96,21 +98,26 @@ async def intake_extension_url(
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Receives URL directly from browser extension send-url button and triggers AI assessment with fallback to Staging."""
+    clean_url = normalize_job_url(payload.url)
     try:
-        assess_req = AssessJobRequest(url=payload.url, text=payload.title)
+        assess_req = AssessJobRequest(url=clean_url, text=payload.title)
         return await assess_job_lead(assess_req, db=db)
     except Exception as err:
         logger.warning(
             "Direct extension URL scrape failed for %s: %s. Routing to staging queue.",
-            payload.url,
+            clean_url or payload.url,
             err,
         )
         from app.models.staging import StagingItemModel
 
         staging_item = StagingItemModel(
-            email_subject=payload.title or f"Extension URL Lead: {payload.url[:60]}",
-            email_raw_body=f"URL: {payload.url}\nTitle: {payload.title or 'N/A'}",
-            extracted_data={"job_url": payload.url, "title": payload.title},
+            email_subject=payload.title
+            or f"Extension URL Lead: {(clean_url or payload.url)[:60]}",
+            email_raw_body=f"URL: {clean_url or payload.url}\nTitle: {payload.title or 'N/A'}",
+            extracted_data={
+                "job_url": clean_url or payload.url,
+                "title": payload.title,
+            },
             match_score=0.0,
             match_reason="SCRAPE_FAILED",
             status="PENDING",
@@ -121,8 +128,8 @@ async def intake_extension_url(
         return {
             "status": "staged",
             "staging_item_id": staging_item.id,
-            "message": f"Automated scrape was protected or unavailable for '{payload.url}'. Saved to Staging Queue for review.",
-            "url": payload.url,
+            "message": f"Automated scrape was protected or unavailable for '{clean_url or payload.url}'. Saved to Staging Queue for review.",
+            "url": clean_url or payload.url,
         }
 
 
@@ -352,14 +359,15 @@ async def assess_job_lead(
     db: AsyncSession = Depends(get_db),
 ) -> JobAssessmentResult:
     """Pre-screens a job lead (via URL or pasted JD text) using AI assessment."""
+    clean_url = normalize_job_url(payload.url)
     content = payload.text
     if not content and payload.raw_html:
         from app.routers.extension import _extract_text_from_html
 
         content = _extract_text_from_html(payload.raw_html)
 
-    if not content and payload.url:
-        scraped = await scrape_job_url(payload.url)
+    if not content and clean_url:
+        scraped = await scrape_job_url(clean_url)
         if scraped.text:
             content = scraped.text
 
@@ -424,7 +432,7 @@ async def assess_job_lead(
         db=db,
         assessment=assessment,
         raw_text=content,
-        job_url=payload.url,
+        job_url=clean_url,
         force_new=False,
         target_status="ASSESSMENT",
         structured_spec=spec_dict,
@@ -446,12 +454,13 @@ async def confirm_job_assessment(
     """Commits an assessed job lead to the application pipeline in ASSESSMENT or APPLIED status."""
     comp_norm = payload.company.strip().lower()
     position_norm = payload.position.strip().lower()
+    clean_job_url = normalize_job_url(payload.job_url)
     now = datetime.now(UTC)
 
     # 1. Company
     resolved_domain = await resolve_company_domain(
         company_name=payload.company.strip(),
-        source_url=payload.job_url,
+        source_url=clean_job_url,
     )
     stmt = select(CompanyModel).where(CompanyModel.name_normalized == comp_norm)
     res = await db.execute(stmt)
@@ -488,7 +497,7 @@ async def confirm_job_assessment(
             position=payload.position.strip(),
             position_normalized=position_norm,
             status=payload.status or "ASSESSMENT",
-            job_url=payload.job_url,
+            job_url=clean_job_url,
             application_date=now,
             last_activity_at=now,
             match_analysis_payload=payload.match_analysis_payload,
@@ -498,8 +507,8 @@ async def confirm_job_assessment(
     else:
         if payload.status:
             app_record.status = payload.status
-        if payload.job_url and not app_record.job_url:
-            app_record.job_url = payload.job_url
+        if clean_job_url and not app_record.job_url:
+            app_record.job_url = clean_job_url
         app_record.last_activity_at = now
         if payload.match_analysis_payload:
             app_record.match_analysis_payload = payload.match_analysis_payload
@@ -514,7 +523,7 @@ async def confirm_job_assessment(
     if not job_posting:
         job_posting = JobPostingModel(
             application_id=app_record.id,
-            job_url=payload.job_url or f"lead-{uuid.uuid4().hex[:8]}",
+            job_url=clean_job_url or f"lead-{uuid.uuid4().hex[:8]}",
             description_markdown=payload.description_markdown,
             salary_min=payload.salary_min,
             salary_max=payload.salary_max,
@@ -559,13 +568,7 @@ async def confirm_job_assessment(
     await db.refresh(app_record)
     await db.refresh(event)
 
-    # 5. Generate Vector Embedding in isolated background task (Deferred if still in ASSESSMENT stage)
-    if app_record.status != "ASSESSMENT":
-        from app.services.llm import async_enqueue_application_embedding
-
-        background_tasks.add_task(
-            async_enqueue_application_embedding, app_record.id, skip_llm_summary=True
-        )
+    # 5. Vector embedding generation is deferred during intake confirm-assessment; enqueued during application lifecycle events.
 
     return IntakeResultResponse(
         status="success",
@@ -813,7 +816,7 @@ async def enqueue_job_assessment(
     Enqueues a job lead evaluation task into PostgreSQL for continuous intake UX.
     The background worker executes the 4-stage pipeline respecting provider concurrency limits.
     """
-    url_clean = payload.url.strip() if payload.url else None
+    url_clean = normalize_job_url(payload.url)
     text_clean = payload.text.strip() if payload.text else None
 
     if not url_clean and not text_clean:
@@ -909,6 +912,35 @@ async def clear_completed_evaluations(
 
 
 @router.post(
+    "/evaluations/{task_id}/cancel",
+    response_model=IntakeEvaluationTaskResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def cancel_evaluation_task(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> IntakeEvaluationTaskResponse:
+    """
+    Cancels an active evaluation task (QUEUED or PROCESSING), setting status to CANCELLED
+    with an explanatory error message.
+    """
+    task = await db.get(IntakeEvaluationTaskModel, task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Evaluation task {task_id} not found.",
+        )
+
+    task.status = "FAILED"
+    task.stage = "FAILED"
+    task.error_message = "Task stopped by user"
+    task.completed_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(task)
+    return task
+
+
+@router.post(
     "/evaluations/{task_id}/retry",
     response_model=IntakeEvaluationTaskResponse,
     status_code=status.HTTP_200_OK,
@@ -919,8 +951,8 @@ async def retry_evaluation_task(
     db: AsyncSession = Depends(get_db),
 ) -> IntakeEvaluationTaskResponse:
     """
-    Retries a failed or cancelled evaluation task by resetting its state
-    and re-dispatching to the background worker.
+    Retries a failed or cancelled evaluation task by setting status to QUEUED
+    while preserving intermediate checkpoints in result_json to allow resuming.
     """
     task = await db.get(IntakeEvaluationTaskModel, task_id)
     if not task:
@@ -930,7 +962,53 @@ async def retry_evaluation_task(
         )
 
     task.status = "QUEUED"
-    task.stage = "FETCHING" if task.task_type != "CV_EXTRACTION" else "SCRUBBING"
+    if not task.stage or task.stage in ["FAILED", "CANCELLED", "QUEUED"]:
+        task.stage = "FETCHING" if task.task_type != "CV_EXTRACTION" else "SCRUBBING"
+    task.error_message = None
+    task.completed_at = None
+    task.created_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(task)
+
+    background_tasks.add_task(process_evaluation_task, task_id=task.id)
+    return task
+
+
+@router.post(
+    "/evaluations/{task_id}/fix-jd",
+    response_model=IntakeEvaluationTaskResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def fix_jd_evaluation_task(
+    task_id: int,
+    payload: FixJDRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> IntakeEvaluationTaskResponse:
+    """
+    Updates the raw job description text (and optional URL) for a failed or errored job evaluation task,
+    resets its state to QUEUED, and re-dispatches worker execution to bypass automatic scraping.
+    """
+    task = await db.get(IntakeEvaluationTaskModel, task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Evaluation task {task_id} not found.",
+        )
+
+    raw_text_clean = payload.raw_text.strip()
+    if not raw_text_clean:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provided job description text cannot be empty.",
+        )
+
+    task.raw_text = raw_text_clean
+    if payload.job_url is not None:
+        task.job_url = payload.job_url.strip() or None
+
+    task.status = "QUEUED"
+    task.stage = "EXTRACTING"
     task.error_message = None
     task.result_json = None
     task.completed_at = None
@@ -954,7 +1032,7 @@ async def bulk_retry_evaluation_tasks(
     db: AsyncSession = Depends(get_db),
 ) -> BulkTaskActionResult:
     """
-    Bulk retries AI queue evaluation tasks by resetting state and re-dispatching worker execution.
+    Bulk retries AI queue evaluation tasks by preserving intermediate checkpoints and re-dispatching worker execution.
     Only tasks in FAILED or CANCELLED status are retried; others are skipped.
     """
     async with trace_operation(
@@ -1004,11 +1082,11 @@ async def bulk_retry_evaluation_tasks(
                 continue
 
             task.status = "QUEUED"
-            task.stage = (
-                "FETCHING" if task.task_type != "CV_EXTRACTION" else "SCRUBBING"
-            )
+            if not task.stage or task.stage in ["FAILED", "CANCELLED", "QUEUED"]:
+                task.stage = (
+                    "FETCHING" if task.task_type != "CV_EXTRACTION" else "SCRUBBING"
+                )
             task.error_message = None
-            task.result_json = None
             task.completed_at = None
             task.created_at = datetime.now(UTC)
 

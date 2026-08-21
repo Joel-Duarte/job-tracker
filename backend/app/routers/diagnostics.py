@@ -1,6 +1,7 @@
 import json
 import zipfile
 from collections import defaultdict
+from datetime import datetime
 from io import BytesIO
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -107,14 +108,42 @@ def _extract_tracer_task_name(
     return name
 
 
+def _parse_filter_datetime(dt_str: str, is_end_of_day: bool = False) -> datetime | None:
+    if not dt_str or not dt_str.strip():
+        return None
+    cleaned = dt_str.strip()
+    try:
+        # Handle simple date YYYY-MM-DD
+        if len(cleaned) == 10 and "T" not in cleaned:
+            if is_end_of_day:
+                cleaned += "T23:59:59.999999"
+            else:
+                cleaned += "T00:00:00"
+        return datetime.fromisoformat(cleaned)
+    except ValueError:
+        return None
+
+
 @router.get("/traces")
 async def get_traces(
-    limit: int = 50,
+    limit: int = 100,
     offset: int = 0,
     errors_only: bool = False,
+    status: str | None = Query(
+        None,
+        description="Filter status: 'all', 'success', or 'error'",
+    ),
     category: str | None = Query(
         None,
         description="Filter traces by category (e.g. llm, scraper, email_sync, worker, embedding)",
+    ),
+    start_date: str | None = Query(
+        None,
+        description="Filter traces starting from timestamp (ISO format or YYYY-MM-DD)",
+    ),
+    end_date: str | None = Query(
+        None,
+        description="Filter traces up to timestamp (ISO format or YYYY-MM-DD)",
     ),
     db: AsyncSession = Depends(get_db),
 ):
@@ -123,10 +152,25 @@ async def get_traces(
     if category and category.strip() and category.lower() != "all":
         stmt = stmt.where(TraceEventModel.category == category.lower())
 
-    if errors_only:
-        from sqlalchemy import text
+    from sqlalchemy import text
 
+    normalized_status = (status or "").strip().lower()
+    if errors_only or normalized_status == "error":
         stmt = stmt.where(text("payload ? 'error' AND payload->>'error' IS NOT NULL"))
+    elif normalized_status == "success":
+        stmt = stmt.where(
+            text("NOT (payload ? 'error' AND payload->>'error' IS NOT NULL)")
+        )
+
+    if start_date:
+        parsed_start = _parse_filter_datetime(start_date, is_end_of_day=False)
+        if parsed_start:
+            stmt = stmt.where(TraceEventModel.timestamp >= parsed_start)
+
+    if end_date:
+        parsed_end = _parse_filter_datetime(end_date, is_end_of_day=True)
+        if parsed_end:
+            stmt = stmt.where(TraceEventModel.timestamp <= parsed_end)
 
     stmt = stmt.limit(limit).offset(offset)
     result = await db.execute(stmt)

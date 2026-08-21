@@ -5,6 +5,7 @@ import { useUIStore } from '../stores/uiStore'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useQueueStore } from '../stores/queueStore'
 import { IntakeAPI } from '../api/endpoints'
+import { getFitScores } from '../utils/fitScores'
 import {
   Sparkles,
   Link as LinkIcon,
@@ -92,6 +93,15 @@ const loadingEvaluations = computed(() => queueStore.loading)
 const expandedTaskIds = ref(new Set())
 const processingTaskIds = ref(new Set())
 let pollTimer = null
+
+function openCoverLetterModalForTask(task) {
+  const appId = task.result_json?.application_id
+  if (appId) {
+    uiStore.openCoverLetterModal(appId)
+  } else {
+    uiStore.showToast('Application ID missing. Confirm application first.', 'warning')
+  }
+}
 
 // Computed Lists
 const selectedTaskIds = ref(new Set())
@@ -215,7 +225,7 @@ const filteredReadyEvaluations = computed(() => {
   if (minFitFilter.value !== null && minFitFilter.value > 0) {
     const targetMin = Number(minFitFilter.value)
     list = list.filter((t) => {
-      const score = t.result_json?.match_score ?? t.result_json?.fit_score ?? 0
+      const score = getFitScores(t).aiScore ?? 0
       return Number(score) >= targetMin
     })
   }
@@ -224,7 +234,7 @@ const filteredReadyEvaluations = computed(() => {
   if (maxMatchFilter.value !== null && maxMatchFilter.value < 100) {
     const targetMax = Number(maxMatchFilter.value)
     list = list.filter((t) => {
-      const score = t.result_json?.match_score ?? t.result_json?.fit_score ?? 0
+      const score = getFitScores(t).aiScore ?? 0
       return Number(score) <= targetMax
     })
   }
@@ -232,8 +242,8 @@ const filteredReadyEvaluations = computed(() => {
   // Sorting
   list.sort((a, b) => {
     if (sortBy.value === 'match_score') {
-      const scoreA = Number(a.result_json?.match_score ?? a.result_json?.fit_score ?? 0)
-      const scoreB = Number(b.result_json?.match_score ?? b.result_json?.fit_score ?? 0)
+      const scoreA = Number(getFitScores(a).aiScore ?? 0)
+      const scoreB = Number(getFitScores(b).aiScore ?? 0)
       return scoreB - scoreA
     } else if (sortBy.value === 'company') {
       const compA = (a.result_json?.company || a.title_hint || '').toLowerCase()
@@ -267,7 +277,7 @@ const filteredPassedEvaluations = computed(() => {
   if (minFitFilter.value !== null && minFitFilter.value > 0) {
     const targetMin = Number(minFitFilter.value)
     list = list.filter((t) => {
-      const score = t.result_json?.match_score ?? t.result_json?.fit_score ?? 0
+      const score = getFitScores(t).aiScore ?? 0
       return Number(score) >= targetMin
     })
   }
@@ -276,7 +286,7 @@ const filteredPassedEvaluations = computed(() => {
   if (maxMatchFilter.value !== null && maxMatchFilter.value < 100) {
     const targetMax = Number(maxMatchFilter.value)
     list = list.filter((t) => {
-      const score = t.result_json?.match_score ?? t.result_json?.fit_score ?? 0
+      const score = getFitScores(t).aiScore ?? 0
       return Number(score) <= targetMax
     })
   }
@@ -284,8 +294,8 @@ const filteredPassedEvaluations = computed(() => {
   // Sorting
   list.sort((a, b) => {
     if (sortBy.value === 'match_score') {
-      const scoreA = Number(a.result_json?.match_score ?? a.result_json?.fit_score ?? 0)
-      const scoreB = Number(b.result_json?.match_score ?? b.result_json?.fit_score ?? 0)
+      const scoreA = Number(getFitScores(a).aiScore ?? 0)
+      const scoreB = Number(getFitScores(b).aiScore ?? 0)
       return scoreB - scoreA
     } else if (sortBy.value === 'company') {
       const compA = (a.result_json?.company || a.title_hint || '').toLowerCase()
@@ -302,7 +312,7 @@ const filteredPassedEvaluations = computed(() => {
 const averageFitScore = computed(() => {
   if (readyEvaluations.value.length === 0) return 0
   const total = readyEvaluations.value.reduce((acc, t) => {
-    return acc + Number(t.result_json?.match_score ?? t.result_json?.fit_score ?? 0)
+    return acc + Number(getFitScores(t).aiScore ?? 0)
   }, 0)
   return Math.round(total / readyEvaluations.value.length)
 })
@@ -661,11 +671,17 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <!-- Fit Score Gauge -->
+            <!-- Side-by-Side Fit Score Badges: Programmatic Overlap + AI Gauge -->
             <div class="eval-fit-container">
-              <div class="fit-gauge" :class="getFitBadgeClass(task.result_json?.match_score ?? task.result_json?.fit_score ?? 0)">
-                <span class="fit-val">{{ task.result_json?.match_score ?? task.result_json?.fit_score ?? 0 }}%</span>
-                <span class="fit-lbl">{{ getFitLabel(task.result_json?.match_score ?? task.result_json?.fit_score ?? 0) }}</span>
+              <div class="scores-side-by-side">
+                <div class="score-badge-card algo-card">
+                  <span class="score-badge-val font-mono">{{ getFitScores(task).computedText }}</span>
+                  <span class="score-badge-lbl">Algo Overlap</span>
+                </div>
+                <div class="fit-gauge" :class="getFitBadgeClass(getFitScores(task).aiScore ?? 0)">
+                  <span class="fit-val">{{ getFitScores(task).aiText }}</span>
+                  <span class="fit-lbl">{{ getFitLabel(getFitScores(task).aiScore ?? 0) }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -833,6 +849,36 @@ onUnmounted(() => {
               </button>
 
               <button
+                v-if="task.result_json?.cover_letter_text || ['GENERATED', 'DRAFTED'].includes(task.result_json?.cover_letter_status)"
+                class="btn btn-secondary btn-sm"
+                @click="openCoverLetterModalForTask(task)"
+                title="View & Edit Cover Letter"
+              >
+                <FileText :size="14" class="text-primary" />
+                <span>See Cover Letter</span>
+              </button>
+
+              <button
+                v-else-if="task.result_json?.cover_letter_status === 'QUEUED' || task.result_json?.cover_letter_status === 'GENERATING'"
+                class="btn btn-secondary btn-sm"
+                disabled
+                title="Cover letter generation in progress in AI Queue"
+              >
+                <Loader2 class="animate-spin text-primary" :size="14" />
+                <span>Queued in AI Queue...</span>
+              </button>
+
+              <button
+                v-else
+                class="btn btn-secondary btn-sm"
+                @click="openCoverLetterModalForTask(task)"
+                title="Draft a tailored cover letter using CV profile"
+              >
+                <Sparkles :size="14" />
+                <span>Draft Cover Letter</span>
+              </button>
+
+              <button
                 class="btn btn-primary btn-sm"
                 :disabled="processingTaskIds.has(task.id)"
                 @click="markAsApplied(task)"
@@ -966,11 +1012,17 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <!-- Fit Score Gauge -->
+            <!-- Side-by-Side Fit Score Badges: Programmatic Overlap + AI Gauge -->
             <div class="eval-fit-container">
-              <div class="fit-gauge" :class="getFitBadgeClass(task.result_json?.match_score ?? task.result_json?.fit_score ?? 0)">
-                <span class="fit-val">{{ task.result_json?.match_score ?? task.result_json?.fit_score ?? 0 }}%</span>
-                <span class="fit-lbl">{{ getFitLabel(task.result_json?.match_score ?? task.result_json?.fit_score ?? 0) }}</span>
+              <div class="scores-side-by-side">
+                <div class="score-badge-card algo-card">
+                  <span class="score-badge-val font-mono">{{ getFitScores(task).computedText }}</span>
+                  <span class="score-badge-lbl">Algo Overlap</span>
+                </div>
+                <div class="fit-gauge" :class="getFitBadgeClass(getFitScores(task).aiScore ?? 0)">
+                  <span class="fit-val">{{ getFitScores(task).aiText }}</span>
+                  <span class="fit-lbl">{{ getFitLabel(getFitScores(task).aiScore ?? 0) }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -1087,6 +1139,7 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
     <!-- Batch Actions Floating Bar -->
     <Transition name="slide-up">
       <div v-if="selectedTaskIds.size > 0" class="batch-actions-bar">
@@ -1459,6 +1512,46 @@ onUnmounted(() => {
   font-size: 17px;
   font-weight: 700;
   color: var(--text-main);
+}
+
+.scores-side-by-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.score-badge-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  min-width: 75px;
+}
+
+.algo-card {
+  background-color: var(--bg-surface);
+  border-color: var(--border-color);
+}
+
+.score-badge-val {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-main);
+  line-height: 1;
+}
+
+.score-badge-lbl {
+  font-size: 8.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 3px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
 }
 
 .fit-gauge {

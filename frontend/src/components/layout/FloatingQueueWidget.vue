@@ -16,6 +16,7 @@ import {
   Briefcase,
   UserCheck,
   Layers,
+  Edit3,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -26,6 +27,56 @@ const queueStore = useQueueStore()
 const isOpen = ref(false)
 const retryingTaskIds = ref(new Set())
 const widgetContainerRef = ref(null)
+
+// Fix JD Modal State
+const showFixJDModal = ref(false)
+const activeFixJDTask = ref(null)
+const fixJDRawText = ref('')
+const fixJDJobUrl = ref('')
+const isSubmittingFixJD = ref(false)
+
+function isManualDescriptionEligible(task) {
+  if (!task || !task.error_message) return false
+  if (['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER'].includes(task.task_type)) return false
+  const msg = task.error_message.toUpperCase()
+  return (
+    msg.startsWith('SCRAPE_FAILED:') ||
+    msg.startsWith('INVALID_JOB_CONTENT:') ||
+    task.stage === 'FETCHING' ||
+    task.stage === 'SCRAPING'
+  )
+}
+
+function openFixJDModal(task) {
+  activeFixJDTask.value = task
+  fixJDRawText.value = task.raw_text || ''
+  fixJDJobUrl.value = task.job_url || ''
+  showFixJDModal.value = true
+}
+
+async function submitFixJD() {
+  if (!activeFixJDTask.value) return
+  if (!fixJDRawText.value.trim()) {
+    uiStore.showToast('Job description text cannot be empty', 'error')
+    return
+  }
+
+  isSubmittingFixJD.value = true
+  try {
+    await IntakeAPI.fixJDEvaluation(activeFixJDTask.value.id, {
+      raw_text: fixJDRawText.value,
+      job_url: fixJDJobUrl.value || null,
+    })
+    uiStore.showToast(`Job description updated for Task #${activeFixJDTask.value.id}. Processing restarted!`, 'success')
+    showFixJDModal.value = false
+    activeFixJDTask.value = null
+    await pollQueueStatus(true)
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to update job description', 'error')
+  } finally {
+    isSubmittingFixJD.value = false
+  }
+}
 
 let pollTimer = null
 
@@ -244,6 +295,16 @@ onUnmounted(() => {
 
                 <div class="failed-action-row">
                   <button
+                    v-if="isManualDescriptionEligible(task)"
+                    class="btn-inline-fix-jd"
+                    @click.stop="openFixJDModal(task)"
+                    :title="task.raw_text && task.raw_text.trim() ? 'Manually edit the job description text' : 'Manually supply the job description text'"
+                  >
+                    <Edit3 :size="11" />
+                    <span>{{ task.raw_text && task.raw_text.trim() ? 'Edit Description' : 'Provide Description' }}</span>
+                  </button>
+
+                  <button
                     class="btn-inline-retry"
                     :disabled="retryingTaskIds.has(task.id)"
                     @click.stop="retryTask(task.id)"
@@ -275,6 +336,63 @@ onUnmounted(() => {
         </div>
       </div>
     </Transition>
+
+    <!-- Manual Job Description Modal Dialog -->
+    <Teleport to="body">
+      <div v-if="showFixJDModal" class="modal-backdrop" @click.self="showFixJDModal = false">
+        <div class="modal-card modal-card-large animate-scale-in">
+          <div class="modal-header">
+            <Edit3 :size="20" class="text-primary flex-shrink-0" />
+            <h3 class="modal-title">
+              {{ activeFixJDTask?.raw_text && activeFixJDTask.raw_text.trim() ? 'Edit Job Description' : 'Provide Job Description' }} — Task #{{ activeFixJDTask?.id }}
+            </h3>
+          </div>
+          <div class="modal-body">
+            <p class="modal-subtext text-muted">
+              Supply or paste the full job description text below to retry evaluation without relying on automated web scraping.
+            </p>
+
+            <div class="form-group">
+              <label class="form-label">Job URL (Optional)</label>
+              <input
+                v-model="fixJDJobUrl"
+                type="url"
+                placeholder="https://company.com/careers/job"
+                class="form-input"
+              />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Job Description Text *</label>
+              <textarea
+                v-model="fixJDRawText"
+                rows="10"
+                placeholder="Paste complete job description, requirements, responsibilities, and qualifications here..."
+                class="form-textarea"
+              ></textarea>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button
+              class="btn btn-secondary btn-sm"
+              :disabled="isSubmittingFixJD"
+              @click="showFixJDModal = false"
+            >
+              Cancel
+            </button>
+            <button
+              class="btn btn-primary btn-sm"
+              :disabled="isSubmittingFixJD || !fixJDRawText.trim()"
+              @click="submitFixJD"
+            >
+              <Loader2 v-if="isSubmittingFixJD" class="animate-spin" :size="13" />
+              <RotateCcw v-else :size="13" />
+              <span>Save &amp; Retry Evaluation</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- Floating Queue Trigger -->
     <button
@@ -683,7 +801,7 @@ onUnmounted(() => {
   gap: 6px;
 }
 
-.btn-inline-retry {
+.btn-inline-fix-jd {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -698,13 +816,125 @@ onUnmounted(() => {
   transition: opacity var(--transition-fast);
 }
 
-.btn-inline-retry:hover:not(:disabled) {
+.btn-inline-fix-jd:hover {
   opacity: 0.9;
+}
+
+.btn-inline-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-inline-retry:hover:not(:disabled) {
+  background-color: var(--bg-elevated);
+  border-color: var(--primary);
 }
 
 .btn-inline-retry:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* Modal Backdrop & Dialog Styles */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  backdrop-filter: blur(4px);
+}
+
+.modal-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modal-card-large {
+  max-width: 600px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.modal-body {
+  font-size: 13px;
+  color: var(--text-main);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-subtext {
+  font-size: 12px;
+  margin: 0;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.form-input, .form-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  font-family: inherit;
+  transition: border-color var(--transition-fast);
+}
+
+.form-input:focus, .form-textarea:focus {
+  border-color: var(--primary);
+  outline: none;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .btn-inline-dismiss {

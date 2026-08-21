@@ -17,6 +17,7 @@ from app.models.applications import (
     CompanyModel,
     JobPostingModel,
 )
+from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.schemas.applications import (
     ActionItemDetail,
     AllowedApplicationStatus,
@@ -30,10 +31,14 @@ from app.schemas.applications import (
     BulkTransitionRequest,
     BulkTransitionResult,
     CompanySummary,
+    CoverLetterResponse,
+    CoverLetterUpdateRequest,
     EventSummary,
+    GenerateCoverLetterRequest,
     GenerateInterviewGuideRequest,
     JobPostingDetail,
 )
+from app.services.evaluation_worker import process_evaluation_task
 from app.services.interview_guide import (
     clear_interview_guide,
     generate_interview_guide,
@@ -273,6 +278,8 @@ async def list_applications(
                 last_activity_at=app.last_activity_at,
                 has_action_required=has_action,
                 has_interview_guide=bool(app.interview_guide_html),
+                has_cover_letter=bool(app.cover_letter_text),
+                cover_letter_status=app.cover_letter_status,
                 match_score=match_score,
                 match_analysis_payload=app.match_analysis_payload,
                 nearest_due_date=nearest_due,
@@ -514,10 +521,14 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
         last_activity_at=app.last_activity_at,
         has_action_required=has_action,
         has_interview_guide=bool(app.interview_guide_html),
+        has_cover_letter=bool(app.cover_letter_text),
         interview_guide_html=app.interview_guide_html,
         interview_guide_language=app.interview_guide_language,
         interview_guide_generated_at=app.interview_guide_generated_at,
         interview_guide_preferences=app.interview_guide_preferences,
+        cover_letter_text=app.cover_letter_text,
+        cover_letter_status=app.cover_letter_status,
+        cover_letter_generated_at=app.cover_letter_generated_at,
         match_score=match_score,
         match_analysis_payload=match_payload,
         nearest_due_date=nearest_due,
@@ -906,6 +917,201 @@ async def generate_app_interview_guide(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         )
+
+
+# --- Cover Letter Endpoints ---
+
+
+@router.get(
+    "/{application_id}/cover-letter",
+    response_model=CoverLetterResponse,
+    summary="Retrieve cover letter for an application",
+)
+async def get_cover_letter(
+    application_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(ApplicationModel).where(ApplicationModel.id == application_id)
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+
+    if not app:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
+        )
+
+    return CoverLetterResponse(
+        application_id=app.id,
+        cover_letter_text=app.cover_letter_text,
+        cover_letter_status=app.cover_letter_status,
+        cover_letter_generated_at=app.cover_letter_generated_at,
+    )
+
+
+@router.post(
+    "/{application_id}/cover-letter/generate",
+    response_model=CoverLetterResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Manually trigger or queue cover letter generation",
+)
+async def generate_app_cover_letter(
+    application_id: int,
+    background_tasks: BackgroundTasks,
+    payload: GenerateCoverLetterRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = (
+        select(ApplicationModel)
+        .where(ApplicationModel.id == application_id)
+        .options(
+            joinedload(ApplicationModel.company),
+            selectinload(ApplicationModel.job_posting),
+        )
+    )
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+
+    if not app:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
+        )
+
+    comp_name = app.company.name if app.company else "Company"
+    pos_name = app.position or "Position"
+    tone_val = payload.tone if payload else "professional"
+    length_val = payload.length if payload and payload.length else None
+    instructions_val = payload.custom_instructions if payload else None
+
+    # Enqueue task in AI Evaluation Queue
+    task_record = IntakeEvaluationTaskModel(
+        task_type="COVER_LETTER",
+        job_url=app.job_url,
+        raw_text=str(app.id),
+        title_hint=f"Cover Letter ({tone_val}): {comp_name} - {pos_name}",
+        status="QUEUED",
+        stage="QUEUED",
+        result_json={
+            "application_id": app.id,
+            "company": comp_name,
+            "position": pos_name,
+            "tone": tone_val,
+            "length": length_val,
+            "custom_instructions": instructions_val,
+        },
+    )
+    db.add(task_record)
+    app.cover_letter_status = "DRAFTED"
+    await db.commit()
+    await db.refresh(task_record)
+
+    background_tasks.add_task(process_evaluation_task, task_id=task_record.id)
+
+    return CoverLetterResponse(
+        application_id=app.id,
+        cover_letter_text=app.cover_letter_text,
+        cover_letter_status="QUEUED",
+        cover_letter_generated_at=app.cover_letter_generated_at,
+    )
+
+
+@router.patch(
+    "/{application_id}/cover-letter",
+    response_model=CoverLetterResponse,
+    summary="Manually update/edit cover letter text or status",
+)
+async def update_cover_letter(
+    application_id: int,
+    payload: CoverLetterUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(ApplicationModel).where(ApplicationModel.id == application_id)
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+
+    if not app:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
+        )
+
+    if payload.cover_letter_text is not None:
+        app.cover_letter_text = payload.cover_letter_text
+    if payload.cover_letter_status is not None:
+        app.cover_letter_status = payload.cover_letter_status
+
+    await db.commit()
+    await db.refresh(app)
+
+    return CoverLetterResponse(
+        application_id=app.id,
+        cover_letter_text=app.cover_letter_text,
+        cover_letter_status=app.cover_letter_status,
+        cover_letter_generated_at=app.cover_letter_generated_at,
+    )
+
+
+@router.post(
+    "/{application_id}/cover-letter/regenerate",
+    response_model=CoverLetterResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Trigger cover letter regeneration",
+)
+async def regenerate_app_cover_letter(
+    application_id: int,
+    background_tasks: BackgroundTasks,
+    payload: GenerateCoverLetterRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = (
+        select(ApplicationModel)
+        .where(ApplicationModel.id == application_id)
+        .options(
+            joinedload(ApplicationModel.company),
+            selectinload(ApplicationModel.job_posting),
+        )
+    )
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+
+    if not app:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
+        )
+
+    comp_name = app.company.name if app.company else "Company"
+    pos_name = app.position or "Position"
+    tone_val = payload.tone if payload else "professional"
+    length_val = payload.length if payload and payload.length else None
+    instructions_val = payload.custom_instructions if payload else None
+
+    task_record = IntakeEvaluationTaskModel(
+        task_type="COVER_LETTER",
+        job_url=app.job_url,
+        raw_text=str(app.id),
+        title_hint=f"Cover Letter ({tone_val}): {comp_name} - {pos_name}",
+        status="QUEUED",
+        stage="QUEUED",
+        result_json={
+            "application_id": app.id,
+            "company": comp_name,
+            "position": pos_name,
+            "tone": tone_val,
+            "length": length_val,
+            "custom_instructions": instructions_val,
+        },
+    )
+    db.add(task_record)
+    app.cover_letter_status = "DRAFTED"
+    await db.commit()
+    await db.refresh(task_record)
+
+    background_tasks.add_task(process_evaluation_task, task_id=task_record.id)
+
+    return CoverLetterResponse(
+        application_id=app.id,
+        cover_letter_text=app.cover_letter_text,
+        cover_letter_status="QUEUED",
+        cover_letter_generated_at=app.cover_letter_generated_at,
+    )
 
 
 @router.post(

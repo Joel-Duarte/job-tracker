@@ -43,8 +43,8 @@ async def process_single_email_graph(
         "received_at": received_at_str,
     }
 
-    # Use a combined thread_id so each email gets a unique pipeline checkpoint thread
-    thread_id = f"{task_id}_{message_id}" if message_id else task_id
+    # Use a deterministic thread_id so each email gets a stable pipeline checkpoint thread for resumption
+    thread_id = f"msg_{message_id}" if message_id else f"task_{task_id}"
 
     result = await intake_graph.ainvoke(
         state_input,

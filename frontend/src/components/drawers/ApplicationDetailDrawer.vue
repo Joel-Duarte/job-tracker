@@ -687,6 +687,7 @@ function formatDate(isoStr) {
               <span>Interview Guide</span>
               <span v-if="appStore.selectedApplication.has_interview_guide" class="guide-ready-indicator"></span>
             </button>
+
           </div>
 
           <!-- Tab Panels -->
@@ -1164,6 +1165,7 @@ function formatDate(isoStr) {
                 </button>
               </div>
             </div>
+
           </div>
         </div>
       </div>
@@ -2820,6 +2822,7 @@ function formatDate(isoStr) {
 .job-spec-body :deep(.jd-list li) {
   list-style-type: disc;
 }
+
 
 
 </style>

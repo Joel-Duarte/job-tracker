@@ -170,6 +170,15 @@ class EnqueueAssessmentRequest(BaseModel):
     )
 
 
+class FixJDRequest(BaseModel):
+    raw_text: str = Field(
+        ..., min_length=1, description="Corrected or supplied job description text"
+    )
+    job_url: str | None = Field(
+        default=None, description="Optional updated or corrected job posting URL"
+    )
+
+
 class BulkTaskActionRequest(BaseModel):
     task_ids: list[int | str] = Field(
         ..., min_length=1, description="List of task IDs to perform action on"

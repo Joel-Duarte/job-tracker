@@ -39,7 +39,7 @@ async def test_seed_development_dataset_populates_all_entities_without_embedding
     assert stats["staging_items"] == 3
     assert stats["intake_tasks"] == 3
     assert stats["ai_providers"] == 1
-    assert stats["ai_task_bindings"] == 5
+    assert stats["ai_task_bindings"] == 6
     assert stats["email_accounts"] == 2
     assert stats["candidate_cvs"] == 1
 
@@ -100,7 +100,7 @@ async def test_seed_development_dataset_populates_all_entities_without_embedding
     bindings = (
         await db_session.execute(select(func.count(AITaskBindingModel.id)))
     ).scalar_one()
-    assert bindings == 5
+    assert bindings == 6
 
     accounts = (
         await db_session.execute(select(func.count(EmailAccountModel.id)))

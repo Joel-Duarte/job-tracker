@@ -44,11 +44,25 @@ export const useApplicationsStore = defineStore('applications', () => {
   ]
 
   const TERMINAL_STATUSES = ['HIRED', 'ARCHIVED', 'WITHDRAWN', 'REJECTED']
+  const PENDING_ASSESSMENT_STATUSES = [
+    'ASSESSMENT',
+    'QUEUED',
+    'PROCESSING',
+    'FETCHING',
+    'EXTRACTING',
+    'MATCHING',
+    'ASSESSING',
+    'SAVING',
+    'FAILED',
+    'CANCELLED',
+  ]
 
   const activeApplications = computed(() => {
     return applications.value.filter((a) => {
-      const status = (a.status || 'APPLIED').toUpperCase()
-      if (TERMINAL_STATUSES.includes(status)) return false
+      const status = (a.status || '').toUpperCase()
+      if (!status || TERMINAL_STATUSES.includes(status) || PENDING_ASSESSMENT_STATUSES.includes(status)) {
+        return false
+      }
       return matchesWorkModel(a)
     })
   })
@@ -89,17 +103,14 @@ export const useApplicationsStore = defineStore('applications', () => {
         }
       }
 
-      let statusKey = app.status ? app.status.toUpperCase() : 'APPLIED'
+      let statusKey = app.status ? app.status.toUpperCase() : ''
       if (statusKey === 'ONLINE_ASSESSMENT' || statusKey === 'INTERVIEW') {
         statusKey = 'TECHNICAL_INTERVIEW'
       }
 
-      // If app is in REJECTED or ASSESSMENT, it doesn't display on active 3-stage board
+      // Strictly include only active pipeline stages (APPLIED, TECHNICAL_INTERVIEW, OFFER)
       if (columns[statusKey]) {
         columns[statusKey].push(app)
-      } else if (statusKey === 'ASSESSMENT') {
-        // In case any legacy assessment exists, group into Applied or leave for Assessments Studio
-        columns.APPLIED.push(app)
       }
     })
 
@@ -386,6 +397,7 @@ export const useApplicationsStore = defineStore('applications', () => {
     STATUSES,
     ACTIVE_STATUSES,
     TERMINAL_STATUSES,
+    PENDING_ASSESSMENT_STATUSES,
     activeApplications,
     archivedApplications,
     hiredApplications,

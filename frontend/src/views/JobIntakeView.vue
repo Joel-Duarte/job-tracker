@@ -5,6 +5,7 @@ import { useUIStore } from '../stores/uiStore'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useQueueStore } from '../stores/queueStore'
 import { IntakeAPI } from '../api/endpoints'
+import { getFitScores } from '../utils/fitScores'
 import {
   Sparkles,
   Link as LinkIcon,
@@ -141,16 +142,35 @@ async function enqueueLead() {
     return
   }
 
+  // Derive title hint optimistically
+  const titleHint = urlVal
+    ? `Lead: ${urlVal.split('/').pop() || urlVal.slice(0, 50)}`
+    : (textVal.split('\n')[0] || 'Job Lead').slice(0, 50)
+
+  // Optimistic task item
+  const tempId = Date.now()
+  const tempTask = {
+    id: tempId,
+    job_url: urlVal || null,
+    raw_text: textVal || null,
+    title_hint: titleHint,
+    status: 'QUEUED',
+    stage: 'FETCHING',
+    created_at: new Date().toISOString(),
+  }
+
+  evaluationTasks.value = [tempTask, ...evaluationTasks.value]
+
+  // Immediately clear input fields for continuous workflow
+  jobUrl.value = ''
+  jobText.value = ''
+
   isEnqueuing.value = true
   try {
     await queueStore.enqueueAssessment({
       url: urlVal || null,
       text: textVal || null,
     })
-
-    // Immediately clear input fields for continuous workflow
-    jobUrl.value = ''
-    jobText.value = ''
   } catch (err) {
     // Handled in store
   } finally {
@@ -206,10 +226,14 @@ async function confirmAndSaveLead(task, targetStatus = 'ASSESSMENT', forceNew = 
 }
 
 async function deleteTask(taskId) {
+  const originalTasks = [...evaluationTasks.value]
+  // Optimistically remove task
+  evaluationTasks.value = evaluationTasks.value.filter((t) => t.id !== taskId)
+
   try {
     await queueStore.deleteTask(taskId)
   } catch (err) {
-    // Handled in store
+    evaluationTasks.value = originalTasks
   }
 }
 
@@ -236,6 +260,8 @@ function formatStageLabel(stage) {
       return 'Matching CV Keyword Overlap'
     case 'ASSESSING':
       return 'Running Qualitative AI Fit'
+    case 'COVER_LETTER':
+      return 'Generating Cover Letter'
     case 'COMPLETE':
       return 'Ready for Review'
     case 'FAILED':
@@ -493,11 +519,11 @@ onUnmounted(() => {
             <div class="review-header-right">
               <div class="scores-compact">
                 <div class="score-pill">
-                  <span class="score-pill-num font-mono">{{ task.result_json.programmatic_match_score || 0 }}%</span>
-                  <span class="score-pill-lbl">Overlap</span>
+                  <span class="score-pill-num font-mono">{{ getFitScores(task.result_json).computedText }}</span>
+                  <span class="score-pill-lbl">Algo Overlap</span>
                 </div>
                 <div class="score-pill score-pill-ai">
-                  <span class="score-pill-num font-mono">{{ task.result_json.fit_score }}%</span>
+                  <span class="score-pill-num font-mono">{{ getFitScores(task.result_json).aiText }}</span>
                   <span class="score-pill-lbl">AI Fit</span>
                 </div>
               </div>
@@ -653,6 +679,22 @@ onUnmounted(() => {
                     {{ sa }}
                   </li>
                 </ul>
+              </div>
+            </div>
+
+            <!-- Cover Letter Status Banner if applicable -->
+            <div v-if="uiStore.enableAutoCoverLetter && task.result_json?.cover_letter_status" class="advisory-banner mt-3">
+              <FileText :size="16" class="text-primary flex-shrink-0" />
+              <div class="flex flex-col gap-1">
+                <span>
+                  <strong>Cover Letter Status:</strong>
+                  <span v-if="task.result_json.cover_letter_status === 'GENERATED'" class="text-success font-semibold ml-1">Generated Successfully</span>
+                  <span v-else-if="task.result_json.cover_letter_status === 'SKIPPED'" class="text-muted font-semibold ml-1">Skipped (Match Score Below Threshold)</span>
+                  <span v-else-if="task.result_json.cover_letter_status === 'FAILED'" class="text-danger font-semibold ml-1">Generation Failed</span>
+                </span>
+                <span v-if="task.result_json.cover_letter_note" class="text-xs text-secondary">
+                  {{ task.result_json.cover_letter_note }}
+                </span>
               </div>
             </div>
 

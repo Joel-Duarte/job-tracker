@@ -7,6 +7,8 @@ export const useUIStore = defineStore('ui', () => {
   const isIngestModalOpen = ref(false)
   const isJobIntakeModalOpen = ref(false)
   const isCommandPaletteOpen = ref(false)
+  const isCoverLetterModalOpen = ref(false)
+  const coverLetterAppId = ref(null)
   const activeDetailId = ref(null)
   const detailActiveTab = ref('timeline')
 
@@ -44,6 +46,16 @@ export const useUIStore = defineStore('ui', () => {
 
   function closeIngestModal() {
     isIngestModalOpen.value = false
+  }
+
+  function openCoverLetterModal(appId) {
+    coverLetterAppId.value = appId
+    isCoverLetterModalOpen.value = true
+  }
+
+  function closeCoverLetterModal() {
+    isCoverLetterModalOpen.value = false
+    coverLetterAppId.value = null
   }
 
   const customDarkBg = ref(localStorage.getItem('jt_custom_dark_bg') || '')
@@ -251,6 +263,9 @@ export const useUIStore = defineStore('ui', () => {
 
   // Global Settings
   const enableEmbeddings = ref(true)
+  const enableAutoCoverLetter = ref(false)
+  const coverLetterMatchThreshold = ref(70)
+  const coverLetterLength = ref('standard')
 
   function setEnableEmbeddings(val) {
     enableEmbeddings.value = val
@@ -344,6 +359,10 @@ export const useUIStore = defineStore('ui', () => {
     isIngestModalOpen,
     isJobIntakeModalOpen,
     isCommandPaletteOpen,
+    isCoverLetterModalOpen,
+    coverLetterAppId,
+    openCoverLetterModal,
+    closeCoverLetterModal,
     activeDetailId,
     detailActiveTab,
     intakeQueue,
@@ -371,6 +390,9 @@ export const useUIStore = defineStore('ui', () => {
     clearCompletedIntakeTasks,
     enableEmbeddings,
     setEnableEmbeddings,
+    enableAutoCoverLetter,
+    coverLetterMatchThreshold,
+    coverLetterLength,
     autoArchiveEnabled,
     autoArchiveDays,
     setAutoArchiveEnabled,

@@ -326,13 +326,78 @@ const enableEmbeddings = ref(true)
 const isUpdatingEmbeddings = ref(false)
 const isReindexingEmbeddings = ref(false)
 
+// Cover Letter Automation Settings State
+const enableAutoCoverLetter = ref(false)
+const coverLetterMatchThreshold = ref(70)
+const coverLetterLength = ref('standard')
+const isUpdatingCoverLetterSettings = ref(false)
+
 async function loadGlobalSettings() {
   try {
     const res = await AIConfigAPI.getGlobalSettings()
     enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS ?? true
     uiStore.enableEmbeddings = enableEmbeddings.value
+
+    enableAutoCoverLetter.value = res.data.ENABLE_AUTO_COVER_LETTER ?? false
+    coverLetterMatchThreshold.value = res.data.COVER_LETTER_MATCH_THRESHOLD ?? 70
+    coverLetterLength.value = res.data.COVER_LETTER_LENGTH ?? 'standard'
+    uiStore.enableAutoCoverLetter = enableAutoCoverLetter.value
+    uiStore.coverLetterMatchThreshold = coverLetterMatchThreshold.value
+    uiStore.coverLetterLength = coverLetterLength.value
   } catch (err) {
     console.error('Failed to load global settings', err)
+  }
+}
+
+async function toggleAutoCoverLetter() {
+  isUpdatingCoverLetterSettings.value = true
+  try {
+    const newVal = !enableAutoCoverLetter.value
+    const res = await AIConfigAPI.updateGlobalSettings({ ENABLE_AUTO_COVER_LETTER: newVal })
+    enableAutoCoverLetter.value = res.data.ENABLE_AUTO_COVER_LETTER
+    uiStore.enableAutoCoverLetter = enableAutoCoverLetter.value
+    uiStore.showToast(
+      enableAutoCoverLetter.value
+        ? 'Automatic cover letter generation enabled.'
+        : 'Automatic cover letter generation disabled.',
+      'success'
+    )
+  } catch (err) {
+    uiStore.showToast('Failed to update cover letter setting', 'error')
+  } finally {
+    isUpdatingCoverLetterSettings.value = false
+  }
+}
+
+async function updateCoverLetterLength(event) {
+  const val = event.target.value
+  coverLetterLength.value = val
+  isUpdatingCoverLetterSettings.value = true
+  try {
+    const res = await AIConfigAPI.updateGlobalSettings({ COVER_LETTER_LENGTH: val })
+    coverLetterLength.value = res.data.COVER_LETTER_LENGTH
+    uiStore.coverLetterLength = res.data.COVER_LETTER_LENGTH
+    uiStore.showToast(`Default cover letter length updated to ${val}.`, 'success')
+  } catch (err) {
+    uiStore.showToast('Failed to update cover letter length setting', 'error')
+  } finally {
+    isUpdatingCoverLetterSettings.value = false
+  }
+}
+
+async function updateCoverLetterThreshold(event) {
+  const val = Number(event.target.value)
+  coverLetterMatchThreshold.value = val
+  isUpdatingCoverLetterSettings.value = true
+  try {
+    const res = await AIConfigAPI.updateGlobalSettings({ COVER_LETTER_MATCH_THRESHOLD: val })
+    coverLetterMatchThreshold.value = res.data.COVER_LETTER_MATCH_THRESHOLD
+    uiStore.coverLetterMatchThreshold = coverLetterMatchThreshold.value
+    uiStore.showToast(`Cover letter match threshold updated to ${val}%.`, 'success')
+  } catch (err) {
+    uiStore.showToast('Failed to update cover letter threshold', 'error')
+  } finally {
+    isUpdatingCoverLetterSettings.value = false
   }
 }
 
@@ -440,6 +505,18 @@ const TASKS = [
     hasPrompt: true,
     desc: 'Generates tailored interview preparation guides, STAR stories, and strategic question defenses.',
     variables: ['{language}', '{company_name}', '{position}', '{company_context}', '{jd_text}', '{cv_text}', '{target_section}']
+  },
+  {
+    key: 'COVER_LETTER',
+    promptKey: 'cover_letter',
+    label: 'Cover Letter Generation',
+    icon: 'FileText',
+    recommendedTemp: 0.3,
+    recommendedReasoning: 'medium',
+    recommendedMaxTokens: null,
+    hasPrompt: true,
+    desc: 'Generates tailored cover letters referencing candidate experiences against target role and company requirements.',
+    variables: ['{company_name}', '{position}', '{job_description}', '{candidate_cv}', '{tone}', '{length}']
   },
   {
     key: 'EMBEDDING',
@@ -1269,6 +1346,78 @@ onMounted(async () => {
                     <Check v-if="globalForm.model_name === m.id" :size="11" />
                     <span>{{ m.id }}</span>
                   </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- COVER LETTER AUTOMATION CARD -->
+          <div class="cover-letter-control-card">
+            <div class="cover-letter-control-header">
+              <div class="cover-letter-title-group">
+                <FileText class="text-primary" :size="20" />
+                <div>
+                  <h3 class="cover-letter-title">Automated Cover Letter Generation</h3>
+                  <p class="cover-letter-desc">
+                    Automatically draft tailored cover letters during job intake when fit score meets or exceeds your threshold.
+                  </p>
+                </div>
+              </div>
+
+              <div class="cover-letter-actions">
+                <label class="switch-toggle" title="Toggle automatic cover letter generation">
+                  <input
+                    type="checkbox"
+                    :checked="enableAutoCoverLetter"
+                    :disabled="isUpdatingCoverLetterSettings"
+                    @change="toggleAutoCoverLetter"
+                  />
+                  <span class="slider round"></span>
+                </label>
+              </div>
+            </div>
+
+            <div v-if="enableAutoCoverLetter" class="cover-letter-control-body">
+              <div class="cover-letter-info-box flex-col items-start gap-2">
+                <div class="flex items-center justify-between w-full">
+                  <span class="cover-letter-status-text">
+                    Minimum Match Score Threshold: <strong>{{ coverLetterMatchThreshold }}%</strong>
+                  </span>
+                </div>
+                <div class="form-range-container w-full">
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    :value="coverLetterMatchThreshold"
+                    :disabled="isUpdatingCoverLetterSettings"
+                    class="form-range"
+                    @change="updateCoverLetterThreshold"
+                  />
+                </div>
+                <p class="text-xs text-muted">
+                  Jobs with fit score &ge; {{ coverLetterMatchThreshold }}% will trigger automatic cover letter drafting at the end of intake.
+                </p>
+                <div class="flex items-center justify-between w-full mt-2 pt-2 border-t border-subtle">
+                  <div class="flex flex-col">
+                    <span class="cover-letter-status-text font-semibold">
+                      Default Cover Letter Length:
+                    </span>
+                    <span class="text-xs text-muted">
+                      Target length guidelines passed into the prompt runner.
+                    </span>
+                  </div>
+                  <select
+                    :value="coverLetterLength"
+                    :disabled="isUpdatingCoverLetterSettings"
+                    class="form-select form-select-sm font-mono text-xs"
+                    @change="updateCoverLetterLength"
+                  >
+                    <option value="concise">Concise (~150 words)</option>
+                    <option value="standard">Standard (~300 words)</option>
+                    <option value="detailed">Detailed (~450 words)</option>
+                  </select>
                 </div>
               </div>
             </div>
@@ -3701,6 +3850,7 @@ onMounted(async () => {
   gap: 12px;
 }
 
+.cover-letter-control-card,
 .embeddings-control-card {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
@@ -3709,6 +3859,7 @@ onMounted(async () => {
   margin-bottom: 24px;
 }
 
+.cover-letter-control-header,
 .embeddings-control-header {
   display: flex;
   justify-content: space-between;
@@ -3716,12 +3867,14 @@ onMounted(async () => {
   gap: 16px;
 }
 
+.cover-letter-title-group,
 .embeddings-title-group {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
+.cover-letter-title,
 .embeddings-title {
   font-size: 15px;
   font-weight: 700;
@@ -3729,18 +3882,21 @@ onMounted(async () => {
   margin: 0;
 }
 
+.cover-letter-desc,
 .embeddings-desc {
   font-size: 12px;
   color: var(--text-secondary);
   margin: 2px 0 0 0;
 }
 
+.cover-letter-control-body,
 .embeddings-control-body {
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--border-subtle);
 }
 
+.cover-letter-info-box,
 .embeddings-info-box {
   display: flex;
   align-items: center;
@@ -3752,6 +3908,7 @@ onMounted(async () => {
   border-radius: var(--radius-sm);
 }
 
+.cover-letter-status-text,
 .embeddings-status-text {
   font-size: 12px;
   color: var(--text-secondary);

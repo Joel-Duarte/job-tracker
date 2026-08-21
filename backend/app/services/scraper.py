@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.url_utils import normalize_job_url
 from app.services.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
@@ -117,7 +118,7 @@ def validate_target_url(url: str) -> str:
     Validates URL protocol and private IP / loopback address validation (SSRF prevention).
     Returns the cleaned URL if valid, or raises ValueError if invalid or targeting private/local networks.
     """
-    cleaned_url = url.strip()
+    cleaned_url = normalize_job_url(url) or url.strip()
     if not cleaned_url.startswith(("http://", "https://")):
         cleaned_url = f"https://{cleaned_url}"
 
@@ -161,6 +162,289 @@ class ScrapedJobContent(BaseModel):
     text: str = ""
     source_url: str
     scraped_via: str  # "camofox" or "http_fallback"
+
+
+# Comprehensive European Job Keywords covering major European languages:
+# English, German, French, Spanish, Italian, Portuguese, Dutch, Polish, Romanian,
+# Greek, Swedish, Danish, Finnish, Czech, Hungarian, Slovak, Bulgarian, Croatian, etc.
+EUROPEAN_JOB_KEYWORDS: set[str] = {
+    # English
+    "requirements",
+    "responsibilities",
+    "qualifications",
+    "experience",
+    "salary",
+    "skills",
+    "duties",
+    "benefits",
+    "role",
+    "compensation",
+    "position",
+    "applicant",
+    "employment",
+    "vacancy",
+    "remuneration",
+    "candidate",
+    "job",
+    "description",
+    # German
+    "anforderungen",
+    "aufgaben",
+    "qualifikationen",
+    "erfahrung",
+    "gehalt",
+    "fähigkeiten",
+    "stelle",
+    "vergütung",
+    "bewerber",
+    "beschäftigung",
+    "stellenangebot",
+    "strikte",
+    "vollzeit",
+    "teilzeit",
+    # French
+    "exigences",
+    "responsabilités",
+    "expérience",
+    "salaire",
+    "compétences",
+    "missions",
+    "avantages",
+    "rôle",
+    "remunération",
+    "poste",
+    "candidat",
+    "emploi",
+    "offre",
+    "prérequis",
+    # Spanish
+    "requisitos",
+    "responsabilidades",
+    "cualificaciones",
+    "experiencia",
+    "salario",
+    "habilidades",
+    "funciones",
+    "beneficios",
+    "puesto",
+    "remuneración",
+    "cargo",
+    "candidato",
+    "empleo",
+    "vacante",
+    "oferta",
+    # Portuguese
+    "qualificações",
+    "experiência",
+    "salário",
+    "competências",
+    "funções",
+    "benefícios",
+    "remuneração",
+    "posição",
+    "emprego",
+    "vaga",
+    # Italian
+    "requisiti",
+    "responsabilità",
+    "qualifiche",
+    "esperienza",
+    "stipendio",
+    "competenze",
+    "mansioni",
+    "benefici",
+    "ruolo",
+    "retribuzione",
+    "posizione",
+    "impiego",
+    "offerta",
+    # Dutch
+    "vereisten",
+    "verantwoordelijkheden",
+    "kwalificaties",
+    "ervaring",
+    "salaris",
+    "vaardigheden",
+    "taken",
+    "arbeidsvoorwaarden",
+    "rol",
+    "vergoeding",
+    "functie",
+    "sollicitant",
+    "vacature",
+    "werk",
+    # Polish
+    "wymagania",
+    "obowiązki",
+    "kwalifikacje",
+    "doświadczenie",
+    "wynagrodzenie",
+    "umiejętności",
+    "zadania",
+    "korzyści",
+    "rola",
+    "stanowisko",
+    "kandydat",
+    "zatrudnienie",
+    "praca",  # Romanian
+    "cerințe",
+    "responsabilități",
+    "calificări",
+    "experiență",
+    "salariu",
+    "competențe",
+    "atribuții",
+    "beneficii",
+    "remunerație",
+    "post",
+    "angajare",
+    "loc",
+    # Greek
+    "απαιτήσεις",
+    "αρμοδιότητες",
+    "προσόντα",
+    "προϋπηρεσία",
+    "μισθός",
+    "δεξιότητες",
+    "καθήκοντα",
+    "παροχές",
+    "ρόλος",
+    "αμοιβή",
+    "θέση",
+    "υποψήφιος",
+    "απασχόληση",
+    # Swedish
+    "krav",
+    "ansvar",
+    "kvalifikationer",
+    "erfarenhet",
+    "lön",
+    "kompetens",
+    "arbetsuppgifter",
+    "förmåner",
+    "roll",
+    "ersättning",
+    "tjänst",
+    "sökande",
+    "anställning",
+    "jobb",
+    # Danish
+    "erfaring",
+    "løn",
+    "kompetencer",
+    "opgaver",
+    "goder",
+    "rolle",
+    "godtgørelse",
+    "stilling",
+    "ansøger",
+    "ansættelse",
+    # Finnish
+    "vaatimukset",
+    "vastuut",
+    "pätevyys",
+    "kokemus",
+    "palkka",
+    "taidot",
+    "tehtävät",
+    "edut",
+    "rooli",
+    "palkkio",
+    "tehtävä",
+    "hakija",
+    "työpaikka",
+    "työ",
+    # Czech
+    "požadavky",
+    "odpovědnost",
+    "kvalifikace",
+    "zkušenosti",
+    "plat",
+    "dovednosti",
+    "povinnosti",
+    "benefity",
+    "odměna",
+    "pozice",
+    "uchazeč",
+    "zaměstnání",
+    "práce",
+    # Hungarian
+    "követelmények",
+    "felelősség",
+    "szakképzettség",
+    "tapasztalat",
+    "fizetés",
+    "készségek",
+    "feladatok",
+    "juttatások",
+    "munkakör",
+    "illemény",
+    "pozíció",
+    "pályázó",
+    "foglalkoztatás",
+    "állás",
+    # Slovak
+    "požiadavky",
+    "zodpovednosť",
+    "kvalifikácia",
+    "skúsenosti",
+    "zručnosti",
+    "odmena",
+    "pozícia",
+    "uchádzač",
+    "zamestnanie",
+    # Bulgarian
+    "изисквания",
+    "отговорности",
+    "квалификации",
+    "опит",
+    "заплата",
+    "ท умения",
+    "умения",
+    "задължения",
+    "придобивки",
+    "роля",
+    "възнаграждение",
+    "позиция",
+    "кандидат",
+    "работодател",
+    "работа",
+    # Croatian / Serbian / Bosnian
+    "uvjeti",
+    "odgovornosti",
+    "kvalifikacije",
+    "iskustvo",
+    "plaća",
+    "vještine",
+    "dužnosti",
+    "pogodnosti",
+    "uloga",
+    "naknada",
+    "pozicija",
+    "kandidat",
+    "zapošljavanje",
+    "posao",
+}
+
+DEFAULT_JOB_KEYWORDS: list[str] = sorted(list(EUROPEAN_JOB_KEYWORDS))
+
+
+def validate_job_content(text: str, min_matches: int = 2) -> bool:
+    """
+    Blazing fast multi-language scraper keyword validation using Python set hash table lookup.
+    Extracts unique lowercase unicode word tokens and computes $O(1)$ set intersection against
+    EUROPEAN_JOB_KEYWORDS. Returns True if match count >= min_matches.
+    """
+    if not text or not text.strip():
+        return False
+    words = set(re.findall(r"\b\w+\b", text.lower()))
+    matches = words & EUROPEAN_JOB_KEYWORDS
+    return len(matches) >= min_matches
+
+
+def has_job_content_keywords(text: str, min_matches: int = 2) -> bool:
+    """Backward-compatible alias for validate_job_content."""
+    return validate_job_content(text, min_matches=min_matches)
 
 
 def clean_extracted_text(raw_text: str, max_chars: int = 15000) -> str:

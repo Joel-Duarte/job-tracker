@@ -3,6 +3,7 @@ import { ref, watch, computed } from 'vue'
 import { ApplicationsAPI } from '../../api/endpoints'
 import { useUIStore } from '../../stores/uiStore'
 import CompanyLogo from '../common/CompanyLogo.vue'
+import { getFitScores } from '../../utils/fitScores'
 import {
   X,
   Sparkles,
@@ -130,14 +131,16 @@ const gapMitigationText = computed(() => {
   return analysisData.value.gap_mitigation || analysisData.value.mitigation || ''
 })
 
+const scores = computed(() => {
+  return getFitScores(application.value || analysisData.value)
+})
+
 const matchScore = computed(() => {
-  return (
-    application.value?.match_score ??
-    analysisData.value?.match_score ??
-    analysisData.value?.fit_score ??
-    analysisData.value?.overall_fit_score ??
-    0
-  )
+  return scores.value.aiScore ?? 0
+})
+
+const computedScoreText = computed(() => {
+  return scores.value.computedText
 })
 
 const compensationText = computed(() => {
@@ -229,11 +232,17 @@ function getFitLabel(score) {
               </div>
             </div>
 
-            <!-- Fit Score Gauge Circle -->
+            <!-- Side-by-Side Fit Score Badges: Programmatic Overlap + AI Score Badge Card -->
             <div class="eval-fit-container">
-              <div class="fit-gauge" :class="getFitBadgeClass(matchScore)">
-                <span class="fit-val">{{ matchScore }}%</span>
-                <span class="fit-lbl">{{ getFitLabel(matchScore) }}</span>
+              <div class="scores-side-by-side">
+                <div class="score-badge-card algo-card">
+                  <span class="score-badge-val font-mono">{{ computedScoreText }}</span>
+                  <span class="score-badge-lbl">Algo Overlap</span>
+                </div>
+                <div class="score-badge-card ai-card" :class="getFitBadgeClass(matchScore)">
+                  <span class="score-badge-val font-mono">{{ matchScore }}%</span>
+                  <span class="score-badge-lbl">{{ getFitLabel(matchScore) }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -486,66 +495,84 @@ function getFitLabel(score) {
   text-transform: uppercase;
 }
 
-/* Circular Gauge Container */
+/* Circular Gauge Container & Side-by-Side Scores */
 .eval-fit-container {
   flex-shrink: 0;
   padding: 4px;
 }
 
-.fit-gauge {
+.scores-side-by-side {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.score-badge-card {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 78px;
-  height: 78px;
-  border-radius: 50%;
-  border: 4px solid var(--border-color);
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
   background-color: var(--bg-card);
-  box-shadow: var(--shadow-sm);
+  min-width: 80px;
 }
 
-.fit-gauge.fit-elite {
+.algo-card {
+  background-color: var(--bg-surface);
+  border-color: var(--border-color);
+}
+
+.ai-card.fit-elite {
   border-color: var(--status-offer-border);
   color: var(--status-offer-text);
   background-color: var(--status-offer-bg);
-  box-shadow: 0 0 12px rgba(16, 185, 129, 0.18);
 }
 
-.fit-gauge.fit-high {
+.ai-card.fit-high {
   border-color: var(--status-applied-border);
   color: var(--status-applied-text);
   background-color: var(--status-applied-bg);
-  box-shadow: 0 0 12px rgba(59, 130, 246, 0.18);
 }
 
-.fit-gauge.fit-medium {
+.ai-card.fit-medium {
   border-color: var(--status-interview-border);
   color: var(--status-interview-text);
   background-color: var(--status-interview-bg);
 }
 
-.fit-gauge.fit-low {
+.ai-card.fit-low {
   border-color: var(--border-subtle);
   color: var(--text-muted);
   background-color: var(--bg-surface);
 }
 
-.fit-val {
-  font-size: 22px;
+.ai-card.fit-elite .score-badge-val { color: var(--status-offer-text); }
+.ai-card.fit-high .score-badge-val { color: var(--status-applied-text); }
+.ai-card.fit-medium .score-badge-val { color: var(--status-interview-text); }
+.ai-card.fit-low .score-badge-val { color: var(--text-muted); }
+
+.ai-card.fit-elite .score-badge-lbl { color: var(--status-offer-text); opacity: 0.9; }
+.ai-card.fit-high .score-badge-lbl { color: var(--status-applied-text); opacity: 0.9; }
+.ai-card.fit-medium .score-badge-lbl { color: var(--status-interview-text); opacity: 0.9; }
+.ai-card.fit-low .score-badge-lbl { color: var(--text-muted); opacity: 0.9; }
+
+.score-badge-val {
+  font-size: 18px;
   font-weight: 800;
-  font-family: var(--font-heading);
+  color: var(--text-main);
   line-height: 1;
 }
 
-.fit-lbl {
+.score-badge-lbl {
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 4px;
   letter-spacing: 0.3px;
-  opacity: 0.9;
-  margin-top: 3px;
-  text-align: center;
+  white-space: nowrap;
 }
 
 /* Sections */
