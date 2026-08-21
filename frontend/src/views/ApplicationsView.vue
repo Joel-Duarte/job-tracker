@@ -409,6 +409,27 @@ function isOverdue(app) {
   }
 }
 
+function getNextStatus(status) {
+  if (status === 'APPLIED') return 'TECHNICAL_INTERVIEW'
+  if (status === 'TECHNICAL_INTERVIEW') return 'OFFER'
+  if (status === 'OFFER') return 'HIRED'
+  return null
+}
+
+function advanceAppStage(app, event) {
+  if (event) {
+    event.stopPropagation()
+    event.preventDefault()
+  }
+  const nextStatus = getNextStatus(app?.status)
+  if (!nextStatus) return
+  if (nextStatus === 'HIRED') {
+    executeTransition(app.id, { status: 'HIRED' })
+  } else {
+    openTransitionModal(app, nextStatus)
+  }
+}
+
 // Drag and Drop Handlers
 function onDragStart(app, event) {
   draggedApp.value = app
@@ -949,6 +970,16 @@ async function confirmDelete() {
                   </div>
                 </div>
               </div>
+
+              <!-- Quick One-Click Advance Button (Middle-Right Side) -->
+              <button
+                v-if="getNextStatus(app.status)"
+                class="card-advance-btn"
+                :title="`Advance to ${getNextStatus(app.status).replace('_', ' ')}`"
+                @click.stop="advanceAppStage(app, $event)"
+              >
+                <ChevronRight :size="16" />
+              </button>
 
               <!-- Position Title -->
               <div class="card-position">
@@ -2043,6 +2074,41 @@ async function confirmDelete() {
   z-index: 50;
   border-color: var(--primary);
   box-shadow: var(--shadow-md);
+}
+
+.card-advance-btn {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-full);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: all var(--transition-fast);
+  z-index: 5;
+}
+
+.application-card:hover .card-advance-btn {
+  opacity: 1;
+  border-color: var(--primary);
+  color: var(--primary);
+  background-color: var(--primary-subtle);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.card-advance-btn:hover {
+  transform: translateY(-50%) scale(1.1);
+  background-color: var(--primary) !important;
+  color: #ffffff !important;
+  border-color: var(--primary) !important;
 }
 
 .application-card:hover {
