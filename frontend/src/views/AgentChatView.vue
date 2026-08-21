@@ -3,6 +3,7 @@ import { ref, onMounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DOMPurify from 'dompurify'
 import { useAgentChatStore } from '../stores/agentChatStore'
+import { useUIStore } from '../stores/uiStore'
 import { AIConfigAPI, ApplicationsAPI } from '../api/endpoints'
 import {
   Bot,
@@ -16,14 +17,23 @@ import {
   Trash2,
   Settings,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  Briefcase,
+  LogOut,
+  XCircle
 } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
+const uiStore = useUIStore()
 const chatStore = useAgentChatStore()
 const inputMessage = ref('')
 const chatContainer = ref(null)
+
+const isMockInterview = ref(false)
+const mockAppId = ref(null)
+const isMockEnded = ref(false)
+const isEndingInterview = ref(false)
 
 const retentionDays = ref(0)
 const isUpdatingRetention = ref(false)
@@ -54,6 +64,10 @@ onMounted(async () => {
 
   if (route.query.mock === 'true' && route.query.appId) {
     const appId = Number(route.query.appId)
+    mockAppId.value = appId
+    isMockInterview.value = true
+    isMockEnded.value = false
+
     try {
       const res = await ApplicationsAPI.get(appId)
       const appData = res.data
@@ -298,6 +312,25 @@ async function handleSelectOption(msg, optionText) {
   scrollToBottom()
 }
 
+async function handleEndInterview() {
+  if (isEndingInterview.value || chatStore.isSending) return
+  isEndingInterview.value = true
+
+  const summaryPrompt = `The mock interview questioning phase is now complete. Please shift into open debrief and mentoring mode: provide a comprehensive final performance evaluation summarizing my responses, highlight key strengths, identify gap areas, and offer to answer follow-up questions or recommend study resources.`
+
+  await chatStore.sendMessage(summaryPrompt)
+  isMockEnded.value = true
+  isEndingInterview.value = false
+  scrollToBottom()
+}
+
+function handleReturnToJobDetails() {
+  if (mockAppId.value) {
+    uiStore.openDetail(mockAppId.value)
+  }
+  router.push({ name: 'Applications' })
+}
+
 function formatActionLabel(act) {
   if (act.action === 'generate_mock_interview_question') {
     const comp = act.args?.company_name || 'Company'
@@ -414,11 +447,40 @@ function formatActionLabel(act) {
               <Bot :size="18" />
             </div>
             <div>
-              <h2 class="agent-title">Agent Assistant</h2>
+              <h2 class="agent-title">
+                {{ isMockInterview ? 'Mock Interview Simulator' : 'Agent Assistant' }}
+              </h2>
               <div class="agent-subtitle">
                 <span class="pulse-dot"></span>
-                <span>Equipped with pgvector semantic search & database mutation tools</span>
+                <span>{{ isMockInterview ? 'Live Interactive Technical & Behavioral Practice Sandbox' : 'Equipped with pgvector semantic search & database mutation tools' }}</span>
               </div>
+            </div>
+          </div>
+
+          <div class="header-right-actions">
+            <button
+              v-if="isMockInterview && !isMockEnded"
+              class="btn btn-warning btn-sm"
+              :disabled="chatStore.isSending || isEndingInterview"
+              @click="handleEndInterview"
+            >
+              <Loader2 v-if="isEndingInterview" class="animate-spin" :size="14" />
+              <CheckCircle2 v-else :size="14" />
+              <span>End Interview &amp; Debrief</span>
+            </button>
+
+            <div v-if="isMockInterview && isMockEnded" class="debrief-header-group">
+              <span class="debrief-badge">
+                <Sparkles :size="12" />
+                <span>Mentoring &amp; Debrief Mode</span>
+              </span>
+              <button
+                class="btn btn-primary btn-sm"
+                @click="handleReturnToJobDetails"
+              >
+                <Briefcase :size="14" />
+                <span>Return to Job Details</span>
+              </button>
             </div>
           </div>
         </div>
@@ -513,7 +575,7 @@ function formatActionLabel(act) {
             <textarea
               v-model="inputMessage"
               rows="1"
-              placeholder="Ask the agent to search applications, check interview dates, or change statuses..."
+              :placeholder="isMockEnded ? 'Ask follow-up questions about feedback, study resources, or concepts...' : 'Ask the agent to search applications, check interview dates, or change statuses...'"
               class="chat-input"
               @keydown="handleKeyDown"
             ></textarea>
@@ -750,6 +812,32 @@ function formatActionLabel(act) {
   margin: 0 auto;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+}
+
+.header-right-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.debrief-header-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.debrief-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background-color: var(--status-offer-bg);
+  color: var(--status-offer-text);
+  border: 1px solid var(--status-offer-border);
+  font-size: 11.5px;
+  font-weight: 600;
 }
 
 .header-left {
