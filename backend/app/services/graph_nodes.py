@@ -12,7 +12,6 @@ from sqlalchemy.orm.attributes import flag_modified
 import app.services.llm as llm_service
 from app.core.config_manager import get_setting
 from app.core.url_utils import normalize_job_url
-from app.services.llm import generate_and_save_application_embedding
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,

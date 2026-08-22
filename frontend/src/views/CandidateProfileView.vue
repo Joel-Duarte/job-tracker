@@ -109,7 +109,7 @@ async function handleFileUpload(event) {
       reader.onload = (e) => {
         const text = e.target?.result
         if (typeof text === 'string' && text.trim()) {
-          rawCVInput.value = text.trim()
+          rawCVInput.value = cleanCVText(text.trim())
           uiStore.showToast(`Loaded ${file.name}. Please review text before ${actionText}.`, 'success')
         } else {
           uiStore.showToast('Uploaded text file is empty.', 'error')
@@ -129,7 +129,7 @@ async function handleFileUpload(event) {
       const res = await CandidateProfileAPI.parseFile(formData)
       const text = res.data?.text
       if (text && text.trim()) {
-        rawCVInput.value = text.trim()
+        rawCVInput.value = cleanCVText(text.trim())
         uiStore.showToast(`Extracted text from ${file.name}. Please review text before ${actionText}.`, 'success')
       } else {
         uiStore.showToast('Could not extract text from document file.', 'error')
@@ -143,6 +143,128 @@ async function handleFileUpload(event) {
     isParsingFile.value = false
     if (event.target) event.target.value = ''
   }
+}
+
+function cleanCVText(text) {
+  if (!text) return ''
+  let cleaned = text
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\xa0/g, ' ')
+    .replace(/\u200b/g, '')
+
+  // Ensure bullet points start on new lines
+  const bullets = ['●', '•', '▪', '▫', '◆', '◦']
+  bullets.forEach((b) => {
+    cleaned = cleaned.replace(new RegExp(`(?<!\\n)[ \\t]*\\${b}[ \\t]*`, 'g'), `\n${b} `)
+  })
+  cleaned = cleaned.replace(/(?<!\n)[ \t]+-[ \t]+/g, '\n- ')
+
+  // Collapse multiple horizontal spaces
+  cleaned = cleaned.replace(/[^\S\n]+/g, ' ')
+
+  // Clean spaces before punctuation
+  cleaned = cleaned.replace(/\s+([,.:;!?])/g, '$1')
+  cleaned = cleaned.replace(/\(\s+/g, '(').replace(/\s+\)/g, ')')
+  cleaned = cleaned.replace(/(\w+)\s+-\s*based/gi, '$1-based')
+
+  const rawLines = cleaned.split('\n').map((l) => l.trim())
+  const merged = []
+  const bulletPrefixes = ['●', '•', '▪', '▫', '◆', '◦', '-', '*', '–', '—']
+
+  for (const line of rawLines) {
+    if (!line) {
+      if (merged.length && merged[merged.length - 1] !== '') {
+        merged.push('')
+      }
+      continue
+    }
+
+    if (!merged.length) {
+      merged.push(line)
+      continue
+    }
+
+    let prevLine = ''
+    let hasBlank = false
+    if (merged[merged.length - 1] === '') {
+      prevLine = merged.length >= 2 ? merged[merged.length - 2] : ''
+      hasBlank = true
+    } else {
+      prevLine = merged[merged.length - 1]
+    }
+
+    const isBullet = bulletPrefixes.some((b) => line.startsWith(b)) || /^\d+[\.\)]\s+/.test(line)
+    const isPrevHeader =
+      prevLine.endsWith(':') ||
+      (bulletPrefixes.some((b) => prevLine.startsWith(`${b} `)) &&
+        prevLine.split(' ').length <= 4 &&
+        !/[.,]$/.test(prevLine))
+    const isSectionHeader =
+      line.split(' ').length <= 4 &&
+      !/[.,;]$/.test(line) &&
+      !isBullet &&
+      ((line === line.toUpperCase() && /[A-Z]/.test(line)) ||
+        [
+          'Professional Summary',
+          'Technical Skills',
+          'Professional Experience',
+          'Work Experience',
+          'Experience',
+          'Education',
+          'Certifications',
+          'Projects',
+          'Summary',
+          'Core Competencies',
+          'Languages',
+        ].includes(line))
+
+    if (isBullet || isSectionHeader || isPrevHeader) {
+      merged.push(line)
+      continue
+    }
+
+    const isPrevEnd = /[.!?]$/.test(prevLine)
+    const isShortFragment =
+      line.split(' ').length <= 2 || line.length <= 25 || /^[a-z,;\)/]/.test(line)
+
+    const shouldMerge =
+      !isPrevEnd ||
+      (hasBlank && isShortFragment && !prevLine.endsWith(':')) ||
+      (!hasBlank && (!isPrevEnd || isShortFragment))
+
+    if (shouldMerge && prevLine) {
+      if (hasBlank) {
+        merged.pop()
+      }
+      merged[merged.length - 1] = `${merged[merged.length - 1]} ${line}`
+    } else {
+      merged.push(line)
+    }
+  }
+
+  const result = []
+  for (const line of merged) {
+    const trimmed = line.trim()
+    if (!trimmed) {
+      if (result.length && result[result.length - 1] !== '') {
+        result.push('')
+      }
+    } else {
+      result.push(trimmed.replace(/[^\S\n]+/g, ' ').replace(/\s+([,.:;!?])/g, '$1'))
+    }
+  }
+
+  return result.join('\n').trim()
+}
+
+function handleFormatCleanClick() {
+  if (!rawCVInput.value.trim()) {
+    uiStore.showToast('Please enter or paste text to clean.', 'info')
+    return
+  }
+  rawCVInput.value = cleanCVText(rawCVInput.value)
+  uiStore.showToast('Cleaned and normalized CV formatting!', 'success')
 }
 
 // Chips and inputs
@@ -759,6 +881,17 @@ onMounted(async () => {
               class="hidden-file-input"
               @change="handleFileUpload"
             />
+
+            <button
+              type="button"
+              class="btn btn-secondary btn-xs"
+              :disabled="isParsingFile || isProcessing || !rawCVInput.trim()"
+              @click="handleFormatCleanClick"
+              title="Automatically heal line breaks, remove double spaces, and format bullet points"
+            >
+              <Sparkles :size="13" />
+              <span>Clean &amp; Format</span>
+            </button>
 
             <button
               type="button"

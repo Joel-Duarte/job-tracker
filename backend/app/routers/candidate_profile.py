@@ -1,7 +1,14 @@
-import asyncio
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +24,7 @@ from app.schemas.candidate_profile import (
     CVTaskStatusResponse,
 )
 from app.services.evaluation_worker import process_evaluation_task
-from app.services.file_parser import parse_cv_document
+from app.services.file_parser import normalize_resume_text, parse_cv_document
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +55,7 @@ async def enqueue_cv_profile_processing(
     Enqueues candidate CV for asynchronous de-identification, duration conversion,
     and canonical skill extraction bounded by provider concurrency limits.
     """
-    raw_text = payload.raw_text.strip()
+    raw_text = normalize_resume_text(payload.raw_text.strip())
     if not raw_text:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
