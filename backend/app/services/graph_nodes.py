@@ -11,6 +11,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 import app.services.llm as llm_service
 from app.core.config_manager import get_setting
+from app.core.html_utils import clean_html_text
 from app.core.url_utils import normalize_job_url
 from app.models.applications import (
     ActionItemModel,
@@ -38,10 +39,52 @@ def _parse_email_date(date_val: str | datetime | None) -> datetime | None:
         return None
     if isinstance(date_val, datetime):
         return date_val
-    try:
-        return datetime.fromisoformat(str(date_val).replace("Z", "+00:00"))
-    except Exception:
-        return None
+    if isinstance(date_val, str):
+        try:
+            return datetime.fromisoformat(date_val.replace("Z", "+00:00"))
+        except Exception:
+            return datetime.now(UTC)
+    return None
+
+
+async def _upsert_processed_email(
+    db: AsyncSession,
+    message_id: str | None,
+    status: str,
+    subject: str | None = None,
+    account_id: int | None = None,
+) -> None:
+    if not message_id:
+        return
+    stmt = select(ProcessedEmailModel).where(
+        ProcessedEmailModel.message_id == message_id
+    )
+    res = await db.execute(stmt)
+    record = res.scalar_one_or_none()
+    if record:
+        record.status = status
+        record.subject = subject or record.subject
+        if account_id is not None:
+            record.account_id = account_id
+    else:
+        record = ProcessedEmailModel(
+            message_id=message_id,
+            subject=subject,
+            status=status,
+            account_id=account_id,
+        )
+        db.add(record)
+    await db.commit()
+
+
+async def is_email_already_processed(db: AsyncSession, message_id: str | None) -> bool:
+    """Checks whether an email has already been processed using the unified ProcessedEmailModel table."""
+    if not message_id:
+        return False
+    stmt = select(ProcessedEmailModel.id).where(
+        ProcessedEmailModel.message_id == message_id
+    )
+    return (await db.execute(stmt)).scalar_one_or_none() is not None
 
 
 def _get_db(config: RunnableConfig) -> AsyncSession:
@@ -54,54 +97,10 @@ def _get_db(config: RunnableConfig) -> AsyncSession:
     return db
 
 
-async def _upsert_processed_email(
-    db: AsyncSession,
-    message_id: str | None,
-    status: str,
-    subject: str | None = None,
-) -> None:
-    """Write a record to processed_email_ids. Silently ignores duplicate inserts."""
-    if not message_id:
-        return
-    try:
-        db.add(
-            ProcessedEmailModel(
-                message_id=message_id,
-                status=status,
-                subject=(subject or "")[:500] if subject else None,
-            )
-        )
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        logger.debug(
-            "processed_email_ids: insert skipped (likely duplicate) for message_id=%s",
-            message_id,
-        )
-
-
-async def is_email_already_processed(db: AsyncSession, message_id: str | None) -> bool:
-    """Checks whether an email has already been processed using the unified ProcessedEmailModel table,
-    with fallback to legacy event tables for existing/historical records."""
-    if not message_id:
-        return False
-    stmt = select(ProcessedEmailModel.id).where(
-        ProcessedEmailModel.message_id == message_id
-    )
-    if (await db.execute(stmt)).scalar_one_or_none() is not None:
-        return True
-
-    for model in (ApplicationEventModel, OtherEventModel, StagingItemModel):
-        stmt = select(model.id).where(model.email_message_id == message_id)
-        if (await db.execute(stmt)).scalar_one_or_none():
-            return True
-    return False
-
-
 async def normalize_and_dedupe_node(
     state: JobTrackerState, config: RunnableConfig
 ) -> dict[str, Any]:
-    """Pre-LLM dedup: checks the unified processed_email_ids table."""
+    """Pre-LLM dedup: checks the unified processed_email_ids table and strips HTML tags."""
     db = _get_db(config)
     message_id = state.get("message_id")
 
@@ -109,10 +108,12 @@ async def normalize_and_dedupe_node(
         logger.info("Duplicate email detected for message_id=%s, skipping.", message_id)
         return {"is_duplicate": True, "route": "skip"}
 
+    cleaned_body = clean_html_text(state.get("body", ""))
+
     return {
         "is_duplicate": False,
         "subject": state.get("subject", "").strip(),
-        "body": state.get("body", "").strip(),
+        "body": cleaned_body,
     }
 
 
@@ -214,12 +215,13 @@ async def fuzzy_match_node(
     position_norm = position_name.strip().lower() if position_name else ""
 
     if not company_norm:
-        # No company extracted -> cannot match or create reliably, send to staging
+        # No company extracted -> route to staging for user to assign company
         return {
             "match_score": 0.0,
             "company_id": None,
             "application_id": None,
             "route": "staging",
+            "match_reason": "MISSING_COMPANY_NAME",
         }
 
     stmt = select(CompanyModel)
@@ -250,6 +252,7 @@ async def fuzzy_match_node(
             "company_id": None,
             "application_id": None,
             "route": "staging",
+            "match_reason": "NEW_COMPANY_LEAD",
         }
 
     # Match application under matched company
@@ -277,6 +280,7 @@ async def fuzzy_match_node(
                 "company_id": best_company.id,
                 "application_id": None,
                 "route": "staging",
+                "match_reason": "AMBIGUOUS_MULTIPLE_APPLICATIONS",
             }
 
         best_app = None
@@ -302,6 +306,7 @@ async def fuzzy_match_node(
                 "company_id": best_company.id,
                 "application_id": None,
                 "route": "staging",
+                "match_reason": "AMBIGUOUS_MULTIPLE_APPLICATIONS",
             }
 
     # Case 3: 0 applications exist for this company
@@ -329,7 +334,7 @@ async def staging_node(
         email_raw_body=state.get("body", ""),
         extracted_data=state.get("extracted_data"),
         match_score=state.get("match_score", 0.0),
-        match_reason="LOW_FUZZY_MATCH_CONFIDENCE",
+        match_reason=state.get("match_reason") or "LOW_FUZZY_MATCH_CONFIDENCE",
         status="PENDING",
     )
     db.add(staging_item)

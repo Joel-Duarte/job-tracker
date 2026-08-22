@@ -47,10 +47,6 @@ const accountToDelete = ref(null)
 const isSavingAccount = ref(false)
 const isDeletingAccount = ref(false)
 
-const showClearAccountModal = ref(false)
-const accountToClear = ref(null)
-const isClearingAccount = ref(false)
-
 const showClearAllModal = ref(false)
 const isClearingAll = ref(false)
 
@@ -294,27 +290,6 @@ async function confirmDeleteAccount() {
   }
 }
 
-function openClearAccountModal(acc) {
-  accountToClear.value = acc
-  showClearAccountModal.value = true
-}
-
-async function confirmClearAccountHistory() {
-  if (!accountToClear.value) return
-  isClearingAccount.value = true
-  try {
-    const res = await EmailAccountsAPI.clearHistory(accountToClear.value.id)
-    uiStore.showToast(res.data?.message || `Email sync history cleared for ${accountToClear.value.name}`, 'success')
-    showClearAccountModal.value = false
-    accountToClear.value = null
-    emit('refresh')
-  } catch (err) {
-    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to clear sync history', 'error')
-  } finally {
-    isClearingAccount.value = false
-  }
-}
-
 function openClearAllModal() {
   showClearAllModal.value = true
 }
@@ -392,15 +367,6 @@ async function confirmClearAllHistory() {
             <Loader2 v-if="syncingAccount === acc.id" class="animate-spin" :size="14" />
             <RefreshCw v-else :size="14" />
             <span>{{ syncingAccount === acc.id ? 'Syncing...' : 'Sync Now' }}</span>
-          </button>
-
-          <button
-            class="btn btn-secondary btn-sm"
-            title="Clear deduplication history & reset sync cursor for this mailbox"
-            @click="openClearAccountModal(acc)"
-          >
-            <RotateCcw :size="13" />
-            <span>Clear History</span>
           </button>
 
           <button class="btn btn-secondary btn-sm" @click="openEditEmailAccountModal(acc)">
@@ -714,32 +680,6 @@ async function confirmClearAllHistory() {
               </button>
             </div>
           </template>
-        </div>
-      </div>
-    </div>
-
-    <!-- CLEAR ACCOUNT SYNC HISTORY CONFIRMATION MODAL -->
-    <div v-if="showClearAccountModal" class="modal-backdrop" @click.self="showClearAccountModal = false">
-      <div class="modal-card animate-scale-in">
-        <div class="modal-header">
-          <RotateCcw :size="20" class="text-warning flex-shrink-0" />
-          <h3 class="modal-title">Clear Email Sync History</h3>
-        </div>
-        <div class="modal-body">
-          <p>Are you sure you want to clear sync history for <strong>{{ accountToClear?.name }}</strong>?</p>
-          <p class="modal-subtext text-muted">
-            This removes all recorded deduplication IDs for this mailbox and resets its sync cursor. Subsequent syncs will re-fetch and re-evaluate emails from the mailbox. Existing job applications and timeline events remain untouched.
-          </p>
-        </div>
-        <div class="modal-footer modal-actions">
-          <button class="btn btn-secondary btn-sm" :disabled="isClearingAccount" @click="showClearAccountModal = false">
-            Cancel
-          </button>
-          <button class="btn btn-warning btn-sm" :disabled="isClearingAccount" @click="confirmClearAccountHistory">
-            <Loader2 v-if="isClearingAccount" class="animate-spin" :size="14" />
-            <RotateCcw v-else :size="14" />
-            <span>Confirm Clear History</span>
-          </button>
         </div>
       </div>
     </div>

@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.ai_queue import cancel_running_task
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.html_utils import clean_html_text
 from app.core.security import verify_admin_access
 from app.core.url_utils import normalize_job_url
 from app.models.applications import (
@@ -246,7 +247,7 @@ async def intake_pasted_text(
     db: AsyncSession = Depends(get_db),
 ):
     """Ingests raw pasted email text, thread, or job communication by queuing an AI task."""
-    raw_text = payload.text.strip()
+    raw_text = clean_html_text(payload.text.strip())
     if not raw_text:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -330,7 +331,7 @@ async def intake_uploaded_files(
                     or f"conv-{uuid.uuid4().hex[:8]}",
                     "sender": getattr(email_payload, "sender", None),
                     "subject": email_payload.subject,
-                    "body": email_payload.body,
+                    "body": clean_html_text(email_payload.body),
                     "received_at": email_payload.received_at.isoformat()
                     if hasattr(email_payload.received_at, "isoformat")
                     else str(email_payload.received_at)

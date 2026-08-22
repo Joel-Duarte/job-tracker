@@ -6,6 +6,7 @@ from datetime import datetime
 from email.header import decode_header
 
 from app.core.config_manager import load_settings
+from app.core.html_utils import clean_html_text
 from app.models.email_accounts import EmailAccountModel
 from app.schemas.intake import EmailPayload
 from app.services.oauth_adapters import GmailOAuthAdapter, MicrosoftGraphAdapter
@@ -76,30 +77,42 @@ def _fetch_imap_emails_sync(
                 conversation_id = msg.get("Message-ID", f"msg-{seq_num}")
                 date_header = msg.get("Date", datetime.now().isoformat())
 
-                # Extract plain text body
+                # Extract body (plain text preferred, fallback to HTML)
                 body: str = ""
+                html_body: str = ""
                 if msg.is_multipart():
                     for part in msg.walk():
-                        if part.get_content_type() == "text/plain":
-                            payload = part.get_payload(decode=True)
-                            if isinstance(payload, bytes):
-                                body = payload.decode(errors="ignore")
-                            else:
-                                body = str(payload)
-                            break
+                        ctype = part.get_content_type()
+                        payload = part.get_payload(decode=True)
+                        p_str = (
+                            payload.decode(errors="ignore")
+                            if isinstance(payload, bytes)
+                            else str(payload or "")
+                        )
+                        if ctype == "text/plain" and not body:
+                            body = p_str
+                        elif ctype == "text/html" and not html_body:
+                            html_body = p_str
                 else:
                     payload = msg.get_payload(decode=True)
-                    if isinstance(payload, bytes):
-                        body = payload.decode(errors="ignore")
+                    p_str = (
+                        payload.decode(errors="ignore")
+                        if isinstance(payload, bytes)
+                        else str(payload or "")
+                    )
+                    if msg.get_content_type() == "text/html":
+                        html_body = p_str
                     else:
-                        body = str(payload)
+                        body = p_str
+
+                final_body = clean_html_text(body or html_body or "")
 
                 results.append(
                     EmailPayload(
                         conversation_id=conversation_id,
                         received_at=date_header,
                         subject=subject,
-                        body=body or "",
+                        body=final_body,
                     )
                 )
 
@@ -169,6 +182,8 @@ async def fetch_emails_from_account(
                 history_id=account.sync_cursor,
                 query=query_str,
             )
+            for em in emails:
+                em.body = clean_html_text(em.body)
             ctx["outputs"] = {"fetched_count": len(emails), "cursor": cursor}
             return emails, cursor
 
@@ -203,6 +218,8 @@ async def fetch_emails_from_account(
                 delta_link=account.sync_cursor,
                 folder_id=account.folder or "Inbox",
             )
+            for em in emails:
+                em.body = clean_html_text(em.body)
             ctx["outputs"] = {"fetched_count": len(emails), "cursor": cursor}
             return emails, cursor
 

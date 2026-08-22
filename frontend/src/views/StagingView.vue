@@ -1,7 +1,8 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useUIStore } from '../stores/uiStore'
 import { useApplicationsStore } from '../stores/applicationsStore'
+import { useQueueStore } from '../stores/queueStore'
 import { StagingAPI } from '../api/endpoints'
 import { getFitScores } from '../utils/fitScores'
 import {
@@ -149,8 +150,10 @@ const filteredExistingApps = computed(() => {
   )
 })
 
-async function fetchStagingItems() {
-  loading.value = true
+async function fetchStagingItems(silent = false) {
+  if (!silent) {
+    loading.value = true
+  }
   try {
     const res = await StagingAPI.list({
       status: selectedFilter.value,
@@ -158,16 +161,35 @@ async function fetchStagingItems() {
     })
     stagingItems.value = res.data.items || []
   } catch (err) {
-    uiStore.showToast(err.message, 'error')
+    if (!silent) {
+      uiStore.showToast(err.message, 'error')
+    }
   } finally {
-    loading.value = false
+    if (!silent) {
+      loading.value = false
+    }
   }
 }
+
+let stagingPollInterval = null
 
 onMounted(() => {
   fetchStagingItems()
   if (appStore.applications.length === 0) {
     appStore.fetchApplications()
+  }
+
+  // Poll for newly staged items in real-time
+  stagingPollInterval = setInterval(() => {
+    if (!resolvingItem.value) {
+      fetchStagingItems(true)
+    }
+  }, 2500)
+})
+
+onUnmounted(() => {
+  if (stagingPollInterval) {
+    clearInterval(stagingPollInterval)
   }
 })
 

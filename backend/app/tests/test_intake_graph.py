@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.applications import ApplicationModel, CompanyModel, OtherEventModel
+from app.models.processed_email import ProcessedEmailModel
 from app.models.staging import StagingItemModel
 from app.schemas.graph_state import JobTrackerState
 from app.schemas.intake import ExtractedEmailInfo
@@ -24,14 +25,13 @@ def test_prune_terminal_state_node():
 
 @pytest.mark.asyncio
 async def test_graph_duplicate_flow(db_session: AsyncSession):
-    # Seed an existing event to trigger duplicate detection
-    other_event = OtherEventModel(
-        email_message_id="msg-dup-101",
-        email_subject="Duplicate Subject",
-        email_type="NEWSLETTER",
-        summary="Newsletter content",
+    # Seed an existing ProcessedEmailModel record to trigger duplicate detection
+    processed = ProcessedEmailModel(
+        message_id="msg-dup-101",
+        subject="Duplicate Subject",
+        status="ingested",
     )
-    db_session.add(other_event)
+    db_session.add(processed)
     await db_session.commit()
 
     state_input: JobTrackerState = {
