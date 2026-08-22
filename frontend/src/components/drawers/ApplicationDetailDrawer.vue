@@ -595,6 +595,14 @@ function formatDate(isoStr) {
 
             <div class="header-actions">
               <button
+                class="btn btn-primary btn-sm"
+                title="Practice Mock Interview"
+                @click="router.push(`/chat?appId=${appStore.selectedApplication.id}&mock=true`)"
+              >
+                <Sparkles :size="14" />
+                <span>Practice Interview</span>
+              </button>
+              <button
                 class="btn-icon-danger"
                 title="Delete Application"
                 @click="showDeleteConfirm = true"
@@ -1139,6 +1147,13 @@ function formatDate(isoStr) {
                   >
                     <BookOpen :size="15" />
                     <span>Open Full Reader</span>
+                  </button>
+                  <button
+                    class="btn btn-secondary"
+                    @click="router.push(`/chat?appId=${appStore.selectedApplication.id}&mock=true`)"
+                  >
+                    <Sparkles :size="15" />
+                    <span>Practice Interview</span>
                   </button>
                   <button
                     class="btn btn-secondary"

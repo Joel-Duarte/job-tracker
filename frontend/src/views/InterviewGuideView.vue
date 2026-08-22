@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ApplicationsAPI } from '../api/endpoints'
 import {
   Globe,
@@ -10,10 +10,12 @@ import {
   Building2,
   Briefcase,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Sparkles
 } from 'lucide-vue-next'
 
 const route = useRoute()
+const router = useRouter()
 const applicationId = route.params.id
 
 const isLoading = ref(true)
@@ -113,7 +115,10 @@ function formatLanguageName(code) {
         </div>
 
         <div class="header-actions">
-
+          <button class="btn btn-primary" @click="router.push(`/chat?appId=${applicationId}&mock=true`)">
+            <Sparkles :size="16" />
+            <span>Practice Interview</span>
+          </button>
           <button class="btn btn-secondary" @click="handleCopy">
             <component :is="hasCopied ? Check : Copy" :size="16" :class="{ 'text-success': hasCopied }" />
             <span>{{ hasCopied ? 'Copied' : 'Copy' }}</span>
