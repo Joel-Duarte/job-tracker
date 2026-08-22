@@ -559,9 +559,13 @@ function formatDate(isoStr) {
 </script>
 
 <template>
-  <Transition name="drawer-slide">
-    <div v-if="uiStore.activeDetailId" class="drawer-overlay" @click.self="close">
-      <div class="drawer-panel">
+  <div v-if="uiStore.activeDetailId" class="drawer-overlay-container">
+    <Transition name="drawer-backdrop">
+      <div v-if="uiStore.activeDetailId" class="drawer-backdrop" @click="close" />
+    </Transition>
+
+    <Transition name="drawer-slide">
+      <div v-if="uiStore.activeDetailId" class="drawer-panel">
         <!-- Loading State -->
         <div v-if="appStore.loadingDetail" class="drawer-loading">
           <div class="pulse-dot"></div>
@@ -1169,8 +1173,8 @@ function formatDate(isoStr) {
           </div>
         </div>
       </div>
-    </div>
-  </Transition>
+    </Transition>
+  </div>
 
   <!-- TRANSITION POPUP MODAL -->
   <Transition name="fade">
@@ -1438,15 +1442,22 @@ function formatDate(isoStr) {
 </template>
 
 <style scoped>
-.drawer-overlay {
+.drawer-overlay-container {
   position: fixed;
   inset: 0;
   z-index: 400;
-  background-color: var(--bg-backdrop);
-  backdrop-filter: blur(4px);
   display: flex;
   justify-content: flex-end;
-  transition: backdrop-filter 0.3s ease;
+  pointer-events: none;
+}
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: var(--bg-backdrop);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  pointer-events: auto;
 }
 
 .drawer-panel {
@@ -1459,6 +1470,9 @@ function formatDate(isoStr) {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  position: relative;
+  z-index: 401;
+  pointer-events: auto;
 }
 
 .drawer-loading {
@@ -1613,11 +1627,13 @@ function formatDate(isoStr) {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .event-sender {
   font-size: 11px;
   color: var(--text-secondary);
+  font-weight: 500;
 }
 
 .meta-item {
@@ -1625,6 +1641,7 @@ function formatDate(isoStr) {
   align-items: center;
   gap: 6px;
   color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .btn-link {
@@ -2154,15 +2171,26 @@ function formatDate(isoStr) {
   margin-bottom: 8px;
 }
 
-/* Transitions */
-.drawer-slide-enter-active,
-.drawer-slide-leave-active {
-  transition: all var(--transition-spring);
+/* Decoupled Transitions */
+.drawer-backdrop-enter-active {
+  transition: opacity 0.2s ease-out;
+}
+.drawer-backdrop-leave-active {
+  transition: opacity 0.15s ease-in;
+}
+.drawer-backdrop-enter-from,
+.drawer-backdrop-leave-to {
+  opacity: 0;
 }
 
+.drawer-slide-enter-active {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.drawer-slide-leave-active {
+  transition: transform 0.18s cubic-bezier(0.4, 0, 1, 1);
+}
 .drawer-slide-enter-from,
 .drawer-slide-leave-to {
-  opacity: 0;
   transform: translateX(100%);
 }
 
