@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { AIConfigAPI } from '../api/endpoints'
 
 export const useUIStore = defineStore('ui', () => {
   const theme = ref(localStorage.getItem('jt_theme') || 'midnight')
@@ -306,6 +307,93 @@ export const useUIStore = defineStore('ui', () => {
   }
 
 
+  // AI Health Monitoring State
+  const aiStatus = ref('unconfigured') // 'healthy' | 'degraded' | 'offline' | 'unconfigured'
+  const aiLatencyMs = ref(0)
+  const aiActiveProviderName = ref('')
+  const aiModelName = ref('')
+  const aiErrorMessage = ref(null)
+  const aiFallbackProviderName = ref(null)
+  const aiProviderType = ref(null)
+  const aiBaseUrl = ref(null)
+  const aiProviderId = ref(null)
+  const aiFallbackProviderId = ref(null)
+  const isCheckingAIHealth = ref(false)
+  const isRetryModalOpen = ref(false)
+
+  let healthTimer = null
+  let isMonitorInitialized = false
+
+  async function checkAIHealth() {
+    isCheckingAIHealth.value = true
+    try {
+      const res = await AIConfigAPI.checkHealth()
+      const data = res.data || {}
+      aiStatus.value = data.status || 'unconfigured'
+      aiLatencyMs.value = data.latency_ms || 0
+      aiActiveProviderName.value = data.provider_name || ''
+      aiModelName.value = data.model_name || ''
+      aiErrorMessage.value = data.error_message || null
+      aiFallbackProviderName.value = data.fallback_provider_name || null
+      aiProviderType.value = data.provider_type || null
+      aiBaseUrl.value = data.base_url || null
+      aiProviderId.value = data.provider_id || null
+      aiFallbackProviderId.value = data.fallback_provider_id || null
+    } catch (err) {
+      aiStatus.value = 'offline'
+      aiErrorMessage.value = err?.response?.data?.detail || err?.message || 'Connection failed'
+    } finally {
+      isCheckingAIHealth.value = false
+    }
+  }
+
+  function openRetryModal() {
+    isRetryModalOpen.value = true
+  }
+
+  function closeRetryModal() {
+    isRetryModalOpen.value = false
+  }
+
+  function initAIHealthMonitor() {
+    if (isMonitorInitialized) return
+    isMonitorInitialized = true
+
+    checkAIHealth()
+
+    window.addEventListener('focus', () => {
+      checkAIHealth()
+    })
+
+    function startTimer() {
+      if (!healthTimer) {
+        healthTimer = setInterval(() => {
+          if (!document.hidden) {
+            checkAIHealth()
+          }
+        }, 60000)
+      }
+    }
+
+    function stopTimer() {
+      if (healthTimer) {
+        clearInterval(healthTimer)
+        healthTimer = null
+      }
+    }
+
+    startTimer()
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        stopTimer()
+      } else {
+        checkAIHealth()
+        startTimer()
+      }
+    })
+  }
+
   // Route Preservation State
   const lastNonSettingsRoute = ref(null)
 
@@ -400,5 +488,21 @@ export const useUIStore = defineStore('ui', () => {
     lastNonSettingsRoute,
     setLastNonSettingsRoute,
     clearLastNonSettingsRoute,
+    aiStatus,
+    aiLatencyMs,
+    aiActiveProviderName,
+    aiModelName,
+    aiErrorMessage,
+    aiFallbackProviderName,
+    aiProviderType,
+    aiBaseUrl,
+    aiProviderId,
+    aiFallbackProviderId,
+    isCheckingAIHealth,
+    isRetryModalOpen,
+    checkAIHealth,
+    openRetryModal,
+    closeRetryModal,
+    initAIHealthMonitor,
   }
 })

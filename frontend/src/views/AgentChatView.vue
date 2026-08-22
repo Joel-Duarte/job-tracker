@@ -63,6 +63,11 @@ watch(() => chatStore.messages.length, () => {
 })
 
 async function handleSendMessage(textToSend = null) {
+  if (uiStore.aiStatus === 'offline' && !uiStore.aiFallbackProviderName) {
+    uiStore.openRetryModal()
+    return
+  }
+
   const text = textToSend || inputMessage.value.trim()
   if (!text || chatStore.isSending) return
 

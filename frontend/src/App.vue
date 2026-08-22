@@ -7,6 +7,7 @@ import ApplicationDetailDrawer from './components/drawers/ApplicationDetailDrawe
 import IngestModal from './components/modals/IngestModal.vue'
 import JobIntakeModal from './components/modals/JobIntakeModal.vue'
 import CoverLetterModal from './components/modals/CoverLetterModal.vue'
+import QuickRetryModal from './components/modals/QuickRetryModal.vue'
 import IntakeQueueDrawer from './components/layout/IntakeQueueDrawer.vue'
 import FloatingQueueWidget from './components/layout/FloatingQueueWidget.vue'
 import FloatingAgentChatWidget from './components/agent/FloatingAgentChatWidget.vue'
@@ -40,6 +41,7 @@ onMounted(async () => {
     <IngestModal />
     <JobIntakeModal />
     <CoverLetterModal />
+    <QuickRetryModal />
     <IntakeQueueDrawer />
     <FloatingQueueWidget />
     <FloatingAgentChatWidget />

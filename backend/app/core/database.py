@@ -150,11 +150,30 @@ async def ensure_db_schema() -> None:
         logger.info("Verifying database extensions and schema tables...")
 
         # 1. Ensure required PostgreSQL extensions exist
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+        try:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+        except Exception as ext_err:
+            logger.debug("Extension creation skipped: %s", ext_err)
 
         # 2. Create missing tables defined in ORM metadata (idempotent)
         await conn.run_sync(Base.metadata.create_all)
+
+        # 2b. Ensure missing columns are added to existing tables
+        from sqlalchemy import inspect
+
+        def _sync_schema_columns(connection):
+            inspector = inspect(connection)
+            if "ai_providers" in inspector.get_table_names():
+                cols = [c["name"] for c in inspector.get_columns("ai_providers")]
+                if "is_fallback" not in cols:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE ai_providers ADD COLUMN is_fallback BOOLEAN NOT NULL DEFAULT FALSE;"
+                        )
+                    )
+
+        await conn.run_sync(_sync_schema_columns)
 
         logger.info("Database schema check completed.")
 

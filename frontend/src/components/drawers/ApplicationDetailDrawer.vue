@@ -168,6 +168,11 @@ function selectAllSections() {
 }
 
 async function handleGenerateGuide() {
+  if (uiStore.aiStatus === 'offline' && !uiStore.aiFallbackProviderName) {
+    uiStore.openRetryModal()
+    return
+  }
+
   if (selectedSections.value.length === 0) {
     uiStore.showToast('Please select at least one section to generate', 'warning')
     return

@@ -29,6 +29,9 @@ class AIProviderCreate(BaseModel):
         default=1, ge=1, le=50, description="Max parallel AI requests to this provider"
     )
     is_active: bool = Field(default=True)
+    is_fallback: bool = Field(
+        default=False, description="Designated secondary auto-failover provider"
+    )
 
 
 class AIProviderUpdate(BaseModel):
@@ -38,6 +41,7 @@ class AIProviderUpdate(BaseModel):
     api_key: str | None = None
     max_concurrency: int | None = Field(default=None, ge=1, le=50)
     is_active: bool | None = None
+    is_fallback: bool | None = None
 
 
 class AIProviderRead(BaseModel):
@@ -48,6 +52,7 @@ class AIProviderRead(BaseModel):
     api_key_masked: str | None = None
     max_concurrency: int = 1
     is_active: bool
+    is_fallback: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -134,3 +139,16 @@ class AIProviderModelsResponse(BaseModel):
     provider_name: str
     provider_type: str
     models: list[DiscoveredModel]
+
+
+class AIHealthStatusRead(BaseModel):
+    status: str
+    provider_id: int | None = None
+    provider_name: str | None = None
+    provider_type: str | None = None
+    base_url: str | None = None
+    model_name: str | None = None
+    latency_ms: float = 0.0
+    error_message: str | None = None
+    fallback_provider_id: int | None = None
+    fallback_provider_name: str | None = None
