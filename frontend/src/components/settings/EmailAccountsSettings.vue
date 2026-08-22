@@ -547,19 +547,6 @@ async function confirmDeleteAccount() {
               </div>
             </div>
 
-            <div class="input-group">
-              <div class="label-with-hint">
-                <label class="input-label">Email Address</label>
-                <span class="text-xs text-muted">Auto-resolved upon OAuth login</span>
-              </div>
-              <input
-                v-model="emailAccountForm.username"
-                type="email"
-                placeholder="Optional (populated automatically on sign in)"
-                class="form-input"
-              />
-            </div>
-
             <div class="modal-actions mt-4">
               <button class="btn btn-secondary" @click="isEmailAccountModalOpen = false">Cancel</button>
               <button class="btn btn-secondary" :disabled="isSavingAccount" @click="saveEmailAccount">

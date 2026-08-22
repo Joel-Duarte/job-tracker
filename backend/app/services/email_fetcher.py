@@ -201,6 +201,7 @@ async def fetch_emails_from_account(
             emails, cursor = await MicrosoftGraphAdapter.fetch_messages_delta(
                 access_token=token,
                 delta_link=account.sync_cursor,
+                folder_id=account.folder or "Inbox",
             )
             ctx["outputs"] = {"fetched_count": len(emails), "cursor": cursor}
             return emails, cursor

@@ -1,13 +1,15 @@
+import asyncio
 import base64
 import binascii
 import hashlib
 import hmac
 import html
+import imaplib
 import json
 import logging
 import secrets
 import time
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -58,9 +60,10 @@ def generate_oauth_state(client_id: str | None = None) -> str:
 def _oauth_state_client_id(state: str | None) -> str | None:
     if not state:
         return None
-    padding = "=" * (-len(state) % 4)
+    raw_token = state.split(".")[0]
+    padding = "=" * (-len(raw_token) % 4)
     try:
-        payload = json.loads(base64.urlsafe_b64decode(f"{state}{padding}"))
+        payload = json.loads(base64.urlsafe_b64decode(f"{raw_token}{padding}"))
     except (ValueError, TypeError, binascii.Error, json.JSONDecodeError):
         return None
     return payload.get("client_id") if isinstance(payload, dict) else None
@@ -194,17 +197,16 @@ async def get_oauth_authorize_url(
         resolved_client_id = client_id
         if resolved_client_id:
             state_token = generate_oauth_state(resolved_client_id)
-            scopes = "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email"
-            auth_url = (
-                f"https://accounts.google.com/o/oauth2/v2/auth?"
-                f"client_id={resolved_client_id}&"
-                f"redirect_uri={effective_redirect_uri}&"
-                f"response_type=code&"
-                f"scope={scopes}&"
-                f"access_type=offline&"
-                f"prompt=consent&"
-                f"state={state_token}"
-            )
+            query_params = {
+                "client_id": resolved_client_id,
+                "redirect_uri": effective_redirect_uri,
+                "response_type": "code",
+                "scope": "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email openid profile",
+                "access_type": "offline",
+                "prompt": "consent",
+                "state": state_token,
+            }
+            auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(query_params)}"
             response = JSONResponse(
                 content=OAuthUrlResponse(
                     provider="google",
@@ -228,9 +230,9 @@ async def get_oauth_authorize_url(
         resolved_client_id = client_id
         if resolved_client_id:
             state_token = generate_oauth_state(resolved_client_id)
-            scopes = "Mail.Read offline_access User.Read"
+            scopes = "openid email profile User.Read Mail.Read offline_access"
             auth_url = (
-                f"https://login.microsoftonline.com/common/oauth2/v2.0/authorize?"
+                f"https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?"
                 f"client_id={resolved_client_id}&"
                 f"response_type=code&"
                 f"redirect_uri={effective_redirect_uri}&"
@@ -273,56 +275,60 @@ async def oauth_callback(
     db: AsyncSession = Depends(get_db),
 ):
     """Handles OAuth authorization redirect callback from Google Gmail or Microsoft Graph."""
-    state_cookie = request.cookies.get(_STATE_COOKIE_NAME)
-    if not validate_oauth_state(state, state_cookie):
-        return Response(
-            content="""
-            <html><body><h3>OAuth Authorization Failed: Invalid or expired CSRF state.</h3></body></html>
-            """,
-            media_type="text/html",
-            status_code=400,
-        )
-
-    if error:
-        response = Response(
-            content=f"""
-            <html>
-                <body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: #f8fafc;">
-                    <div style="text-align: center; background: #1e293b; padding: 32px 48px; border-radius: 12px; border: 1px solid #ef4444;">
-                        <h2 style="color: #ef4444; margin-bottom: 8px;">OAuth Authorization Failed</h2>
-                        <p style="color: #94a3b8; font-size: 14px;">{html.escape(error)}</p>
-                    </div>
-                </body>
-            </html>
-            """,
-            media_type="text/html",
-            status_code=400,
-        )
-        response.delete_cookie(_STATE_COOKIE_NAME, path="/api/v1/email_accounts/oauth")
-        return response
-
-    if not code:
-        return Response(
-            content="<html><body><h3>OAuth Error: No authorization code received.</h3></body></html>",
-            media_type="text/html",
-            status_code=400,
-        )
-
-    prov = provider.lower().strip()
-    state_client_id = _oauth_state_client_id(state)
-    auth_type = "GMAIL_OAUTH" if prov == "google" else "MS_GRAPH_OAUTH"
-    configured_account = None
-    if state_client_id:
-        configured_stmt = select(EmailAccountModel).where(
-            EmailAccountModel.client_id == state_client_id,
-            EmailAccountModel.auth_type == auth_type,
-        )
-        configured_account = (await db.execute(configured_stmt)).scalar_one_or_none()
-
-    base_url = _resolve_base_url(request)
-    redirect_uri = f"{base_url}/api/v1/email_accounts/oauth/callback/{prov}"
-
     try:
+        state_cookie = request.cookies.get(_STATE_COOKIE_NAME)
+        if not validate_oauth_state(state, state_cookie):
+            return Response(
+                content="""
+                <html><body><h3>OAuth Authorization Failed: Invalid or expired CSRF state.</h3></body></html>
+                """,
+                media_type="text/html",
+                status_code=400,
+            )
+
+        if error:
+            response = Response(
+                content=f"""
+                <html>
+                    <body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: #f8fafc;">
+                        <div style="text-align: center; background: #1e293b; padding: 32px 48px; border-radius: 12px; border: 1px solid #ef4444;">
+                            <h2 style="color: #ef4444; margin-bottom: 8px;">OAuth Authorization Failed</h2>
+                            <p style="color: #94a3b8; font-size: 14px;">{html.escape(error)}</p>
+                        </div>
+                    </body>
+                </html>
+                """,
+                media_type="text/html",
+                status_code=400,
+            )
+            response.delete_cookie(_STATE_COOKIE_NAME, path="/api/v1/email_accounts/oauth")
+            return response
+
+        if not code:
+            return Response(
+                content="<html><body><h3>OAuth Error: No authorization code received.</h3></body></html>",
+                media_type="text/html",
+                status_code=400,
+            )
+
+        prov = provider.lower().strip()
+        state_client_id = _oauth_state_client_id(state)
+        auth_type = "GMAIL_OAUTH" if prov == "google" else "MS_GRAPH_OAUTH"
+        configured_account = None
+        if state_client_id:
+            configured_stmt = (
+                select(EmailAccountModel)
+                .where(
+                    EmailAccountModel.client_id == state_client_id,
+                    EmailAccountModel.auth_type == auth_type,
+                )
+                .order_by(EmailAccountModel.id.desc())
+            )
+            configured_account = (await db.execute(configured_stmt)).scalars().first()
+
+        base_url = _resolve_base_url(request)
+        redirect_uri = f"{base_url}/api/v1/email_accounts/oauth/callback/{prov}"
+
         if prov == "google":
             client_id = state_client_id or ""
             client_secret = (
@@ -346,11 +352,15 @@ async def oauth_callback(
                 p_data = p_resp.json() if p_resp.status_code == 200 else {}
                 email_address = p_data.get("emailAddress", "Google Account")
 
-            stmt = select(EmailAccountModel).where(
-                EmailAccountModel.username == email_address,
-                EmailAccountModel.auth_type == "GMAIL_OAUTH",
+            stmt = (
+                select(EmailAccountModel)
+                .where(
+                    EmailAccountModel.username == email_address,
+                    EmailAccountModel.auth_type == "GMAIL_OAUTH",
+                )
+                .order_by(EmailAccountModel.id.desc())
             )
-            existing = (await db.execute(stmt)).scalar_one_or_none()
+            existing = (await db.execute(stmt)).scalars().first()
             existing = existing or configured_account
             if not existing:
                 account = EmailAccountModel(
@@ -402,11 +412,15 @@ async def oauth_callback(
                     or "Outlook Account"
                 )
 
-            stmt = select(EmailAccountModel).where(
-                EmailAccountModel.username == email_address,
-                EmailAccountModel.auth_type == "MS_GRAPH_OAUTH",
+            stmt = (
+                select(EmailAccountModel)
+                .where(
+                    EmailAccountModel.username == email_address,
+                    EmailAccountModel.auth_type == "MS_GRAPH_OAUTH",
+                )
+                .order_by(EmailAccountModel.id.desc())
             )
-            existing = (await db.execute(stmt)).scalar_one_or_none()
+            existing = (await db.execute(stmt)).scalars().first()
             existing = existing or configured_account
             if not existing:
                 account = EmailAccountModel(
@@ -599,3 +613,329 @@ async def delete_account(account_id: int, db: AsyncSession = Depends(get_db)):
 
     await db.delete(account)
     await db.commit()
+
+
+class MailFolderItem(BaseModel):
+    id: str
+    name: str
+    path: str
+    parent_id: str | None = None
+
+
+class EmailFoldersResponse(BaseModel):
+    account_id: int
+    folders: list[MailFolderItem]
+
+
+async def fetch_account_folders(
+    account: EmailAccountModel, db: AsyncSession | None = None
+) -> list[MailFolderItem]:
+    """Fetches list of available mail folders / labels from IMAP, Gmail API, or Microsoft Graph."""
+    logger.info(
+        "Fetching mail folders for account ID %s (auth_type=%s, username=%s)",
+        account.id,
+        account.auth_type,
+        account.username,
+    )
+    if account.auth_type == "GMAIL_OAUTH":
+        if not account.access_token:
+            return [MailFolderItem(id="INBOX", name="Inbox", path="Inbox")]
+        try:
+            access_token = account.access_token
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    "https://gmail.googleapis.com/gmail/v1/users/me/labels",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                if (
+                    resp.status_code == 401
+                    and account.refresh_token
+                    and account.client_id
+                    and account.client_secret
+                ):
+                    access_token = await GmailOAuthAdapter.refresh_access_token(
+                        client_id=account.client_id,
+                        client_secret=account.client_secret,
+                        refresh_token=account.refresh_token,
+                    )
+                    account.access_token = access_token
+                    if db:
+                        await db.commit()
+                    resp = await client.get(
+                        "https://gmail.googleapis.com/gmail/v1/users/me/labels",
+                        headers={"Authorization": f"Bearer {access_token}"},
+                    )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    labels_raw = data.get("labels", [])
+                    ignored_ids = {
+                        "CHAT",
+                        "DRAFT",
+                        "TRASH",
+                        "SPAM",
+                        "UNREAD",
+                        "CATEGORY_FORUMS",
+                        "CATEGORY_UPDATES",
+                        "CATEGORY_PROMOTIONS",
+                        "CATEGORY_SOCIAL",
+                    }
+                    items: list[MailFolderItem] = []
+                    for item in labels_raw:
+                        lbl_id = item.get("id")
+                        lbl_name = item.get("name")
+                        if not lbl_id or not lbl_name:
+                            continue
+                        if lbl_id.upper() in ignored_ids:
+                            continue
+
+                        # Friendly naming and path reconstruction
+                        if lbl_id.upper() == "INBOX":
+                            display_name = "Inbox"
+                            path = "Inbox"
+                        elif lbl_id.upper() == "SENT":
+                            display_name = "Sent"
+                            path = "Sent"
+                        elif lbl_id.upper() == "STARRED":
+                            display_name = "Starred"
+                            path = "Starred"
+                        elif lbl_id.upper() == "IMPORTANT":
+                            display_name = "Important"
+                            path = "Important"
+                        elif lbl_id.upper() == "CATEGORY_PERSONAL":
+                            display_name = "Primary"
+                            path = "Primary"
+                        else:
+                            # User label (can be nested like Projects/Jobs)
+                            display_name = (
+                                lbl_name.split("/")[-1]
+                                if "/" in lbl_name
+                                else lbl_name
+                            )
+                            path = lbl_name.replace("/", " / ")
+
+                        items.append(
+                            MailFolderItem(
+                                id=lbl_id,
+                                name=display_name,
+                                path=path,
+                            )
+                        )
+
+                    items.sort(
+                        key=lambda x: (
+                            0 if x.id.upper() == "INBOX" else 1,
+                            x.path.lower(),
+                        )
+                    )
+                    return (
+                        items
+                        if items
+                        else [MailFolderItem(id="INBOX", name="Inbox", path="Inbox")]
+                    )
+                else:
+                    logger.warning(
+                        "Gmail API labels error: status=%s body=%s",
+                        resp.status_code,
+                        resp.text,
+                    )
+        except Exception as e:
+            logger.warning("Error fetching Gmail labels: %s", e, exc_info=True)
+        return [
+            MailFolderItem(id="INBOX", name="Inbox", path="Inbox"),
+            MailFolderItem(id="Archive", name="Archive", path="Archive"),
+            MailFolderItem(id="Jobs", name="Jobs", path="Jobs"),
+        ]
+
+    elif account.auth_type == "MS_GRAPH_OAUTH":
+        if not account.access_token:
+            return [MailFolderItem(id="Inbox", name="Inbox", path="Inbox")]
+        try:
+            access_token = account.access_token
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                url = "https://graph.microsoft.com/v1.0/me/mailFolders/delta"
+                resp = await client.get(
+                    url,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                if (
+                    resp.status_code == 401
+                    and account.refresh_token
+                    and account.client_id
+                    and account.client_secret
+                ):
+                    access_token = await MicrosoftGraphAdapter.refresh_access_token(
+                        client_id=account.client_id,
+                        client_secret=account.client_secret,
+                        refresh_token=account.refresh_token,
+                    )
+                    account.access_token = access_token
+                    if db:
+                        await db.commit()
+                    resp = await client.get(
+                        url,
+                        headers={"Authorization": f"Bearer {access_token}"},
+                    )
+
+                raw_folders: dict[str, dict] = {}
+                while resp.status_code == 200:
+                    data = resp.json()
+                    for item in data.get("value", []):
+                        f_id = item.get("id")
+                        f_name = item.get("displayName")
+                        parent_id = item.get("parentFolderId")
+                        if f_id and f_name:
+                            raw_folders[f_id] = {
+                                "id": f_id,
+                                "name": f_name,
+                                "parent_id": parent_id,
+                            }
+                    next_url = data.get("@odata.nextLink")
+                    if not next_url:
+                        break
+                    resp = await client.get(
+                        next_url,
+                        headers={"Authorization": f"Bearer {access_token}"},
+                    )
+
+                if raw_folders:
+
+                    def build_path(folder_id: str, visited: set | None = None) -> str:
+                        if visited is None:
+                            visited = set()
+                        if folder_id in visited or folder_id not in raw_folders:
+                            return ""
+                        visited.add(folder_id)
+                        f = raw_folders[folder_id]
+                        parent_id = f.get("parent_id")
+                        if parent_id and parent_id in raw_folders:
+                            parent_name = raw_folders[parent_id]["name"].lower()
+                            if parent_name not in {
+                                "msgfolderroot",
+                                "root",
+                                "top of information store",
+                            }:
+                                parent_path = build_path(parent_id, visited)
+                                if parent_path:
+                                    return f"{parent_path} / {f['name']}"
+                        return f["name"]
+
+                    ignored = {
+                        "msgfolderroot",
+                        "top of information store",
+                        "root",
+                        "junk email",
+                        "deleted items",
+                        "outbox",
+                        "conversation history",
+                        "sync issues",
+                        "conflicts",
+                        "local failures",
+                        "server failures",
+                    }
+                    items: list[MailFolderItem] = []
+                    for f_id, f in raw_folders.items():
+                        if f["name"].lower() in ignored:
+                            continue
+                        full_path = build_path(f_id)
+                        items.append(
+                            MailFolderItem(
+                                id=f_id,
+                                name=f["name"],
+                                path=full_path or f["name"],
+                                parent_id=f.get("parent_id"),
+                            )
+                        )
+
+                    items.sort(
+                        key=lambda x: (
+                            0 if x.name.lower() == "inbox" and "/" not in x.path else 1,
+                            x.path.lower(),
+                        )
+                    )
+                    return (
+                        items
+                        if items
+                        else [MailFolderItem(id="Inbox", name="Inbox", path="Inbox")]
+                    )
+                else:
+                    logger.warning(
+                        "MS Graph mailFolders/delta returned no folders (status=%s body=%s)",
+                        resp.status_code,
+                        resp.text,
+                    )
+        except Exception as e:
+            logger.warning("Error fetching MS Graph delta folders: %s", e, exc_info=True)
+        return [
+            MailFolderItem(id="Inbox", name="Inbox", path="Inbox"),
+            MailFolderItem(id="Archive", name="Archive", path="Archive"),
+            MailFolderItem(id="Jobs", name="Jobs", path="Jobs"),
+        ]
+
+    else:
+        # Standard IMAP
+        if not account.imap_host or not account.username or not account.app_password:
+            return [MailFolderItem(id="INBOX", name="INBOX", path="INBOX")]
+        try:
+
+            def _get_imap_folders():
+                mail = imaplib.IMAP4_SSL(account.imap_host, account.imap_port or 993)
+                mail.login(account.username, account.app_password)
+                status, folder_list = mail.list()
+                mail.logout()
+                if status != "OK" or not folder_list:
+                    return [MailFolderItem(id="INBOX", name="INBOX", path="INBOX")]
+                parsed = []
+                for entry in folder_list:
+                    if isinstance(entry, bytes):
+                        entry = entry.decode("utf-8", errors="ignore")
+                    parts = entry.split(' "/" ')
+                    if len(parts) > 1:
+                        raw_folder = parts[-1].strip().strip('"')
+                        if raw_folder:
+                            parsed.append(raw_folder)
+                    else:
+                        tokens = entry.split()
+                        if tokens:
+                            parsed.append(tokens[-1].strip('"'))
+                items = [
+                    MailFolderItem(
+                        id=f,
+                        name=f.split("/")[-1] if "/" in f else f,
+                        path=f.replace("/", " / "),
+                    )
+                    for f in sorted(list(set(parsed)))
+                ]
+                items.sort(
+                    key=lambda x: (
+                        0 if x.name.upper() == "INBOX" else 1,
+                        x.path.lower(),
+                    )
+                )
+                return (
+                    items
+                    if items
+                    else [MailFolderItem(id="INBOX", name="INBOX", path="INBOX")]
+                )
+
+            return await asyncio.to_thread(_get_imap_folders)
+        except Exception as e:
+            logger.warning("Error fetching IMAP folders: %s", e, exc_info=True)
+            return [MailFolderItem(id="INBOX", name="INBOX", path="INBOX")]
+
+
+@router.get("/{account_id}/folders", response_model=EmailFoldersResponse)
+async def list_account_folders(account_id: int, db: AsyncSession = Depends(get_db)):
+    """Fetch available mail folders/labels from provider for account."""
+    result = await db.execute(
+        select(EmailAccountModel).where(EmailAccountModel.id == account_id)
+    )
+    account = result.scalar_one_or_none()
+
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Email account with ID {account_id} not found.",
+        )
+
+    folders = await fetch_account_folders(account, db=db)
+    return EmailFoldersResponse(account_id=account.id, folders=folders)
