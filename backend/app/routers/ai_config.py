@@ -1,6 +1,5 @@
 import logging
 import time
-import uuid
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -21,7 +20,6 @@ from app.core.llm_factory import (
 )
 from app.core.security import verify_admin_access
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
-from app.models.diagnostics import TraceEventModel
 from app.schemas.ai_config import (
     AIHealthStatusRead,
     AIProviderCreate,
@@ -319,29 +317,6 @@ async def check_ai_provider_health(db: AsyncSession) -> AIHealthStatusRead:
         latency_ms = round((time.perf_counter() - start_time) * 1000, 1)
         status_str = "offline"
         error_message = str(err)
-
-    # 4. Telemetry Tracing
-    try:
-        trace = TraceEventModel(
-            run_id=f"health_{uuid.uuid4().hex[:12]}",
-            category="llm",
-            event_type="health_check",
-            payload={
-                "status": status_str,
-                "provider_id": provider.id,
-                "provider_name": provider.name,
-                "provider_type": provider.provider_type,
-                "model_name": model_name,
-                "latency_ms": latency_ms,
-                "error_message": error_message,
-                "fallback_provider_id": fallback_provider_id,
-                "fallback_provider_name": fallback_provider_name,
-            },
-        )
-        db.add(trace)
-        await db.commit()
-    except Exception as trace_err:
-        logger.warning("Failed to persist health check trace event: %s", trace_err)
 
     return AIHealthStatusRead(
         status=status_str,

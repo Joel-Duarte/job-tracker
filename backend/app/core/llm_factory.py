@@ -9,7 +9,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 logger = logging.getLogger(__name__)
 
@@ -598,9 +598,13 @@ async def get_task_chat_model(
                 try:
                     from app.models.ai_providers import AIProviderModel
 
-                    fb_stmt = select(AIProviderModel).where(
-                        AIProviderModel.id != target_provider.id,
-                        AIProviderModel.is_active.is_(True),
+                    fb_stmt = (
+                        select(AIProviderModel)
+                        .options(selectinload(AIProviderModel.task_bindings))
+                        .where(
+                            AIProviderModel.id != target_provider.id,
+                            AIProviderModel.is_active.is_(True),
+                        )
                     )
                     all_fb = (await db.execute(fb_stmt)).scalars().all()
                     fallback_prov = next(

@@ -61,11 +61,13 @@ async def test_ai_health_healthy_and_degraded(db_session: AsyncSession):
     await db_session.commit()
 
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        # Mock httpx GET for fast <800ms healthy response
-        mock_response = AsyncMock()
-        mock_response.status_code = 200
+        # Mock httpx AsyncClient inside ai_config for fast <800ms healthy response
+        mock_response = httpx.Response(200, json={"data": []})
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__.return_value = mock_client
 
-        with patch("httpx.AsyncClient.get", return_value=mock_response):
+        with patch("app.routers.ai_config.httpx.AsyncClient", return_value=mock_client):
             res = await ac.get("/api/v1/config/ai/health")
             assert res.status_code == 200
             data = res.json()
@@ -114,11 +116,14 @@ async def test_ai_health_offline_and_fallback_resolution(db_session: AsyncSessio
     await db_session.commit()
 
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        # Mock httpx GET raising ConnectError
-        with patch(
-            "httpx.AsyncClient.get",
-            side_effect=httpx.ConnectError("Connection refused"),
-        ):
+        # Mock httpx AsyncClient raising ConnectError
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(
+            side_effect=httpx.ConnectError("Connection refused")
+        )
+        mock_client.__aenter__.return_value = mock_client
+
+        with patch("app.routers.ai_config.httpx.AsyncClient", return_value=mock_client):
             res = await ac.get("/api/v1/config/ai/health")
             assert res.status_code == 200
             data = res.json()
