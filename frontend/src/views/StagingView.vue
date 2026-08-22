@@ -23,8 +23,10 @@ import {
   ArrowRight,
   ExternalLink,
   ChevronDown,
+  ChevronRight,
 } from 'lucide-vue-next'
 import PageHeader from '../components/common/PageHeader.vue'
+import DateTimePicker from '../components/common/DateTimePicker.vue'
 
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
@@ -40,6 +42,7 @@ const currentStep = ref(1) // 1 = Select Target, 2 = Configure Details
 const resolutionMode = ref('create') // 'create' | 'link'
 const selectedExistingAppId = ref(null)
 const appSearchQuery = ref('')
+const showRawJobDesc = ref(false)
 
 const resolveForm = ref({
   company: '',
@@ -51,8 +54,43 @@ const resolveForm = ref({
   summary: '',
   action_required: false,
   action: '',
-  urgency: 'MEDIUM',
   due_date: '',
+})
+
+const computedUrgency = computed(() => {
+  if (resolveForm.value.due_date) {
+    const due = new Date(resolveForm.value.due_date)
+    if (!isNaN(due.getTime())) {
+      const diffHours = (due.getTime() - Date.now()) / (1000 * 60 * 60)
+      if (diffHours <= 48) return 'HIGH'
+      if (diffHours <= 24 * 7) return 'MEDIUM'
+      return 'LOW'
+    }
+  }
+  const text = (resolveForm.value.action || '').toLowerCase()
+  if (
+    ['urgent', 'deadline', 'asap', 'schedule', 'interview', 'offer', 'expir', 'today', 'tomorrow'].some((w) =>
+      text.includes(w)
+    )
+  ) {
+    return 'HIGH'
+  }
+  return 'MEDIUM'
+})
+
+const computedUrgencyLabel = computed(() => {
+  if (resolveForm.value.due_date) {
+    const due = new Date(resolveForm.value.due_date)
+    if (!isNaN(due.getTime())) {
+      const diffHours = (due.getTime() - Date.now()) / (1000 * 60 * 60)
+      if (diffHours < 0) return '⚡ High (Past Due)'
+      if (diffHours <= 48) return '⚡ High (Due in <48h)'
+      if (diffHours <= 24 * 7) return 'Medium (Due in <7d)'
+      return 'Low (>7 days out)'
+    }
+  }
+  if (computedUrgency.value === 'HIGH') return '⚡ High (Time-Sensitive Action)'
+  return 'Medium Urgency'
 })
 
 function getSelectedExistingApp() {
@@ -229,16 +267,29 @@ function openResolveModal(item) {
   selectedExistingAppId.value = null
   includeArchivedApps.value = false
   appSearchQuery.value = getItemCompany(item) || ''
+  showRawJobDesc.value = false
 
   const extracted = item.extracted_data || {}
   const autoStatus = getAutoDetectedStatus(item)
   const eventType = getDetectedEventType(item)
 
+  let extractedDueDate = ''
+  if (extracted.due_date) {
+    try {
+      const parsed = new Date(extracted.due_date)
+      if (!isNaN(parsed.getTime())) {
+        extractedDueDate = parsed.toISOString().split('T')[0]
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   resolveForm.value = {
     company: getItemCompany(item),
     position: getItemPosition(item),
     status: autoStatus,
-    job_url: extracted.job_url || '',
+    job_url: '',
     description_markdown: '',
     event_type: eventType,
     summary:
@@ -247,43 +298,7 @@ function openResolveModal(item) {
       `Received ${formatEventTypeLabel(eventType)} from ${getItemCompany(item)}`,
     action_required: Boolean(extracted.action_required),
     action: extracted.action || '',
-    urgency: 'MEDIUM',
-    due_date: '',
-  }
-}
-
-async function quickApproveAsDetected(item) {
-  const autoStatus = getAutoDetectedStatus(item)
-  const eventType = getDetectedEventType(item)
-  const extracted = item.extracted_data || {}
-
-  isSubmitting.value = true
-  try {
-    await StagingAPI.resolve(item.id, {
-      company: getItemCompany(item),
-      position: getItemPosition(item),
-      status: autoStatus,
-      event_type: eventType,
-      job_url: extracted.job_url || null,
-      summary:
-        extracted.summary ||
-        item.email_subject ||
-        `Received ${formatEventTypeLabel(eventType)} from ${getItemCompany(item)}`,
-      action_required: Boolean(extracted.action_required),
-      action: extracted.action || null,
-      create_new: true,
-    })
-
-    uiStore.showToast(
-      `Created '${getItemCompany(item)}' in ${formatStatusLabel(autoStatus)} stage!`,
-      'success'
-    )
-    fetchStagingItems()
-    appStore.fetchApplications()
-  } catch (err) {
-    uiStore.showToast(err.message, 'error')
-  } finally {
-    isSubmitting.value = false
+    due_date: extractedDueDate,
   }
 }
 
@@ -298,11 +313,13 @@ async function submitResolution() {
       summary: resolveForm.value.summary.trim() || null,
       action_required: resolveForm.value.action_required,
       action: resolveForm.value.action?.trim() || null,
-      urgency: resolveForm.value.action_required ? resolveForm.value.urgency : null,
+      urgency: resolveForm.value.action_required ? computedUrgency.value : null,
       due_date:
         resolveForm.value.action_required && resolveForm.value.due_date
           ? new Date(resolveForm.value.due_date).toISOString()
           : null,
+      job_url: resolveForm.value.job_url.trim() || null,
+      description_markdown: resolveForm.value.description_markdown.trim() || null,
     }
 
     if (resolutionMode.value === 'create') {
@@ -316,8 +333,6 @@ async function submitResolution() {
         ...payload,
         company: resolveForm.value.company.trim(),
         position: resolveForm.value.position.trim(),
-        job_url: resolveForm.value.job_url.trim() || null,
-        description_markdown: resolveForm.value.description_markdown.trim() || null,
         create_new: true,
       })
 
@@ -470,22 +485,12 @@ async function dismissItem(item) {
 
             <div class="actions-right">
               <button
-                class="btn btn-secondary btn-sm"
-                @click="openResolveModal(item)"
-                title="Configure company, status, or optional job URL"
-              >
-                <Edit3 :size="13" />
-                <span>Configure &amp; Link</span>
-              </button>
-
-              <button
                 class="btn btn-primary btn-sm"
-                :disabled="isSubmitting"
-                @click="quickApproveAsDetected(item)"
-                title="1-Click Create with auto-detected settings"
+                @click="openResolveModal(item)"
+                title="Review and resolve this staged item"
               >
-                <CheckCircle2 :size="14" />
-                <span>Quick Create</span>
+                <Sparkles :size="13" />
+                <span>Resolve</span>
               </button>
             </div>
           </div>
@@ -692,29 +697,37 @@ async function dismissItem(item) {
             </div>
           </div>
 
-          <!-- URL and Description (only in create mode) -->
-          <div v-if="resolutionMode === 'create'" class="form-grid-2">
-            <div class="input-group">
-              <label class="input-label">Job Posting URL</label>
-              <div class="input-with-icon">
-                <LinkIcon :size="15" class="field-icon" />
-                <input
-                  v-model="resolveForm.job_url"
-                  type="url"
-                  placeholder="https://jobs.lever.co/..."
-                  class="form-input"
-                />
-              </div>
+          <!-- Job Posting URL (Full Width) -->
+          <div class="input-group">
+            <label class="input-label">Job Posting URL (Optional)</label>
+            <div class="input-with-icon">
+              <LinkIcon :size="15" class="field-icon" />
+              <input
+                v-model="resolveForm.job_url"
+                type="url"
+                placeholder="https://jobs.lever.co/... or https://boards.greenhouse.io/..."
+                class="form-input"
+              />
             </div>
+          </div>
 
-            <div class="input-group">
-              <label class="input-label">Raw Job Description</label>
+          <!-- Collapsible Raw Job Description (Full Width) -->
+          <div class="collapsible-section">
+            <button
+              type="button"
+              class="collapsible-toggle-btn"
+              @click="showRawJobDesc = !showRawJobDesc"
+            >
+              <ChevronRight :size="14" class="toggle-chevron" :class="{ 'rotate-90': showRawJobDesc }" />
+              <span>{{ showRawJobDesc ? 'Hide Job Description Text' : '+ Add Job Description Text (Optional)' }}</span>
+            </button>
+            <div v-if="showRawJobDesc" class="collapsible-content mt-2">
               <textarea
                 v-model="resolveForm.description_markdown"
                 class="form-input"
-                rows="2"
-                placeholder="Paste full text or markdown job specs..."
-                style="resize: vertical; min-height: 36px;"
+                rows="3"
+                placeholder="Paste full text or markdown job specs to trigger AI skill matching and evaluation..."
+                style="resize: vertical; min-height: 48px;"
               ></textarea>
             </div>
           </div>
@@ -745,8 +758,8 @@ async function dismissItem(item) {
               <span class="action-required-label">Requires Follow-up / Action Item</span>
             </div>
 
-            <div v-if="resolveForm.action_required" class="action-expanded-fields mt-3">
-              <div class="input-group mb-2">
+            <div v-if="resolveForm.action_required" class="action-expanded-fields">
+              <div class="input-group">
                 <label class="input-label">Action Description *</label>
                 <input
                   v-model="resolveForm.action"
@@ -759,42 +772,28 @@ async function dismissItem(item) {
 
               <div class="form-grid-2">
                 <div class="input-group">
-                  <label class="input-label">Urgency Level</label>
-                  <div class="urgency-pill-selector">
-                    <button
-                      type="button"
-                      class="urgency-choice-btn high"
-                      :class="{ active: resolveForm.urgency === 'HIGH' }"
-                      @click="resolveForm.urgency = 'HIGH'"
-                    >
-                      High
-                    </button>
-                    <button
-                      type="button"
-                      class="urgency-choice-btn medium"
-                      :class="{ active: resolveForm.urgency === 'MEDIUM' }"
-                      @click="resolveForm.urgency = 'MEDIUM'"
-                    >
-                      Medium
-                    </button>
-                    <button
-                      type="button"
-                      class="urgency-choice-btn low"
-                      :class="{ active: resolveForm.urgency === 'LOW' }"
-                      @click="resolveForm.urgency = 'LOW'"
-                    >
-                      Low
-                    </button>
-                  </div>
+                  <label class="input-label">Due Date &amp; Time (Optional)</label>
+                  <DateTimePicker
+                    v-model="resolveForm.due_date"
+                    type="datetime"
+                    placeholder="Select deadline date &amp; time..."
+                  />
                 </div>
 
                 <div class="input-group">
-                  <label class="input-label">Due Date (Optional)</label>
-                  <input
-                    v-model="resolveForm.due_date"
-                    type="date"
-                    class="form-input text-xs"
-                  />
+                  <label class="input-label">Calculated Urgency</label>
+                  <div class="urgency-live-indicator">
+                    <span
+                      class="urgency-live-badge"
+                      :class="{
+                        'urgency-high': computedUrgency === 'HIGH',
+                        'urgency-medium': computedUrgency === 'MEDIUM',
+                        'urgency-low': computedUrgency === 'LOW',
+                      }"
+                    >
+                      <span>{{ computedUrgencyLabel }}</span>
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1342,44 +1341,38 @@ async function dismissItem(item) {
   color: var(--text-main);
 }
 
-/* Urgency Selector Pills */
-.urgency-pill-selector {
+/* Urgency Live Indicator */
+.urgency-live-indicator {
   display: flex;
   align-items: center;
-  gap: 6px;
+  height: 38px;
 }
 
-.urgency-choice-btn {
-  flex: 1;
-  padding: 6px 10px;
+.urgency-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
   font-size: 11px;
   font-weight: 600;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-card);
-  color: var(--text-secondary);
-  cursor: pointer;
+  border: 1px solid transparent;
   transition: all var(--transition-fast);
 }
 
-.urgency-choice-btn:hover {
-  color: var(--text-main);
-  border-color: var(--text-muted);
-}
-
-.urgency-choice-btn.high.active {
+.urgency-live-badge.urgency-high {
   background-color: rgba(239, 68, 68, 0.15);
   border-color: #ef4444;
   color: #ef4444;
 }
 
-.urgency-choice-btn.medium.active {
+.urgency-live-badge.urgency-medium {
   background-color: rgba(234, 179, 8, 0.15);
   border-color: #eab308;
   color: #eab308;
 }
 
-.urgency-choice-btn.low.active {
+.urgency-live-badge.urgency-low {
   background-color: rgba(59, 130, 246, 0.15);
   border-color: #3b82f6;
   color: #3b82f6;
@@ -1406,6 +1399,39 @@ async function dismissItem(item) {
 
 .input-with-icon .form-input {
   padding-left: 32px;
+}
+
+/* Collapsible Section */
+.collapsible-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.collapsible-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 0;
+  transition: color var(--transition-fast);
+  align-self: flex-start;
+}
+
+.collapsible-toggle-btn:hover {
+  color: var(--primary);
+}
+
+.toggle-chevron {
+  transition: transform var(--transition-fast);
+}
+
+.toggle-chevron.rotate-90 {
+  transform: rotate(90deg);
 }
 
 /* Circle Checkbox */
@@ -1469,6 +1495,13 @@ async function dismissItem(item) {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-main);
+}
+
+.action-expanded-fields {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 /* Search bar & Include Archived Row */

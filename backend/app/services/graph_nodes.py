@@ -527,29 +527,47 @@ async def db_commit_node(
     if extracted.get("action_required") and extracted.get("action"):
         action_text = str(extracted.get("action")).strip()
         if action_text:
-            act_lower = action_text.lower()
-            urgency = (
-                "HIGH"
-                if any(
-                    k in act_lower
-                    for k in [
-                        "interview",
-                        "assessment",
-                        "urgent",
-                        "deadline",
-                        "schedule",
-                        "offer",
-                        "today",
-                        "tomorrow",
-                    ]
+            raw_due = extracted.get("due_date")
+            parsed_due = _parse_email_date(raw_due) if raw_due else None
+
+            if parsed_due:
+                now_utc = datetime.now(UTC)
+                due_dt = (
+                    parsed_due if parsed_due.tzinfo else parsed_due.replace(tzinfo=UTC)
                 )
-                else "MEDIUM"
-            )
+                diff = (due_dt - now_utc).total_seconds()
+                if diff <= 48 * 3600:
+                    urgency = "HIGH"
+                elif diff <= 7 * 24 * 3600:
+                    urgency = "MEDIUM"
+                else:
+                    urgency = "LOW"
+            else:
+                act_lower = action_text.lower()
+                urgency = (
+                    "HIGH"
+                    if any(
+                        k in act_lower
+                        for k in [
+                            "interview",
+                            "assessment",
+                            "urgent",
+                            "deadline",
+                            "schedule",
+                            "offer",
+                            "today",
+                            "tomorrow",
+                            "expir",
+                        ]
+                    )
+                    else "MEDIUM"
+                )
             action_item = ActionItemModel(
                 application_id=application_id,
                 event_id=event.id,
                 title=action_text[:500],
                 urgency=urgency,
+                due_date=parsed_due,
                 status="PENDING",
             )
             db.add(action_item)

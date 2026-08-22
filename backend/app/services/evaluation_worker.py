@@ -753,6 +753,9 @@ async def _execute_evaluation_steps(
             task.stage = "SAVING"
             await db.commit()
 
+            target_app_id = current_json.get("target_application_id")
+            skip_cover_letter = current_json.get("skip_cover_letter", False)
+
             # Persist to database
             save_result = await persist_or_stage_job_assessment(
                 db=db,
@@ -762,10 +765,15 @@ async def _execute_evaluation_steps(
                 force_new=False,
                 target_status="ASSESSMENT",
                 structured_spec=spec_dict,
+                target_application_id=target_app_id,
             )
 
             # Check cover letter automation criteria
-            enable_auto = await get_setting("ENABLE_AUTO_COVER_LETTER", False, db=db)
+            enable_auto = (
+                False
+                if skip_cover_letter
+                else await get_setting("ENABLE_AUTO_COVER_LETTER", False, db=db)
+            )
             threshold = await get_setting("COVER_LETTER_MATCH_THRESHOLD", 70, db=db)
 
             fit_score_val = float(

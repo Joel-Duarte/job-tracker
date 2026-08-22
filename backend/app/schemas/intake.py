@@ -46,6 +46,10 @@ class ExtractedEmailInfo(BaseModel):
         default=None,
         description="Description of required action if action_required is True.",
     )
+    due_date: str | None = Field(
+        default=None,
+        description="Explicit deadline date or scheduled interview date in ISO YYYY-MM-DD format if mentioned in the email.",
+    )
 
 
 class EmailPayload(BaseModel):

@@ -15,12 +15,14 @@ from app.models.applications import (
     CompanyModel,
     JobPostingModel,
 )
+from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.models.staging import StagingItemModel
 from app.schemas.staging import (
     StagingItemRead,
     StagingItemResolve,
     StagingPaginationResponse,
 )
+from app.services.evaluation_worker import process_evaluation_task
 from app.services.llm import generate_and_save_application_embedding
 
 logger = logging.getLogger(__name__)
@@ -175,7 +177,11 @@ async def resolve_staging_item(
             )
         )
 
-        desc_md = payload.description_markdown or staged_item.email_raw_body
+        desc_md = (
+            payload.description_markdown.strip()
+            if payload.description_markdown and payload.description_markdown.strip()
+            else None
+        )
         salary_min = (
             payload.salary_min
             if payload.salary_min is not None
@@ -200,14 +206,26 @@ async def resolve_staging_item(
             )
         )
 
-        # Upsert JobPostingModel
+        has_posting_data = any(
+            [
+                clean_job_url,
+                desc_md,
+                salary_min is not None,
+                salary_max is not None,
+                location,
+                work_model,
+                bool(skills),
+            ]
+        )
+
+        # Upsert JobPostingModel only if job posting information is provided or already exists
         jp_stmt = select(JobPostingModel).where(
             JobPostingModel.application_id == application.id
         )
         jp_res = await db.execute(jp_stmt)
         job_posting = jp_res.scalar_one_or_none()
 
-        if not job_posting:
+        if not job_posting and has_posting_data:
             job_posting = JobPostingModel(
                 application_id=application.id,
                 job_url=clean_job_url or f"lead-{application.id}",
@@ -220,9 +238,11 @@ async def resolve_staging_item(
                 required_skills=skills,
             )
             db.add(job_posting)
-        else:
-            if desc_md:
+        elif job_posting:
+            if desc_md is not None:
                 job_posting.description_markdown = desc_md
+            if clean_job_url:
+                job_posting.job_url = clean_job_url
             if salary_min is not None:
                 job_posting.salary_min = salary_min
             if salary_max is not None:
@@ -271,19 +291,36 @@ async def resolve_staging_item(
         if (
             payload.action_required or extracted.get("action_required")
         ) and action_text:
-            raw_urgency = (payload.urgency or "").upper()
-            urgency_val = (
-                raw_urgency
-                if raw_urgency in ("HIGH", "MEDIUM", "LOW")
-                else (
-                    "HIGH"
-                    if any(
-                        w in str(action_text).lower()
-                        for w in ["urgent", "deadline", "schedule", "asap"]
-                    )
-                    else "MEDIUM"
+            if payload.due_date:
+                now_utc = datetime.now(UTC)
+                due_dt = (
+                    payload.due_date
+                    if payload.due_date.tzinfo
+                    else payload.due_date.replace(tzinfo=UTC)
                 )
-            )
+                diff = (due_dt - now_utc).total_seconds()
+                if diff <= 48 * 3600:
+                    urgency_val = "HIGH"
+                elif diff <= 7 * 24 * 3600:
+                    urgency_val = "MEDIUM"
+                else:
+                    urgency_val = "LOW"
+            elif any(
+                w in str(action_text).lower()
+                for w in [
+                    "urgent",
+                    "deadline",
+                    "schedule",
+                    "interview",
+                    "asap",
+                    "offer",
+                    "expir",
+                ]
+            ):
+                urgency_val = "HIGH"
+            else:
+                urgency_val = "MEDIUM"
+
             action_item = ActionItemModel(
                 application_id=application.id,
                 event_id=event.id,
@@ -302,6 +339,39 @@ async def resolve_staging_item(
         await db.flush()
         target_event_id = event.id
         await db.commit()
+
+        # Enqueue background AI job evaluation task if URL or description was provided
+        if clean_job_url or desc_md:
+            try:
+                comp_display = effective_company
+                pos_display = payload.position
+                eval_task = IntakeEvaluationTaskModel(
+                    task_type="JOB_EVALUATION",
+                    job_url=clean_job_url,
+                    raw_text=desc_md,
+                    title_hint=f"Job Spec Analysis: {comp_display} - {pos_display}",
+                    status="QUEUED",
+                    stage="QUEUED",
+                    result_json={
+                        "target_application_id": target_app_id,
+                        "skip_cover_letter": True,
+                        "company": comp_display,
+                        "position": pos_display,
+                    },
+                )
+                db.add(eval_task)
+                await db.commit()
+                await db.refresh(eval_task)
+
+                import asyncio
+
+                asyncio.create_task(process_evaluation_task(task_id=eval_task.id))
+            except Exception as eval_err:
+                logger.warning(
+                    "Failed to enqueue background evaluation task for App %d: %s",
+                    target_app_id,
+                    eval_err,
+                )
 
     except Exception as e:
         logger.error("Failed to resolve staging item %d: %s", item_id, e, exc_info=True)
