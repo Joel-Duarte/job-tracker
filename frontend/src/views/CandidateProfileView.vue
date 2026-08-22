@@ -342,6 +342,11 @@ async function pollTaskUntilComplete(taskId) {
 }
 
 async function processCV() {
+  if (uiStore.aiStatus === 'offline' && !uiStore.aiFallbackProviderName) {
+    uiStore.openRetryModal()
+    return
+  }
+
   if (!rawCVInput.value.trim() || rawCVInput.value.trim().length < 20) {
     uiStore.showToast('Please provide a complete resume or CV text.', 'error')
     return

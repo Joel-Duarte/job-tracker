@@ -134,6 +134,11 @@ async function loadEvaluations(silent = false) {
 }
 
 async function enqueueLead() {
+  if (uiStore.aiStatus === 'offline' && !uiStore.aiFallbackProviderName) {
+    uiStore.openRetryModal()
+    return
+  }
+
   const urlVal = jobUrl.value.trim()
   const textVal = jobText.value.trim()
 
