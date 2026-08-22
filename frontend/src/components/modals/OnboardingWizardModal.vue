@@ -15,6 +15,7 @@ import {
   SlidersHorizontal,
   Rocket,
   CheckCircle2,
+  Circle,
   Check,
   Zap,
   Shield,
@@ -407,473 +408,531 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
 </script>
 
 <template>
-  <div v-if="uiStore.isOnboardingWizardOpen" class="modal-backdrop">
-    <div class="wizard-modal-card animate-fade-in">
-      <!-- Modal Header -->
-      <div class="wizard-header">
-        <div class="header-brand flex items-center gap-2">
-          <div class="brand-badge">
-            <Sparkles :size="16" class="text-primary" />
-          </div>
-          <div>
-            <h2 class="wizard-title">Guided Setup &amp; System Configuration</h2>
-            <p class="wizard-subtitle">Configure AI model providers, candidate resume intake, and modular feature toggles.</p>
-          </div>
-        </div>
-
-        <button
-          v-if="uiStore.hasCompletedOnboarding"
-          class="btn-close"
-          @click="uiStore.closeOnboardingWizard()"
-          title="Close Setup Wizard"
-        >
-          <X :size="18" />
-        </button>
-      </div>
-
-      <!-- Step Indicator Bar -->
-      <div class="wizard-stepper-bar">
-        <div
-          class="step-item"
-          :class="{ active: currentStep === 1, completed: currentStep > 1 }"
-          @click="currentStep > 1 ? currentStep = 1 : null"
-        >
-          <div class="step-dot">
-            <Check v-if="currentStep > 1" :size="12" />
-            <span v-else>1</span>
-          </div>
-          <span class="step-label">AI Provider</span>
-        </div>
-
-        <div class="step-connector" :class="{ completed: currentStep > 1 }"></div>
-
-        <div
-          class="step-item"
-          :class="{ active: currentStep === 2, completed: currentStep > 2 }"
-          @click="currentStep > 2 ? currentStep = 2 : null"
-        >
-          <div class="step-dot">
-            <Check v-if="currentStep > 2" :size="12" />
-            <span v-else>2</span>
-          </div>
-          <span class="step-label">Candidate CV</span>
-        </div>
-
-        <div class="step-connector" :class="{ completed: currentStep > 2 }"></div>
-
-        <div
-          class="step-item"
-          :class="{ active: currentStep === 3, completed: currentStep > 3 }"
-          @click="currentStep > 3 ? currentStep = 3 : null"
-        >
-          <div class="step-dot">
-            <Check v-if="currentStep > 3" :size="12" />
-            <span v-else>3</span>
-          </div>
-          <span class="step-label">Feature Setup</span>
-        </div>
-
-        <div class="step-connector" :class="{ completed: currentStep > 3 }"></div>
-
-        <div
-          class="step-item"
-          :class="{ active: currentStep === 4, completed: currentStep === 4 }"
-        >
-          <div class="step-dot">
-            <span>4</span>
-          </div>
-          <span class="step-label">Ready</span>
-        </div>
-      </div>
-
-      <!-- Modal Body Content -->
-      <div class="wizard-body">
-        <!-- STEP 1: AI PROVIDER CONFIGURATION -->
-        <div v-if="currentStep === 1" class="step-content animate-fade-in">
-          <div class="step-intro-box">
-            <div class="flex items-center gap-2 mb-1">
-              <Server class="text-primary" :size="18" />
-              <h3 class="step-heading">Step 1: Choose Your AI Execution Provider</h3>
+  <Teleport to="body">
+    <Transition name="modal-fade">
+      <div v-if="uiStore.isOnboardingWizardOpen" class="modal-backdrop">
+        <div class="wizard-modal-card animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="wizard-modal-title">
+          <!-- Modal Header -->
+          <div class="wizard-header">
+            <div class="header-brand flex items-center gap-2">
+              <div class="brand-badge">
+                <Sparkles :size="16" class="text-primary" />
+              </div>
+              <div>
+                <h2 id="wizard-modal-title" class="wizard-title">Guided Setup &amp; System Configuration</h2>
+                <p class="wizard-subtitle">Configure AI model providers, candidate resume intake, and modular feature toggles.</p>
+              </div>
             </div>
-            <p class="step-desc">
-              Select a local offline provider (LM Studio, Ollama) or enterprise API key (OpenAI, Anthropic, Gemini, OpenRouter) to power resume extraction and job fit assessment.
-            </p>
-          </div>
 
-          <!-- Presets Grid -->
-          <div class="presets-grid">
             <button
-              v-for="p in PRESETS"
-              :key="p.key"
-              type="button"
-              class="preset-card"
-              :class="{ active: selectedPresetKey === p.key }"
-              @click="selectPreset(p)"
+              v-if="uiStore.hasCompletedOnboarding"
+              class="btn-close"
+              @click="uiStore.closeOnboardingWizard()"
+              title="Close Setup Wizard"
             >
-              <div class="preset-header">
-                <span class="preset-name">{{ p.name }}</span>
-                <span class="badge" :class="p.isPrivate ? 'badge-private' : 'badge-cloud'">
-                  <Shield v-if="p.isPrivate" :size="10" />
-                  <span>{{ p.badge }}</span>
-                </span>
-              </div>
-              <p class="preset-desc">{{ p.desc }}</p>
+              <X :size="18" />
             </button>
           </div>
 
-          <!-- Provider Configuration Form -->
-          <div class="provider-config-box">
-            <div class="form-grid-2">
-              <div class="input-group">
-                <label class="input-label">Provider Name *</label>
-                <input v-model="providerForm.name" type="text" class="form-input" required />
-              </div>
-
-              <div class="input-group">
-                <label class="input-label">Provider Type *</label>
-                <select v-model="providerForm.provider_type" class="form-input">
-                  <option value="openai">OpenAI / LM Studio / vLLM (OpenAI-compatible)</option>
-                  <option value="anthropic">Anthropic (Claude)</option>
-                  <option value="ollama">Ollama</option>
-                  <option value="google_genai">Google Gemini (GenAI)</option>
-                  <option value="openrouter">OpenRouter</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="form-grid-2 mt-3">
-              <div class="input-group">
-                <label class="input-label">Base URL Endpoint</label>
-                <input v-model="providerForm.base_url" type="text" class="form-input font-mono" />
-              </div>
-
-              <div class="input-group">
-                <label class="input-label">API Key (Optional for local)</label>
-                <input v-model="providerForm.api_key" type="password" placeholder="sk-..." class="form-input font-mono" />
-              </div>
-            </div>
-
-            <div class="input-group mt-3">
-              <label class="input-label">Default Model Identifier *</label>
-              <input v-model="providerForm.model_name" type="text" class="form-input font-mono" required />
-            </div>
-
-            <!-- Ping / Test Connection Row -->
-            <div class="test-ping-row mt-3">
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="testingProvider"
-                @click="testConnection"
-              >
-                <Loader2 v-if="testingProvider" class="animate-spin" :size="14" />
-                <Zap v-else :size="14" />
-                <span>Test Connection / Ping</span>
-              </button>
-
-              <div v-if="providerTestResult" class="test-result-badge" :class="`is-${providerTestResult.status}`">
-                <CheckCircle2 v-if="providerTestResult.status === 'success'" :size="14" />
-                <Info v-else :size="14" />
-                <span>{{ providerTestResult.message }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Privacy & Zero-Retention Collapsible Section -->
-          <div class="privacy-collapsible-card">
-            <button
-              type="button"
-              class="privacy-toggle-btn"
-              @click="isPrivacyExpanded = !isPrivacyExpanded"
+          <!-- Step Indicator Bar -->
+          <div class="wizard-stepper-bar">
+            <div
+              class="step-item"
+              :class="{ active: currentStep === 1, completed: currentStep > 1 }"
+              @click="currentStep > 1 ? currentStep = 1 : null"
             >
-              <div class="flex items-center gap-2">
-                <Shield class="text-primary" :size="16" />
-                <span class="font-semibold text-xs text-main">Privacy &amp; Zero Data-Retention Guarantees</span>
+              <div class="step-dot">
+                <Check v-if="currentStep > 1" :size="12" />
+                <span v-else>1</span>
               </div>
-              <component :is="isPrivacyExpanded ? ChevronUp : ChevronDown" :size="14" class="text-muted" />
-            </button>
-
-            <div v-if="isPrivacyExpanded" class="privacy-content animate-fade-in">
-              <p>
-                <strong>Local LLMs (LM Studio &amp; Ollama):</strong> Process 100% of candidate resumes and job communications on your local hardware or home network with zero internet transmission.
-              </p>
-              <p class="mt-2">
-                <strong>Commercial API Keys (OpenAI, Anthropic, Gemini):</strong> Paid API endpoints enforce strict zero-data-retention terms. Your submitted resumes, job descriptions, and chat conversations are <em>never</em> stored or used for model training.
-              </p>
+              <span class="step-label">AI Provider</span>
             </div>
-          </div>
 
-          <!-- Step 1 Footer Actions -->
-          <div class="wizard-footer-actions">
-            <div></div>
-            <button
-              type="button"
-              class="btn btn-primary"
-              :disabled="isSavingProvider || !providerForm.model_name"
-              @click="handleStep1Next"
+            <div class="step-connector" :class="{ completed: currentStep > 1 }"></div>
+
+            <div
+              class="step-item"
+              :class="{ active: currentStep === 2, completed: currentStep > 2 }"
+              @click="currentStep > 2 ? currentStep = 2 : null"
             >
-              <Loader2 v-if="isSavingProvider" class="animate-spin" :size="14" />
-              <span>Save &amp; Continue to CV Intake</span>
-              <ArrowRight :size="14" />
-            </button>
-          </div>
-        </div>
-
-        <!-- STEP 2: CANDIDATE CV INTAKE -->
-        <div v-else-if="currentStep === 2" class="step-content animate-fade-in">
-          <div class="step-intro-box">
-            <div class="flex items-center gap-2 mb-1">
-              <UserCheck class="text-primary" :size="18" />
-              <h3 class="step-heading">Step 2: Candidate Resume &amp; Skills Intake (Optional)</h3>
-            </div>
-            <p class="step-desc">
-              Upload or paste your resume to enable AI fit scoring and skill gap analysis against job postings.
-            </p>
-          </div>
-
-          <!-- Dropzone Area -->
-          <div
-            class="cv-dropzone"
-            :class="{ dragging: isDragging }"
-            @dragover.prevent="isDragging = true"
-            @dragleave.prevent="isDragging = false"
-            @drop.prevent="handleDrop"
-            @click="cvFileRef?.click()"
-          >
-            <input
-              ref="cvFileRef"
-              type="file"
-              accept=".pdf,.docx,.doc,.txt"
-              class="hidden-file-input"
-              @change="handleFileInput"
-            />
-            <Upload :size="28" class="text-primary mb-2" />
-            <p class="dropzone-title">Drop your resume file here or click to browse</p>
-            <p class="dropzone-sub">Supports PDF, DOCX, DOC, and TXT files up to 10MB</p>
-          </div>
-
-          <!-- Raw Text Paste Area -->
-          <div class="input-group mt-3">
-            <label class="input-label">Or Paste Resume Text</label>
-            <textarea
-              v-model="rawCvText"
-              rows="5"
-              class="form-textarea font-mono"
-              placeholder="Paste raw resume text here..."
-              @input="onCvTextChange"
-            ></textarea>
-          </div>
-
-          <!-- Instant Preview of Extracted Skills & Summary -->
-          <div v-if="parsedCvData" class="cv-preview-box mt-3 animate-fade-in">
-            <div class="preview-header">
-              <Sparkles :size="14" class="text-primary" />
-              <span class="preview-title">Detected Candidate Profile &amp; Skills Preview</span>
+              <div class="step-dot">
+                <Check v-if="currentStep > 2" :size="12" />
+                <span v-else>2</span>
+              </div>
+              <span class="step-label">Candidate CV</span>
             </div>
 
-            <div class="skills-chips-row mt-2">
-              <span v-for="skill in parsedCvData.extracted_skills" :key="skill" class="skill-chip">
-                {{ skill }}
-              </span>
+            <div class="step-connector" :class="{ completed: currentStep > 2 }"></div>
+
+            <div
+              class="step-item"
+              :class="{ active: currentStep === 3, completed: currentStep > 3 }"
+              @click="currentStep > 3 ? currentStep = 3 : null"
+            >
+              <div class="step-dot">
+                <Check v-if="currentStep > 3" :size="12" />
+                <span v-else>3</span>
+              </div>
+              <span class="step-label">Feature Setup</span>
             </div>
 
-            <div v-if="parsedCvData.anonymized_summary" class="deidentified-preview mt-2">
-              <span class="preview-label">De-identified Summary:</span>
-              <p class="summary-text font-mono">{{ parsedCvData.anonymized_summary }}</p>
+            <div class="step-connector" :class="{ completed: currentStep > 3 }"></div>
+
+            <div
+              class="step-item"
+              :class="{ active: currentStep === 4, completed: currentStep === 4 }"
+            >
+              <div class="step-dot">
+                <span>4</span>
+              </div>
+              <span class="step-label">Ready</span>
             </div>
           </div>
 
-          <!-- Step 2 Footer Actions -->
-          <div class="wizard-footer-actions mt-4">
-            <button type="button" class="btn btn-secondary" @click="currentStep = 1">
-              <ArrowLeft :size="14" />
-              <span>Back</span>
-            </button>
-
-            <div class="flex items-center gap-2">
-              <button type="button" class="btn btn-ghost text-secondary" @click="handleStep2Skip">
-                Skip for Now
-              </button>
-
-              <button
-                type="button"
-                class="btn btn-primary"
-                :disabled="isSavingCv || isParsingCv"
-                @click="handleStep2Save"
-              >
-                <Loader2 v-if="isSavingCv || isParsingCv" class="animate-spin" :size="14" />
-                <span>Save Profile &amp; Continue</span>
-                <ArrowRight :size="14" />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- STEP 3: FEATURE TOGGLES & MODULARITY -->
-        <div v-else-if="currentStep === 3" class="step-content animate-fade-in">
-          <div class="step-intro-box">
-            <div class="flex items-center gap-2 mb-1">
-              <SlidersHorizontal class="text-primary" :size="18" />
-              <h3 class="step-heading">Step 3: Feature Toggles &amp; Modularity</h3>
-            </div>
-            <p class="step-desc">
-              Enable or disable optional system subsystems based on your workflow needs.
-            </p>
-          </div>
-
-          <div class="feature-toggles-list">
-            <!-- Email Auto-Sync Toggle -->
-            <div class="feature-toggle-card">
-              <div class="toggle-left">
-                <Mail :size="20" class="text-primary" />
-                <div>
-                  <h4 class="toggle-title">Email Account Auto-Sync</h4>
-                  <p class="toggle-desc">Automatically fetch recruitment emails via OAuth or IMAP and extract job updates.</p>
+          <!-- Modal Body Content -->
+          <div class="wizard-body">
+            <!-- STEP 1: AI PROVIDER CONFIGURATION -->
+            <div v-if="currentStep === 1" class="step-content animate-fade-in">
+              <div class="step-intro-box">
+                <div class="flex items-center gap-2 mb-1">
+                  <Server class="text-primary" :size="18" />
+                  <h3 class="step-heading">Step 1: Choose Your AI Execution Provider</h3>
                 </div>
+                <p class="step-desc">
+                  Select a local offline provider (LM Studio, Ollama) or enterprise API key (OpenAI, Anthropic, Gemini, OpenRouter) to power resume extraction and job fit assessment.
+                </p>
               </div>
-              <label class="switch-toggle">
-                <input type="checkbox" v-model="featureEmailIntake" />
-                <span class="slider round"></span>
-              </label>
-            </div>
 
-            <!-- Vector Knowledge & Embeddings Toggle -->
-            <div class="feature-toggle-card">
-              <div class="toggle-left">
-                <Cpu :size="20" class="text-primary" />
-                <div>
-                  <h4 class="toggle-title">Vector Knowledge &amp; Embeddings (pgvector)</h4>
-                  <p class="toggle-desc">Generate dense vector representations for semantic search across applications.</p>
-                </div>
+              <!-- Presets Grid -->
+              <div class="presets-grid">
+                <button
+                  v-for="p in PRESETS"
+                  :key="p.key"
+                  type="button"
+                  class="preset-card"
+                  :class="{ active: selectedPresetKey === p.key }"
+                  @click="selectPreset(p)"
+                >
+                  <div class="preset-header">
+                    <span class="preset-name">{{ p.name }}</span>
+                    <span class="badge" :class="p.isPrivate ? 'badge-private' : 'badge-cloud'">
+                      <Shield v-if="p.isPrivate" :size="10" />
+                      <span>{{ p.badge }}</span>
+                    </span>
+                  </div>
+                  <p class="preset-desc">{{ p.desc }}</p>
+                </button>
               </div>
-              <label class="switch-toggle">
-                <input type="checkbox" v-model="featureEmbeddings" />
-                <span class="slider round"></span>
-              </label>
-            </div>
 
-            <!-- Automated Cover Letters Toggle -->
-            <div class="feature-toggle-card flex-col items-start gap-3">
-              <div class="flex items-center justify-between w-full">
-                <div class="toggle-left">
-                  <FileText :size="20" class="text-primary" />
-                  <div>
-                    <h4 class="toggle-title">Automated Cover Letter Generation</h4>
-                    <p class="toggle-desc">Automatically draft tailored cover letters during intake when fit score passes threshold.</p>
+              <!-- Provider Configuration Form -->
+              <div class="provider-config-box">
+                <div class="form-grid-2">
+                  <div class="input-group">
+                    <label class="input-label">Provider Name *</label>
+                    <input v-model="providerForm.name" type="text" class="form-input" required />
+                  </div>
+
+                  <div class="input-group">
+                    <label class="input-label">Provider Type *</label>
+                    <select v-model="providerForm.provider_type" class="form-input">
+                      <option value="openai">OpenAI / LM Studio / vLLM (OpenAI-compatible)</option>
+                      <option value="anthropic">Anthropic (Claude)</option>
+                      <option value="ollama">Ollama</option>
+                      <option value="google_genai">Google Gemini (GenAI)</option>
+                      <option value="openrouter">OpenRouter</option>
+                    </select>
                   </div>
                 </div>
-                <label class="switch-toggle">
-                  <input type="checkbox" v-model="featureAutoCoverLetter" />
-                  <span class="slider round"></span>
-                </label>
-              </div>
 
-              <div v-if="featureAutoCoverLetter" class="slider-row w-full mt-2 pt-2 border-t border-subtle">
-                <div class="flex justify-between items-center text-xs mb-1">
-                  <span class="text-secondary font-semibold">Minimum Fit Threshold:</span>
-                  <span class="text-primary font-mono font-bold">{{ featureCoverLetterThreshold }}%</span>
+                <div class="form-grid-2">
+                  <div class="input-group">
+                    <label class="input-label">Base URL Endpoint</label>
+                    <input v-model="providerForm.base_url" type="text" class="form-input font-mono" />
+                  </div>
+
+                  <div class="input-group">
+                    <label class="input-label">API Key (Optional for local)</label>
+                    <input v-model="providerForm.api_key" type="password" placeholder="sk-..." class="form-input font-mono" />
+                  </div>
                 </div>
+
+                <div class="input-group">
+                  <label class="input-label">Default Model Identifier *</label>
+                  <input v-model="providerForm.model_name" type="text" class="form-input font-mono" required />
+                </div>
+
+                <!-- Ping / Test Connection Row -->
+                <div class="test-ping-row">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="testingProvider"
+                    @click="testConnection"
+                  >
+                    <Loader2 v-if="testingProvider" class="animate-spin" :size="14" />
+                    <Zap v-else :size="14" />
+                    <span>Test Connection / Ping</span>
+                  </button>
+
+                  <div v-if="providerTestResult" class="test-result-badge" :class="`is-${providerTestResult.status}`">
+                    <CheckCircle2 v-if="providerTestResult.status === 'success'" :size="14" />
+                    <Info v-else :size="14" />
+                    <span>{{ providerTestResult.message }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Privacy & Zero-Retention Collapsible Section -->
+              <div class="privacy-collapsible-card">
+                <button
+                  type="button"
+                  class="privacy-toggle-btn"
+                  @click="isPrivacyExpanded = !isPrivacyExpanded"
+                >
+                  <div class="flex items-center gap-2">
+                    <Shield class="text-primary" :size="16" />
+                    <span class="font-semibold text-xs text-main">Privacy &amp; Zero Data-Retention Guarantees</span>
+                  </div>
+                  <component :is="isPrivacyExpanded ? ChevronUp : ChevronDown" :size="14" class="text-muted" />
+                </button>
+
+                <div v-if="isPrivacyExpanded" class="privacy-content animate-fade-in">
+                  <p>
+                    <strong>Local LLMs (LM Studio &amp; Ollama):</strong> Process 100% of candidate resumes and job communications on your local hardware or home network with zero internet transmission.
+                  </p>
+                  <p class="mt-2">
+                    <strong>Commercial API Keys (OpenAI, Anthropic, Gemini):</strong> Paid API endpoints enforce strict zero-data-retention terms. Your submitted resumes, job descriptions, and chat conversations are <em>never</em> stored or used for model training.
+                  </p>
+                </div>
+              </div>
+
+              <!-- Step 1 Footer Actions -->
+              <div class="wizard-footer-actions">
+                <div></div>
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  :disabled="isSavingProvider || !providerForm.model_name"
+                  @click="handleStep1Next"
+                >
+                  <Loader2 v-if="isSavingProvider" class="animate-spin" :size="14" />
+                  <span>Save &amp; Continue to CV Intake</span>
+                  <ArrowRight :size="14" />
+                </button>
+              </div>
+            </div>
+
+            <!-- STEP 2: CANDIDATE CV INTAKE -->
+            <div v-else-if="currentStep === 2" class="step-content animate-fade-in">
+              <div class="step-intro-box">
+                <div class="flex items-center gap-2 mb-1">
+                  <UserCheck class="text-primary" :size="18" />
+                  <h3 class="step-heading">Step 2: Candidate Resume &amp; Skills Intake (Optional)</h3>
+                </div>
+                <p class="step-desc">
+                  Upload or paste your resume to enable AI fit scoring and skill gap analysis against job postings.
+                </p>
+              </div>
+
+              <!-- Dropzone Area -->
+              <div
+                class="cv-dropzone"
+                :class="{ dragging: isDragging }"
+                @dragover.prevent="isDragging = true"
+                @dragleave.prevent="isDragging = false"
+                @drop.prevent="handleDrop"
+                @click="cvFileRef?.click()"
+              >
                 <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  v-model.number="featureCoverLetterThreshold"
-                  class="form-range w-full"
+                  ref="cvFileRef"
+                  type="file"
+                  accept=".pdf,.docx,.doc,.txt"
+                  class="hidden-file-input"
+                  @change="handleFileInput"
                 />
+                <Upload :size="28" class="text-primary mb-2" />
+                <p class="dropzone-title">Drop your resume file here or click to browse</p>
+                <p class="dropzone-sub">Supports PDF, DOCX, DOC, and TXT files up to 10MB</p>
+              </div>
+
+              <!-- Raw Text Paste Area -->
+              <div class="input-group mt-3">
+                <label class="input-label">Or Paste Resume Text</label>
+                <textarea
+                  v-model="rawCvText"
+                  rows="5"
+                  class="form-textarea font-mono"
+                  placeholder="Paste raw resume text here..."
+                  @input="onCvTextChange"
+                ></textarea>
+              </div>
+
+              <!-- Instant Preview of Extracted Skills & Summary -->
+              <div v-if="parsedCvData" class="cv-preview-box mt-3 animate-fade-in">
+                <div class="preview-header">
+                  <Sparkles :size="14" class="text-primary" />
+                  <span class="preview-title">Detected Candidate Profile &amp; Skills Preview</span>
+                </div>
+
+                <div class="skills-chips-row mt-2">
+                  <span v-for="skill in parsedCvData.extracted_skills" :key="skill" class="skill-chip">
+                    {{ skill }}
+                  </span>
+                </div>
+
+                <div v-if="parsedCvData.anonymized_summary" class="deidentified-preview mt-2">
+                  <span class="preview-label">De-identified Summary:</span>
+                  <p class="summary-text font-mono">{{ parsedCvData.anonymized_summary }}</p>
+                </div>
+              </div>
+
+              <!-- Step 2 Footer Actions -->
+              <div class="wizard-footer-actions mt-4">
+                <button type="button" class="btn btn-secondary" @click="currentStep = 1">
+                  <ArrowLeft :size="14" />
+                  <span>Back</span>
+                </button>
+
+                <div class="flex items-center gap-2">
+                  <button type="button" class="btn btn-ghost text-secondary" @click="handleStep2Skip">
+                    Skip for Now
+                  </button>
+
+                  <button
+                    type="button"
+                    class="btn btn-primary"
+                    :disabled="isSavingCv || isParsingCv"
+                    @click="handleStep2Save"
+                  >
+                    <Loader2 v-if="isSavingCv || isParsingCv" class="animate-spin" :size="14" />
+                    <span>Save Profile &amp; Continue</span>
+                    <ArrowRight :size="14" />
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
 
-          <!-- Step 3 Footer Actions -->
-          <div class="wizard-footer-actions mt-4">
-            <button type="button" class="btn btn-secondary" @click="currentStep = 2">
-              <ArrowLeft :size="14" />
-              <span>Back</span>
-            </button>
+            <!-- STEP 3: FEATURE TOGGLES & MODULARITY (SELECTION CARDS) -->
+            <div v-else-if="currentStep === 3" class="step-content animate-fade-in">
+              <div class="step-intro-box">
+                <div class="flex items-center gap-2 mb-1">
+                  <SlidersHorizontal class="text-primary" :size="18" />
+                  <h3 class="step-heading">Step 3: Feature Toggles &amp; Modularity</h3>
+                </div>
+                <p class="step-desc">
+                  Select which automated subsystems to activate for your job tracking pipeline.
+                </p>
+              </div>
 
-            <button
-              type="button"
-              class="btn btn-primary"
-              :disabled="isSavingFeatures"
-              @click="handleStep3Save"
-            >
-              <Loader2 v-if="isSavingFeatures" class="animate-spin" :size="14" />
-              <span>Save &amp; Continue to Final Launch</span>
-              <ArrowRight :size="14" />
-            </button>
-          </div>
-        </div>
+              <div class="feature-toggles-list">
+                <!-- Email Auto-Sync Selection Card -->
+                <div
+                  class="selection-card"
+                  :class="{ 'card-active': featureEmailIntake }"
+                  @click="featureEmailIntake = !featureEmailIntake"
+                  role="button"
+                  tabindex="0"
+                  @keydown.space.prevent="featureEmailIntake = !featureEmailIntake"
+                  @keydown.enter.prevent="featureEmailIntake = !featureEmailIntake"
+                >
+                  <div class="card-icon-wrapper">
+                    <CheckCircle2 v-if="featureEmailIntake" class="icon-active" :size="20" />
+                    <Circle v-else class="icon-inactive" :size="20" />
+                  </div>
+                  <div class="option-content">
+                    <div class="flex items-center gap-2">
+                      <Mail :size="16" class="text-primary" />
+                      <span class="option-label">Email Account Auto-Sync</span>
+                    </div>
+                    <span class="option-description">Automatically fetch recruitment emails via OAuth or IMAP and extract job updates.</span>
+                  </div>
+                </div>
 
-        <!-- STEP 4: COMPLETION & LAUNCH -->
-        <div v-else-if="currentStep === 4" class="step-content animate-fade-in">
-          <div class="step-intro-box text-center">
-            <div class="hero-success-icon mb-2">
-              <Rocket class="text-primary" :size="32" />
+                <!-- Vector Knowledge & Embeddings Selection Card -->
+                <div
+                  class="selection-card"
+                  :class="{ 'card-active': featureEmbeddings }"
+                  @click="featureEmbeddings = !featureEmbeddings"
+                  role="button"
+                  tabindex="0"
+                  @keydown.space.prevent="featureEmbeddings = !featureEmbeddings"
+                  @keydown.enter.prevent="featureEmbeddings = !featureEmbeddings"
+                >
+                  <div class="card-icon-wrapper">
+                    <CheckCircle2 v-if="featureEmbeddings" class="icon-active" :size="20" />
+                    <Circle v-else class="icon-inactive" :size="20" />
+                  </div>
+                  <div class="option-content">
+                    <div class="flex items-center gap-2">
+                      <Cpu :size="16" class="text-primary" />
+                      <span class="option-label">Vector Knowledge &amp; Embeddings (pgvector)</span>
+                    </div>
+                    <span class="option-description">Generate dense vector representations for semantic search across applications.</span>
+                  </div>
+                </div>
+
+                <!-- Automated Cover Letters Selection Card -->
+                <div
+                  class="selection-card flex-col items-stretch"
+                  :class="{ 'card-active': featureAutoCoverLetter }"
+                  @click="featureAutoCoverLetter = !featureAutoCoverLetter"
+                  role="button"
+                  tabindex="0"
+                  @keydown.space.prevent="featureAutoCoverLetter = !featureAutoCoverLetter"
+                  @keydown.enter.prevent="featureAutoCoverLetter = !featureAutoCoverLetter"
+                >
+                  <div class="flex items-start gap-3.5 w-full">
+                    <div class="card-icon-wrapper">
+                      <CheckCircle2 v-if="featureAutoCoverLetter" class="icon-active" :size="20" />
+                      <Circle v-else class="icon-inactive" :size="20" />
+                    </div>
+                    <div class="option-content">
+                      <div class="flex items-center gap-2">
+                        <FileText :size="16" class="text-primary" />
+                        <span class="option-label">Automated Cover Letter Generation</span>
+                      </div>
+                      <span class="option-description">Automatically draft tailored cover letters during intake when fit score passes threshold.</span>
+                    </div>
+                  </div>
+
+                  <!-- Expandable Minimum Fit Threshold Slider -->
+                  <div
+                    v-if="featureAutoCoverLetter"
+                    class="threshold-config-box mt-3 pt-3 border-t border-subtle w-full"
+                    @click.stop
+                  >
+                    <div class="flex justify-between items-center mb-1.5">
+                      <span class="text-xs text-secondary font-medium">Minimum Fit Threshold:</span>
+                      <span class="threshold-badge font-mono text-xs font-semibold px-2 py-0.5 rounded bg-primary-subtle text-primary border border-primary-glow">
+                        {{ featureCoverLetterThreshold }}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      v-model.number="featureCoverLetterThreshold"
+                      class="form-range w-full"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Step 3 Footer Actions -->
+              <div class="wizard-footer-actions mt-4">
+                <button type="button" class="btn btn-secondary" @click="currentStep = 2">
+                  <ArrowLeft :size="14" />
+                  <span>Back</span>
+                </button>
+
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  :disabled="isSavingFeatures"
+                  @click="handleStep3Save"
+                >
+                  <Loader2 v-if="isSavingFeatures" class="animate-spin" :size="14" />
+                  <span>Save &amp; Continue to Final Launch</span>
+                  <ArrowRight :size="14" />
+                </button>
+              </div>
             </div>
-            <h3 class="step-heading text-xl">Setup Complete &amp; System Ready!</h3>
-            <p class="step-desc">
-              Your JobTracker application environment is fully configured and ready for tracking job leads.
-            </p>
-          </div>
 
-          <!-- Summary Card -->
-          <div class="summary-card mt-3">
-            <h4 class="summary-card-title">Configured Environment Summary</h4>
-
-            <div class="summary-grid">
-              <div class="summary-item">
-                <span class="summary-label">AI Execution Provider:</span>
-                <span class="summary-value font-mono">{{ providerForm.name }} ({{ providerForm.model_name }})</span>
+            <!-- STEP 4: COMPLETION & LAUNCH -->
+            <div v-else-if="currentStep === 4" class="step-content animate-fade-in">
+              <div class="step-intro-box text-center">
+                <div class="hero-success-icon mb-2">
+                  <Rocket class="text-primary" :size="32" />
+                </div>
+                <h3 class="step-heading text-xl">Setup Complete &amp; System Ready!</h3>
+                <p class="step-desc">
+                  Your JobTracker application environment is fully configured and ready for tracking job leads.
+                </p>
               </div>
 
-              <div class="summary-item">
-                <span class="summary-label">Candidate Profile:</span>
-                <span class="summary-value">{{ parsedCvData ? 'CV Uploaded & Processed' : 'Skipped (Can add later in Settings)' }}</span>
+              <!-- Summary Card -->
+              <div class="summary-card mt-3">
+                <h4 class="summary-card-title">Configured Environment Summary</h4>
+
+                <div class="summary-grid">
+                  <div class="summary-item">
+                    <span class="summary-label">AI Execution Provider:</span>
+                    <span class="summary-value font-mono">{{ providerForm.name }} ({{ providerForm.model_name }})</span>
+                  </div>
+
+                  <div class="summary-item">
+                    <span class="summary-label">Candidate Profile:</span>
+                    <span class="summary-value">{{ parsedCvData ? 'CV Uploaded & Processed' : 'Skipped (Can add later in Settings)' }}</span>
+                  </div>
+
+                  <div class="summary-item">
+                    <span class="summary-label">Email Account Sync:</span>
+                    <span class="summary-value" :class="featureEmailIntake ? 'text-success' : 'text-muted'">
+                      {{ featureEmailIntake ? 'Enabled' : 'Disabled' }}
+                    </span>
+                  </div>
+
+                  <div class="summary-item">
+                    <span class="summary-label">Vector Embeddings:</span>
+                    <span class="summary-value" :class="featureEmbeddings ? 'text-success' : 'text-muted'">
+                      {{ featureEmbeddings ? 'Enabled' : 'Disabled' }}
+                    </span>
+                  </div>
+
+                  <div class="summary-item">
+                    <span class="summary-label">Automated Cover Letters:</span>
+                    <span class="summary-value" :class="featureAutoCoverLetter ? 'text-success' : 'text-muted'">
+                      {{ featureAutoCoverLetter ? `Enabled (≥ ${featureCoverLetterThreshold}%)` : 'Disabled' }}
+                    </span>
+                  </div>
+                </div>
               </div>
 
-              <div class="summary-item">
-                <span class="summary-label">Email Account Sync:</span>
-                <span class="summary-value" :class="featureEmailIntake ? 'text-success' : 'text-muted'">
-                  {{ featureEmailIntake ? 'Enabled' : 'Disabled' }}
-                </span>
-              </div>
-
-              <div class="summary-item">
-                <span class="summary-label">Vector Embeddings:</span>
-                <span class="summary-value" :class="featureEmbeddings ? 'text-success' : 'text-muted'">
-                  {{ featureEmbeddings ? 'Enabled' : 'Disabled' }}
-                </span>
-              </div>
-
-              <div class="summary-item">
-                <span class="summary-label">Automated Cover Letters:</span>
-                <span class="summary-value" :class="featureAutoCoverLetter ? 'text-success' : 'text-muted'">
-                  {{ featureAutoCoverLetter ? `Enabled (≥ ${featureCoverLetterThreshold}%)` : 'Disabled' }}
-                </span>
+              <!-- Launch Button -->
+              <div class="wizard-footer-actions mt-4 justify-center">
+                <button
+                  type="button"
+                  class="btn btn-primary btn-lg shadow-glow"
+                  :disabled="isCompletingOnboarding"
+                  @click="handleFinishOnboarding"
+                >
+                  <Loader2 v-if="isCompletingOnboarding" class="animate-spin" :size="18" />
+                  <Rocket v-else :size="18" />
+                  <span>Start Tracking Jobs Now</span>
+                </button>
               </div>
             </div>
-          </div>
-
-          <!-- Launch Button -->
-          <div class="wizard-footer-actions mt-4 justify-center">
-            <button
-              type="button"
-              class="btn btn-primary btn-lg shadow-glow"
-              :disabled="isCompletingOnboarding"
-              @click="handleFinishOnboarding"
-            >
-              <Loader2 v-if="isCompletingOnboarding" class="animate-spin" :size="18" />
-              <Rocket v-else :size="18" />
-              <span>Start Tracking Jobs Now</span>
-            </button>
           </div>
         </div>
       </div>
-    </div>
-  </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <style scoped>
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: var(--bg-backdrop, rgba(0, 0, 0, 0.75));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1050;
+  padding: 20px;
+  backdrop-filter: blur(4px);
+}
+
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+  transform: scale(0.97);
+}
+
 .wizard-modal-card {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
@@ -1079,12 +1138,18 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
   border-radius: var(--radius-sm);
   padding: 16px;
   margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .test-ping-row {
   display: flex;
   align-items: center;
   gap: 12px;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .test-result-badge {
@@ -1252,33 +1317,77 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
   margin-top: 16px;
 }
 
-.feature-toggle-card {
+.selection-card {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background-color: var(--bg-main);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
+  align-items: flex-start;
+  gap: 14px;
   padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-main);
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.2s ease);
+  outline: none;
+  user-select: none;
 }
 
-.toggle-left {
+.selection-card:hover {
+  background-color: var(--bg-surface-hover, var(--bg-elevated));
+  border-color: var(--border-focus, var(--primary));
+}
+
+.selection-card:focus-visible {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-glow);
+}
+
+.selection-card.card-active {
+  background-color: var(--primary-subtle);
+  border-color: var(--primary);
+}
+
+.card-icon-wrapper {
+  margin-top: 2px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
 }
 
-.toggle-title {
+.icon-active {
+  color: var(--primary);
+}
+
+.icon-inactive {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.option-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.option-label {
   font-size: 13px;
   font-weight: 700;
   color: var(--text-main);
-  margin: 0;
 }
 
-.toggle-desc {
+.option-description {
   font-size: 11px;
   color: var(--text-secondary);
-  margin: 2px 0 0 0;
+  line-height: 1.4;
+}
+
+.threshold-config-box {
+  cursor: default;
+}
+
+.threshold-badge {
+  font-size: 11px;
 }
 
 .summary-card {

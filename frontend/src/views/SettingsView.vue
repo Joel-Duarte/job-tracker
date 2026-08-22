@@ -1224,16 +1224,6 @@ onMounted(async () => {
       subtitle="Configure model bindings, thinking/reasoning parameters, custom prompt templates, AI providers, and email integrations."
       align="center"
     >
-      <template #actions>
-        <button
-          class="btn btn-secondary btn-sm"
-          @click="uiStore.openOnboardingWizard()"
-          title="Launch Guided Setup Wizard"
-        >
-          <Sparkles :size="14" class="text-primary" />
-          <span>Launch Setup Wizard</span>
-        </button>
-      </template>
       <template #tabs>
         <div class="tab-bar">
           <button
@@ -1409,7 +1399,7 @@ onMounted(async () => {
                     Minimum Match Score Threshold: <strong>{{ coverLetterMatchThreshold }}%</strong>
                   </span>
                 </div>
-                <div class="form-range-container w-full">
+                <div class="form-range-container">
                   <input
                     type="range"
                     min="0"
@@ -1418,6 +1408,7 @@ onMounted(async () => {
                     :value="coverLetterMatchThreshold"
                     :disabled="isUpdatingCoverLetterSettings"
                     class="form-range"
+                    @input="coverLetterMatchThreshold = Number($event.target.value)"
                     @change="updateCoverLetterThreshold"
                   />
                 </div>
@@ -1477,7 +1468,7 @@ onMounted(async () => {
             <div v-if="enableEmbeddings" class="embeddings-control-body">
               <div class="embeddings-info-box">
                 <span class="embeddings-status-text">
-                  Vector Knowledge is <strong>ACTIVE</strong> — new applications automatically generate embeddings for semantic search.
+                  Vector Knowledge is <strong>ACTIVE</strong> &mdash; new applications automatically generate embeddings for semantic search.
                 </span>
                 <button
                   class="btn btn-outline btn-xs"
@@ -1486,6 +1477,47 @@ onMounted(async () => {
                 >
                   <RefreshCw :size="12" :class="{ 'animate-spin': isReindexingEmbeddings }" />
                   <span>{{ isReindexingEmbeddings ? 'Re-indexing...' : 'Rebuild Missing Embeddings' }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- EMAIL AUTO-SYNC & INTAKE CARD -->
+          <div class="email-intake-control-card">
+            <div class="email-intake-control-header">
+              <div class="email-intake-title-group">
+                <Mail class="text-primary" :size="20" />
+                <div>
+                  <h3 class="email-intake-title">Email Account Auto-Sync &amp; Intake</h3>
+                  <p class="email-intake-desc">
+                    Automatically fetch recruitment emails via OAuth or IMAP, parse status updates, and extract action items.
+                  </p>
+                </div>
+              </div>
+
+              <div class="email-intake-actions">
+                <label class="switch-toggle" title="Toggle Email Auto-Sync and Intake">
+                  <input
+                    type="checkbox"
+                    :checked="uiStore.enableEmailIntake"
+                    @change="toggleEmailIntake"
+                  />
+                  <span class="slider round"></span>
+                </label>
+              </div>
+            </div>
+
+            <div v-if="uiStore.enableEmailIntake" class="email-intake-control-body">
+              <div class="email-intake-info-box">
+                <span class="email-intake-status-text">
+                  Email Auto-Sync is <strong>ACTIVE</strong> &mdash; background polling sweeps and mailbox sync integrations are enabled.
+                </span>
+                <button
+                  class="btn btn-outline btn-xs"
+                  @click="activeTab = 'emails'"
+                >
+                  <Mail :size="12" />
+                  <span>Manage Mailboxes</span>
                 </button>
               </div>
             </div>
@@ -1971,6 +2003,25 @@ onMounted(async () => {
         </div>
 
         <div class="preferences-grid">
+          <!-- Guided Setup & Onboarding Wizard Card -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <Sparkles :size="18" />
+              </div>
+              <div style="flex: 1;">
+                <h4 class="preference-title">Guided Setup &amp; Configuration Wizard</h4>
+                <p class="preference-desc">Re-run the initial onboarding flow to reconfigure default AI providers, candidate CV profile, and subsystem feature flags.</p>
+              </div>
+            </div>
+            <div style="margin-top: 1rem;">
+              <button class="btn btn-secondary btn-sm" @click="uiStore.openOnboardingWizard()">
+                <Sparkles :size="14" class="text-primary" />
+                <span>Launch Setup Wizard</span>
+              </button>
+            </div>
+          </div>
+
           <!-- Diagnostics Export Card -->
           <div class="preference-card">
             <div class="preference-header">
@@ -2842,11 +2893,6 @@ onMounted(async () => {
   height: 38px;
   display: flex;
   align-items: center;
-}
-
-.form-range {
-  width: 100%;
-  accent-color: var(--primary);
 }
 
 .form-grid-2 .form-input,
@@ -3910,7 +3956,8 @@ onMounted(async () => {
 }
 
 .cover-letter-control-card,
-.embeddings-control-card {
+.embeddings-control-card,
+.email-intake-control-card {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -3919,7 +3966,8 @@ onMounted(async () => {
 }
 
 .cover-letter-control-header,
-.embeddings-control-header {
+.embeddings-control-header,
+.email-intake-control-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -3927,14 +3975,16 @@ onMounted(async () => {
 }
 
 .cover-letter-title-group,
-.embeddings-title-group {
+.embeddings-title-group,
+.email-intake-title-group {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
 .cover-letter-title,
-.embeddings-title {
+.embeddings-title,
+.email-intake-title {
   font-size: 15px;
   font-weight: 700;
   color: var(--text-main);
@@ -3942,21 +3992,24 @@ onMounted(async () => {
 }
 
 .cover-letter-desc,
-.embeddings-desc {
+.embeddings-desc,
+.email-intake-desc {
   font-size: 12px;
   color: var(--text-secondary);
   margin: 2px 0 0 0;
 }
 
 .cover-letter-control-body,
-.embeddings-control-body {
+.embeddings-control-body,
+.email-intake-control-body {
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--border-subtle);
 }
 
 .cover-letter-info-box,
-.embeddings-info-box {
+.embeddings-info-box,
+.email-intake-info-box {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3965,10 +4018,13 @@ onMounted(async () => {
   border: 1px solid var(--border-subtle);
   padding: 8px 12px;
   border-radius: var(--radius-sm);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .cover-letter-status-text,
-.embeddings-status-text {
+.embeddings-status-text,
+.email-intake-status-text {
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.4;
