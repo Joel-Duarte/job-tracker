@@ -56,6 +56,19 @@ const fixJDRawText = ref('')
 const fixJDJobUrl = ref('')
 const isSubmittingFixJD = ref(false)
 
+// Expandable Email Sync details
+const expandedEmailDetails = ref(new Set())
+
+function toggleEmailDetails(taskId) {
+  const newSet = new Set(expandedEmailDetails.value)
+  if (newSet.has(taskId)) {
+    newSet.delete(taskId)
+  } else {
+    newSet.add(taskId)
+  }
+  expandedEmailDetails.value = newSet
+}
+
 const tasks = computed(() => queueStore.tasks)
 const loading = computed(() => queueStore.loading)
 
@@ -905,26 +918,69 @@ onMounted(() => {
               </div>
 
               <!-- Completed Summary Stats -->
-              <div v-else-if="task.status === 'COMPLETED' && task.result_json" class="email-sync-summary-grid">
-                <div class="email-summary-stat">
-                  <span class="stat-num">{{ task.result_json.total_emails || 0 }}</span>
-                  <span class="stat-lbl">Emails Processed</span>
+              <div v-else-if="(task.status === 'COMPLETED' || task.status === 'FAILED') && task.result_json" class="email-sync-summary-section">
+                <div class="email-sync-summary-grid">
+                  <div class="email-summary-stat">
+                    <span class="stat-num">{{ task.result_json.total_emails || 0 }}</span>
+                    <span class="stat-lbl">Emails Processed</span>
+                  </div>
+                  <div class="email-summary-stat" v-if="task.result_json.applications_count">
+                    <span class="stat-num text-success">{{ task.result_json.applications_count }}</span>
+                    <span class="stat-lbl">Apps Created/Updated</span>
+                  </div>
+                  <div class="email-summary-stat" v-if="task.result_json.events_count">
+                    <span class="stat-num text-primary">{{ task.result_json.events_count }}</span>
+                    <span class="stat-lbl">Events Logged</span>
+                  </div>
+                  <div class="email-summary-stat" v-if="task.result_json.staged_count">
+                    <span class="stat-num text-warning">{{ task.result_json.staged_count }}</span>
+                    <span class="stat-lbl">Staged for Review</span>
+                  </div>
+                  <div class="email-summary-stat" v-if="task.result_json.skipped_duplicates">
+                    <span class="stat-num text-muted">{{ task.result_json.skipped_duplicates }}</span>
+                    <span class="stat-lbl">Duplicates Skipped</span>
+                  </div>
+                  <div class="email-summary-stat error-stat" v-if="task.result_json.failed_count">
+                    <span class="stat-num text-danger">{{ task.result_json.failed_count }}</span>
+                    <span class="stat-lbl">Failed</span>
+                  </div>
                 </div>
-                <div class="email-summary-stat" v-if="task.result_json.applications_count">
-                  <span class="stat-num text-success">{{ task.result_json.applications_count }}</span>
-                  <span class="stat-lbl">Apps Created/Updated</span>
+
+                <!-- Toggle Email Details Button -->
+                <div v-if="task.result_json.details && task.result_json.details.length > 0" class="email-details-toggle-row">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-xs"
+                    @click="toggleEmailDetails(task.id)"
+                  >
+                    <ChevronDown v-if="!expandedEmailDetails.has(task.id)" :size="12" />
+                    <ChevronUp v-else :size="12" />
+                    <span>{{ expandedEmailDetails.has(task.id) ? 'Hide' : 'View' }} Processed Emails ({{ task.result_json.details.length }})</span>
+                  </button>
                 </div>
-                <div class="email-summary-stat" v-if="task.result_json.events_count">
-                  <span class="stat-num text-primary">{{ task.result_json.events_count }}</span>
-                  <span class="stat-lbl">Events Logged</span>
-                </div>
-                <div class="email-summary-stat" v-if="task.result_json.staged_count">
-                  <span class="stat-num text-warning">{{ task.result_json.staged_count }}</span>
-                  <span class="stat-lbl">Staged for Review</span>
-                </div>
-                <div class="email-summary-stat" v-if="task.result_json.skipped_duplicates">
-                  <span class="stat-num text-muted">{{ task.result_json.skipped_duplicates }}</span>
-                  <span class="stat-lbl">Duplicates Skipped</span>
+
+                <!-- Expandable Details List -->
+                <div v-if="expandedEmailDetails.has(task.id) && task.result_json.details" class="email-details-list">
+                  <div
+                    v-for="(item, idx) in task.result_json.details"
+                    :key="idx"
+                    class="email-detail-card"
+                    :class="`detail-status-${item.status}`"
+                  >
+                    <div class="detail-top">
+                      <span class="detail-badge" :class="`badge-${item.status}`">
+                        {{ item.status === 'application_committed' ? 'Application Updated' : (item.status === 'staged' ? 'Staged' : (item.status === 'event_logged' ? 'Event Logged' : (item.status === 'skipped' ? 'Skipped (Duplicate)' : 'Failed'))) }}
+                      </span>
+                      <span class="detail-subject truncate" :title="item.subject">{{ item.subject || 'No Subject' }}</span>
+                    </div>
+                    <div class="detail-subtext text-xs">
+                      <span v-if="item.company" class="font-medium text-primary">{{ item.company }}</span>
+                      <span v-if="item.company && item.position"> • </span>
+                      <span v-if="item.position" class="text-secondary">{{ item.position }}</span>
+                      <span v-if="item.summary" class="detail-summary text-muted"> — {{ item.summary }}</span>
+                      <span v-if="item.error" class="text-danger font-mono text-xs">Error: {{ item.error }}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1552,6 +1608,13 @@ onMounted(() => {
   color: var(--text-secondary);
 }
 
+.email-sync-summary-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
 .email-sync-summary-grid {
   display: flex;
   align-items: center;
@@ -1570,6 +1633,11 @@ onMounted(() => {
   font-size: 11px;
 }
 
+.email-summary-stat.error-stat {
+  border-color: rgba(239, 68, 68, 0.4);
+  background-color: rgba(239, 68, 68, 0.05);
+}
+
 .email-summary-stat .stat-num {
   font-weight: 700;
   font-family: var(--font-mono);
@@ -1577,6 +1645,87 @@ onMounted(() => {
 
 .email-summary-stat .stat-lbl {
   color: var(--text-secondary);
+}
+
+.email-details-toggle-row {
+  display: flex;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.email-details-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 10px;
+  background-color: var(--bg-base, #0d1117);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  margin-top: 4px;
+}
+
+.email-detail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.detail-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.detail-badge.badge-application_committed {
+  background-color: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.detail-badge.badge-staged {
+  background-color: rgba(234, 179, 8, 0.15);
+  color: #eab308;
+}
+
+.detail-badge.badge-event_logged {
+  background-color: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.detail-badge.badge-skipped {
+  background-color: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+}
+
+.detail-badge.badge-error {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.detail-subject {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.detail-subtext {
+  color: var(--text-secondary);
+  line-height: 1.4;
 }
 
 .task-title-text {

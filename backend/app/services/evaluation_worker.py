@@ -410,72 +410,116 @@ async def _execute_email_sync_steps(
             flag_modified(task, "result_json")
             await db.commit()
 
-            try:
-                graph_res = await process_single_email_graph(
-                    db, email_payload, str(task_id)
-                )
-                processed += 1
+            # Attempt graph execution with retry for transient LLM/network failures
+            graph_res = None
+            last_err = None
+            max_attempts = 2
 
-                if graph_res.get("is_duplicate"):
-                    skipped_duplicates += 1
-                    details.append(
-                        {
-                            "subject": email_payload.subject,
-                            "status": "skipped",
-                            "reason": "duplicate",
-                        }
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    graph_res = await process_single_email_graph(
+                        db, email_payload, str(task_id)
                     )
-                elif graph_res.get("staging_item_id"):
-                    staged_count += 1
-                    details.append(
-                        {
-                            "subject": email_payload.subject,
-                            "status": "staged",
-                            "company": graph_res.get("company_name"),
-                            "position": graph_res.get("position_name"),
-                            "staging_item_id": graph_res.get("staging_item_id"),
-                        }
-                    )
-                elif graph_res.get("is_application"):
-                    applications_count += 1
-                    details.append(
-                        {
-                            "subject": email_payload.subject,
-                            "status": "application_committed",
-                            "company": graph_res.get("company_name"),
-                            "position": graph_res.get("position_name"),
-                            "application_id": graph_res.get("application_id"),
-                            "event_id": graph_res.get("event_id"),
-                        }
-                    )
-                else:
-                    events_count += 1
-                    details.append(
-                        {
-                            "subject": email_payload.subject,
-                            "status": "event_logged",
-                            "event_id": graph_res.get("event_id"),
-                        }
-                    )
-            except Exception as item_err:
-                await db.rollback()
+                    last_err = None
+                    break
+                except Exception as item_err:
+                    await db.rollback()
+                    last_err = item_err
+                    if attempt < max_attempts:
+                        logger.warning(
+                            "Transient error on email '%s' (attempt %d/%d): %s. Retrying in 0.5s...",
+                            email_payload.subject,
+                            attempt,
+                            max_attempts,
+                            item_err,
+                        )
+                        await asyncio.sleep(0.5)
+
+            if last_err is not None or graph_res is None:
                 logger.error(
                     "Failed processing email '%s': %s",
                     email_payload.subject,
-                    item_err,
+                    last_err,
                     exc_info=True,
                 )
                 failed_count += 1
                 details.append(
                     {
                         "subject": email_payload.subject,
+                        "sender": getattr(email_payload, "sender", None),
                         "status": "error",
-                        "error": str(item_err),
+                        "error": str(last_err),
+                    }
+                )
+                continue
+
+            processed += 1
+            if graph_res.get("is_duplicate"):
+                skipped_duplicates += 1
+                details.append(
+                    {
+                        "subject": email_payload.subject,
+                        "sender": getattr(email_payload, "sender", None),
+                        "status": "skipped",
+                        "reason": "duplicate",
+                    }
+                )
+            elif graph_res.get("staging_item_id"):
+                staged_count += 1
+                details.append(
+                    {
+                        "subject": email_payload.subject,
+                        "sender": getattr(email_payload, "sender", None),
+                        "status": "staged",
+                        "company": graph_res.get("company_name"),
+                        "position": graph_res.get("position_name"),
+                        "staging_item_id": graph_res.get("staging_item_id"),
+                        "summary": (graph_res.get("extracted_data") or {}).get(
+                            "summary"
+                        ),
+                    }
+                )
+            elif graph_res.get("is_application"):
+                applications_count += 1
+                details.append(
+                    {
+                        "subject": email_payload.subject,
+                        "sender": getattr(email_payload, "sender", None),
+                        "status": "application_committed",
+                        "company": graph_res.get("company_name"),
+                        "position": graph_res.get("position_name"),
+                        "application_id": graph_res.get("application_id"),
+                        "event_id": graph_res.get("event_id"),
+                        "summary": (graph_res.get("extracted_data") or {}).get(
+                            "summary"
+                        ),
+                    }
+                )
+            else:
+                events_count += 1
+                details.append(
+                    {
+                        "subject": email_payload.subject,
+                        "sender": getattr(email_payload, "sender", None),
+                        "status": "event_logged",
+                        "event_id": graph_res.get("event_id"),
+                        "summary": (graph_res.get("extracted_data") or {}).get(
+                            "summary"
+                        ),
                     }
                 )
 
         task.status = "COMPLETED" if (failed_count < total or total == 0) else "FAILED"
         task.stage = "COMPLETE" if task.status == "COMPLETED" else "FAILED"
+        if task.status == "FAILED" and details:
+            task.error_message = next(
+                (
+                    d["error"]
+                    for d in details
+                    if d.get("status") == "error" and d.get("error")
+                ),
+                "All emails in batch failed processing.",
+            )
         task.completed_at = datetime.now(UTC)
         task.result_json = {
             **result_data,

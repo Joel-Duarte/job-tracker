@@ -13,6 +13,7 @@ import app.services.llm as llm_service
 from app.core.config_manager import get_setting
 from app.core.url_utils import normalize_job_url
 from app.models.applications import (
+    ActionItemModel,
     ApplicationEventModel,
     ApplicationModel,
     CompanyModel,
@@ -148,17 +149,54 @@ async def extraction_node(
 
     email_type = str(extracted_dict.get("email_type") or "").upper()
     pos = extracted_dict.get("position")
-    pos_clean = None if (not pos or pos == "unknownPosition") else pos
+    pos_clean = (
+        None
+        if (
+            not pos
+            or pos.strip().lower() in ["unknownposition", "unknown", "none", "null"]
+        )
+        else pos.strip()
+    )
     comp = extracted_dict.get("company")
+    comp_clean = (
+        None
+        if (
+            not comp
+            or comp.strip().lower()
+            in ["none", "null", "unknown", "n/a", "not specified"]
+        )
+        else comp.strip()
+    )
 
     raw_job_url = extracted_dict.get("job_url")
     clean_job_url = normalize_job_url(raw_job_url) if raw_job_url else None
 
-    is_app = (email_type == "JOB_APPLICATION") or bool(comp and pos_clean)
+    # Recruitment communication includes:
+    # 1. Any email typed as JOB_APPLICATION or RECRUITER_OUTREACH
+    # 2. Any email with a company or position extracted
+    # 3. Any email with a recruitment event_type or status
+    is_recruitment_type = email_type in ["JOB_APPLICATION", "RECRUITER_OUTREACH"]
+    has_company_or_position = bool(comp_clean or pos_clean)
+    has_recruitment_event = bool(
+        extracted_dict.get("event_type")
+        and str(extracted_dict.get("event_type")).upper()
+        not in ["OTHER", "NONE", "NULL", ""]
+    ) or bool(
+        extracted_dict.get("status")
+        and str(extracted_dict.get("status")).upper()
+        not in ["OTHER", "NONE", "NULL", ""]
+    )
+
+    is_app = (
+        is_recruitment_type
+        or (has_company_or_position and email_type not in ["NEWSLETTER", "SPAM"])
+        or has_recruitment_event
+    )
+
     return {
         "extracted_data": extracted_dict,
         "is_application": is_app,
-        "company_name": comp,
+        "company_name": comp_clean,
         "position_name": pos_clean,
         "job_url": clean_job_url,
         "route": "match" if is_app else "other_event",
@@ -422,6 +460,39 @@ async def db_commit_node(
         email_raw_body=state.get("body", ""),
     )
     db.add(event)
+    await db.flush()
+
+    # Automatically create pending ActionItemModel if action is required
+    if extracted.get("action_required") and extracted.get("action"):
+        action_text = str(extracted.get("action")).strip()
+        if action_text:
+            act_lower = action_text.lower()
+            urgency = (
+                "HIGH"
+                if any(
+                    k in act_lower
+                    for k in [
+                        "interview",
+                        "assessment",
+                        "urgent",
+                        "deadline",
+                        "schedule",
+                        "offer",
+                        "today",
+                        "tomorrow",
+                    ]
+                )
+                else "MEDIUM"
+            )
+            action_item = ActionItemModel(
+                application_id=application_id,
+                event_id=event.id,
+                title=action_text[:500],
+                urgency=urgency,
+                status="PENDING",
+            )
+            db.add(action_item)
+
     await db.commit()
     await db.refresh(event)
 

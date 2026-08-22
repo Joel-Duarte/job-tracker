@@ -102,48 +102,61 @@ async def save_settings(
 
     async def _update_settings(session: AsyncSession) -> None:
         model = await get_system_settings_model(session)
-        if "has_completed_onboarding" in settings:
-            model.has_completed_onboarding = bool(settings["has_completed_onboarding"])
-        elif "HAS_COMPLETED_ONBOARDING" in settings:
-            model.has_completed_onboarding = bool(settings["HAS_COMPLETED_ONBOARDING"])
+        val_onboarding = (
+            settings.get("has_completed_onboarding")
+            if "has_completed_onboarding" in settings
+            else settings.get("HAS_COMPLETED_ONBOARDING")
+        )
+        if val_onboarding is not None:
+            model.has_completed_onboarding = bool(val_onboarding)
 
-        if "enable_email_intake" in settings:
-            model.enable_email_intake = bool(settings["enable_email_intake"])
-        elif "ENABLE_EMAIL_INTAKE" in settings:
-            model.enable_email_intake = bool(settings["ENABLE_EMAIL_INTAKE"])
+        val_email_intake = (
+            settings.get("enable_email_intake")
+            if "enable_email_intake" in settings
+            else settings.get("ENABLE_EMAIL_INTAKE")
+        )
+        if val_email_intake is not None:
+            model.enable_email_intake = bool(val_email_intake)
 
-        if "enable_embeddings" in settings:
-            model.enable_embeddings = bool(settings["enable_embeddings"])
-        elif "ENABLE_EMBEDDINGS" in settings:
-            model.enable_embeddings = bool(settings["ENABLE_EMBEDDINGS"])
+        val_embeddings = (
+            settings.get("enable_embeddings")
+            if "enable_embeddings" in settings
+            else settings.get("ENABLE_EMBEDDINGS")
+        )
+        if val_embeddings is not None:
+            model.enable_embeddings = bool(val_embeddings)
 
-        if "agent_chat_retention_days" in settings:
-            model.agent_chat_retention_days = int(settings["agent_chat_retention_days"])
-        elif "AGENT_CHAT_RETENTION_DAYS" in settings:
-            model.agent_chat_retention_days = int(settings["AGENT_CHAT_RETENTION_DAYS"])
+        val_retention = (
+            settings.get("agent_chat_retention_days")
+            if "agent_chat_retention_days" in settings
+            else settings.get("AGENT_CHAT_RETENTION_DAYS")
+        )
+        if val_retention is not None:
+            model.agent_chat_retention_days = int(val_retention)
 
-        if "enable_auto_cover_letter" in settings:
-            model.enable_auto_cover_letter = bool(settings["enable_auto_cover_letter"])
-        elif "ENABLE_AUTO_COVER_LETTER" in settings:
-            model.enable_auto_cover_letter = bool(settings["ENABLE_AUTO_COVER_LETTER"])
+        val_auto_cl = (
+            settings.get("enable_auto_cover_letter")
+            if "enable_auto_cover_letter" in settings
+            else settings.get("ENABLE_AUTO_COVER_LETTER")
+        )
+        if val_auto_cl is not None:
+            model.enable_auto_cover_letter = bool(val_auto_cl)
 
-        if "cover_letter_match_threshold" in settings:
-            model.cover_letter_match_threshold = int(
-                settings["cover_letter_match_threshold"]
-            )
-        elif "COVER_LETTER_MATCH_THRESHOLD" in settings:
-            model.cover_letter_match_threshold = int(
-                settings["COVER_LETTER_MATCH_THRESHOLD"]
-            )
+        val_threshold = (
+            settings.get("cover_letter_match_threshold")
+            if "cover_letter_match_threshold" in settings
+            else settings.get("COVER_LETTER_MATCH_THRESHOLD")
+        )
+        if val_threshold is not None:
+            model.cover_letter_match_threshold = int(val_threshold)
 
-        if "cover_letter_length" in settings:
-            model.cover_letter_length = (
-                str(settings["cover_letter_length"]).strip().lower()
-            )
-        elif "COVER_LETTER_LENGTH" in settings:
-            model.cover_letter_length = (
-                str(settings["COVER_LETTER_LENGTH"]).strip().lower()
-            )
+        val_length = (
+            settings.get("cover_letter_length")
+            if "cover_letter_length" in settings
+            else settings.get("COVER_LETTER_LENGTH")
+        )
+        if val_length is not None:
+            model.cover_letter_length = str(val_length).strip().lower()
 
         await session.commit()
 
@@ -162,11 +175,15 @@ async def get_setting(
 ) -> Any:
     """Retrieves a specific system setting by key asynchronously."""
     settings = await load_settings(db)
-    return settings.get(key, default)
+    return settings.get(
+        key, settings.get(key.lower(), settings.get(key.upper(), default))
+    )
 
 
 async def set_setting(key: str, value: Any, db: AsyncSession | None = None) -> None:
     """Sets a specific system setting by key asynchronously."""
     settings = await load_settings(db)
     settings[key] = value
+    settings[key.lower()] = value
+    settings[key.upper()] = value
     await save_settings(settings, db)

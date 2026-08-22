@@ -325,3 +325,115 @@ async def test_graph_multiple_company_disambiguation(db_session: AsyncSession):
         )
 
         assert result.get("staging_item_id") is not None
+
+
+@pytest.mark.asyncio
+async def test_graph_recruiter_outreach_staging_flow(db_session: AsyncSession):
+    """Recruiter outreach for a new company should route to Staging Queue for review."""
+    # Seed an unrelated company
+    comp = CompanyModel(name="Google", name_normalized="google")
+    db_session.add(comp)
+    await db_session.commit()
+
+    state_input: JobTrackerState = {
+        "message_id": "msg-recruiter-anthropic-1",
+        "conversation_id": "conv-recruiter-anthropic-1",
+        "subject": "Exciting Infrastructure Role at Anthropic",
+        "body": "Hi, I came across your profile and thought you'd be a great fit for our Systems team at Anthropic.",
+    }
+
+    extracted = ExtractedEmailInfo(
+        company="Anthropic",
+        position="Senior Systems Engineer",
+        email_type="RECRUITER_OUTREACH",
+        event_type="RECRUITER_CONTACTED",
+        status="RECRUITER_CONTACT",
+        summary="Recruiter reached out regarding Systems role.",
+        action_required=True,
+        action="Reply to recruiter with CV.",
+    )
+
+    with patch(
+        "app.services.intake.extract_email_info", new_callable=AsyncMock
+    ) as mock_extract:
+        mock_extract.return_value = extracted
+
+        result = await intake_graph.ainvoke(
+            state_input,
+            config={"configurable": {"db": db_session}},
+        )
+
+        assert result.get("staging_item_id") is not None
+
+    staging_res = await db_session.execute(
+        select(StagingItemModel).where(StagingItemModel.id == result["staging_item_id"])
+    )
+    staged = staging_res.scalar_one_or_none()
+    assert staged is not None
+    assert staged.status == "PENDING"
+    assert staged.extracted_data.get("company") == "Anthropic"
+    assert staged.extracted_data.get("position") == "Senior Systems Engineer"
+
+
+@pytest.mark.asyncio
+async def test_graph_action_item_generation(db_session: AsyncSession):
+    """When an email requires action on a matched application, ActionItemModel is automatically created."""
+    comp = CompanyModel(name="Figma", name_normalized="figma")
+    db_session.add(comp)
+    await db_session.flush()
+
+    app = ApplicationModel(
+        company_id=comp.id,
+        position="Full Stack Engineer",
+        position_normalized="full stack engineer",
+        status="APPLIED",
+    )
+    db_session.add(app)
+    await db_session.commit()
+
+    state_input: JobTrackerState = {
+        "message_id": "msg-figma-oa-1",
+        "conversation_id": "conv-figma-oa-1",
+        "subject": "Figma: Coding Assessment Invitation",
+        "body": "Please complete the CodeSignal assessment by Friday.",
+    }
+
+    extracted = ExtractedEmailInfo(
+        company="Figma",
+        position="Full Stack Engineer",
+        email_type="JOB_APPLICATION",
+        event_type="ASSESSMENT_REQUESTED",
+        status="ONLINE_ASSESSMENT",
+        summary="CodeSignal assessment invitation.",
+        action_required=True,
+        action="Complete CodeSignal assessment by Friday 5 PM",
+    )
+
+    with (
+        patch(
+            "app.services.intake.extract_email_info", new_callable=AsyncMock
+        ) as mock_extract,
+        patch(
+            "app.services.graph_nodes.generate_and_save_application_embedding",
+            new_callable=AsyncMock,
+        ),
+    ):
+        mock_extract.return_value = extracted
+
+        result = await intake_graph.ainvoke(
+            state_input,
+            config={"configurable": {"db": db_session}},
+        )
+
+        assert result.get("application_id") == app.id
+
+    from app.models.applications import ActionItemModel
+
+    action_res = await db_session.execute(
+        select(ActionItemModel).where(ActionItemModel.application_id == app.id)
+    )
+    action_items = action_res.scalars().all()
+    assert len(action_items) == 1
+    assert "Complete CodeSignal" in action_items[0].title
+    assert action_items[0].status == "PENDING"
+    assert action_items[0].urgency == "HIGH"
