@@ -243,6 +243,7 @@ class MicrosoftGraphAdapter:
         delta_link: str | None = None,
         max_results: int = 50,
         folder_id: str = "Inbox",
+        since_date: datetime | None = None,
     ) -> tuple[list[EmailPayload], str | None]:
         """
         Fetches new or changed messages incrementally using Microsoft Graph delta sync.

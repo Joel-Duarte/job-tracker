@@ -547,16 +547,50 @@ async def get_task_chat_model(
                     init_kwargs["max_tokens"] = max_tokens
 
                 # Configure reasoning / thinking mode across model families
-                if reasoning and reasoning.lower() != "none":
+                reasoning_norm = (reasoning or "none").strip().lower()
+                is_local_base = bool(
+                    base_url
+                    and any(
+                        h in base_url
+                        for h in (
+                            "localhost",
+                            "127.0.0.1",
+                            "192.168.",
+                            "0.0.0.0",
+                            "10.",
+                            "172.",
+                        )
+                    )
+                )
+
+                if reasoning_norm in ("none", "off"):
+                    # Explicitly turn off thinking/reasoning where supported
+                    if provider_type in ("google_genai", "gemini"):
+                        init_kwargs.setdefault("extra_body", {})["thinking_config"] = {
+                            "thinking_budget": 0
+                        }
+                    elif provider_type == "anthropic":
+                        init_kwargs.pop("thinking", None)
+                    elif (
+                        provider_type in ("openai", "openrouter") and not is_local_base
+                    ):
+                        # For reasoning-only models on OpenAI (o1, o3-mini), reasoning cannot be fully disabled, fallback to low
+                        model_lower = target_model_name.lower()
+                        if any(m in model_lower for m in ("o1", "o3", "reasoning")):
+                            init_kwargs.setdefault("extra_body", {})[
+                                "reasoning_effort"
+                            ] = "low"
+                else:
+                    # Reasoning is enabled (low, medium, high)
                     if provider_type in ("openai", "openrouter"):
                         init_kwargs.setdefault("extra_body", {})["reasoning_effort"] = (
-                            reasoning.lower()
+                            reasoning_norm
                         )
                     elif provider_type == "anthropic":
                         budget = (
                             1024
-                            if reasoning == "low"
-                            else (2048 if reasoning == "medium" else 4096)
+                            if reasoning_norm == "low"
+                            else (2048 if reasoning_norm == "medium" else 4096)
                         )
                         init_kwargs["thinking"] = {
                             "type": "enabled",
@@ -577,8 +611,8 @@ async def get_task_chat_model(
                     elif provider_type in ("google_genai", "gemini"):
                         budget = (
                             1024
-                            if reasoning == "low"
-                            else (2048 if reasoning == "medium" else 4096)
+                            if reasoning_norm == "low"
+                            else (2048 if reasoning_norm == "medium" else 4096)
                         )
                         init_kwargs.setdefault("extra_body", {})["thinking_config"] = {
                             "thinking_budget": budget

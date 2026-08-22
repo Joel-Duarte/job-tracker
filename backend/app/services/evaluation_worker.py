@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -364,6 +365,25 @@ async def _execute_email_sync_steps(
         skipped_duplicates = 0
         failed_count = 0
         details = []
+
+        # Sort emails chronologically (oldest first -> newest last)
+        def _get_email_sort_key(item: Any) -> datetime:
+            rec = (
+                item.get("received_at")
+                if isinstance(item, dict)
+                else getattr(item, "received_at", None)
+            )
+            if isinstance(rec, datetime):
+                return rec if rec.tzinfo else rec.replace(tzinfo=UTC)
+            if isinstance(rec, str):
+                try:
+                    dt = datetime.fromisoformat(rec.replace("Z", "+00:00"))
+                    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+                except Exception:
+                    pass
+            return datetime.min.replace(tzinfo=UTC)
+
+        emails_raw = sorted(emails_raw, key=_get_email_sort_key)
 
         task.status = "PROCESSING"
         task.stage = f"Processing 0 of {total} (0%)"
