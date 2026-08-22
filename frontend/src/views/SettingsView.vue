@@ -3707,7 +3707,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 4px;
+  min-height: 24px;
 }
 
 .preference-card {
@@ -3753,7 +3753,7 @@ onMounted(async () => {
   font-weight: 700;
   color: var(--text-main);
   margin: 0;
-  line-height: 1.3;
+  line-height: 24px;
 }
 
 .preference-desc {
@@ -3765,12 +3765,12 @@ onMounted(async () => {
 }
 
 .preference-body {
-  margin-top: auto;
+  margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+  justify-content: flex-start;
   flex: 1;
   transition: opacity 0.2s ease, filter 0.2s ease;
 }
@@ -4594,6 +4594,13 @@ onMounted(async () => {
 }
 
 .threshold-slider-control {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
 .cover-letter-control-card,
 .embeddings-control-card {
   background-color: var(--bg-surface);
