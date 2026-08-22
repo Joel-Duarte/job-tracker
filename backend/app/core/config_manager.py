@@ -22,6 +22,8 @@ async def get_system_settings_model(
         if not record:
             record = SystemSettingsModel(
                 id=1,
+                has_completed_onboarding=False,
+                enable_email_intake=False,
                 enable_embeddings=True,
                 agent_chat_retention_days=7,
                 enable_auto_cover_letter=False,
@@ -41,20 +43,46 @@ async def get_system_settings_model(
 
 
 async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
-    """Loads system settings as a dictionary."""
+    """Loads system settings as a dictionary with both canonical lower-case and upper-case keys."""
     try:
         model = await get_system_settings_model(db)
+        has_completed_onboarding = getattr(model, "has_completed_onboarding", False)
+        enable_email_intake = getattr(model, "enable_email_intake", False)
+        enable_embeddings = getattr(model, "enable_embeddings", True)
+        agent_chat_retention_days = getattr(model, "agent_chat_retention_days", 7)
+        enable_auto_cover_letter = getattr(model, "enable_auto_cover_letter", False)
+        cover_letter_match_threshold = getattr(model, "cover_letter_match_threshold", 70)
+        cover_letter_length = getattr(model, "cover_letter_length", "standard") or "standard"
+
         return {
-            "ENABLE_EMBEDDINGS": model.enable_embeddings,
-            "AGENT_CHAT_RETENTION_DAYS": model.agent_chat_retention_days,
-            "ENABLE_AUTO_COVER_LETTER": model.enable_auto_cover_letter,
-            "COVER_LETTER_MATCH_THRESHOLD": model.cover_letter_match_threshold,
-            "COVER_LETTER_LENGTH": getattr(model, "cover_letter_length", "standard")
-            or "standard",
+            "has_completed_onboarding": has_completed_onboarding,
+            "enable_email_intake": enable_email_intake,
+            "enable_embeddings": enable_embeddings,
+            "agent_chat_retention_days": agent_chat_retention_days,
+            "enable_auto_cover_letter": enable_auto_cover_letter,
+            "cover_letter_match_threshold": cover_letter_match_threshold,
+            "cover_letter_length": cover_letter_length,
+            # Backward compatibility uppercase keys
+            "HAS_COMPLETED_ONBOARDING": has_completed_onboarding,
+            "ENABLE_EMAIL_INTAKE": enable_email_intake,
+            "ENABLE_EMBEDDINGS": enable_embeddings,
+            "AGENT_CHAT_RETENTION_DAYS": agent_chat_retention_days,
+            "ENABLE_AUTO_COVER_LETTER": enable_auto_cover_letter,
+            "COVER_LETTER_MATCH_THRESHOLD": cover_letter_match_threshold,
+            "COVER_LETTER_LENGTH": cover_letter_length,
         }
     except Exception as e:
         logger.error(f"Failed to load global settings from DB: {e}")
         return {
+            "has_completed_onboarding": False,
+            "enable_email_intake": True,
+            "enable_embeddings": True,
+            "agent_chat_retention_days": 7,
+            "enable_auto_cover_letter": False,
+            "cover_letter_match_threshold": 70,
+            "cover_letter_length": "standard",
+            "HAS_COMPLETED_ONBOARDING": False,
+            "ENABLE_EMAIL_INTAKE": True,
             "ENABLE_EMBEDDINGS": True,
             "AGENT_CHAT_RETENTION_DAYS": 7,
             "ENABLE_AUTO_COVER_LETTER": False,
@@ -66,24 +94,53 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
 async def save_settings(
     settings: dict[str, Any], db: AsyncSession | None = None
 ) -> None:
-    """Saves system settings from a dictionary."""
+    """Saves system settings from a dictionary supporting lower-case and upper-case keys."""
 
     async def _update_settings(session: AsyncSession) -> None:
         model = await get_system_settings_model(session)
-        if "ENABLE_EMBEDDINGS" in settings:
+        if "has_completed_onboarding" in settings:
+            model.has_completed_onboarding = bool(settings["has_completed_onboarding"])
+        elif "HAS_COMPLETED_ONBOARDING" in settings:
+            model.has_completed_onboarding = bool(settings["HAS_COMPLETED_ONBOARDING"])
+
+        if "enable_email_intake" in settings:
+            model.enable_email_intake = bool(settings["enable_email_intake"])
+        elif "ENABLE_EMAIL_INTAKE" in settings:
+            model.enable_email_intake = bool(settings["ENABLE_EMAIL_INTAKE"])
+
+        if "enable_embeddings" in settings:
+            model.enable_embeddings = bool(settings["enable_embeddings"])
+        elif "ENABLE_EMBEDDINGS" in settings:
             model.enable_embeddings = bool(settings["ENABLE_EMBEDDINGS"])
-        if "AGENT_CHAT_RETENTION_DAYS" in settings:
+
+        if "agent_chat_retention_days" in settings:
+            model.agent_chat_retention_days = int(settings["agent_chat_retention_days"])
+        elif "AGENT_CHAT_RETENTION_DAYS" in settings:
             model.agent_chat_retention_days = int(settings["AGENT_CHAT_RETENTION_DAYS"])
-        if "ENABLE_AUTO_COVER_LETTER" in settings:
+
+        if "enable_auto_cover_letter" in settings:
+            model.enable_auto_cover_letter = bool(settings["enable_auto_cover_letter"])
+        elif "ENABLE_AUTO_COVER_LETTER" in settings:
             model.enable_auto_cover_letter = bool(settings["ENABLE_AUTO_COVER_LETTER"])
-        if "COVER_LETTER_MATCH_THRESHOLD" in settings:
+
+        if "cover_letter_match_threshold" in settings:
+            model.cover_letter_match_threshold = int(
+                settings["cover_letter_match_threshold"]
+            )
+        elif "COVER_LETTER_MATCH_THRESHOLD" in settings:
             model.cover_letter_match_threshold = int(
                 settings["COVER_LETTER_MATCH_THRESHOLD"]
             )
-        if "COVER_LETTER_LENGTH" in settings:
+
+        if "cover_letter_length" in settings:
+            model.cover_letter_length = (
+                str(settings["cover_letter_length"]).strip().lower()
+            )
+        elif "COVER_LETTER_LENGTH" in settings:
             model.cover_letter_length = (
                 str(settings["COVER_LETTER_LENGTH"]).strip().lower()
             )
+
         await session.commit()
 
     try:

@@ -24,6 +24,7 @@ from app.routers import (
     prompts,
     search,
     staging,
+    system_settings,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -118,6 +119,7 @@ app.include_router(candidate_profile.router, prefix="/api/v1")
 app.include_router(extension.router, prefix="/api/v1")
 app.include_router(agent_chat.router, prefix="/api/v1")
 app.include_router(ai_config.router, prefix="/api/v1")
+app.include_router(system_settings.router, prefix="/api/v1")
 app.include_router(applications.router, prefix="/api/v1")
 app.include_router(action_items.router, prefix="/api/v1")
 app.include_router(events.router, prefix="/api/v1")

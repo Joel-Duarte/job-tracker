@@ -172,6 +172,7 @@ onMounted(() => {
         
 
         <router-link
+          v-if="uiStore.enableEmailIntake"
           to="/staging"
           class="nav-link"
           :class="{ active: route.path === '/staging' }"
@@ -218,6 +219,7 @@ onMounted(() => {
       </button>
 
       <button
+        v-if="uiStore.enableEmailIntake"
         class="btn btn-primary btn-ingest"
         @click="uiStore.openIngestModal"
         title="Sync email accounts, paste threads, or upload message files"

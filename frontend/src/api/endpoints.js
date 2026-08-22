@@ -77,6 +77,11 @@ export const SearchAPI = {
   companies: (q = '') => apiClient.get('/search/companies', { params: { q } }),
 }
 
+export const SystemSettingsAPI = {
+  get: () => apiClient.get('/config/system'),
+  update: (data) => apiClient.patch('/config/system', data),
+}
+
 export const AIConfigAPI = {
   getGlobalSettings: () => apiClient.get('/ai/global-settings'),
   updateGlobalSettings: (data) => apiClient.patch('/ai/global-settings', data),

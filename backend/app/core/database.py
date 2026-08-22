@@ -156,6 +156,18 @@ async def ensure_db_schema() -> None:
         # 2. Create missing tables defined in ORM metadata (idempotent)
         await conn.run_sync(Base.metadata.create_all)
 
+        # Auto-sync new columns on existing system_settings table
+        await conn.execute(
+            text(
+                "ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS has_completed_onboarding BOOLEAN NOT NULL DEFAULT FALSE;"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS enable_email_intake BOOLEAN NOT NULL DEFAULT FALSE;"
+            )
+        )
+
         logger.info("Database schema check completed.")
 
     # 3. Seed default prompts and system settings if missing

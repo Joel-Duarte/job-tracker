@@ -225,6 +225,7 @@ class TaskResponse(BaseModel):
     matched_count: int = 0
     skipped_duplicates: int = 0
     filtered_out_count: int = 0
+    status: str | None = None
 
 
 def _format_graph_result(result: dict[str, Any]) -> IntakeResultResponse:
@@ -602,6 +603,19 @@ async def sync_email_account(
        BUILT_IN_JOB_KEYWORDS + payload.keyword_filter.  Write filtered_out record.
     4. Dispatch the surviving emails to process_email_batch_sequential (background).
     """
+    from app.core.config_manager import load_settings
+    from fastapi.responses import JSONResponse
+
+    settings = await load_settings(db)
+    if not settings.get("enable_email_intake", False):
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": "disabled",
+                "message": "Email intake is turned off in settings.",
+            },
+        )
+
     stmt = select(EmailAccountModel).where(EmailAccountModel.id == payload.account_id)
     result = await db.execute(stmt)
     account = result.scalar_one_or_none()

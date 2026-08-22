@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 from email.header import decode_header
 
+from app.core.config_manager import load_settings
 from app.models.email_accounts import EmailAccountModel
 from app.schemas.intake import EmailPayload
 from app.services.oauth_adapters import GmailOAuthAdapter, MicrosoftGraphAdapter
@@ -113,6 +114,11 @@ async def fetch_emails_from_account(
     Fetches emails using either modern OAuth adapters (Google Workspace, Microsoft Graph)
     or basic-auth IMAP fallback. Returns (emails, new_sync_cursor).
     """
+    settings = await load_settings()
+    if not settings.get("enable_email_intake", False):
+        logger.info("Email intake is turned off in settings. Skipping email fetch.")
+        return [], None
+
     auth_type = (account.auth_type or "IMAP").upper()
 
     async with trace_operation(

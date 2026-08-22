@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
-import { AIConfigAPI, EmailAccountsAPI, IntakeAPI, PromptsAPI, DiagnosticsAPI } from '../api/endpoints'
+import { AIConfigAPI, EmailAccountsAPI, IntakeAPI, PromptsAPI, DiagnosticsAPI, SystemSettingsAPI } from '../api/endpoints'
 import CandidateProfileView from './CandidateProfileView.vue'
 import PageHeader from '../components/common/PageHeader.vue'
 import {
@@ -419,6 +419,20 @@ async function toggleEmbeddings() {
     uiStore.showToast('Failed to update embeddings setting', 'error')
   } finally {
     isUpdatingEmbeddings.value = false
+  }
+}
+
+async function toggleEmailIntake() {
+  try {
+    const newVal = !uiStore.enableEmailIntake
+    await SystemSettingsAPI.update({ enable_email_intake: newVal })
+    uiStore.enableEmailIntake = newVal
+    uiStore.showToast(
+      newVal ? 'Email Auto-Sync enabled.' : 'Email Auto-Sync disabled.',
+      'success'
+    )
+  } catch (err) {
+    uiStore.showToast('Failed to update email intake setting', 'error')
   }
 }
 
@@ -1210,6 +1224,16 @@ onMounted(async () => {
       subtitle="Configure model bindings, thinking/reasoning parameters, custom prompt templates, AI providers, and email integrations."
       align="center"
     >
+      <template #actions>
+        <button
+          class="btn btn-secondary btn-sm"
+          @click="uiStore.openOnboardingWizard()"
+          title="Launch Guided Setup Wizard"
+        >
+          <Sparkles :size="14" class="text-primary" />
+          <span>Launch Setup Wizard</span>
+        </button>
+      </template>
       <template #tabs>
         <div class="tab-bar">
           <button
@@ -1869,6 +1893,17 @@ onMounted(async () => {
           </button>
         </div>
 
+        <!-- Disabled Email Intake Banner -->
+        <div v-if="!uiStore.enableEmailIntake" class="email-disabled-banner mb-4">
+          <div class="banner-left">
+            <Info :size="18" class="text-primary" />
+            <span>Email Intake is currently paused. Toggle on to enable automatic email syncing and OAuth/IMAP integrations.</span>
+          </div>
+          <button class="btn btn-primary btn-xs" @click="toggleEmailIntake">
+            <span>Enable Email Intake</span>
+          </button>
+        </div>
+
         <div class="accounts-grid">
           <div v-for="acc in emailAccounts" :key="acc.id" class="account-card">
             <div class="account-card-header">
@@ -1982,6 +2017,29 @@ onMounted(async () => {
                 <span class="chip-code">{{ c.code }}</span>
                 <span class="chip-symbol">{{ c.symbol }}</span>
               </button>
+            </div>
+          </div>
+
+          <!-- Email Auto-Sync Toggle Card -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <Mail :size="18" />
+              </div>
+              <div style="flex: 1;">
+                <div class="preference-header-between">
+                  <h4 class="preference-title">Email Auto-Sync &amp; Intake</h4>
+                  <label class="switch-toggle">
+                    <input
+                      type="checkbox"
+                      :checked="uiStore.enableEmailIntake"
+                      @change="toggleEmailIntake"
+                    />
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+                <p class="preference-desc">Enables background mailbox polling sweeps and OAuth/IMAP email ingestion pipeline.</p>
+              </div>
             </div>
           </div>
 
@@ -3982,6 +4040,25 @@ input:checked + .slider:before {
   padding: 8px 12px;
   font-size: 12px;
   color: var(--text-main);
+}
+
+.email-disabled-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background-color: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.banner-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .opacity-50 {
