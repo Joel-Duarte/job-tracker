@@ -56,12 +56,12 @@ class StagingItemResolve(BaseModel):
     )
     position: str = Field(..., description="Corrected or confirmed position title.")
     status: str | None = Field(
-        default="ASSESSMENT",
-        description="Normalized application status: 'ASSESSMENT', 'APPLIED', 'INTERVIEW', 'OFFER', 'REJECTED'.",
+        default="APPLIED",
+        description="Normalized application status: 'APPLIED', 'ONLINE_ASSESSMENT', 'TECHNICAL_INTERVIEW', 'OFFER', 'REJECTED'.",
     )
     event_type: str | None = Field(
-        default="PRE_APPLICATION_ASSESSMENT",
-        description="Specific event type: 'PRE_APPLICATION_ASSESSMENT', 'APPLICATION_CONFIRMATION', 'INTERVIEW_INVITE', 'REJECTION', 'OFFER_LETTER', etc.",
+        default="APPLICATION_CONFIRMATION",
+        description="Specific event type: 'APPLICATION_CONFIRMATION', 'INTERVIEW_INVITATION', 'ONLINE_ASSESSMENT', 'REJECTION', 'OFFER_LETTER', etc.",
     )
     summary: str | None = Field(default=None, description="Updated event summary text.")
     action_required: bool = Field(
@@ -69,6 +69,14 @@ class StagingItemResolve(BaseModel):
     )
     action: str | None = Field(
         default=None, description="Specific action details if required."
+    )
+    urgency: str | None = Field(
+        default="MEDIUM",
+        description="Action item urgency level: 'HIGH', 'MEDIUM', or 'LOW'.",
+    )
+    due_date: datetime | None = Field(
+        default=None,
+        description="Optional deadline or due date for the action item.",
     )
     external_job_id: str | None = Field(
         default=None, description="Job reference or requisition ID."

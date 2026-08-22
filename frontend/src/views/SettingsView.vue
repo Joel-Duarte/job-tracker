@@ -2096,15 +2096,6 @@ onMounted(async () => {
                 <span>{{ syncingAccount === acc.id ? 'Syncing...' : 'Sync Now' }}</span>
               </button>
 
-              <button
-                class="btn btn-secondary btn-sm"
-                title="Clear deduplication history & reset sync cursor for this mailbox"
-                @click="openClearAccountModal(acc)"
-              >
-                <RotateCcw :size="13" />
-                <span>Clear History</span>
-              </button>
-
               <button class="btn btn-secondary btn-sm btn-icon" title="Edit mailbox settings" @click="openEditEmailAccountModal(acc)">
                 <Edit3 :size="14" />
               </button>

@@ -325,6 +325,32 @@ async def staging_node(
     received_at_dt = _parse_email_date(state.get("received_at"))
     message_id = state.get("message_id")
 
+    if message_id:
+        existing_stmt = select(StagingItemModel).where(
+            StagingItemModel.email_message_id == message_id
+        )
+        existing_res = await db.execute(existing_stmt)
+        existing_item = existing_res.scalar_one_or_none()
+        if existing_item:
+            existing_item.extracted_data = (
+                state.get("extracted_data") or existing_item.extracted_data
+            )
+            existing_item.match_score = state.get(
+                "match_score", existing_item.match_score
+            )
+            existing_item.match_reason = (
+                state.get("match_reason") or existing_item.match_reason
+            )
+            existing_item.email_raw_body = state.get(
+                "body", existing_item.email_raw_body
+            )
+            await db.commit()
+            await db.refresh(existing_item)
+            await _upsert_processed_email(
+                db, message_id, "staged", state.get("subject")
+            )
+            return {"staging_item_id": existing_item.id, "route": "staging_done"}
+
     staging_item = StagingItemModel(
         email_message_id=message_id,
         email_conversation_id=state.get("conversation_id"),
@@ -375,8 +401,23 @@ async def db_commit_node(
     extracted = state.get("extracted_data") or {}
 
     if not state.get("is_application"):
+        msg_id = state.get("message_id")
+        if msg_id:
+            existing_other = (
+                await db.execute(
+                    select(OtherEventModel).where(
+                        OtherEventModel.email_message_id == msg_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing_other:
+                await _upsert_processed_email(
+                    db, msg_id, "other_event", state.get("subject")
+                )
+                return {"event_id": existing_other.id, "application_id": None}
+
         other_event = OtherEventModel(
-            email_message_id=state.get("message_id"),
+            email_message_id=msg_id,
             email_conversation_id=state.get("conversation_id"),
             email_subject=state.get("subject", ""),
             email_received_at=received_at_dt,
@@ -452,9 +493,24 @@ async def db_commit_node(
         if status_val:
             application.status = status_val
 
+    msg_id = state.get("message_id")
+    if msg_id:
+        existing_app_ev = (
+            await db.execute(
+                select(ApplicationEventModel).where(
+                    ApplicationEventModel.email_message_id == msg_id
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_app_ev:
+            await _upsert_processed_email(
+                db, msg_id, "application_event", state.get("subject")
+            )
+            return {"event_id": existing_app_ev.id, "application_id": application_id}
+
     event = ApplicationEventModel(
         email_application_id=application_id,
-        email_message_id=state.get("message_id"),
+        email_message_id=msg_id,
         email_conversation_id=state.get("conversation_id"),
         email_received_at=received_at_dt,
         email_event_type=extracted.get("event_type") or "UPDATED",

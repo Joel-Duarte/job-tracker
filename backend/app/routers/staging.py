@@ -271,17 +271,26 @@ async def resolve_staging_item(
         if (
             payload.action_required or extracted.get("action_required")
         ) and action_text:
+            raw_urgency = (payload.urgency or "").upper()
+            urgency_val = (
+                raw_urgency
+                if raw_urgency in ("HIGH", "MEDIUM", "LOW")
+                else (
+                    "HIGH"
+                    if any(
+                        w in str(action_text).lower()
+                        for w in ["urgent", "deadline", "schedule", "asap"]
+                    )
+                    else "MEDIUM"
+                )
+            )
             action_item = ActionItemModel(
                 application_id=application.id,
                 event_id=event.id,
                 title=str(action_text)[:250],
                 status="PENDING",
-                urgency="HIGH"
-                if any(
-                    w in str(action_text).lower()
-                    for w in ["urgent", "deadline", "schedule", "asap"]
-                )
-                else "MEDIUM",
+                urgency=urgency_val,
+                due_date=payload.due_date,
             )
             db.add(action_item)
 

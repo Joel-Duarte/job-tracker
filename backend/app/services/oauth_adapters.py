@@ -286,12 +286,12 @@ class MicrosoftGraphAdapter:
                         pass
 
                 msg_id = item.get("id", "")
-                conv_id = item.get("conversationId") or f"ms-conv-{msg_id[:16]}"
+                conv_id = item.get("conversationId") or f"ms-conv-{msg_id}"
 
                 emails.append(
                     EmailPayload(
                         conversation_id=conv_id,
-                        message_id=f"msg-graph-{msg_id[:24]}",
+                        message_id=f"msg-graph-{msg_id}",
                         received_at=received_at,
                         subject=subject,
                         body=body_content,
