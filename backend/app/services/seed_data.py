@@ -764,6 +764,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         session.add(jp)
 
         # 2d. Application Events (Strict status alignment with ApplicationModel.status)
+        is_applied_only = spec["status"] == "APPLIED"
         evt1 = ApplicationEventModel(
             email_application_id=app.id,
             email_message_id=f"msg-{app.id}-sub",
@@ -772,17 +773,22 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             email_subject=f"Application Confirmation: {spec['pos']}",
             email_received_at=app_date,
             email_event_type="APPLICATION_SUBMITTED",
-            email_status_after_event="APPLIED"
-            if spec["status"] == "APPLIED"
-            else "APPLIED",
+            email_status_after_event="APPLIED",
             email_summary=f"Application for {spec['pos']} received.",
-            email_action_required=False,
+            email_action_required=spec.get("has_action", False)
+            if is_applied_only
+            else False,
+            email_action=spec.get("action_title")
+            if (is_applied_only and spec.get("has_action"))
+            else None,
             email_raw_body=f"Hi Alex, thank you for applying to {spec['name']}!",
         )
         session.add(evt1)
+        await session.flush()
         total_events += 1
 
-        if spec["status"] != "APPLIED":
+        active_evt = evt1
+        if not is_applied_only:
             evt_type_map = {
                 "ONLINE_ASSESSMENT": "ASSESSMENT_REQUEST",
                 "TECHNICAL_INTERVIEW": "INTERVIEW_INVITE",
@@ -811,19 +817,20 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             session.add(evt2)
             await session.flush()
             total_events += 1
+            active_evt = evt2
 
-            # 2e. Action Item
-            if spec.get("has_action"):
-                action = ActionItemModel(
-                    application_id=app.id,
-                    event_id=evt2.id,
-                    title=spec["action_title"],
-                    due_date=now + timedelta(days=spec.get("action_due_days", 2)),
-                    status="PENDING",
-                    urgency=spec.get("action_urgency", "MEDIUM"),
-                )
-                session.add(action)
-                total_actions += 1
+        # 2e. Action Item
+        if spec.get("has_action"):
+            action = ActionItemModel(
+                application_id=app.id,
+                event_id=active_evt.id,
+                title=spec["action_title"],
+                due_date=now + timedelta(days=spec.get("action_due_days", 2)),
+                status="PENDING",
+                urgency=spec.get("action_urgency", "MEDIUM"),
+            )
+            session.add(action)
+            total_actions += 1
 
     stats["companies"] = total_companies
     stats["applications"] = total_apps

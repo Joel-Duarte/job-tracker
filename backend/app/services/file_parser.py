@@ -274,9 +274,7 @@ def parse_cv_document(filename: str, content: bytes) -> str:
                 c for c in raw_text if c.isprintable() or c in ("\n", "\r", "\t")
             )
             cleaned = "\n".join(
-                line.strip()
-                for line in printable.splitlines()
-                if len(line.strip()) > 3
+                line.strip() for line in printable.splitlines() if len(line.strip()) > 3
             )
             if cleaned and len(cleaned) > 20:
                 return cleaned

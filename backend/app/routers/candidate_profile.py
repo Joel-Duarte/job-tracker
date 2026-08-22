@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,6 +41,7 @@ async def get_active_cv_profile(db: AsyncSession = Depends(get_db)):
 )
 async def enqueue_cv_profile_processing(
     payload: CandidateCVSaveRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -66,7 +67,7 @@ async def enqueue_cv_profile_processing(
     await db.refresh(task)
 
     # Dispatch to shared background worker queue
-    asyncio.create_task(process_evaluation_task(task.id))
+    background_tasks.add_task(process_evaluation_task, task_id=task.id)
 
     return CVTaskStatusResponse(
         task_id=task.id,

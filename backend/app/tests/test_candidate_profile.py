@@ -76,6 +76,7 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
     ) as mock_anonymize:
         mock_anonymize.return_value = mock_anonymized
 
+        app.dependency_overrides[get_db] = lambda: db_session
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             # 1. Enqueue CV Task
@@ -156,12 +157,15 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
 @pytest.mark.asyncio
 async def test_parse_cv_document_file_endpoint():
     import io
+
     import docx
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # 1. Test .txt file upload
-        txt_content = b"John Candidate - Full Stack Engineer with Vue and Python experience."
+        txt_content = (
+            b"John Candidate - Full Stack Engineer with Vue and Python experience."
+        )
         resp_txt = await client.post(
             "/api/v1/profile/cv/parse-file",
             files={"file": ("resume.txt", txt_content, "text/plain")},

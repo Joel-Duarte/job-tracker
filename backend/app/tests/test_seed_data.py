@@ -72,7 +72,7 @@ async def test_seed_development_dataset_populates_all_entities_without_embedding
     events = (
         await db_session.execute(select(func.count(ApplicationEventModel.id)))
     ).scalar_one()
-    assert events == 41
+    assert events == stats["application_events"]
 
     actions = (
         await db_session.execute(select(func.count(ActionItemModel.id)))

@@ -69,9 +69,9 @@ async def get_active_llm_config_dict(db: AsyncSession | None = None) -> dict[str
     """Retrieves runtime LLM configuration from the database."""
     if db is None:
         try:
-            from app.core.database import AsyncSessionLocal
+            import app.core.database as db_module
 
-            async with AsyncSessionLocal() as session:
+            async with db_module.AsyncSessionLocal() as session:
                 return await get_active_llm_config_dict(session)
         except Exception as err:
             logger.warning("Failed loading database AI configuration: %s", err)

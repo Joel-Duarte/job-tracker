@@ -4,7 +4,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import AsyncSessionLocal
+import app.core.database as db_module
 from app.models.system_settings import SystemSettingsModel
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ async def get_system_settings_model(
     if db is not None:
         return await _fetch_or_create(db)
 
-    async with AsyncSessionLocal() as session:
+    async with db_module.AsyncSessionLocal() as session:
         return await _fetch_or_create(session)
 
 
@@ -90,7 +90,7 @@ async def save_settings(
         if db is not None:
             await _update_settings(db)
         else:
-            async with AsyncSessionLocal() as session:
+            async with db_module.AsyncSessionLocal() as session:
                 await _update_settings(session)
     except Exception as e:
         logger.error(f"Failed to save global settings to DB: {e}")

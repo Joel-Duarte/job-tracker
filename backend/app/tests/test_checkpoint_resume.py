@@ -36,11 +36,11 @@ async def test_evaluation_task_checkpoint_and_resume_unit():
         job_found=True,
         company="Acme Corp",
         position="Senior Software Engineer",
-        location_work_type="Remote",
-        salary_benefits="$150k",
-        core_responsibilities="Build APIs",
-        requirements_qualifications="Python, Postgres",
-        ats_keywords=["Python", "Postgres"],
+        workplace_type="Remote",
+        compensation_text="$150k",
+        responsibilities=["Build APIs"],
+        requirements=["Python, Postgres"],
+        extracted_skills=["Python", "Postgres"],
     )
 
     # 1. First execution run: Scrape succeeds, Spec Extraction succeeds, but Matching raises an exception
@@ -145,11 +145,11 @@ async def test_evaluation_task_checkpoint_and_resume(db_session):
         job_found=True,
         company="Beta Co",
         position="Frontend Engineer",
-        location_work_type="Remote",
-        salary_benefits="$130k",
-        core_responsibilities="Build Vue components",
-        requirements_qualifications="Vue, TypeScript",
-        ats_keywords=["Vue", "TypeScript"],
+        workplace_type="Remote",
+        compensation_text="$130k",
+        responsibilities=["Build Vue components"],
+        requirements=["Vue, TypeScript"],
+        extracted_skills=["Vue", "TypeScript"],
     )
 
     mock_scrape = AsyncMock(

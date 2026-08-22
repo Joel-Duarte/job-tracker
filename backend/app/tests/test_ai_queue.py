@@ -106,11 +106,11 @@ async def test_intake_queue_endpoints_and_worker(db_session: AsyncSession):
             job_found=True,
             company="Stripe",
             position="Staff Backend Engineer",
-            location_work_type="Remote",
-            salary_benefits="$200k - $250k",
-            core_responsibilities="Backend systems",
-            requirements_qualifications="Python, SQL",
-            ats_keywords=["Python", "SQL"],
+            workplace_type="Remote",
+            compensation_text="$200k - $250k",
+            responsibilities=["Backend systems"],
+            requirements=["Python, SQL"],
+            extracted_skills=["Python", "SQL"],
         )
 
         with (
@@ -184,7 +184,7 @@ async def test_intake_queue_unrestricted_submissions(db_session: AsyncSession):
             enqueue_res = await ac.post(
                 "/api/v1/intake/enqueue-assessment",
                 json={
-                    "text": "GitHub - Staff AI Engineer\nLocation: Remote\nRequirements: Python, LLM",
+                    "text": "GitHub - Staff AI Engineer\nLocation: Remote\nResponsibilities: Build AI systems\nRequirements: Python, LLM",
                     "title_hint": "GitHub - Staff AI Engineer",
                 },
             )
@@ -209,11 +209,11 @@ async def test_intake_queue_unrestricted_submissions(db_session: AsyncSession):
             job_found=True,
             company="GitHub",
             position="Staff AI Engineer",
-            location_work_type="Remote",
-            salary_benefits="Competitive",
-            core_responsibilities="AI platform engineering",
-            requirements_qualifications="Python, LLM",
-            ats_keywords=["Python", "LLM"],
+            workplace_type="Remote",
+            compensation_text="Competitive",
+            responsibilities=["AI platform engineering"],
+            requirements=["Python, LLM"],
+            extracted_skills=["Python", "LLM"],
         )
 
         with (
