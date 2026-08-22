@@ -1869,10 +1869,18 @@ onMounted(async () => {
               </div>
             </div>
             <div class="preference-body">
-              <button class="btn btn-primary btn-sm" @click="uiStore.openOnboardingWizard()">
-                <Sparkles :size="14" />
-                <span>Launch Setup Wizard</span>
-              </button>
+              <div class="input-group">
+                <div class="label-with-hint">
+                  <label class="input-label">Setup &amp; Onboarding</label>
+                </div>
+                <button class="btn btn-primary btn-sm w-full" @click="uiStore.openOnboardingWizard()">
+                  <Sparkles :size="14" />
+                  <span>Launch Setup Wizard</span>
+                </button>
+                <span class="preference-field-hint">
+                  Walk through step-by-step onboarding at any time.
+                </span>
+              </div>
             </div>
           </div>
 
@@ -1888,14 +1896,22 @@ onMounted(async () => {
               </div>
             </div>
             <div class="preference-body">
-              <div class="flex items-center gap-2">
-                <button class="btn btn-primary btn-sm" @click="$router.push('/diagnostics')">
-                  View Dashboard
-                </button>
-                <button class="btn btn-outline btn-sm" @click="exportDiagnostics" :disabled="isExporting">
-                  <Loader2 v-if="isExporting" class="animate-spin" :size="14" />
-                  <span v-else>Download Logs</span>
-                </button>
+              <div class="input-group">
+                <div class="label-with-hint">
+                  <label class="input-label">Logs &amp; Telemetry</label>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button class="btn btn-primary btn-sm flex-1" @click="$router.push('/diagnostics')">
+                    View Dashboard
+                  </button>
+                  <button class="btn btn-outline btn-sm flex-1" @click="exportDiagnostics" :disabled="isExporting">
+                    <Loader2 v-if="isExporting" class="animate-spin" :size="14" />
+                    <span v-else>Download Logs</span>
+                  </button>
+                </div>
+                <span class="preference-field-hint">
+                  Inspect execution performance and error traces.
+                </span>
               </div>
             </div>
           </div>
@@ -1959,49 +1975,51 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div class="preference-body flex flex-col gap-3" :class="{ 'is-disabled': !enableAutoCoverLetter }">
-              <!-- Minimum Match Score Threshold -->
-              <div class="input-group">
-                <div class="label-with-hint">
-                  <label class="input-label">Minimum Match Score Threshold</label>
+            <div class="preference-body" :class="{ 'is-disabled': !enableAutoCoverLetter }">
+              <div class="cover-letter-pref-grid">
+                <!-- Minimum Match Score Threshold -->
+                <div class="input-group">
+                  <div class="label-with-hint">
+                    <label class="input-label">Match Threshold</label>
+                  </div>
+                  <div class="threshold-slider-control">
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      :value="coverLetterMatchThreshold"
+                      :disabled="!enableAutoCoverLetter || isUpdatingCoverLetterSettings"
+                      class="form-range cover-letter-slider"
+                      @input="coverLetterMatchThreshold = Number($event.target.value)"
+                      @change="updateCoverLetterThreshold"
+                    />
+                    <span class="threshold-badge">{{ coverLetterMatchThreshold }}%</span>
+                  </div>
+                  <span class="preference-field-hint">
+                    Trigger for fit &ge; {{ coverLetterMatchThreshold }}%.
+                  </span>
                 </div>
-                <div class="threshold-slider-control">
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="1"
-                    :value="coverLetterMatchThreshold"
-                    :disabled="!enableAutoCoverLetter || isUpdatingCoverLetterSettings"
-                    class="form-range cover-letter-slider"
-                    @input="coverLetterMatchThreshold = Number($event.target.value)"
-                    @change="updateCoverLetterThreshold"
-                  />
-                  <span class="threshold-badge">{{ coverLetterMatchThreshold }}%</span>
-                </div>
-                <span class="preference-field-hint">
-                  Jobs with fit score &ge; {{ coverLetterMatchThreshold }}% will trigger auto-drafting during intake.
-                </span>
-              </div>
 
-              <!-- Default Cover Letter Length -->
-              <div class="input-group">
-                <div class="label-with-hint">
-                  <label class="input-label">Default Cover Letter Length</label>
+                <!-- Default Cover Letter Length -->
+                <div class="input-group">
+                  <div class="label-with-hint">
+                    <label class="input-label">Letter Length</label>
+                  </div>
+                  <select
+                    :value="coverLetterLength"
+                    :disabled="!enableAutoCoverLetter || isUpdatingCoverLetterSettings"
+                    class="form-input"
+                    @change="updateCoverLetterLength"
+                  >
+                    <option value="concise">Concise (~150w)</option>
+                    <option value="standard">Standard (~300w)</option>
+                    <option value="detailed">Detailed (~450w)</option>
+                  </select>
+                  <span class="preference-field-hint">
+                    Prompt length target.
+                  </span>
                 </div>
-                <select
-                  :value="coverLetterLength"
-                  :disabled="!enableAutoCoverLetter || isUpdatingCoverLetterSettings"
-                  class="form-input"
-                  @change="updateCoverLetterLength"
-                >
-                  <option value="concise">Concise (~150 words)</option>
-                  <option value="standard">Standard (~300 words)</option>
-                  <option value="detailed">Detailed (~450 words)</option>
-                </select>
-                <span class="preference-field-hint">
-                  Target length guidelines passed into the prompt runner.
-                </span>
               </div>
             </div>
           </div>
@@ -2030,18 +2048,21 @@ onMounted(async () => {
             </div>
 
             <div class="preference-body" :class="{ 'is-disabled': !enableEmbeddings }">
-              <div class="flex items-center justify-between gap-3">
-                <span class="vector-pref-hint">
-                  Generate vector embeddings for semantic job matching and search.
-                </span>
+              <div class="input-group">
+                <div class="label-with-hint">
+                  <label class="input-label">Index Management</label>
+                </div>
                 <button
-                  class="btn btn-secondary btn-xs flex-shrink-0"
+                  class="btn btn-secondary btn-sm w-full"
                   :disabled="!enableEmbeddings || isReindexingEmbeddings"
                   @click="reindexMissingEmbeddings"
                 >
-                  <RefreshCw :size="11" :class="{ 'animate-spin': isReindexingEmbeddings }" />
-                  <span>{{ isReindexingEmbeddings ? 'Re-indexing...' : 'Rebuild' }}</span>
+                  <RefreshCw :size="13" :class="{ 'animate-spin': isReindexingEmbeddings }" />
+                  <span>{{ isReindexingEmbeddings ? 'Re-indexing Embeddings...' : 'Rebuild Embeddings Index' }}</span>
                 </button>
+                <span class="preference-field-hint">
+                  Generate vector embeddings for semantic job matching.
+                </span>
               </div>
             </div>
           </div>
@@ -3289,8 +3310,7 @@ onMounted(async () => {
   padding: 18px 20px;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
-  gap: 14px;
+  height: 100%;
   box-sizing: border-box;
 }
 
@@ -3298,6 +3318,7 @@ onMounted(async () => {
   display: flex;
   align-items: flex-start;
   gap: 12px;
+  min-height: 64px;
 }
 
 .preference-icon {
@@ -3316,6 +3337,8 @@ onMounted(async () => {
 .preference-header-text {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .preference-title {
@@ -3323,20 +3346,42 @@ onMounted(async () => {
   font-weight: 700;
   color: var(--text-main);
   margin: 0;
+  line-height: 1.3;
 }
 
 .preference-desc {
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.4;
-  margin-top: 3px;
+  margin-top: 4px;
   margin-bottom: 0;
 }
 
 .preference-body {
-  padding-top: 12px;
+  margin-top: auto;
+  padding-top: 14px;
   border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  flex: 1;
   transition: opacity 0.2s ease, filter 0.2s ease;
+}
+
+.preference-body .input-group {
+  margin-bottom: 0;
+}
+
+.cover-letter-pref-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 480px) {
+  .cover-letter-pref-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .preference-body.is-disabled {
@@ -3349,15 +3394,9 @@ onMounted(async () => {
 .preference-field-hint {
   font-size: 11px;
   color: var(--text-secondary);
-  margin-top: 4px;
+  margin-top: 6px;
   display: block;
   line-height: 1.4;
-}
-
-.vector-pref-hint {
-  font-size: 11px;
-  color: var(--text-secondary);
-  line-height: 1.35;
 }
 
 .btn-xs {
