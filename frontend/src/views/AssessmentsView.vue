@@ -95,6 +95,10 @@ const processingTaskIds = ref(new Set())
 let pollTimer = null
 
 function openCoverLetterModalForTask(task) {
+  if (uiStore.aiStatus === 'offline' && !uiStore.aiFallbackProviderName) {
+    uiStore.openRetryModal()
+    return
+  }
   const appId = task.result_json?.application_id
   if (appId) {
     uiStore.openCoverLetterModal(appId)

@@ -1,6 +1,7 @@
 import logging
 from typing import Any
 
+import httpx
 from langchain.chat_models import init_chat_model
 from langchain.embeddings import init_embeddings
 from langchain_core.embeddings import Embeddings
@@ -10,6 +11,168 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 logger = logging.getLogger(__name__)
+
+
+class FailoverChatModel:
+    """
+    Transparent failover wrapper around primary and secondary LangChain BaseChatModel instances.
+    Catches connection refusals, timeouts, and network failures on the primary provider,
+    logs diagnostic telemetry in trace_events, and re-routes invocation seamlessly to the fallback provider.
+    """
+
+    FAILOVER_ERRORS = (
+        httpx.ConnectError,
+        httpx.ConnectTimeout,
+        httpx.NetworkError,
+        httpx.TimeoutException,
+        ConnectionRefusedError,
+        TimeoutError,
+        OSError,
+    )
+
+    def __init__(
+        self,
+        primary_model: Any,
+        fallback_model: Any | None = None,
+        primary_name: str = "Primary AI Provider",
+        fallback_name: str | None = None,
+    ):
+        self.primary_model = primary_model
+        self.fallback_model = fallback_model
+        self.primary_name = primary_name
+        self.fallback_name = fallback_name or "Fallback Provider"
+
+    def _should_failover(self, exc: Exception) -> bool:
+        if isinstance(exc, self.FAILOVER_ERRORS):
+            return True
+        exc_str = str(exc).lower()
+        failover_keywords = [
+            "connection refused",
+            "connecterror",
+            "connection error",
+            "timed out",
+            "timeout",
+            "failed to connect",
+            "could not connect",
+        ]
+        return any(kw in exc_str for kw in failover_keywords)
+
+    async def _log_failover_telemetry(self, err_msg: str) -> None:
+        try:
+            import uuid
+
+            import app.core.database as db_module
+            from app.models.diagnostics import TraceEventModel
+
+            message = f"Primary provider '{self.primary_name}' unreachable. Automatic failover routed task to '{self.fallback_name}'"
+            async with db_module.AsyncSessionLocal() as session:
+                trace = TraceEventModel(
+                    run_id=f"failover_{uuid.uuid4().hex[:12]}",
+                    category="llm",
+                    event_type="provider_failover",
+                    payload={
+                        "message": message,
+                        "primary_provider": self.primary_name,
+                        "fallback_provider": self.fallback_name,
+                        "error_detail": err_msg,
+                    },
+                )
+                session.add(trace)
+                await session.commit()
+        except Exception as e:
+            logger.warning("Failed to record failover trace event: %s", e)
+
+    async def ainvoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        try:
+            return await self.primary_model.ainvoke(input, config=config, **kwargs)
+        except Exception as exc:
+            if self.fallback_model and self._should_failover(exc):
+                await self._log_failover_telemetry(str(exc))
+                logger.warning(
+                    "Primary provider '%s' unreachable (%s). Automatic failover routed task to '%s'",
+                    self.primary_name,
+                    exc,
+                    self.fallback_name,
+                )
+                return await self.fallback_model.ainvoke(input, config=config, **kwargs)
+            raise
+
+    def invoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        try:
+            return self.primary_model.invoke(input, config=config, **kwargs)
+        except Exception as exc:
+            if self.fallback_model and self._should_failover(exc):
+                logger.warning(
+                    "Primary provider '%s' unreachable (%s). Automatic failover routed task to '%s'",
+                    self.primary_name,
+                    exc,
+                    self.fallback_name,
+                )
+                return self.fallback_model.invoke(input, config=config, **kwargs)
+            raise
+
+    async def astream(self, input: Any, config: Any = None, **kwargs: Any):
+        if not self.fallback_model:
+            async for chunk in self.primary_model.astream(
+                input, config=config, **kwargs
+            ):
+                yield chunk
+            return
+
+        yielded = False
+        try:
+            async for chunk in self.primary_model.astream(
+                input, config=config, **kwargs
+            ):
+                yielded = True
+                yield chunk
+        except Exception as exc:
+            if not yielded and self._should_failover(exc):
+                await self._log_failover_telemetry(str(exc))
+                logger.warning(
+                    "Primary provider '%s' unreachable (%s). Automatic failover streaming from '%s'",
+                    self.primary_name,
+                    exc,
+                    self.fallback_name,
+                )
+                async for chunk in self.fallback_model.astream(
+                    input, config=config, **kwargs
+                ):
+                    yield chunk
+            else:
+                raise
+
+    def bind_tools(self, tools: Any, **kwargs: Any) -> Any:
+        bound_primary = self.primary_model.bind_tools(tools, **kwargs)
+        bound_fallback = (
+            self.fallback_model.bind_tools(tools, **kwargs)
+            if self.fallback_model
+            else None
+        )
+        return FailoverChatModel(
+            primary_model=bound_primary,
+            fallback_model=bound_fallback,
+            primary_name=self.primary_name,
+            fallback_name=self.fallback_name,
+        )
+
+    def with_structured_output(self, schema: Any, **kwargs: Any) -> Any:
+        struct_primary = self.primary_model.with_structured_output(schema, **kwargs)
+        struct_fallback = (
+            self.fallback_model.with_structured_output(schema, **kwargs)
+            if self.fallback_model
+            else None
+        )
+        return FailoverChatModel(
+            primary_model=struct_primary,
+            fallback_model=struct_fallback,
+            primary_name=self.primary_name,
+            fallback_name=self.fallback_name,
+        )
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.primary_model, name)
+
 
 _EMBEDDINGS_CACHE: dict[tuple, Embeddings] = {}
 
@@ -404,7 +567,67 @@ async def get_task_chat_model(
                     if not (k == "max_tokens" and v is None)
                 }
                 init_kwargs.update(clean_overrides)
-                return init_chat_model(**init_kwargs)
+                primary_chat = init_chat_model(**init_kwargs)
+
+                # Query secondary active fallback provider if available
+                fallback_chat = None
+                fallback_name = None
+                try:
+                    from app.models.ai_providers import AIProviderModel
+
+                    fb_stmt = select(AIProviderModel).where(
+                        AIProviderModel.id != target_provider.id,
+                        AIProviderModel.is_active.is_(True),
+                    )
+                    all_fb = (await db.execute(fb_stmt)).scalars().all()
+                    fallback_prov = next(
+                        (p for p in all_fb if getattr(p, "is_fallback", False)),
+                        all_fb[0] if all_fb else None,
+                    )
+                    if fallback_prov:
+                        fb_type = _resolve_provider(fallback_prov.provider_type)
+                        fb_base_url = _clean_base_url(fallback_prov.base_url)
+                        fb_api_key = fallback_prov.api_key or "dummy-key"
+                        fb_model_name = "gpt-4o-mini"
+                        if getattr(fallback_prov, "task_bindings", None):
+                            matching_b = next(
+                                (
+                                    b
+                                    for b in fallback_prov.task_bindings
+                                    if b.task_type == task_type
+                                ),
+                                fallback_prov.task_bindings[0]
+                                if fallback_prov.task_bindings
+                                else None,
+                            )
+                            if matching_b and matching_b.model_name:
+                                fb_model_name = matching_b.model_name
+
+                        fb_init_kwargs: dict[str, Any] = {
+                            "model": fb_model_name,
+                            "model_provider": fb_type,
+                            "temperature": temperature,
+                            "timeout": 300.0,
+                        }
+                        if fb_base_url:
+                            fb_init_kwargs["base_url"] = fb_base_url
+                        if fb_api_key:
+                            fb_init_kwargs["api_key"] = fb_api_key
+                        fb_init_kwargs.update(clean_overrides)
+                        fallback_chat = init_chat_model(**fb_init_kwargs)
+                        fallback_name = fallback_prov.name
+                except Exception as fb_err:
+                    logger.warning(
+                        "Failed initializing secondary fallback provider model: %s",
+                        fb_err,
+                    )
+
+                return FailoverChatModel(
+                    primary_model=primary_chat,
+                    fallback_model=fallback_chat,
+                    primary_name=target_provider.name,
+                    fallback_name=fallback_name,
+                )
         except Exception as err:
             logger.warning(
                 "Failed loading task binding '%s', falling back: %s", task_type, err

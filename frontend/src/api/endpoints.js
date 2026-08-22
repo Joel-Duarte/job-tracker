@@ -83,6 +83,7 @@ export const SystemSettingsAPI = {
 }
 
 export const AIConfigAPI = {
+  checkHealth: () => apiClient.get('/config/ai/health'),
   getGlobalSettings: () => apiClient.get('/ai/global-settings'),
   updateGlobalSettings: (data) => apiClient.patch('/ai/global-settings', data),
   reindexEmbeddings: () => apiClient.post('/ai/reindex-embeddings'),

@@ -2896,6 +2896,7 @@ onMounted(async () => {
 
 <style scoped>
 .page-container {
+  width: 100%;
   max-width: 1240px;
   margin: 0 auto;
   padding: 32px 24px 80px;
@@ -2986,8 +2987,12 @@ onMounted(async () => {
 }
 
 .settings-inner-container {
+  width: 100%;
   max-width: 100%;
   margin: 0 auto;
+}
+
+.tab-content {
   width: 100%;
 }
 
@@ -2997,6 +3002,7 @@ onMounted(async () => {
   grid-template-columns: 280px 1fr;
   gap: 20px;
   align-items: start;
+  width: 100%;
 }
 
 @media (max-width: 900px) {
@@ -4419,9 +4425,7 @@ onMounted(async () => {
     grid-template-columns: 1fr;
   }
 }
-</style>
 
-<style scoped>
 .global-hero-card {
   background-color: var(--bg-surface);
   border: 1px solid var(--primary);
@@ -4429,6 +4433,7 @@ onMounted(async () => {
   padding: 20px;
   margin-bottom: 24px;
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+  width: 100%;
 }
 
 .global-hero-header {
@@ -4589,6 +4594,32 @@ onMounted(async () => {
 }
 
 .threshold-slider-control {
+.cover-letter-control-card,
+.embeddings-control-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  margin-bottom: 24px;
+  width: 100%;
+}
+
+.advanced-overrides-section {
+  margin-top: 0;
+  margin-bottom: 24px;
+  width: 100%;
+}
+
+.cover-letter-control-header,
+.embeddings-control-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.cover-letter-title-group,
+.embeddings-title-group {
   display: flex;
   align-items: center;
   gap: 12px;

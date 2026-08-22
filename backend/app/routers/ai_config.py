@@ -1,4 +1,6 @@
 import logging
+import time
+import uuid
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -19,7 +21,9 @@ from app.core.llm_factory import (
 )
 from app.core.security import verify_admin_access
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
+from app.models.diagnostics import TraceEventModel
 from app.schemas.ai_config import (
+    AIHealthStatusRead,
     AIProviderCreate,
     AIProviderModelsResponse,
     AIProviderRead,
@@ -199,6 +203,168 @@ async def _fetch_models_from_endpoint(
 
 logger = logging.getLogger(__name__)
 
+config_ai_router = APIRouter(tags=["AI Health Monitoring"])
+
+
+async def check_ai_provider_health(db: AsyncSession) -> AIHealthStatusRead:
+    try:
+        # 1. Resolve Global Default Task Binding
+        global_binding_stmt = (
+            select(AITaskBindingModel)
+            .options(joinedload(AITaskBindingModel.provider))
+            .where(
+                AITaskBindingModel.task_type == "GLOBAL_DEFAULT",
+                AITaskBindingModel.is_active.is_(True),
+            )
+        )
+        global_binding = (await db.execute(global_binding_stmt)).scalar_one_or_none()
+    except Exception as db_err:
+        logger.warning("Database query failed during AI health check: %s", db_err)
+        return AIHealthStatusRead(
+            status="unconfigured",
+            latency_ms=0.0,
+            provider_name=None,
+            error_message="Database unavailable",
+        )
+
+    if (
+        not global_binding
+        or not global_binding.provider
+        or not global_binding.provider.is_active
+    ):
+        return AIHealthStatusRead(
+            status="unconfigured",
+            latency_ms=0.0,
+            provider_name=None,
+        )
+
+    provider = global_binding.provider
+    model_name = global_binding.model_name
+
+    # 2. Resolve Active Fallback Provider
+    fallback_stmt = select(AIProviderModel).where(
+        AIProviderModel.id != provider.id,
+        AIProviderModel.is_active.is_(True),
+    )
+    all_fallback_providers = (await db.execute(fallback_stmt)).scalars().all()
+
+    fallback_provider = next(
+        (p for p in all_fallback_providers if getattr(p, "is_fallback", False)),
+        all_fallback_providers[0] if all_fallback_providers else None,
+    )
+
+    fallback_provider_id = fallback_provider.id if fallback_provider else None
+    fallback_provider_name = fallback_provider.name if fallback_provider else None
+
+    # 3. Fast Ping Probe (strict 3.0-second timeout)
+    p_type = provider.provider_type.lower()
+    base_url = _clean_base_url(provider.base_url)
+    api_key = provider.api_key or ""
+
+    start_time = time.perf_counter()
+    status_str = "offline"
+    latency_ms = 0.0
+    error_message = None
+
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            headers = {}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+
+            probe_url = None
+            if p_type == "ollama":
+                probe_url = (
+                    f"{base_url}/api/tags"
+                    if base_url and not base_url.endswith("/api")
+                    else (
+                        f"{base_url}/tags"
+                        if base_url
+                        else "http://localhost:11434/api/tags"
+                    )
+                )
+            elif base_url:
+                probe_url = (
+                    f"{base_url}/models"
+                    if not base_url.endswith("/models")
+                    else base_url
+                )
+            elif p_type == "anthropic":
+                probe_url = "https://api.anthropic.com/v1/messages"
+            elif p_type in ("google_genai", "gemini"):
+                probe_url = "https://generativelanguage.googleapis.com"
+            else:
+                probe_url = "https://api.openai.com/v1/models"
+
+            resp = await client.get(probe_url, headers=headers)
+            elapsed = time.perf_counter() - start_time
+            latency_ms = round(elapsed * 1000, 1)
+
+            if 200 <= resp.status_code < 300:
+                if latency_ms < 800.0:
+                    status_str = "healthy"
+                elif latency_ms <= 2500.0:
+                    status_str = "degraded"
+                else:
+                    status_str = "offline"
+                    error_message = f"Latency {latency_ms}ms exceeded 2500ms threshold."
+            else:
+                status_str = "offline"
+                error_message = f"Provider returned HTTP status {resp.status_code}"
+    except httpx.TimeoutException:
+        latency_ms = round((time.perf_counter() - start_time) * 1000, 1)
+        status_str = "offline"
+        error_message = "Connection timed out after 3.0s"
+    except Exception as err:
+        latency_ms = round((time.perf_counter() - start_time) * 1000, 1)
+        status_str = "offline"
+        error_message = str(err)
+
+    # 4. Telemetry Tracing
+    try:
+        trace = TraceEventModel(
+            run_id=f"health_{uuid.uuid4().hex[:12]}",
+            category="llm",
+            event_type="health_check",
+            payload={
+                "status": status_str,
+                "provider_id": provider.id,
+                "provider_name": provider.name,
+                "provider_type": provider.provider_type,
+                "model_name": model_name,
+                "latency_ms": latency_ms,
+                "error_message": error_message,
+                "fallback_provider_id": fallback_provider_id,
+                "fallback_provider_name": fallback_provider_name,
+            },
+        )
+        db.add(trace)
+        await db.commit()
+    except Exception as trace_err:
+        logger.warning("Failed to persist health check trace event: %s", trace_err)
+
+    return AIHealthStatusRead(
+        status=status_str,
+        provider_id=provider.id,
+        provider_name=provider.name,
+        provider_type=provider.provider_type,
+        base_url=provider.base_url,
+        model_name=model_name,
+        latency_ms=latency_ms,
+        error_message=error_message,
+        fallback_provider_id=fallback_provider_id,
+        fallback_provider_name=fallback_provider_name,
+    )
+
+
+@config_ai_router.get("/config/ai/health", response_model=AIHealthStatusRead)
+@config_ai_router.get("/ai/health", response_model=AIHealthStatusRead)
+async def get_ai_health_endpoint(
+    db: AsyncSession = Depends(get_db),
+) -> AIHealthStatusRead:
+    return await check_ai_provider_health(db)
+
+
 router = APIRouter(
     prefix="/ai",
     tags=["AI Provider Registry & Task Bindings"],
@@ -263,6 +429,7 @@ def _to_provider_read(p: AIProviderModel) -> AIProviderRead:
         api_key_masked=mask_secret(p.api_key),
         max_concurrency=getattr(p, "max_concurrency", 1) or 1,
         is_active=p.is_active,
+        is_fallback=getattr(p, "is_fallback", False) or False,
         created_at=p.created_at,
         updated_at=p.updated_at,
     )
@@ -310,6 +477,12 @@ async def create_ai_provider(
     payload: AIProviderCreate,
     db: AsyncSession = Depends(get_db),
 ) -> AIProviderRead:
+    if payload.is_fallback:
+        stmt = select(AIProviderModel).where(AIProviderModel.is_fallback.is_(True))
+        existing_fallbacks = (await db.execute(stmt)).scalars().all()
+        for ef in existing_fallbacks:
+            ef.is_fallback = False
+
     provider = AIProviderModel(
         name=payload.name.strip(),
         provider_type=payload.provider_type.strip().lower(),
@@ -319,6 +492,7 @@ async def create_ai_provider(
         if payload.max_concurrency is not None
         else 1,
         is_active=payload.is_active,
+        is_fallback=payload.is_fallback,
     )
     db.add(provider)
     await db.commit()
@@ -342,6 +516,14 @@ async def update_ai_provider(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"AI Provider with ID {provider_id} not found.",
         )
+
+    if payload.is_fallback is True:
+        reset_stmt = select(AIProviderModel).where(
+            AIProviderModel.id != provider_id, AIProviderModel.is_fallback.is_(True)
+        )
+        existing_fallbacks = (await db.execute(reset_stmt)).scalars().all()
+        for ef in existing_fallbacks:
+            ef.is_fallback = False
 
     data = payload.model_dump(exclude_unset=True)
     for field, val in data.items():
