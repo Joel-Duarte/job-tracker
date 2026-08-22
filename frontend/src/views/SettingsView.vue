@@ -431,6 +431,9 @@ async function toggleEmailIntake() {
       newVal ? 'Email Auto-Sync enabled.' : 'Email Auto-Sync disabled.',
       'success'
     )
+    if (newVal && emailAccounts.value.length === 0) {
+      openAddEmailAccountModal()
+    }
   } catch (err) {
     uiStore.showToast('Failed to update email intake setting', 'error')
   }
@@ -1366,163 +1369,6 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- COVER LETTER AUTOMATION CARD -->
-          <div class="cover-letter-control-card">
-            <div class="cover-letter-control-header">
-              <div class="cover-letter-title-group">
-                <FileText class="text-primary" :size="20" />
-                <div>
-                  <h3 class="cover-letter-title">Automated Cover Letter Generation</h3>
-                  <p class="cover-letter-desc">
-                    Automatically draft tailored cover letters during job intake when fit score meets or exceeds your threshold.
-                  </p>
-                </div>
-              </div>
-
-              <div class="cover-letter-actions">
-                <label class="switch-toggle" title="Toggle automatic cover letter generation">
-                  <input
-                    type="checkbox"
-                    :checked="enableAutoCoverLetter"
-                    :disabled="isUpdatingCoverLetterSettings"
-                    @change="toggleAutoCoverLetter"
-                  />
-                  <span class="slider round"></span>
-                </label>
-              </div>
-            </div>
-
-            <div v-if="enableAutoCoverLetter" class="cover-letter-control-body">
-              <div class="cover-letter-info-box flex-col items-start gap-2">
-                <div class="flex items-center justify-between w-full">
-                  <span class="cover-letter-status-text">
-                    Minimum Match Score Threshold: <strong>{{ coverLetterMatchThreshold }}%</strong>
-                  </span>
-                </div>
-                <div class="form-range-container">
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="1"
-                    :value="coverLetterMatchThreshold"
-                    :disabled="isUpdatingCoverLetterSettings"
-                    class="form-range"
-                    @input="coverLetterMatchThreshold = Number($event.target.value)"
-                    @change="updateCoverLetterThreshold"
-                  />
-                </div>
-                <p class="text-xs text-muted">
-                  Jobs with fit score &ge; {{ coverLetterMatchThreshold }}% will trigger automatic cover letter drafting at the end of intake.
-                </p>
-                <div class="flex items-center justify-between w-full mt-2 pt-2 border-t border-subtle">
-                  <div class="flex flex-col">
-                    <span class="cover-letter-status-text font-semibold">
-                      Default Cover Letter Length:
-                    </span>
-                    <span class="text-xs text-muted">
-                      Target length guidelines passed into the prompt runner.
-                    </span>
-                  </div>
-                  <select
-                    :value="coverLetterLength"
-                    :disabled="isUpdatingCoverLetterSettings"
-                    class="form-select form-select-sm font-mono text-xs"
-                    @change="updateCoverLetterLength"
-                  >
-                    <option value="concise">Concise (~150 words)</option>
-                    <option value="standard">Standard (~300 words)</option>
-                    <option value="detailed">Detailed (~450 words)</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- VECTOR KNOWLEDGE & EMBEDDINGS CARD -->
-          <div class="embeddings-control-card">
-            <div class="embeddings-control-header">
-              <div class="embeddings-title-group">
-                <Cpu class="text-primary" :size="20" />
-                <div>
-                  <h3 class="embeddings-title">Vector Knowledge &amp; Embeddings</h3>
-                  <p class="embeddings-desc">
-                    Enable dense vector indexing for AI natural language search. Disable to make application intake significantly faster.
-                  </p>
-                </div>
-              </div>
-
-              <div class="embeddings-actions">
-                <label class="switch-toggle" title="Toggle Vector Embeddings generation">
-                  <input
-                    type="checkbox"
-                    :checked="enableEmbeddings"
-                    :disabled="isUpdatingEmbeddings"
-                    @change="toggleEmbeddings"
-                  />
-                  <span class="slider round"></span>
-                </label>
-              </div>
-            </div>
-
-            <div v-if="enableEmbeddings" class="embeddings-control-body">
-              <div class="embeddings-info-box">
-                <span class="embeddings-status-text">
-                  Vector Knowledge is <strong>ACTIVE</strong> &mdash; new applications automatically generate embeddings for semantic search.
-                </span>
-                <button
-                  class="btn btn-outline btn-xs"
-                  :disabled="isReindexingEmbeddings"
-                  @click="reindexMissingEmbeddings"
-                >
-                  <RefreshCw :size="12" :class="{ 'animate-spin': isReindexingEmbeddings }" />
-                  <span>{{ isReindexingEmbeddings ? 'Re-indexing...' : 'Rebuild Missing Embeddings' }}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- EMAIL AUTO-SYNC & INTAKE CARD -->
-          <div class="email-intake-control-card">
-            <div class="email-intake-control-header">
-              <div class="email-intake-title-group">
-                <Mail class="text-primary" :size="20" />
-                <div>
-                  <h3 class="email-intake-title">Email Account Auto-Sync &amp; Intake</h3>
-                  <p class="email-intake-desc">
-                    Automatically fetch recruitment emails via OAuth or IMAP, parse status updates, and extract action items.
-                  </p>
-                </div>
-              </div>
-
-              <div class="email-intake-actions">
-                <label class="switch-toggle" title="Toggle Email Auto-Sync and Intake">
-                  <input
-                    type="checkbox"
-                    :checked="uiStore.enableEmailIntake"
-                    @change="toggleEmailIntake"
-                  />
-                  <span class="slider round"></span>
-                </label>
-              </div>
-            </div>
-
-            <div v-if="uiStore.enableEmailIntake" class="email-intake-control-body">
-              <div class="email-intake-info-box">
-                <span class="email-intake-status-text">
-                  Email Auto-Sync is <strong>ACTIVE</strong> &mdash; background polling sweeps and mailbox sync integrations are enabled.
-                </span>
-                <button
-                  class="btn btn-outline btn-xs"
-                  @click="activeTab = 'emails'"
-                >
-                  <Mail :size="12" />
-                  <span>Manage Mailboxes</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
           <!-- ADVANCED OVERRIDES ACCORDION -->
           <div class="advanced-overrides-section">
             <button class="advanced-toggle-btn" @click="isAdvancedOpen = !isAdvancedOpen">
@@ -1834,7 +1680,7 @@ onMounted(async () => {
     <div v-else-if="activeTab === 'providers'" class="tab-content animate-fade-in">
       <div class="section-card">
         <div class="section-header-row">
-          <div>
+          <div class="section-header-text">
             <h3>Configured AI Providers</h3>
             <p>Connect local endpoints (LM Studio, Ollama, vLLM) or Cloud APIs (OpenAI, Anthropic, Gemini, OpenRouter).</p>
           </div>
@@ -1915,28 +1761,36 @@ onMounted(async () => {
     <div v-else-if="activeTab === 'email_accounts'" class="tab-content animate-fade-in">
       <div class="section-card">
         <div class="section-header-row">
-          <div>
+          <div class="section-header-text">
             <h3>Connected Mailboxes &amp; Sync Schedule</h3>
             <p>Connect mailboxes via 1-Click OAuth (Google / Microsoft) or IMAP, and configure automated background sync schedules.</p>
           </div>
-          <button class="btn btn-primary btn-sm" @click="openAddEmailAccountModal">
-            <Plus :size="15" />
-            <span>Connect Account</span>
-          </button>
-        </div>
-
-        <!-- Disabled Email Intake Banner -->
-        <div v-if="!uiStore.enableEmailIntake" class="email-disabled-banner mb-4">
-          <div class="banner-left">
-            <Info :size="18" class="text-primary" />
-            <span>Email Intake is currently paused. Toggle on to enable automatic email syncing and OAuth/IMAP integrations.</span>
+          <div class="section-header-actions">
+            <div class="email-sync-toggle-pill">
+              <span class="sync-status-label">
+                Auto-Sync:
+                <strong :class="uiStore.enableEmailIntake ? 'text-success' : 'text-muted'">
+                  {{ uiStore.enableEmailIntake ? 'Active' : 'Paused' }}
+                </strong>
+              </span>
+              <label class="switch-toggle" title="Toggle automatic email syncing">
+                <input
+                  type="checkbox"
+                  :checked="uiStore.enableEmailIntake"
+                  @change="toggleEmailIntake"
+                />
+                <span class="slider round"></span>
+              </label>
+            </div>
+            <button class="btn btn-primary btn-sm" @click="openAddEmailAccountModal">
+              <Plus :size="15" />
+              <span>Connect Account</span>
+            </button>
           </div>
-          <button class="btn btn-primary btn-xs" @click="toggleEmailIntake">
-            <span>Enable Email Intake</span>
-          </button>
         </div>
 
-        <div class="accounts-grid">
+        <!-- Accounts Grid (Collapsed when auto-sync is off) -->
+        <div v-if="uiStore.enableEmailIntake" class="accounts-grid animate-fade-in">
           <div v-for="acc in emailAccounts" :key="acc.id" class="account-card">
             <div class="account-card-header">
               <div class="account-title-row">
@@ -2009,87 +1863,185 @@ onMounted(async () => {
               <div class="preference-icon text-primary">
                 <Sparkles :size="18" />
               </div>
-              <div style="flex: 1;">
+              <div class="preference-header-text">
                 <h4 class="preference-title">Guided Setup &amp; Configuration Wizard</h4>
                 <p class="preference-desc">Re-run the initial onboarding flow to reconfigure default AI providers, candidate CV profile, and subsystem feature flags.</p>
               </div>
             </div>
-            <div style="margin-top: 1rem;">
-              <button class="btn btn-secondary btn-sm" @click="uiStore.openOnboardingWizard()">
-                <Sparkles :size="14" class="text-primary" />
+            <div class="preference-body">
+              <button class="btn btn-primary btn-sm" @click="uiStore.openOnboardingWizard()">
+                <Sparkles :size="14" />
                 <span>Launch Setup Wizard</span>
               </button>
             </div>
           </div>
 
-          <!-- Diagnostics Export Card -->
+          <!-- Diagnostics & Telemetry Card -->
           <div class="preference-card">
             <div class="preference-header">
               <div class="preference-icon text-primary">
                 <Save :size="18" />
               </div>
-              <div>
-                <h4 class="preference-title">Diagnostics & Telemetry</h4>
-                <p class="preference-desc">Monitor LangGraph execution telemetry, trace errors, and export zip logs.</p>
+              <div class="preference-header-text">
+                <h4 class="preference-title">Diagnostics &amp; Telemetry</h4>
+                <p class="preference-desc">Monitor LangGraph execution telemetry, trace errors, and export diagnostic logs.</p>
               </div>
             </div>
-            <div style="margin-top: 1rem; display: flex; gap: 8px;">
-              <button class="btn btn-primary" @click="$router.push('/diagnostics')">
-                View Dashboard
-              </button>
-              <button class="btn btn-outline" @click="exportDiagnostics" :disabled="isExporting">
-                <Loader2 v-if="isExporting" class="animate-spin" :size="14" />
-                <span v-else>Download Logs</span>
-              </button>
+            <div class="preference-body">
+              <div class="flex items-center gap-2">
+                <button class="btn btn-primary btn-sm" @click="$router.push('/diagnostics')">
+                  View Dashboard
+                </button>
+                <button class="btn btn-outline btn-sm" @click="exportDiagnostics" :disabled="isExporting">
+                  <Loader2 v-if="isExporting" class="animate-spin" :size="14" />
+                  <span v-else>Download Logs</span>
+                </button>
+              </div>
             </div>
           </div>
 
-          <!-- Currency Setting Card -->
+          <!-- Default System Currency Card -->
           <div class="preference-card">
             <div class="preference-header">
               <div class="preference-icon text-primary">
                 <DollarSign :size="18" />
               </div>
-              <div>
+              <div class="preference-header-text">
                 <h4 class="preference-title">Default System Currency</h4>
                 <p class="preference-desc">Used as the default currency for salary inputs, offer packages, and compensation ranges.</p>
               </div>
             </div>
-
-            <div class="currency-chips-grid">
-              <button
-                v-for="c in uiStore.SUPPORTED_CURRENCIES"
-                :key="c.code"
-                type="button"
-                class="currency-chip"
-                :class="{ active: uiStore.defaultCurrency === c.code }"
-                @click="uiStore.setDefaultCurrency(c.code)"
-              >
-                <span class="chip-code">{{ c.code }}</span>
-                <span class="chip-symbol">{{ c.symbol }}</span>
-              </button>
+            <div class="preference-body">
+              <div class="input-group">
+                <div class="label-with-hint">
+                  <label class="input-label">System Currency</label>
+                </div>
+                <select
+                  class="form-input"
+                  :value="uiStore.defaultCurrency"
+                  @change="e => uiStore.setDefaultCurrency(e.target.value)"
+                >
+                  <option
+                    v-for="c in uiStore.SUPPORTED_CURRENCIES"
+                    :key="c.code"
+                    :value="c.code"
+                  >
+                    {{ c.code }} ({{ c.symbol }})
+                  </option>
+                </select>
+                <span class="preference-field-hint">
+                  Applied automatically to all salary conversions and offer analytics.
+                </span>
+              </div>
             </div>
           </div>
 
-          <!-- Email Auto-Sync Toggle Card -->
+          <!-- Automated Cover Letter Generation Card -->
           <div class="preference-card">
             <div class="preference-header">
               <div class="preference-icon text-primary">
-                <Mail :size="18" />
+                <FileText :size="18" />
               </div>
-              <div style="flex: 1;">
+              <div class="preference-header-text">
                 <div class="preference-header-between">
-                  <h4 class="preference-title">Email Auto-Sync &amp; Intake</h4>
-                  <label class="switch-toggle">
+                  <h4 class="preference-title">Automated Cover Letter Generation</h4>
+                  <label class="switch-toggle" title="Toggle automatic cover letter generation">
                     <input
                       type="checkbox"
-                      :checked="uiStore.enableEmailIntake"
-                      @change="toggleEmailIntake"
+                      :checked="enableAutoCoverLetter"
+                      :disabled="isUpdatingCoverLetterSettings"
+                      @change="toggleAutoCoverLetter"
                     />
                     <span class="slider round"></span>
                   </label>
                 </div>
-                <p class="preference-desc">Enables background mailbox polling sweeps and OAuth/IMAP email ingestion pipeline.</p>
+                <p class="preference-desc">Automatically draft tailored cover letters during job intake when fit score meets or exceeds your threshold.</p>
+              </div>
+            </div>
+
+            <div class="preference-body flex flex-col gap-3" :class="{ 'is-disabled': !enableAutoCoverLetter }">
+              <!-- Minimum Match Score Threshold -->
+              <div class="input-group">
+                <div class="label-with-hint">
+                  <label class="input-label">Minimum Match Score Threshold</label>
+                </div>
+                <div class="threshold-slider-control">
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    :value="coverLetterMatchThreshold"
+                    :disabled="!enableAutoCoverLetter || isUpdatingCoverLetterSettings"
+                    class="form-range cover-letter-slider"
+                    @input="coverLetterMatchThreshold = Number($event.target.value)"
+                    @change="updateCoverLetterThreshold"
+                  />
+                  <span class="threshold-badge">{{ coverLetterMatchThreshold }}%</span>
+                </div>
+                <span class="preference-field-hint">
+                  Jobs with fit score &ge; {{ coverLetterMatchThreshold }}% will trigger auto-drafting during intake.
+                </span>
+              </div>
+
+              <!-- Default Cover Letter Length -->
+              <div class="input-group">
+                <div class="label-with-hint">
+                  <label class="input-label">Default Cover Letter Length</label>
+                </div>
+                <select
+                  :value="coverLetterLength"
+                  :disabled="!enableAutoCoverLetter || isUpdatingCoverLetterSettings"
+                  class="form-input"
+                  @change="updateCoverLetterLength"
+                >
+                  <option value="concise">Concise (~150 words)</option>
+                  <option value="standard">Standard (~300 words)</option>
+                  <option value="detailed">Detailed (~450 words)</option>
+                </select>
+                <span class="preference-field-hint">
+                  Target length guidelines passed into the prompt runner.
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Vector Knowledge & Embeddings Card -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <Cpu :size="18" />
+              </div>
+              <div class="preference-header-text">
+                <div class="preference-header-between">
+                  <h4 class="preference-title">Vector Knowledge &amp; Embeddings</h4>
+                  <label class="switch-toggle" title="Toggle Vector Embeddings generation">
+                    <input
+                      type="checkbox"
+                      :checked="enableEmbeddings"
+                      :disabled="isUpdatingEmbeddings"
+                      @change="toggleEmbeddings"
+                    />
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+                <p class="preference-desc">Enable dense vector indexing for AI semantic search. Disable to speed up application intake.</p>
+              </div>
+            </div>
+
+            <div class="preference-body" :class="{ 'is-disabled': !enableEmbeddings }">
+              <div class="flex items-center justify-between gap-3">
+                <span class="vector-pref-hint">
+                  Generate vector embeddings for semantic job matching and search.
+                </span>
+                <button
+                  class="btn btn-secondary btn-xs flex-shrink-0"
+                  :disabled="!enableEmbeddings || isReindexingEmbeddings"
+                  @click="reindexMissingEmbeddings"
+                >
+                  <RefreshCw :size="11" :class="{ 'animate-spin': isReindexingEmbeddings }" />
+                  <span>{{ isReindexingEmbeddings ? 'Re-indexing...' : 'Rebuild' }}</span>
+                </button>
               </div>
             </div>
           </div>
@@ -2100,10 +2052,10 @@ onMounted(async () => {
               <div class="preference-icon text-primary">
                 <Archive :size="18" />
               </div>
-              <div style="flex: 1;">
+              <div class="preference-header-text">
                 <div class="preference-header-between">
                   <h4 class="preference-title">Application Auto-Archiver</h4>
-                  <label class="switch-toggle">
+                  <label class="switch-toggle" title="Toggle application auto-archiving">
                     <input
                       type="checkbox"
                       :checked="uiStore.autoArchiveEnabled"
@@ -2116,12 +2068,15 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div v-if="uiStore.autoArchiveEnabled" style="margin-top: 12px;">
+            <div class="preference-body" :class="{ 'is-disabled': !uiStore.autoArchiveEnabled }">
               <div class="input-group">
-                <label class="input-label">Inactivity Threshold</label>
+                <div class="label-with-hint">
+                  <label class="input-label">Inactivity Threshold</label>
+                </div>
                 <select
                   class="form-input"
                   :value="uiStore.autoArchiveDays"
+                  :disabled="!uiStore.autoArchiveEnabled"
                   @change="e => uiStore.setAutoArchiveDays(parseInt(e.target.value))"
                 >
                   <option :value="14">14 days</option>
@@ -2130,6 +2085,9 @@ onMounted(async () => {
                   <option :value="60">60 days</option>
                   <option :value="90">90 days</option>
                 </select>
+                <span class="preference-field-hint">
+                  Applications without activity for this period are moved to Archived.
+                </span>
               </div>
             </div>
           </div>
@@ -2893,6 +2851,7 @@ onMounted(async () => {
   height: 38px;
   display: flex;
   align-items: center;
+  width: 100%;
 }
 
 .form-grid-2 .form-input,
@@ -3078,16 +3037,40 @@ onMounted(async () => {
 
 .section-header-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 24px;
+  gap: 20px;
   margin-bottom: 20px;
   flex-wrap: wrap;
 }
 
-.section-header-row > div {
+.section-header-text {
   flex: 1;
   min-width: 260px;
+}
+
+.section-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.email-sync-toggle-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+}
+
+.sync-status-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .section-header-row h3 {
@@ -3106,7 +3089,6 @@ onMounted(async () => {
 
 .section-header-row .btn {
   flex-shrink: 0;
-  margin-top: 2px;
 }
 
 .providers-grid, .accounts-grid {
@@ -3198,9 +3180,10 @@ onMounted(async () => {
 /* Preferences Grid & Background Customizer */
 .preferences-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
   gap: 16px;
   margin-top: 16px;
+  align-items: stretch;
 }
 
 .swatches-container {
@@ -3295,61 +3278,20 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
+  gap: 10px;
   margin-bottom: 4px;
 }
 
-.theme-customizer-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
-  margin-top: 4px;
-}
-
-.customizer-subcard {
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.subcard-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.subcard-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.subcard-token {
-  font-size: 10px;
-}
-
-.input-sm {
-  max-width: 120px;
-  height: 34px;
-  padding: 4px 8px;
-  font-size: 12px;
-  text-transform: uppercase;
-}
-
 .preference-card {
-  background-color: var(--bg-main);
+  background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 16px;
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
+  justify-content: flex-start;
   gap: 14px;
+  box-sizing: border-box;
 }
 
 .preference-header {
@@ -3358,51 +3300,71 @@ onMounted(async () => {
   gap: 12px;
 }
 
+.preference-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.preference-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
 .preference-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text-main);
+  margin: 0;
 }
 
 .preference-desc {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.4;
-  margin-top: 2px;
+  margin-top: 3px;
+  margin-bottom: 0;
 }
 
-.currency-chips-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
+.preference-body {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+  transition: opacity 0.2s ease, filter 0.2s ease;
 }
 
-.currency-chip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px;
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-elevated);
-  border-radius: 4px;
-  cursor: pointer;
+.preference-body.is-disabled {
+  opacity: 0.42;
+  pointer-events: none;
+  filter: grayscale(0.5);
+  user-select: none;
 }
 
-.currency-chip.active {
-  border-color: var(--primary);
-  background-color: rgba(59, 130, 246, 0.12);
-}
-
-.chip-code {
+.preference-field-hint {
   font-size: 11px;
-  font-weight: 700;
-  color: var(--text-main);
+  color: var(--text-secondary);
+  margin-top: 4px;
+  display: block;
+  line-height: 1.4;
 }
 
-.chip-symbol {
+.vector-pref-hint {
   font-size: 11px;
-  color: var(--primary);
-  font-family: monospace;
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+.btn-xs {
+  padding: 3px 8px;
+  font-size: 11px;
+  height: 24px;
+  gap: 4px;
 }
 
 .view-mode-toggle-row {
@@ -3955,65 +3917,39 @@ onMounted(async () => {
   gap: 12px;
 }
 
-.cover-letter-control-card,
-.embeddings-control-card,
-.email-intake-control-card {
-  background-color: var(--bg-surface);
+.threshold-slider-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 38px;
+  width: 100%;
+}
+
+.cover-letter-slider {
+  flex: 1;
+  min-width: 0;
+}
+
+.threshold-badge {
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+  background-color: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 16px 20px;
-  margin-bottom: 24px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  min-width: 48px;
+  text-align: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
 }
 
-.cover-letter-control-header,
-.embeddings-control-header,
-.email-intake-control-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-}
-
-.cover-letter-title-group,
-.embeddings-title-group,
-.email-intake-title-group {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.cover-letter-title,
-.embeddings-title,
-.email-intake-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-main);
-  margin: 0;
-}
-
-.cover-letter-desc,
-.embeddings-desc,
-.email-intake-desc {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin: 2px 0 0 0;
-}
-
-.cover-letter-control-body,
-.embeddings-control-body,
-.email-intake-control-body {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.cover-letter-info-box,
-.embeddings-info-box,
-.email-intake-info-box {
+.pref-status-box {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
   padding: 8px 12px;
@@ -4022,12 +3958,10 @@ onMounted(async () => {
   box-sizing: border-box;
 }
 
-.cover-letter-status-text,
-.embeddings-status-text,
-.email-intake-status-text {
-  font-size: 12px;
-  color: var(--text-secondary);
+.pref-status-text {
+  font-size: 11.5px;
   line-height: 1.4;
+  color: var(--text-secondary);
 }
 
 /* Switch Toggle Component */
