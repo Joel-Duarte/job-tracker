@@ -13,19 +13,26 @@ from app.schemas.intake import EmailPayload
 
 @pytest.fixture(autouse=True)
 def enable_email_intake_mock():
-    with patch(
-        "app.core.config_manager.load_settings",
-        new_callable=AsyncMock,
-        return_value={"enable_email_intake": True},
+    with (
+        patch(
+            "app.core.config_manager.load_settings",
+            new_callable=AsyncMock,
+            return_value={"enable_email_intake": True},
+        ),
+        patch(
+            "app.services.email_fetcher.load_settings",
+            new_callable=AsyncMock,
+            return_value={"enable_email_intake": True},
+        ),
     ):
         yield
 
 
 @pytest.mark.asyncio
-async def test_sync_email_account_keyword_prefilter(
+async def test_sync_email_account_processes_all_by_default(
     db_session: AsyncSession, sample_email_account
 ):
-    """Test that sync_email_account skips non-job emails and writes filtered_out records."""
+    """Test that sync_email_account processes all new non-duplicate emails by default without keyword filtering."""
     job_email = EmailPayload(
         message_id="msg-job-001",
         conversation_id="conv-job-001",
@@ -33,12 +40,12 @@ async def test_sync_email_account_keyword_prefilter(
         subject="Your Application for Software Engineer",
         body="Thank you for applying. We are reviewing your application.",
     )
-    spam_email = EmailPayload(
-        message_id="msg-spam-002",
-        conversation_id="conv-spam-002",
+    other_email = EmailPayload(
+        message_id="msg-other-002",
+        conversation_id="conv-other-002",
         received_at=datetime.now(UTC),
-        subject="50% off shoes today only!",
-        body="Check out our summer sale on running shoes.",
+        subject="Update from our community",
+        body="Here are recent updates.",
     )
 
     bg_tasks = BackgroundTasks()
@@ -46,31 +53,23 @@ async def test_sync_email_account_keyword_prefilter(
     with patch(
         "app.routers.intake.fetch_emails_from_account", new_callable=AsyncMock
     ) as mock_fetch:
-        mock_fetch.return_value = ([job_email, spam_email], None)
+        mock_fetch.return_value = ([job_email, other_email], None)
 
         req = SyncFolderRequest(account_id=sample_email_account.id)
         res = await sync_email_account(req, bg_tasks, db_session)
 
+        # By default, all 2 emails should be matched and queued without filtering
         assert res.scanned_count == 2
-        assert res.matched_count == 1
-        assert res.filtered_out_count == 1
+        assert res.matched_count == 2
+        assert res.filtered_out_count == 0
         assert res.skipped_duplicates == 0
-
-    # Verify spam_email has been persisted as filtered_out
-    stmt = select(ProcessedEmailModel).where(
-        ProcessedEmailModel.message_id == "msg-spam-002"
-    )
-    filtered_rec = (await db_session.execute(stmt)).scalar_one_or_none()
-    assert filtered_rec is not None
-    assert filtered_rec.status == "filtered_out"
-    assert "50% off shoes" in (filtered_rec.subject or "")
 
 
 @pytest.mark.asyncio
-async def test_sync_email_account_custom_keywords(
+async def test_sync_email_account_custom_keywords_filter(
     db_session: AsyncSession, sample_email_account
 ):
-    """Test that custom keyword filter in SyncFolderRequest matches non-standard job terms."""
+    """Test that when keyword_filter is provided by user, only matching emails are processed."""
     custom_email = EmailPayload(
         message_id="msg-custom-003",
         conversation_id="conv-custom-003",
@@ -78,13 +77,20 @@ async def test_sync_email_account_custom_keywords(
         subject="Take-home coding challenge instructions",
         body="Please complete the take-home project within 48 hours.",
     )
+    non_matching_email = EmailPayload(
+        message_id="msg-nonmatch-004",
+        conversation_id="conv-nonmatch-004",
+        received_at=datetime.now(UTC),
+        subject="Casual Friday reminder",
+        body="Don't forget casual friday.",
+    )
 
     bg_tasks = BackgroundTasks()
 
     with patch(
         "app.routers.intake.fetch_emails_from_account", new_callable=AsyncMock
     ) as mock_fetch:
-        mock_fetch.return_value = ([custom_email], None)
+        mock_fetch.return_value = ([custom_email, non_matching_email], None)
 
         req = SyncFolderRequest(
             account_id=sample_email_account.id,
@@ -92,9 +98,17 @@ async def test_sync_email_account_custom_keywords(
         )
         res = await sync_email_account(req, bg_tasks, db_session)
 
-        assert res.scanned_count == 1
+        assert res.scanned_count == 2
         assert res.matched_count == 1
-        assert res.filtered_out_count == 0
+        assert res.filtered_out_count == 1
+
+    # Verify non_matching_email has been persisted as filtered_out
+    stmt = select(ProcessedEmailModel).where(
+        ProcessedEmailModel.message_id == "msg-nonmatch-004"
+    )
+    filtered_rec = (await db_session.execute(stmt)).scalar_one_or_none()
+    assert filtered_rec is not None
+    assert filtered_rec.status == "filtered_out"
 
 
 @pytest.mark.asyncio

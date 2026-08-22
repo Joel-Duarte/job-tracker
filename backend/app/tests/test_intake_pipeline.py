@@ -17,6 +17,23 @@ from app.services.intake import process_email_batch_sequential
 from app.services.task_tracker import task_tracker
 
 
+@pytest.fixture(autouse=True)
+def enable_email_intake_mock():
+    with (
+        patch(
+            "app.core.config_manager.load_settings",
+            new_callable=AsyncMock,
+            return_value={"enable_email_intake": True},
+        ),
+        patch(
+            "app.services.email_fetcher.load_settings",
+            new_callable=AsyncMock,
+            return_value={"enable_email_intake": True},
+        ),
+    ):
+        yield
+
+
 @pytest.mark.asyncio
 async def test_process_new_job_application(
     db_session, mock_job_email_payload, mock_extracted_job_info

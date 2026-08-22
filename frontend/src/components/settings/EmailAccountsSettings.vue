@@ -12,6 +12,7 @@ import {
   Lock,
   Key,
   RefreshCw,
+  RotateCcw,
   ExternalLink,
   Copy,
   Check,
@@ -45,6 +46,13 @@ const showDeleteAccountModal = ref(false)
 const accountToDelete = ref(null)
 const isSavingAccount = ref(false)
 const isDeletingAccount = ref(false)
+
+const showClearAccountModal = ref(false)
+const accountToClear = ref(null)
+const isClearingAccount = ref(false)
+
+const showClearAllModal = ref(false)
+const isClearingAll = ref(false)
 
 const emailAccountForm = ref({
   name: '',
@@ -285,6 +293,45 @@ async function confirmDeleteAccount() {
     isDeletingAccount.value = false
   }
 }
+
+function openClearAccountModal(acc) {
+  accountToClear.value = acc
+  showClearAccountModal.value = true
+}
+
+async function confirmClearAccountHistory() {
+  if (!accountToClear.value) return
+  isClearingAccount.value = true
+  try {
+    const res = await EmailAccountsAPI.clearHistory(accountToClear.value.id)
+    uiStore.showToast(res.data?.message || `Email sync history cleared for ${accountToClear.value.name}`, 'success')
+    showClearAccountModal.value = false
+    accountToClear.value = null
+    emit('refresh')
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to clear sync history', 'error')
+  } finally {
+    isClearingAccount.value = false
+  }
+}
+
+function openClearAllModal() {
+  showClearAllModal.value = true
+}
+
+async function confirmClearAllHistory() {
+  isClearingAll.value = true
+  try {
+    const res = await EmailAccountsAPI.clearAllHistory()
+    uiStore.showToast(res.data?.message || 'All email sync history cleared across accounts', 'success')
+    showClearAllModal.value = false
+    emit('refresh')
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to clear all sync history', 'error')
+  } finally {
+    isClearingAll.value = false
+  }
+}
 </script>
 
 <template>
@@ -294,10 +341,21 @@ async function confirmDeleteAccount() {
         <h3>Connected Mailboxes &amp; Sync Schedule</h3>
         <p>Connect mailboxes via 1-Click OAuth (Google / Microsoft) or IMAP, and configure automated background sync schedules.</p>
       </div>
-      <button class="btn btn-primary btn-sm" @click="openAddEmailAccountModal">
-        <Plus :size="15" />
-        <span>Connect Account</span>
-      </button>
+      <div class="header-actions-group">
+        <button
+          v-if="emailAccounts.length > 0"
+          class="btn btn-secondary btn-sm"
+          @click="openClearAllModal"
+          title="Clear all email deduplication history across accounts"
+        >
+          <RotateCcw :size="14" />
+          <span>Clear All Sync History</span>
+        </button>
+        <button class="btn btn-primary btn-sm" @click="openAddEmailAccountModal">
+          <Plus :size="15" />
+          <span>Connect Account</span>
+        </button>
+      </div>
     </div>
 
     <div class="accounts-grid">
@@ -336,12 +394,21 @@ async function confirmDeleteAccount() {
             <span>{{ syncingAccount === acc.id ? 'Syncing...' : 'Sync Now' }}</span>
           </button>
 
+          <button
+            class="btn btn-secondary btn-sm"
+            title="Clear deduplication history & reset sync cursor for this mailbox"
+            @click="openClearAccountModal(acc)"
+          >
+            <RotateCcw :size="13" />
+            <span>Clear History</span>
+          </button>
+
           <button class="btn btn-secondary btn-sm" @click="openEditEmailAccountModal(acc)">
             <Edit3 :size="14" />
             <span>Edit</span>
           </button>
 
-          <button class="btn btn-danger btn-sm" @click="openDeleteAccountModal(acc)">
+          <button class="btn btn-danger btn-sm" title="Remove account" @click="openDeleteAccountModal(acc)">
             <Trash2 :size="14" />
           </button>
         </div>
@@ -650,6 +717,84 @@ async function confirmDeleteAccount() {
         </div>
       </div>
     </div>
+
+    <!-- CLEAR ACCOUNT SYNC HISTORY CONFIRMATION MODAL -->
+    <div v-if="showClearAccountModal" class="modal-backdrop" @click.self="showClearAccountModal = false">
+      <div class="modal-card animate-scale-in">
+        <div class="modal-header">
+          <RotateCcw :size="20" class="text-warning flex-shrink-0" />
+          <h3 class="modal-title">Clear Email Sync History</h3>
+        </div>
+        <div class="modal-body">
+          <p>Are you sure you want to clear sync history for <strong>{{ accountToClear?.name }}</strong>?</p>
+          <p class="modal-subtext text-muted">
+            This removes all recorded deduplication IDs for this mailbox and resets its sync cursor. Subsequent syncs will re-fetch and re-evaluate emails from the mailbox. Existing job applications and timeline events remain untouched.
+          </p>
+        </div>
+        <div class="modal-footer modal-actions">
+          <button class="btn btn-secondary btn-sm" :disabled="isClearingAccount" @click="showClearAccountModal = false">
+            Cancel
+          </button>
+          <button class="btn btn-warning btn-sm" :disabled="isClearingAccount" @click="confirmClearAccountHistory">
+            <Loader2 v-if="isClearingAccount" class="animate-spin" :size="14" />
+            <RotateCcw v-else :size="14" />
+            <span>Confirm Clear History</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CLEAR ALL SYNC HISTORY CONFIRMATION MODAL -->
+    <div v-if="showClearAllModal" class="modal-backdrop" @click.self="showClearAllModal = false">
+      <div class="modal-card animate-scale-in">
+        <div class="modal-header">
+          <RotateCcw :size="20" class="text-warning flex-shrink-0" />
+          <h3 class="modal-title">Clear All Email Sync History</h3>
+        </div>
+        <div class="modal-body">
+          <p>Are you sure you want to clear all email sync history across <strong>all accounts</strong>?</p>
+          <p class="modal-subtext text-muted">
+            This removes all email deduplication records from the database and resets sync cursors for all connected mailboxes. Existing applications, notes, and timeline events will not be deleted.
+          </p>
+        </div>
+        <div class="modal-footer modal-actions">
+          <button class="btn btn-secondary btn-sm" :disabled="isClearingAll" @click="showClearAllModal = false">
+            Cancel
+          </button>
+          <button class="btn btn-warning btn-sm" :disabled="isClearingAll" @click="confirmClearAllHistory">
+            <Loader2 v-if="isClearingAll" class="animate-spin" :size="14" />
+            <RotateCcw v-else :size="14" />
+            <span>Confirm Clear All</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- DELETE EMAIL ACCOUNT CONFIRMATION MODAL -->
+    <div v-if="showDeleteAccountModal" class="modal-backdrop" @click.self="showDeleteAccountModal = false">
+      <div class="modal-card animate-scale-in">
+        <div class="modal-header">
+          <Trash2 :size="20" class="text-danger flex-shrink-0" />
+          <h3 class="modal-title">Remove Email Account</h3>
+        </div>
+        <div class="modal-body">
+          <p>Are you sure you want to remove <strong>{{ accountToDelete?.name }}</strong>?</p>
+          <p class="modal-subtext text-muted">
+            This removes the account credentials and scheduled sync settings. Previously imported applications and events will be retained.
+          </p>
+        </div>
+        <div class="modal-footer modal-actions">
+          <button class="btn btn-secondary btn-sm" :disabled="isDeletingAccount" @click="showDeleteAccountModal = false">
+            Cancel
+          </button>
+          <button class="btn btn-danger btn-sm" :disabled="isDeletingAccount" @click="confirmDeleteAccount">
+            <Loader2 v-if="isDeletingAccount" class="animate-spin" :size="14" />
+            <Trash2 v-else :size="14" />
+            <span>Confirm Remove</span>
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -671,7 +816,14 @@ async function confirmDeleteAccount() {
   flex-wrap: wrap;
 }
 
-.section-header-row > div {
+.header-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.section-header-row > div:first-child {
   flex: 1;
   min-width: 260px;
 }

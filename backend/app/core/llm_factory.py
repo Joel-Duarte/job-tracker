@@ -6,6 +6,7 @@ from langchain.chat_models import init_chat_model
 from langchain.embeddings import init_embeddings
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.runnables import Runnable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -13,7 +14,7 @@ from sqlalchemy.orm import joinedload
 logger = logging.getLogger(__name__)
 
 
-class FailoverChatModel:
+class FailoverChatModel(Runnable[Any, Any]):
     """
     Transparent failover wrapper around primary and secondary LangChain BaseChatModel instances.
     Catches connection refusals, timeouts, and network failures on the primary provider,
@@ -110,6 +111,28 @@ class FailoverChatModel:
                 )
                 return self.fallback_model.invoke(input, config=config, **kwargs)
             raise
+
+    def stream(self, input: Any, config: Any = None, **kwargs: Any):
+        if not self.fallback_model:
+            yield from self.primary_model.stream(input, config=config, **kwargs)
+            return
+
+        yielded = False
+        try:
+            for chunk in self.primary_model.stream(input, config=config, **kwargs):
+                yielded = True
+                yield chunk
+        except Exception as exc:
+            if not yielded and self._should_failover(exc):
+                logger.warning(
+                    "Primary provider '%s' unreachable (%s). Automatic failover streaming from '%s'",
+                    self.primary_name,
+                    exc,
+                    self.fallback_name,
+                )
+                yield from self.fallback_model.stream(input, config=config, **kwargs)
+            else:
+                raise
 
     async def astream(self, input: Any, config: Any = None, **kwargs: Any):
         if not self.fallback_model:

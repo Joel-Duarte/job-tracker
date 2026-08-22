@@ -30,6 +30,7 @@ import {
   RotateCcw,
   Upload,
   AlertTriangle,
+  Square,
 } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -326,6 +327,13 @@ async function pollTaskUntilComplete(taskId) {
         return
       }
 
+      if (task.status === 'CANCELLED') {
+        uiStore.showToast(task.error_message || 'CV processing was cancelled.', 'info')
+        isProcessing.value = false
+        currentTaskId.value = null
+        return
+      }
+
       if (task.status === 'FAILED') {
         uiStore.showToast(task.error_message || 'CV processing failed', 'error')
         isProcessing.value = false
@@ -339,6 +347,25 @@ async function pollTaskUntilComplete(taskId) {
 
   uiStore.showToast('Task is taking longer than expected. It will continue running in the background.', 'info')
   isProcessing.value = false
+}
+
+const isCancelling = ref(false)
+
+async function stopCurrentTask() {
+  if (!currentTaskId.value) return
+  isCancelling.value = true
+  try {
+    await IntakeAPI.cancelEvaluation(currentTaskId.value)
+    uiStore.showToast('Task processing stopped.', 'info')
+    isProcessing.value = false
+    currentTaskStatus.value = 'CANCELLED'
+    currentTaskStage.value = 'CANCELLED'
+    currentTaskId.value = null
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to stop task', 'error')
+  } finally {
+    isCancelling.value = false
+  }
 }
 
 async function processCV() {
@@ -949,7 +976,21 @@ onMounted(async () => {
                 <Loader2 class="animate-spin text-primary" :size="16" />
                 <span>Processing in AI Queue (Task #{{ currentTaskId || '...' }})</span>
               </div>
-              <span class="queue-stage-badge">{{ currentTaskStage }}</span>
+              <div class="flex items-center gap-2">
+                <span class="queue-stage-badge">{{ currentTaskStage }}</span>
+                <button
+                  v-if="currentTaskId"
+                  type="button"
+                  class="btn btn-danger btn-xs"
+                  :disabled="isCancelling"
+                  title="Stop in-flight AI processing"
+                  @click="stopCurrentTask"
+                >
+                  <Loader2 v-if="isCancelling" class="animate-spin" :size="11" />
+                  <Square v-else :size="11" />
+                  <span>{{ isCancelling ? 'Stopping...' : 'Stop' }}</span>
+                </button>
+              </div>
             </div>
 
             <div class="stepper-track">

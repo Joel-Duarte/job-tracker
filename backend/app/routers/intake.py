@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.ai_queue import cancel_running_task
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import verify_admin_access
@@ -175,31 +176,6 @@ async def intake_extension_jd_elements(
     return await assess_job_lead(assess_req, db=db)
 
 
-# Built-in job-signal keywords always applied as a subject/body pre-filter before any LLM call.
-# User-supplied keywords in SyncFolderRequest.keyword_filter are merged on top of these.
-BUILT_IN_JOB_KEYWORDS: list[str] = [
-    "application",
-    "interview",
-    "offer",
-    "position",
-    "role",
-    "recruiter",
-    "hiring",
-    "rejected",
-    "opportunity",
-    "assessment",
-    "screening",
-    "shortlisted",
-    "candidate",
-    "apply",
-    "applied",
-    "job",
-    "vacancy",
-    "invitation",
-    "congratulations",
-]
-
-
 class SyncFolderRequest(BaseModel):
     account_id: int = Field(
         description="ID of the configured EmailAccountModel to sync"
@@ -208,8 +184,7 @@ class SyncFolderRequest(BaseModel):
     since_date: datetime | None = Field(default=None)
     keyword_filter: list[str] = Field(
         default_factory=list,
-        description="Extra keywords merged with built-in job keywords for subject/body pre-filter. "
-        "An email must match at least one keyword to be sent to the AI pipeline.",
+        description="Optional filter keywords. If specified, only emails containing at least one keyword are ingested; otherwise all non-duplicate emails in the folder are processed.",
     )
 
 
@@ -701,9 +676,9 @@ async def sync_email_account(
             scanned_count=0,
         )
 
-    # --- Step 2 + 3: Unified dedup + keyword pre-filter ---
-    all_keywords = BUILT_IN_JOB_KEYWORDS + [
-        kw.strip().lower() for kw in payload.keyword_filter if kw.strip()
+    # --- Step 2 + 3: Unified dedup + optional keyword filter ---
+    custom_keywords = [
+        kw.strip().lower() for kw in (payload.keyword_filter or []) if kw.strip()
     ]
     skipped_duplicates = 0
     filtered_out_count = 0
@@ -729,33 +704,35 @@ async def sync_email_account(
             logger.debug("sync dedup skip: message_id=%s", mid)
             continue
 
-        # Keyword pre-filter: check subject + first 500 chars of body
-        haystack = f"{email.subject or ''} {(email.body or '')[:500]}".lower()
-        if not any(kw in haystack for kw in all_keywords):
-            filtered_out_count += 1
-            logger.debug(
-                "sync keyword filter: message_id=%s subject=%r skipped (no job keyword match)",
-                mid,
-                email.subject,
-            )
-            # Persist filtered_out so this ID is never re-evaluated
-            if mid:
-                try:
-                    db.add(
-                        ProcessedEmailModel(
-                            message_id=mid,
-                            account_id=payload.account_id,
-                            status="filtered_out",
-                            subject=(email.subject or "")[:500],
+        # Optional keyword filter: only if user explicitly configured keywords
+        if custom_keywords:
+            haystack = f"{email.subject or ''} {(email.body or '')[:500]}".lower()
+            if not any(kw in haystack for kw in custom_keywords):
+                filtered_out_count += 1
+                logger.debug(
+                    "sync keyword filter: message_id=%s subject=%r skipped (did not match user keywords)",
+                    mid,
+                    email.subject,
+                )
+                # Persist filtered_out so this ID is never re-evaluated
+                if mid:
+                    try:
+                        db.add(
+                            ProcessedEmailModel(
+                                message_id=mid,
+                                account_id=payload.account_id,
+                                status="filtered_out",
+                                subject=(email.subject or "")[:500],
+                            )
                         )
-                    )
-                    await db.commit()
-                except Exception:
-                    await db.rollback()
-                    logger.warning(
-                        "Failed to persist filtered_out record for message_id=%s", mid
-                    )
-            continue
+                        await db.commit()
+                    except Exception:
+                        await db.rollback()
+                        logger.warning(
+                            "Failed to persist filtered_out record for message_id=%s",
+                            mid,
+                        )
+                continue
 
         to_process.append(email)
 
@@ -1034,8 +1011,8 @@ async def cancel_evaluation_task(
     db: AsyncSession = Depends(get_db),
 ) -> IntakeEvaluationTaskResponse:
     """
-    Cancels an active evaluation task (QUEUED or PROCESSING), setting status to CANCELLED
-    with an explanatory error message.
+    Cancels an active evaluation task (QUEUED or PROCESSING), aborting any in-flight
+    HTTP/LLM requests to the AI provider and setting status to CANCELLED.
     """
     task = await db.get(IntakeEvaluationTaskModel, task_id)
     if not task:
@@ -1044,8 +1021,12 @@ async def cancel_evaluation_task(
             detail=f"Evaluation task {task_id} not found.",
         )
 
-    task.status = "FAILED"
-    task.stage = "FAILED"
+    # 1. Abort active in-memory asyncio task if running (disconnects AI provider socket)
+    cancel_running_task(task_id)
+
+    # 2. Update task state in database
+    task.status = "CANCELLED"
+    task.stage = "CANCELLED"
     task.error_message = "Task stopped by user"
     task.completed_at = datetime.now(UTC)
     await db.commit()

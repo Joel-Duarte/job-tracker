@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -295,6 +296,8 @@ async def test_fix_jd_evaluation_task(db_session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_cancel_evaluation_task(db_session: AsyncSession):
+    from app.core.ai_queue import register_running_task, unregister_running_task
+
     app.dependency_overrides[get_db] = lambda: db_session
 
     task = IntakeEvaluationTaskModel(
@@ -308,23 +311,41 @@ async def test_cancel_evaluation_task(db_session: AsyncSession):
     await db_session.commit()
     await db_session.refresh(task)
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        res = await ac.post(f"/api/v1/intake/evaluations/{task.id}/cancel")
-        assert res.status_code == 200
-        data = res.json()
-        assert data["id"] == task.id
-        assert data["status"] == "FAILED"
-        assert data["stage"] == "FAILED"
-        assert data["error_message"] == "Task stopped by user"
+    # Simulate an active background task
+    async def _dummy_worker():
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            pass
 
-        # Verify task state in database
-        updated_task = await db_session.get(IntakeEvaluationTaskModel, task.id)
-        assert updated_task.status == "FAILED"
-        assert updated_task.error_message == "Task stopped by user"
+    dummy_task = asyncio.create_task(_dummy_worker())
+    register_running_task(task.id, dummy_task)
 
-    app.dependency_overrides.clear()
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as ac:
+            res = await ac.post(f"/api/v1/intake/evaluations/{task.id}/cancel")
+            assert res.status_code == 200
+            data = res.json()
+            assert data["id"] == task.id
+            assert data["status"] == "CANCELLED"
+            assert data["stage"] == "CANCELLED"
+            assert data["error_message"] == "Task stopped by user"
+
+            # Verify in-flight task received cancellation signal
+            assert dummy_task.cancelled() or dummy_task.cancelling() > 0
+
+            # Verify task state in database
+            updated_task = await db_session.get(IntakeEvaluationTaskModel, task.id)
+            assert updated_task.status == "CANCELLED"
+            assert updated_task.stage == "CANCELLED"
+            assert updated_task.error_message == "Task stopped by user"
+    finally:
+        unregister_running_task(task.id)
+        if not dummy_task.done():
+            dummy_task.cancel()
+        app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio

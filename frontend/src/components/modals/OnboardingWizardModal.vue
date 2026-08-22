@@ -327,21 +327,8 @@ function handleStep2Proceed() {
   cvStep.value = 'warning'
 }
 
-async function handleStep2ConfirmSave() {
-  if (!rawCvText.value.trim()) {
-    currentStep.value = 3
-    return
-  }
-  isSavingCv.value = true
-  try {
-    await CandidateProfileAPI.save(rawCvText.value.trim())
-    uiStore.showToast('Candidate CV saved to profile!', 'success')
-    currentStep.value = 3
-  } catch (err) {
-    uiStore.showToast('Failed to save candidate CV', 'error')
-  } finally {
-    isSavingCv.value = false
-  }
+function handleStep2ConfirmSave() {
+  currentStep.value = 3
 }
 
 function handleStep2Skip() {
@@ -1276,7 +1263,7 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
 
                 <!-- Step 2 Warning Footer Actions -->
                 <div class="wizard-footer-actions mt-4">
-                  <button type="button" class="btn btn-secondary" :disabled="isSavingCv" @click="cvStep = 'input'">
+                  <button type="button" class="btn btn-secondary" @click="cvStep = 'input'">
                     <ArrowLeft :size="14" />
                     <span>Back to Edit</span>
                   </button>
@@ -1284,12 +1271,10 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
                   <button
                     type="button"
                     class="btn btn-primary"
-                    :disabled="isSavingCv"
                     @click="handleStep2ConfirmSave"
                   >
-                    <Loader2 v-if="isSavingCv" class="animate-spin" :size="14" />
-                    <Sparkles v-else :size="14" />
-                    <span>{{ isSavingCv ? 'Saving Profile...' : 'Confirm & Continue' }}</span>
+                    <Sparkles :size="14" />
+                    <span>Confirm &amp; Continue</span>
                     <ArrowRight :size="14" />
                   </button>
                 </div>

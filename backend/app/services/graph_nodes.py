@@ -24,6 +24,10 @@ from app.models.processed_email import ProcessedEmailModel
 from app.models.staging import StagingItemModel
 from app.schemas.graph_state import JobTrackerState
 
+generate_and_save_application_embedding = (
+    llm_service.generate_and_save_application_embedding
+)
+
 logger = logging.getLogger(__name__)
 STAGING_MATCH_THRESHOLD = 0.75
 

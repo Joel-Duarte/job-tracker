@@ -109,6 +109,8 @@ export const EmailAccountsAPI = {
   getOAuthUrl: (params) => apiClient.get('/email_accounts/oauth/authorize-url', { params }),
   getOAuthConfig: () => apiClient.get('/email_accounts/oauth/config'),
   getFolders: (id) => apiClient.get(`/email_accounts/${id}/folders`),
+  clearHistory: (id) => apiClient.delete(`/email_accounts/${id}/processed-emails`),
+  clearAllHistory: () => apiClient.delete('/email_accounts/processed-emails/all'),
 }
 
 export const ActionItemsAPI = {

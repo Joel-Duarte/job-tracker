@@ -938,6 +938,21 @@ const accountToDelete = ref(null)
 const isSavingAccount = ref(false)
 const isDeletingAccount = ref(false)
 
+const showClearAccountModal = ref(false)
+const accountToClear = ref(null)
+const isClearingAccount = ref(false)
+
+const showClearAllModal = ref(false)
+const isClearingAll = ref(false)
+
+function formatFolderDisplay(folder) {
+  if (!folder) return 'INBOX'
+  if (folder.length > 24) {
+    return folder.slice(0, 10) + '…' + folder.slice(-6)
+  }
+  return folder
+}
+
 const emailAccountForm = ref({
   name: '',
   provider_preset: 'gmail',
@@ -1386,6 +1401,45 @@ async function confirmDeleteAccount() {
     uiStore.showToast(err.message || 'Failed to delete account', 'error')
   } finally {
     isDeletingAccount.value = false
+  }
+}
+
+function openClearAccountModal(acc) {
+  accountToClear.value = acc
+  showClearAccountModal.value = true
+}
+
+async function confirmClearAccountHistory() {
+  if (!accountToClear.value) return
+  isClearingAccount.value = true
+  try {
+    const res = await EmailAccountsAPI.clearHistory(accountToClear.value.id)
+    uiStore.showToast(res.data?.message || `Email sync history cleared for ${accountToClear.value.name}`, 'success')
+    showClearAccountModal.value = false
+    accountToClear.value = null
+    loadEmailAccounts()
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to clear sync history', 'error')
+  } finally {
+    isClearingAccount.value = false
+  }
+}
+
+function openClearAllModal() {
+  showClearAllModal.value = true
+}
+
+async function confirmClearAllHistory() {
+  isClearingAll.value = true
+  try {
+    const res = await EmailAccountsAPI.clearAllHistory()
+    uiStore.showToast(res.data?.message || 'All email sync history cleared across accounts', 'success')
+    showClearAllModal.value = false
+    loadEmailAccounts()
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to clear all sync history', 'error')
+  } finally {
+    isClearingAll.value = false
   }
 }
 
@@ -1965,6 +2019,15 @@ onMounted(async () => {
             <p>Connect mailboxes via 1-Click OAuth (Google / Microsoft) or IMAP, and configure automated background sync schedules.</p>
           </div>
           <div class="section-header-actions">
+            <button
+              v-if="emailAccounts.length > 0 && uiStore.enableEmailIntake"
+              class="btn btn-secondary btn-sm"
+              @click="openClearAllModal"
+              title="Clear all email deduplication history across accounts"
+            >
+              <RotateCcw :size="14" />
+              <span>Clear All Sync History</span>
+            </button>
             <div class="email-sync-toggle-pill">
               <span class="sync-status-label">
                 Auto-Sync:
@@ -1993,30 +2056,38 @@ onMounted(async () => {
           <div v-for="acc in emailAccounts" :key="acc.id" class="account-card">
             <div class="account-card-header">
               <div class="account-title-row">
-                <Mail :size="16" class="text-primary" />
-                <span class="account-name">{{ acc.name }}</span>
+                <div class="account-icon-wrap">
+                  <Mail :size="15" class="text-primary" />
+                </div>
+                <div class="account-name-group">
+                  <span class="account-name">{{ acc.name }}</span>
+                </div>
               </div>
               <span class="badge badge-applied font-mono">{{ acc.auth_type }}</span>
             </div>
 
             <div class="account-card-body">
               <div class="meta-row">
-                <span class="meta-k">Username:</span>
-                <span class="meta-v font-mono">{{ acc.username }}</span>
+                <span class="meta-k">Username</span>
+                <span class="meta-v font-mono" :title="acc.username">{{ acc.username }}</span>
               </div>
               <div class="meta-row">
-                <span class="meta-k">Folder:</span>
-                <span class="meta-v font-mono">{{ acc.folder }}</span>
+                <span class="meta-k">Folder</span>
+                <span class="meta-v font-mono" :title="acc.folder">{{ formatFolderDisplay(acc.folder) }}</span>
               </div>
               <div class="meta-row">
-                <span class="meta-k">Sync Interval:</span>
+                <span class="meta-k">Sync Interval</span>
                 <span class="meta-v font-mono">{{ acc.sync_interval || '1h' }}</span>
+              </div>
+              <div v-if="acc.last_synced_at" class="meta-row">
+                <span class="meta-k">Last Synced</span>
+                <span class="meta-v text-muted">{{ new Date(acc.last_synced_at).toLocaleDateString() }} {{ new Date(acc.last_synced_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</span>
               </div>
             </div>
 
             <div class="account-actions">
               <button
-                class="btn btn-primary btn-sm"
+                class="btn btn-primary btn-sm btn-sync-action"
                 :disabled="syncingAccount === acc.id"
                 @click="triggerSync(acc)"
               >
@@ -2025,12 +2096,20 @@ onMounted(async () => {
                 <span>{{ syncingAccount === acc.id ? 'Syncing...' : 'Sync Now' }}</span>
               </button>
 
-              <button class="btn btn-secondary btn-sm" @click="openEditEmailAccountModal(acc)">
-                <Edit3 :size="14" />
-                <span>Edit</span>
+              <button
+                class="btn btn-secondary btn-sm"
+                title="Clear deduplication history & reset sync cursor for this mailbox"
+                @click="openClearAccountModal(acc)"
+              >
+                <RotateCcw :size="13" />
+                <span>Clear History</span>
               </button>
 
-              <button class="btn btn-danger btn-sm" @click="openDeleteAccountModal(acc)">
+              <button class="btn btn-secondary btn-sm btn-icon" title="Edit mailbox settings" @click="openEditEmailAccountModal(acc)">
+                <Edit3 :size="14" />
+              </button>
+
+              <button class="btn btn-danger btn-sm btn-icon" title="Remove mailbox" @click="openDeleteAccountModal(acc)">
                 <Trash2 :size="14" />
               </button>
             </div>
@@ -2891,6 +2970,64 @@ onMounted(async () => {
         </div>
       </div>
     </div>
+
+    <!-- CLEAR ACCOUNT SYNC HISTORY MODAL -->
+    <div v-if="showClearAccountModal" class="modal-backdrop" @click.self="showClearAccountModal = false">
+      <div class="modal-card modal-sm animate-fade-in">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <RotateCcw :size="16" class="text-warning flex-shrink-0" />
+            <h3 class="modal-title">Clear Email Sync History</h3>
+          </div>
+          <button class="btn-close" @click="showClearAccountModal = false">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="text-sm text-main">
+            Are you sure you want to clear sync history for <strong>{{ accountToClear?.name }}</strong>?
+          </p>
+          <p class="text-xs text-secondary">
+            This removes all recorded deduplication IDs for this mailbox and resets its sync cursor. Subsequent syncs will re-fetch and re-evaluate emails from the mailbox. Existing job applications and timeline events remain untouched.
+          </p>
+          <div class="modal-actions mt-3">
+            <button class="btn btn-secondary" :disabled="isClearingAccount" @click="showClearAccountModal = false">Cancel</button>
+            <button class="btn btn-warning" :disabled="isClearingAccount" @click="confirmClearAccountHistory">
+              <Loader2 v-if="isClearingAccount" class="animate-spin" :size="14" />
+              <RotateCcw v-else :size="14" />
+              <span>{{ isClearingAccount ? 'Clearing...' : 'Clear History' }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CLEAR ALL SYNC HISTORY MODAL -->
+    <div v-if="showClearAllModal" class="modal-backdrop" @click.self="showClearAllModal = false">
+      <div class="modal-card modal-sm animate-fade-in">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <RotateCcw :size="16" class="text-warning flex-shrink-0" />
+            <h3 class="modal-title">Clear All Email Sync History</h3>
+          </div>
+          <button class="btn-close" @click="showClearAllModal = false">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="text-sm text-main">
+            Are you sure you want to clear all email sync history across <strong>all accounts</strong>?
+          </p>
+          <p class="text-xs text-secondary">
+            This removes all email deduplication records from the database and resets sync cursors for all connected mailboxes. Existing applications, notes, and timeline events will not be deleted.
+          </p>
+          <div class="modal-actions mt-3">
+            <button class="btn btn-secondary" :disabled="isClearingAll" @click="showClearAllModal = false">Cancel</button>
+            <button class="btn btn-warning" :disabled="isClearingAll" @click="confirmClearAllHistory">
+              <Loader2 v-if="isClearingAll" class="animate-spin" :size="14" />
+              <RotateCcw v-else :size="14" />
+              <span>{{ isClearingAll ? 'Clearing All...' : 'Clear All' }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -3525,7 +3662,7 @@ onMounted(async () => {
   gap: 16px;
 }
 
-.provider-card, .account-card {
+.provider-card {
   background-color: var(--bg-main);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
@@ -3533,6 +3670,22 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.account-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.account-card:hover {
+  border-color: var(--border-color-hover);
 }
 
 .provider-header, .account-card-header {
@@ -3550,35 +3703,83 @@ onMounted(async () => {
   color: var(--text-main);
 }
 
-.provider-body, .account-card-body {
+.account-icon-wrap {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background-color: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.account-name-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.account-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.provider-body {
   display: flex;
   flex-direction: column;
   gap: 6px;
   font-size: 12px;
 }
 
+.account-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  background-color: var(--bg-main);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+}
+
 .meta-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 8px;
 }
 
 .meta-k {
   color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  flex-shrink: 0;
 }
 
 .meta-v {
   color: var(--text-main);
   text-align: right;
+  font-size: 11px;
   word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
 }
 
 .provider-actions, .account-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: auto;
+}
+
+.btn-sync-action {
+  flex: 1;
+  justify-content: center;
 }
 
 .provider-test-pill {
@@ -3872,6 +4073,12 @@ onMounted(async () => {
   justify-content: space-between;
   padding: 16px 20px;
   border-bottom: 1px solid var(--border-color);
+}
+
+.modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .modal-title {

@@ -15,13 +15,14 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import verify_admin_access
 from app.models.email_accounts import EmailAccountModel
+from app.models.processed_email import ProcessedEmailModel
 from app.schemas.email_accounts import (
     EmailAccountCreate,
     EmailAccountResponse,
@@ -941,3 +942,67 @@ async def list_account_folders(account_id: int, db: AsyncSession = Depends(get_d
 
     folders = await fetch_account_folders(account, db=db)
     return EmailFoldersResponse(account_id=account.id, folders=folders)
+
+
+@router.delete("/processed-emails/all", status_code=status.HTTP_200_OK)
+async def clear_all_processed_emails(db: AsyncSession = Depends(get_db)):
+    """Deletes all email deduplication history records across all accounts and resets sync cursors."""
+    del_result = await db.execute(delete(ProcessedEmailModel))
+    deleted_count = del_result.rowcount or 0
+
+    acc_res = await db.execute(select(EmailAccountModel))
+    accounts = acc_res.scalars().all()
+    for acc in accounts:
+        acc.sync_cursor = None
+        acc.last_synced_at = None
+
+    await db.commit()
+
+    logger.info(
+        "Cleared all %d processed email records across %d accounts.",
+        deleted_count,
+        len(accounts),
+    )
+    return {
+        "status": "success",
+        "deleted_count": deleted_count,
+        "message": f"Cleared {deleted_count} email sync history record(s) across all accounts.",
+    }
+
+
+@router.delete("/{account_id}/processed-emails", status_code=status.HTTP_200_OK)
+async def clear_account_processed_emails(
+    account_id: int, db: AsyncSession = Depends(get_db)
+):
+    """Deletes all email deduplication history records for a specific account and resets its sync cursor."""
+    result = await db.execute(
+        select(EmailAccountModel).where(EmailAccountModel.id == account_id)
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Email account with ID {account_id} not found.",
+        )
+
+    del_result = await db.execute(
+        delete(ProcessedEmailModel).where(ProcessedEmailModel.account_id == account_id)
+    )
+    deleted_count = del_result.rowcount or 0
+
+    account.sync_cursor = None
+    account.last_synced_at = None
+    await db.commit()
+
+    account_name = account.name or account.username or f"Account #{account_id}"
+    logger.info(
+        "Cleared %d processed email records for account %s (ID %d).",
+        deleted_count,
+        account_name,
+        account_id,
+    )
+    return {
+        "status": "success",
+        "deleted_count": deleted_count,
+        "message": f"Cleared {deleted_count} email sync history record(s) for {account_name}.",
+    }
