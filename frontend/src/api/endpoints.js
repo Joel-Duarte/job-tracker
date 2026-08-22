@@ -93,6 +93,7 @@ export const AIConfigAPI = {
   deleteProvider: (id) => apiClient.delete(`/ai/providers/${id}`),
   testProvider: (id) => apiClient.post(`/ai/providers/${id}/test`),
   getProviderModels: (id) => apiClient.get(`/ai/providers/${id}/models`),
+  probeModel: (id, modelName) => apiClient.post(`/ai/providers/${id}/probe-model`, { model_name: modelName }),
   listBindings: () => apiClient.get('/ai/bindings'),
   setBinding: (taskType, data) => apiClient.put(`/ai/bindings/${taskType}`, data),
   deleteBinding: (taskType) => apiClient.delete(`/ai/bindings/${taskType}`),

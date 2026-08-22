@@ -589,13 +589,72 @@ const studioForm = ref({
   provider_id: null,
   model_name: '',
   temperature: 0.2,
-  reasoning_effort: 'none', // 'none' | 'low' | 'medium' | 'high'
+  reasoning_effort: 'none', // 'none' | 'low' | 'medium' | 'high' | 'custom'
+  custom_extra_body_json: '',
   max_tokens: null,
   embedding_dimensions: 768,
   prompt_template: '',
 })
 const isSyncingStudio = ref(false)
 let studioAutoSaveTimer = null
+
+const probeLoading = ref(false)
+const probeResult = ref(null)
+const probeError = ref(null)
+
+const customExtraBodyError = computed(() => {
+  if (!studioForm.value.custom_extra_body_json?.trim()) return null
+  try {
+    const parsed = JSON.parse(studioForm.value.custom_extra_body_json.trim())
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return 'Must be a valid JSON object e.g. {"chat_template_kwargs": {"thinking": false}}'
+    }
+    return null
+  } catch (e) {
+    return `Invalid JSON: ${e.message}`
+  }
+})
+
+async function runModelProbe() {
+  if (!studioForm.value.provider_id || !studioForm.value.model_name.trim()) {
+    uiStore.showToast('Please select a provider and specify a model name first.', 'warning')
+    return
+  }
+
+  probeLoading.value = true
+  probeResult.value = null
+  probeError.value = null
+  try {
+    const res = await AIConfigAPI.probeModel(
+      studioForm.value.provider_id,
+      studioForm.value.model_name.trim()
+    )
+    probeResult.value = res.data
+    uiStore.showToast(`Probe completed for '${studioForm.value.model_name}'!`, 'success')
+  } catch (err) {
+    probeError.value = err.message || 'Model probe failed'
+    uiStore.showToast(`Model probe error: ${err.message}`, 'error')
+  } finally {
+    probeLoading.value = false
+  }
+}
+
+function applyProbeRecommendations() {
+  if (!probeResult.value) return
+  if (probeResult.value.recommended_reasoning_effort) {
+    studioForm.value.reasoning_effort = probeResult.value.recommended_reasoning_effort
+  }
+  if (probeResult.value.recommended_extra_body) {
+    studioForm.value.reasoning_effort = 'custom'
+    studioForm.value.custom_extra_body_json = JSON.stringify(
+      probeResult.value.recommended_extra_body,
+      null,
+      2
+    )
+  }
+  scheduleStudioAutoSave(50)
+  uiStore.showToast('Applied recommended reasoning configuration!', 'success')
+}
 
 function scheduleStudioAutoSave(delay = 500) {
   if (isSyncingStudio.value || loadingStudio.value) return
@@ -609,6 +668,8 @@ function scheduleStudioAutoSave(delay = 500) {
 function syncStudioForm() {
   isSyncingStudio.value = true
   if (studioAutoSaveTimer) clearTimeout(studioAutoSaveTimer)
+  probeResult.value = null
+  probeError.value = null
 
   const taskKey = selectedTaskKey.value
   const taskDef = activeTaskDef.value
@@ -633,6 +694,8 @@ function syncStudioForm() {
   studioForm.value.model_name = existingBinding?.model_name || (taskKey === 'EMBEDDING' ? 'nomic-embed-text' : 'qwen3.5-4b')
   studioForm.value.temperature = existingBinding?.temperature !== undefined ? existingBinding.temperature : defaultTemp
   studioForm.value.reasoning_effort = existingBinding?.reasoning_effort || existingBinding?.extra_kwargs?.reasoning_effort || taskDef.recommendedReasoning || 'none'
+  const customExtra = existingBinding?.custom_extra_body || existingBinding?.extra_kwargs?.custom_extra_body || null
+  studioForm.value.custom_extra_body_json = customExtra ? JSON.stringify(customExtra, null, 2) : ''
   studioForm.value.max_tokens = existingBinding?.max_tokens || null
   studioForm.value.embedding_dimensions = existingBinding?.embedding_dimensions || (taskKey === 'EMBEDDING' ? 768 : null)
 
@@ -700,6 +763,19 @@ async function saveStudioTask(isAutoSave = false) {
   const taskDef = activeTaskDef.value
 
   try {
+    let customExtraParsed = undefined
+    if (studioForm.value.custom_extra_body_json?.trim()) {
+      try {
+        customExtraParsed = JSON.parse(studioForm.value.custom_extra_body_json.trim())
+      } catch (jsonErr) {
+        if (!isAutoSave) {
+          uiStore.showToast(`Invalid Custom Extra Body JSON: ${jsonErr.message}`, 'error')
+        }
+        isSavingStudio.value = false
+        return
+      }
+    }
+
     // 1. Save Model Binding
     const useGlobal = studioForm.value.use_global_default && taskKey !== 'EMBEDDING'
     await AIConfigAPI.setBinding(taskKey, {
@@ -711,11 +787,13 @@ async function saveStudioTask(isAutoSave = false) {
         : studioForm.value.model_name.trim(),
       temperature: studioForm.value.temperature,
       reasoning_effort: studioForm.value.reasoning_effort,
+      custom_extra_body: customExtraParsed,
       max_tokens: studioForm.value.max_tokens ? Number(studioForm.value.max_tokens) : undefined,
       embedding_dimensions: taskKey === 'EMBEDDING' ? studioForm.value.embedding_dimensions : undefined,
       extra_kwargs: {
         use_global_default: useGlobal,
         reasoning_effort: studioForm.value.reasoning_effort,
+        custom_extra_body: customExtraParsed,
       },
     })
 
@@ -724,11 +802,15 @@ async function saveStudioTask(isAutoSave = false) {
       await PromptsAPI.update(taskDef.promptKey, studioForm.value.prompt_template)
     }
 
-    uiStore.showToast(`Task '${taskDef.label}' configuration saved!`, 'success')
+    if (!isAutoSave) {
+      uiStore.showToast(`Task '${taskDef.label}' configuration saved!`, 'success')
+    }
     await loadBindings()
     await loadPrompts()
   } catch (err) {
-    uiStore.showToast(err.message || 'Failed to save task configuration', 'error')
+    if (!isAutoSave) {
+      uiStore.showToast(err.message || 'Failed to save task configuration', 'error')
+    }
   } finally {
     isSavingStudio.value = false
   }
@@ -1747,17 +1829,30 @@ onMounted(async () => {
               <div class="input-group">
                 <div class="label-with-hint">
                   <label class="input-label">Model Identifier *</label>
-                  <button
-                    v-if="studioForm.provider_id"
-                    type="button"
-                    class="btn-refresh-models"
-                    :disabled="loadingStudioModels"
-                    @click="fetchStudioModels(studioForm.provider_id, true)"
-                    title="Auto-discover models from live endpoint"
-                  >
-                    <RefreshCw :class="{ 'animate-spin': loadingStudioModels }" :size="12" />
-                    <span>{{ loadingStudioModels ? 'Discovering...' : 'Auto-Discover' }}</span>
-                  </button>
+                  <div class="flex items-center gap-2">
+                    <button
+                      v-if="studioForm.provider_id && studioForm.model_name"
+                      type="button"
+                      class="btn-refresh-models"
+                      :disabled="probeLoading"
+                      @click="runModelProbe"
+                      title="Probe model capabilities, thinking flags, and parameters"
+                    >
+                      <Zap :class="{ 'animate-spin': probeLoading }" :size="12" />
+                      <span>{{ probeLoading ? 'Probing...' : 'Probe Capabilities' }}</span>
+                    </button>
+                    <button
+                      v-if="studioForm.provider_id"
+                      type="button"
+                      class="btn-refresh-models"
+                      :disabled="loadingStudioModels"
+                      @click="fetchStudioModels(studioForm.provider_id, true)"
+                      title="Auto-discover models from live endpoint"
+                    >
+                      <RefreshCw :class="{ 'animate-spin': loadingStudioModels }" :size="12" />
+                      <span>{{ loadingStudioModels ? 'Discovering...' : 'Auto-Discover' }}</span>
+                    </button>
+                  </div>
                 </div>
 
                 <input
@@ -1769,6 +1864,45 @@ onMounted(async () => {
                   @input="scheduleStudioAutoSave(600)"
                 />
               </div>
+            </div>
+
+            <!-- Model Probe Insights Banner -->
+            <div v-if="probeResult" class="probe-result-box mt-3 mb-2 animate-fade-in">
+              <div class="probe-result-header">
+                <div class="probe-result-title">
+                  <Sparkles :size="14" class="text-primary" />
+                  <span>Model Capability Insights: <strong>{{ probeResult.model_name }}</strong></span>
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-primary btn-xs"
+                  @click="applyProbeRecommendations"
+                >
+                  <Check :size="12" />
+                  <span>Apply Recommended Settings</span>
+                </button>
+              </div>
+
+              <div class="probe-details-grid">
+                <div class="probe-detail-item">
+                  <span class="probe-detail-label">Architecture:</span>
+                  <span class="probe-detail-val font-mono" :class="probeResult.is_reasoning_model ? 'text-warning' : 'text-success'">
+                    {{ probeResult.is_reasoning_model ? '🧠 Reasoning Architecture' : '⚡ Standard Fast LLM' }}
+                  </span>
+                </div>
+
+                <div v-if="probeResult.detected_tags?.length" class="probe-detail-item">
+                  <span class="probe-detail-label">Tags:</span>
+                  <span class="probe-detail-val font-mono text-info">{{ probeResult.detected_tags.join(', ') }}</span>
+                </div>
+
+                <div class="probe-detail-item">
+                  <span class="probe-detail-label">Reasoning Effort:</span>
+                  <span class="probe-detail-val font-mono text-primary">{{ probeResult.supports_reasoning_effort ? 'Supported' : 'Standard' }}</span>
+                </div>
+              </div>
+
+              <p v-if="probeResult.notes" class="probe-notes mt-1.5">{{ probeResult.notes }}</p>
             </div>
 
             <!-- Curated / Discovered Models Quick Pick Chips -->
@@ -1822,14 +1956,14 @@ onMounted(async () => {
                   </div>
                   <div class="reasoning-pills">
                     <button
-                      v-for="effort in ['none', 'low', 'medium', 'high']"
+                      v-for="effort in ['none', 'low', 'medium', 'high', 'custom']"
                       :key="effort"
                       type="button"
                       class="reasoning-pill font-mono"
                       :class="{ active: studioForm.reasoning_effort === effort }"
                       @click="setStudioReasoningEffort(effort)"
                     >
-                      {{ effort === 'none' ? 'None (Fast)' : effort }}
+                      {{ effort === 'none' ? 'None (Fast)' : (effort === 'custom' ? 'Custom JSON' : effort) }}
                     </button>
                   </div>
                 </div>
@@ -1850,6 +1984,24 @@ onMounted(async () => {
                     @input="scheduleStudioAutoSave(600)"
                   />
                 </div>
+              </div>
+
+              <!-- Custom Extra Body JSON (Expandable Editor) -->
+              <div v-if="studioForm.reasoning_effort === 'custom'" class="input-group mt-3 animate-fade-in">
+                <div class="label-with-hint">
+                  <label class="input-label">Custom Request Extra Body (JSON)</label>
+                  <span class="text-xs text-muted">Pass engine-specific parameters like <code>chat_template_kwargs</code> or <code>thinking</code></span>
+                </div>
+                <textarea
+                  v-model="studioForm.custom_extra_body_json"
+                  rows="3"
+                  class="form-input font-mono text-xs"
+                  placeholder='{\n  "chat_template_kwargs": { "thinking": false }\n}'
+                  @input="scheduleStudioAutoSave(800)"
+                ></textarea>
+                <span v-if="customExtraBodyError" class="text-xs text-danger mt-1">
+                  {{ customExtraBodyError }}
+                </span>
               </div>
 
               <!-- Sampling Temperature Slider -->
@@ -4969,5 +5121,58 @@ input:checked + .slider:before {
 }
 .mb-4 {
   margin-bottom: 20px;
+}
+
+/* Probe Result Box */
+.probe-result-box {
+  background-color: rgba(59, 130, 246, 0.06);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+
+.probe-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.probe-result-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.probe-details-grid {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.probe-detail-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.probe-detail-label {
+  color: var(--text-muted);
+}
+
+.probe-detail-val {
+  font-weight: 600;
+}
+
+.probe-notes {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
 }
 </style>

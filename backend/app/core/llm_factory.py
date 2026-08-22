@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -12,6 +13,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 logger = logging.getLogger(__name__)
+
+THINK_TAG_REGEX = re.compile(r"<think>[\s\S]*?</think>", re.IGNORECASE)
+
+
+def strip_reasoning_tags(text: str | None) -> str:
+    """Strips <think>...</think> reasoning tags from LLM output text."""
+    if not text:
+        return ""
+    return THINK_TAG_REGEX.sub("", str(text)).strip()
 
 
 class FailoverChatModel(Runnable[Any, Any]):
@@ -563,6 +573,11 @@ async def get_task_chat_model(
                     )
                 )
 
+                # Apply user-configured custom extra body parameters (if any)
+                custom_extra_body = extra.get("custom_extra_body")
+                if isinstance(custom_extra_body, dict) and custom_extra_body:
+                    init_kwargs.setdefault("extra_body", {}).update(custom_extra_body)
+
                 if reasoning_norm in ("none", "off"):
                     # Explicitly turn off thinking/reasoning where supported
                     if provider_type in ("google_genai", "gemini"):
@@ -580,6 +595,18 @@ async def get_task_chat_model(
                             init_kwargs.setdefault("extra_body", {})[
                                 "reasoning_effort"
                             ] = "low"
+                    elif is_local_base:
+                        # For local OpenAI-compatible engines (LM Studio / Ollama / vLLM)
+                        # If model is DeepSeek-R1 or QwQ, pass thinking: false if not already customized
+                        model_lower = target_model_name.lower()
+                        if "chat_template_kwargs" not in init_kwargs.get(
+                            "extra_body", {}
+                        ) and any(
+                            k in model_lower for k in ("deepseek-r1", "r1", "qwq")
+                        ):
+                            init_kwargs.setdefault("extra_body", {})[
+                                "chat_template_kwargs"
+                            ] = {"thinking": False}
                 else:
                     # Reasoning is enabled (low, medium, high)
                     if provider_type in ("openai", "openrouter"):

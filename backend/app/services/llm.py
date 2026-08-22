@@ -13,6 +13,7 @@ from app.core.llm_factory import (
     get_active_llm_config_dict,
     get_task_chat_model,
     get_task_embeddings_model,
+    strip_reasoning_tags,
 )
 from app.core.prompts import get_prompt_template
 from app.models.applications import ApplicationEmbeddingModel, ApplicationModel
@@ -168,9 +169,20 @@ Email Body:
         {"email_content": formatted_content},
         config={"callbacks": [PostgresTracer()]},
     )
-    if isinstance(result, EmailExtractionResult):
-        return result
-    return EmailExtractionResult.model_validate(result)
+    res_obj = (
+        result
+        if isinstance(result, EmailExtractionResult)
+        else EmailExtractionResult.model_validate(result)
+    )
+    if res_obj.summary:
+        res_obj.summary = strip_reasoning_tags(res_obj.summary)
+    if res_obj.action:
+        res_obj.action = strip_reasoning_tags(res_obj.action)
+    if res_obj.position:
+        res_obj.position = strip_reasoning_tags(res_obj.position)
+    if res_obj.company:
+        res_obj.company = strip_reasoning_tags(res_obj.company)
+    return res_obj
 
 
 async def assess_job_posting(

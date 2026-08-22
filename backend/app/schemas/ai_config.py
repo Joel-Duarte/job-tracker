@@ -67,7 +67,12 @@ class AITaskBindingCreate(BaseModel):
     )
     temperature: float = Field(default=0.2, description="Sampling temperature")
     reasoning_effort: str | None = Field(
-        default="none", description="Thinking mode: 'none', 'low', 'medium', 'high'"
+        default="none",
+        description="Thinking mode: 'none', 'low', 'medium', 'high', 'custom'",
+    )
+    custom_extra_body: dict[str, Any] | None = Field(
+        default=None,
+        description="Custom payload parameters / extra body for local engines",
     )
     max_tokens: int | None = Field(default=None)
     top_p: float | None = Field(default=None)
@@ -81,6 +86,7 @@ class AITaskBindingUpdate(BaseModel):
     model_name: str | None = None
     temperature: float | None = None
     reasoning_effort: str | None = None
+    custom_extra_body: dict[str, Any] | None = None
     max_tokens: int | None = None
     top_p: float | None = None
     embedding_dimensions: int | None = None
@@ -97,6 +103,7 @@ class AITaskBindingRead(BaseModel):
     model_name: str
     temperature: float
     reasoning_effort: str | None = "none"
+    custom_extra_body: dict[str, Any] | None = None
     max_tokens: int | None = None
     top_p: float | None = None
     embedding_dimensions: int | None = None
@@ -106,6 +113,28 @@ class AITaskBindingRead(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ModelProbeRequest(BaseModel):
+    model_name: str = Field(..., description="Target model name to probe")
+
+
+class ModelProbeResponse(BaseModel):
+    provider_id: int
+    provider_name: str
+    provider_type: str
+    model_name: str
+    is_reasoning_model: bool
+    supported_reasoning_modes: list[str] = Field(
+        default_factory=lambda: ["none", "low", "medium", "high", "custom"]
+    )
+    supports_reasoning_effort: bool = False
+    supports_chat_template_kwargs: bool = False
+    supports_thinking_config: bool = False
+    recommended_reasoning_effort: str = "none"
+    recommended_extra_body: dict[str, Any] | None = None
+    detected_tags: list[str] = Field(default_factory=list)
+    notes: str = ""
 
 
 class AITaskTestResponse(BaseModel):

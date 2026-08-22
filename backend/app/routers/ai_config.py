@@ -31,6 +31,8 @@ from app.schemas.ai_config import (
     AITaskBindingRead,
     AITaskTestResponse,
     DiscoveredModel,
+    ModelProbeRequest,
+    ModelProbeResponse,
     mask_secret,
 )
 from app.schemas.global_settings import GlobalSettingsRead, GlobalSettingsUpdate
@@ -413,6 +415,7 @@ def _to_provider_read(p: AIProviderModel) -> AIProviderRead:
 def _to_binding_read(b: AITaskBindingModel) -> AITaskBindingRead:
     extra = b.extra_kwargs or {}
     reasoning = extra.get("reasoning_effort", "none")
+    custom_extra_body = extra.get("custom_extra_body")
     return AITaskBindingRead(
         id=b.id,
         task_type=b.task_type,
@@ -422,6 +425,7 @@ def _to_binding_read(b: AITaskBindingModel) -> AITaskBindingRead:
         model_name=b.model_name,
         temperature=b.temperature,
         reasoning_effort=reasoning,
+        custom_extra_body=custom_extra_body,
         max_tokens=b.max_tokens,
         top_p=b.top_p,
         embedding_dimensions=b.embedding_dimensions,
@@ -511,6 +515,146 @@ async def update_ai_provider(
     await db.commit()
     await db.refresh(provider)
     return _to_provider_read(provider)
+
+
+@router.post(
+    "/providers/{provider_id}/probe-model",
+    response_model=ModelProbeResponse,
+)
+async def probe_model_capabilities(
+    provider_id: int,
+    payload: ModelProbeRequest,
+    db: AsyncSession = Depends(get_db),
+) -> ModelProbeResponse:
+    stmt = select(AIProviderModel).where(AIProviderModel.id == provider_id)
+    res = await db.execute(stmt)
+    provider = res.scalar_one_or_none()
+    if not provider:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"AI Provider with ID {provider_id} not found.",
+        )
+
+    model_name = payload.model_name.strip()
+    model_lower = model_name.lower()
+    p_type = (provider.provider_type or "openai").lower()
+    base_url = _clean_base_url(provider.base_url)
+
+    is_reasoning = _is_reasoning_model(model_name)
+    supports_reasoning_effort = False
+    supports_chat_template_kwargs = False
+    supports_thinking_config = False
+    recommended_reasoning_effort = "none"
+    recommended_extra_body = None
+    detected_tags = []
+    notes_list = []
+
+    # 1. Architecture heuristics
+    if any(
+        k in model_lower for k in ("deepseek-r1", "r1-distill", "qwq", "deepseek_r1")
+    ):
+        is_reasoning = True
+        detected_tags.append("<think>")
+        notes_list.append("DeepSeek-R1 / QwQ reasoning architecture detected.")
+        recommended_extra_body = {"chat_template_kwargs": {"thinking": False}}
+        supports_chat_template_kwargs = True
+        supports_reasoning_effort = True
+    elif any(k in model_lower for k in ("o1", "o3", "o3-mini")):
+        is_reasoning = True
+        supports_reasoning_effort = True
+        recommended_reasoning_effort = "low"
+        notes_list.append("OpenAI o-series reasoning model detected.")
+    elif "thinking" in model_lower or "flash-thinking" in model_lower:
+        is_reasoning = True
+        supports_thinking_config = True
+        notes_list.append("Gemini / Google thinking model detected.")
+    elif "sonnet-3-7" in model_lower or "claude-3-7" in model_lower:
+        is_reasoning = True
+        notes_list.append("Anthropic Claude 3.7 hybrid reasoning model detected.")
+
+    # 2. Provider-specific probes
+    if p_type == "ollama" and base_url:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                show_url = (
+                    f"{base_url}/api/show"
+                    if not base_url.endswith("/api")
+                    else f"{base_url}/show"
+                )
+                resp = await client.post(show_url, json={"name": model_name})
+                if resp.status_code == 200:
+                    data = resp.json()
+                    template = data.get("template", "")
+                    if "<think>" in template or "think" in template.lower():
+                        is_reasoning = True
+                        if "<think>" not in detected_tags:
+                            detected_tags.append("<think>")
+                        supports_chat_template_kwargs = True
+                        recommended_extra_body = {
+                            "chat_template_kwargs": {"thinking": False}
+                        }
+                        notes_list.append("Ollama Modelfile contains <think> tags.")
+        except Exception as e:
+            logger.debug("Ollama probe failed: %s", e)
+    elif p_type in ("openai", "openrouter") and base_url:
+        # Check local / LM Studio / vLLM capabilities
+        is_local = any(
+            h in base_url
+            for h in (
+                "localhost",
+                "127.0.0.1",
+                "192.168.",
+                "0.0.0.0",
+                "10.",
+                "172.",
+            )
+        )
+        if is_local:
+            try:
+                # Test 1-token probe with reasoning_effort
+                headers = {"Authorization": f"Bearer {provider.api_key or 'local'}"}
+                probe_url = (
+                    f"{base_url}/chat/completions"
+                    if not base_url.endswith("/chat/completions")
+                    else base_url
+                )
+                probe_payload = {
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 1,
+                    "reasoning_effort": "low",
+                }
+                async with httpx.AsyncClient(timeout=6.0) as client:
+                    resp = await client.post(
+                        probe_url, json=probe_payload, headers=headers
+                    )
+                    if resp.status_code == 200:
+                        supports_reasoning_effort = True
+                        notes_list.append(
+                            "Server natively accepts `reasoning_effort` parameter."
+                        )
+                    elif resp.status_code == 400 and "reasoning_effort" in resp.text:
+                        supports_reasoning_effort = False
+            except Exception as e:
+                logger.debug("Local reasoning_effort probe failed: %s", e)
+
+    notes = " ".join(notes_list) if notes_list else "Standard completion model."
+
+    return ModelProbeResponse(
+        provider_id=provider.id,
+        provider_name=provider.name,
+        provider_type=provider.provider_type,
+        model_name=model_name,
+        is_reasoning_model=is_reasoning,
+        supported_reasoning_modes=["none", "low", "medium", "high", "custom"],
+        supports_reasoning_effort=supports_reasoning_effort,
+        supports_chat_template_kwargs=supports_chat_template_kwargs,
+        supports_thinking_config=supports_thinking_config,
+        recommended_reasoning_effort=recommended_reasoning_effort,
+        recommended_extra_body=recommended_extra_body,
+        detected_tags=detected_tags,
+        notes=notes,
+    )
 
 
 @router.delete("/providers/{provider_id}", status_code=status.HTTP_200_OK)
@@ -752,6 +896,8 @@ async def set_ai_task_binding(
     extra = dict(payload.extra_kwargs or {})
     if payload.reasoning_effort is not None:
         extra["reasoning_effort"] = payload.reasoning_effort.strip().lower()
+    if payload.custom_extra_body is not None:
+        extra["custom_extra_body"] = payload.custom_extra_body
 
     if not binding:
         binding = AITaskBindingModel(
