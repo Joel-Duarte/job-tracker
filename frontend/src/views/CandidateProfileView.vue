@@ -749,37 +749,37 @@ onMounted(async () => {
             <FileText :size="18" class="text-primary" />
             <h3 class="modal-title">{{ profile ? 'Update Candidate Resume / CV' : 'Input Candidate Resume / CV' }}</h3>
           </div>
-          <button class="btn-close" :disabled="isProcessing" @click="closeCvModal">×</button>
+
+          <!-- Top-Right Actions -->
+          <div v-if="modalStep === 'input'" class="modal-header-actions">
+            <input
+              ref="fileInput"
+              type="file"
+              accept=".pdf,.docx,.doc,.txt"
+              class="hidden-file-input"
+              @change="handleFileUpload"
+            />
+
+            <button
+              type="button"
+              class="btn btn-primary btn-xs"
+              :disabled="isParsingFile || isProcessing"
+              @click="triggerFileInput"
+            >
+              <Loader2 v-if="isParsingFile" class="animate-spin" :size="13" />
+              <Upload v-else :size="13" />
+              <span>{{ isParsingFile ? 'Extracting File...' : 'Upload Resume File' }}</span>
+            </button>
+          </div>
         </div>
 
         <div class="modal-body">
           <!-- Step 1: Raw Input -->
           <div v-if="modalStep === 'input'" class="modal-step-container animate-fade-in">
-            <div class="panel-header-actions mb-2">
-              <input
-                ref="fileInput"
-                type="file"
-                accept=".pdf,.docx,.doc,.txt"
-                class="hidden-file-input"
-                @change="handleFileUpload"
-              />
-
-              <button
-                type="button"
-                class="btn btn-secondary btn-xs"
-                :disabled="isParsingFile || isProcessing"
-                @click="triggerFileInput"
-              >
-                <Loader2 v-if="isParsingFile" class="animate-spin" :size="13" />
-                <Upload v-else :size="13" />
-                <span>{{ isParsingFile ? 'Extracting File...' : 'Upload Resume File' }}</span>
-              </button>
-            </div>
-
             <!-- Raw Textarea -->
             <textarea
               v-model="rawCVInput"
-              rows="12"
+              rows="13"
               class="form-textarea font-mono text-xs"
               placeholder="Paste your complete resume or CV text here or click 'Upload Resume File' above..."
               :disabled="isProcessing"
@@ -1635,17 +1635,10 @@ onMounted(async () => {
   margin: 0;
 }
 
-.btn-close {
-  border: none;
-  background: transparent;
-  font-size: 20px;
-  line-height: 1;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.btn-close:hover {
-  color: var(--text-main);
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .modal-body {
