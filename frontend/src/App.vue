@@ -7,6 +7,7 @@ import ApplicationDetailDrawer from './components/drawers/ApplicationDetailDrawe
 import IngestModal from './components/modals/IngestModal.vue'
 import JobIntakeModal from './components/modals/JobIntakeModal.vue'
 import CoverLetterModal from './components/modals/CoverLetterModal.vue'
+import OnboardingWizardModal from './components/modals/OnboardingWizardModal.vue'
 import QuickRetryModal from './components/modals/QuickRetryModal.vue'
 import IntakeQueueDrawer from './components/layout/IntakeQueueDrawer.vue'
 import FloatingQueueWidget from './components/layout/FloatingQueueWidget.vue'
@@ -17,12 +18,15 @@ const uiStore = useUIStore()
 
 onMounted(async () => {
   try {
-    const res = await AIConfigAPI.getGlobalSettings()
-    if (res && res.data) {
-      uiStore.setEnableEmbeddings(res.data.ENABLE_EMBEDDINGS)
+    await uiStore.fetchSystemSettings()
+    const provRes = await AIConfigAPI.listProviders()
+    const providers = provRes.data || []
+
+    if (!uiStore.hasCompletedOnboarding || providers.length === 0) {
+      uiStore.openOnboardingWizard()
     }
   } catch (error) {
-    console.warn("Could not load global settings", error)
+    console.warn("Could not initialize system config or check providers", error)
   }
 })
 </script>
@@ -41,6 +45,7 @@ onMounted(async () => {
     <IngestModal />
     <JobIntakeModal />
     <CoverLetterModal />
+    <OnboardingWizardModal />
     <QuickRetryModal />
     <IntakeQueueDrawer />
     <FloatingQueueWidget />

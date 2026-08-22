@@ -378,11 +378,13 @@ async def get_global_settings(
 ) -> GlobalSettingsRead:
     settings = await load_settings(db)
     return GlobalSettingsRead(
-        ENABLE_EMBEDDINGS=settings.get("ENABLE_EMBEDDINGS", True),
-        AGENT_CHAT_RETENTION_DAYS=settings.get("AGENT_CHAT_RETENTION_DAYS", 7),
-        ENABLE_AUTO_COVER_LETTER=settings.get("ENABLE_AUTO_COVER_LETTER", False),
-        COVER_LETTER_MATCH_THRESHOLD=settings.get("COVER_LETTER_MATCH_THRESHOLD", 70),
-        COVER_LETTER_LENGTH=settings.get("COVER_LETTER_LENGTH", "standard"),
+        ENABLE_EMBEDDINGS=settings.get("enable_embeddings", True),
+        AGENT_CHAT_RETENTION_DAYS=settings.get("agent_chat_retention_days", 7),
+        ENABLE_AUTO_COVER_LETTER=settings.get("enable_auto_cover_letter", False),
+        COVER_LETTER_MATCH_THRESHOLD=settings.get("cover_letter_match_threshold", 70),
+        COVER_LETTER_LENGTH=settings.get("cover_letter_length", "standard"),
+        ENABLE_EMAIL_INTAKE=settings.get("enable_email_intake", False),
+        HAS_COMPLETED_ONBOARDING=settings.get("has_completed_onboarding", False),
     )
 
 
@@ -393,22 +395,28 @@ async def update_global_settings(
 ) -> GlobalSettingsRead:
     settings = await load_settings(db)
     if payload.ENABLE_EMBEDDINGS is not None:
-        settings["ENABLE_EMBEDDINGS"] = payload.ENABLE_EMBEDDINGS
+        settings["enable_embeddings"] = payload.ENABLE_EMBEDDINGS
     if payload.AGENT_CHAT_RETENTION_DAYS is not None:
-        settings["AGENT_CHAT_RETENTION_DAYS"] = payload.AGENT_CHAT_RETENTION_DAYS
+        settings["agent_chat_retention_days"] = payload.AGENT_CHAT_RETENTION_DAYS
     if payload.ENABLE_AUTO_COVER_LETTER is not None:
-        settings["ENABLE_AUTO_COVER_LETTER"] = payload.ENABLE_AUTO_COVER_LETTER
+        settings["enable_auto_cover_letter"] = payload.ENABLE_AUTO_COVER_LETTER
     if payload.COVER_LETTER_MATCH_THRESHOLD is not None:
-        settings["COVER_LETTER_MATCH_THRESHOLD"] = payload.COVER_LETTER_MATCH_THRESHOLD
+        settings["cover_letter_match_threshold"] = payload.COVER_LETTER_MATCH_THRESHOLD
     if payload.COVER_LETTER_LENGTH is not None:
-        settings["COVER_LETTER_LENGTH"] = payload.COVER_LETTER_LENGTH
+        settings["cover_letter_length"] = payload.COVER_LETTER_LENGTH
+    if payload.ENABLE_EMAIL_INTAKE is not None:
+        settings["enable_email_intake"] = payload.ENABLE_EMAIL_INTAKE
+    if payload.HAS_COMPLETED_ONBOARDING is not None:
+        settings["has_completed_onboarding"] = payload.HAS_COMPLETED_ONBOARDING
     await save_settings(settings, db)
     return GlobalSettingsRead(
-        ENABLE_EMBEDDINGS=settings.get("ENABLE_EMBEDDINGS", True),
-        AGENT_CHAT_RETENTION_DAYS=settings.get("AGENT_CHAT_RETENTION_DAYS", 7),
-        ENABLE_AUTO_COVER_LETTER=settings.get("ENABLE_AUTO_COVER_LETTER", False),
-        COVER_LETTER_MATCH_THRESHOLD=settings.get("COVER_LETTER_MATCH_THRESHOLD", 70),
-        COVER_LETTER_LENGTH=settings.get("COVER_LETTER_LENGTH", "standard"),
+        ENABLE_EMBEDDINGS=settings.get("enable_embeddings", True),
+        AGENT_CHAT_RETENTION_DAYS=settings.get("agent_chat_retention_days", 7),
+        ENABLE_AUTO_COVER_LETTER=settings.get("enable_auto_cover_letter", False),
+        COVER_LETTER_MATCH_THRESHOLD=settings.get("cover_letter_match_threshold", 70),
+        COVER_LETTER_LENGTH=settings.get("cover_letter_length", "standard"),
+        ENABLE_EMAIL_INTAKE=settings.get("enable_email_intake", False),
+        HAS_COMPLETED_ONBOARDING=settings.get("has_completed_onboarding", False),
     )
 
 

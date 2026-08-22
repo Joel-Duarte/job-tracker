@@ -1,12 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { AIConfigAPI } from '../api/endpoints'
+import { SystemSettingsAPI, AIConfigAPI } from '../api/endpoints'
 
 export const useUIStore = defineStore('ui', () => {
   const theme = ref(localStorage.getItem('jt_theme') || 'midnight')
   const viewMode = ref(localStorage.getItem('jt_view_mode') || 'kanban') // 'kanban' | 'table'
   const isIngestModalOpen = ref(false)
   const isJobIntakeModalOpen = ref(false)
+  const isOnboardingWizardOpen = ref(false)
   const isCommandPaletteOpen = ref(false)
   const isCoverLetterModalOpen = ref(false)
   const coverLetterAppId = ref(null)
@@ -263,10 +264,49 @@ export const useUIStore = defineStore('ui', () => {
   }
 
   // Global Settings
+  const hasCompletedOnboarding = ref(false)
+  const enableEmailIntake = ref(false)
   const enableEmbeddings = ref(true)
   const enableAutoCoverLetter = ref(false)
   const coverLetterMatchThreshold = ref(70)
   const coverLetterLength = ref('standard')
+
+  function openOnboardingWizard() {
+    isOnboardingWizardOpen.value = true
+  }
+
+  function closeOnboardingWizard() {
+    isOnboardingWizardOpen.value = false
+  }
+
+  async function fetchSystemSettings() {
+    try {
+      const res = await SystemSettingsAPI.get()
+      if (res && res.data) {
+        hasCompletedOnboarding.value = res.data.has_completed_onboarding ?? false
+        enableEmailIntake.value = res.data.enable_email_intake ?? false
+        enableEmbeddings.value = res.data.enable_embeddings ?? true
+        enableAutoCoverLetter.value = res.data.enable_auto_cover_letter ?? false
+        coverLetterMatchThreshold.value = res.data.cover_letter_match_threshold ?? 70
+        coverLetterLength.value = res.data.cover_letter_length ?? 'standard'
+      }
+    } catch (err) {
+      // Fallback to global settings endpoint if system config fails
+      try {
+        const res = await AIConfigAPI.getGlobalSettings()
+        if (res && res.data) {
+          hasCompletedOnboarding.value = res.data.HAS_COMPLETED_ONBOARDING ?? false
+          enableEmailIntake.value = res.data.ENABLE_EMAIL_INTAKE ?? false
+          enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS ?? true
+          enableAutoCoverLetter.value = res.data.ENABLE_AUTO_COVER_LETTER ?? false
+          coverLetterMatchThreshold.value = res.data.COVER_LETTER_MATCH_THRESHOLD ?? 70
+          coverLetterLength.value = res.data.COVER_LETTER_LENGTH ?? 'standard'
+        }
+      } catch (fallbackErr) {
+        console.warn('Failed to load system settings', fallbackErr)
+      }
+    }
+  }
 
   function setEnableEmbeddings(val) {
     enableEmbeddings.value = val
@@ -446,6 +486,9 @@ export const useUIStore = defineStore('ui', () => {
     SUPPORTED_CURRENCIES,
     isIngestModalOpen,
     isJobIntakeModalOpen,
+    isOnboardingWizardOpen,
+    openOnboardingWizard,
+    closeOnboardingWizard,
     isCommandPaletteOpen,
     isCoverLetterModalOpen,
     coverLetterAppId,
@@ -476,11 +519,14 @@ export const useUIStore = defineStore('ui', () => {
     updateIntakeTask,
     removeIntakeTask,
     clearCompletedIntakeTasks,
+    hasCompletedOnboarding,
+    enableEmailIntake,
     enableEmbeddings,
     setEnableEmbeddings,
     enableAutoCoverLetter,
     coverLetterMatchThreshold,
     coverLetterLength,
+    fetchSystemSettings,
     autoArchiveEnabled,
     autoArchiveDays,
     setAutoArchiveEnabled,
