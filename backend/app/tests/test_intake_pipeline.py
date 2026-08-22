@@ -10,6 +10,7 @@ from app.models.applications import (
     CompanyModel,
     OtherEventModel,
 )
+from app.models.email_accounts import EmailAccountModel
 from app.schemas.intake import EmailPayload, ExtractedEmailInfo
 from app.services.email_fetcher import fetch_emails_from_account
 from app.services.intake import process_email_batch_sequential
@@ -177,19 +178,26 @@ async def test_process_non_job_email(db_session):
 
 
 @pytest.mark.asyncio
-async def test_mock_imap_email_fetching(sample_email_account):
+async def test_mock_imap_email_fetching():
     """Test IMAP fetcher wrapper with mocked imaplib sync calls."""
-    with patch("app.services.email_fetcher._fetch_imap_emails_sync") as mock_sync_fetch:
-        mock_sync_fetch.return_value = [
-            EmailPayload(
-                conversation_id="mock-1",
-                received_at=datetime.now(UTC),
-                subject="Test Subject",
-                body="Test Body",
-            )
-        ]
-
-        emails, _ = await fetch_emails_from_account(sample_email_account)
+    account = EmailAccountModel(
+        id=1,
+        name="Test Gmail",
+        auth_type="IMAP",
+        imap_host="imap.gmail.com",
+        username="test@gmail.com",
+    )
+    mock_payload = EmailPayload(
+        conversation_id="mock-1",
+        received_at=datetime.now(UTC),
+        subject="Test Subject",
+        body="Test Body",
+    )
+    with patch(
+        "app.services.email_fetcher._fetch_imap_emails_sync",
+        return_value=[mock_payload],
+    ) as mock_sync_fetch:
+        emails, _ = await fetch_emails_from_account(account)
         assert len(emails) == 1
         assert emails[0].subject == "Test Subject"
-        mock_sync_fetch.assert_called_once()
+        mock_sync_fetch.assert_called_once_with(account, None)

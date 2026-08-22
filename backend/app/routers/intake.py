@@ -37,7 +37,6 @@ from app.schemas.intake import (
     BulkTaskActionResult,
     ConfirmAssessmentRequest,
     DirectEmailIntakeRequest,
-    EmailPayload,
     EnqueueAssessmentRequest,
     FixJDRequest,
     IntakeEvaluationTaskResponse,
@@ -49,10 +48,6 @@ from app.services.domain_resolver import resolve_company_domain
 from app.services.email_fetcher import fetch_emails_from_account
 from app.services.evaluation_worker import process_evaluation_task
 from app.services.file_parser import parse_uploaded_file
-from app.services.intake import (
-    process_email_batch_sequential,
-    process_single_email_graph,
-)
 from app.services.llm import assess_job_posting
 from app.services.scraper import scrape_job_url
 from app.services.task_tracker import task_tracker
@@ -269,14 +264,13 @@ def _format_graph_result(result: dict[str, Any]) -> IntakeResultResponse:
     )
 
 
-@router.post(
-    "/paste", response_model=IntakeResultResponse, status_code=status.HTTP_200_OK
-)
+@router.post("/paste", status_code=status.HTTP_200_OK)
 async def intake_pasted_text(
     payload: PasteIntakeRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-) -> IntakeResultResponse:
-    """Ingests raw pasted email text, thread, or job communication directly."""
+):
+    """Ingests raw pasted email text, thread, or job communication by queuing an AI task."""
     raw_text = payload.text.strip()
     if not raw_text:
         raise HTTPException(
@@ -295,61 +289,114 @@ async def intake_pasted_text(
     conv_id = payload.conversation_id or f"conv-{content_hash}"
     received_at = payload.received_at or datetime.now(UTC)
 
-    email_payload = EmailPayload(
-        conversation_id=conv_id,
-        message_id=msg_id,
-        received_at=received_at,
-        subject=subject,
-        body=raw_text,
+    email_dict = {
+        "conversation_id": conv_id,
+        "message_id": msg_id,
+        "received_at": received_at.isoformat()
+        if hasattr(received_at, "isoformat")
+        else str(received_at),
+        "subject": subject,
+        "body": raw_text,
+    }
+
+    task = IntakeEvaluationTaskModel(
+        task_type="EMAIL_SYNC",
+        title_hint=f"Pasted Email: {subject[:50]}",
+        raw_text=raw_text,
+        status="QUEUED",
+        stage="QUEUED",
+        result_json={
+            "total_emails": 1,
+            "processed_count": 0,
+            "emails": [email_dict],
+        },
     )
+    db.add(task)
+    await db.commit()
+    await db.refresh(task)
 
-    task_id = str(uuid.uuid4())
-    result = await process_single_email_graph(db, email_payload, task_id)
-    return _format_graph_result(result)
+    background_tasks.add_task(process_evaluation_task, int(task.id))
+
+    return {
+        "status": "queued",
+        "task_id": task.id,
+        "message": "Pasted email queued for AI extraction.",
+    }
 
 
-@router.post(
-    "/upload", response_model=list[IntakeResultResponse], status_code=status.HTTP_200_OK
-)
+@router.post("/upload", status_code=status.HTTP_200_OK)
 async def intake_uploaded_files(
+    background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(
         ..., description="Uploaded .eml, .msg, or .txt files"
     ),
     db: AsyncSession = Depends(get_db),
-) -> list[IntakeResultResponse]:
-    """Ingests drag-and-drop uploaded email files (.eml, .msg, .txt)."""
+):
+    """Ingests drag-and-drop uploaded email files (.eml, .msg, .txt) by queuing an AI task."""
     if not files:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No files provided for upload.",
         )
 
-    results: list[IntakeResultResponse] = []
-
+    parsed_emails = []
     for file in files:
         filename = file.filename or "uploaded_file.txt"
         try:
             content = await file.read()
             if not content:
                 continue
-
             email_payload = parse_uploaded_file(filename, content)
-            task_id = str(uuid.uuid4())
-            graph_res = await process_single_email_graph(db, email_payload, task_id)
-            results.append(_format_graph_result(graph_res))
+            parsed_emails.append(
+                {
+                    "message_id": email_payload.message_id
+                    or f"upload-{uuid.uuid4().hex[:8]}",
+                    "conversation_id": email_payload.conversation_id
+                    or f"conv-{uuid.uuid4().hex[:8]}",
+                    "sender": getattr(email_payload, "sender", None),
+                    "subject": email_payload.subject,
+                    "body": email_payload.body,
+                    "received_at": email_payload.received_at.isoformat()
+                    if hasattr(email_payload.received_at, "isoformat")
+                    else str(email_payload.received_at)
+                    if email_payload.received_at
+                    else None,
+                }
+            )
         except Exception as err:
             logger.error(
                 "Failed processing uploaded file '%s': %s", filename, err, exc_info=True
             )
-            results.append(
-                IntakeResultResponse(
-                    status="error",
-                    route="error",
-                    message=f"Failed to parse file '{filename}': {err!s}",
-                )
-            )
 
-    return results
+    if not parsed_emails:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No valid email files could be parsed.",
+        )
+
+    task = IntakeEvaluationTaskModel(
+        task_type="EMAIL_SYNC",
+        title_hint=f"Uploaded Emails ({len(parsed_emails)} file{'s' if len(parsed_emails) > 1 else ''})",
+        status="QUEUED",
+        stage="QUEUED",
+        result_json={
+            "total_emails": len(parsed_emails),
+            "processed_count": 0,
+            "emails": parsed_emails,
+        },
+    )
+    db.add(task)
+    await db.commit()
+    await db.refresh(task)
+
+    background_tasks.add_task(process_evaluation_task, int(task.id))
+
+    return {
+        "status": "queued",
+        "task_id": task.id,
+        "total_files": len(parsed_emails),
+        "message": f"{len(parsed_emails)} email file(s) queued for AI extraction.",
+    }
 
 
 @router.post(
@@ -603,8 +650,9 @@ async def sync_email_account(
        BUILT_IN_JOB_KEYWORDS + payload.keyword_filter.  Write filtered_out record.
     4. Dispatch the surviving emails to process_email_batch_sequential (background).
     """
-    from app.core.config_manager import load_settings
     from fastapi.responses import JSONResponse
+
+    from app.core.config_manager import load_settings
 
     settings = await load_settings(db)
     if not settings.get("enable_email_intake", False):
@@ -736,20 +784,48 @@ async def sync_email_account(
             filtered_out_count=filtered_out_count,
         )
 
-    # --- Step 4: Background processing ---
-    background_tasks.add_task(
-        process_email_batch_sequential,
-        db=db,
-        emails=to_process,
-        task_id=task_id,
+    account_name = account.name or account.username or f"Account #{account.id}"
+    db_task = IntakeEvaluationTaskModel(
+        task_type="EMAIL_SYNC",
+        title_hint=f"Email Sync: {account_name} ({matched_count} email{'s' if matched_count > 1 else ''})",
+        status="QUEUED",
+        stage="QUEUED",
+        result_json={
+            "account_id": account.id,
+            "account_name": account_name,
+            "total_emails": matched_count,
+            "processed_count": 0,
+            "success_count": 0,
+            "failed_count": 0,
+            "emails": [
+                {
+                    "message_id": email.message_id,
+                    "conversation_id": email.conversation_id,
+                    "sender": getattr(email, "sender", None),
+                    "subject": email.subject,
+                    "body": email.body,
+                    "received_at": email.received_at.isoformat()
+                    if hasattr(email.received_at, "isoformat")
+                    else str(email.received_at)
+                    if email.received_at
+                    else None,
+                }
+                for email in to_process
+            ],
+        },
     )
+    db.add(db_task)
+    await db.commit()
+    await db.refresh(db_task)
+
+    # --- Step 4: Background processing via persistent evaluation worker ---
+    background_tasks.add_task(process_evaluation_task, int(db_task.id))
 
     return TaskResponse(
-        task_id=task_id,
+        task_id=str(db_task.id),
         message=(
-            f"Sync started: {matched_count} email(s) queued for AI extraction. "
-            f"{skipped_duplicates} duplicate(s) skipped, {filtered_out_count} filtered out. "
-            f"Track progress: GET /api/v1/intake/tasks/{task_id}"
+            f"Sync started: {matched_count} email(s) queued for AI extraction in AI Queue. "
+            f"{skipped_duplicates} duplicate(s) skipped, {filtered_out_count} filtered out."
         ),
         scanned_count=scanned_count,
         matched_count=matched_count,
@@ -759,15 +835,31 @@ async def sync_email_account(
 
 
 @router.get("/tasks/{task_id}")
-async def get_task_status(task_id: str):
+async def get_task_status(task_id: str, db: AsyncSession = Depends(get_db)):
     """Retrieves live progress for an ongoing or completed email intake task."""
     task_info = task_tracker.get_task(task_id)
-    if not task_info:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task with ID {task_id} not found.",
-        )
-    return task_info
+    if task_info:
+        return task_info
+
+    if task_id.isdigit():
+        eval_task = await db.get(IntakeEvaluationTaskModel, int(task_id))
+        if eval_task:
+            return {
+                "task_id": str(eval_task.id),
+                "status": eval_task.status,
+                "stage": eval_task.stage,
+                "total_emails": (eval_task.result_json or {}).get("total_emails", 0),
+                "processed_count": (eval_task.result_json or {}).get(
+                    "processed_count", 0
+                ),
+                "progress_pct": (eval_task.result_json or {}).get("progress_pct", 0),
+                "current_subject": (eval_task.result_json or {}).get("current_subject"),
+            }
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Task with ID {task_id} not found.",
+    )
 
 
 @router.post(
@@ -777,37 +869,44 @@ async def get_task_status(task_id: str):
 )
 async def intake_direct_raw_email(
     payload: DirectEmailIntakeRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    """Directly ingests a raw email payload for immediate testing."""
+    """Directly ingests a raw email payload by queuing an AI task."""
     now = datetime.now(UTC)
     conv_id = payload.conversation_id or f"test-conv-{uuid.uuid4().hex[:8]}"
     msg_id = payload.message_id or f"test-msg-{uuid.uuid4().hex[:8]}"
     received_at = payload.received_at or now
 
-    email_item = EmailPayload(
-        conversation_id=conv_id,
-        message_id=msg_id,
-        received_at=received_at,
-        subject=payload.subject,
-        body=payload.body,
+    email_dict = {
+        "conversation_id": conv_id,
+        "message_id": msg_id,
+        "received_at": received_at.isoformat(),
+        "subject": payload.subject,
+        "body": payload.body,
+    }
+
+    task = IntakeEvaluationTaskModel(
+        task_type="EMAIL_SYNC",
+        title_hint=f"Direct Email: {payload.subject[:50]}",
+        status="QUEUED",
+        stage="QUEUED",
+        result_json={
+            "total_emails": 1,
+            "processed_count": 0,
+            "emails": [email_dict],
+        },
     )
+    db.add(task)
+    await db.commit()
+    await db.refresh(task)
 
-    task_id = task_tracker.create_task(total_emails=1)
-
-    await process_email_batch_sequential(
-        db=db,
-        emails=[email_item],
-        task_id=task_id,
-    )
-
-    task_summary = task_tracker.get_task(task_id)
+    background_tasks.add_task(process_evaluation_task, int(task.id))
 
     return {
-        "status": "success",
-        "message": "Direct email processed successfully.",
-        "task_id": task_id,
-        "details": task_summary,
+        "status": "queued",
+        "task_id": task.id,
+        "message": "Direct email queued for AI processing.",
     }
 
 

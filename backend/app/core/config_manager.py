@@ -51,8 +51,12 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
         enable_embeddings = getattr(model, "enable_embeddings", True)
         agent_chat_retention_days = getattr(model, "agent_chat_retention_days", 7)
         enable_auto_cover_letter = getattr(model, "enable_auto_cover_letter", False)
-        cover_letter_match_threshold = getattr(model, "cover_letter_match_threshold", 70)
-        cover_letter_length = getattr(model, "cover_letter_length", "standard") or "standard"
+        cover_letter_match_threshold = getattr(
+            model, "cover_letter_match_threshold", 70
+        )
+        cover_letter_length = (
+            getattr(model, "cover_letter_length", "standard") or "standard"
+        )
 
         return {
             "has_completed_onboarding": has_completed_onboarding,

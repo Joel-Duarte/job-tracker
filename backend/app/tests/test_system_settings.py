@@ -1,5 +1,6 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
+
 from app.main import app
 from app.models.email_accounts import EmailAccountModel
 from app.services.email_fetcher import fetch_emails_from_account

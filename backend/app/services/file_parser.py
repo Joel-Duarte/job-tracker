@@ -319,15 +319,16 @@ def normalize_resume_text(text: str) -> str:
             len(line.split()) <= 5
             and not line.endswith((".", ",", ";"))
             and not is_current_bullet
-            and (
-                line in known_headers
-                or (line.isupper() and len(line) > 2)
-            )
+            and (line in known_headers or (line.isupper() and len(line) > 2))
         )
 
         is_prev_section = (
             prev_line in known_headers
-            or (len(prev_line.split()) <= 5 and prev_line.isupper() and len(prev_line) > 2)
+            or (
+                len(prev_line.split()) <= 5
+                and prev_line.isupper()
+                and len(prev_line) > 2
+            )
             or is_prev_header
         )
 
@@ -347,12 +348,6 @@ def normalize_resume_text(text: str) -> str:
         )
 
         is_prev_sentence_end = prev_line.endswith((".", "!", "?"))
-        is_short_fragment = (
-            len(line.split()) <= 2
-            or len(line) <= 25
-            or line[0].islower()
-            or line.startswith((",", ";", ")", "]", "/"))
-        )
 
         if is_prev_connector:
             should_merge = True

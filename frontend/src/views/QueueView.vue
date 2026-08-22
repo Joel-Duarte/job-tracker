@@ -28,6 +28,7 @@ import {
   SlidersHorizontal,
   RotateCcw,
   Edit3,
+  Mail,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -378,6 +379,14 @@ onMounted(() => {
             <FileText :size="12" />
             <span>Cover Letters</span>
           </button>
+          <button
+            class="type-pill"
+            :class="{ active: typeFilter === 'EMAIL_SYNC' }"
+            @click="typeFilter = 'EMAIL_SYNC'"
+          >
+            <Mail :size="12" />
+            <span>Email Sync</span>
+          </button>
         </div>
 
         <!-- Actions: Search, Refresh, Clear Completed -->
@@ -448,11 +457,11 @@ onMounted(() => {
             class="btn btn-secondary btn-sm btn-bulk-retry"
             :disabled="isBulkActing || selectedFailedTasksCount === 0"
             @click="bulkRetrySelected"
-            :title="selectedFailedTasksCount > 0 ? `Retry ${selectedFailedTasksCount} failed task(s)` : 'No failed tasks in selection'"
+            title="Retry failed tasks"
           >
             <Loader2 v-if="isBulkActing" class="animate-spin" :size="13" />
             <RotateCcw v-else :size="13" />
-            <span>Retry Failed ({{ selectedFailedTasksCount }})</span>
+            <span>Retry Selected ({{ selectedFailedTasksCount }})</span>
           </button>
 
           <!-- Delete Selected -->
@@ -467,33 +476,27 @@ onMounted(() => {
           </button>
 
           <!-- Clear Selection -->
-          <button
-            class="btn btn-ghost btn-sm btn-clear-selection"
-            @click="clearSelection"
-          >
-            <XCircle :size="13" />
-            <span>Clear</span>
+          <button class="btn btn-ghost btn-sm" @click="clearSelection">
+            Cancel
           </button>
         </div>
       </div>
     </Transition>
 
-    <!-- Manual Job Description Modal Dialog -->
+    <!-- Fix JD / Description Error Resolution Modal -->
     <div v-if="showFixJDModal" class="modal-backdrop" @click.self="showFixJDModal = false">
-      <div class="modal-card modal-card-large animate-scale-in">
+      <div class="modal-card animate-scale-in">
         <div class="modal-header">
-          <Edit3 :size="20" class="text-primary flex-shrink-0" />
-          <h3 class="modal-title">
-            {{ activeFixJDTask?.raw_text && activeFixJDTask.raw_text.trim() ? 'Edit Job Description' : 'Provide Job Description' }} — Task #{{ activeFixJDTask?.id }}
-          </h3>
+          <Edit3 :size="18" class="text-primary flex-shrink-0" />
+          <h3 class="modal-title">Provide / Fix Job Description</h3>
         </div>
         <div class="modal-body">
-          <p class="modal-subtext text-muted">
-            Supply or paste the full job description text below to retry evaluation without relying on automated web scraping.
+          <p class="modal-desc">
+            Automated scraping was protected or incomplete. Paste the job description below to re-run AI evaluation.
           </p>
 
           <div class="form-group">
-            <label class="form-label">Job URL (Optional)</label>
+            <label class="form-label">Job Posting URL (Optional)</label>
             <input
               v-model="fixJDJobUrl"
               type="url"
@@ -604,7 +607,7 @@ onMounted(() => {
         <Clock :size="40" class="empty-state-icon" />
         <h3 class="empty-state-title">No tasks in queue</h3>
         <p class="empty-state-desc">
-          {{ tasks.length === 0 ? 'Queue is currently idle. Ingest a job posting or upload a CV to initiate processing.' : 'No tasks match your active filters.' }}
+          {{ tasks.length === 0 ? 'Queue is currently idle. Ingest a job posting, sync an email account, or upload a CV to initiate processing.' : 'No tasks match your active filters.' }}
         </p>
       </div>
 
@@ -635,11 +638,12 @@ onMounted(() => {
                   'type-cv': task.task_type === 'CV_EXTRACTION',
                   'type-job': task.task_type === 'JOB_ASSESSMENT' || !task.task_type,
                   'type-embedding': task.task_type === 'EMBEDDING',
-                  'type-cover-letter': task.task_type === 'COVER_LETTER'
+                  'type-cover-letter': task.task_type === 'COVER_LETTER',
+                  'type-email-sync': task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE'
                 }"
               >
-                <component :is="task.task_type === 'CV_EXTRACTION' ? UserCheck : (task.task_type === 'EMBEDDING' ? Layers : (task.task_type === 'COVER_LETTER' ? FileText : Briefcase))" :size="12" />
-                <span>{{ task.task_type === 'CV_EXTRACTION' ? 'CV Profile Extraction' : (task.task_type === 'EMBEDDING' ? 'Vector Embedding' : (task.task_type === 'COVER_LETTER' ? 'Cover Letter Generation' : 'Job Assessment')) }}</span>
+                <component :is="task.task_type === 'CV_EXTRACTION' ? UserCheck : (task.task_type === 'EMBEDDING' ? Layers : (task.task_type === 'COVER_LETTER' ? FileText : (task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE' ? Mail : Briefcase)))" :size="12" />
+                <span>{{ task.task_type === 'CV_EXTRACTION' ? 'CV Profile Extraction' : (task.task_type === 'EMBEDDING' ? 'Vector Embedding' : (task.task_type === 'COVER_LETTER' ? 'Cover Letter Generation' : (task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE' ? 'Email Sync' : 'Job Assessment'))) }}</span>
               </span>
               <span class="task-title-text" :title="task.title_hint || task.job_url">
                 {{ task.title_hint || task.job_url || `Task #${task.id}` }}
@@ -692,7 +696,7 @@ onMounted(() => {
           <!-- DEDICATED PIPELINE STEPPERS -->
           <div class="task-pipeline-container">
             <!-- 1. JOB ASSESSMENT STEPPER (Conditional 5 or 6 Stages based on enableAutoCoverLetter) -->
-            <div v-if="task.task_type !== 'CV_EXTRACTION' && task.task_type !== 'EMBEDDING' && task.task_type !== 'COVER_LETTER'" class="pipeline-stepper job-stepper">
+            <div v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'EMAIL_SYNC', 'EMAIL_INTAKE'].includes(task.task_type)" class="pipeline-stepper job-stepper">
               <div
                 class="stepper-node"
                 :class="{
@@ -752,11 +756,12 @@ onMounted(() => {
               <div
                 class="stepper-node"
                 :class="{
-                  done: ['COMPLETE', 'STAGED_DUPLICATE'].includes(task.stage) || task.status === 'COMPLETED',
+                  active: task.stage === 'SAVING',
+                  done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
                 }"
               >
-                <div class="node-bullet">{{ uiStore.enableAutoCoverLetter ? 6 : 5 }}</div>
-                <span class="node-label">{{ task.stage === 'STAGED_DUPLICATE' ? 'Staged' : 'Complete' }}</span>
+                <div class="node-bullet">{{ uiStore.enableAutoCoverLetter ? '6' : '5' }}</div>
+                <span class="node-label">Saved</span>
               </div>
             </div>
 
@@ -770,7 +775,7 @@ onMounted(() => {
                 }"
               >
                 <div class="node-bullet">1</div>
-                <span class="node-label">Privacy Scrubbing</span>
+                <span class="node-label">PII Scrubbing</span>
               </div>
 
               <div
@@ -781,7 +786,7 @@ onMounted(() => {
                 }"
               >
                 <div class="node-bullet">2</div>
-                <span class="node-label">Skills &amp; Domain Extraction</span>
+                <span class="node-label">Extracting Skills</span>
               </div>
 
               <div
@@ -792,7 +797,7 @@ onMounted(() => {
                 }"
               >
                 <div class="node-bullet">3</div>
-                <span class="node-label">Update Candidate Profile</span>
+                <span class="node-label">Saving Profile</span>
               </div>
 
               <div
@@ -875,6 +880,54 @@ onMounted(() => {
                 <span class="node-label">Cover Letter Ready</span>
               </div>
             </div>
+
+            <!-- 5. EMAIL SYNC PROGRESS / SUMMARY -->
+            <div v-else-if="task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE'" class="email-sync-progress-box">
+              <div v-if="task.status === 'PROCESSING' || task.status === 'QUEUED'" class="email-sync-progress-container">
+                <div class="email-sync-progress-header">
+                  <span class="email-sync-step-label">
+                    {{ task.stage && task.stage !== 'QUEUED' ? task.stage : 'Queued for email extraction...' }}
+                  </span>
+                  <span class="email-sync-pct-badge font-mono">
+                    {{ task.result_json?.progress_pct !== undefined ? task.result_json.progress_pct : 0 }}%
+                  </span>
+                </div>
+                <div class="email-sync-progress-bar-track">
+                  <div
+                    class="email-sync-progress-bar-fill"
+                    :style="{ width: `${task.result_json?.progress_pct !== undefined ? task.result_json.progress_pct : 0}%` }"
+                  ></div>
+                </div>
+                <div v-if="task.result_json?.current_subject" class="email-sync-current-subject">
+                  <Mail :size="11" class="flex-shrink-0 text-primary" />
+                  <span class="truncate">Current: {{ task.result_json.current_subject }}</span>
+                </div>
+              </div>
+
+              <!-- Completed Summary Stats -->
+              <div v-else-if="task.status === 'COMPLETED' && task.result_json" class="email-sync-summary-grid">
+                <div class="email-summary-stat">
+                  <span class="stat-num">{{ task.result_json.total_emails || 0 }}</span>
+                  <span class="stat-lbl">Emails Processed</span>
+                </div>
+                <div class="email-summary-stat" v-if="task.result_json.applications_count">
+                  <span class="stat-num text-success">{{ task.result_json.applications_count }}</span>
+                  <span class="stat-lbl">Apps Created/Updated</span>
+                </div>
+                <div class="email-summary-stat" v-if="task.result_json.events_count">
+                  <span class="stat-num text-primary">{{ task.result_json.events_count }}</span>
+                  <span class="stat-lbl">Events Logged</span>
+                </div>
+                <div class="email-summary-stat" v-if="task.result_json.staged_count">
+                  <span class="stat-num text-warning">{{ task.result_json.staged_count }}</span>
+                  <span class="stat-lbl">Staged for Review</span>
+                </div>
+                <div class="email-summary-stat" v-if="task.result_json.skipped_duplicates">
+                  <span class="stat-num text-muted">{{ task.result_json.skipped_duplicates }}</span>
+                  <span class="stat-lbl">Duplicates Skipped</span>
+                </div>
+              </div>
+            </div>
           </div>
           
           <!-- Error Alert Banner with Provide/Edit Description & Retry Actions -->
@@ -909,7 +962,7 @@ onMounted(() => {
           <!-- Result Footer & Contextual Actions -->
           <div v-else-if="task.status === 'COMPLETED' && task.result_json" class="task-card-footer">
             <!-- Job Assessment Context -->
-            <template v-if="task.task_type !== 'CV_EXTRACTION' && task.task_type !== 'EMBEDDING' && task.task_type !== 'COVER_LETTER'">
+            <template v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'EMAIL_SYNC', 'EMAIL_INTAKE'].includes(task.task_type)">
               <div class="footer-left">
                 <span class="score-badge algo-score-badge">
                   Algo: {{ getFitScores(task.result_json).computedText }}
@@ -965,6 +1018,34 @@ onMounted(() => {
                 <span v-if="task.result_json.company" class="footer-meta-text">
                   {{ task.result_json.company }} • {{ task.result_json.position || 'Position' }}
                 </span>
+              </div>
+            </template>
+
+            <!-- Email Sync Context -->
+            <template v-else-if="task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE'">
+              <div class="footer-left">
+                <span class="badge-cv-ready">
+                  <Mail :size="12" />
+                  <span>Email Sync Complete • {{ task.result_json.total_emails || 0 }} emails</span>
+                </span>
+                <span v-if="task.result_json.applications_count" class="footer-meta-text">
+                  {{ task.result_json.applications_count }} application(s) updated
+                </span>
+              </div>
+              <div class="footer-right flex items-center gap-2">
+                <router-link
+                  v-if="task.result_json.staged_count"
+                  to="/staging"
+                  class="btn btn-warning btn-xs"
+                >
+                  <span>Review Staging ({{ task.result_json.staged_count }}) &rarr;</span>
+                </router-link>
+                <router-link
+                  to="/applications"
+                  class="btn btn-primary btn-xs"
+                >
+                  <span>View Board &rarr;</span>
+                </router-link>
               </div>
             </template>
           </div>
@@ -1404,6 +1485,98 @@ onMounted(() => {
   background-color: var(--status-interview-bg);
   color: var(--status-interview-text);
   border: 1px solid var(--status-interview-border);
+}
+
+.task-type-tag.type-email-sync {
+  background-color: var(--primary-subtle);
+  color: var(--primary);
+  border: 1px solid var(--primary-glow);
+}
+
+.email-sync-progress-box {
+  width: 100%;
+  padding: 4px 0;
+}
+
+.email-sync-progress-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.email-sync-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.email-sync-step-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.email-sync-pct-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.email-sync-progress-bar-track {
+  width: 100%;
+  height: 6px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.email-sync-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), var(--primary-hover, var(--primary)));
+  border-radius: var(--radius-full);
+  transition: width 0.3s ease;
+}
+
+.email-sync-current-subject {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.email-sync-summary-grid {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.email-summary-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+
+.email-summary-stat .stat-num {
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.email-summary-stat .stat-lbl {
+  color: var(--text-secondary);
 }
 
 .task-title-text {

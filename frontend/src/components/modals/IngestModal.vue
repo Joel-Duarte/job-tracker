@@ -123,7 +123,7 @@ async function handlePasteSubmit() {
     ingestResult.value = res.data
     pasteText.value = ''
     pasteSubject.value = ''
-    uiStore.showToast('Intake processed successfully', 'success')
+    uiStore.showToast('Pasted email queued for AI extraction', 'success')
     appStore.fetchApplications()
   } catch (err) {
     uiStore.showToast(err.message, 'error')
@@ -152,9 +152,10 @@ async function handleUploadSubmit() {
       formData.append('files', file)
     }
     const res = await IntakeAPI.upload(formData)
-    ingestResult.value = { isBatch: true, items: res.data }
+    ingestResult.value = res.data
+    const count = selectedFiles.value.length
     selectedFiles.value = []
-    uiStore.showToast(`Uploaded ${res.data.length} files`, 'success')
+    uiStore.showToast(`Queued ${count} email file(s) for AI processing`, 'success')
     appStore.fetchApplications()
   } catch (err) {
     uiStore.showToast(err.message, 'error')
@@ -183,7 +184,7 @@ async function handleEmailSync() {
       keyword_filter: keywords,
     })
     syncResult.value = res.data
-    uiStore.showToast('Email sync started', 'success')
+    uiStore.showToast(res.data.message || 'Email sync queued for AI extraction', 'success')
     appStore.fetchApplications()
   } catch (err) {
     uiStore.showToast(err?.response?.data?.detail || err.message, 'error')

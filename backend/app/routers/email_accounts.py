@@ -301,7 +301,9 @@ async def oauth_callback(
                 media_type="text/html",
                 status_code=400,
             )
-            response.delete_cookie(_STATE_COOKIE_NAME, path="/api/v1/email_accounts/oauth")
+            response.delete_cookie(
+                _STATE_COOKIE_NAME, path="/api/v1/email_accounts/oauth"
+            )
             return response
 
         if not code:
@@ -707,9 +709,7 @@ async def fetch_account_folders(
                         else:
                             # User label (can be nested like Projects/Jobs)
                             display_name = (
-                                lbl_name.split("/")[-1]
-                                if "/" in lbl_name
-                                else lbl_name
+                                lbl_name.split("/")[-1] if "/" in lbl_name else lbl_name
                             )
                             path = lbl_name.replace("/", " / ")
 
@@ -864,7 +864,9 @@ async def fetch_account_folders(
                         resp.text,
                     )
         except Exception as e:
-            logger.warning("Error fetching MS Graph delta folders: %s", e, exc_info=True)
+            logger.warning(
+                "Error fetching MS Graph delta folders: %s", e, exc_info=True
+            )
         return [
             MailFolderItem(id="Inbox", name="Inbox", path="Inbox"),
             MailFolderItem(id="Archive", name="Archive", path="Archive"),

@@ -11,6 +11,16 @@ from app.routers.intake import SyncFolderRequest, sync_email_account
 from app.schemas.intake import EmailPayload
 
 
+@pytest.fixture(autouse=True)
+def enable_email_intake_mock():
+    with patch(
+        "app.core.config_manager.load_settings",
+        new_callable=AsyncMock,
+        return_value={"enable_email_intake": True},
+    ):
+        yield
+
+
 @pytest.mark.asyncio
 async def test_sync_email_account_keyword_prefilter(
     db_session: AsyncSession, sample_email_account
@@ -125,3 +135,96 @@ async def test_sync_email_account_deduplication(
         assert res.matched_count == 0
         assert res.skipped_duplicates == 1
         assert res.filtered_out_count == 0
+
+
+@pytest.mark.asyncio
+async def test_sync_email_account_creates_queue_task(
+    db_session: AsyncSession, sample_email_account
+):
+    """Test that sync_email_account creates a persistent IntakeEvaluationTaskModel for AI extraction."""
+    from app.models.intake_tasks import IntakeEvaluationTaskModel
+
+    job_email = EmailPayload(
+        message_id="msg-queue-005",
+        conversation_id="conv-queue-005",
+        received_at=datetime.now(UTC),
+        subject="Interview Invitation from Figma",
+        body="We would love to schedule a technical interview.",
+    )
+
+    bg_tasks = BackgroundTasks()
+
+    with (
+        patch(
+            "app.routers.intake.fetch_emails_from_account", new_callable=AsyncMock
+        ) as mock_fetch,
+        patch("app.routers.intake.process_evaluation_task"),
+    ):
+        mock_fetch.return_value = ([job_email], None)
+
+        req = SyncFolderRequest(account_id=sample_email_account.id)
+        res = await sync_email_account(req, bg_tasks, db_session)
+
+        assert res.scanned_count == 1
+        assert res.matched_count == 1
+        task_id = int(res.task_id)
+
+        task = await db_session.get(IntakeEvaluationTaskModel, task_id)
+        assert task is not None
+        assert task.task_type == "EMAIL_SYNC"
+        assert task.status == "QUEUED"
+        assert task.result_json is not None
+        assert task.result_json["total_emails"] == 1
+        assert (
+            task.result_json["emails"][0]["subject"]
+            == "Interview Invitation from Figma"
+        )
+
+
+@pytest.mark.asyncio
+async def test_execute_email_sync_steps(db_session: AsyncSession, sample_email_account):
+    """Test that _execute_email_sync_steps processes emails and updates progress."""
+    from app.models.intake_tasks import IntakeEvaluationTaskModel
+    from app.services.evaluation_worker import _execute_email_sync_steps
+
+    task = IntakeEvaluationTaskModel(
+        task_type="EMAIL_SYNC",
+        title_hint="Email Sync Test (1 email)",
+        status="QUEUED",
+        stage="QUEUED",
+        result_json={
+            "total_emails": 1,
+            "processed_count": 0,
+            "emails": [
+                {
+                    "message_id": "msg-worker-006",
+                    "conversation_id": "conv-worker-006",
+                    "subject": "Offer from Stripe",
+                    "body": "Congratulations, we are pleased to offer you the role of Senior Engineer.",
+                    "received_at": datetime.now(UTC).isoformat(),
+                }
+            ],
+        },
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    with patch(
+        "app.services.intake.process_single_email_graph", new_callable=AsyncMock
+    ) as mock_graph:
+        mock_graph.return_value = {
+            "is_application": True,
+            "company_name": "Stripe",
+            "position_name": "Senior Engineer",
+            "application_id": 1,
+            "event_id": 1,
+        }
+
+        await _execute_email_sync_steps(task, db_session)
+
+        assert task.status == "COMPLETED"
+        assert task.stage == "COMPLETE"
+        assert task.result_json["processed_count"] == 1
+        assert task.result_json["applications_count"] == 1
+        assert task.result_json["progress_pct"] == 100
