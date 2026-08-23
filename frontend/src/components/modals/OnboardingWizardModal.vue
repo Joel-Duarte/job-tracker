@@ -602,6 +602,69 @@ async function fetchUserFolders(accountId) {
   }
 }
 
+let oauthPollInterval = null
+let oauthBroadcastChannel = null
+const isCheckingOAuthStatus = ref(false)
+
+function stopOAuthWatcher() {
+  if (oauthPollInterval) {
+    clearInterval(oauthPollInterval)
+    oauthPollInterval = null
+  }
+}
+
+async function handleOAuthSuccess(matchingAccount = null) {
+  stopOAuthWatcher()
+  emailConnected.value = true
+  emailSubStep.value = 3
+
+  try {
+    let target = matchingAccount
+    if (!target) {
+      const listRes = await EmailAccountsAPI.list()
+      const accounts = listRes.data || []
+      target = accounts.slice().reverse().find((a) =>
+        (createdEmailAccountId.value && a.id === createdEmailAccountId.value) ||
+        (emailAccountForm.value.client_id && a.client_id === emailAccountForm.value.client_id) ||
+        (a.auth_type === emailAccountForm.value.auth_type && (a.access_token || a.app_password))
+      ) || accounts[accounts.length - 1]
+    }
+
+    if (target) {
+      createdEmailAccountId.value = target.id
+      if (target.username && target.username !== 'oauth_pending') emailAccountForm.value.username = target.username
+      if (target.name) emailAccountForm.value.name = target.name
+      if (target.folder) emailAccountForm.value.folder = target.folder
+      await fetchUserFolders(target.id)
+    }
+  } catch (err) {
+    console.warn('Error post-oauth account sync:', err)
+  }
+  uiStore.showToast('Mailbox connected successfully! Please select your mailbox folder & sync schedule.', 'success')
+}
+
+async function checkOAuthStatusManually() {
+  isCheckingOAuthStatus.value = true
+  try {
+    const listRes = await EmailAccountsAPI.list()
+    const accounts = listRes.data || []
+    const match = accounts.slice().reverse().find((a) =>
+      (createdEmailAccountId.value && a.id === createdEmailAccountId.value) ||
+      (emailAccountForm.value.client_id && a.client_id === emailAccountForm.value.client_id) ||
+      (a.auth_type === emailAccountForm.value.auth_type && Boolean(a.access_token))
+    )
+    if (match && Boolean(match.access_token)) {
+      await handleOAuthSuccess(match)
+    } else {
+      uiStore.showToast('No active OAuth connection detected yet. Please complete sign-in in the popup window.', 'info')
+    }
+  } catch (err) {
+    uiStore.showToast('Failed to verify OAuth status', 'error')
+  } finally {
+    isCheckingOAuthStatus.value = false
+  }
+}
+
 async function startOAuthLogin(providerName) {
   if (!emailAccountForm.value.client_id?.trim() || !emailAccountForm.value.client_secret?.trim()) {
     uiStore.showToast('Please enter both OAuth Client ID and Client Secret before authorizing.', 'error')
@@ -609,6 +672,7 @@ async function startOAuthLogin(providerName) {
   }
 
   isSavingEmail.value = true
+  stopOAuthWatcher()
   try {
     const saved = await saveEmailCredentials()
     if (saved?.id) createdEmailAccountId.value = saved.id
@@ -624,8 +688,46 @@ async function startOAuthLogin(providerName) {
       redirect_uri: redirectUri || undefined,
     })
     if (res.data?.auth_url) {
-      window.open(res.data.auth_url, '_blank', 'width=600,height=700')
+      const popup = window.open(res.data.auth_url, '_blank', 'width=600,height=700')
       uiStore.showToast('Authorization popup opened. Please sign in to complete connection.', 'info')
+
+      // Start active background poll watching for completion or popup close
+      let attempts = 0
+      const maxAttempts = 120 // 2 minutes (120 * 1000ms)
+      oauthPollInterval = setInterval(async () => {
+        attempts++
+        if (attempts > maxAttempts) {
+          stopOAuthWatcher()
+          return
+        }
+
+        try {
+          const listRes = await EmailAccountsAPI.list()
+          const accounts = listRes.data || []
+          const match = accounts.slice().reverse().find((a) =>
+            (createdEmailAccountId.value && a.id === createdEmailAccountId.value) ||
+            (emailAccountForm.value.client_id && a.client_id === emailAccountForm.value.client_id)
+          )
+
+          if (match && Boolean(match.access_token) && match.username !== 'oauth_pending') {
+            stopOAuthWatcher()
+            if (popup && !popup.closed) {
+              try { popup.close() } catch {}
+            }
+            await handleOAuthSuccess(match)
+            return
+          }
+
+          if (popup && popup.closed && attempts > 2) {
+            if (match && Boolean(match.access_token)) {
+              stopOAuthWatcher()
+              await handleOAuthSuccess(match)
+            }
+          }
+        } catch {
+          // ignore transient polling errors
+        }
+      }, 1000)
     } else {
       uiStore.showToast(res.data?.message || 'Failed to initialize OAuth authorization flow.', 'error')
     }
@@ -825,42 +927,55 @@ async function loadExistingState() {
   }
 }
 
-async function handleOAuthMessage(event) {
-  if (event.origin !== window.location.origin || event.data?.type !== 'oauth_success') return
-  uiStore.showToast('Mailbox OAuth connected successfully!', 'success')
-  emailConnected.value = true
-  emailSubStep.value = 3
-  try {
-    const listRes = await EmailAccountsAPI.list()
-    const accounts = listRes.data || []
-    if (accounts.length > 0) {
-      const latest = accounts[accounts.length - 1]
-      createdEmailAccountId.value = latest.id
-      if (latest.username) emailAccountForm.value.username = latest.username
-      if (latest.name) emailAccountForm.value.name = latest.name
-      if (latest.folder) emailAccountForm.value.folder = latest.folder
-      await fetchUserFolders(latest.id)
-    }
-  } catch {
-    // ignore
+function handleOAuthMessage(event) {
+  if (event.data?.type === 'oauth_success') {
+    handleOAuthSuccess()
+  }
+}
+
+function handleStorageEvent(event) {
+  if (event.key === 'jobtracker_oauth_success' && event.newValue) {
+    handleOAuthSuccess()
   }
 }
 
 onMounted(() => {
   window.addEventListener('message', handleOAuthMessage)
+  window.addEventListener('storage', handleStorageEvent)
+  try {
+    oauthBroadcastChannel = new BroadcastChannel('jobtracker_oauth_channel')
+    oauthBroadcastChannel.onmessage = (event) => {
+      if (event.data?.type === 'oauth_success') {
+        handleOAuthSuccess()
+      }
+    }
+  } catch {
+    // BroadcastChannel unsupported fallback
+  }
+
   if (uiStore.isOnboardingWizardOpen) {
     loadExistingState()
   }
 })
 
 onUnmounted(() => {
+  stopOAuthWatcher()
   window.removeEventListener('message', handleOAuthMessage)
+  window.removeEventListener('storage', handleStorageEvent)
+  if (oauthBroadcastChannel) {
+    try {
+      oauthBroadcastChannel.close()
+    } catch {}
+    oauthBroadcastChannel = null
+  }
 })
 
 watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
   if (isOpen) {
     currentStep.value = 1
     loadExistingState()
+  } else {
+    stopOAuthWatcher()
   }
 })
 </script>
@@ -1750,6 +1865,19 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
                   <div class="flex items-center gap-2">
                     <button type="button" class="btn btn-ghost text-secondary" @click="handleStep4SkipEmail">
                       Configure Later in Settings
+                    </button>
+
+                    <button
+                      v-if="currentEmailProvider.supportsOAuth && emailAccountForm.auth_method === 'oauth'"
+                      type="button"
+                      class="btn btn-secondary"
+                      :disabled="isCheckingOAuthStatus"
+                      title="Verify if OAuth login has completed and advance to sync preferences"
+                      @click="checkOAuthStatusManually"
+                    >
+                      <Loader2 v-if="isCheckingOAuthStatus" class="animate-spin" :size="14" />
+                      <CheckCircle2 v-else :size="14" />
+                      <span>Check Connection</span>
                     </button>
 
                     <button

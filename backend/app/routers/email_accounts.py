@@ -139,14 +139,17 @@ def _resolve_frontend_origin(request: Request) -> str:
 
 
 def _set_oauth_state_cookie(response: Response, state: str, request: Request) -> None:
+    is_secure = (
+        request.headers.get("x-forwarded-proto", request.url.scheme).lower() == "https"
+    )
     response.set_cookie(
         _STATE_COOKIE_NAME,
         state.split(".", 1)[0],
         max_age=_STATE_TTL_SECONDS,
         httponly=True,
-        secure=request.url.scheme == "https",
+        secure=is_secure,
         samesite="lax",
-        path="/api/v1/email_accounts/oauth",
+        path="/",
     )
 
 
@@ -302,9 +305,7 @@ async def oauth_callback(
                 media_type="text/html",
                 status_code=400,
             )
-            response.delete_cookie(
-                _STATE_COOKIE_NAME, path="/api/v1/email_accounts/oauth"
-            )
+            response.delete_cookie(_STATE_COOKIE_NAME, path="/")
             return response
 
         if not code:
@@ -457,10 +458,36 @@ async def oauth_callback(
                         <h2 style="color: #10b981; margin-bottom: 8px;">✓ Mailbox Connected Successfully!</h2>
                         <p style="color: #94a3b8; font-size: 14px;">Sync authorization established. Closing window...</p>
                         <script>
+                            const payload = {{ type: 'oauth_success', provider: {json.dumps(prov)}, timestamp: Date.now() }};
+
+                            // 1. PostMessage to opener window (if opener exists and is reachable)
                             if (window.opener) {{
-                                window.opener.postMessage({{ type: 'oauth_success' }}, {json.dumps(frontend_origin)});
+                                try {{
+                                    window.opener.postMessage(payload, {json.dumps(frontend_origin)});
+                                }} catch (e) {{
+                                    console.warn('postMessage failed:', e);
+                                }}
                             }}
-                            setTimeout(() => window.close(), 1200);
+
+                            // 2. BroadcastChannel across all open tabs/windows on same origin
+                            try {{
+                                const bc = new BroadcastChannel('jobtracker_oauth_channel');
+                                bc.postMessage(payload);
+                                bc.close();
+                            }} catch (e) {{
+                                console.warn('BroadcastChannel failed:', e);
+                            }}
+
+                            // 3. LocalStorage event for cross-window fallback
+                            try {{
+                                localStorage.setItem('jobtracker_oauth_success', JSON.stringify(payload));
+                            }} catch (e) {{
+                                console.warn('localStorage setItem failed:', e);
+                            }}
+
+                            setTimeout(() => {{
+                                window.close();
+                            }}, 1200);
                         </script>
                     </div>
                 </body>
@@ -468,7 +495,7 @@ async def oauth_callback(
             """,
             media_type="text/html",
         )
-        response.delete_cookie(_STATE_COOKIE_NAME, path="/api/v1/email_accounts/oauth")
+        response.delete_cookie(_STATE_COOKIE_NAME, path="/")
         return response
     except Exception as err:
         logger.error("OAuth callback exchange failed: %s", err, exc_info=True)
@@ -584,7 +611,7 @@ async def update_account(
             "client_secret",
         }
         for field, value in update_data.items():
-            if field in masked_fields and value == "********":
+            if field in masked_fields and (value == "********" or value is None):
                 continue
             setattr(account, field, value)
 

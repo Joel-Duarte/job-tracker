@@ -365,3 +365,96 @@ async def test_clear_all_processed_emails(db_session: AsyncSession):
         assert len(remaining) == 0
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_oauth_callback_multi_channel_broadcast(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+):
+    """Test that OAuth callback response broadcasts across BroadcastChannel and localStorage."""
+    app.dependency_overrides[get_db] = lambda: db_session
+    try:
+        monkeypatch.setattr(settings, "PUBLIC_FRONTEND_URL", "http://localhost:5173")
+        state = generate_oauth_state()
+        mock_tokens = {
+            "access_token": "mock-token-xyz",
+            "refresh_token": "mock-refresh-xyz",
+        }
+
+        mock_client = MagicMock()
+        mock_client.__aenter__.return_value.get = AsyncMock(
+            return_value=httpx.Response(
+                200, json={"emailAddress": "multichannel@gmail.com"}
+            )
+        )
+
+        with (
+            patch(
+                "app.services.oauth_adapters.GmailOAuthAdapter.exchange_code_for_tokens",
+                return_value=mock_tokens,
+            ),
+            patch(
+                "app.routers.email_accounts.httpx.AsyncClient",
+                return_value=mock_client,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://testserver"
+            ) as client:
+                headers = {"origin": "http://localhost:5173"}
+                client.cookies.set("oauth_state", state.split(".", 1)[0])
+                response = await client.get(
+                    f"/api/v1/email_accounts/oauth/callback/google?code=code123&state={state}",
+                    headers=headers,
+                )
+                assert response.status_code == 200
+                html_text = response.text
+                assert "BroadcastChannel('jobtracker_oauth_channel')" in html_text
+                assert "jobtracker_oauth_success" in html_text
+                assert "window.opener.postMessage" in html_text
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_email_account_patch_preserves_unpassed_credentials(
+    db_session: AsyncSession,
+):
+    """Test that PATCHing an account with None for secret credentials does not wipe them."""
+    app.dependency_overrides[get_db] = lambda: db_session
+    try:
+        acc = EmailAccountModel(
+            name="OAuth Inbox",
+            auth_type="GMAIL_OAUTH",
+            username="oauth@example.com",
+            access_token="tok_123",
+            refresh_token="ref_456",
+            client_id="cid_789",
+            client_secret="sec_abc",
+        )
+        db_session.add(acc)
+        await db_session.commit()
+        await db_session.refresh(acc)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.patch(
+                f"/api/v1/email_accounts/{acc.id}",
+                json={
+                    "name": "Renamed OAuth Inbox",
+                    "folder": "Recruitment",
+                    "sync_interval": "30m",
+                },
+            )
+            assert resp.status_code == 200
+
+        await db_session.refresh(acc)
+        assert acc.name == "Renamed OAuth Inbox"
+        assert acc.folder == "Recruitment"
+        assert acc.sync_interval == "30m"
+        assert acc.access_token == "tok_123"
+        assert acc.refresh_token == "ref_456"
+        assert acc.client_secret == "sec_abc"
+    finally:
+        app.dependency_overrides.clear()

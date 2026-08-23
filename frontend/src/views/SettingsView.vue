@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
 import { AIConfigAPI, EmailAccountsAPI, IntakeAPI, PromptsAPI, DiagnosticsAPI, SystemSettingsAPI } from '../api/endpoints'
@@ -1525,21 +1525,47 @@ async function confirmClearAllHistory() {
   }
 }
 
+let settingsOAuthBroadcastChannel = null
+
+async function handleOAuthSuccessMessage() {
+  uiStore.showToast('Mailbox OAuth connected successfully!', 'success')
+  await loadEmailAccounts()
+  if (isEmailAccountModalOpen.value) {
+    const match = emailAccounts.value.find((a) => a.id === createdEmailAccountId.value) || emailAccounts.value[emailAccounts.value.length - 1]
+    if (match) {
+      editingAccount.value = match
+      createdEmailAccountId.value = match.id
+      emailModalStep.value = 3
+      await fetchEmailFolders(match.id)
+    }
+  }
+}
+
+function onWindowOAuthMessage(event) {
+  if (event.data?.type === 'oauth_success') {
+    handleOAuthSuccessMessage()
+  }
+}
+
+function onWindowStorageMessage(event) {
+  if (event.key === 'jobtracker_oauth_success' && event.newValue) {
+    handleOAuthSuccessMessage()
+  }
+}
+
 onMounted(async () => {
-  window.addEventListener('message', async (event) => {
-    if (event.origin !== window.location.origin || event.data?.type !== 'oauth_success') return
-    uiStore.showToast('Mailbox OAuth connected successfully!', 'success')
-    await loadEmailAccounts()
-    if (isEmailAccountModalOpen.value) {
-      const match = emailAccounts.value.find((a) => a.id === createdEmailAccountId.value) || emailAccounts.value[emailAccounts.value.length - 1]
-      if (match) {
-        editingAccount.value = match
-        createdEmailAccountId.value = match.id
-        emailModalStep.value = 3
-        await fetchEmailFolders(match.id)
+  window.addEventListener('message', onWindowOAuthMessage)
+  window.addEventListener('storage', onWindowStorageMessage)
+  try {
+    settingsOAuthBroadcastChannel = new BroadcastChannel('jobtracker_oauth_channel')
+    settingsOAuthBroadcastChannel.onmessage = (event) => {
+      if (event.data?.type === 'oauth_success') {
+        handleOAuthSuccessMessage()
       }
     }
-  })
+  } catch {
+    // BroadcastChannel unsupported fallback
+  }
 
   await Promise.all([
     loadProviders(),
@@ -1551,6 +1577,17 @@ onMounted(async () => {
   ])
   syncGlobalForm()
   syncStudioForm()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('message', onWindowOAuthMessage)
+  window.removeEventListener('storage', onWindowStorageMessage)
+  if (settingsOAuthBroadcastChannel) {
+    try {
+      settingsOAuthBroadcastChannel.close()
+    } catch {}
+    settingsOAuthBroadcastChannel = null
+  }
 })
 </script>
 

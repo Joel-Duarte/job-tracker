@@ -138,7 +138,46 @@ async function startOAuthLogin(providerName) {
       redirect_uri: redirectUri || undefined,
     })
     if (res.data.auth_url) {
-      window.open(res.data.auth_url, '_blank', 'width=600,height=700')
+      const popup = window.open(res.data.auth_url, '_blank', 'width=600,height=700')
+      uiStore.showToast('Authorization popup opened. Sign in to connect your mailbox.', 'info')
+      let attempts = 0
+      const pollTimer = setInterval(async () => {
+        attempts++
+        if (attempts > 120) {
+          clearInterval(pollTimer)
+          return
+        }
+        try {
+          const listRes = await EmailAccountsAPI.list()
+          const accounts = listRes.data || []
+          const match = accounts.slice().reverse().find((a) =>
+            (editingAccount.value && a.id === editingAccount.value.id) ||
+            (emailAccountForm.value.client_id && a.client_id === emailAccountForm.value.client_id)
+          )
+          if (match && Boolean(match.access_token) && match.username !== 'oauth_pending') {
+            clearInterval(pollTimer)
+            if (popup && !popup.closed) {
+              try {
+                popup.close()
+              } catch {}
+            }
+            uiStore.showToast('Mailbox OAuth connected successfully!', 'success')
+            isEmailAccountModalOpen.value = false
+            emit('refresh')
+            return
+          }
+          if (popup && popup.closed && attempts > 2) {
+            if (match && Boolean(match.access_token)) {
+              clearInterval(pollTimer)
+              uiStore.showToast('Mailbox OAuth connected successfully!', 'success')
+              isEmailAccountModalOpen.value = false
+              emit('refresh')
+            }
+          }
+        } catch {
+          // ignore transient polling errors
+        }
+      }, 1000)
     } else {
       uiStore.showToast(res.data.message || 'No OAuth credentials configured.', 'info')
     }
