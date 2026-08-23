@@ -1078,6 +1078,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         provider_id=provider_local.id,
         model_name="qwen/qwen3.5-9b",
         temperature=0.2,
+        extra_kwargs={"reasoning_effort": "none"},
         is_active=True,
     )
     binding_1 = AITaskBindingModel(
@@ -1085,6 +1086,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         provider_id=provider_local.id,
         model_name="qwen/qwen3.5-9b",
         temperature=0.2,
+        extra_kwargs={"reasoning_effort": "none"},
         is_active=True,
     )
     binding_2 = AITaskBindingModel(
@@ -1092,6 +1094,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         provider_id=provider_local.id,
         model_name="qwen/qwen3.5-9b",
         temperature=0.0,
+        extra_kwargs={"reasoning_effort": "none"},
         is_active=True,
     )
     binding_3 = AITaskBindingModel(
@@ -1099,6 +1102,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         provider_id=provider_local.id,
         model_name="qwen/qwen3.5-9b",
         temperature=0.3,
+        extra_kwargs={"reasoning_effort": "none"},
         is_active=True,
     )
     binding_4 = AITaskBindingModel(
@@ -1106,6 +1110,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         provider_id=provider_local.id,
         model_name="qwen/qwen3.5-9b",
         temperature=0.0,
+        extra_kwargs={"reasoning_effort": "none"},
         is_active=True,
     )
     binding_5 = AITaskBindingModel(
@@ -1113,6 +1118,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         provider_id=provider_local.id,
         model_name="qwen/qwen3.5-9b",
         temperature=0.3,
+        extra_kwargs={"reasoning_effort": "none"},
         is_active=True,
     )
     session.add_all(

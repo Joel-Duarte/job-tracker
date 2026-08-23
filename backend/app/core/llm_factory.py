@@ -523,7 +523,8 @@ async def get_task_chat_model(
                     target_model_name = global_binding.model_name
 
             # 2. Resolve Parameters (Temperature, Max Tokens, Top P, Reasoning Effort)
-            # These are ALWAYS task-specific, never polluted by global default
+            # Strict isolation: GLOBAL_DEFAULT only supplies provider & model_name.
+            # All execution parameters are strictly task-specific.
             if exact_binding:
                 temperature = (
                     exact_binding.temperature
@@ -541,9 +542,7 @@ async def get_task_chat_model(
                 top_p = None
                 max_tokens = task_defaults["max_tokens"]
                 reasoning = task_defaults["reasoning_effort"]
-                extra = (
-                    dict(global_binding.extra_kwargs or {}) if global_binding else {}
-                )
+                extra = {}
 
             if target_provider and target_provider.is_active and target_model_name:
                 provider_type = _resolve_provider(target_provider.provider_type)
@@ -596,8 +595,8 @@ async def get_task_chat_model(
                         }
                     elif provider_type == "anthropic":
                         init_kwargs.pop("thinking", None)
-                    elif is_local_base:
-                        # For local OpenAI-compatible engines (LM Studio / Ollama / vLLM)
+                    elif is_local_base or provider_type in ("ollama", "custom"):
+                        # For local / self-hosted OpenAI-compatible engines (LM Studio / Ollama / vLLM / LocalAI)
                         extra_b = init_kwargs.setdefault("extra_body", {})
                         if "reasoning_effort" not in extra_b:
                             extra_b["reasoning_effort"] = "none"
