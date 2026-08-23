@@ -789,6 +789,8 @@ async def _execute_evaluation_steps(
             app_id = save_result.get("application_id")
             if enable_auto and app_id:
                 if score_pct >= threshold:
+                    task.stage = "COVER_LETTER"
+                    await db.commit()
                     try:
                         cv_stmt = (
                             select(CandidateCVModel)

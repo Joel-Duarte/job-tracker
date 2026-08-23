@@ -91,7 +91,9 @@ async def extract_job_spec(
         db=db,
     ) as trace_ctx:
         llm = await get_task_chat_model(db, task_type="JD_EXTRACTION", temperature=0.0)
-        structured_llm = llm.with_structured_output(ExtractedJobSpec)
+        structured_llm = llm.with_structured_output(
+            ExtractedJobSpec, method="json_schema"
+        )
         template_str = await get_prompt_template(db, "jd_extraction")
 
         prompt = ChatPromptTemplate.from_messages(
@@ -142,7 +144,9 @@ async def extract_email_info(
 ) -> EmailExtractionResult:
     """Extracts structured job application metadata from email body using LangChain EXTRACTION model."""
     llm = await get_task_chat_model(db, task_type="EXTRACTION", temperature=0.1)
-    structured_llm = llm.with_structured_output(EmailExtractionResult)
+    structured_llm = llm.with_structured_output(
+        EmailExtractionResult, method="json_schema"
+    )
     template_str = await get_prompt_template(db, "email_extraction")
 
     formatted_content = email_content
@@ -198,7 +202,9 @@ async def assess_job_posting(
     strict terminology gap mapping, and granular resume tailoring strategy.
     """
     llm = await get_task_chat_model(db, task_type="ASSESSMENT", temperature=0.2)
-    structured_llm = llm.with_structured_output(JobAssessmentResult)
+    structured_llm = llm.with_structured_output(
+        JobAssessmentResult, method="json_schema"
+    )
     template_str = await get_prompt_template(db, "assessment")
 
     cv_text = candidate_cv
@@ -421,7 +427,9 @@ async def anonymize_and_parse_cv(
     )
 
     llm = await get_task_chat_model(db, task_type="EXTRACTION", temperature=0.2)
-    structured_llm = llm.with_structured_output(CVAnonymizationResult)
+    structured_llm = llm.with_structured_output(
+        CVAnonymizationResult, method="json_schema"
+    )
     template_str = await get_prompt_template(db, "cv_anonymization")
 
     prompt = ChatPromptTemplate.from_messages(
@@ -453,7 +461,9 @@ async def summarize_application_status(
 ) -> ApplicationSummaryResult:
     """Synthesizes a narrative status snapshot from timeline events using LangChain SUMMARIZATION model."""
     llm = await get_task_chat_model(db, task_type="SUMMARIZATION", temperature=0.1)
-    structured_llm = llm.with_structured_output(ApplicationSummaryResult)
+    structured_llm = llm.with_structured_output(
+        ApplicationSummaryResult, method="json_schema"
+    )
     events_str = json.dumps(events_timeline, indent=2)
     template_str = await get_prompt_template(db, "summarization")
 

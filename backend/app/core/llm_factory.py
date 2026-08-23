@@ -381,6 +381,13 @@ async def get_chat_model(
 
     if api_base:
         init_kwargs["base_url"] = api_base
+        if any(
+            h in api_base
+            for h in ("localhost", "127.0.0.1", "192.168.", "0.0.0.0", "10.", "172.")
+        ):
+            extra_b = init_kwargs.setdefault("extra_body", {})
+            extra_b.setdefault("reasoning_effort", "none")
+            extra_b.setdefault("chat_template_kwargs", {"thinking": False})
     if api_key:
         init_kwargs["api_key"] = api_key
     if top_p is not None:
@@ -589,27 +596,20 @@ async def get_task_chat_model(
                         }
                     elif provider_type == "anthropic":
                         init_kwargs.pop("thinking", None)
-                    elif (
-                        provider_type in ("openai", "openrouter") and not is_local_base
-                    ):
+                    elif is_local_base:
+                        # For local OpenAI-compatible engines (LM Studio / Ollama / vLLM)
+                        extra_b = init_kwargs.setdefault("extra_body", {})
+                        if "reasoning_effort" not in extra_b:
+                            extra_b["reasoning_effort"] = "none"
+                        if "chat_template_kwargs" not in extra_b:
+                            extra_b["chat_template_kwargs"] = {"thinking": False}
+                    elif provider_type in ("openai", "openrouter"):
                         # For reasoning-only models on OpenAI (o1, o3-mini), reasoning cannot be fully disabled, fallback to low
                         model_lower = target_model_name.lower()
                         if any(m in model_lower for m in ("o1", "o3", "reasoning")):
                             init_kwargs.setdefault("extra_body", {})[
                                 "reasoning_effort"
                             ] = "low"
-                    elif is_local_base:
-                        # For local OpenAI-compatible engines (LM Studio / Ollama / vLLM)
-                        # If model is DeepSeek-R1 or QwQ, pass thinking: false if not already customized
-                        model_lower = target_model_name.lower()
-                        if "chat_template_kwargs" not in init_kwargs.get(
-                            "extra_body", {}
-                        ) and any(
-                            k in model_lower for k in ("deepseek-r1", "r1", "qwq")
-                        ):
-                            init_kwargs.setdefault("extra_body", {})[
-                                "chat_template_kwargs"
-                            ] = {"thinking": False}
                 else:
                     # Reasoning is enabled (low, medium, high)
                     if provider_type in ("openai", "openrouter"):
