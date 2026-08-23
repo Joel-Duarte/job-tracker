@@ -18,6 +18,7 @@ from app.services.agent_tools import (
     execute_manage_action_items,
     execute_manage_intake_queue,
     execute_query_market_benchmarks,
+    execute_start_mock_interview,
     execute_update_application_pipeline,
 )
 
@@ -161,9 +162,30 @@ async def test_agent_tools_unit_handlers():
         assert update_res["success"] is True
         assert mock_app_fit.status == "TECHNICAL_INTERVIEW"
 
-    # 8. Test LangChain Tool Factory Registration
+    # 8. Test start_mock_interview
+    with patch(
+        "app.services.agent_tools.InterviewSimulatorService.start_session",
+        new_callable=AsyncMock,
+    ) as mock_start_session:
+        mock_sim_session = MagicMock()
+        mock_sim_session.id = 42
+        mock_sim_session.question_mode = "TEXT_CONVERSATIONAL"
+        mock_sim_session.turns_data = [
+            {"question": "Describe your distributed architecture experience."}
+        ]
+        mock_start_session.return_value = mock_sim_session
+
+        start_res = await execute_start_mock_interview(
+            db, company_or_id="Acme Inc", question_mode="TEXT_CONVERSATIONAL"
+        )
+        assert start_res["status"] == "started"
+        assert start_res["session_id"] == 42
+        assert "distributed architecture" in start_res["first_question"]
+
+    # 9. Test LangChain Tool Factory Registration
     tools = create_agent_tools(db)
     tool_names = [t.name for t in tools]
-    assert len(tools) == 10
+    assert len(tools) == 11
     assert "analyze_pipeline_metrics" in tool_names
     assert "detect_stalled_applications" in tool_names
+    assert "start_mock_interview" in tool_names

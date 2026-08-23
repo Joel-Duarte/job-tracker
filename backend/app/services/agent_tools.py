@@ -27,9 +27,11 @@ from app.schemas.agent_tools import (
     ManageIntakeQueueInput,
     QueryMarketBenchmarksInput,
     SemanticSearchInput,
+    StartMockInterviewInput,
     UpdateApplicationPipelineInput,
 )
 from app.services.analytics import get_funnel_performance_metrics
+from app.services.interview_simulator_service import InterviewSimulatorService
 from app.services.llm import generate_and_save_application_embedding, generate_embedding
 
 logger = logging.getLogger(__name__)
@@ -690,6 +692,70 @@ async def execute_get_application_details(
     }
 
 
+# 11. Start Mock Interview Tool
+async def execute_start_mock_interview(
+    db: AsyncSession,
+    company_or_id: str | None = None,
+    question_mode: str = "TEXT_CONVERSATIONAL",
+) -> dict[str, Any]:
+    """Launches an interactive live mock interview simulation tailored to a target application or general practice."""
+    app_id = None
+    company_name = "General Software Engineering"
+    position = "Software Engineer"
+    if company_or_id:
+        app_id_val = None
+        try:
+            app_id_val = int(company_or_id)
+        except (ValueError, TypeError):
+            pass
+
+        if app_id_val is not None:
+            stmt = (
+                select(ApplicationModel)
+                .options(joinedload(ApplicationModel.company))
+                .where(ApplicationModel.id == app_id_val)
+            )
+        else:
+            stmt = (
+                select(ApplicationModel)
+                .join(CompanyModel)
+                .options(joinedload(ApplicationModel.company))
+                .where(CompanyModel.name.ilike(f"%{str(company_or_id).strip()}%"))
+            )
+
+        res = await db.execute(stmt)
+        app = res.scalars().first()
+        if app:
+            app_id = app.id
+            company_name = app.company.name if app.company else "Company"
+            position = app.position or "Software Engineer"
+
+    # Normalize question_mode
+    mode_str = str(question_mode).upper().strip()
+    if mode_str not in ("TEXT_CONVERSATIONAL", "MULTIPLE_CHOICE", "HYBRID"):
+        mode_str = "TEXT_CONVERSATIONAL"
+
+    session = await InterviewSimulatorService.start_session(
+        db=db,
+        application_id=app_id,
+        persona="TECHNICAL_BAR_RAISER",
+        question_mode=mode_str,
+    )
+
+    first_q = session.turns_data[0].get("question") if session.turns_data else ""
+
+    return {
+        "status": "started",
+        "session_id": session.id,
+        "application_id": app_id,
+        "company_name": company_name,
+        "position": position,
+        "question_mode": session.question_mode,
+        "first_question": first_q,
+        "message": f"Live mock interview session #{session.id} started for {company_name} ({position}).",
+    }
+
+
 def create_agent_tools(db: AsyncSession) -> list[StructuredTool]:
     """Factory creating bound LangChain tools for the active async database session."""
 
@@ -770,6 +836,13 @@ def create_agent_tools(db: AsyncSession) -> list[StructuredTool]:
         res = await execute_get_application_details(db, company_or_id)
         return json.dumps(res, indent=2)
 
+    async def _start_mock_interview(
+        company_or_id: str | None = None,
+        question_mode: str = "TEXT_CONVERSATIONAL",
+    ) -> str:
+        res = await execute_start_mock_interview(db, company_or_id, question_mode)
+        return json.dumps(res, indent=2)
+
     return [
         StructuredTool.from_function(
             coroutine=_analyze_pipeline_metrics,
@@ -830,5 +903,11 @@ def create_agent_tools(db: AsyncSession) -> list[StructuredTool]:
             name="get_application_details",
             description="Retrieves chronological timeline events, recruiter emails, and action items for a company or application ID.",
             args_schema=ApplicationDetailsInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_start_mock_interview,
+            name="start_mock_interview",
+            description="Launches an interactive live mock interview simulation for a target application or general software engineering practice.",
+            args_schema=StartMockInterviewInput,
         ),
     ]

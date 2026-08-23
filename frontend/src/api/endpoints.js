@@ -134,4 +134,5 @@ export const InterviewSimulatorAPI = {
   saveNotes: (sessionId, data = {}) => apiClient.post(`/interviews/sessions/${sessionId}/save-notes`, data),
   getSession: (sessionId) => apiClient.get(`/interviews/sessions/${sessionId}`),
   listSessions: (params = {}) => apiClient.get('/interviews/sessions', { params }),
+  deleteSession: (sessionId) => apiClient.delete(`/interviews/sessions/${sessionId}`),
 }

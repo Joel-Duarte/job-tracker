@@ -4,6 +4,8 @@ import { InterviewSimulatorAPI } from '../api/endpoints'
 
 export const useInterviewStore = defineStore('interview', () => {
   const currentSession = ref(null)
+  const sessionsList = ref([])
+  const isLoadingSessions = ref(false)
   const isInitializing = ref(false)
   const isEvaluating = ref(false)
   const isGeneratingQuestion = ref(false)
@@ -12,6 +14,7 @@ export const useInterviewStore = defineStore('interview', () => {
   const error = ref(null)
 
   const activePersona = ref('TECHNICAL_BAR_RAISER')
+  const activeQuestionMode = ref('TEXT_CONVERSATIONAL')
   const selectedApplicationId = ref(null)
 
   const turns = computed(() => currentSession.value?.turns_data || [])
@@ -26,7 +29,7 @@ export const useInterviewStore = defineStore('interview', () => {
       return currentSession.value.overall_score
     }
     const evaluatedTurns = turns.value.filter(t => t.evaluation && typeof t.evaluation.score === 'number')
-    if (!evaluatedTurns.length) return 0
+    if (!evaluatedTurns.length) return null
     const sum = evaluatedTurns.reduce((acc, t) => acc + t.evaluation.score, 0)
     return Math.round(sum / evaluatedTurns.length)
   })
@@ -37,19 +40,106 @@ export const useInterviewStore = defineStore('interview', () => {
     return evaluatedTurns[evaluatedTurns.length - 1].evaluation
   })
 
-  async function startSession(applicationId = null, persona = 'TECHNICAL_BAR_RAISER') {
-    isInitializing.value = true
+  async function fetchSessions(silent = false) {
+    if (!silent && !sessionsList.value.length) {
+      isLoadingSessions.value = true
+    }
+    try {
+      const res = await InterviewSimulatorAPI.listSessions({ limit: 50 })
+      const list = res.data || []
+      // Preserve optimistic placeholder if present during initial creation
+      if (currentSession.value?.id && String(currentSession.value.id).startsWith('temp-')) {
+        sessionsList.value = [currentSession.value, ...list.filter(s => s.id !== currentSession.value.id)]
+      } else {
+        sessionsList.value = list
+      }
+    } catch (err) {
+      console.error('Failed to fetch interview sessions:', err)
+    } finally {
+      isLoadingSessions.value = false
+    }
+  }
+
+  async function loadSession(id) {
+    if (!id) return null
+    if (String(id).startsWith('temp-')) {
+      if (currentSession.value?.id === id) {
+        return currentSession.value
+      }
+      return null
+    }
+    if (currentSession.value?.id === id) {
+      return currentSession.value
+    }
+    isLoadingSessions.value = true
     error.value = null
     try {
-      selectedApplicationId.value = applicationId
-      activePersona.value = persona
-      const res = await InterviewSimulatorAPI.startSession({
-        application_id: applicationId,
-        persona: persona
-      })
+      const res = await InterviewSimulatorAPI.getSession(id)
       currentSession.value = res.data
+      selectedApplicationId.value = res.data.application_id
+      activePersona.value = res.data.persona
+      activeQuestionMode.value = res.data.question_mode || 'TEXT_CONVERSATIONAL'
       return res.data
     } catch (err) {
+      error.value = err.response?.data?.detail || err.message
+      throw err
+    } finally {
+      isLoadingSessions.value = false
+    }
+  }
+
+  async function deleteSession(id) {
+    if (!id) return
+    if (String(id).startsWith('temp-')) {
+      sessionsList.value = sessionsList.value.filter(s => s.id !== id)
+      if (currentSession.value?.id === id) {
+        resetSession()
+      }
+      return
+    }
+    try {
+      await InterviewSimulatorAPI.deleteSession(id)
+      sessionsList.value = sessionsList.value.filter(s => s.id !== id)
+      if (currentSession.value?.id === id) {
+        resetSession()
+      }
+    } catch (err) {
+      console.error('Failed to delete interview session:', err)
+      throw err
+    }
+  }
+
+  async function startSession(applicationId = null, persona = 'TECHNICAL_BAR_RAISER', questionMode = 'TEXT_CONVERSATIONAL') {
+    isInitializing.value = true
+    error.value = null
+    selectedApplicationId.value = applicationId
+    activePersona.value = persona
+    activeQuestionMode.value = questionMode
+    const tempId = `temp-${Date.now()}`
+    const placeholder = {
+      id: tempId,
+      application_id: applicationId,
+      persona: persona,
+      question_mode: questionMode,
+      status: 'IN_PROGRESS',
+      turns_data: [],
+      created_at: new Date().toISOString(),
+    }
+    currentSession.value = placeholder
+    sessionsList.value = [placeholder, ...sessionsList.value.filter(s => s.id !== tempId)]
+    try {
+      const res = await InterviewSimulatorAPI.startSession({
+        application_id: applicationId,
+        persona: persona,
+        question_mode: questionMode,
+      })
+      currentSession.value = res.data
+      sessionsList.value = [res.data, ...sessionsList.value.filter(s => s.id !== tempId && s.id !== res.data.id)]
+      fetchSessions(true)
+      return res.data
+    } catch (err) {
+      sessionsList.value = sessionsList.value.filter(s => s.id !== tempId)
+      currentSession.value = null
       error.value = err.response?.data?.detail || err.message
       throw err
     } finally {
@@ -57,14 +147,22 @@ export const useInterviewStore = defineStore('interview', () => {
     }
   }
 
-  async function evaluateAnswer(turnIndex, answerText) {
+  async function evaluateAnswer(turnIndex, answerText, selectedOption = null) {
     if (!currentSession.value) return
     isEvaluating.value = true
     error.value = null
+    // Optimistically update current turn so candidate response appears instantly
+    const existingTurns = currentSession.value.turns_data || []
+    const targetTurn = existingTurns.find(t => t.turn_index === turnIndex)
+    if (targetTurn) {
+      targetTurn.user_answer = answerText
+      if (selectedOption) targetTurn.selected_option = selectedOption
+    }
     try {
       const res = await InterviewSimulatorAPI.evaluateAnswer(currentSession.value.id, {
         turn_index: turnIndex,
-        answer_text: answerText
+        answer_text: answerText,
+        selected_option: selectedOption,
       })
       currentSession.value = res.data
       return res.data
@@ -122,6 +220,14 @@ export const useInterviewStore = defineStore('interview', () => {
         currentSession.value.readiness_rating = res.data.readiness_rating
         currentSession.value.summary_feedback = res.data.summary_feedback
       }
+      const target = sessionsList.value.find(s => s.id === currentSession.value?.id)
+      if (target) {
+        target.status = 'COMPLETED'
+        target.overall_score = res.data.overall_score
+        target.readiness_rating = res.data.readiness_rating
+        target.summary_feedback = res.data.summary_feedback
+      }
+      fetchSessions(true)
       return res.data
     } catch (err) {
       error.value = err.response?.data?.detail || err.message
@@ -155,6 +261,8 @@ export const useInterviewStore = defineStore('interview', () => {
 
   return {
     currentSession,
+    sessionsList,
+    isLoadingSessions,
     isInitializing,
     isEvaluating,
     isGeneratingQuestion,
@@ -162,12 +270,16 @@ export const useInterviewStore = defineStore('interview', () => {
     isSavingNotes,
     error,
     activePersona,
+    activeQuestionMode,
     selectedApplicationId,
     turns,
     currentTurn,
     currentTurnIndex,
     overallScore,
     latestEvaluation,
+    fetchSessions,
+    loadSession,
+    deleteSession,
     startSession,
     evaluateAnswer,
     nextQuestion,

@@ -35,7 +35,10 @@ import {
   Check,
   AlertCircle,
   TrendingUp,
-  FileText
+  FileText,
+  Search,
+  Circle,
+  Layers,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -67,54 +70,163 @@ const starterPrompts = [
   'Move Stripe to OFFER status',
 ]
 
-// Mock Interview Setup & HUD State
 const mockAppId = ref(null)
-const mockPersona = ref('TECHNICAL_BAR_RAISER')
+const mockQuestionMode = ref('TEXT_CONVERSATIONAL')
+const appSearchQuery = ref('')
+const sidebarSearchQuery = ref('')
+const selectedOptionKey = ref(null)
 const candidateAnswer = ref('')
+const interviewInputRef = ref(null)
+const isRefining = ref(false)
+
+const shouldShowMCChoices = computed(() => {
+  if (interviewStore.isEvaluating || interviewStore.isGeneratingQuestion || interviewStore.isInitializing) return false
+  const turn = interviewStore.currentTurn
+  if (!turn || !turn.options || !turn.options.length) return false
+  if (turn.evaluation && !isRefining.value) return false
+  if ((turn.user_answer || turn.selected_option) && !isRefining.value) return false
+  return true
+})
+
+// Filtered sidebar items
+const filteredChats = computed(() => {
+  const q = sidebarSearchQuery.value.trim().toLowerCase()
+  if (!q) return chatStore.chatsList || []
+  return (chatStore.chatsList || []).filter(c => (c.title || '').toLowerCase().includes(q))
+})
+
+const filteredInterviewSessions = computed(() => {
+  const q = sidebarSearchQuery.value.trim().toLowerCase()
+  let list = [...(interviewStore.sessionsList || [])]
+
+  // Pin active in-progress simulation to the top of the sidebar list
+  const activeId = interviewStore.currentSession?.id
+  if (activeId && interviewStore.currentSession?.status === 'IN_PROGRESS') {
+    const activeIndex = list.findIndex(s => s.id === activeId)
+    if (activeIndex > -1) {
+      const [activeItem] = list.splice(activeIndex, 1)
+      list.unshift(activeItem)
+    } else {
+      list.unshift(interviewStore.currentSession)
+    }
+  }
+
+  if (!q) return list
+  return list.filter(s => formatSessionTitle(s).toLowerCase().includes(q))
+})
 
 // Voice dictation (Web Speech API)
 const isRecording = ref(false)
 const speechSupported = ref(false)
 let recognitionInstance = null
 
-const PERSONAS = [
+const QUESTION_MODES = [
   {
-    id: 'TECHNICAL_BAR_RAISER',
-    title: 'Technical Bar Raiser',
-    icon: Shield,
-    desc: 'Deep dives into system design, concurrency, edge cases, distributed tradeoffs, and algorithmic efficiency.'
+    id: 'TEXT_CONVERSATIONAL',
+    title: 'Conversational',
+    icon: MessageSquare,
+    desc: 'Practice realistic open-ended behavioral and architectural questions with in-depth rubric scoring.'
   },
   {
-    id: 'HIRING_MANAGER',
-    title: 'Hiring Manager',
-    icon: Briefcase,
-    desc: 'Focuses on team leadership, project delivery, cross-functional ownership, and engineering impact.'
+    id: 'MULTIPLE_CHOICE',
+    title: 'Multiple Choice',
+    icon: CheckCircle2,
+    desc: 'Objective scenario and architecture challenges with immediate tradeoff evaluations.'
   },
   {
-    id: 'BEHAVIORAL_CULTURE',
-    title: 'Behavioral & Culture Fit',
-    icon: Users,
-    desc: 'Evaluates STAR structure, stakeholder communication, overcoming failure, and culture alignment.'
-  },
-  {
-    id: 'SUPPORTIVE_COACH',
-    title: 'Supportive Practice Coach',
-    icon: GraduationCap,
-    desc: 'Empathetic and encouraging tone suited for initial warmups with constructive STAR suggestions.'
+    id: 'HYBRID',
+    title: 'Hybrid',
+    icon: Layers,
+    desc: 'Alternates between objective multiple choice challenges and open-ended STAR deep dives.'
   }
 ]
 
-function scrollToBottom() {
-  nextTick(() => {
-    if (chatContainer.value) {
-      chatContainer.value.scrollTop = chatContainer.value.scrollHeight
-    }
+// Eligible Applications (Only APPLIED, ONLINE_ASSESSMENT, TECHNICAL_INTERVIEW)
+const eligibleApplications = computed(() => {
+  return (appStore.applications || []).filter(app =>
+    ['APPLIED', 'ONLINE_ASSESSMENT', 'TECHNICAL_INTERVIEW'].includes(app.status)
+  )
+})
+
+const filteredApplications = computed(() => {
+  const q = appSearchQuery.value.trim().toLowerCase()
+  if (!q) return eligibleApplications.value
+  return eligibleApplications.value.filter(app => {
+    const comp = (app.company?.name || '').toLowerCase()
+    const pos = (app.position || '').toLowerCase()
+    return comp.includes(q) || pos.includes(q)
   })
+})
+
+function handleSelectApp(id) {
+  mockAppId.value = mockAppId.value === id ? null : id
+}
+
+// Assistant Chat Handlers
+async function handleSendMessage(customPrompt = null) {
+  const text = (customPrompt || inputMessage.value).trim()
+  if (!text || chatStore.isSending) return
+
+  inputMessage.value = ''
+  try {
+    await chatStore.sendMessage(text)
+    scrollToBottom()
+  } catch (err) {
+    uiStore.showToast("Failed to send message", "error")
+  }
+}
+
+function handleKeyDown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    handleSendMessage()
+  }
+}
+
+async function handleLoadChat(id) {
+  if (!id) return
+  if (chatStore.chatId === id || String(id).startsWith('temp-')) {
+    scrollToBottom()
+    return
+  }
+  try {
+    await chatStore.loadChat(id)
+    scrollToBottom()
+  } catch (err) {
+    uiStore.showToast("Failed to load chat", "error")
+  }
+}
+
+function handleResetChat() {
+  chatStore.resetChat()
+  inputMessage.value = ''
+}
+
+async function handleDeleteChat(id) {
+  try {
+    await chatStore.deleteChat(id)
+    uiStore.showToast("Chat deleted", "success")
+  } catch (err) {
+    uiStore.showToast("Failed to delete chat", "error")
+  }
+}
+
+async function handleRetentionChange() {
+  isUpdatingRetention.value = true
+  try {
+    await AIConfigAPI.updateGlobalSettings({ AGENT_CHAT_RETENTION_DAYS: retentionDays.value })
+    uiStore.showToast("Auto-delete setting updated", "success")
+  } catch (err) {
+    uiStore.showToast("Failed to update retention setting", "error")
+  } finally {
+    isUpdatingRetention.value = false
+  }
 }
 
 onMounted(async () => {
   await appStore.fetchApplications()
   await chatStore.fetchChats()
+  await interviewStore.fetchSessions()
 
   // Handle URL deep-linking (?appId=X&mock=true)
   if (route.query.mock === 'true' || route.query.appId) {
@@ -160,7 +272,28 @@ onMounted(async () => {
   scrollToBottom()
 })
 
-watch(() => chatStore.messages.length, () => {
+// Auto-scroll watchers for all mode switches, message updates, and session loads
+watch(activeMode, () => {
+  scrollToBottom()
+})
+
+watch(() => chatStore.chatId, () => {
+  scrollToBottom()
+})
+
+watch(() => chatStore.messages, () => {
+  scrollToBottom()
+}, { deep: true })
+
+watch(() => interviewStore.currentSession?.id, () => {
+  scrollToBottom()
+})
+
+watch(() => interviewStore.turns, () => {
+  scrollToBottom()
+}, { deep: true })
+
+watch([() => chatStore.isSending, () => interviewStore.isEvaluating, () => interviewStore.isGeneratingQuestion], () => {
   scrollToBottom()
 })
 
@@ -170,6 +303,7 @@ watch(() => route.query, (newQuery) => {
     if (newQuery.appId) {
       mockAppId.value = parseInt(newQuery.appId)
     }
+    scrollToBottom()
   }
 })
 
@@ -189,165 +323,251 @@ function toggleVoiceInput() {
 }
 
 // Interview Session Actions
-async function handleStartInterviewSession() {
+function handleNewSimulation() {
+  interviewStore.resetSession()
+  candidateAnswer.value = ''
+  selectedOptionKey.value = null
+}
+
+async function handleLoadInterviewSession(id) {
+  if (!id) return
+  if (interviewStore.currentSession?.id === id || String(id).startsWith('temp-')) {
+    scrollToBottom()
+    return
+  }
   try {
-    await interviewStore.startSession(mockAppId.value, mockPersona.value)
+    await interviewStore.loadSession(id)
     candidateAnswer.value = ''
+    selectedOptionKey.value = null
     scrollToBottom()
   } catch (err) {
-    uiStore.showToast("Failed to start mock interview session", "error")
+    uiStore.showToast("Failed to load interview session", "error")
   }
 }
 
-async function handleEvaluateAnswer() {
-  if (!candidateAnswer.value.trim() || interviewStore.isEvaluating) return
-  const currentTurnIdx = interviewStore.currentTurnIndex
-  const text = candidateAnswer.value.trim()
+async function handleDeleteInterviewSession(id) {
   try {
-    await interviewStore.evaluateAnswer(currentTurnIdx, text)
+    await interviewStore.deleteSession(id)
+    uiStore.showToast("Simulation session deleted", "success")
+  } catch (err) {
+    uiStore.showToast("Failed to delete interview session", "error")
+  }
+}async function handleStartInterviewSession() {
+  try {
+    await interviewStore.startSession(mockAppId.value, 'TECHNICAL_BAR_RAISER', mockQuestionMode.value)
     candidateAnswer.value = ''
+    selectedOptionKey.value = null
     scrollToBottom()
   } catch (err) {
-    uiStore.showToast("Failed to evaluate answer", "error")
+    const msg = err.response?.data?.detail || err.message || "Failed to start mock interview session"
+    uiStore.showToast(msg, "error")
   }
 }
 
-async function handleNextQuestion() {
+async function handleRestartSameSimulation() {
   try {
-    await interviewStore.nextQuestion()
+    const appId = interviewStore.selectedApplicationId
+    const qMode = interviewStore.activeQuestionMode || 'TEXT_CONVERSATIONAL'
+    await interviewStore.startSession(appId, 'TECHNICAL_BAR_RAISER', qMode)
     candidateAnswer.value = ''
+    selectedOptionKey.value = null
     scrollToBottom()
   } catch (err) {
-    uiStore.showToast("Failed to generate next question", "error")
+    const msg = err.response?.data?.detail || err.message || "Failed to restart simulation"
+    uiStore.showToast(msg, "error")
   }
 }
 
-async function handleDrillDown() {
+async function handleStartAnotherSimulation(questionMode) {
   try {
-    await interviewStore.drillDown()
+    const appId = interviewStore.selectedApplicationId
+    await interviewStore.startSession(appId, 'TECHNICAL_BAR_RAISER', questionMode)
     candidateAnswer.value = ''
+    selectedOptionKey.value = null
     scrollToBottom()
   } catch (err) {
-    uiStore.showToast("Failed to generate drill-down question", "error")
-  }
-}
-
-function prepareRefineAnswer() {
-  if (interviewStore.currentTurn?.user_answer) {
-    candidateAnswer.value = interviewStore.currentTurn.user_answer
+    const msg = err.response?.data?.detail || err.message || "Failed to start simulation"
+    uiStore.showToast(msg, "error")
   }
 }
 
 async function handleFinalizeSession() {
   try {
     await interviewStore.finalizeSession()
-    uiStore.showToast("Interview simulation completed!", "success")
+    scrollToBottom()
   } catch (err) {
-    uiStore.showToast("Failed to finalize session", "error")
+    const msg = err.response?.data?.detail || err.message || "Failed to finalize session"
+    uiStore.showToast(msg, "error")
   }
 }
 
 async function handleSaveNotes() {
   try {
     await interviewStore.saveNotes()
-    uiStore.showToast("Debrief notes saved to Application Notes!", "success")
+    uiStore.showToast("Saved simulation scorecard to Application Notes", "success")
   } catch (err) {
-    uiStore.showToast("Failed to save notes", "error")
+    const msg = err.response?.data?.detail || err.message || "Failed to save notes"
+    uiStore.showToast(msg, "error")
   }
 }
 
-// Chat Assistant Actions
-async function handleSendMessage(textToSend = null) {
-  const text = textToSend || inputMessage.value.trim()
-  if (!text || chatStore.isSending) return
+const isConversationalOrHybrid = computed(() => {
+  const mode = interviewStore.currentSession?.question_mode || mockQuestionMode.value
+  return mode === 'TEXT_CONVERSATIONAL' || mode === 'HYBRID'
+})
 
-  inputMessage.value = ''
-  await chatStore.sendMessage(text)
-  scrollToBottom()
+function handleAutoResize(e) {
+  const target = e?.target || interviewInputRef.value
+  if (!target) return
+  target.style.height = 'auto'
+  const newHeight = Math.min(Math.max(target.scrollHeight, 44), 180)
+  target.style.height = `${newHeight}px`
 }
 
-function handleKeyDown(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault()
-    handleSendMessage()
+async function enterInterviewFromChat(sessionId) {
+  activeMode.value = 'interview'
+  await handleLoadInterviewSession(sessionId)
+}
+
+async function handleEvaluateAnswer() {
+  const currentTurn = interviewStore.currentTurn
+  const isMC = currentTurn?.question_type === 'MULTIPLE_CHOICE' || (currentTurn?.options && currentTurn.options.length)
+  if (isMC && !selectedOptionKey.value) {
+    uiStore.showToast("Please select an option first", "warning")
+    return
   }
-}
+  if (!isMC && !candidateAnswer.value.trim()) return
+  if (interviewStore.isEvaluating) return
 
-function handleResetChat() {
-  chatStore.resetChat()
-  scrollToBottom()
-}
-
-async function handleLoadChat(id) {
-  await chatStore.loadChat(id)
-  scrollToBottom()
-}
-
-async function handleDeleteChat(id) {
-  await chatStore.deleteChat(id)
-}
-
-async function handleRetentionChange() {
-  isUpdatingRetention.value = true
+  const currentTurnIdx = interviewStore.currentTurnIndex
+  const text = candidateAnswer.value.trim()
+  const opt = selectedOptionKey.value
+  isRefining.value = false
+  candidateAnswer.value = ''
+  selectedOptionKey.value = null
   try {
-    await AIConfigAPI.updateGlobalSettings({
-      AGENT_CHAT_RETENTION_DAYS: parseInt(retentionDays.value)
-    })
+    await interviewStore.evaluateAnswer(currentTurnIdx, text, opt)
+    scrollToBottom()
   } catch (err) {
-    console.error("Failed to update retention setting", err)
-  } finally {
-    isUpdatingRetention.value = false
+    const msg = err.response?.data?.detail || err.message || "Failed to evaluate answer"
+    uiStore.showToast(msg, "error")
   }
 }
 
-function escapeHtml(str) {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
+async function handleNextQuestion() {
+  try {
+    isRefining.value = false
+    selectedOptionKey.value = null
+    candidateAnswer.value = ''
+    await interviewStore.nextQuestion()
+    scrollToBottom()
+  } catch (err) {
+    const msg = err.response?.data?.detail || err.message || "Failed to generate next question"
+    uiStore.showToast(msg, "error")
+  }
 }
 
-function renderMarkdown(text) {
-  if (!text) return ''
+async function handleDrillDown() {
+  try {
+    isRefining.value = false
+    selectedOptionKey.value = null
+    candidateAnswer.value = ''
+    await interviewStore.drillDown()
+    scrollToBottom()
+  } catch (err) {
+    const msg = err.response?.data?.detail || err.message || "Failed to generate drill-down question"
+    uiStore.showToast(msg, "error")
+  }
+}
 
-  let html = escapeHtml(text)
-  html = html.replace(/```([\s\S]*?)```/g, (match, p1) => `<pre><code>${p1.trim()}</code></pre>`)
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
+function prepareRefineAnswer() {
+  isRefining.value = true
+  if (interviewStore.currentTurn?.user_answer) {
+    candidateAnswer.value = interviewStore.currentTurn.user_answer
+  }
+  if (interviewStore.currentTurn?.selected_option) {
+    selectedOptionKey.value = interviewStore.currentTurn.selected_option
+  }
+  nextTick(() => {
+    if (interviewInputRef.value) {
+      interviewInputRef.value.focus()
+    }
+  })
+}
 
-  const lines = html.split('\n')
-  let inTable = false
-  let tableHtml = ''
-  let newLines = []
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (line.startsWith('|') && line.endsWith('|')) {
-      const cells = line.split('|').slice(1, -1).map(c => c.trim())
-      if (cells.every(c => /^:?-+:?$/.test(c))) continue
-      if (!inTable) {
-        inTable = true
-        tableHtml = '<table><thead><tr>' + cells.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>'
-      } else {
-        tableHtml += '<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>'
-      }
-    } else {
-      if (inTable) {
-        tableHtml += '</tbody></table>'
-        newLines.push(tableHtml)
-        inTable = false
-        tableHtml = ''
-      }
-      newLines.push(lines[i])
+function formatSessionTitle(session) {
+  if (!session) return 'Interview Simulation'
+  const modeLabel = session.question_mode === 'MULTIPLE_CHOICE' ? 'Multiple Choice' : session.question_mode === 'HYBRID' ? 'Hybrid' : 'Conversational'
+  const dateStr = session.created_at ? new Date(session.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''
+  if (session.application_id) {
+    const app = appStore.applications.find(a => String(a.id) === String(session.application_id))
+    if (app) {
+      return `${app.company?.name || 'Company'} (${modeLabel})`
     }
   }
-  if (inTable) {
-    tableHtml += '</tbody></table>'
-    newLines.push(tableHtml)
-  }
-  html = newLines.join('\n')
+  return `General Practice (${modeLabel}) · ${dateStr}`
+}
 
+function formatSessionDate(dateStr) {
+  if (!dateStr) return ''
+  return new Date(dateStr).toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+function formatStatus(status) {
+  if (!status) return ''
+  return status.replace(/_/g, ' ')
+}
+
+function isCompletedSession(session) {
+  if (!session) return false
+  if (session.id === interviewStore.currentSession?.id && interviewStore.currentSession?.status === 'COMPLETED') {
+    return true
+  }
+  return session.status === 'COMPLETED' || session.status === 'completed'
+}
+
+function getSessionScore(session) {
+  if (session.id === interviewStore.currentSession?.id && interviewStore.currentSession?.overall_score !== undefined && interviewStore.currentSession?.overall_score !== null) {
+    return interviewStore.currentSession.overall_score
+  }
+  return session.overall_score
+}
+
+function getSessionReadiness(session) {
+  if (session.id === interviewStore.currentSession?.id && interviewStore.currentSession?.readiness_rating) {
+    return interviewStore.currentSession.readiness_rating
+  }
+  return session.readiness_rating
+}
+
+function handleSelectChoice(optKey) {
+  selectedOptionKey.value = optKey
+}
+
+function scrollToBottom(smooth = false) {
+  const doScroll = () => {
+    if (chatContainer.value) {
+      chatContainer.value.scrollTo({
+        top: chatContainer.value.scrollHeight,
+        behavior: smooth ? 'smooth' : 'auto'
+      })
+    }
+  }
+  nextTick(() => {
+    doScroll()
+    setTimeout(doScroll, 50)
+    setTimeout(doScroll, 150)
+    setTimeout(doScroll, 300)
+  })
+}
+
+function renderMarkdown(content) {
+  if (!content) return ''
+  let html = content
+  html = html.replace(/```([a-zA-Z]*)\n([\s\S]*?)```/g, (match, lang, code) => {
+    return `<pre><code class="language-${lang}">${code.trim()}</code></pre>`
+  })
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
   html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>')
   html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>')
   html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>')
@@ -396,66 +616,173 @@ function formatActionLabel(act) {
   if (act.action === 'get_action_items') {
     return `Queried pending action items & deadlines`
   }
+  if (act.action === 'start_mock_interview') {
+    const comp = act.args?.company_or_id || 'Practice'
+    return `Launched live mock interview for ${comp}`
+  }
   return `Executed: ${act.action || 'Tool'}`
 }
 
 function getReadinessBadgeClass(rating) {
-  if (rating === 'STRONG_HIRE') return 'readiness-strong'
-  if (rating === 'HIRE') return 'readiness-hire'
+  if (!rating) return ''
+  const r = rating.toLowerCase()
+  if (r.includes('strong')) return 'readiness-strong'
+  if (r.includes('hire')) return 'readiness-hire'
+  if (r.includes('incomplete')) return 'readiness-incomplete'
   return 'readiness-work'
+}
+
+function getScoreBadgeClass(score) {
+  if (score >= 80) return 'score-pill-high'
+  if (score >= 65) return 'score-pill-med'
+  return 'score-pill-low'
 }
 </script>
 
 <template>
   <div class="chat-page-container" :class="{ 'sidebar-collapsed': isSidebarCollapsed }">
 
-    <!-- Sidebar (For Assistant Mode) -->
-    <div v-if="activeMode === 'assistant'" class="chat-sidebar" :class="{ 'collapsed': isSidebarCollapsed }">
-      <div class="sidebar-header">
-        <button
-          class="btn-new-chat-sidebar"
-          @click="handleResetChat"
-        >
-          <Plus :size="16" />
-          <span>New Chat</span>
-        </button>
-        <button
-          class="btn-icon-sidebar"
-          @click="toggleSidebar"
-          title="Collapse Sidebar"
-        >
-          <PanelLeftClose :size="18" />
-        </button>
-      </div>
-
-      <div class="chats-list">
-        <div v-if="chatStore.isLoadingChats" class="chats-loading">
-          <Loader2 class="animate-spin" :size="20" />
-        </div>
-        <div v-else-if="chatStore.chatsList.length === 0" class="no-chats">
-          No previous chats
-        </div>
-        <div v-else class="chats-list-scroll">
-          <div
-            v-for="chat in chatStore.chatsList"
-            :key="chat.id"
-            class="chat-list-item"
-            :class="{ active: chatStore.chatId === chat.id }"
-            @click="handleLoadChat(chat.id)"
+    <!-- Unified Sidebar (For Both Assistant & Interview Simulation Modes) -->
+    <div class="chat-sidebar" :class="{ 'collapsed': isSidebarCollapsed }">
+      <!-- ASSISTANT MODE SIDEBAR HEADER & LIST -->
+      <template v-if="activeMode === 'assistant'">
+        <div class="sidebar-header">
+          <button
+            class="btn-new-chat-sidebar"
+            @click="handleResetChat"
           >
-            <div class="chat-item-content">
-              <MessageSquare :size="14" class="chat-icon" />
-              <span class="chat-title">{{ chat.title }}</span>
+            <Plus :size="16" />
+            <span>New Chat</span>
+          </button>
+          <button
+            class="btn-icon-sidebar"
+            @click="toggleSidebar"
+            title="Collapse Sidebar"
+          >
+            <PanelLeftClose :size="18" />
+          </button>
+        </div>
+
+        <!-- Sidebar Filter Input -->
+        <div class="sidebar-search-box">
+          <Search :size="13" class="sidebar-search-icon" />
+          <input
+            v-model="sidebarSearchQuery"
+            type="text"
+            placeholder="Filter chats by title..."
+            class="sidebar-search-input"
+          />
+        </div>
+
+        <div class="chats-list">
+          <div v-if="chatStore.isLoadingChats" class="chats-loading">
+            <Loader2 class="animate-spin" :size="20" />
+          </div>
+          <div v-else-if="filteredChats.length === 0" class="no-chats">
+            {{ sidebarSearchQuery ? 'No matching chats' : 'No previous chats' }}
+          </div>
+          <div v-else class="chats-list-scroll">
+            <div
+              v-for="chat in filteredChats"
+              :key="chat.id"
+              class="chat-list-item"
+              :class="{ active: chatStore.chatId === chat.id }"
+              @click="handleLoadChat(chat.id)"
+            >
+              <div class="chat-item-content">
+                <MessageSquare :size="14" class="chat-icon" />
+                <span class="chat-title">{{ chat.title }}</span>
+              </div>
+              <button class="btn-delete-chat" @click.stop="handleDeleteChat(chat.id)" title="Delete Chat">
+                <Trash2 :size="14" />
+              </button>
             </div>
-            <button class="btn-delete-chat" @click.stop="handleDeleteChat(chat.id)" title="Delete Chat">
-              <Trash2 :size="14" />
-            </button>
           </div>
         </div>
-      </div>
+      </template>
 
+      <!-- INTERVIEW SIMULATOR MODE SIDEBAR HEADER & LIST -->
+      <template v-else-if="activeMode === 'interview'">
+        <div class="sidebar-header">
+          <button
+            class="btn-new-chat-sidebar"
+            @click="handleNewSimulation"
+          >
+            <Plus :size="16" />
+            <span>New Simulation</span>
+          </button>
+          <button
+            class="btn-icon-sidebar"
+            @click="toggleSidebar"
+            title="Collapse Sidebar"
+          >
+            <PanelLeftClose :size="18" />
+          </button>
+        </div>
+
+        <!-- Sidebar Filter Input -->
+        <div class="sidebar-search-box">
+          <Search :size="13" class="sidebar-search-icon" />
+          <input
+            v-model="sidebarSearchQuery"
+            type="text"
+            placeholder="Filter simulations by title..."
+            class="sidebar-search-input"
+          />
+        </div>
+
+        <div class="chats-list">
+          <div v-if="interviewStore.isLoadingSessions" class="chats-loading">
+            <Loader2 class="animate-spin" :size="20" />
+          </div>
+          <div v-else-if="filteredInterviewSessions.length === 0" class="no-chats">
+            {{ sidebarSearchQuery ? 'No matching simulations' : 'No previous simulations' }}
+          </div>
+          <div v-else class="chats-list-scroll">
+            <div
+              v-for="session in filteredInterviewSessions"
+              :key="session.id"
+              class="chat-list-item interview-session-item"
+              :class="{
+                active: interviewStore.currentSession?.id === session.id,
+                'active-session-pinned': session.id === interviewStore.currentSession?.id && interviewStore.currentSession?.status === 'IN_PROGRESS'
+              }"
+              @click="handleLoadInterviewSession(session.id)"
+            >
+              <div class="chat-item-content">
+                <Sparkles :size="14" class="chat-icon text-primary" />
+                <div class="session-sidebar-info">
+                  <span class="session-sidebar-title">{{ formatSessionTitle(session) }}</span>
+                  <div class="session-sidebar-meta">
+                    <template v-if="isCompletedSession(session)">
+                      <span class="session-status-tag session-status-closed">Closed</span>
+                      <span
+                        v-if="getSessionScore(session) !== null && getSessionScore(session) !== undefined"
+                        class="session-score-tag"
+                        :class="getReadinessBadgeClass(getSessionReadiness(session))"
+                      >
+                        {{ Math.round(getSessionScore(session)) }}%
+                      </span>
+                    </template>
+                    <span v-else-if="session.id === interviewStore.currentSession?.id && interviewStore.currentSession?.status === 'IN_PROGRESS'" class="session-status-tag session-status-live">
+                      <span class="live-dot"></span> Live
+                    </span>
+                    <span v-else class="session-status-tag">In Progress</span>
+                    <span class="session-date-tag">{{ formatSessionDate(session.created_at) }}</span>
+                  </div>
+                </div>
+              </div>
+              <button class="btn-delete-chat" @click.stop="handleDeleteInterviewSession(session.id)" title="Delete Simulation">
+                <Trash2 :size="14" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Sidebar Footer -->
       <div class="sidebar-footer">
-        <div class="retention-setting">
+        <div v-if="activeMode === 'assistant'" class="retention-setting">
           <label class="retention-label">
             <Settings :size="12" />
             Auto-delete chats
@@ -472,6 +799,9 @@ function getReadinessBadgeClass(rating) {
             <option :value="30">After 30 days</option>
           </select>
         </div>
+        <div v-else class="interview-sidebar-hint">
+          <span>Simulation history preserved</span>
+        </div>
       </div>
     </div>
 
@@ -482,7 +812,7 @@ function getReadinessBadgeClass(rating) {
         <div class="header-content-inner">
           <div class="header-left">
             <button
-              v-if="activeMode === 'assistant' && isSidebarCollapsed"
+              v-if="isSidebarCollapsed"
               class="btn-icon-sidebar btn-expand-sidebar"
               @click="toggleSidebar"
               title="Expand Sidebar"
@@ -510,6 +840,18 @@ function getReadinessBadgeClass(rating) {
               </button>
             </div>
           </div>
+
+          <div v-if="activeMode === 'interview' && interviewStore.currentSession?.status === 'IN_PROGRESS'" class="header-right">
+            <button
+              class="btn btn-danger btn-sm text-danger header-end-btn"
+              :disabled="interviewStore.isFinalizing"
+              @click="handleFinalizeSession"
+              title="Finish interview and view scorecard"
+            >
+              <Flag :size="14" />
+              <span>End Session</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -531,10 +873,22 @@ function getReadinessBadgeClass(rating) {
 
                 <div class="message-bubble">
                   <div v-if="msg.actions && msg.actions.length > 0" class="actions-chips">
-                    <div v-for="(act, aIdx) in msg.actions" :key="aIdx" class="action-chip">
-                      <CheckCircle2 :size="13" class="text-success" />
-                      <span>{{ formatActionLabel(act) }}</span>
-                    </div>
+                    <template v-for="(act, aIdx) in msg.actions" :key="aIdx">
+                      <button
+                        v-if="act.action === 'start_mock_interview' && (act.result?.session_id || act.session_id)"
+                        class="action-chip action-chip-interactive"
+                        @click="enterInterviewFromChat(act.result?.session_id || act.session_id)"
+                        title="Click to jump into this live interview simulation"
+                      >
+                        <Sparkles :size="13" class="text-primary" />
+                        <span>Enter Mock Interview (#{{ act.result?.session_id || act.session_id }})</span>
+                        <ArrowRight :size="12" />
+                      </button>
+                      <div v-else class="action-chip">
+                        <CheckCircle2 :size="13" class="text-success" />
+                        <span>{{ formatActionLabel(act) }}</span>
+                      </div>
+                    </template>
                   </div>
 
                   <div
@@ -603,44 +957,98 @@ function getReadinessBadgeClass(rating) {
               <div class="setup-icon-box">
                 <Sparkles :size="28" class="text-primary" />
               </div>
-              <h2 class="setup-title">Interactive Real-Time Mock Interview</h2>
+              <h2 class="setup-title">Interactive Live Mock Interview</h2>
               <p class="setup-subtitle">
-                Practice realistic interview rounds with AI personas, STAR rubric analysis, and real-time coaching scorecards.
+                Practice realistic interview rounds with AI evaluation, in-thread feedback, and a comprehensive debrief scorecard.
               </p>
             </div>
 
             <div class="setup-form">
-              <!-- Target Application Picker -->
+              <!-- Searchable Target Application Picker -->
               <div class="form-group">
-                <label class="form-label">Target Application (Optional)</label>
-                <select v-model="mockAppId" class="form-select">
-                  <option :value="null">🎯 General Technical & Behavioral Practice (No Application)</option>
-                  <option
-                    v-for="app in appStore.applications"
-                    :key="app.id"
-                    :value="app.id"
+                <div class="target-app-header">
+                  <label class="form-label">Target Application</label>
+                  <span class="target-app-subtitle">Showing Applied &amp; Interview stage positions</span>
+                </div>
+
+                <div class="app-search-wrapper">
+                  <Search :size="15" class="app-search-icon" />
+                  <input
+                    v-model="appSearchQuery"
+                    type="text"
+                    placeholder="Search by company or position name..."
+                    class="app-search-input"
+                  />
+                </div>
+
+                <div class="app-selectable-list-container">
+                  <!-- General Practice Option -->
+                  <div
+                    class="app-selectable-card"
+                    :class="{ 'card-active': mockAppId === null }"
+                    @click="mockAppId = null"
+                    role="button"
+                    tabindex="0"
                   >
-                    {{ app.company?.name || 'Company' }} — {{ app.position || 'Position' }} ({{ app.status }})
-                  </option>
-                </select>
+                    <div class="card-check-icon">
+                      <CheckCircle2 v-if="mockAppId === null" class="icon-active" :size="18" />
+                      <Circle v-else class="icon-inactive" :size="18" />
+                    </div>
+                    <div class="app-card-details">
+                      <div class="app-card-title">🎯 General Technical &amp; Behavioral Practice</div>
+                      <div class="app-card-desc">No specific application linked. Evaluates core engineering &amp; STAR competencies.</div>
+                    </div>
+                  </div>
+
+                  <!-- Filtered Applications -->
+                  <div
+                    v-for="app in filteredApplications"
+                    :key="app.id"
+                    class="app-selectable-card"
+                    :class="{ 'card-active': mockAppId === app.id }"
+                    @click="handleSelectApp(app.id)"
+                    role="button"
+                    tabindex="0"
+                  >
+                    <div class="card-check-icon">
+                      <CheckCircle2 v-if="mockAppId === app.id" class="icon-active" :size="18" />
+                      <Circle v-else class="icon-inactive" :size="18" />
+                    </div>
+                    <div class="app-card-details">
+                      <div class="app-card-title-row">
+                        <span class="app-company-name">{{ app.company?.name || 'Company' }}</span>
+                        <span class="app-status-badge" :class="'badge-' + app.status?.toLowerCase()">
+                          {{ formatStatus(app.status) }}
+                        </span>
+                      </div>
+                      <div class="app-position-title">{{ app.position || 'Position' }}</div>
+                    </div>
+                  </div>
+
+                  <div v-if="filteredApplications.length === 0 && appSearchQuery" class="app-no-results">
+                    No matching applications found in Applied or Interview stages.
+                  </div>
+                </div>
               </div>
 
-              <!-- Persona Picker -->
+              <!-- Question Format Picker -->
               <div class="form-group">
-                <label class="form-label">Select Interviewer Persona</label>
-                <div class="persona-grid">
+                <label class="form-label">Select Question Format</label>
+                <div class="question-mode-grid">
                   <div
-                    v-for="p in PERSONAS"
-                    :key="p.id"
-                    class="persona-card"
-                    :class="{ active: mockPersona === p.id }"
-                    @click="mockPersona = p.id"
+                    v-for="m in QUESTION_MODES"
+                    :key="m.id"
+                    class="question-mode-card"
+                    :class="{ active: mockQuestionMode === m.id }"
+                    @click="mockQuestionMode = m.id"
                   >
-                    <div class="persona-card-header">
-                      <component :is="p.icon" :size="18" class="persona-icon" />
-                      <span class="persona-card-title">{{ p.title }}</span>
+                    <div class="question-mode-header">
+                      <div class="mode-title-wrap">
+                        <component :is="m.icon" :size="16" class="mode-icon" />
+                        <span class="question-mode-title">{{ m.title }}</span>
+                      </div>
                     </div>
-                    <p class="persona-card-desc">{{ p.desc }}</p>
+                    <p class="question-mode-desc">{{ m.desc }}</p>
                   </div>
                 </div>
               </div>
@@ -660,238 +1068,170 @@ function getReadinessBadgeClass(rating) {
           </div>
         </div>
 
-        <!-- ACTIVE SESSION HUD & SPLIT PANE -->
-        <div v-else-if="interviewStore.currentSession.status === 'IN_PROGRESS'" class="simulator-split-pane">
-          <!-- LEFT PANE: INTERVIEW FLOOR -->
-          <div class="interview-floor">
-            <!-- Questions & Answers Thread -->
-            <div ref="chatContainer" class="floor-thread">
-              <div
-                v-for="turn in interviewStore.turns"
-                :key="turn.turn_index"
-                class="turn-block"
-              >
-                <!-- Question Bubble -->
-                <div class="msg-row interviewer-row">
-                  <div class="avatar-icon interviewer-avatar">
-                    <Sparkles :size="16" />
-                  </div>
-                  <div class="msg-bubble interviewer-bubble">
-                    <div class="turn-header-tag">
-                      <span v-if="turn.is_drill_down" class="badge-drilldown">AI Adaptive Probe</span>
-                      <span v-else class="badge-turn">Question #{{ turn.turn_index }}</span>
-                    </div>
-                    <div class="msg-text">{{ turn.question }}</div>
-                  </div>
-                </div>
+        <!-- ACTIVE SESSION FULL-WIDTH FLOOR -->
+        <div v-else-if="interviewStore.currentSession.status === 'IN_PROGRESS'" class="interview-floor-full">
+          <!-- Questions & Answers Thread -->
+          <div ref="chatContainer" class="floor-thread">
+            <!-- Initial Session Thinking State (while first question generates) -->
+            <div v-if="interviewStore.isInitializing && !interviewStore.turns.length" class="msg-row interviewer-row animate-fade-in">
+              <div class="avatar-icon interviewer-avatar">
+                <Sparkles :size="16" />
+              </div>
+              <div class="msg-bubble thinking-bubble">
+                <Loader2 class="animate-spin" :size="16" />
+                <span>Interviewer is analyzing your application & background to formulate your opening challenge...</span>
+              </div>
+            </div>
 
-                <!-- User Answer Bubble (if submitted) -->
-                <div v-if="turn.user_answer" class="msg-row user-row">
-                  <div class="avatar-icon user-avatar">
-                    <User :size="16" />
+            <!-- Turns List -->
+            <div
+              v-for="turn in interviewStore.turns"
+              :key="turn.turn_index"
+              class="turn-block animate-fade-in"
+            >
+              <!-- Question Bubble -->
+              <div class="msg-row interviewer-row">
+                <div class="avatar-icon interviewer-avatar">
+                  <Sparkles :size="16" />
+                </div>
+                <div class="msg-bubble interviewer-bubble">
+                  <div class="turn-header-tag">
+                    <span v-if="turn.is_drill_down" class="badge-drilldown">AI Adaptive Probe</span>
+                    <span v-else-if="turn.question_type === 'MULTIPLE_CHOICE'" class="badge-mc">Multiple Choice Challenge</span>
+                    <span v-else class="badge-turn">Question #{{ turn.turn_index }}</span>
                   </div>
-                  <div class="msg-bubble user-bubble">
-                    <div v-if="turn.attempt_count > 1" class="attempt-tag">Attempt #{{ turn.attempt_count }}</div>
-                    <div class="msg-text">{{ turn.user_answer }}</div>
-                  </div>
+                  <div class="msg-text">{{ turn.question }}</div>
                 </div>
               </div>
 
-              <!-- Loading State for Next Question / Drill Down -->
-              <div v-if="interviewStore.isGeneratingQuestion" class="msg-row interviewer-row">
+              <!-- Candidate Answer Bubble (optimistically updated or loaded) -->
+              <div v-if="turn.user_answer || turn.selected_option" class="msg-row user-row">
+                <div class="avatar-icon user-avatar">
+                  <User :size="16" />
+                </div>
+                <div class="msg-bubble user-bubble">
+                  <div v-if="turn.attempt_count > 1" class="attempt-tag">Attempt #{{ turn.attempt_count }}</div>
+                  <div v-if="turn.selected_option" class="selected-option-pill">
+                    Selected Option: <strong>{{ turn.selected_option }}</strong>
+                  </div>
+                  <div v-if="turn.user_answer" class="msg-text">{{ turn.user_answer }}</div>
+                </div>
+              </div>
+
+              <!-- Turn Evaluation Loader (visible right below user's response while evaluation generates) -->
+              <div v-if="interviewStore.isEvaluating && interviewStore.currentTurnIndex === turn.turn_index" class="msg-row interviewer-row animate-fade-in">
                 <div class="avatar-icon interviewer-avatar">
                   <Sparkles :size="16" />
                 </div>
                 <div class="msg-bubble thinking-bubble">
                   <Loader2 class="animate-spin" :size="16" />
-                  <span>Synthesizing next challenge...</span>
+                  <span>Interviewer is evaluating your response...</span>
                 </div>
               </div>
-            </div>
 
-            <!-- Bottom Control Floor / Answer Box & HUD Action Bar -->
-            <div class="floor-bottom-controls">
-              <!-- Evaluation Status & HUD Actions Bar -->
-              <div v-if="interviewStore.currentTurn?.evaluation" class="hud-action-bar">
-                <button
-                  class="btn btn-secondary btn-sm"
-                  :disabled="interviewStore.isGeneratingQuestion"
-                  @click="handleNextQuestion"
-                >
-                  <ArrowRight :size="14" />
-                  <span>Next Question</span>
-                </button>
-
-                <button
-                  class="btn btn-secondary btn-sm"
-                  :disabled="interviewStore.isGeneratingQuestion"
-                  @click="handleDrillDown"
-                >
-                  <Sparkles :size="14" />
-                  <span>Drill Deeper (AI Challenge)</span>
-                </button>
-
-                <button
-                  class="btn btn-secondary btn-sm"
-                  @click="prepareRefineAnswer"
-                >
-                  <RotateCcw :size="14" />
-                  <span>Refine Answer</span>
-                </button>
-
-                <button
-                  class="btn btn-danger btn-sm text-danger ml-auto"
-                  :disabled="interviewStore.isFinalizing"
-                  @click="handleFinalizeSession"
-                >
-                  <Flag :size="14" />
-                  <span>End Session</span>
-                </button>
-              </div>
-
-              <!-- Input Area (Active when question is unevaluated or user is refining) -->
-              <div v-else class="answer-input-container">
-                <div class="answer-textarea-box">
-                  <textarea
-                    v-model="candidateAnswer"
-                    rows="3"
-                    placeholder="Type or dictate your STAR response (Situation, Task, Action, Result)..."
-                    class="answer-textarea"
-                  ></textarea>
-
-                  <div class="textarea-footer">
-                    <div class="char-count">{{ candidateAnswer.length }} chars</div>
-
-                    <div class="input-actions-right">
-                      <!-- Voice Transcription Button -->
-                      <button
-                        type="button"
-                        class="btn-voice-dictation"
-                        :class="{ recording: isRecording }"
-                        :disabled="!speechSupported"
-                        :title="speechSupported ? (isRecording ? 'Stop Voice Input' : 'Start Voice Input') : 'Voice input not supported in this browser — please type your answer.'"
-                        @click="toggleVoiceInput"
-                      >
-                        <MicOff v-if="!speechSupported" :size="15" />
-                        <Mic v-else :size="15" />
-                        <span v-if="isRecording" class="recording-pulse"></span>
-                      </button>
-
-                      <button
-                        class="btn btn-primary btn-submit-answer"
-                        :disabled="interviewStore.isEvaluating || !candidateAnswer.trim()"
-                        @click="handleEvaluateAnswer"
-                      >
-                        <Loader2 v-if="interviewStore.isEvaluating" class="animate-spin" :size="15" />
-                        <Send v-else :size="15" />
-                        <span>Submit & Evaluate</span>
-                      </button>
-                    </div>
+              <!-- Conversational Interviewer Response Bubble (Natural In-Thread Dialogue) -->
+              <div v-if="turn.evaluation" class="msg-row interviewer-row animate-fade-in">
+                <div class="avatar-icon interviewer-avatar">
+                  <Sparkles :size="16" />
+                </div>
+                <div class="msg-bubble interviewer-bubble interviewer-feedback-bubble">
+                  <div class="turn-header-tag">
+                    <span class="badge-feedback">Interviewer Feedback</span>
+                  </div>
+                  <div class="msg-text">
+                    {{ turn.evaluation.constructive_critique || turn.evaluation.interviewer_feedback || 'Thank you for sharing that experience.' }}
                   </div>
                 </div>
               </div>
             </div>
+
+            <!-- Loading State for Next Question / Drill Down -->
+            <div v-if="interviewStore.isGeneratingQuestion" class="msg-row interviewer-row animate-fade-in">
+              <div class="avatar-icon interviewer-avatar">
+                <Sparkles :size="16" />
+              </div>
+              <div class="msg-bubble thinking-bubble">
+                <Loader2 class="animate-spin" :size="16" />
+                <span>Synthesizing next challenge tailored to your background...</span>
+              </div>
+            </div>
           </div>
 
-          <!-- RIGHT PANE: LIVE COACHING & STAR METER -->
-          <div class="live-coaching-pane">
-            <div class="coaching-header">
-              <span class="coaching-title">Live Interview Coaching</span>
-              <span class="persona-chip">{{ interviewStore.activePersona }}</span>
-            </div>
-
-            <!-- Cumulative Score Gauge -->
-            <div class="score-card">
-              <div class="score-circle">
-                <span class="score-number">{{ interviewStore.overallScore }}</span>
-                <span class="score-denom">/100</span>
-              </div>
-              <div class="score-label">Real-Time Fit Score</div>
-            </div>
-
-            <!-- STAR Rubric Meter -->
-            <div v-if="interviewStore.latestEvaluation" class="star-meter-card">
-              <div class="card-label">STAR Structure Coverage</div>
-              <div class="star-badges-grid">
-                <div
-                  class="star-badge"
-                  :class="{ active: interviewStore.latestEvaluation.star_presence?.situation }"
+          <!-- Bottom Control Floor (Unified chat-bottom-dock style) -->
+          <div class="chat-bottom-dock">
+            <div class="bottom-dock-inner">
+              <!-- Choices Bar (When answering Multiple Choice question) -->
+              <div
+                v-if="shouldShowMCChoices"
+                class="starters-bar mc-choices-bar"
+              >
+                <button
+                  v-for="opt in interviewStore.currentTurn.options"
+                  :key="opt.key"
+                  class="starter-chip mc-choice-chip"
+                  :class="{ active: selectedOptionKey === opt.key }"
+                  @click="handleSelectChoice(opt.key)"
                 >
-                  <Check v-if="interviewStore.latestEvaluation.star_presence?.situation" :size="12" />
-                  <span>Situation</span>
-                </div>
+                  <span class="mc-chip-key">{{ opt.key }}</span>
+                  <span class="mc-chip-text">{{ opt.text }}</span>
+                </button>
+              </div>
 
-                <div
-                  class="star-badge"
-                  :class="{ active: interviewStore.latestEvaluation.star_presence?.task }"
+              <!-- Progression Bar (When turn is evaluated and not actively refining) -->
+              <div
+                v-else-if="interviewStore.currentTurn?.evaluation && !isRefining && !interviewStore.isGeneratingQuestion && !interviewStore.isEvaluating"
+                class="starters-bar progression-bar"
+              >
+                <button
+                  class="starter-chip starter-chip-primary"
+                  :disabled="interviewStore.isGeneratingQuestion"
+                  @click="handleNextQuestion"
                 >
-                  <Check v-if="interviewStore.latestEvaluation.star_presence?.task" :size="12" />
-                  <span>Task</span>
-                </div>
+                  <ArrowRight :size="13" />
+                  <span>Next Question</span>
+                </button>
 
-                <div
-                  class="star-badge"
-                  :class="{ active: interviewStore.latestEvaluation.star_presence?.action }"
+                <button
+                  class="starter-chip"
+                  :disabled="interviewStore.isGeneratingQuestion"
+                  @click="handleDrillDown"
                 >
-                  <Check v-if="interviewStore.latestEvaluation.star_presence?.action" :size="12" />
-                  <span>Action</span>
-                </div>
+                  <Sparkles :size="13" />
+                  <span>Drill Deeper</span>
+                </button>
 
-                <div
-                  class="star-badge"
-                  :class="{ active: interviewStore.latestEvaluation.star_presence?.result }"
+                <button
+                  class="starter-chip"
+                  @click="prepareRefineAnswer"
                 >
-                  <Check v-if="interviewStore.latestEvaluation.star_presence?.result" :size="12" />
-                  <span>Result</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Feedback Breakdown -->
-            <div v-if="interviewStore.latestEvaluation" class="coaching-details-scroll">
-              <!-- Strengths -->
-              <div v-if="interviewStore.latestEvaluation.strengths?.length" class="feedback-box strengths-box">
-                <div class="feedback-title text-success">
-                  <CheckCircle2 :size="14" />
-                  <span>Key Strengths Identified</span>
-                </div>
-                <ul class="feedback-list">
-                  <li v-for="(s, i) in interviewStore.latestEvaluation.strengths" :key="i">{{ s }}</li>
-                </ul>
+                  <RotateCcw :size="13" />
+                  <span>Refine Answer</span>
+                </button>
               </div>
 
-              <!-- Gaps / Missing Items -->
-              <div v-if="interviewStore.latestEvaluation.missing_gaps?.length" class="feedback-box gaps-box">
-                <div class="feedback-title text-danger">
-                  <AlertCircle :size="14" />
-                  <span>Missing Gaps &amp; Opportunities</span>
-                </div>
-                <ul class="feedback-list">
-                  <li v-for="(g, i) in interviewStore.latestEvaluation.missing_gaps" :key="i">{{ g }}</li>
-                </ul>
-              </div>
+              <!-- Single-line Input Bar -->
+              <div class="chat-input-bar">
+                <textarea
+                  ref="interviewInputRef"
+                  v-model="candidateAnswer"
+                  :rows="isConversationalOrHybrid ? 2 : 1"
+                  :disabled="interviewStore.isEvaluating || interviewStore.isGeneratingQuestion"
+                  :placeholder="interviewStore.isEvaluating ? 'Interviewer is evaluating your response...' : (interviewStore.isGeneratingQuestion ? 'Synthesizing next challenge...' : (interviewStore.currentTurn?.options?.length ? '(Optional) Add technical rationale or click Send / press Enter...' : 'Type your response (Situation, Task, Action, Result)...'))"
+                  class="chat-input interview-chat-input"
+                  :class="{ 'chat-input-expanded': isConversationalOrHybrid }"
+                  @input="handleAutoResize"
+                  @keydown.enter.exact.prevent="handleEvaluateAnswer"
+                ></textarea>
 
-              <!-- Critique -->
-              <div v-if="interviewStore.latestEvaluation.constructive_critique" class="feedback-box critique-box">
-                <div class="feedback-title text-primary">
-                  <Sparkles :size="14" />
-                  <span>Interviewer Critique</span>
-                </div>
-                <p class="critique-text">{{ interviewStore.latestEvaluation.constructive_critique }}</p>
+                <button
+                  class="btn btn-primary btn-send"
+                  :disabled="interviewStore.isEvaluating || interviewStore.isGeneratingQuestion || (interviewStore.currentTurn?.options?.length && !interviewStore.currentTurn?.evaluation ? !selectedOptionKey : !candidateAnswer.trim())"
+                  @click="handleEvaluateAnswer"
+                >
+                  <Loader2 v-if="interviewStore.isEvaluating" class="animate-spin" :size="15" />
+                  <Send v-else :size="15" />
+                </button>
               </div>
-
-              <!-- Exemplar STAR Rewrite -->
-              <div v-if="interviewStore.latestEvaluation.exemplar_rewrite" class="feedback-box exemplar-box">
-                <div class="feedback-title">
-                  <Award :size="14" />
-                  <span>Exemplar STAR Answer</span>
-                </div>
-                <p class="exemplar-text">{{ interviewStore.latestEvaluation.exemplar_rewrite }}</p>
-              </div>
-            </div>
-
-            <div v-else class="empty-coaching">
-              Submit an answer on the left floor to view real-time STAR coverage and coaching feedback.
             </div>
           </div>
         </div>
@@ -905,7 +1245,7 @@ function getReadinessBadgeClass(rating) {
               </div>
               <h2 class="scorecard-title">Interview Simulation Scorecard</h2>
               <div class="scorecard-score-banner">
-                <span class="final-score-val">{{ interviewStore.overallScore }}</span>
+                <span class="final-score-val">{{ interviewStore.overallScore !== null && interviewStore.overallScore !== undefined ? interviewStore.overallScore : '--' }}</span>
                 <span class="final-score-max">/ 100 Overall Score</span>
               </div>
             </div>
@@ -957,24 +1297,35 @@ function getReadinessBadgeClass(rating) {
             </div>
 
             <div class="scorecard-footer">
-              <button
-                v-if="interviewStore.currentSession.application_id"
-                class="btn btn-primary"
-                :disabled="interviewStore.isSavingNotes"
-                @click="handleSaveNotes"
-              >
-                <Loader2 v-if="interviewStore.isSavingNotes" class="animate-spin" :size="16" />
-                <FileText v-else :size="16" />
-                <span>Save to Application Notes</span>
-              </button>
-
-              <button
-                class="btn btn-secondary"
-                @click="interviewStore.resetSession()"
-              >
-                <RotateCcw :size="16" />
-                <span>Start New Simulation</span>
-              </button>
+              <div class="scorecard-continuation-banner">
+                <span class="continuation-label">Practice More with this Role:</span>
+                <div class="continuation-modes-btn-group">
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    :disabled="interviewStore.isInitializing"
+                    @click="handleStartAnotherSimulation('TEXT_CONVERSATIONAL')"
+                  >
+                    <MessageSquare :size="13" />
+                    <span>Conversational</span>
+                  </button>
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    :disabled="interviewStore.isInitializing"
+                    @click="handleStartAnotherSimulation('MULTIPLE_CHOICE')"
+                  >
+                    <CheckCircle2 :size="13" />
+                    <span>Multiple Choice</span>
+                  </button>
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    :disabled="interviewStore.isInitializing"
+                    @click="handleStartAnotherSimulation('HYBRID')"
+                  >
+                    <Layers :size="13" />
+                    <span>Hybrid</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1068,10 +1419,42 @@ function getReadinessBadgeClass(rating) {
   margin-right: 4px;
 }
 
+.sidebar-search-box {
+  position: relative;
+  padding: 10px 12px 4px;
+  flex-shrink: 0;
+}
+
+.sidebar-search-icon {
+  position: absolute;
+  left: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.sidebar-search-input {
+  width: 100%;
+  padding: 7px 10px 7px 30px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  color: var(--text-main);
+  font-size: 12.5px;
+  box-sizing: border-box;
+  transition: border-color var(--transition-fast);
+}
+
+.sidebar-search-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
 .chats-list {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 8px;
+  padding: 8px;
 }
 
 .chats-loading, .no-chats {
@@ -1406,15 +1789,16 @@ function getReadinessBadgeClass(rating) {
 .interview-setup-screen {
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 32px 24px;
+  padding: 36px 24px 60px;
   overflow-y: auto;
 }
 
 .setup-card {
   max-width: 680px;
   width: 100%;
+  margin: 0 auto;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -1514,27 +1898,50 @@ function getReadinessBadgeClass(rating) {
   margin-top: 10px;
 }
 
-.start-btn {
-  width: 100%;
-  padding: 12px;
-  font-size: 15px;
+/* HEADER & SIDEBAR STYLES */
+.header-end-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
   font-weight: 600;
+  padding: 6px 14px;
 }
 
-/* SIMULATOR SPLIT-PANE STYLES */
-.simulator-split-pane {
-  flex: 1;
-  display: flex;
-  height: calc(100% - 65px);
-  overflow: hidden;
+.active-session-pinned {
+  border-left: 3px solid var(--primary) !important;
+  background-color: var(--primary-subtle);
 }
 
-.interview-floor {
+.session-status-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--status-interview-text);
+  font-weight: 700;
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--status-interview-text);
+  animation: pulse-ring 1.5s infinite;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  50% { transform: scale(1.4); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.8; }
+}
+
+/* FULL-WIDTH INTERVIEW FLOOR STYLES */
+.interview-floor-full {
   flex: 1;
   display: flex;
   flex-direction: column;
-  height: 100%;
-  border-right: 1px solid var(--border-color);
+  height: calc(100% - 65px);
+  overflow: hidden;
   background-color: var(--bg-app);
 }
 
@@ -1545,18 +1952,23 @@ function getReadinessBadgeClass(rating) {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 
 .turn-block {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  width: 100%;
 }
 
 .msg-row {
   display: flex;
   gap: 12px;
-  max-width: 90%;
+  max-width: 88%;
 }
 
 .interviewer-row {
@@ -1592,8 +2004,12 @@ function getReadinessBadgeClass(rating) {
 
 .user-bubble {
   background-color: var(--primary-subtle);
-  color: var(--primary);
+  color: var(--text-main);
   border-color: var(--primary);
+}
+
+.interviewer-feedback-bubble {
+  border-left: 3px solid var(--primary);
 }
 
 .turn-header-tag {
@@ -1617,6 +2033,22 @@ function getReadinessBadgeClass(rating) {
   border: 1px solid var(--status-interview-border);
 }
 
+.badge-mc {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background-color: var(--primary-subtle);
+  color: var(--primary);
+  border: 1px solid var(--primary);
+}
+
+.badge-feedback {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+}
+
 .attempt-tag {
   font-size: 10px;
   font-weight: 600;
@@ -1624,276 +2056,128 @@ function getReadinessBadgeClass(rating) {
   margin-bottom: 4px;
 }
 
-.floor-bottom-controls {
-  padding: 16px 24px;
-  border-top: 1px solid var(--border-color);
-  background-color: var(--bg-surface);
-}
-
-.hud-action-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.answer-input-container {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.answer-textarea-box {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background-color: var(--bg-app);
-  padding: 10px;
-}
-
-.answer-textarea {
-  width: 100%;
-  border: none;
-  background: transparent;
-  resize: none;
-  font-size: 14px;
-  color: var(--text-main);
-  outline: none;
-}
-
-.textarea-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.char-count {
+.selected-option-pill {
+  display: inline-block;
   font-size: 12px;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-}
-
-.input-actions-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.btn-voice-dictation {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-surface);
-  color: var(--text-secondary);
-  cursor: pointer;
-  position: relative;
-  transition: all var(--transition-fast);
-}
-
-.btn-voice-dictation:hover:not(:disabled) {
-  border-color: var(--primary);
-  color: var(--primary);
-}
-
-.btn-voice-dictation.recording {
-  background-color: var(--danger-subtle);
-  color: var(--danger);
-  border-color: var(--danger);
-}
-
-.recording-pulse {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: var(--danger);
-  animation: pulse-ring 1.5s infinite;
-}
-
-/* RIGHT PANE: LIVE COACHING */
-.live-coaching-pane {
-  width: 360px;
-  height: 100%;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  background-color: var(--bg-surface);
-  padding: 20px;
-  overflow-y: auto;
-  gap: 16px;
-}
-
-.coaching-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.coaching-title {
-  font-family: var(--font-heading);
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.persona-chip {
-  font-size: 10px;
-  font-weight: 700;
   padding: 2px 8px;
-  border-radius: var(--radius-full);
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
-}
-
-.score-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-}
-
-.score-circle {
-  display: flex;
-  align-baseline: baseline;
-  gap: 2px;
-}
-
-.score-number {
-  font-size: 36px;
-  font-weight: 800;
-  color: var(--primary);
-  font-family: var(--font-mono);
-}
-
-.score-denom {
-  font-size: 14px;
-  color: var(--text-muted);
-}
-
-.score-label {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 4px;
-}
-
-.star-meter-card {
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 14px;
-}
-
-.card-label {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  margin-bottom: 10px;
-}
-
-.star-badges-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-}
-
-.star-badge {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 6px;
   border-radius: var(--radius-sm);
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.star-badge.active {
-  background-color: var(--status-offer-bg);
-  color: var(--status-offer-text);
-  border-color: var(--status-offer-border);
-  font-weight: 600;
-}
-
-.coaching-details-scroll {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.feedback-box {
-  padding: 12px;
-  border-radius: var(--radius-md);
-  background-color: var(--bg-card);
+  background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
-}
-
-.feedback-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 700;
   margin-bottom: 6px;
 }
 
-.feedback-list {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.5;
+/* BOTTOM DOCK ACTION CHIPS */
+.mc-choices-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+  width: 100%;
 }
 
-.critique-text, .exemplar-text {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-  margin: 0;
-}
-
-.exemplar-box {
-  border-left: 3px solid var(--primary);
-}
-
-.empty-coaching {
+.mc-choice-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
   font-size: 13px;
-  color: var(--text-muted);
-  text-align: center;
-  margin-top: 40px;
-  line-height: 1.5;
+  font-weight: 500;
+  color: var(--text-main);
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition-fast);
+}
+
+.mc-choice-chip:hover {
+  border-color: var(--primary);
+  background-color: var(--bg-hover);
+}
+
+.mc-choice-chip.active {
+  background-color: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.mc-chip-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-elevated);
+  font-weight: 700;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.mc-choice-chip.active .mc-chip-key {
+  background-color: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+.mc-chip-text {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.progression-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.starter-chip-primary {
+  background-color: var(--primary-subtle);
+  color: var(--primary);
+  border-color: var(--primary-glow);
+  font-weight: 600;
+}
+
+.starter-chip-primary:hover {
+  background-color: var(--primary);
+  color: #fff;
+}
+
+.action-chip-interactive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: var(--primary-subtle);
+  color: var(--primary);
+  border: 1px solid var(--primary-glow);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.action-chip-interactive:hover {
+  background-color: var(--primary);
+  color: #fff;
 }
 
 /* DEBRIEF SCORECARD STYLES */
 .debrief-scorecard-screen {
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 32px 24px;
+  padding: 36px 24px 60px;
   overflow-y: auto;
 }
 
 .scorecard-card {
   max-width: 760px;
   width: 100%;
+  margin: 0 auto;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -1924,6 +2208,7 @@ function getReadinessBadgeClass(rating) {
 .readiness-strong { background-color: var(--status-offer-bg); color: var(--status-offer-text); border: 1px solid var(--status-offer-border); }
 .readiness-hire { background-color: var(--status-interview-bg); color: var(--status-interview-text); border: 1px solid var(--status-interview-border); }
 .readiness-work { background-color: var(--status-rejected-bg); color: var(--status-rejected-text); border: 1px solid var(--status-rejected-border); }
+.readiness-incomplete { background-color: var(--bg-surface-hover); color: var(--text-muted); border: 1px solid var(--border-color); }
 
 .scorecard-title {
   font-family: var(--font-heading);
@@ -2041,12 +2326,487 @@ function getReadinessBadgeClass(rating) {
   line-height: 1.4;
 }
 
+.interview-chat-input.chat-input-expanded {
+  min-height: 52px;
+  max-height: 180px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
 .scorecard-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-color);
+}
+
+.scorecard-continuation-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  flex-wrap: wrap;
+}
+
+.continuation-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.continuation-modes-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.scorecard-actions-row {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border-color);
+  flex-wrap: wrap;
+}
+
+/* INTERVIEW SIDEBAR STYLES */
+.interview-session-item {
+  padding: 10px 12px;
+}
+
+.session-sidebar-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.session-sidebar-title {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-main);
+}
+
+.session-sidebar-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.session-score-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+}
+
+.session-status-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--status-assessment-bg);
+  color: var(--status-assessment-text);
+  border: 1px solid var(--status-assessment-border);
+}
+
+.session-status-tag.session-status-closed {
+  background-color: var(--bg-surface-hover);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+}
+
+.session-date-tag {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.interview-sidebar-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* TARGET APPLICATION SEARCHABLE PICKER STYLES */
+.target-app-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.target-app-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.app-search-wrapper {
+  position: relative;
+  margin-bottom: 8px;
+}
+
+.app-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.app-search-input {
+  width: 100%;
+  padding: 9px 12px 9px 34px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  color: var(--text-main);
+  font-size: 13px;
+  transition: border-color var(--transition-fast);
+}
+
+.app-search-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.app-selectable-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 226px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.app-selectable-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.app-selectable-card:hover {
+  border-color: var(--primary);
+  background-color: var(--bg-hover);
+}
+
+.app-selectable-card.card-active {
+  border-color: var(--primary);
+  background-color: var(--primary-subtle);
+}
+
+.card-check-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.icon-active {
+  color: var(--primary);
+}
+
+.icon-inactive {
+  color: var(--text-muted);
+}
+
+.app-card-details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.app-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.app-card-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+.app-card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.app-company-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.app-position-title {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.app-status-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.badge-applied { background-color: var(--status-applied-bg); color: var(--status-applied-text); border: 1px solid var(--status-applied-border); }
+.badge-online_assessment { background-color: var(--status-assessment-bg); color: var(--status-assessment-text); border: 1px solid var(--status-assessment-border); }
+.badge-technical_interview { background-color: var(--status-interview-bg); color: var(--status-interview-text); border: 1px solid var(--status-interview-border); }
+
+.app-no-results {
+  padding: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  background-color: var(--bg-card);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border-color);
+}
+
+/* QUESTION FORMAT / MODE STYLES */
+.question-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.question-mode-card {
+  padding: 14px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.question-mode-card:hover {
+  border-color: var(--primary);
+}
+
+.question-mode-card.active {
+  border-color: var(--primary);
+  background-color: var(--primary-subtle);
+}
+
+.question-mode-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.mode-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mode-icon {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.question-mode-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.question-mode-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.question-mode-desc {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.35;
+  margin: 0;
+}
+
+/* MULTIPLE CHOICE FLOOR & PICKER STYLES */
+.badge-mc {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background-color: var(--primary-subtle);
+  color: var(--primary);
+  border: 1px solid var(--primary-glow);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.mc-options-display {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mc-option-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.mc-option-card:hover:not(.evaluated-choice) {
+  border-color: var(--primary);
+  background-color: var(--bg-hover);
+}
+
+.mc-option-card.selected-choice {
+  border-color: var(--primary);
+  background-color: var(--primary-subtle);
+}
+
+.mc-option-key-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+  flex-shrink: 0;
+}
+
+.mc-option-card.selected-choice .mc-option-key-badge {
+  background-color: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.mc-option-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mc-option-text {
+  font-size: 13px;
+  color: var(--text-main);
+  line-height: 1.4;
+}
+
+.mc-option-explanation {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.35;
+  padding-top: 4px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.selected-option-pill {
+  font-size: 12px;
+  color: var(--primary);
+  margin-bottom: 4px;
+}
+
+.mc-quick-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.mc-picker-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.mc-picker-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.mc-picker-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition-fast);
+}
+
+.mc-picker-btn:hover {
+  border-color: var(--primary);
+}
+
+.mc-picker-btn.active {
+  border-color: var(--primary);
+  background-color: var(--primary-subtle);
+  color: var(--primary);
+}
+
+.btn-opt-key {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  background-color: var(--bg-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.mc-picker-btn.active .btn-opt-key {
+  background-color: var(--primary);
+  color: #fff;
+}
+
+.btn-opt-text {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

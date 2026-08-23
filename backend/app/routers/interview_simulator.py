@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -33,6 +32,8 @@ def _to_session_response(session: InterviewSessionModel) -> SessionResponse:
         id=session.id,
         application_id=session.application_id,
         persona=session.persona,
+        question_mode=getattr(session, "question_mode", "TEXT_CONVERSATIONAL")
+        or "TEXT_CONVERSATIONAL",
         status=session.status,
         overall_score=session.overall_score,
         readiness_rating=session.readiness_rating,
@@ -44,7 +45,9 @@ def _to_session_response(session: InterviewSessionModel) -> SessionResponse:
     )
 
 
-@router.post("/start", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/start", response_model=SessionResponse, status_code=status.HTTP_201_CREATED
+)
 async def start_session(
     payload: SessionStartRequest,
     db: AsyncSession = Depends(get_db),
@@ -54,6 +57,7 @@ async def start_session(
             db=db,
             application_id=payload.application_id,
             persona=payload.persona.value,
+            question_mode=payload.question_mode.value,
         )
         return _to_session_response(session)
     except Exception as e:
@@ -76,6 +80,7 @@ async def evaluate_answer(
             session_id=session_id,
             turn_index=payload.turn_index,
             answer_text=payload.answer_text,
+            selected_option=payload.selected_option,
         )
         return _to_session_response(session)
     except ValueError as ve:
@@ -111,7 +116,7 @@ async def next_question(
 @router.post("/{session_id}/drill-down", response_model=SessionResponse)
 async def drill_down(
     session_id: int,
-    payload: Optional[DrillDownRequest] = None,
+    payload: DrillDownRequest | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     try:
@@ -153,7 +158,7 @@ async def finalize_session(
 @router.post("/{session_id}/save-notes")
 async def save_notes(
     session_id: int,
-    payload: Optional[SaveNotesRequest] = None,
+    payload: SaveNotesRequest | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     try:
@@ -189,11 +194,13 @@ async def get_session(
 
 @router.get("", response_model=list[SessionResponse])
 async def list_sessions(
-    application_id: Optional[int] = Query(None),
+    application_id: int | None = Query(None),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(InterviewSessionModel).order_by(InterviewSessionModel.created_at.desc())
+    stmt = select(InterviewSessionModel).order_by(
+        InterviewSessionModel.created_at.desc()
+    )
     if application_id is not None:
         stmt = stmt.where(InterviewSessionModel.application_id == application_id)
     stmt = stmt.limit(limit)
@@ -201,3 +208,20 @@ async def list_sessions(
     res = await db.execute(stmt)
     sessions = res.scalars().all()
     return [_to_session_response(s) for s in sessions]
+
+
+@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_session(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        await InterviewSimulatorService.delete_session(db=db, session_id=session_id)
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+    except Exception as e:
+        logger.error("Failed to delete interview session: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete interview session: {str(e)}",
+        )

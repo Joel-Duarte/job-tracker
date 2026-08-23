@@ -14,7 +14,7 @@ from alembic import op
 from app.core.security import encrypt_secret
 
 revision: str = "9b5f2a7c1d4e"
-down_revision: str | Sequence[str] | None = "f66de35140ce"
+down_revision: str | Sequence[str] | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

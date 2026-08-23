@@ -156,3 +156,14 @@ class ApplicationDetailsInput(BaseModel):
     company_or_id: str = Field(
         description="Company name (e.g. 'Stripe') or numeric Application ID (e.g. '12')."
     )
+
+
+class StartMockInterviewInput(BaseModel):
+    company_or_id: str | None = Field(
+        default=None,
+        description="Company name (e.g. 'Stripe') or numeric Application ID. If omitted, initiates a general technical and behavioral simulation.",
+    )
+    question_mode: str = Field(
+        default="TEXT_CONVERSATIONAL",
+        description="Question format: 'TEXT_CONVERSATIONAL' for behavioral/STAR, 'MULTIPLE_CHOICE' for objective scenario challenges, or 'HYBRID' for mixed.",
+    )

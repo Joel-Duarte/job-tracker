@@ -18,13 +18,14 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - `JobIntakeView`: Tools to paste URLs or job descriptions for ingestion.
   - `ActionItemsView`: To-do list generated from emails and application updates.
   - `StagingView`: Review and manual resolution area for ambiguous or low-confidence extractions.
-  - `AgentChatView`: Conversational AI agent interface to query application data.
+  - `AgentChatView`: Unified conversational assistant and live interactive mock interview simulation suite supporting multi-turn drill downs, multiple-choice challenges, voice transcription, debrief scorecards, and session continuation across practice formats.
   - `PastWinsView`: Archive and showcase for accepted offers, hired milestones, and celebration analytics.
 
 ### Backend
 - **Framework:** FastAPI
 - **Database:** PostgreSQL 16 with `pgvector` and `pg_trgm` extensions.
 - **ORM:** SQLAlchemy (AsyncSession / `asyncpg`).
+- **Database Migrations:** Alembic with async PostgreSQL engine (`backend/alembic.ini`, `backend/alembic/env.py`).
 - **AI & LLM Orchestration:** LangChain and LangGraph for workflows (e.g., job evaluation, interview guide generation).
 - **Runtime Configuration:** AI providers, model bindings, OAuth client credentials, and email credentials are configured through the Settings UI and stored in PostgreSQL; deployment environment variables provide only bootstrap, infrastructure, and encryption settings.
 - **Stealth Scraper:** `camofox` running as a separate service for browser automation and anti-bot bypass.
@@ -33,6 +34,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - `domain_resolver.py`: Multi-tier company domain extraction engine (direct URL parsing, 20+ ATS host filtering, AI domain extraction, and Clearbit autocomplete fallback) ensuring accurate `CompanyModel.domain` and favicon resolution.
   - `llm.py` / `llm_factory.py`: Abstractions over OpenAI, Anthropic, or local open-source models for various prompts (summarization, extraction, matching).
   - `intake_graph.py` & `interview_guide_graph.py`: LangGraph state machines managing complex data extraction and document generation.
+  - `interview_simulator_service.py`: Interactive role-playing mock interview simulator supporting multiple question formats (`TEXT_CONVERSATIONAL`, `MULTIPLE_CHOICE`, `HYBRID`), interviewer personas (`TECHNICAL_BAR_RAISER`, `HIRING_MANAGER`, `BEHAVIORAL_CULTURE`, `SUPPORTIVE_COACH`), adaptive local (unlimited)/cloud (120s) timeouts, real-time STAR evaluation, and post-session debrief scorecards saved to application notes and timeline events.
   - `email_fetcher.py`: Connects to IMAP or OAuth to pull recruitment emails, deduplicating via `message_id`.
   - `evaluation_worker.py`: Background worker for processing async evaluations in a 4-stage pipeline.
   - `staleness_archiver`: Background lifecycle job that sweeps across all 4 active application stages (`APPLIED`, `ONLINE_ASSESSMENT`, `TECHNICAL_INTERVIEW`, `OFFER`) and transitions inactive applications to `ARCHIVED` (rather than `REJECTED`), leaving all terminal statuses untouched.
@@ -50,7 +52,6 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - 5 AI Task Bindings (`GLOBAL_DEFAULT`, `JOB_ASSESSMENT`, `EMAIL_EXTRACTION`, `INTERVIEW_GUIDE`, `JD_EXTRACTION`) bound to `Local LM studio`
   - 2 Connected Email Accounts
 - **Dynamic Local LLM Mock Data Generator:** Run `./dev.sh --generate-mocks` (or `uv run python -m app.services.mock_generator --seed-db`) to query your local LM Studio instance and synthesize fresh, domain-accurate tech job leads, dossiers, and timeline events for testing new fields.
-- **Branch Schema Resilience (Schema Auto-Sync):** On backend startup, `ensure_db_schema()` automatically verifies required PostgreSQL extensions (`vector`, `pg_trgm`), syncs tables from ORM metadata, and executes non-destructive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements for all registered model fields. Switching between feature branches with new fields never breaks existing database tables or queries.
 - **Production Mode:** Run `./prod.sh` (using `docker-compose.yml` with `ENVIRONMENT=production`). All services run permanently in the background with `restart: unless-stopped`, meaning they automatically auto-start on PC/system boot whenever the Docker daemon starts and only stop when explicitly taken down (`./prod.sh --down`). Seed data is strictly skipped in production.
 
 ## Core Domains & Data Models
@@ -61,6 +62,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - **Sorting & Deadlines:** Cards in Kanban columns are chronologically sorted by upcoming scheduled interviews (`TECHNICAL_INTERVIEW`) and decision deadlines (`OFFER`).
   - **Bulk Transition Engine (`POST /api/v1/applications/bulk-transition`):** Transitions batches of matching non-terminal applications simultaneously (e.g., auto-withdrawing or archiving remaining active applications upon accepting an offer via `PostHireModal`). Bulk operations automatically generate application timeline events and dismiss associated pending `ActionItemModel` tasks.
 - **Candidate Profile:** `CandidateCVModel` stores raw resumes, anonymized versions, extracted skills, domain expertise, and years of experience.
+- **Mock Interview Simulations:** `InterviewSessionModel` manages multi-turn interview simulations optionally tied to target job applications. Stores per-turn challenge and candidate response transcripts (`turns_data`), question mode (`question_mode`), overall readiness rating (`readiness_rating`), overall score (`overall_score`), and debrief summary feedback (`summary_feedback`).
 - **Intake/Staging:** Raw leads are ingested as `StagingItemModel` or evaluated directly into `IntakeEvaluationTaskModel`. Supports bulk task management endpoints (`POST /api/v1/intake/evaluations/bulk-retry` and `POST /api/v1/intake/evaluations/bulk-delete`).
 - **Emails & Events:** `ApplicationEventModel` (tied to an app) or `OtherEventModel` (general recruitment spam/newsletters).
 - **Action Items:** `ActionItemModel` tracks tasks and deadlines (`PENDING`, `COMPLETED`, `DISMISSED`). An application's `has_action_required` badge strictly reflects whether active `PENDING` action items exist.
@@ -136,8 +138,12 @@ When creating or modifying Vue components, layouts, stores, or styling:
 - **Asynchronous Code:** The backend relies heavily on `async/await` for database operations (`AsyncSession`), HTTP requests (`httpx`), and LLM calls. Always use non-blocking functions.
 - **LangGraph State Serialization:** NEVER store non-msgpack-serializable objects (such as SQLAlchemy `AsyncSession` or database connection pools) directly in LangGraph `State` TypedDicts, as LangGraph checkpoint savers serialize state using msgpack/jsonplus. Always inject database sessions or clients via `RunnableConfig` (`config["configurable"]["db"]`) and extract them within node functions.
 - **Database Connection Pools:** `psycopg_pool.AsyncConnectionPool` instances cannot be reopened once closed. In test fixtures, always instantiate fresh pool instances per test and ensure `LazyAsyncPostgresSaver` locks and event loops are dynamically bound to the current running event loop.
+- **Database Schema Migrations (Alembic):** All database schema changes, new tables, and column additions MUST be performed via Alembic migration scripts in `backend/alembic/versions/`. Never execute ad-hoc raw `ALTER TABLE` statements inside `ensure_db_schema()` or application runtime bootstrap code.
+  - Apply migrations: `uv run alembic upgrade head`
+  - Inspect history & current heads: `uv run alembic heads` and `uv run alembic history`
+  - Generate a new migration revision: `uv run alembic revision -m "description_of_change"`
 - **Modifying the UI:** When modifying frontend features, ensure the component's setup script (`<script setup>`) interacts with `pinia` stores (like `uiStore` or `applicationsStore`) correctly for state reactivity. Ensure Lucide icons used are imported from `lucide-vue-next`.
-- **Modifying the Database:** If adding a new field to a database model, update the corresponding Pydantic schemas in the `schemas/` directory to reflect the change for both request validation and response serialization.
+- **Modifying the Database:** If adding a new field to a database model, update the corresponding Pydantic schemas in the `schemas/` directory to reflect the change for both request validation and response serialization, and generate an Alembic migration.
 
 ### 4. Telemetry & Diagnostics Tracing Protocol (Mandatory)
 Every new or modified LLM call, external network request (scrapers, IMAP/OAuth email fetchers, 3rd-party APIs), background worker task, vector embedding generation, or complex programmatic workflow that can fail **MUST register traces with the diagnostics telemetry system** (`trace_events` table).

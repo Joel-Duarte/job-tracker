@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     BigInteger,
@@ -13,6 +13,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+if TYPE_CHECKING:
+    from app.models.applications import ApplicationModel
 from app.models.applications import Base
 
 
@@ -25,13 +27,18 @@ class InterviewSessionModel(Base):
         ForeignKey("email_applications.id", ondelete="SET NULL"),
         nullable=True,
     )
-    persona: Mapped[str] = mapped_column(Text, nullable=False, server_default="TECHNICAL_BAR_RAISER")
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="IN_PROGRESS")
+    persona: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default="TECHNICAL_BAR_RAISER"
+    )
+    question_mode: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default="TEXT_CONVERSATIONAL"
+    )
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default="IN_PROGRESS"
+    )
     overall_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     readiness_rating: Mapped[str | None] = mapped_column(Text, nullable=True)
-    turns_data: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSONB, server_default="[]"
-    )
+    turns_data: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, server_default="[]")
     summary_feedback: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB, nullable=True
     )
@@ -42,7 +49,7 @@ class InterviewSessionModel(Base):
         DateTime(timezone=True), nullable=True
     )
 
-    application: Mapped[Optional["ApplicationModel"]] = relationship()
+    application: Mapped["ApplicationModel | None"] = relationship()
 
     __table_args__ = (
         Index("idx_interview_sessions_application_id", "application_id"),

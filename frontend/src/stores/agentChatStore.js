@@ -18,11 +18,24 @@ export const useAgentChatStore = defineStore('agentChat', () => {
   const isSending = ref(false)
   const isLoadingChats = ref(false)
 
-  async function fetchChats() {
-    isLoadingChats.value = true
+  async function fetchChats(silent = false) {
+    if (!silent && !chatsList.value.length) {
+      isLoadingChats.value = true
+    }
     try {
       const res = await AgentAPI.listChats()
-      chatsList.value = res.data
+      const list = res.data || []
+      // Preserve optimistic placeholder if present during initial creation
+      if (chatId.value && String(chatId.value).startsWith('temp-')) {
+        const optimistic = chatsList.value.find(c => c.id === chatId.value)
+        if (optimistic) {
+          chatsList.value = [optimistic, ...list.filter(c => c.id !== chatId.value)]
+        } else {
+          chatsList.value = list
+        }
+      } else {
+        chatsList.value = list
+      }
     } catch (e) {
       console.error('Failed to load chats:', e)
     } finally {
@@ -31,6 +44,12 @@ export const useAgentChatStore = defineStore('agentChat', () => {
   }
 
   async function loadChat(id) {
+    if (!id) return
+    if (String(id).startsWith('temp-')) {
+      if (chatId.value === id) return
+      return
+    }
+    if (chatId.value === id) return
     isLoadingChats.value = true
     try {
       const res = await AgentAPI.getChat(id)
@@ -49,6 +68,14 @@ export const useAgentChatStore = defineStore('agentChat', () => {
   }
 
   async function deleteChat(id) {
+    if (!id) return
+    if (String(id).startsWith('temp-')) {
+      chatsList.value = chatsList.value.filter((c) => c.id !== id)
+      if (chatId.value === id) {
+        resetChat()
+      }
+      return
+    }
     try {
       await AgentAPI.deleteChat(id)
       chatsList.value = chatsList.value.filter((c) => c.id !== id)
@@ -73,8 +100,17 @@ export const useAgentChatStore = defineStore('agentChat', () => {
     const trimmed = (text || '').trim()
     if (!trimmed || isSending.value) return
 
-    const uiStore = useUIStore()
-    const appStore = useApplicationsStore()
+    const isNewChat = !chatId.value
+    const tempId = `temp-${Date.now()}`
+    if (isNewChat) {
+      const optimisticChat = {
+        id: tempId,
+        title: trimmed.slice(0, 40) + (trimmed.length > 40 ? '...' : ''),
+        created_at: new Date().toISOString(),
+      }
+      chatId.value = tempId
+      chatsList.value = [optimisticChat, ...chatsList.value.filter(c => c.id !== tempId)]
+    }
 
     messages.value.push({
       role: 'user',
@@ -88,7 +124,8 @@ export const useAgentChatStore = defineStore('agentChat', () => {
         content: m.content,
       }))
 
-      const res = await AgentAPI.chat(payload, chatId.value)
+      const targetChatId = isNewChat ? null : chatId.value
+      const res = await AgentAPI.chat(payload, targetChatId)
 
       chatId.value = res.data.chat_id
 
@@ -98,7 +135,7 @@ export const useAgentChatStore = defineStore('agentChat', () => {
         actions: res.data.actions_performed || [],
       })
 
-      // Refresh chats list so the new title shows up if it was a new chat
+      // Refresh chats list so the real title and id show up
       fetchChats()
 
       // If any DB mutations occurred, refresh application store
