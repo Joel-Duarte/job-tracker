@@ -5,8 +5,9 @@
 
 (function initExtractorEngine() {
   function extractJobData() {
-    const url = window.location.href;
+    const rawUrl = window.location.href;
     const host = window.location.hostname.toLowerCase();
+    const url = resolveCanonicalJobUrl(host, rawUrl);
 
     function queryFirst(selectors) {
       for (const sel of selectors) {
@@ -298,6 +299,97 @@
       site_type,
       extracted_at: new Date().toISOString()
     };
+  }
+
+  /**
+   * Resolves direct canonical job URL across major job boards and career portals.
+   */
+  function resolveCanonicalJobUrl(host, rawUrl) {
+    try {
+      const urlObj = new URL(rawUrl);
+
+      // 1. LinkedIn
+      if (host.includes('linkedin.com')) {
+        const jobIdQuery = urlObj.searchParams.get('currentJobId');
+        if (jobIdQuery && /^\d+$/.test(jobIdQuery)) {
+          return `https://www.linkedin.com/jobs/view/${jobIdQuery}/`;
+        }
+        const pathMatch = urlObj.pathname.match(/\/jobs\/view\/(\d+)/i);
+        if (pathMatch && pathMatch[1]) {
+          return `https://www.linkedin.com/jobs/view/${pathMatch[1]}/`;
+        }
+        const pane = document.querySelector('.jobs-search__job-details, #job-details, .job-view-layout, body');
+        if (pane) {
+          const activeLink = pane.querySelector('a[href*="/jobs/view/"]');
+          if (activeLink && activeLink.href) {
+            const linkMatch = activeLink.href.match(/\/jobs\/view\/(\d+)/i);
+            if (linkMatch && linkMatch[1]) {
+              return `https://www.linkedin.com/jobs/view/${linkMatch[1]}/`;
+            }
+          }
+          const dataJobEl = pane.querySelector('[data-job-id]');
+          if (dataJobEl) {
+            const jid = dataJobEl.getAttribute('data-job-id');
+            if (jid && /^\d+$/.test(jid)) {
+              return `https://www.linkedin.com/jobs/view/${jid}/`;
+            }
+          }
+        }
+      }
+
+      // 2. Indeed
+      else if (host.includes('indeed.com')) {
+        const vjk = urlObj.searchParams.get('vjk') || urlObj.searchParams.get('jk');
+        if (vjk) {
+          return `https://www.indeed.com/viewjob?jk=${encodeURIComponent(vjk)}`;
+        }
+        const pane = document.querySelector('#jobsearch-ViewjobPaneWrapper, #jobsearch-JobComponent, body');
+        if (pane) {
+          const link = pane.querySelector('a[href*="/viewjob"]');
+          if (link && link.href) {
+            const linkObj = new URL(link.href);
+            const linkJk = linkObj.searchParams.get('jk') || linkObj.searchParams.get('vjk');
+            if (linkJk) return `https://www.indeed.com/viewjob?jk=${encodeURIComponent(linkJk)}`;
+          }
+          const dataJkEl = pane.querySelector('[data-jk]');
+          if (dataJkEl) {
+            const jkVal = dataJkEl.getAttribute('data-jk');
+            if (jkVal) return `https://www.indeed.com/viewjob?jk=${encodeURIComponent(jkVal)}`;
+          }
+        }
+      }
+
+      // 3. Glassdoor
+      else if (host.includes('glassdoor.com') || host.includes('glassdoor.co.uk')) {
+        const jl = urlObj.searchParams.get('jl') || urlObj.searchParams.get('jobListingId');
+        if (jl && /^\d+$/.test(jl)) {
+          return `https://www.glassdoor.com/job-listing/?jl=${jl}`;
+        }
+        const activeLink = document.querySelector('[data-test="job-link"], a[href*="jobListingId="], a[href*="jl="]');
+        if (activeLink && activeLink.href) {
+          const linkObj = new URL(activeLink.href);
+          const linkJl = linkObj.searchParams.get('jl') || linkObj.searchParams.get('jobListingId');
+          if (linkJl && /^\d+$/.test(linkJl)) {
+            return `https://www.glassdoor.com/job-listing/?jl=${linkJl}`;
+          }
+        }
+      }
+
+      // 4. General ATS & Sites: Check <link rel="canonical"> or strip tracking params
+      const canonicalTag = document.querySelector('link[rel="canonical"]')?.href;
+      const targetUrl = canonicalTag ? new URL(canonicalTag, rawUrl).href : rawUrl;
+      const cleanObj = new URL(targetUrl);
+
+      const stripParams = [
+        'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+        'refId', 'trackingId', 'trk', 'ref', 'gclid', 'fbclid', '_hsenc', '_hsmi'
+      ];
+      stripParams.forEach((param) => cleanObj.searchParams.delete(param));
+
+      return cleanObj.href;
+    } catch (err) {
+      return rawUrl;
+    }
   }
 
   // Assign globally as window.__JOB_TRACKER_EXTRACT__

@@ -86,7 +86,6 @@
     if (typeof window.__JOB_TRACKER_EXTRACT__ === 'function') {
       return window.__JOB_TRACKER_EXTRACT__();
     }
-    // Safe fallback if extractor script pending
     return {
       url: window.location.href,
       title: document.title || 'Job Posting',
@@ -401,11 +400,13 @@
       </style>
 
       <div class="dock-wrapper">
-        <button id="dock-pill-btn" class="pill-btn hidden">
+        <!-- Collapsed Pill Button Visible by Default -->
+        <button id="dock-pill-btn" class="pill-btn">
           💼 Job Tracker
         </button>
 
-        <div id="dock-card-view" class="dock-card">
+        <!-- Card View Initially Hidden -->
+        <div id="dock-card-view" class="dock-card hidden">
           <div id="dock-header-el" class="dock-header">
             <span class="dock-title">💼 Job Tracker Capture</span>
             <div class="header-actions">
@@ -484,17 +485,11 @@
     scheduleHydrationRetries();
   }
 
-  /**
-   * Schedules delayed re-scans at 400ms and 1000ms for slow React/Vue SPA hydration
-   */
   function scheduleHydrationRetries() {
     setTimeout(syncJobDetailsLive, 400);
     setTimeout(syncJobDetailsLive, 1000);
   }
 
-  /**
-   * Probe AI Provider Health and soft-disable AI Queue if unconfigured/offline.
-   */
   function checkFloatingAiHealthGating() {
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id) {
       chrome.runtime.sendMessage({ type: 'TEST_CONNECTION' }, (response) => {
@@ -539,7 +534,6 @@
 
     let selectedMode = currentSettings.lastMode || 'AI_QUEUE';
 
-    // Manual Re-scan Header Action
     if (rescanBtn) {
       rescanBtn.addEventListener('click', () => {
         syncJobDetailsLive();
@@ -576,7 +570,7 @@
 
     closeBtn.addEventListener('click', () => {
       cardView.classList.add('hidden');
-      pillBtn.classList.add('hidden');
+      pillBtn.classList.remove('hidden');
     });
 
     chipAi.addEventListener('click', () => {
@@ -622,7 +616,6 @@
           statusMsg.textContent = '✅ Queued for AI Assessment!';
           statusMsg.classList.remove('hidden');
 
-          // Pure Scoped DOM Payload in AI Queue Mode
           chrome.runtime.sendMessage(
             {
               type: 'ENQUEUE_JOB',
@@ -678,9 +671,6 @@
     });
   }
 
-  /**
-   * Live SPA Selection Sync Observer (LinkedIn, Indeed, Glassdoor)
-   */
   function setupSpaSelectionSync() {
     function handleLocationOrJobChange() {
       const currentUrl = window.location.href;
@@ -723,7 +713,6 @@
     if (!shadowRoot) return;
     const freshJobData = extractPageJobData();
 
-    // Check if new data is richer/changed
     currentJobData = freshJobData;
 
     const compInput = shadowRoot.getElementById('dock-input-company');
