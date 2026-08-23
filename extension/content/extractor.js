@@ -14,9 +14,20 @@
         if (el && el.textContent && el.textContent.trim()) {
           return el;
         }
-      } catch (e) {
-        // Ignore invalid selector
-      }
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  function queryFirstIn(parent, selectors) {
+    if (!parent) return null;
+    for (const sel of selectors) {
+      try {
+        const el = parent.querySelector(sel);
+        if (el && el.textContent && el.textContent.trim()) {
+          return el;
+        }
+      } catch (e) {}
     }
     return null;
   }
@@ -26,9 +37,9 @@
     return el ? el.textContent.trim() : '';
   }
 
-  function getHTML(selectors) {
-    const el = queryFirst(selectors);
-    return el ? el.innerHTML.trim() : '';
+  function getTextIn(parent, selectors) {
+    const el = queryFirstIn(parent, selectors);
+    return el ? el.textContent.trim() : '';
   }
 
   function extractSalaryFromText(text) {
@@ -42,18 +53,15 @@
     if (!node) return '';
 
     const clone = node.cloneNode(true);
-    // Remove unwanted tags
     const dropTags = ['script', 'style', 'noscript', 'nav', 'header', 'footer', 'svg', 'form', 'button', 'iframe'];
     dropTags.forEach((tag) => {
       clone.querySelectorAll(tag).forEach((el) => el.remove());
     });
 
-    // Replace list items with bulleted text
     clone.querySelectorAll('li').forEach((li) => {
       li.textContent = `• ${li.textContent.trim()}\n`;
     });
 
-    // Replace headings with newlines
     clone.querySelectorAll('h1, h2, h3, h4, h5, h6, p, div, br').forEach((block) => {
       block.after(document.createTextNode('\n'));
     });
@@ -79,7 +87,6 @@
       if (titleStr.includes(sep)) {
         const parts = titleStr.split(sep);
         if (parts.length >= 2) {
-          // Company is often the second part or last part
           return parts[parts.length - 1].replace(/careers|jobs|hiring/gi, '').trim();
         }
       }
@@ -109,39 +116,55 @@
   let description_text = '';
   let raw_html_snippet = '';
 
-  // --- Tier 1: Site-Specific Extraction Rules ---
+  // --- Tier 1: Site-Specific High Precision Extraction Rules ---
 
-  // 1. LinkedIn
-  if (host.includes('linkedin.com')) {
-    site_type = 'LINKEDIN';
-    title = getText([
-      '.job-details-jobs-unified-top-card__job-title',
-      '.top-card-layout__title',
-      'h1.t-24',
-      'h1'
-    ]);
-    company = getText([
-      '.job-details-jobs-unified-top-card__company-name',
-      '.topcard__org-name-link',
-      '.job-details-jobs-unified-top-card__primary-description a'
-    ]);
-    location = getText([
-      '.job-details-jobs-unified-top-card__bullet',
-      '.topcard__flavor--bullet'
-    ]);
+  // 1. Glassdoor
+  if (host.includes('glassdoor.com') || host.includes('glassdoor.co.uk')) {
+    site_type = 'GLASSDOOR';
+    title = getText(['[data-test="job-title"]', 'h1.JobDetails_jobTitle__', '.job-title', 'h1']);
+    company = getText(['[data-test="employer-name"]', '.JobDetails_employerName__', '.employer-name']);
+    location = getText(['[data-test="location"]', '.JobDetails_location__', '.location']);
+    salary = getText(['[data-test="detailSalary"]', '[data-test="salaries"]']);
 
-    const descEl = queryFirst([
-      '#job-details',
-      '.jobs-description__content',
-      '.description__text'
-    ]);
+    const descEl = queryFirst(['#JobDescriptionContainer', '.JobDetails_jobDescription__', '[data-test="jobDescription"]']);
     if (descEl) {
       description_text = convertNodeToText(descEl);
       raw_html_snippet = descEl.innerHTML;
     }
   }
 
-  // 2. Greenhouse
+  // 2. Indeed (Scoped strictly inside view pane)
+  else if (host.includes('indeed.com')) {
+    site_type = 'INDEED';
+    const pane = queryFirst(['#jobsearch-ViewjobPaneWrapper', '#jobsearch-JobComponent']) || document;
+    title = getTextIn(pane, ['h1.jobsearch-JobInfoHeader-title', '[data-testid="simpler-jobTitle"]', '[data-testid="jobsearch-JobInfoHeader-title"]', 'h1']);
+    company = getTextIn(pane, ['[data-testid="inlineHeader-companyName"]', '.jobsearch-CompanyReview-companyHeader']);
+    location = getTextIn(pane, ['[data-testid="inlineHeader-companyLocation"]', '[data-testid="job-location"]']);
+    salary = getTextIn(pane, ['#salaryInfoAndJobType', '[data-testid="jobsearch-OtherJobDetailsContainer"]']);
+
+    const descEl = queryFirstIn(pane, ['#jobDescriptionText']);
+    if (descEl) {
+      description_text = convertNodeToText(descEl);
+      raw_html_snippet = descEl.innerHTML;
+    }
+  }
+
+  // 3. LinkedIn (Scoped strictly inside job details pane)
+  else if (host.includes('linkedin.com')) {
+    site_type = 'LINKEDIN';
+    const pane = queryFirst(['.jobs-search__job-details', '#job-details', '.job-view-layout']) || document;
+    title = getTextIn(pane, ['.job-details-jobs-unified-top-card__job-title', '.top-card-layout__title', 'h1.t-24', 'h1']);
+    company = getTextIn(pane, ['.job-details-jobs-unified-top-card__company-name', '.topcard__org-name-link', '.job-details-jobs-unified-top-card__primary-description a']);
+    location = getTextIn(pane, ['.job-details-jobs-unified-top-card__bullet', '.topcard__flavor--bullet']);
+
+    const descEl = queryFirstIn(pane, ['#job-details', '.jobs-description__content']);
+    if (descEl) {
+      description_text = convertNodeToText(descEl);
+      raw_html_snippet = descEl.innerHTML;
+    }
+  }
+
+  // 4. Greenhouse
   else if (host.includes('greenhouse.io') || host.includes('boards.greenhouse.io')) {
     site_type = 'GREENHOUSE';
     title = getText(['.app-title', '#header .title', 'h1.heading', 'h1']);
@@ -155,7 +178,7 @@
     }
   }
 
-  // 3. Lever
+  // 5. Lever
   else if (host.includes('lever.co') || host.includes('jobs.lever.co')) {
     site_type = 'LEVER';
     title = getText(['.posting-headline h2', '.posting-header h2', 'h2']);
@@ -169,7 +192,7 @@
     }
   }
 
-  // 4. Workday
+  // 6. Workday
   else if (host.includes('myworkdayjobs.com') || host.includes('workday.com')) {
     site_type = 'WORKDAY';
     title = getText(['[data-automation-id="jobPostingHeader"]', 'h2[data-automation-id="jobTitle"]', 'h1']);
@@ -183,27 +206,13 @@
     }
   }
 
-  // 5. Ashby
+  // 7. Ashby
   else if (host.includes('ashbyhq.com') || host.includes('jobs.ashbyhq.com')) {
     site_type = 'ASHBY';
     title = getText(['h1', '[class*="heading"]']);
     company = getText(['[class*="company"]']) || deriveCompanyFromTitle();
 
     const descEl = queryFirst(['[class*="description"]', '[class*="job-posting"]']);
-    if (descEl) {
-      description_text = convertNodeToText(descEl);
-      raw_html_snippet = descEl.innerHTML;
-    }
-  }
-
-  // 6. Indeed
-  else if (host.includes('indeed.com')) {
-    site_type = 'INDEED';
-    title = getText(['h1.jobsearch-JobInfoHeader-title', '[data-testid="simpler-jobTitle"]', 'h1']);
-    company = getText(['[data-testid="inlineHeader-companyName"]', '.jobsearch-CompanyReview-companyHeader']);
-    location = getText(['[data-testid="inlineHeader-companyLocation"]']);
-
-    const descEl = queryFirst(['#jobDescriptionText', '.jobsearch-JobComponent-description']);
     if (descEl) {
       description_text = convertNodeToText(descEl);
       raw_html_snippet = descEl.innerHTML;
@@ -239,7 +248,6 @@
     raw_html_snippet = container.innerHTML;
   }
 
-  // Fallback checks for title & company
   if (!title) {
     title = deriveTitleFromDoc() || 'Unknown Role';
   }
@@ -247,7 +255,6 @@
     company = deriveCompanyFromTitle() || 'Unknown Company';
   }
 
-  // Attempt salary extraction from text if not specifically set
   if (!salary) {
     salary = extractSalaryFromText(description_text);
   }
@@ -258,7 +265,7 @@
     company,
     location,
     salary,
-    description_text: description_text.substring(0, 30000), // Token length safety
+    description_text: description_text.substring(0, 30000),
     raw_html_snippet: raw_html_snippet ? raw_html_snippet.substring(0, 15000) : '',
     site_type,
     extracted_at: new Date().toISOString()

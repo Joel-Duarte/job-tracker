@@ -8,6 +8,7 @@
 
   const DOCK_ID = 'job-tracker-dock-host';
   let shadowRoot = null;
+  let lastObservedUrl = window.location.href;
   let currentSettings = {
     appUrl: 'http://localhost:5173',
     dockMode: 'AUTO-DETECT',
@@ -22,7 +23,9 @@
     'myworkdayjobs.com',
     'workday.com',
     'ashbyhq.com',
-    'indeed.com'
+    'indeed.com',
+    'glassdoor.com',
+    'glassdoor.co.uk'
   ];
 
   const MULTI_LANG_JOB_KEYWORDS = [
@@ -46,7 +49,6 @@
     if (mode === 'OFF') return false;
     if (mode === 'ALL_PAGES') return true;
 
-    // AUTO-DETECT logic
     const host = window.location.hostname.toLowerCase();
     const href = window.location.href.toLowerCase();
 
@@ -58,7 +60,7 @@
   }
 
   /**
-   * Reads settings from extension storage.
+   * Reads settings from extension storage safely.
    */
   async function loadSettings() {
     return new Promise((resolve) => {
@@ -82,40 +84,162 @@
   }
 
   /**
-   * Extracts job data using page DOM.
+   * Extracts job data using page DOM with Glassdoor, Indeed & LinkedIn high precision rules.
    */
   function extractPageJobData() {
+    const host = window.location.hostname.toLowerCase();
     const docTitle = document.title || '';
-    const h1 = document.querySelector('h1')?.textContent?.trim() || '';
     const cleanUrl = window.location.href;
 
-    let title = h1 || docTitle;
-    let company = document.querySelector('meta[property="og:site_name"]')?.content || '';
+    let title = '';
+    let company = '';
+    let location = '';
+    let salary = '';
+    let descriptionText = '';
 
-    if (!company && docTitle.includes(' at ')) {
-      company = docTitle.split(' at ')[1].split(' ')[0];
-    } else if (!company && docTitle.includes(' - ')) {
-      const parts = docTitle.split(' - ');
-      company = parts[parts.length - 1];
+    // 1. Glassdoor
+    if (host.includes('glassdoor.com') || host.includes('glassdoor.co.uk')) {
+      title = getText([
+        '[data-test="job-title"]',
+        'h1.JobDetails_jobTitle__',
+        '.job-title',
+        'h1'
+      ]);
+      company = getText([
+        '[data-test="employer-name"]',
+        '.JobDetails_employerName__',
+        '.employer-name'
+      ]);
+      location = getText([
+        '[data-test="location"]',
+        '.JobDetails_location__',
+        '.location'
+      ]);
+      salary = getText([
+        '[data-test="detailSalary"]',
+        '[data-test="salaries"]'
+      ]);
+
+      const descEl = queryFirst([
+        '#JobDescriptionContainer',
+        '.JobDetails_jobDescription__',
+        '[data-test="jobDescription"]'
+      ]);
+      if (descEl) descriptionText = descEl.textContent.trim();
+    }
+    // 2. Indeed (Scoped strictly inside view pane to avoid sidebar list)
+    else if (host.includes('indeed.com')) {
+      const pane = queryFirst(['#jobsearch-ViewjobPaneWrapper', '#jobsearch-JobComponent']) || document;
+      title = getTextIn(pane, [
+        'h1.jobsearch-JobInfoHeader-title',
+        '[data-testid="simpler-jobTitle"]',
+        '[data-testid="jobsearch-JobInfoHeader-title"]',
+        'h1'
+      ]);
+      company = getTextIn(pane, [
+        '[data-testid="inlineHeader-companyName"]',
+        '.jobsearch-CompanyReview-companyHeader'
+      ]);
+      location = getTextIn(pane, [
+        '[data-testid="inlineHeader-companyLocation"]',
+        '[data-testid="job-location"]'
+      ]);
+      salary = getTextIn(pane, [
+        '#salaryInfoAndJobType',
+        '[data-testid="jobsearch-OtherJobDetailsContainer"]'
+      ]);
+
+      const descEl = queryFirstIn(pane, ['#jobDescriptionText']);
+      if (descEl) descriptionText = descEl.textContent.trim();
+    }
+    // 3. LinkedIn (Scoped strictly inside active job details pane)
+    else if (host.includes('linkedin.com')) {
+      const pane = queryFirst(['.jobs-search__job-details', '#job-details', '.job-view-layout']) || document;
+      title = getTextIn(pane, [
+        '.job-details-jobs-unified-top-card__job-title',
+        '.top-card-layout__title',
+        'h1.t-24',
+        'h1'
+      ]);
+      company = getTextIn(pane, [
+        '.job-details-jobs-unified-top-card__company-name',
+        '.topcard__org-name-link',
+        '.job-details-jobs-unified-top-card__primary-description a'
+      ]);
+      location = getTextIn(pane, [
+        '.job-details-jobs-unified-top-card__bullet',
+        '.topcard__flavor--bullet'
+      ]);
+
+      const descEl = queryFirstIn(pane, ['#job-details', '.jobs-description__content']);
+      if (descEl) descriptionText = descEl.textContent.trim();
     }
 
-    if (!company) company = 'Job Posting';
+    // Tier 2 Fallbacks
+    if (!title) {
+      const h1 = document.querySelector('h1')?.textContent?.trim() || '';
+      title = h1 || docTitle;
+    }
 
-    const descEl = document.querySelector('article, main, #job-description, .job-description, body') || document.body;
-    const bodyText = descEl ? descEl.textContent.substring(0, 15000) : '';
+    if (!company) {
+      company = document.querySelector('meta[property="og:site_name"]')?.content || '';
+      if (!company && docTitle.includes(' at ')) {
+        company = docTitle.split(' at ')[1].split(' ')[0];
+      } else if (!company && docTitle.includes(' - ')) {
+        const parts = docTitle.split(' - ');
+        company = parts[parts.length - 1];
+      }
+      if (!company) company = 'Job Posting';
+    }
+
+    if (!descriptionText) {
+      const descEl = document.querySelector('article, main, #job-description, .job-description, body') || document.body;
+      descriptionText = descEl ? descEl.textContent.substring(0, 15000) : '';
+    }
 
     return {
       url: cleanUrl,
       title: title.substring(0, 100),
       company: company.substring(0, 60),
-      description_text: bodyText,
-      location: '',
-      salary: ''
+      description_text: descriptionText,
+      location: location.substring(0, 60),
+      salary: salary.substring(0, 40)
     };
   }
 
+  function queryFirst(selectors) {
+    for (const sel of selectors) {
+      try {
+        const el = document.querySelector(sel);
+        if (el && el.textContent && el.textContent.trim()) return el;
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  function queryFirstIn(parent, selectors) {
+    if (!parent) return null;
+    for (const sel of selectors) {
+      try {
+        const el = parent.querySelector(sel);
+        if (el && el.textContent && el.textContent.trim()) return el;
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  function getText(selectors) {
+    const el = queryFirst(selectors);
+    return el ? el.textContent.trim() : '';
+  }
+
+  function getTextIn(parent, selectors) {
+    const el = queryFirstIn(parent, selectors);
+    return el ? el.textContent.trim() : '';
+  }
+
   /**
-   * Mounts or removes Shadow DOM floating dock widget.
+   * Mounts or updates Shadow DOM floating dock widget.
    */
   async function renderDockUI() {
     await loadSettings();
@@ -128,13 +252,31 @@
       return;
     }
 
+    const isLinkedIn = window.location.hostname.includes('linkedin.com');
+
     if (!hostEl) {
       hostEl = document.createElement('div');
       hostEl.id = DOCK_ID;
-      hostEl.style.cssText = 'position: fixed; bottom: 20px; right: 20px; z-index: 2147483647; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;';
+
+      // Smart Positioning for LinkedIn vs other sites
+      if (isLinkedIn) {
+        hostEl.style.cssText = 'position: fixed; top: 80px; right: 24px; bottom: auto; z-index: 2147483647; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;';
+      } else {
+        hostEl.style.cssText = 'position: fixed; bottom: 20px; right: 20px; top: auto; z-index: 2147483647; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;';
+      }
+
       document.body.appendChild(hostEl);
       shadowRoot = hostEl.attachShadow({ mode: 'open' });
     } else {
+      if (isLinkedIn) {
+        hostEl.style.top = '80px';
+        hostEl.style.right = '24px';
+        hostEl.style.bottom = 'auto';
+      } else {
+        hostEl.style.bottom = '20px';
+        hostEl.style.right = '20px';
+        hostEl.style.top = 'auto';
+      }
       shadowRoot = hostEl.shadowRoot;
     }
 
@@ -146,12 +288,17 @@
       isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     }
 
-    const primaryColor = isDark ? '#2dd4bf' : '#854d0e'; // Cyan Dark / Saddle Light
-    const bgColor = isDark ? '#18181b' : '#ffffff';
-    const textColor = isDark ? '#f4f4f5' : '#0f172a';
-    const mutedColor = isDark ? '#a1a1aa' : '#64748b';
-    const borderColor = isDark ? '#27272a' : '#e2e8f0';
-    const inputBg = isDark ? '#09090b' : '#f8fafc';
+    // Exact Daylight & Night Theme Palette
+    const primaryColor = isDark ? '#2dd4bf' : '#854d0e';
+    const bgColor = isDark ? '#18181b' : '#ede3d5';
+    const bodyBg = isDark ? '#09090b' : '#f5ede3';
+    const textColor = isDark ? '#f4f4f5' : '#1c1917';
+    const mutedColor = isDark ? '#a1a1aa' : '#78716c';
+    const borderColor = isDark ? '#27272a' : '#dcd1c4';
+    const inputBg = isDark ? '#09090b' : '#faf6f0';
+    const activeChipBg = isDark ? '#27272a' : '#dfd3c3';
+    const activeChipBorder = isDark ? '1.5px solid #2dd4bf' : '1.5px solid #854d0e';
+    const activeChipColor = isDark ? '#2dd4bf' : '#854d0e';
 
     const currentMode = currentSettings.lastMode || 'AI_QUEUE';
 
@@ -215,6 +362,12 @@
           border-bottom: 1px solid ${borderColor};
           padding-bottom: 8px;
           width: 100%;
+          transition: background-color 0.3s ease;
+        }
+
+        .dock-header.sync-flash {
+          background-color: ${activeChipBg};
+          border-radius: 6px;
         }
 
         .dock-title {
@@ -296,9 +449,10 @@
         }
 
         .mode-chip.active {
-          border-color: ${primaryColor};
-          color: ${primaryColor};
-          background: rgba(133, 77, 14, 0.12);
+          border: ${activeChipBorder};
+          color: ${activeChipColor};
+          background: ${activeChipBg};
+          font-weight: 700;
         }
 
         .submit-btn {
@@ -351,7 +505,7 @@
         </button>
 
         <div id="dock-card-view" class="dock-card">
-          <div class="dock-header">
+          <div id="dock-header-el" class="dock-header">
             <span class="dock-title">💼 Job Tracker Capture</span>
             <div class="header-actions">
               <button id="dock-minimize-btn" class="ctrl-btn" title="Minimize">—</button>
@@ -447,58 +601,57 @@
 
       submitBtn.disabled = true;
 
-      // Background Message Passing (no direct fetch)
-      if (selectedMode === 'AI_QUEUE') {
-        // Optimistic Instant Feedback
-        statusMsg.className = 'dock-status success';
-        statusMsg.textContent = '✅ Queued for AI Assessment!';
-        statusMsg.classList.remove('hidden');
+      // Safe Runtime Context Guard
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id) {
+        if (selectedMode === 'AI_QUEUE') {
+          statusMsg.className = 'dock-status success';
+          statusMsg.textContent = '✅ Queued for AI Assessment!';
+          statusMsg.classList.remove('hidden');
 
-        chrome.runtime.sendMessage(
-          {
-            type: 'ENQUEUE_JOB',
-            payload: {
-              text: jobData.description_text,
-              url: jobData.url,
-              title_hint: `${company} - ${position}`
+          chrome.runtime.sendMessage(
+            {
+              type: 'ENQUEUE_JOB',
+              payload: {
+                text: jobData.description_text,
+                url: jobData.url,
+                title_hint: `${company} - ${position}`
+              }
+            },
+            (res) => {
+              if (!res || !res.success) {
+                statusMsg.className = 'dock-status error';
+                statusMsg.textContent = `Error: ${res?.error || 'Failed to queue'}`;
+                submitBtn.disabled = false;
+              }
             }
-          },
-          (res) => {
-            if (!res || !res.success) {
-              statusMsg.className = 'dock-status error';
-              statusMsg.textContent = `Error: ${res?.error || 'Failed to queue'}`;
-              submitBtn.disabled = false;
-            }
-          }
-        );
-      } else {
-        // Optimistic Instant Feedback for Direct Clip
-        statusMsg.className = 'dock-status success';
-        statusMsg.textContent = '✅ Saved to Applied!';
-        statusMsg.classList.remove('hidden');
+          );
+        } else {
+          statusMsg.className = 'dock-status success';
+          statusMsg.textContent = '✅ Saved to Applied!';
+          statusMsg.classList.remove('hidden');
 
-        chrome.runtime.sendMessage(
-          {
-            type: 'CLIP_JOB',
-            payload: {
-              company,
-              position,
-              url: jobData.url,
-              description: jobData.description_text,
-              status: 'APPLIED'
+          chrome.runtime.sendMessage(
+            {
+              type: 'CLIP_JOB',
+              payload: {
+                company,
+                position,
+                url: jobData.url,
+                description: jobData.description_text,
+                status: 'APPLIED'
+              }
+            },
+            (res) => {
+              if (!res || !res.success) {
+                statusMsg.className = 'dock-status error';
+                statusMsg.textContent = `Error: ${res?.error || 'Failed to clip'}`;
+                submitBtn.disabled = false;
+              }
             }
-          },
-          (res) => {
-            if (!res || !res.success) {
-              statusMsg.className = 'dock-status error';
-              statusMsg.textContent = `Error: ${res?.error || 'Failed to clip'}`;
-              submitBtn.disabled = false;
-            }
-          }
-        );
+          );
+        }
       }
 
-      // Smooth 1.5s auto-collapse
       setTimeout(() => {
         cardView.classList.add('hidden');
         pillBtn.classList.remove('hidden');
@@ -506,6 +659,43 @@
         statusMsg.classList.add('hidden');
       }, 1500);
     });
+  }
+
+  /**
+   * Live SPA Selection Sync Observer (LinkedIn, Indeed, Glassdoor)
+   */
+  function setupSpaSelectionSync() {
+    function handleLocationOrJobChange() {
+      const currentUrl = window.location.href;
+      if (currentUrl !== lastObservedUrl) {
+        lastObservedUrl = currentUrl;
+        syncJobDetailsLive();
+      }
+    }
+
+    window.addEventListener('popstate', handleLocationOrJobChange);
+    window.addEventListener('hashchange', handleLocationOrJobChange);
+
+    // 500ms debounced poller for SPAs that mutate pushState silently
+    setInterval(handleLocationOrJobChange, 500);
+  }
+
+  function syncJobDetailsLive() {
+    if (!shadowRoot) return;
+    const freshJobData = extractPageJobData();
+
+    const compInput = shadowRoot.getElementById('dock-input-company');
+    const posInput = shadowRoot.getElementById('dock-input-position');
+    const headerEl = shadowRoot.getElementById('dock-header-el');
+
+    if (compInput) compInput.value = freshJobData.company;
+    if (posInput) posInput.value = freshJobData.title;
+
+    // Trigger subtle header sync flash animation
+    if (headerEl) {
+      headerEl.classList.add('sync-flash');
+      setTimeout(() => headerEl.classList.remove('sync-flash'), 600);
+    }
   }
 
   function escapeHtml(str) {
@@ -517,7 +707,7 @@
       .replace(/"/g, '&quot;');
   }
 
-  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener((msg) => {
       if (msg.type === 'SETTINGS_UPDATED') {
         renderDockUI();
@@ -526,4 +716,5 @@
   }
 
   renderDockUI();
+  setupSpaSelectionSync();
 })();
