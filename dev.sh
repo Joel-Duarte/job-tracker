@@ -78,7 +78,7 @@ if [ "$RESET_DB" = true ]; then
   
   # Ensure all related containers and volumes are forcefully removed
   docker rm -f job-tracker-postgresdb job-tracker-backend job-tracker-frontend-dev job-tracker-scraper 2>/dev/null || true
-  docker volume rm -f job_tracker_postgres_data job-tracker_postgres_data 2>/dev/null || true
+  docker volume rm -f job_tracker_postgres_dev_data job_tracker_postgres_data job-tracker_postgres_data 2>/dev/null || true
   docker volume prune -f --filter "label=com.docker.compose.project=job-tracker" 2>/dev/null || true
   
   echo "🧹 Database volume wiped clean. A fresh database will be initialized on boot."

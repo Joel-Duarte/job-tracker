@@ -77,20 +77,24 @@ show_help() {
   echo -e "${BOLD}Commands:${NC}"
   echo -e "  ${GREEN}start, up${NC}       Start Job Tracker in production background mode (default if no args)"
   echo -e "                   Use ${CYAN}--open${NC} / ${CYAN}-o${NC} to automatically launch the web UI in browser"
-  echo -e "  ${GREEN}dev${NC}             Start Job Tracker in live development mode (Hot Reloading + Dev DB)"
+  echo -e "                   Use ${CYAN}--clean${NC} / ${CYAN}--reset${NC} / ${CYAN}-r${NC} to wipe production DB and start pristine"
+  echo -e "                   Use ${CYAN}--external${NC} to connect to external Postgres/Camofox instances"
+  echo -e "  ${GREEN}dev${NC}             Start Job Tracker in live development mode (Hot Reloading + Isolated Dev DB)"
   echo -e "  ${GREEN}stop, down${NC}      Stop all Job Tracker production containers"
   echo -e "  ${GREEN}status, ps${NC}      Show status of Job Tracker containers"
   echo -e "  ${GREEN}logs${NC}            View and follow live container logs (Ctrl+C to exit)"
   echo -e "  ${GREEN}open${NC}            Open Web Application (http://localhost:4173) in default browser"
   echo -e "  ${GREEN}update${NC}          Pull latest images, rebuild containers, and apply database migrations"
-  echo -e "  ${GREEN}reset${NC}           Wipe database & data volumes after user confirmation"
+  echo -e "  ${GREEN}reset, clean${NC}    Wipe database & data volumes after user confirmation (or pass -y)"
   echo -e "  ${GREEN}seed${NC}            Run dynamic local LLM mock generator to synthesize fresh tech leads"
   echo -e "  ${GREEN}help, -h${NC}        Show this help message"
   echo ""
   echo -e "${BOLD}Examples:${NC}"
   echo "  jt                     # Quick start in background"
+  echo "  jt start --clean       # Start fresh with a pristine, empty production database"
   echo "  jt start --open        # Start and immediately open web app in browser"
-  echo "  jt dev                 # Start live development environment with hot reloading"
+  echo "  jt dev                 # Start live development environment (isolated dev database)"
+  echo "  jt clean               # Wipe database data after confirmation"
   echo "  jt logs -f backend     # Follow backend API logs"
   echo "  jt status              # Check container health and port bindings"
   echo "  jt update              # Rebuild containers and run database migrations"
@@ -115,6 +119,14 @@ case "$COMMAND" in
           AUTO_OPEN=true
           shift
           ;;
+        --clean|--reset|-r)
+          PASSTHROUGH_ARGS+=("--reset")
+          shift
+          ;;
+        --external)
+          PASSTHROUGH_ARGS+=("--external")
+          shift
+          ;;
         *)
           PASSTHROUGH_ARGS+=("$1")
           shift
@@ -124,6 +136,7 @@ case "$COMMAND" in
 
     check_docker
     ensure_env
+    export CLI_CMD="jt"
     ./prod.sh "${PASSTHROUGH_ARGS[@]}"
 
     if [ "$AUTO_OPEN" = true ]; then
@@ -196,7 +209,7 @@ case "$COMMAND" in
     echo -e "${GREEN}================================================================================${NC}"
     ;;
 
-  reset)
+  reset|clean|wipe|wipe-db)
     shift || true
     FORCE=false
     PASSTHROUGH_ARGS=()

@@ -159,15 +159,15 @@ Job Tracker includes a unified CLI management script (`jt` for Unix, `jt.cmd` fo
 
 | Command | Action | Description |
 | :--- | :--- | :--- |
-| `./jt start` | Start Production | Boots PostgreSQL, Camofox Scraper, FastAPI Backend, and Nginx UI permanently in background. |
-| `./jt dev` | Start Development | Launches Vite HMR frontend (`:5173`) with live backend reloading and auto-seeded mock data. |
+| `./jt start` | Start Production | Boots PostgreSQL, Camofox Scraper, FastAPI Backend, and Nginx UI permanently in background. Supports `--clean` to wipe DB and boot pristine; `--open` to launch browser. |
+| `./jt dev` | Start Development | Launches Vite HMR frontend (`:5173`) with live backend reloading and an isolated development database (`job_tracker_postgres_dev_data`). |
 | `./jt stop` | Stop Services | Gracefully stops all active Job Tracker containers. |
 | `./jt status` | Service Health | Displays the live running state, CPU/RAM, and health status of all service containers. |
 | `./jt logs` | Follow Logs | Streams real-time aggregated logs from all services (use `Ctrl+C` to exit). |
 | `./jt open` | Open in Browser | Opens the Job Tracker web application in your default desktop browser. |
 | `./jt update` | Pull & Rebuild | Pulls the latest container bases, recompiles frontend assets, and restarts containers. |
+| `./jt clean` / `reset` | Factory Reset | ⚠️ Wipes the PostgreSQL database volume and restarts with a clean slate (prompts for confirmation, or pass `-y`). |
 | `./jt seed` | Seed Dev Data | Populates the database with realistic sample candidates, applications, events, and action items. |
-| `./jt reset` | Factory Reset | ⚠️ Wipes the PostgreSQL database volume and restarts with a clean slate. |
 
 > [!NOTE]
 > You can also run the underlying bash scripts directly:

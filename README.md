@@ -90,14 +90,14 @@ Job Tracker includes a unified command-line interface for managing development a
 
 | Command | Usage | Description |
 | :--- | :--- | :--- |
-| `start` | `./jt start` / `jt.cmd start` | Start the production stack permanently in the background (`restart: unless-stopped`). |
-| `dev` | `./jt dev` / `jt.cmd dev` | Start the live development environment with Vite HMR, hot-reloading backend, and auto-seeded mock data. |
+| `start` | `./jt start [--clean] [--open]` | Start production stack in background. Use `--clean` to wipe DB and boot pristine; `--open` to launch browser. |
+| `dev` | `./jt dev` / `jt.cmd dev` | Start live development environment (isolated dev DB + hot reloading). |
 | `stop` | `./jt stop` / `jt.cmd stop` | Gracefully stop all Job Tracker containers. |
 | `status` | `./jt status` / `jt.cmd status` | Display the health status, exposed ports, and container states. |
 | `logs` | `./jt logs [service]` | Stream live container logs (`./jt logs backend`, `./jt logs frontend`, etc.). |
 | `open` | `./jt open` / `jt.cmd open` | Open the Job Tracker web application in your default browser. |
 | `update` | `./jt update` / `jt.cmd update` | Pull the latest container images and rebuild application services. |
-| `reset` | `./jt reset` / `jt.cmd reset` | Wipe PostgreSQL database volumes and restart with a clean slate. |
+| `clean` / `reset` | `./jt clean` / `jt.cmd clean` | Wipe PostgreSQL database volumes and restart with a clean slate (prompts for confirmation). |
 | `seed` | `./jt seed` / `jt.cmd seed` | Generate and seed fresh domain-tailored mock job applications via local LLM. |
 
 ---

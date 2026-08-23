@@ -26,6 +26,9 @@ if /i "%COMMAND%"=="logs" goto handle_logs
 if /i "%COMMAND%"=="open" goto handle_open
 if /i "%COMMAND%"=="update" goto handle_update
 if /i "%COMMAND%"=="reset" goto handle_reset
+if /i "%COMMAND%"=="clean" goto handle_reset
+if /i "%COMMAND%"=="wipe" goto handle_reset
+if /i "%COMMAND%"=="wipe-db" goto handle_reset
 if /i "%COMMAND%"=="seed" goto handle_seed
 if /i "%COMMAND%"=="help" goto handle_help
 if /i "%COMMAND%"=="-h" goto handle_help
@@ -55,6 +58,8 @@ rem ============================================================================
 call :ensure_env
 shift
 set "AUTO_OPEN=false"
+set "WIPE_FIRST=false"
+set "USE_EXTERNAL=false"
 set "PASSTHROUGH_ARGS="
 
 :start_parse_loop
@@ -63,6 +68,14 @@ if /i "%~1"=="--open" (
     set "AUTO_OPEN=true"
 ) else if /i "%~1"=="-o" (
     set "AUTO_OPEN=true"
+) else if /i "%~1"=="--clean" (
+    set "WIPE_FIRST=true"
+) else if /i "%~1"=="--reset" (
+    set "WIPE_FIRST=true"
+) else if /i "%~1"=="-r" (
+    set "WIPE_FIRST=true"
+) else if /i "%~1"=="--external" (
+    set "USE_EXTERNAL=true"
 ) else (
     set "PASSTHROUGH_ARGS=!PASSTHROUGH_ARGS! %1"
 )
@@ -70,8 +83,18 @@ shift
 goto start_parse_loop
 
 :start_parse_done
+if /i "!WIPE_FIRST!"=="true" (
+    echo [INFO] Wiping production database volume for pristine start...
+    docker compose down -v --remove-orphans >nul 2>nul
+    docker volume rm -f job_tracker_postgres_data >nul 2>nul
+    echo [OK] Production database wiped clean.
+)
 echo [INFO] Starting Job Tracker in production background mode...
-docker compose up -d --build !PASSTHROUGH_ARGS!
+if /i "!USE_EXTERNAL!"=="true" (
+    docker compose -f docker-compose.yml -f docker-compose.external.yml up -d --build !PASSTHROUGH_ARGS!
+) else (
+    docker compose up -d --build !PASSTHROUGH_ARGS!
+)
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] Docker command failed. Please ensure Docker Desktop is running.
     exit /b %ERRORLEVEL%
@@ -194,20 +217,24 @@ echo.
 echo Commands:
 echo   start, up      Start Job Tracker in production background mode (default if no args)
 echo                  Use 'jt start --open' or 'jt start -o' to auto-launch browser
-echo   dev            Start Job Tracker in live development mode (Hot Reloading)
+echo                  Use 'jt start --clean' or 'jt start -r' to wipe DB and start fresh
+echo                  Use 'jt start --external' to connect to external Postgres/Camofox
+echo   dev            Start Job Tracker in live development mode (Isolated Dev DB)
 echo   stop, down     Stop all Job Tracker containers
 echo   status, ps     Show status and health of Job Tracker containers
 echo   logs           Follow live container logs (Ctrl+C to exit)
 echo   open           Open http://localhost:4173 in default browser
 echo   update         Rebuild containers and apply database migrations (Alembic)
-echo   reset          Wipe database and application data after confirmation
+echo   reset, clean   Wipe database and application data after confirmation (or pass -y)
 echo   seed           Run dynamic local LLM mock data generator
 echo   help, -h, /?   Display this command reference
 echo.
 echo Examples:
 echo   jt                     Start production mode in background
+echo   jt start --clean       Start fresh with a pristine empty database
 echo   jt start --open        Start production and open browser
-echo   jt dev                 Start development environment
+echo   jt dev                 Start development environment (isolated dev DB)
+echo   jt clean               Wipe database after confirmation
 echo   jt logs -f backend     Stream backend service logs
 echo   jt status              Check status of all containers
 echo   jt update              Update images, rebuild, and apply migrations

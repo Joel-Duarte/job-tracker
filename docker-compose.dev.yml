@@ -11,6 +11,13 @@ name: job-tracker
 
 services:
   # ----------------------------------------------------------------------------
+  # Dedicated Development Database (Isolated from Production Data)
+  # ----------------------------------------------------------------------------
+  db:
+    volumes: !override
+      - postgres_dev_data:/var/lib/postgresql/data
+
+  # ----------------------------------------------------------------------------
   # Backend with Live Auto-Reload on Python file changes
   # ----------------------------------------------------------------------------
   backend:
@@ -50,3 +57,10 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+
+# ==============================================================================
+# Isolated Development Named Volume
+# ==============================================================================
+volumes:
+  postgres_dev_data:
+    name: job_tracker_postgres_dev_data
