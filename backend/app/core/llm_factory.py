@@ -534,6 +534,9 @@ async def get_task_chat_model(
                 top_p = None
                 max_tokens = task_defaults["max_tokens"]
                 reasoning = task_defaults["reasoning_effort"]
+                extra = (
+                    dict(global_binding.extra_kwargs or {}) if global_binding else {}
+                )
 
             if target_provider and target_provider.is_active and target_model_name:
                 provider_type = _resolve_provider(target_provider.provider_type)
