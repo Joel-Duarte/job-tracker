@@ -1870,19 +1870,6 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
                     <button
                       v-if="currentEmailProvider.supportsOAuth && emailAccountForm.auth_method === 'oauth'"
                       type="button"
-                      class="btn btn-secondary"
-                      :disabled="isCheckingOAuthStatus"
-                      title="Verify if OAuth login has completed and advance to sync preferences"
-                      @click="checkOAuthStatusManually"
-                    >
-                      <Loader2 v-if="isCheckingOAuthStatus" class="animate-spin" :size="14" />
-                      <CheckCircle2 v-else :size="14" />
-                      <span>Check Connection</span>
-                    </button>
-
-                    <button
-                      v-if="currentEmailProvider.supportsOAuth && emailAccountForm.auth_method === 'oauth'"
-                      type="button"
                       class="btn btn-primary"
                       :disabled="isSavingEmail || !emailAccountForm.client_id?.trim() || !emailAccountForm.client_secret?.trim()"
                       @click="startOAuthLogin(selectedEmailProviderKey)"
