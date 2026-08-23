@@ -1,10 +1,19 @@
 /**
  * Job Tracker Companion Extension - Background Service Worker
- * Manages background alarms, toolbar badge counter polling, and desktop notifications.
+ * Handles background alarms, queue polling, desktop notifications, and message passing.
  */
 
 import { getSettings } from '../utils/storage.js';
-import { getEvaluations } from '../utils/api.js';
+import {
+  getEvaluations,
+  enqueueAssessment,
+  clipJob,
+  cancelEvaluation,
+  retryEvaluation,
+  deleteEvaluation,
+  clearCompletedEvaluations,
+  testConnection
+} from '../utils/api.js';
 
 const ALARM_POLL_NAME = 'poll_ai_queue';
 
@@ -28,14 +37,85 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
-// Message Listener from Popup
+// Centralized Message Listener for Content Scripts & Popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'SETTINGS_UPDATED') {
-    setupAlarm().then(() => updateBadgeCounter());
-    sendResponse({ success: true });
-  } else if (message.type === 'FORCE_POLL') {
-    updateBadgeCounter().then((count) => sendResponse({ success: true, count }));
-    return true; // async
+  if (!message || !message.type) return false;
+
+  switch (message.type) {
+    case 'ENQUEUE_JOB':
+      enqueueAssessment(message.payload)
+        .then((data) => {
+          updateBadgeCounter();
+          sendResponse({ success: true, data });
+        })
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+      return true; // async response
+
+    case 'CLIP_JOB':
+      clipJob(message.payload)
+        .then((data) => {
+          updateBadgeCounter();
+          sendResponse({ success: true, data });
+        })
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'GET_EVALUATIONS':
+      getEvaluations(message.limit || 20)
+        .then((data) => sendResponse({ success: true, data }))
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'CANCEL_EVALUATION':
+      cancelEvaluation(message.taskId)
+        .then((data) => {
+          updateBadgeCounter();
+          sendResponse({ success: true, data });
+        })
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'RETRY_EVALUATION':
+      retryEvaluation(message.taskId)
+        .then((data) => {
+          updateBadgeCounter();
+          sendResponse({ success: true, data });
+        })
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'DELETE_EVALUATION':
+      deleteEvaluation(message.taskId)
+        .then((data) => {
+          updateBadgeCounter();
+          sendResponse({ success: true, data });
+        })
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'CLEAR_COMPLETED':
+      clearCompletedEvaluations()
+        .then((data) => {
+          updateBadgeCounter();
+          sendResponse({ success: true, data });
+        })
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'TEST_CONNECTION':
+      testConnection(message.appUrl)
+        .then((data) => sendResponse({ success: true, data }))
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'SETTINGS_UPDATED':
+      setupAlarm().then(() => updateBadgeCounter());
+      sendResponse({ success: true });
+      break;
+
+    case 'FORCE_POLL':
+      updateBadgeCounter().then((count) => sendResponse({ success: true, count }));
+      return true;
   }
 });
 
@@ -62,14 +142,11 @@ async function setupAlarm() {
   await chrome.alarms.clear(ALARM_POLL_NAME);
 
   if (pollIntervalSeconds > 0) {
-    const periodInMinutes = Math.max(0.25, pollIntervalSeconds / 60); // min 15 seconds
+    const periodInMinutes = Math.max(0.25, pollIntervalSeconds / 60);
     chrome.alarms.create(ALARM_POLL_NAME, {
       delayInMinutes: 0.1,
       periodInMinutes: periodInMinutes
     });
-    console.log(`[Job Tracker Worker] Alarm '${ALARM_POLL_NAME}' set for every ${pollIntervalSeconds}s.`);
-  } else {
-    console.log(`[Job Tracker Worker] Polling alarm disabled in settings.`);
   }
 }
 
@@ -83,28 +160,24 @@ async function updateBadgeCounter() {
 
     if (!Array.isArray(tasks)) return 0;
 
-    // Filter active running/queued tasks
     const activeTasks = tasks.filter(
       (t) => t.status === 'QUEUED' || t.status === 'RUNNING' || t.status === 'PROCESSING'
     );
     const count = activeTasks.length;
 
-    // Update Toolbar Badge
     if (count > 0) {
       await chrome.action.setBadgeText({ text: String(count) });
-      await chrome.action.setBadgeBackgroundColor({ color: '#6366F1' }); // Indigo
+      await chrome.action.setBadgeBackgroundColor({ color: '#854d0e' }); // Saddle Brown
     } else {
       await chrome.action.setBadgeText({ text: '' });
     }
 
-    // Check for task completion status transitions to trigger desktop notifications
     if (settings.notificationsEnabled !== false) {
       await checkNotifications(tasks);
     }
 
     return count;
   } catch (err) {
-    console.warn('[Job Tracker Worker] Failed to update badge counter:', err.message);
     return 0;
   }
 }
@@ -127,7 +200,6 @@ async function checkNotifications(currentTasks) {
 
         newStates[taskIdStr] = currentStatus;
 
-        // Transition from active/queued to COMPLETED
         if (
           (prevStatus === 'QUEUED' || prevStatus === 'RUNNING' || prevStatus === 'PROCESSING') &&
           currentStatus === 'COMPLETED'
@@ -147,9 +219,7 @@ async function checkNotifications(currentTasks) {
             message: `Fit Assessment ready for ${titleHint}${scoreText}. Click to view details in Job Tracker.`,
             priority: 2
           });
-        }
-        // Transition from active/queued to FAILED
-        else if (
+        } else if (
           (prevStatus === 'QUEUED' || prevStatus === 'RUNNING' || prevStatus === 'PROCESSING') &&
           currentStatus === 'FAILED'
         ) {
@@ -164,7 +234,6 @@ async function checkNotifications(currentTasks) {
         }
       }
 
-      // Save updated state dictionary
       chrome.storage.local.set({ previousTaskStates: newStates }, resolve);
     });
   });

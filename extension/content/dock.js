@@ -25,15 +25,18 @@
     'indeed.com'
   ];
 
-  const JOB_URL_KEYWORDS = [
-    '/careers',
-    '/jobs',
-    '/job/',
-    '/openings',
-    '/positions',
-    '/apply',
-    'careers.',
-    'jobs.'
+  const MULTI_LANG_JOB_KEYWORDS = [
+    // English
+    '/careers', '/jobs', '/job/', '/openings', '/positions', '/apply', 'careers.', 'jobs.',
+    'engineer', 'software', 'developer', 'work-with-us', 'join-us',
+    // Dutch
+    'vacature', 'vacatures',
+    // German
+    'stellenangebot', 'stellenangebote', 'karriere',
+    // French
+    'emploi', 'recrutement', 'offres-emploi',
+    // Portuguese & Spanish
+    'vaga', 'vagas', 'empleo', 'trabajo', 'postulate'
   ];
 
   /**
@@ -50,12 +53,12 @@
     const isAtsHost = ATS_HOSTS.some((ats) => host.includes(ats));
     if (isAtsHost) return true;
 
-    const hasJobKeyword = JOB_URL_KEYWORDS.some((kw) => href.includes(kw));
+    const hasJobKeyword = MULTI_LANG_JOB_KEYWORDS.some((kw) => href.includes(kw));
     return hasJobKeyword;
   }
 
   /**
-   * Reads settings from extension storage or message.
+   * Reads settings from extension storage.
    */
   async function loadSettings() {
     return new Promise((resolve) => {
@@ -86,7 +89,6 @@
     const h1 = document.querySelector('h1')?.textContent?.trim() || '';
     const cleanUrl = window.location.href;
 
-    // Fallback extraction
     let title = h1 || docTitle;
     let company = document.querySelector('meta[property="og:site_name"]')?.content || '';
 
@@ -137,31 +139,38 @@
     }
 
     const jobData = extractPageJobData();
-    let themeAttr = 'light';
+    let isDark = false;
     if (currentSettings.theme === 'DARK') {
-      themeAttr = 'dark';
+      isDark = true;
     } else if (currentSettings.theme === 'SYSTEM') {
-      themeAttr = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     }
+
+    const primaryColor = isDark ? '#2dd4bf' : '#854d0e'; // Cyan Dark / Saddle Light
+    const bgColor = isDark ? '#18181b' : '#ffffff';
+    const textColor = isDark ? '#f4f4f5' : '#0f172a';
+    const mutedColor = isDark ? '#a1a1aa' : '#64748b';
+    const borderColor = isDark ? '#27272a' : '#e2e8f0';
+    const inputBg = isDark ? '#09090b' : '#f8fafc';
+
+    const currentMode = currentSettings.lastMode || 'AI_QUEUE';
 
     shadowRoot.innerHTML = `
       <style>
+        *, *::before, *::after {
+          box-sizing: border-box !important;
+        }
+
         :host {
           all: initial;
         }
 
         .dock-wrapper {
-          --bg: ${themeAttr === 'dark' ? '#1e293b' : '#ffffff'};
-          --text: ${themeAttr === 'dark' ? '#f8fafc' : '#0f172a'};
-          --muted: ${themeAttr === 'dark' ? '#94a3b8' : '#64748b'};
-          --border: ${themeAttr === 'dark' ? '#334155' : '#e2e8f0'};
-          --primary: ${themeAttr === 'dark' ? '#6366f1' : '#4f46e5'};
-          --input-bg: ${themeAttr === 'dark' ? '#0f172a' : '#f8fafc'};
-          --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-
+          width: 320px;
+          max-width: 100%;
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
           font-size: 13px;
-          color: var(--text);
+          color: ${textColor};
         }
 
         .pill-btn {
@@ -169,15 +178,16 @@
           align-items: center;
           gap: 8px;
           padding: 10px 16px;
-          background: var(--primary);
-          color: #ffffff;
+          background: ${primaryColor};
+          color: ${isDark ? '#09090b' : '#ffffff'};
           border-radius: 30px;
-          box-shadow: var(--shadow);
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
           cursor: pointer;
           font-weight: 700;
           font-size: 13px;
           border: none;
           transition: transform 0.2s ease;
+          margin-left: auto;
         }
 
         .pill-btn:hover {
@@ -185,15 +195,16 @@
         }
 
         .dock-card {
-          width: 320px;
-          background: var(--bg);
-          border: 1px solid var(--border);
+          width: 100%;
+          max-width: 100%;
+          background: ${bgColor};
+          border: 1px solid ${borderColor};
           border-radius: 14px;
-          padding: 16px;
-          box-shadow: var(--shadow);
+          padding: 14px;
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25);
           display: flex;
           flex-direction: column;
-          gap: 12px;
+          gap: 10px;
           animation: slideUp 0.2s ease-out;
         }
 
@@ -201,84 +212,100 @@
           display: flex;
           align-items: center;
           justify-content: space-between;
-          border-bottom: 1px solid var(--border);
+          border-bottom: 1px solid ${borderColor};
           padding-bottom: 8px;
+          width: 100%;
         }
 
         .dock-title {
           font-weight: 700;
-          font-size: 14px;
+          font-size: 13px;
           display: flex;
           align-items: center;
           gap: 6px;
+          color: ${textColor};
         }
 
-        .close-btn {
+        .header-actions {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+
+        .ctrl-btn {
           background: transparent;
           border: none;
           cursor: pointer;
-          color: var(--muted);
-          font-size: 16px;
+          color: ${mutedColor};
+          font-size: 14px;
           padding: 2px 6px;
+          border-radius: 4px;
+        }
+
+        .ctrl-btn:hover {
+          color: ${textColor};
+          background: ${borderColor};
         }
 
         .input-group {
           display: flex;
           flex-direction: column;
           gap: 4px;
+          width: 100%;
         }
 
         .input-group label {
           font-size: 11px;
           font-weight: 600;
-          color: var(--muted);
+          color: ${mutedColor};
         }
 
         .dock-input {
-          width: 100%;
-          padding: 7px 10px;
-          background: var(--input-bg);
-          border: 1px solid var(--border);
+          width: 100% !important;
+          max-width: 100% !important;
+          padding: 8px 10px;
+          background: ${inputBg};
+          border: 1px solid ${borderColor};
           border-radius: 6px;
-          color: var(--text);
+          color: ${textColor};
           font-size: 12px;
-          box-sizing: border-color 0.2s ease;
         }
 
         .dock-input:focus {
           outline: none;
-          border-color: var(--primary);
+          border-color: ${primaryColor};
         }
 
         .mode-row {
           display: flex;
-          gap: 8px;
+          gap: 6px;
+          width: 100%;
         }
 
         .mode-chip {
           flex: 1;
-          padding: 6px 8px;
-          border: 1px solid var(--border);
+          padding: 7px 8px;
+          border: 1px solid ${borderColor};
           border-radius: 6px;
           text-align: center;
           font-size: 11px;
           font-weight: 600;
           cursor: pointer;
-          background: var(--input-bg);
-          color: var(--muted);
+          background: ${inputBg};
+          color: ${mutedColor};
         }
 
         .mode-chip.active {
-          border-color: var(--primary);
-          color: var(--primary);
-          background: rgba(79, 70, 229, 0.1);
+          border-color: ${primaryColor};
+          color: ${primaryColor};
+          background: rgba(133, 77, 14, 0.12);
         }
 
         .submit-btn {
-          width: 100%;
-          padding: 9px;
-          background: var(--primary);
-          color: #ffffff;
+          width: 100% !important;
+          padding: 10px;
+          background: ${primaryColor};
+          color: ${isDark ? '#09090b' : '#ffffff'};
           border: none;
           border-radius: 6px;
           font-weight: 700;
@@ -294,9 +321,10 @@
 
         .dock-status {
           font-size: 11px;
-          padding: 6px 8px;
+          padding: 8px;
           border-radius: 6px;
           text-align: center;
+          font-weight: 600;
         }
 
         .dock-status.success {
@@ -318,35 +346,43 @@
       </style>
 
       <div class="dock-wrapper">
-        <button id="dock-pill-btn" class="pill-btn">
+        <button id="dock-pill-btn" class="pill-btn hidden">
           💼 Job Tracker
         </button>
 
-        <div id="dock-card-view" class="dock-card hidden">
+        <div id="dock-card-view" class="dock-card">
           <div class="dock-header">
             <span class="dock-title">💼 Job Tracker Capture</span>
-            <button id="dock-close-btn" class="close-btn">✕</button>
-          </div>
-
-          <div class="input-group">
-            <label>Company Name</label>
-            <input type="text" id="dock-input-company" class="dock-input" value="${escapeHtml(jobData.company)}">
-          </div>
-
-          <div class="input-group">
-            <label>Job Title</label>
-            <input type="text" id="dock-input-position" class="dock-input" value="${escapeHtml(jobData.title)}">
+            <div class="header-actions">
+              <button id="dock-minimize-btn" class="ctrl-btn" title="Minimize">—</button>
+              <button id="dock-close-btn" class="ctrl-btn" title="Close">✕</button>
+            </div>
           </div>
 
           <div class="input-group">
             <label>Ingestion Mode</label>
             <div class="mode-row">
-              <div id="chip-ai" class="mode-chip ${currentSettings.lastMode === 'AI_QUEUE' ? 'active' : ''}">🤖 AI Queue</div>
-              <div id="chip-direct" class="mode-chip ${currentSettings.lastMode === 'DIRECT_APPLIED' ? 'active' : ''}">📌 Applied</div>
+              <div id="chip-ai" class="mode-chip ${currentMode === 'AI_QUEUE' ? 'active' : ''}">🤖 AI Queue</div>
+              <div id="chip-direct" class="mode-chip ${currentMode === 'DIRECT_APPLIED' ? 'active' : ''}">📌 Applied</div>
             </div>
           </div>
 
-          <button id="dock-submit-btn" class="submit-btn">🚀 Capture & Send Job</button>
+          <!-- Dynamic Ingestion Mode Container -->
+          <div id="mode-fields-direct" class="${currentMode === 'AI_QUEUE' ? 'hidden' : ''}">
+            <div class="input-group" style="margin-bottom: 6px;">
+              <label>Company Name</label>
+              <input type="text" id="dock-input-company" class="dock-input" value="${escapeHtml(jobData.company)}">
+            </div>
+
+            <div class="input-group">
+              <label>Job Title</label>
+              <input type="text" id="dock-input-position" class="dock-input" value="${escapeHtml(jobData.title)}">
+            </div>
+          </div>
+
+          <button id="dock-submit-btn" class="submit-btn">
+            ${currentMode === 'AI_QUEUE' ? '⚡ Send Page to AI Assessment' : '🚀 Save Application'}
+          </button>
 
           <div id="dock-status-msg" class="dock-status hidden"></div>
         </div>
@@ -361,9 +397,11 @@
 
     const pillBtn = shadowRoot.getElementById('dock-pill-btn');
     const cardView = shadowRoot.getElementById('dock-card-view');
+    const minBtn = shadowRoot.getElementById('dock-minimize-btn');
     const closeBtn = shadowRoot.getElementById('dock-close-btn');
     const chipAi = shadowRoot.getElementById('chip-ai');
     const chipDirect = shadowRoot.getElementById('chip-direct');
+    const modeFieldsDirect = shadowRoot.getElementById('mode-fields-direct');
     const submitBtn = shadowRoot.getElementById('dock-submit-btn');
     const statusMsg = shadowRoot.getElementById('dock-status-msg');
 
@@ -374,89 +412,99 @@
       cardView.classList.remove('hidden');
     });
 
-    closeBtn.addEventListener('click', () => {
+    minBtn.addEventListener('click', () => {
       cardView.classList.add('hidden');
       pillBtn.classList.remove('hidden');
+    });
+
+    closeBtn.addEventListener('click', () => {
+      cardView.classList.add('hidden');
+      pillBtn.classList.add('hidden');
     });
 
     chipAi.addEventListener('click', () => {
       selectedMode = 'AI_QUEUE';
       chipAi.classList.add('active');
       chipDirect.classList.remove('active');
+      modeFieldsDirect.classList.add('hidden');
+      submitBtn.textContent = '⚡ Send Page to AI Assessment';
     });
 
     chipDirect.addEventListener('click', () => {
       selectedMode = 'DIRECT_APPLIED';
       chipDirect.classList.add('active');
       chipAi.classList.remove('active');
+      modeFieldsDirect.classList.remove('hidden');
+      submitBtn.textContent = '🚀 Save Application';
     });
 
     submitBtn.addEventListener('click', async () => {
       const compInput = shadowRoot.getElementById('dock-input-company');
       const posInput = shadowRoot.getElementById('dock-input-position');
 
-      const company = compInput?.value?.trim() || '';
-      const position = posInput?.value?.trim() || '';
-
-      if (!company || !position) {
-        statusMsg.className = 'dock-status error';
-        statusMsg.textContent = 'Please fill in Company and Position.';
-        statusMsg.classList.remove('hidden');
-        return;
-      }
+      const company = compInput?.value?.trim() || jobData.company || 'Job Posting';
+      const position = posInput?.value?.trim() || jobData.title || 'Unknown Position';
 
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Sending...';
-      statusMsg.classList.add('hidden');
 
-      const baseUrl = currentSettings.appUrl.replace(/\/+$/, '');
+      // Background Message Passing (no direct fetch)
+      if (selectedMode === 'AI_QUEUE') {
+        // Optimistic Instant Feedback
+        statusMsg.className = 'dock-status success';
+        statusMsg.textContent = '✅ Queued for AI Assessment!';
+        statusMsg.classList.remove('hidden');
 
-      try {
-        if (selectedMode === 'AI_QUEUE') {
-          const res = await fetch(`${baseUrl}/api/v1/intake/enqueue-assessment`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+        chrome.runtime.sendMessage(
+          {
+            type: 'ENQUEUE_JOB',
+            payload: {
               text: jobData.description_text,
               url: jobData.url,
               title_hint: `${company} - ${position}`
-            })
-          });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          statusMsg.className = 'dock-status success';
-          statusMsg.textContent = 'Queued in Job Tracker! 🚀';
-        } else {
-          const res = await fetch(`${baseUrl}/api/v1/extension/clip-job`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+            }
+          },
+          (res) => {
+            if (!res || !res.success) {
+              statusMsg.className = 'dock-status error';
+              statusMsg.textContent = `Error: ${res?.error || 'Failed to queue'}`;
+              submitBtn.disabled = false;
+            }
+          }
+        );
+      } else {
+        // Optimistic Instant Feedback for Direct Clip
+        statusMsg.className = 'dock-status success';
+        statusMsg.textContent = '✅ Saved to Applied!';
+        statusMsg.classList.remove('hidden');
+
+        chrome.runtime.sendMessage(
+          {
+            type: 'CLIP_JOB',
+            payload: {
               company,
               position,
               url: jobData.url,
               description: jobData.description_text,
               status: 'APPLIED'
-            })
-          });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          statusMsg.className = 'dock-status success';
-          statusMsg.textContent = 'Saved to Applications! 📌';
-        }
-        statusMsg.classList.remove('hidden');
-
-        setTimeout(() => {
-          cardView.classList.add('hidden');
-          pillBtn.classList.remove('hidden');
-          submitBtn.disabled = false;
-          submitBtn.textContent = '🚀 Capture & Send Job';
-          statusMsg.classList.add('hidden');
-        }, 2000);
-      } catch (err) {
-        statusMsg.className = 'dock-status error';
-        statusMsg.textContent = `Error: ${err.message || 'Cannot reach server'}`;
-        statusMsg.classList.remove('hidden');
-        submitBtn.disabled = false;
-        submitBtn.textContent = '🚀 Capture & Send Job';
+            }
+          },
+          (res) => {
+            if (!res || !res.success) {
+              statusMsg.className = 'dock-status error';
+              statusMsg.textContent = `Error: ${res?.error || 'Failed to clip'}`;
+              submitBtn.disabled = false;
+            }
+          }
+        );
       }
+
+      // Smooth 1.5s auto-collapse
+      setTimeout(() => {
+        cardView.classList.add('hidden');
+        pillBtn.classList.remove('hidden');
+        submitBtn.disabled = false;
+        statusMsg.classList.add('hidden');
+      }, 1500);
     });
   }
 
@@ -469,7 +517,6 @@
       .replace(/"/g, '&quot;');
   }
 
-  // Listen for setting changes
   if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener((msg) => {
       if (msg.type === 'SETTINGS_UPDATED') {

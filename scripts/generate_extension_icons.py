@@ -3,29 +3,25 @@ import struct
 import zlib
 
 
-def create_png(width, height, color_bg=(99, 102, 241, 255), color_fg=(255, 255, 255, 255)):
+def create_png(width, height, color_bg=(133, 77, 14, 255), color_fg=(255, 255, 255, 255)):
     """
-    Generates a raw PNG icon of specified dimensions with an indigo rounded square background
-    and a crisp white center icon mark using Python standard library.
+    Generates a raw PNG icon of specified dimensions with a Saddle Brown (#854d0e)
+    rounded square background and a crisp white briefcase icon mark.
     """
-    # Create RGBA buffer
     raw_data = bytearray()
     border_radius = max(2, int(width * 0.2))
 
     for y in range(height):
-        raw_data.append(0)  # Filter type 0 (None)
+        raw_data.append(0)  # Filter type 0
         for x in range(width):
-            # Check rounded corners
             dx = max(border_radius - x, 0, x - (width - 1 - border_radius))
             dy = max(border_radius - y, 0, y - (height - 1 - border_radius))
             is_outside = (dx * dx + dy * dy) > (border_radius * border_radius)
 
             if is_outside:
-                # Transparent corner
                 raw_data.extend([0, 0, 0, 0])
                 continue
 
-            # Check center mark (briefcase/app icon shape)
             margin = max(3, int(width * 0.25))
             top_margin = max(4, int(height * 0.35))
             bottom_margin = max(3, int(height * 0.25))
@@ -34,7 +30,6 @@ def create_png(width, height, color_bg=(99, 102, 241, 255), color_fg=(255, 255, 
                 margin <= x < (width - margin) and top_margin <= y < (height - bottom_margin)
             )
 
-            # Handle mark
             handle_width = max(2, int(width * 0.3))
             handle_left = (width - handle_width) // 2
             handle_top = max(2, int(height * 0.22))
@@ -50,7 +45,6 @@ def create_png(width, height, color_bg=(99, 102, 241, 255), color_fg=(255, 255, 
             else:
                 raw_data.extend(color_bg)
 
-    # PNG chunks
     def chunk(chunk_type, data):
         return (
             struct.pack(">I", len(data))

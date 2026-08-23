@@ -1,4 +1,4 @@
-/* Job Tracker Companion Extension CSS - Daylight & Midnight Themes */
+/* Job Tracker Companion Extension CSS - Saddle Light & Cyan Dark Themes */
 
 :root, html[data-theme="light"] {
   --bg-app: #f8fafc;
@@ -7,15 +7,15 @@
   --bg-card-hover: #f1f5f9;
   --bg-input: #ffffff;
   --border-color: #e2e8f0;
-  --border-focus: #4f46e5;
+  --border-focus: #854d0e;
 
   --text-primary: #0f172a;
   --text-secondary: #475569;
   --text-muted: #64748b;
 
-  --primary-gradient: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
-  --primary-hover: linear-gradient(135deg, #4338ca 0%, #3730a3 100%);
-  --primary-color: #4f46e5;
+  --primary-gradient: linear-gradient(135deg, #854d0e 0%, #713f12 100%);
+  --primary-hover: linear-gradient(135deg, #713f12 0%, #581c87 100%);
+  --primary-color: #854d0e;
 
   --success-color: #059669;
   --success-bg: rgba(16, 185, 129, 0.12);
@@ -23,8 +23,8 @@
   --warning-bg: rgba(245, 158, 11, 0.12);
   --danger-color: #dc2626;
   --danger-bg: rgba(239, 68, 68, 0.12);
-  --info-color: #2563eb;
-  --info-bg: rgba(37, 99, 235, 0.12);
+  --info-color: #854d0e;
+  --info-bg: rgba(133, 77, 14, 0.12);
 
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -34,21 +34,21 @@
 }
 
 html[data-theme="dark"] {
-  --bg-app: #0f172a;
-  --bg-header: #111827;
-  --bg-card: #1e293b;
-  --bg-card-hover: #334155;
-  --bg-input: #0f172a;
-  --border-color: #334155;
-  --border-focus: #6366f1;
+  --bg-app: #09090b;
+  --bg-header: #18181b;
+  --bg-card: #18181b;
+  --bg-card-hover: #27272a;
+  --bg-input: #09090b;
+  --border-color: #27272a;
+  --border-focus: #2dd4bf;
 
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  --text-primary: #f4f4f5;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
 
-  --primary-gradient: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-  --primary-hover: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
-  --primary-color: #6366f1;
+  --primary-gradient: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
+  --primary-hover: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+  --primary-color: #2dd4bf;
 
   --success-color: #10b981;
   --success-bg: rgba(16, 185, 129, 0.18);
@@ -56,11 +56,11 @@ html[data-theme="dark"] {
   --warning-bg: rgba(245, 158, 11, 0.18);
   --danger-color: #ef4444;
   --danger-bg: rgba(239, 68, 68, 0.18);
-  --info-color: #3b82f6;
-  --info-bg: rgba(59, 130, 246, 0.18);
+  --info-color: #2dd4bf;
+  --info-bg: rgba(45, 212, 191, 0.15);
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
 }
 
 * {
@@ -128,7 +128,7 @@ body {
   font-weight: 700;
   color: var(--primary-color);
   background: var(--info-bg);
-  border: 1px solid rgba(79, 70, 229, 0.3);
+  border: 1px solid var(--primary-color);
   padding: 2px 6px;
   border-radius: 12px;
 }
@@ -218,6 +218,10 @@ body {
   line-height: 1.2;
 }
 
+html[data-theme="dark"] .queue-badge {
+  color: #09090b;
+}
+
 /* Content Area */
 .content-area {
   padding: 14px;
@@ -231,6 +235,21 @@ body {
 .tab-panel.active {
   display: block;
   animation: fadeIn 0.2s ease-in-out;
+}
+
+/* Banners */
+.banner {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.warning-banner {
+  background: var(--warning-bg);
+  color: var(--warning-color);
+  border: 1px solid rgba(245, 158, 11, 0.3);
 }
 
 /* Cards */
@@ -269,7 +288,7 @@ body {
   border-radius: 12px;
   background: var(--info-bg);
   color: var(--info-color);
-  border: 1px solid rgba(37, 99, 235, 0.3);
+  border: 1px solid var(--info-color);
 }
 
 .meta-url {
@@ -322,7 +341,7 @@ body {
 .input-field:focus, .select-field:focus {
   outline: none;
   border-color: var(--border-focus);
-  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
+  box-shadow: 0 0 0 2px rgba(133, 77, 14, 0.15);
 }
 
 .field-hint {
@@ -413,7 +432,11 @@ body {
 .btn-primary {
   background: var(--primary-gradient);
   color: #ffffff;
-  box-shadow: 0 2px 6px rgba(79, 70, 229, 0.25);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+html[data-theme="dark"] .btn-primary {
+  color: #09090b;
 }
 
 .btn-primary:hover {
@@ -638,7 +661,7 @@ body {
   border-radius: 10px;
   background: var(--info-bg);
   color: var(--info-color);
-  border: 1px solid rgba(37, 99, 235, 0.3);
+  border: 1px solid var(--info-color);
 }
 
 /* Empty State */

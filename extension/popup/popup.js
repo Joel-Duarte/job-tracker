@@ -3,20 +3,11 @@
  */
 
 import { getSettings, saveSettings, setSetting } from '../utils/storage.js';
-import {
-  testConnection,
-  enqueueAssessment,
-  clipJob,
-  getEvaluations,
-  cancelEvaluation,
-  retryEvaluation,
-  deleteEvaluation,
-  clearCompletedEvaluations,
-  normalizeAppUrl
-} from '../utils/api.js';
+import { normalizeAppUrl } from '../utils/api.js';
 
 let extractedData = null;
 let countdownTimer = null;
+let isAiAvailable = true;
 
 document.addEventListener('DOMContentLoaded', async () => {
   await initSettingsAndTheme();
@@ -32,7 +23,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function initSettingsAndTheme() {
   const settings = await getSettings();
 
-  // Apply Theme
   applyTheme(settings.theme || 'LIGHT');
 
   const appUrlInput = document.getElementById('input-app-url');
@@ -47,12 +37,11 @@ async function initSettingsAndTheme() {
   if (pollSelect) pollSelect.value = String(settings.pollInterval ?? 60);
   if (notifToggle) notifToggle.checked = settings.notificationsEnabled ?? true;
 
-  // Set last selected ingestion mode
   const modeVal = settings.lastMode || 'AI_QUEUE';
   const modeRadio = document.querySelector(`input[name="ingestMode"][value="${modeVal}"]`);
   if (modeRadio) {
     modeRadio.checked = true;
-    updateModeOptionStyles(modeVal);
+    updateModeOptionLayout(modeVal);
   }
 }
 
@@ -71,25 +60,51 @@ function applyTheme(themeMode) {
 }
 
 /**
- * Tests connection to backend via appUrl and updates header pill.
+ * Tests connection to backend via background message and verifies AI provider health.
  */
 async function checkBackendConnection() {
   const connPill = document.getElementById('conn-pill');
   const connText = document.getElementById('conn-text');
+  const aiOfflineBanner = document.getElementById('ai-offline-banner');
+  const aiOpt = document.getElementById('mode-opt-ai');
 
   if (!connPill || !connText) return;
 
   connPill.className = 'conn-pill checking';
   connText.textContent = 'Checking...';
 
-  const result = await testConnection();
-  if (result.success) {
-    connPill.className = 'conn-pill connected';
-    connText.textContent = 'Connected';
-  } else {
-    connPill.className = 'conn-pill error';
-    connText.textContent = 'Offline';
-  }
+  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION' }, (response) => {
+    if (response && response.success && response.data && response.data.success) {
+      connPill.className = 'conn-pill connected';
+      connText.textContent = 'Connected';
+
+      // Check if AI endpoint is healthy
+      isAiAvailable = true;
+      if (aiOfflineBanner) aiOfflineBanner.classList.add('hidden');
+      if (aiOpt) {
+        aiOpt.style.opacity = '1';
+        aiOpt.style.pointerEvents = 'auto';
+      }
+    } else {
+      connPill.className = 'conn-pill error';
+      connText.textContent = 'Offline';
+
+      isAiAvailable = false;
+      if (aiOfflineBanner) aiOfflineBanner.classList.remove('hidden');
+
+      // Soft-disable AI Queue and auto-switch to Direct Applied
+      if (aiOpt) {
+        aiOpt.style.opacity = '0.5';
+        aiOpt.style.pointerEvents = 'none';
+      }
+
+      const directRadio = document.querySelector('input[name="ingestMode"][value="DIRECT_APPLIED"]');
+      if (directRadio) {
+        directRadio.checked = true;
+        updateModeOptionLayout('DIRECT_APPLIED');
+      }
+    }
+  });
 }
 
 /**
@@ -156,11 +171,11 @@ function setupEventListeners() {
     });
   });
 
-  // Ingestion Mode Option Styling & Persistence
+  // Ingestion Mode Option Styling, Dynamic Field Toggling & Persistence
   document.querySelectorAll('input[name="ingestMode"]').forEach((radio) => {
     radio.addEventListener('change', (e) => {
       const selectedMode = e.target.value;
-      updateModeOptionStyles(selectedMode);
+      updateModeOptionLayout(selectedMode);
       setSetting('lastMode', selectedMode);
     });
   });
@@ -207,41 +222,40 @@ function setupEventListeners() {
   // Clear Completed Queue Tasks Button
   const clearCompletedBtn = document.getElementById('btn-clear-completed');
   if (clearCompletedBtn) {
-    clearCompletedBtn.addEventListener('click', async () => {
+    clearCompletedBtn.addEventListener('click', () => {
       clearCompletedBtn.disabled = true;
-      try {
-        await clearCompletedEvaluations();
-        await loadEvaluationsList();
-      } catch (e) {
-        console.error('Failed clearing completed evaluations:', e);
-      } finally {
+      chrome.runtime.sendMessage({ type: 'CLEAR_COMPLETED' }, () => {
         clearCompletedBtn.disabled = false;
-      }
+        loadEvaluationsList();
+      });
     });
   }
 
   // Test Connection Button in Settings
   const testConnBtn = document.getElementById('btn-test-conn');
   if (testConnBtn) {
-    testConnBtn.addEventListener('click', async () => {
+    testConnBtn.addEventListener('click', () => {
       const appUrlInput = document.getElementById('input-app-url');
       const statusMsg = document.getElementById('settings-status');
       testConnBtn.disabled = true;
 
-      const res = await testConnection(appUrlInput ? appUrlInput.value : null);
-      testConnBtn.disabled = false;
-
-      if (statusMsg) {
-        statusMsg.classList.remove('hidden', 'success', 'error');
-        if (res.success) {
-          statusMsg.classList.add('success');
-          statusMsg.textContent = res.message;
-        } else {
-          statusMsg.classList.add('error');
-          statusMsg.textContent = `Error: ${res.message}`;
+      chrome.runtime.sendMessage(
+        { type: 'TEST_CONNECTION', appUrl: appUrlInput ? appUrlInput.value : null },
+        (response) => {
+          testConnBtn.disabled = false;
+          if (statusMsg) {
+            statusMsg.classList.remove('hidden', 'success', 'error');
+            if (response && response.success && response.data && response.data.success) {
+              statusMsg.classList.add('success');
+              statusMsg.textContent = response.data.message;
+            } else {
+              statusMsg.classList.add('error');
+              statusMsg.textContent = `Error: ${response?.error || 'Cannot reach server'}`;
+            }
+          }
+          checkBackendConnection();
         }
-      }
-      await checkBackendConnection();
+      );
     });
   }
 
@@ -267,7 +281,6 @@ function setupEventListeners() {
       await saveSettings(updated);
       applyTheme(updated.theme);
 
-      // Notify background worker and active tabs of setting updates
       try {
         chrome.runtime.sendMessage({ type: 'SETTINGS_UPDATED', settings: updated });
         const tabs = await chrome.tabs.query({});
@@ -309,19 +322,32 @@ function switchTab(tabName) {
 }
 
 /**
- * Updates mode option card highlight styling.
- * @param {string} selectedMode
+ * Dynamically toggles input fields and submit button text based on selected ingestion mode.
+ * @param {'AI_QUEUE'|'DIRECT_APPLIED'} selectedMode
  */
-function updateModeOptionStyles(selectedMode) {
+function updateModeOptionLayout(selectedMode) {
   const aiOpt = document.getElementById('mode-opt-ai');
   const directOpt = document.getElementById('mode-opt-direct');
+  const manualFieldsContainer = document.getElementById('manual-fields-container');
+  const submitText = document.getElementById('btn-submit-text');
+  const submitIcon = document.getElementById('btn-submit-icon');
 
   if (aiOpt) aiOpt.classList.toggle('active', selectedMode === 'AI_QUEUE');
   if (directOpt) directOpt.classList.toggle('active', selectedMode === 'DIRECT_APPLIED');
+
+  if (selectedMode === 'AI_QUEUE') {
+    if (manualFieldsContainer) manualFieldsContainer.classList.add('hidden');
+    if (submitText) submitText.textContent = 'Send Page to AI Assessment';
+    if (submitIcon) submitIcon.textContent = '⚡';
+  } else {
+    if (manualFieldsContainer) manualFieldsContainer.classList.remove('hidden');
+    if (submitText) submitText.textContent = 'Save Application to Board';
+    if (submitIcon) submitIcon.textContent = '📌';
+  }
 }
 
 /**
- * Handles Capture & Send Job form submission with Full-Card State Swapping.
+ * Handles Capture & Send Job form submission with Full-Card State Swapping & Background Message Passing.
  */
 async function handleCaptureSubmit() {
   const compInput = document.getElementById('input-company');
@@ -329,73 +355,87 @@ async function handleCaptureSubmit() {
   const locInput = document.getElementById('input-location');
   const salInput = document.getElementById('input-salary');
 
-  const company = compInput?.value?.trim() || '';
-  const position = posInput?.value?.trim() || '';
-  const location = locInput?.value?.trim() || '';
-  const salary = salInput?.value?.trim() || '';
+  const selectedModeRadio = document.querySelector('input[name="ingestMode"]:checked');
+  const ingestMode = selectedModeRadio ? selectedModeRadio.value : 'AI_QUEUE';
 
-  if (!company || !position) {
+  let company = compInput?.value?.trim() || extractedData?.company || 'Job Posting';
+  let position = posInput?.value?.trim() || extractedData?.title || 'Unknown Position';
+  let location = locInput?.value?.trim() || extractedData?.location || '';
+  let salary = salInput?.value?.trim() || extractedData?.salary || '';
+
+  if (ingestMode === 'DIRECT_APPLIED' && (!compInput?.value?.trim() || !posInput?.value?.trim())) {
     showFullCardFeedback({
       type: 'error',
-      message: 'Please fill in both Company Name and Job Title before submitting.'
+      message: 'Please fill in both Company Name and Job Title before saving directly.'
     });
     return;
   }
 
-  const selectedModeRadio = document.querySelector('input[name="ingestMode"]:checked');
-  const ingestMode = selectedModeRadio ? selectedModeRadio.value : 'AI_QUEUE';
-
-  showFullCardFeedback({
-    type: 'loading',
-    message: ingestMode === 'AI_QUEUE'
-      ? 'Enqueuing DOM markup into AI Evaluation Queue...'
-      : 'Sending job directly to Applications board...'
-  });
-
   const settings = await getSettings();
   const appUrl = settings.appUrl || 'http://localhost:5173';
+  const rawText = extractedData?.description_text || `${company} - ${position}\nLocation: ${location}`;
+  const jobUrl = extractedData?.url || '';
 
-  try {
-    const rawText = extractedData?.description_text || `${company} - ${position}\nLocation: ${location}`;
-    const jobUrl = extractedData?.url || '';
-
-    if (ingestMode === 'AI_QUEUE') {
-      const res = await enqueueAssessment({
-        text: rawText,
-        url: jobUrl,
-        title_hint: `${company} - ${position}`
-      });
-
-      showFullCardFeedback({
-        type: 'success',
-        title: 'Queued for AI Assessment! 🚀',
-        message: `Task #${res.id} queued successfully for ${company}.`,
-        targetUrl: `${appUrl}/assessments`
-      });
-      updateQueueBadgeCount();
-    } else {
-      await clipJob({
-        company,
-        position,
-        url: jobUrl,
-        description: rawText,
-        location,
-        salary,
-        status: 'APPLIED'
-      });
-
-      showFullCardFeedback({
-        type: 'success',
-        title: 'Job Saved to Board! 📌',
-        message: `Application recorded for ${company} - ${position} in stage APPLIED.`,
-        targetUrl: `${appUrl}/applications`
-      });
-    }
-  } catch (err) {
+  if (ingestMode === 'AI_QUEUE') {
+    // Optimistic Instant Feedback
     showFullCardFeedback({
-      type: 'error',
-      message: err.message || 'Unable to communicate with Job Tracker server.'
+      type: 'success',
+      title: 'Queued for AI Assessment! 🚀',
+      message: `Page sent to AI Queue for analysis.`,
+      targetUrl: `${appUrl}/assessments`
     });
+
+    chrome.runtime.sendMessage(
+      {
+        type: 'ENQUEUE_JOB',
+        payload: {
+          text: rawText,
+          url: jobUrl,
+          title_hint: `${company} - ${position}`
+        }
+      },
+      (res) => {
+        if (!res || !res.success) {
+          showFullCardFeedback({
+            type: 'error',
+            message: res?.error || 'Unable to communicate with Job Tracker server.'
+          });
+        } else {
+          updateQueueBadgeCount();
+        }
+      }
+    );
+  } else {
+    // Optimistic Instant Feedback
+    showFullCardFeedback({
+      type: 'success',
+      title: 'Job Saved to Board! 📌',
+      message: `Application recorded for ${company} - ${position} in stage APPLIED.`,
+      targetUrl: `${appUrl}/applications`
+    });
+
+    chrome.runtime.sendMessage(
+      {
+        type: 'CLIP_JOB',
+        payload: {
+          company,
+          position,
+          url: jobUrl,
+          description: rawText,
+          location,
+          salary,
+          status: 'APPLIED'
+        }
+      },
+      (res) => {
+        if (!res || !res.success) {
+          showFullCardFeedback({
+            type: 'error',
+            message: res?.error || 'Unable to save application to Job Tracker.'
+          });
+        }
+      }
+    );
   }
 }
 
@@ -440,19 +480,19 @@ function showFullCardFeedback({ type, title, message, targetUrl }) {
       openAppBtn.setAttribute('data-url', targetUrl);
     }
 
-    // Start 2.5 second auto-reset countdown
+    // Start 1.5 second auto-reset countdown
     if (countdownBar) {
       countdownBar.style.transition = 'none';
       countdownBar.style.width = '100%';
       setTimeout(() => {
-        countdownBar.style.transition = 'width 2.5s linear';
+        countdownBar.style.transition = 'width 1.5s linear';
         countdownBar.style.width = '0%';
       }, 50);
     }
 
     countdownTimer = setTimeout(() => {
       resetFeedbackScreen();
-    }, 2550);
+    }, 1550);
   } else {
     if (errorState) errorState.classList.remove('hidden');
     if (errorMsg) errorMsg.textContent = message || 'An error occurred during capture.';
@@ -476,17 +516,26 @@ function resetFeedbackScreen() {
 }
 
 /**
- * Fetches recent evaluations and renders queue tab list with dynamic action buttons.
+ * Fetches recent evaluations via background message and renders queue list with interactive controls.
  */
-async function loadEvaluationsList() {
+function loadEvaluationsList() {
   const queueList = document.getElementById('queue-list');
   if (!queueList) return;
 
   queueList.innerHTML = '<div class="spinner-large" style="margin: 20px auto;"></div>';
 
-  try {
-    const tasks = await getEvaluations(20);
+  chrome.runtime.sendMessage({ type: 'GET_EVALUATIONS', limit: 20 }, async (response) => {
+    if (!response || !response.success) {
+      queueList.innerHTML = `
+        <div class="empty-state">
+          <span class="empty-icon">⚠️</span>
+          <p style="color: var(--danger-color);">Unable to load queue tasks: ${escapeHtml(response?.error || 'Server offline')}</p>
+        </div>
+      `;
+      return;
+    }
 
+    const tasks = response.data;
     if (!tasks || tasks.length === 0) {
       queueList.innerHTML = `
         <div class="empty-state">
@@ -496,6 +545,9 @@ async function loadEvaluationsList() {
       `;
       return;
     }
+
+    const settings = await getSettings();
+    const appUrl = settings.appUrl || 'http://localhost:5173';
 
     queueList.innerHTML = tasks.map((task) => {
       const taskId = task.id;
@@ -509,7 +561,6 @@ async function loadEvaluationsList() {
         fitScoreBadge = `<span class="fit-score-pill">${task.result_json.match_score}% Fit</span>`;
       }
 
-      // Determine Task Action Buttons
       let actionButtonsHtml = '';
       if (status === 'QUEUED' || status === 'RUNNING' || status === 'PROCESSING') {
         actionButtonsHtml = `<button class="btn btn-outline-danger btn-xs btn-task-cancel" data-id="${taskId}">Cancel</button>`;
@@ -546,77 +597,63 @@ async function loadEvaluationsList() {
       `;
     }).join('');
 
-    // Attach Task Control Click Listeners
+    // Attach Task Action Event Listeners
     queueList.querySelectorAll('.btn-task-cancel').forEach((btn) => {
-      btn.addEventListener('click', async (e) => {
+      btn.addEventListener('click', (e) => {
         const id = e.currentTarget.getAttribute('data-id');
         btn.disabled = true;
-        try {
-          await cancelEvaluation(id);
-          await loadEvaluationsList();
-        } catch (err) {
-          console.error('Cancel task failed:', err);
-        }
+        chrome.runtime.sendMessage({ type: 'CANCEL_EVALUATION', taskId: id }, () => loadEvaluationsList());
       });
     });
 
     queueList.querySelectorAll('.btn-task-retry').forEach((btn) => {
-      btn.addEventListener('click', async (e) => {
+      btn.addEventListener('click', (e) => {
         const id = e.currentTarget.getAttribute('data-id');
         btn.disabled = true;
-        try {
-          await retryEvaluation(id);
-          await loadEvaluationsList();
-        } catch (err) {
-          console.error('Retry task failed:', err);
-        }
+        chrome.runtime.sendMessage({ type: 'RETRY_EVALUATION', taskId: id }, () => loadEvaluationsList());
       });
     });
 
     queueList.querySelectorAll('.btn-task-delete').forEach((btn) => {
-      btn.addEventListener('click', async (e) => {
+      btn.addEventListener('click', (e) => {
         const id = e.currentTarget.getAttribute('data-id');
         btn.disabled = true;
-        try {
-          await deleteEvaluation(id);
-          await loadEvaluationsList();
-        } catch (err) {
-          console.error('Delete task failed:', err);
-        }
+        chrome.runtime.sendMessage({ type: 'DELETE_EVALUATION', taskId: id }, () => loadEvaluationsList());
       });
     });
 
     updateQueueBadgeCount(tasks);
-  } catch (err) {
-    queueList.innerHTML = `
-      <div class="empty-state">
-        <span class="empty-icon">⚠️</span>
-        <p style="color: var(--danger-color);">Unable to load queue tasks: ${escapeHtml(err.message)}</p>
-      </div>
-    `;
-  }
+  });
 }
 
 /**
  * Updates tab badge count based on active tasks.
  * @param {Array} [tasksList]
  */
-async function updateQueueBadgeCount(tasksList) {
+function updateQueueBadgeCount(tasksList) {
   const badgeEl = document.getElementById('queue-count-badge');
   if (!badgeEl) return;
 
-  try {
-    const tasks = tasksList || await getEvaluations(50);
-    const activeCount = tasks.filter((t) => t.status === 'QUEUED' || t.status === 'RUNNING' || t.status === 'PROCESSING').length;
-
+  if (tasksList) {
+    const activeCount = tasksList.filter((t) => t.status === 'QUEUED' || t.status === 'RUNNING' || t.status === 'PROCESSING').length;
     if (activeCount > 0) {
       badgeEl.textContent = String(activeCount);
       badgeEl.classList.remove('hidden');
     } else {
       badgeEl.classList.add('hidden');
     }
-  } catch (err) {
-    badgeEl.classList.add('hidden');
+  } else {
+    chrome.runtime.sendMessage({ type: 'GET_EVALUATIONS', limit: 50 }, (res) => {
+      if (res && res.success && Array.isArray(res.data)) {
+        const activeCount = res.data.filter((t) => t.status === 'QUEUED' || t.status === 'RUNNING' || t.status === 'PROCESSING').length;
+        if (activeCount > 0) {
+          badgeEl.textContent = String(activeCount);
+          badgeEl.classList.remove('hidden');
+        } else {
+          badgeEl.classList.add('hidden');
+        }
+      }
+    });
   }
 }
 
