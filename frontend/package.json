@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@lucide/vue": "^1.31.0",
+    "@lucide/vue": "^1.33.0",
     "axios": "^1.7.7",
     "dompurify": "^3.4.14",
     "lucide-vue-next": "^0.453.0",
