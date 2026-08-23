@@ -1085,7 +1085,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         task_type="JOB_ASSESSMENT",
         provider_id=provider_local.id,
         model_name="qwen/qwen3.5-9b",
-        temperature=0.2,
+        temperature=0.1,
         extra_kwargs={"reasoning_effort": "none"},
         is_active=True,
     )

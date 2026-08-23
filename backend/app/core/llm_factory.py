@@ -437,12 +437,12 @@ TASK_RECOMMENDED_DEFAULTS = {
         "max_tokens": None,
     },
     "EXTRACTION": {
-        "temperature": 0.1,
+        "temperature": 0.0,
         "reasoning_effort": "none",
         "max_tokens": None,
     },
     "ASSESSMENT": {
-        "temperature": 0.2,
+        "temperature": 0.1,
         "reasoning_effort": "none",
         "max_tokens": None,
     },
@@ -456,7 +456,7 @@ TASK_RECOMMENDED_DEFAULTS = {
         "reasoning_effort": "none",
         "max_tokens": None,
     },
-    "AGENT": {"temperature": 0.2, "reasoning_effort": "none", "max_tokens": None},
+    "AGENT": {"temperature": 0.3, "reasoning_effort": "none", "max_tokens": None},
 }
 
 

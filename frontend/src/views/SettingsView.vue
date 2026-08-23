@@ -463,69 +463,75 @@ const TASKS = [
     recommendedTemp: 0.0,
     recommendedReasoning: 'none',
     recommendedMaxTokens: null,
+    reasoningTip: '💡 Local & Cloud: None (Fast) — Schema fact extraction runs 10x faster without reasoning tokens.',
     hasPrompt: true,
     desc: 'Extracts structured job title, company, salary, and requirements from scraped web HTML / markdown.',
-    variables: ['{raw_webpage_data}']
+    variables: ['{raw_webpage_data}'],
   },
   {
     key: 'EXTRACTION',
     promptKey: 'email_extraction',
     label: 'Email Metadata Extraction',
     icon: 'Mail',
-    recommendedTemp: 0.1,
+    recommendedTemp: 0.0,
     recommendedReasoning: 'none',
     recommendedMaxTokens: null,
+    reasoningTip: '💡 Local & Cloud: None (Fast) — Deterministic parsing of email dates, companies, and interview stages.',
     hasPrompt: true,
     desc: 'Parses job details, dates, companies, and roles from emails into structured Pydantic schemas.',
-    variables: ['{email_content}']
+    variables: ['{email_content}'],
   },
   {
     key: 'ASSESSMENT',
     promptKey: 'assessment',
     label: 'Pre-Screen Match Audit & Tips',
     icon: 'Sparkles',
-    recommendedTemp: 0.2,
-    recommendedReasoning: 'medium',
+    recommendedTemp: 0.1,
+    recommendedReasoning: 'none',
     recommendedMaxTokens: null,
+    reasoningTip: '💡 Local: None (~35s intake) | Cloud: None or Low/Medium on Claude 3.7 / o3-mini for nuanced strategic gap analysis.',
     hasPrompt: true,
     desc: 'Computes deep semantic fit score, keyword matches/gaps, and strategic resume improvement suggestions.',
-    variables: ['{job_description}', '{candidate_cv}', '{programmatic_baseline}']
+    variables: ['{job_description}', '{candidate_cv}', '{programmatic_baseline}'],
   },
   {
     key: 'cv_anonymization',
     promptKey: 'cv_anonymization',
     label: 'CV De-Identification & Skills',
     icon: 'ShieldCheck',
-    recommendedTemp: 0.2,
-    recommendedReasoning: 'medium',
+    recommendedTemp: 0.0,
+    recommendedReasoning: 'none',
     recommendedMaxTokens: null,
+    reasoningTip: '💡 Local & Cloud: None (Fast) — Strips PII and parses canonical skill taxonomy directly.',
     hasPrompt: true,
     desc: 'Replaces companies with scale tags, transforms date windows into durations, and extracts canonical technical skills.',
-    variables: ['{resume_text}']
+    variables: ['{resume_text}'],
   },
   {
     key: 'AGENT_REASONING',
     promptKey: 'agent_system',
     label: 'LangGraph Reasoning & Assistant',
     icon: 'Bot',
-    recommendedTemp: 0.5,
-    recommendedReasoning: 'high',
+    recommendedTemp: 0.3,
+    recommendedReasoning: 'none',
     recommendedMaxTokens: null,
+    reasoningTip: '💡 Local & Cloud: None (<3s message turn latency) | Cloud: Low if executing complex multi-agent planning.',
     hasPrompt: true,
-    desc: 'Evaluates fuzzy deduplication confidence and powers the interactive chat assistant.',
-    variables: []
+    desc: 'Evaluates fuzzy deduplication confidence and powers the interactive chat assistant & interview simulation.',
+    variables: [],
   },
   {
     key: 'INTERVIEW_GUIDE',
     promptKey: 'interview_guide',
     label: 'Interview Prep Guide',
     icon: 'BookOpen',
-    recommendedTemp: 0.4,
-    recommendedReasoning: 'high',
+    recommendedTemp: 0.3,
+    recommendedReasoning: 'none',
     recommendedMaxTokens: null,
+    reasoningTip: '💡 Local: None (~25s) | Cloud: Medium/High on Claude 3.7 / o3-mini for deeper strategic STAR scenario planning.',
     hasPrompt: true,
     desc: 'Generates tailored interview preparation guides, STAR stories, and strategic question defenses.',
-    variables: ['{language}', '{company_name}', '{position}', '{company_context}', '{jd_text}', '{cv_text}', '{target_section}']
+    variables: ['{language}', '{company_name}', '{position}', '{company_context}', '{jd_text}', '{cv_text}', '{target_section}'],
   },
   {
     key: 'COVER_LETTER',
@@ -533,11 +539,12 @@ const TASKS = [
     label: 'Cover Letter Generation',
     icon: 'FileText',
     recommendedTemp: 0.3,
-    recommendedReasoning: 'medium',
+    recommendedReasoning: 'none',
     recommendedMaxTokens: null,
+    reasoningTip: '💡 Local & Cloud: None — Standard direct generation produces more natural, persuasive writing without analytical stiffness.',
     hasPrompt: true,
     desc: 'Generates tailored cover letters referencing candidate experiences against target role and company requirements.',
-    variables: ['{company_name}', '{position}', '{job_description}', '{candidate_cv}', '{tone}', '{length}']
+    variables: ['{company_name}', '{position}', '{job_description}', '{candidate_cv}', '{tone}', '{length}'],
   },
   {
     key: 'EMBEDDING',
@@ -548,9 +555,10 @@ const TASKS = [
     recommendedTemp: null,
     recommendedReasoning: 'none',
     recommendedMaxTokens: null,
+    reasoningTip: '💡 Embedding Model: Fixed vector embeddings (nomic-embed-text, text-embedding-3-small).',
     hasPrompt: false,
     desc: 'Generates 768-dimension dense vector representations for pgvector cosine similarity search.',
-    variables: []
+    variables: [],
   },
 ]
 
@@ -2002,6 +2010,9 @@ onUnmounted(() => {
                     >
                       {{ effort === 'none' ? 'None (Fast)' : (effort === 'custom' ? 'Custom JSON' : effort) }}
                     </button>
+                  </div>
+                  <div v-if="activeTaskDef?.reasoningTip" class="reasoning-task-guidance mt-2 animate-fade-in">
+                    <span>{{ activeTaskDef.reasoningTip }}</span>
                   </div>
                 </div>
 
@@ -3645,6 +3656,19 @@ onUnmounted(() => {
   background-color: var(--primary);
   color: #fff;
   font-weight: 600;
+}
+
+.reasoning-task-guidance {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background-color: rgba(59, 130, 246, 0.06);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-radius: var(--radius-xs, 4px);
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
 }
 
 .reasoning-info-callout {

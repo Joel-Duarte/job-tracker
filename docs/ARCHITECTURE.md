@@ -265,6 +265,16 @@ An interactive simulator supporting live multi-turn role-playing interviews:
 - **Adaptive Timeout Strategy:** Automatically detects local LLM endpoints (LM Studio, Ollama) and applies an infinite timeout to accommodate slower hardware, while enforcing a 120s timeout on cloud endpoints.
 - **STAR Real-Time Scoring:** Evaluates candidate answers per turn and produces a structured debrief scorecard with quantitative ratings, strengths, growth areas, and timeline event records.
 
+#### D. Dynamic LLM Factory, Strict Parameter Isolation & Reasoning Controls
+- **Strict Parameter Isolation:** `GLOBAL_DEFAULT` only supplies fallback provider & model name; execution parameters (`temperature`, `top_p`, `max_tokens`, `reasoning_effort`, `custom_extra_body`) are strictly task-specific and never leak from global defaults.
+- **Reasoning Suppression (`reasoning_effort="none"`):** Enforces 0 reasoning tokens on local engines (LM Studio / Ollama / vLLM) via `reasoning_effort: "none"` and `chat_template_kwargs: {"thinking": False}`, Google Gemini via `thinking_budget: 0`, and Anthropic Claude by omitting the `thinking` block. This reduces extraction latency from ~120s down to ~7s.
+- **Task Configuration Matrix:**
+  - Extractions (`JD_EXTRACTION`, `EMAIL_EXTRACTION`, `cv_anonymization`): `temp: 0.0, reasoning: none` (deterministic schema adherence).
+  - Match Audit (`JOB_ASSESSMENT`): `temp: 0.1, reasoning: none` on local (~35s), `low/med` on cloud for deep career transition analysis.
+  - Generative Prose (`COVER_LETTER`): `temp: 0.3, reasoning: none` (prevents robotic/stiff writing).
+  - Scenario Planning (`INTERVIEW_GUIDE`): `temp: 0.3, reasoning: none` on local, `medium` on cloud.
+  - Interactive Simulation (`AGENT_REASONING`): `temp: 0.3, reasoning: none` (<3s turn latency).
+
 ---
 
 ### 3.3 Camofox Stealth Web Scraper

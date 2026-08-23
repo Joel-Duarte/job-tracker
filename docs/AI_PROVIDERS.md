@@ -210,28 +210,50 @@ Google Gemini delivers high-speed inference with generous free-tier quotas.
 
 ## 🎛️ AI Task Studio & Per-Task Bindings
 
-Rather than using a single model for every task, Job Tracker's **AI Task Studio** (`/settings` ➜ **AI Task Studio**) allows you to assign specialized models, temperatures, and reasoning budgets to distinct pipeline stages.
+Rather than using a single monolithic model for every operation, Job Tracker's **AI Task Studio** (`/settings` ➜ **AI Task Studio**) allows you to assign specialized models, sampling temperatures, token budgets, and reasoning levels to distinct pipeline stages.
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                           AI Task Studio Matrix                          │
-├───────────────────────┬──────────────────────────┬─────────────┬─────────┤
-│ Pipeline Task         │ Recommended Model Type   │ Temperature │ Reason  │
-├───────────────────────┼──────────────────────────┼─────────────┼─────────┤
-│ GLOBAL_DEFAULT        │ Fast Chat / Generalist   │ 0.2         │ None    │
-│ JD_EXTRACTION         │ High JSON Fidelity       │ 0.0         │ None    │
-│ EMAIL_EXTRACTION      │ Fast Parsing / Low Cost  │ 0.1         │ None    │
-│ JOB_ASSESSMENT        │ Reasoning / Analysis     │ 0.2         │ Medium  │
-│ INTERVIEW_GUIDE       │ High Context / Synthesis │ 0.3 - 0.4   │ High    │
-│ COVER_LETTER          │ Creative / Nuanced Prose │ 0.3         │ Medium  │
-│ cv_anonymization      │ Strict Extraction        │ 0.2         │ Medium  │
-│ AGENT_REASONING       │ Multi-Turn Conversational│ 0.5         │ High    │
-│ EMBEDDING             │ Dense Vector Embedding   │ N/A         │ N/A     │
-└───────────────────────┴──────────────────────────┴─────────────┴─────────┘
-```
+### Strict Parameter Isolation
+Job Tracker enforces strict parameter isolation across all tasks:
+- **`GLOBAL_DEFAULT`** only supplies the fallback provider and model name when a specific task is set to `use_global_default: true` (or has no dedicated binding).
+- **Execution Parameters** (`temperature`, `top_p`, `max_tokens`, `reasoning_effort`, `custom_extra_body`) are **strictly task-specific** and never leak or get overridden by `GLOBAL_DEFAULT`. Each task uses its own configured parameters or falls back to its factory-recommended defaults.
+
+---
+
+### LLM Task Configuration & Recommended Settings Matrix
+
+| Pipeline Task | Description | Local Recommended (LM Studio / Ollama) | Cloud Recommended (Claude / OpenAI / Gemini) | Rationale |
+| :--- | :--- | :--- | :--- | :--- |
+| **`JD_EXTRACTION`** | Web Scrape Parser | `temp: 0.0, reasoning: none` | `temp: 0.0, reasoning: none` | Deterministic schema parsing; runs **10x faster** without thinking tokens (~7s vs 120s). |
+| **`EMAIL_EXTRACTION`** | Recruitment Email Parser | `temp: 0.0, reasoning: none` | `temp: 0.0, reasoning: none` | High-precision extraction of dates, senders, interview stages, and to-do deadlines. |
+| **`JOB_ASSESSMENT`** | Fit Score & Gap Audit | `temp: 0.1, reasoning: none` | `temp: 0.1, reasoning: low/med` | Fast local intake (~35s vs 145s); programmatic baseline already guides scoring. Cloud reasoning enables deep career transition analysis. |
+| **`cv_anonymization`** | CV De-Identification | `temp: 0.0, reasoning: none` | `temp: 0.0, reasoning: none` | Strict PII redaction and standardized technical skill taxonomy extraction. |
+| **`COVER_LETTER`** | Cover Letter Composition | `temp: 0.3, reasoning: none` | `temp: 0.3, reasoning: none` | Direct instruction produces fluid, persuasive prose; research shows reasoning chains degrade writing style and natural tone. |
+| **`INTERVIEW_GUIDE`** | STAR Playbook Generator | `temp: 0.3, reasoning: none` | `temp: 0.3, reasoning: medium` | Keeps generation <30s on local hardware; Cloud reasoning models (Claude 3.7 / o3-mini) excel at anticipating tough counter-questions. |
+| **`AGENT_REASONING`** | Assistant & Mock Simulator | `temp: 0.3, reasoning: none` | `temp: 0.3, reasoning: low` | Guarantees low conversational turn latency (<3s). Cloud users can use low reasoning for complex multi-agent planning. |
+| **`EMBEDDING`** | Semantic Search Embeddings | `nomic-embed-text` (768d) | `text-embedding-3-small` (1536d) | Dense vector representations stored in PostgreSQL `pgvector` for similarity matching. |
+
+---
+
+### Thinking & Reasoning Controls Across Engine Providers
+
+When a task has reasoning set to **`none` (Fast)** in the UI:
+1. **Local & Custom OpenAI-Compatible Endpoints (LM Studio / Ollama / vLLM):**  
+   Automatically injects:
+   ```json
+   {
+     "reasoning_effort": "none",
+     "chat_template_kwargs": { "thinking": false }
+   }
+   ```
+   This prevents local models (like Qwen 3.5 or DeepSeek-R1) from generating internal thought tokens in `reasoning_content`, dropping extraction time from 120s down to ~7 seconds.
+2. **Google Gemini:** Automatically passes `thinking_config: {"thinking_budget": 0}`.
+3. **Anthropic Claude:** Strips the `thinking` configuration object completely.
+4. **OpenAI / OpenRouter:** Employs standard mode for general models (`gpt-4o`, `gpt-4o-mini`) and sets `reasoning_effort: "low"` for reasoning-only models (`o1`, `o3-mini`).
+
+---
 
 ### Task Descriptions
-1. **`GLOBAL_DEFAULT`**: Catch-all default model. Any task that is not explicitly customized automatically inherits this provider and model.
+1. **`GLOBAL_DEFAULT`**: Catch-all default model. Any task set to inherit automatically uses this provider and model.
 2. **`JD_EXTRACTION`**: Parses raw web HTML/markdown from job postings into structured JSON schemas (title, company, salary ranges, technical skill lists).
 3. **`EMAIL_EXTRACTION`**: Scans recruitment emails to extract sender details, interview dates, rejection notices, and pending action items.
 4. **`JOB_ASSESSMENT`**: Performs a comprehensive audit comparing your candidate CV against the job description, computing fit percentages, match rationales, and strategic gap-closing tips.
