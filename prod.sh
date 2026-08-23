@@ -9,11 +9,16 @@ RESET_ONLY=false
 STOP_ONLY=false
 STATUS_ONLY=false
 LOGS_ONLY=false
+USE_EXTERNAL=false
 DOCKER_ARGS=()
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --external)
+      USE_EXTERNAL=true
+      shift
+      ;;
     --reset|--clean|-r|--reset-db)
       RESET_DB=true
       shift
@@ -41,6 +46,7 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: ./prod.sh [OPTIONS] [DOCKER_COMPOSE_ARGS...]"
       echo ""
       echo "Options:"
+      echo "  --external                         Use external PostgreSQL/Camofox (via docker-compose.external.yml)"
       echo "  --reset, --clean, -r, --reset-db   Wipe PostgreSQL database & application data, then start fresh"
       echo "  --reset-only                       Wipe database & data volumes without restarting containers"
       echo "  --down, --stop                     Stop running production containers"
@@ -111,9 +117,12 @@ echo "🚀 Starting Job Tracker in PERMANENT PRODUCTION mode..."
 echo " - Web Application & Ingress: http://localhost:4173"
 echo " - API Docs (Swagger UI):     http://localhost:4173/api/docs"
 echo " - Internal Services:         Backend, Database & Scraper (Isolated in Docker Network)"
-echo ""
+COMPOSE_FILES=(-f docker-compose.yml)
+if [ "$USE_EXTERNAL" = true ]; then
+  COMPOSE_FILES+=(-f docker-compose.external.yml)
+fi
 
-docker compose up -d --build "${DOCKER_ARGS[@]}"
+docker compose "${COMPOSE_FILES[@]}" up -d --build "${DOCKER_ARGS[@]}"
 
 echo ""
 echo "================================================================================"
