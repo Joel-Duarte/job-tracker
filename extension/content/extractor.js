@@ -6,6 +6,26 @@
 (function initExtractorEngine() {
   const BLACKLISTED_PORTALS = ['linkedin', 'glassdoor', 'indeed', 'job posting', 'careers'];
 
+  function isCleanTitle(t) {
+    if (!t || typeof t !== 'string') return false;
+    const lower = t.toLowerCase().trim();
+    if (
+      lower.includes('notification') ||
+      lower.includes('notificações') ||
+      lower.includes('nachrichten') ||
+      lower.includes('messaging') ||
+      lower.includes('my network') ||
+      lower.includes('feed') ||
+      lower === 'linkedin' ||
+      lower === 'glassdoor' ||
+      lower === 'indeed' ||
+      /^\d+\s+notifications?$/i.test(lower)
+    ) {
+      return false;
+    }
+    return true;
+  }
+
   function extractJobData() {
     const rawUrl = window.location.href;
     const host = window.location.hostname.toLowerCase();
@@ -115,15 +135,18 @@
     function deriveTitleFromDoc() {
       let raw = document.querySelector('meta[property="og:title"]')?.content || document.title || '';
       raw = raw.replace(/^\(\d+\)\s*/, '');
+      raw = raw.replace(/^\d+\s+notifications?\s*[-·|•]?\s*/i, '');
       raw = raw.replace(/\s*\|\s*LinkedIn.*$/i, '');
       raw = raw.replace(/\s*\|\s*Glassdoor.*$/i, '');
       raw = raw.replace(/\s*\|\s*Indeed.*$/i, '');
       for (const sep of [' at ', ' | ', ' - ', ' — ', ' • ']) {
         if (raw.includes(sep)) {
-          return raw.split(sep)[0].trim();
+          raw = raw.split(sep)[0].trim();
+          break;
         }
       }
-      return raw.trim().replace(/careers|jobs|hiring/gi, '').trim();
+      const cleaned = raw.trim().replace(/careers|jobs|hiring/gi, '').trim();
+      return isCleanTitle(cleaned) ? cleaned : '';
     }
 
     let site_type = 'GENERIC';
@@ -184,6 +207,10 @@
         'h2'
       ]);
 
+      if (!isCleanTitle(title)) {
+        title = '';
+      }
+
       location = getTextIn(header, [
         '[data-test="location"]',
         '[class*="JobDetails_location"]',
@@ -209,6 +236,11 @@
       site_type = 'INDEED';
       const pane = queryFirst(['#jobsearch-ViewjobPaneWrapper', '.jobsearch-JobComponent', 'main']) || document;
       title = getTextIn(pane, ['h1.jobsearch-JobInfoHeader-title', '[data-testid="simpler-jobTitle"]', '[data-testid="jobsearch-JobInfoHeader-title"]', 'h1']);
+
+      if (!isCleanTitle(title)) {
+        title = '';
+      }
+
       company = getTextIn(pane, ['[data-testid="inlineHeader-companyName"]', '.jobsearch-CompanyReview-companyHeader']);
       location = getTextIn(pane, [
         '[data-testid="inlineHeader-companyLocation"]',
@@ -239,32 +271,38 @@
       ])?.closest('.job-view-layout, .jobs-search__job-details, main, body') || document;
 
       title = getTextIn(pane, [
-        '.job-details-jobs-unified-top-card__job-title h1:not(.visually-hidden)',
-        '.job-details-jobs-unified-top-card__job-title a:not(.visually-hidden)',
-        '.job-details-jobs-unified-top-card__job-title:not(.visually-hidden)',
-        '.jobs-unified-top-card__job-title h1:not(.visually-hidden)',
-        'h1.top-card-layout__title:not(.visually-hidden)',
-        'h1.topcard__title:not(.visually-hidden)',
-        'h1.t-24.t-bold:not(.visually-hidden)',
-        'h1.t-24:not(.visually-hidden)',
-        'h1[class*="job-title" i]:not(.visually-hidden)',
-        'h1[class*="title" i]:not(.visually-hidden)',
-        '.job-view-layout h1:not(.visually-hidden)',
-        'main.scaffold-layout__main h1:not(.visually-hidden)',
-        'h1:not(.visually-hidden)'
+        '.job-details-jobs-unified-top-card__job-title h1',
+        '.job-details-jobs-unified-top-card__job-title a',
+        '.job-details-jobs-unified-top-card__job-title',
+        '.jobs-unified-top-card__job-title h1',
+        'h1.top-card-layout__title',
+        'h1.topcard__title',
+        'h1.t-24.t-bold',
+        'h1.t-24',
+        '.jobs-details__main-content h1',
+        '.scaffold-layout__detail h1',
+        '.scaffold-layout__main h1',
+        'div[class*="job-details"] h1',
+        'div[class*="top-card"] h1',
+        'div[class*="topcard"] h1',
+        'h2.t-24.t-bold',
+        'h2.t-24',
+        'h2[class*="job-title" i]',
+        'h1[class*="job-title" i]',
+        'h1[class*="title" i]'
       ]);
 
-      title = title.replace(/^\(\d+\)\s*/, '').trim();
+      title = title
+        .replace(/^\(\d+\)\s*/, '')
+        .replace(/^\d+\s+notifications?\s*[-·|•]?\s*/i, '')
+        .trim();
 
-      const lowerTitle = title.toLowerCase();
-      if (
-        lowerTitle.includes('notification') ||
-        lowerTitle.includes('notificações') ||
-        lowerTitle.includes('messaging') ||
-        lowerTitle.includes('my network') ||
-        lowerTitle === 'linkedin'
-      ) {
+      if (!isCleanTitle(title)) {
         title = '';
+      }
+
+      if (!title) {
+        title = deriveTitleFromDoc();
       }
 
       company = getTextIn(pane, [
@@ -378,8 +416,8 @@
         site_type = 'GENERIC';
       }
 
-      if (!title) {
-        title = getText(['h1', 'h2']) || deriveTitleFromDoc();
+      if (!title || !isCleanTitle(title)) {
+        title = deriveTitleFromDoc();
       }
       if (!company) {
         company = deriveCompanyFromTitle();
@@ -418,7 +456,7 @@
       }
     }
 
-    if (!title) {
+    if (!title || !isCleanTitle(title)) {
       title = deriveTitleFromDoc() || 'Unknown Role';
     }
     if (!company) {
