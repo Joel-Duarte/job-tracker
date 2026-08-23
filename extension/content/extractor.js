@@ -158,13 +158,28 @@
     }
   }
 
-  // 3. LinkedIn (Scoped strictly inside job details pane)
+  // 3. LinkedIn (Scoped strictly inside job details pane with robust location selectors)
   else if (host.includes('linkedin.com')) {
     site_type = 'LINKEDIN';
     const pane = queryFirst(['.jobs-search__job-details', '#job-details', '.job-view-layout']) || document;
     title = getTextIn(pane, ['.job-details-jobs-unified-top-card__job-title', '.top-card-layout__title', 'h1.t-24', 'h1']);
     company = getTextIn(pane, ['.job-details-jobs-unified-top-card__company-name', '.topcard__org-name-link', '.job-details-jobs-unified-top-card__primary-description a']);
-    location = getTextIn(pane, ['.job-details-jobs-unified-top-card__bullet', '.topcard__flavor--bullet']);
+    location = getTextIn(pane, [
+      '.job-details-jobs-unified-top-card__primary-description-container span.tvm__text',
+      '.job-details-jobs-unified-top-card__bullet',
+      '.jobs-unified-top-card__bullet',
+      '.topcard__flavor--bullet'
+    ]);
+
+    if (!location) {
+      const primaryDesc = getTextIn(pane, ['.job-details-jobs-unified-top-card__primary-description', '.job-details-jobs-unified-top-card__primary-description-container']);
+      if (primaryDesc) {
+        const parts = primaryDesc.split('·').map((p) => p.trim());
+        if (parts.length >= 2) {
+          location = parts[1];
+        }
+      }
+    }
 
     const descEl = queryFirstIn(pane, ['#job-details', '.jobs-description__content']);
     if (descEl) {

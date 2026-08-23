@@ -9,6 +9,7 @@
   const DOCK_ID = 'job-tracker-dock-host';
   let shadowRoot = null;
   let lastObservedUrl = window.location.href;
+  let glassdoorObserver = null;
   let currentSettings = {
     appUrl: 'http://localhost:5173',
     dockMode: 'AUTO-DETECT',
@@ -167,9 +168,21 @@
         '.job-details-jobs-unified-top-card__primary-description a'
       ]);
       location = getTextIn(pane, [
+        '.job-details-jobs-unified-top-card__primary-description-container span.tvm__text',
         '.job-details-jobs-unified-top-card__bullet',
+        '.jobs-unified-top-card__bullet',
         '.topcard__flavor--bullet'
       ]);
+
+      if (!location) {
+        const primaryDesc = getTextIn(pane, ['.job-details-jobs-unified-top-card__primary-description', '.job-details-jobs-unified-top-card__primary-description-container']);
+        if (primaryDesc) {
+          const parts = primaryDesc.split('·').map((p) => p.trim());
+          if (parts.length >= 2) {
+            location = parts[1];
+          }
+        }
+      }
 
       const descEl = queryFirstIn(pane, ['#job-details', '.jobs-description__content']);
       if (descEl) descriptionText = descEl.textContent.trim();
@@ -299,7 +312,6 @@
       isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     }
 
-    // Exact Daylight & Night Theme Palette
     const primaryColor = isDark ? '#2dd4bf' : '#854d0e';
     const bgColor = isDark ? '#18181b' : '#ede3d5';
     const textColor = isDark ? '#f4f4f5' : '#1c1917';
@@ -310,7 +322,7 @@
     const activeChipBorder = isDark ? '1.5px solid #2dd4bf' : '1.5px solid #854d0e';
     const activeChipColor = isDark ? '#2dd4bf' : '#854d0e';
 
-    const currentMode = currentSettings.lastMode || 'AI_QUEUE';
+    let currentMode = currentSettings.lastMode || 'AI_QUEUE';
 
     shadowRoot.innerHTML = `
       <style>
@@ -631,6 +643,38 @@
     `;
 
     setupDockEventListeners(jobData);
+    checkFloatingAiHealthGating();
+  }
+
+  /**
+   * Probe AI Provider Health and soft-disable AI Queue if unconfigured/offline.
+   */
+  function checkFloatingAiHealthGating() {
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id) {
+      chrome.runtime.sendMessage({ type: 'TEST_CONNECTION' }, (response) => {
+        if (!shadowRoot) return;
+        const chipAi = shadowRoot.getElementById('chip-ai');
+        const chipDirect = shadowRoot.getElementById('chip-direct');
+        const modeFieldsDirect = shadowRoot.getElementById('mode-fields-direct');
+        const submitBtn = shadowRoot.getElementById('dock-submit-btn');
+
+        const aiReady = (response && response.success && response.data && response.data.config)
+          ? response.data.config.ai_ready
+          : true;
+
+        if (aiReady === false) {
+          if (chipAi) {
+            chipAi.style.opacity = '0.5';
+            chipAi.style.pointerEvents = 'none';
+            chipAi.title = 'AI Provider Offline in Job Tracker';
+            chipAi.classList.remove('active');
+          }
+          if (chipDirect) chipDirect.classList.add('active');
+          if (modeFieldsDirect) modeFieldsDirect.classList.remove('hidden');
+          if (submitBtn) submitBtn.textContent = '🚀 Save Application';
+        }
+      });
+    }
   }
 
   function setupDockEventListeners(jobData) {
@@ -648,7 +692,6 @@
 
     let selectedMode = currentSettings.lastMode || 'AI_QUEUE';
 
-    // Clear Buttons Event Listeners inside Shadow DOM
     shadowRoot.querySelectorAll('.clear-btn-inline').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.preventDefault();
@@ -722,13 +765,13 @@
           statusMsg.textContent = '✅ Queued for AI Assessment!';
           statusMsg.classList.remove('hidden');
 
+          // Pure Scoped DOM Payload in AI Queue Mode (No client regex bias)
           chrome.runtime.sendMessage(
             {
               type: 'ENQUEUE_JOB',
               payload: {
                 text: jobData.description_text,
-                url: jobData.url,
-                title_hint: `${company} - ${position}`
+                url: jobData.url
               }
             },
             (res) => {
@@ -779,25 +822,47 @@
   }
 
   /**
-   * Live SPA Selection Sync Observer (LinkedIn, Indeed, Glassdoor) with immediate + 250ms & 600ms delayed retries.
+   * Live SPA Selection Sync Observer (LinkedIn, Indeed, Glassdoor)
+   * Includes MutationObserver targeting Glassdoor job elements and debounced retries at 0ms, 250ms, 600ms.
    */
   function setupSpaSelectionSync() {
     function handleLocationOrJobChange() {
       const currentUrl = window.location.href;
       if (currentUrl !== lastObservedUrl) {
         lastObservedUrl = currentUrl;
-        syncJobDetailsLive();
-
-        // 250ms & 600ms delayed retries for slow async rendered containers
-        setTimeout(syncJobDetailsLive, 250);
-        setTimeout(syncJobDetailsLive, 600);
+        triggerDelayedSyncs();
       }
+    }
+
+    function triggerDelayedSyncs() {
+      syncJobDetailsLive();
+      setTimeout(syncJobDetailsLive, 250);
+      setTimeout(syncJobDetailsLive, 600);
     }
 
     window.addEventListener('popstate', handleLocationOrJobChange);
     window.addEventListener('hashchange', handleLocationOrJobChange);
 
     setInterval(handleLocationOrJobChange, 500);
+
+    // Glassdoor & Indeed MutationObserver
+    const host = window.location.hostname.toLowerCase();
+    if (host.includes('glassdoor.com') || host.includes('glassdoor.co.uk') || host.includes('indeed.com')) {
+      const targetContainer = document.querySelector('#JobDescriptionContainer, #jobsearch-ViewjobPaneWrapper, body');
+      if (targetContainer) {
+        glassdoorObserver = new MutationObserver(() => {
+          triggerDelayedSyncs();
+        });
+        glassdoorObserver.observe(targetContainer, { childList: true, subtree: true });
+      }
+
+      // Add click listeners to job listing cards
+      document.addEventListener('click', (e) => {
+        if (e.target.closest('[data-test="jobListing"], [data-test="job-details"], .JobsList_jobListItem__, .jobsearch-ResultsList')) {
+          triggerDelayedSyncs();
+        }
+      });
+    }
   }
 
   function syncJobDetailsLive() {

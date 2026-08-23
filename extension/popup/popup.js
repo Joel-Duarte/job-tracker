@@ -428,13 +428,13 @@ async function handleCaptureSubmit() {
       targetUrl: `${appUrl}/assessments`
     });
 
+    // Pure Scoped DOM Payload in AI Queue Mode (No forced client regex overrides)
     chrome.runtime.sendMessage(
       {
         type: 'ENQUEUE_JOB',
         payload: {
           text: rawText,
-          url: jobUrl,
-          title_hint: `${company} - ${position}`
+          url: jobUrl
         }
       },
       (res) => {
