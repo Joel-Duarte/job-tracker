@@ -1,11 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { SystemSettingsAPI, AIConfigAPI } from '../api/endpoints'
 
 export const useUIStore = defineStore('ui', () => {
   const theme = ref(localStorage.getItem('jt_theme') || 'midnight')
   const viewMode = ref(localStorage.getItem('jt_view_mode') || 'kanban') // 'kanban' | 'table'
   const isIngestModalOpen = ref(false)
   const isJobIntakeModalOpen = ref(false)
+  const isOnboardingWizardOpen = ref(false)
   const isCommandPaletteOpen = ref(false)
   const isCoverLetterModalOpen = ref(false)
   const coverLetterAppId = ref(null)
@@ -262,10 +264,49 @@ export const useUIStore = defineStore('ui', () => {
   }
 
   // Global Settings
+  const hasCompletedOnboarding = ref(false)
+  const enableEmailIntake = ref(false)
   const enableEmbeddings = ref(true)
   const enableAutoCoverLetter = ref(false)
   const coverLetterMatchThreshold = ref(70)
   const coverLetterLength = ref('standard')
+
+  function openOnboardingWizard() {
+    isOnboardingWizardOpen.value = true
+  }
+
+  function closeOnboardingWizard() {
+    isOnboardingWizardOpen.value = false
+  }
+
+  async function fetchSystemSettings() {
+    try {
+      const res = await SystemSettingsAPI.get()
+      if (res && res.data) {
+        hasCompletedOnboarding.value = res.data.has_completed_onboarding ?? false
+        enableEmailIntake.value = res.data.enable_email_intake ?? false
+        enableEmbeddings.value = res.data.enable_embeddings ?? true
+        enableAutoCoverLetter.value = res.data.enable_auto_cover_letter ?? false
+        coverLetterMatchThreshold.value = res.data.cover_letter_match_threshold ?? 70
+        coverLetterLength.value = res.data.cover_letter_length ?? 'standard'
+      }
+    } catch (err) {
+      // Fallback to global settings endpoint if system config fails
+      try {
+        const res = await AIConfigAPI.getGlobalSettings()
+        if (res && res.data) {
+          hasCompletedOnboarding.value = res.data.HAS_COMPLETED_ONBOARDING ?? false
+          enableEmailIntake.value = res.data.ENABLE_EMAIL_INTAKE ?? false
+          enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS ?? true
+          enableAutoCoverLetter.value = res.data.ENABLE_AUTO_COVER_LETTER ?? false
+          coverLetterMatchThreshold.value = res.data.COVER_LETTER_MATCH_THRESHOLD ?? 70
+          coverLetterLength.value = res.data.COVER_LETTER_LENGTH ?? 'standard'
+        }
+      } catch (fallbackErr) {
+        console.warn('Failed to load system settings', fallbackErr)
+      }
+    }
+  }
 
   function setEnableEmbeddings(val) {
     enableEmbeddings.value = val
@@ -305,6 +346,93 @@ export const useUIStore = defineStore('ui', () => {
     localStorage.setItem('jt_auto_archiver_days', String(days))
   }
 
+
+  // AI Health Monitoring State
+  const aiStatus = ref('unconfigured') // 'healthy' | 'degraded' | 'offline' | 'unconfigured'
+  const aiLatencyMs = ref(0)
+  const aiActiveProviderName = ref('')
+  const aiModelName = ref('')
+  const aiErrorMessage = ref(null)
+  const aiFallbackProviderName = ref(null)
+  const aiProviderType = ref(null)
+  const aiBaseUrl = ref(null)
+  const aiProviderId = ref(null)
+  const aiFallbackProviderId = ref(null)
+  const isCheckingAIHealth = ref(false)
+  const isRetryModalOpen = ref(false)
+
+  let healthTimer = null
+  let isMonitorInitialized = false
+
+  async function checkAIHealth() {
+    isCheckingAIHealth.value = true
+    try {
+      const res = await AIConfigAPI.checkHealth()
+      const data = res.data || {}
+      aiStatus.value = data.status || 'unconfigured'
+      aiLatencyMs.value = data.latency_ms || 0
+      aiActiveProviderName.value = data.provider_name || ''
+      aiModelName.value = data.model_name || ''
+      aiErrorMessage.value = data.error_message || null
+      aiFallbackProviderName.value = data.fallback_provider_name || null
+      aiProviderType.value = data.provider_type || null
+      aiBaseUrl.value = data.base_url || null
+      aiProviderId.value = data.provider_id || null
+      aiFallbackProviderId.value = data.fallback_provider_id || null
+    } catch (err) {
+      aiStatus.value = 'offline'
+      aiErrorMessage.value = err?.response?.data?.detail || err?.message || 'Connection failed'
+    } finally {
+      isCheckingAIHealth.value = false
+    }
+  }
+
+  function openRetryModal() {
+    isRetryModalOpen.value = true
+  }
+
+  function closeRetryModal() {
+    isRetryModalOpen.value = false
+  }
+
+  function initAIHealthMonitor() {
+    if (isMonitorInitialized) return
+    isMonitorInitialized = true
+
+    checkAIHealth()
+
+    window.addEventListener('focus', () => {
+      checkAIHealth()
+    })
+
+    function startTimer() {
+      if (!healthTimer) {
+        healthTimer = setInterval(() => {
+          if (!document.hidden) {
+            checkAIHealth()
+          }
+        }, 60000)
+      }
+    }
+
+    function stopTimer() {
+      if (healthTimer) {
+        clearInterval(healthTimer)
+        healthTimer = null
+      }
+    }
+
+    startTimer()
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        stopTimer()
+      } else {
+        checkAIHealth()
+        startTimer()
+      }
+    })
+  }
 
   // Route Preservation State
   const lastNonSettingsRoute = ref(null)
@@ -358,6 +486,9 @@ export const useUIStore = defineStore('ui', () => {
     SUPPORTED_CURRENCIES,
     isIngestModalOpen,
     isJobIntakeModalOpen,
+    isOnboardingWizardOpen,
+    openOnboardingWizard,
+    closeOnboardingWizard,
     isCommandPaletteOpen,
     isCoverLetterModalOpen,
     coverLetterAppId,
@@ -388,11 +519,14 @@ export const useUIStore = defineStore('ui', () => {
     updateIntakeTask,
     removeIntakeTask,
     clearCompletedIntakeTasks,
+    hasCompletedOnboarding,
+    enableEmailIntake,
     enableEmbeddings,
     setEnableEmbeddings,
     enableAutoCoverLetter,
     coverLetterMatchThreshold,
     coverLetterLength,
+    fetchSystemSettings,
     autoArchiveEnabled,
     autoArchiveDays,
     setAutoArchiveEnabled,
@@ -400,5 +534,21 @@ export const useUIStore = defineStore('ui', () => {
     lastNonSettingsRoute,
     setLastNonSettingsRoute,
     clearLastNonSettingsRoute,
+    aiStatus,
+    aiLatencyMs,
+    aiActiveProviderName,
+    aiModelName,
+    aiErrorMessage,
+    aiFallbackProviderName,
+    aiProviderType,
+    aiBaseUrl,
+    aiProviderId,
+    aiFallbackProviderId,
+    isCheckingAIHealth,
+    isRetryModalOpen,
+    checkAIHealth,
+    openRetryModal,
+    closeRetryModal,
+    initAIHealthMonitor,
   }
 })

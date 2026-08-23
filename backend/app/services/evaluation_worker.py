@@ -1,12 +1,19 @@
+import asyncio
+import json
 import logging
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 import app.core.database as db_module
-from app.core.ai_queue import concurrency_manager
+from app.core.ai_queue import (
+    concurrency_manager,
+    register_running_task,
+    unregister_running_task,
+)
 from app.core.config_manager import get_setting
 from app.core.url_utils import normalize_job_url
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
@@ -306,6 +313,270 @@ async def _execute_cv_extraction_steps(
             task.completed_at = datetime.now(UTC)
 
 
+async def _execute_email_sync_steps(
+    task: IntakeEvaluationTaskModel, db: AsyncSession
+) -> None:
+    task_id = int(task.id)
+    try:
+        from app.schemas.intake import EmailPayload
+        from app.services.intake import process_single_email_graph
+
+        result_data = dict(task.result_json or {})
+        emails_raw = result_data.get("emails") or []
+
+        if not emails_raw and task.raw_text:
+            try:
+                parsed_json = json.loads(task.raw_text)
+                if isinstance(parsed_json, list):
+                    emails_raw = parsed_json
+                elif isinstance(parsed_json, dict):
+                    emails_raw = [parsed_json]
+            except Exception:
+                emails_raw = [
+                    {
+                        "subject": task.title_hint or "Pasted Email",
+                        "body": task.raw_text,
+                        "message_id": f"task-{task_id}",
+                        "conversation_id": f"task-{task_id}",
+                        "received_at": datetime.now(UTC).isoformat(),
+                    }
+                ]
+
+        total = len(emails_raw)
+        if total == 0:
+            task.status = "COMPLETED"
+            task.stage = "COMPLETE"
+            task.result_json = {
+                **result_data,
+                "total_emails": 0,
+                "processed_count": 0,
+                "success_count": 0,
+                "failed_count": 0,
+                "message": "No emails to process.",
+            }
+            task.completed_at = datetime.now(UTC)
+            await db.commit()
+            return
+
+        processed = 0
+        applications_count = 0
+        events_count = 0
+        staged_count = 0
+        skipped_duplicates = 0
+        failed_count = 0
+        details = []
+
+        # Sort emails chronologically (oldest first -> newest last)
+        def _get_email_sort_key(item: Any) -> datetime:
+            rec = (
+                item.get("received_at")
+                if isinstance(item, dict)
+                else getattr(item, "received_at", None)
+            )
+            if isinstance(rec, datetime):
+                return rec if rec.tzinfo else rec.replace(tzinfo=UTC)
+            if isinstance(rec, str):
+                try:
+                    dt = datetime.fromisoformat(rec.replace("Z", "+00:00"))
+                    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+                except Exception:
+                    pass
+            return datetime.min.replace(tzinfo=UTC)
+
+        emails_raw = sorted(emails_raw, key=_get_email_sort_key)
+
+        task.status = "PROCESSING"
+        task.stage = f"Processing 0 of {total} (0%)"
+        await db.commit()
+
+        for idx, email_dict in enumerate(emails_raw, start=1):
+            await db.refresh(task)
+            if task.status == "CANCELLED":
+                logger.info(
+                    "Email sync task %d was cancelled during processing.", task_id
+                )
+                return
+
+            if isinstance(email_dict, dict):
+                rec_at = email_dict.get("received_at")
+                if isinstance(rec_at, str):
+                    try:
+                        rec_at = datetime.fromisoformat(rec_at)
+                    except Exception:
+                        rec_at = datetime.now(UTC)
+                elif not isinstance(rec_at, datetime):
+                    rec_at = datetime.now(UTC)
+
+                email_payload = EmailPayload(
+                    message_id=email_dict.get("message_id") or f"sync-{task_id}-{idx}",
+                    conversation_id=email_dict.get("conversation_id")
+                    or f"conv-{task_id}-{idx}",
+                    sender=email_dict.get("sender"),
+                    subject=email_dict.get("subject") or "No Subject",
+                    body=email_dict.get("body") or "",
+                    received_at=rec_at,
+                )
+            elif isinstance(email_dict, EmailPayload):
+                email_payload = email_dict
+            else:
+                continue
+
+            pct = int((idx / total) * 100)
+            task.stage = f"Processing {idx} of {total} ({pct}%)"
+            result_data["current_subject"] = email_payload.subject
+            result_data["processed_count"] = idx
+            result_data["progress_pct"] = pct
+            task.result_json = dict(result_data)
+            flag_modified(task, "result_json")
+            await db.commit()
+
+            # Attempt graph execution with retry for transient LLM/network failures
+            graph_res = None
+            last_err = None
+            max_attempts = 2
+
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    graph_res = await process_single_email_graph(
+                        db, email_payload, str(task_id)
+                    )
+                    last_err = None
+                    break
+                except Exception as item_err:
+                    await db.rollback()
+                    last_err = item_err
+                    if attempt < max_attempts:
+                        logger.warning(
+                            "Transient error on email '%s' (attempt %d/%d): %s. Retrying in 0.5s...",
+                            email_payload.subject,
+                            attempt,
+                            max_attempts,
+                            item_err,
+                        )
+                        await asyncio.sleep(0.5)
+
+            if last_err is not None or graph_res is None:
+                logger.error(
+                    "Failed processing email '%s': %s",
+                    email_payload.subject,
+                    last_err,
+                    exc_info=True,
+                )
+                failed_count += 1
+                details.append(
+                    {
+                        "subject": email_payload.subject,
+                        "sender": getattr(email_payload, "sender", None),
+                        "status": "error",
+                        "error": str(last_err),
+                    }
+                )
+                continue
+
+            processed += 1
+            if graph_res.get("is_duplicate"):
+                skipped_duplicates += 1
+                details.append(
+                    {
+                        "subject": email_payload.subject,
+                        "sender": getattr(email_payload, "sender", None),
+                        "status": "skipped",
+                        "reason": "duplicate",
+                    }
+                )
+            elif graph_res.get("staging_item_id"):
+                staged_count += 1
+                details.append(
+                    {
+                        "subject": email_payload.subject,
+                        "sender": getattr(email_payload, "sender", None),
+                        "status": "staged",
+                        "company": graph_res.get("company_name"),
+                        "position": graph_res.get("position_name"),
+                        "staging_item_id": graph_res.get("staging_item_id"),
+                        "summary": (graph_res.get("extracted_data") or {}).get(
+                            "summary"
+                        ),
+                    }
+                )
+            elif graph_res.get("is_application"):
+                applications_count += 1
+                details.append(
+                    {
+                        "subject": email_payload.subject,
+                        "sender": getattr(email_payload, "sender", None),
+                        "status": "application_committed",
+                        "company": graph_res.get("company_name"),
+                        "position": graph_res.get("position_name"),
+                        "application_id": graph_res.get("application_id"),
+                        "event_id": graph_res.get("event_id"),
+                        "summary": (graph_res.get("extracted_data") or {}).get(
+                            "summary"
+                        ),
+                    }
+                )
+            else:
+                events_count += 1
+                details.append(
+                    {
+                        "subject": email_payload.subject,
+                        "sender": getattr(email_payload, "sender", None),
+                        "status": "event_logged",
+                        "event_id": graph_res.get("event_id"),
+                        "summary": (graph_res.get("extracted_data") or {}).get(
+                            "summary"
+                        ),
+                    }
+                )
+
+        task.status = "COMPLETED" if (failed_count < total or total == 0) else "FAILED"
+        task.stage = "COMPLETE" if task.status == "COMPLETED" else "FAILED"
+        if task.status == "FAILED" and details:
+            task.error_message = next(
+                (
+                    d["error"]
+                    for d in details
+                    if d.get("status") == "error" and d.get("error")
+                ),
+                "All emails in batch failed processing.",
+            )
+        task.completed_at = datetime.now(UTC)
+        task.result_json = {
+            **result_data,
+            "total_emails": total,
+            "processed_count": processed,
+            "applications_count": applications_count,
+            "events_count": events_count,
+            "staged_count": staged_count,
+            "skipped_duplicates": skipped_duplicates,
+            "failed_count": failed_count,
+            "details": details,
+            "progress_pct": 100,
+        }
+        flag_modified(task, "result_json")
+        await db.commit()
+        logger.info(
+            "Email sync task %d finished: processed=%d, apps=%d, events=%d, staged=%d, failed=%d",
+            task_id,
+            processed,
+            applications_count,
+            events_count,
+            staged_count,
+            failed_count,
+        )
+    except Exception as err:
+        logger.error("Email sync task %d failure: %s", task_id, err, exc_info=True)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        task.status = "FAILED"
+        task.stage = "FAILED"
+        task.error_message = str(err)
+        task.completed_at = datetime.now(UTC)
+        await db.commit()
+
+
 async def _execute_evaluation_steps(
     task: IntakeEvaluationTaskModel, db: AsyncSession
 ) -> None:
@@ -336,6 +607,13 @@ async def _execute_evaluation_steps(
 
         if task.task_type == "COVER_LETTER":
             await _execute_cover_letter_steps(task, db)
+            ctx["outputs"] = {"status": task.status, "stage": task.stage}
+            if task.status == "FAILED":
+                ctx["error"] = task.error_message
+            return
+
+        if task.task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]:
+            await _execute_email_sync_steps(task, db)
             ctx["outputs"] = {"status": task.status, "stage": task.stage}
             if task.status == "FAILED":
                 ctx["error"] = task.error_message
@@ -475,6 +753,9 @@ async def _execute_evaluation_steps(
             task.stage = "SAVING"
             await db.commit()
 
+            target_app_id = current_json.get("target_application_id")
+            skip_cover_letter = current_json.get("skip_cover_letter", False)
+
             # Persist to database
             save_result = await persist_or_stage_job_assessment(
                 db=db,
@@ -484,10 +765,15 @@ async def _execute_evaluation_steps(
                 force_new=False,
                 target_status="ASSESSMENT",
                 structured_spec=spec_dict,
+                target_application_id=target_app_id,
             )
 
             # Check cover letter automation criteria
-            enable_auto = await get_setting("ENABLE_AUTO_COVER_LETTER", False, db=db)
+            enable_auto = (
+                False
+                if skip_cover_letter
+                else await get_setting("ENABLE_AUTO_COVER_LETTER", False, db=db)
+            )
             threshold = await get_setting("COVER_LETTER_MATCH_THRESHOLD", 70, db=db)
 
             fit_score_val = float(
@@ -630,102 +916,170 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
     """
     Processes a single queued intake evaluation task asynchronously within
     the provider's configured concurrency limits.
+    Registers in-flight task in memory so user cancellation can abort ongoing HTTP/LLM calls.
     """
-    if db is not None:
-        stmt = select(IntakeEvaluationTaskModel).where(
-            IntakeEvaluationTaskModel.id == task_id
-        )
-        res = await db.execute(stmt)
-        task = res.scalar_one_or_none()
+    curr_task = asyncio.current_task()
+    if curr_task:
+        register_running_task(task_id, curr_task)
 
-        if not task or task.status == "CANCELLED":
-            logger.warning("Intake task %d not found or cancelled", task_id)
-            return
-
-        task_type = task.task_type or "JOB_ASSESSMENT"
-
-        binding_stmt = (
-            select(AITaskBindingModel, AIProviderModel)
-            .join(AIProviderModel, AITaskBindingModel.provider_id == AIProviderModel.id)
-            .where(
-                AITaskBindingModel.task_type.in_([task_type, "GLOBAL_DEFAULT"]),
-                AITaskBindingModel.is_active,
-                AIProviderModel.is_active,
+    try:
+        if db is not None:
+            stmt = select(IntakeEvaluationTaskModel).where(
+                IntakeEvaluationTaskModel.id == task_id
             )
-        )
-        binding_res = await db.execute(binding_stmt)
-        rows = binding_res.all()
+            res = await db.execute(stmt)
+            task = res.scalar_one_or_none()
 
-        exact_row = next((r for r in rows if r[0].task_type == task_type), None)
-        global_row = next((r for r in rows if r[0].task_type == "GLOBAL_DEFAULT"), None)
-        selected_row = exact_row or global_row or (rows[0] if rows else None)
-
-        provider_id = selected_row[1].id if selected_row else None
-        max_concurrency = selected_row[1].max_concurrency if selected_row else 1
-
-        async with concurrency_manager.acquire(provider_id, max_concurrency):
-            task.status = "PROCESSING"
-            if not task.stage or task.stage in ["QUEUED", "FAILED", "CANCELLED"]:
-                task.stage = (
-                    "SCRUBBING"
-                    if task.task_type == "CV_EXTRACTION"
-                    else (
-                        "GENERATING" if task.task_type == "COVER_LETTER" else "FETCHING"
-                    )
-                )
-            await db.commit()
-            await _execute_evaluation_steps(task, db)
-            return
-
-    async with db_module.AsyncSessionLocal() as session:
-        stmt = select(IntakeEvaluationTaskModel).where(
-            IntakeEvaluationTaskModel.id == task_id
-        )
-        res = await session.execute(stmt)
-        task = res.scalar_one_or_none()
-
-        if not task or task.status == "CANCELLED":
-            logger.warning("Intake task %d not found or cancelled", task_id)
-            return
-
-        task_type = task.task_type or "JOB_ASSESSMENT"
-
-        # 1. Resolve Provider and Concurrency Limit for this task_type (or GLOBAL_DEFAULT)
-        binding_stmt = (
-            select(AITaskBindingModel, AIProviderModel)
-            .join(AIProviderModel, AITaskBindingModel.provider_id == AIProviderModel.id)
-            .where(
-                AITaskBindingModel.task_type.in_([task_type, "GLOBAL_DEFAULT"]),
-                AITaskBindingModel.is_active,
-                AIProviderModel.is_active,
-            )
-        )
-        binding_res = await session.execute(binding_stmt)
-        rows = binding_res.all()
-
-        exact_row = next((r for r in rows if r[0].task_type == task_type), None)
-        global_row = next((r for r in rows if r[0].task_type == "GLOBAL_DEFAULT"), None)
-        selected_row = exact_row or global_row or (rows[0] if rows else None)
-
-        provider_id = selected_row[1].id if selected_row else None
-        max_concurrency = selected_row[1].max_concurrency if selected_row else 1
-
-    # 2. Acquire Provider Semaphore to strictly gate task execution based on provider's max concurrency setting
-    async with concurrency_manager.acquire(provider_id, max_concurrency):
-        async with db_module.AsyncSessionLocal() as session:
-            task = await session.get(IntakeEvaluationTaskModel, task_id)
             if not task or task.status == "CANCELLED":
+                logger.warning("Intake task %d not found or cancelled", task_id)
                 return
 
-            task.status = "PROCESSING"
-            if not task.stage or task.stage in ["QUEUED", "FAILED", "CANCELLED"]:
-                task.stage = (
-                    "SCRUBBING"
-                    if task.task_type == "CV_EXTRACTION"
-                    else (
-                        "GENERATING" if task.task_type == "COVER_LETTER" else "FETCHING"
-                    )
-                )
-            await session.commit()
+            task_type = task.task_type or "JOB_ASSESSMENT"
+            target_binding_type = (
+                "EMAIL_EXTRACTION"
+                if task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]
+                else task_type
+            )
 
-            await _execute_evaluation_steps(task, session)
+            binding_stmt = (
+                select(AITaskBindingModel, AIProviderModel)
+                .join(
+                    AIProviderModel,
+                    AITaskBindingModel.provider_id == AIProviderModel.id,
+                )
+                .where(
+                    AITaskBindingModel.task_type.in_(
+                        [target_binding_type, "GLOBAL_DEFAULT"]
+                    ),
+                    AITaskBindingModel.is_active,
+                    AIProviderModel.is_active,
+                )
+            )
+            binding_res = await db.execute(binding_stmt)
+            rows = binding_res.all()
+
+            exact_row = next(
+                (r for r in rows if r[0].task_type == target_binding_type), None
+            )
+            global_row = next(
+                (r for r in rows if r[0].task_type == "GLOBAL_DEFAULT"), None
+            )
+            selected_row = exact_row or global_row or (rows[0] if rows else None)
+
+            provider_id = selected_row[1].id if selected_row else None
+            max_concurrency = selected_row[1].max_concurrency if selected_row else 1
+
+            async with concurrency_manager.acquire(provider_id, max_concurrency):
+                task.status = "PROCESSING"
+                if not task.stage or task.stage in ["QUEUED", "FAILED", "CANCELLED"]:
+                    task.stage = (
+                        "SCRUBBING"
+                        if task.task_type == "CV_EXTRACTION"
+                        else (
+                            "GENERATING"
+                            if task.task_type == "COVER_LETTER"
+                            else (
+                                "PARSING"
+                                if task.task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]
+                                else "FETCHING"
+                            )
+                        )
+                    )
+                await db.commit()
+                await _execute_evaluation_steps(task, db)
+                return
+
+        async with db_module.AsyncSessionLocal() as session:
+            stmt = select(IntakeEvaluationTaskModel).where(
+                IntakeEvaluationTaskModel.id == task_id
+            )
+            res = await session.execute(stmt)
+            task = res.scalar_one_or_none()
+
+            if not task or task.status == "CANCELLED":
+                logger.warning("Intake task %d not found or cancelled", task_id)
+                return
+
+            task_type = task.task_type or "JOB_ASSESSMENT"
+            target_binding_type = (
+                "EMAIL_EXTRACTION"
+                if task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]
+                else task_type
+            )
+
+            # 1. Resolve Provider and Concurrency Limit for this task_type (or GLOBAL_DEFAULT)
+            binding_stmt = (
+                select(AITaskBindingModel, AIProviderModel)
+                .join(
+                    AIProviderModel,
+                    AITaskBindingModel.provider_id == AIProviderModel.id,
+                )
+                .where(
+                    AITaskBindingModel.task_type.in_(
+                        [target_binding_type, "GLOBAL_DEFAULT"]
+                    ),
+                    AITaskBindingModel.is_active,
+                    AIProviderModel.is_active,
+                )
+            )
+            binding_res = await session.execute(binding_stmt)
+            rows = binding_res.all()
+
+            exact_row = next(
+                (r for r in rows if r[0].task_type == target_binding_type), None
+            )
+            global_row = next(
+                (r for r in rows if r[0].task_type == "GLOBAL_DEFAULT"), None
+            )
+            selected_row = exact_row or global_row or (rows[0] if rows else None)
+
+            provider_id = selected_row[1].id if selected_row else None
+            max_concurrency = selected_row[1].max_concurrency if selected_row else 1
+
+        # 2. Acquire Provider Semaphore to strictly gate task execution based on provider's max concurrency setting
+        async with concurrency_manager.acquire(provider_id, max_concurrency):
+            async with db_module.AsyncSessionLocal() as session:
+                task = await session.get(IntakeEvaluationTaskModel, task_id)
+                if not task or task.status == "CANCELLED":
+                    return
+
+                task.status = "PROCESSING"
+                if not task.stage or task.stage in ["QUEUED", "FAILED", "CANCELLED"]:
+                    task.stage = (
+                        "SCRUBBING"
+                        if task.task_type == "CV_EXTRACTION"
+                        else (
+                            "GENERATING"
+                            if task.task_type == "COVER_LETTER"
+                            else (
+                                "PARSING"
+                                if task.task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]
+                                else "FETCHING"
+                            )
+                        )
+                    )
+                await session.commit()
+
+                await _execute_evaluation_steps(task, session)
+    except asyncio.CancelledError:
+        logger.info(
+            "Evaluation task %d received in-flight cancellation signal.", task_id
+        )
+        try:
+            async with db_module.AsyncSessionLocal() as cancel_session:
+                t = await cancel_session.get(IntakeEvaluationTaskModel, task_id)
+                if t and t.status != "CANCELLED":
+                    t.status = "CANCELLED"
+                    t.stage = "CANCELLED"
+                    t.error_message = "Task stopped by user"
+                    t.completed_at = datetime.now(UTC)
+                    await cancel_session.commit()
+        except Exception as cancel_db_err:
+            logger.warning(
+                "Error recording cancelled state in DB for task %d: %s",
+                task_id,
+                cancel_db_err,
+            )
+        raise
+    finally:
+        unregister_running_task(task_id)

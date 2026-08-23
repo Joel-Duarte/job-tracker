@@ -28,6 +28,9 @@ class AIProviderModel(Base):
     api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     max_concurrency: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_fallback: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

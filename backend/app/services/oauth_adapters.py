@@ -159,7 +159,7 @@ class MicrosoftGraphAdapter:
         client_secret: str,
         code: str,
         redirect_uri: str,
-        tenant_id: str = "common",
+        tenant_id: str = "consumers",
     ) -> dict[str, Any]:
         """Exchanges OAuth2 authorization code for access and refresh tokens with Microsoft."""
         token_endpoint = cls.TOKEN_URL.format(tenant_id=tenant_id)
@@ -172,10 +172,26 @@ class MicrosoftGraphAdapter:
                     "code": code,
                     "redirect_uri": redirect_uri,
                     "grant_type": "authorization_code",
-                    "scope": "https://graph.microsoft.com/Mail.Read offline_access User.Read",
                 },
             )
-            resp.raise_for_status()
+            if not resp.is_success:
+                err_msg = resp.text
+                try:
+                    err_json = resp.json()
+                    err_msg = (
+                        err_json.get("error_description")
+                        or err_json.get("error")
+                        or resp.text
+                    )
+                except Exception:
+                    pass
+                logger.error(
+                    "Microsoft token exchange failed on %s: %s",
+                    token_endpoint,
+                    err_msg,
+                )
+                raise ValueError(f"Microsoft token exchange failed: {err_msg}")
+
             return resp.json()
 
     @classmethod
@@ -184,7 +200,7 @@ class MicrosoftGraphAdapter:
         client_id: str,
         client_secret: str,
         refresh_token: str,
-        tenant_id: str = "common",
+        tenant_id: str = "consumers",
     ) -> str:
         """Refreshes expired OAuth2 access token with Microsoft identity platform."""
         token_endpoint = cls.TOKEN_URL.format(tenant_id=tenant_id)
@@ -199,7 +215,24 @@ class MicrosoftGraphAdapter:
                     "scope": "https://graph.microsoft.com/Mail.Read offline_access",
                 },
             )
-            resp.raise_for_status()
+            if not resp.is_success:
+                err_msg = resp.text
+                try:
+                    err_json = resp.json()
+                    err_msg = (
+                        err_json.get("error_description")
+                        or err_json.get("error")
+                        or resp.text
+                    )
+                except Exception:
+                    pass
+                logger.error(
+                    "Microsoft token refresh failed on %s: %s",
+                    token_endpoint,
+                    err_msg,
+                )
+                raise ValueError(f"Microsoft token refresh failed: {err_msg}")
+
             data = resp.json()
             return data["access_token"]
 
@@ -209,6 +242,8 @@ class MicrosoftGraphAdapter:
         access_token: str,
         delta_link: str | None = None,
         max_results: int = 50,
+        folder_id: str = "Inbox",
+        since_date: datetime | None = None,
     ) -> tuple[list[EmailPayload], str | None]:
         """
         Fetches new or changed messages incrementally using Microsoft Graph delta sync.
@@ -220,8 +255,9 @@ class MicrosoftGraphAdapter:
             "Prefer": f"odata.maxpagesize={max_results}",
         }
 
+        target = folder_id if folder_id else "Inbox"
         request_url = (
-            delta_link or f"{cls.GRAPH_BASE}/me/mailFolders('Inbox')/messages/delta"
+            delta_link or f"{cls.GRAPH_BASE}/me/mailFolders/{target}/messages/delta"
         )
 
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -250,12 +286,12 @@ class MicrosoftGraphAdapter:
                         pass
 
                 msg_id = item.get("id", "")
-                conv_id = item.get("conversationId") or f"ms-conv-{msg_id[:16]}"
+                conv_id = item.get("conversationId") or f"ms-conv-{msg_id}"
 
                 emails.append(
                     EmailPayload(
                         conversation_id=conv_id,
-                        message_id=f"msg-graph-{msg_id[:24]}",
+                        message_id=f"msg-graph-{msg_id}",
                         received_at=received_at,
                         subject=subject,
                         body=body_content,

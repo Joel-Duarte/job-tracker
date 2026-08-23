@@ -195,3 +195,173 @@ async def test_email_account_credential_masking(db_session: AsyncSession):
             assert account.name == "Updated Secret Account"
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_clear_account_processed_emails(db_session: AsyncSession):
+    """Test clearing email deduplication history and resetting sync cursor for a single account."""
+    app.dependency_overrides[get_db] = lambda: db_session
+    try:
+        from datetime import UTC, datetime
+
+        from sqlalchemy import select
+
+        from app.models.processed_email import ProcessedEmailModel
+
+        acc1 = EmailAccountModel(
+            name="Work Mailbox",
+            username="work@example.com",
+            auth_type="IMAP",
+            sync_cursor="cursor-123",
+            last_synced_at=datetime.now(UTC),
+            is_active=True,
+        )
+        acc2 = EmailAccountModel(
+            name="Personal Mailbox",
+            username="personal@example.com",
+            auth_type="IMAP",
+            sync_cursor="cursor-456",
+            last_synced_at=datetime.now(UTC),
+            is_active=True,
+        )
+        db_session.add_all([acc1, acc2])
+        await db_session.commit()
+        await db_session.refresh(acc1)
+        await db_session.refresh(acc2)
+
+        # Seed processed emails
+        pe1 = ProcessedEmailModel(
+            message_id="msg-acc1-01",
+            account_id=acc1.id,
+            status="ingested",
+            subject="Job offer",
+        )
+        pe2 = ProcessedEmailModel(
+            message_id="msg-acc1-02",
+            account_id=acc1.id,
+            status="filtered_out",
+            subject="Newsletter",
+        )
+        pe3 = ProcessedEmailModel(
+            message_id="msg-acc2-01",
+            account_id=acc2.id,
+            status="ingested",
+            subject="Interview invite",
+        )
+        db_session.add_all([pe1, pe2, pe3])
+        await db_session.commit()
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+        ) as client:
+            resp = await client.delete(
+                f"/api/v1/email_accounts/{acc1.id}/processed-emails"
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "success"
+            assert data["deleted_count"] == 2
+
+        # Check acc1 sync_cursor and last_synced_at reset
+        await db_session.refresh(acc1)
+        assert acc1.sync_cursor is None
+        assert acc1.last_synced_at is None
+
+        # Check acc2 remained untouched
+        await db_session.refresh(acc2)
+        assert acc2.sync_cursor == "cursor-456"
+        assert acc2.last_synced_at is not None
+
+        # Check ProcessedEmailModel records
+        remaining = (
+            (await db_session.execute(select(ProcessedEmailModel))).scalars().all()
+        )
+        assert len(remaining) == 1
+        assert remaining[0].message_id == "msg-acc2-01"
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_clear_all_processed_emails(db_session: AsyncSession):
+    """Test clearing all email deduplication history and resetting sync cursors across all accounts."""
+    app.dependency_overrides[get_db] = lambda: db_session
+    try:
+        from datetime import UTC, datetime
+
+        from sqlalchemy import select
+
+        from app.models.processed_email import ProcessedEmailModel
+
+        acc1 = EmailAccountModel(
+            name="Mailbox A",
+            username="a@example.com",
+            auth_type="IMAP",
+            sync_cursor="cursor-a",
+            last_synced_at=datetime.now(UTC),
+            is_active=True,
+        )
+        acc2 = EmailAccountModel(
+            name="Mailbox B",
+            username="b@example.com",
+            auth_type="IMAP",
+            sync_cursor="cursor-b",
+            last_synced_at=datetime.now(UTC),
+            is_active=True,
+        )
+        db_session.add_all([acc1, acc2])
+        await db_session.commit()
+        await db_session.refresh(acc1)
+        await db_session.refresh(acc2)
+
+        # Seed processed emails
+        pe1 = ProcessedEmailModel(
+            message_id="msg-a-01",
+            account_id=acc1.id,
+            status="ingested",
+            subject="Job A",
+        )
+        pe2 = ProcessedEmailModel(
+            message_id="msg-b-01",
+            account_id=acc2.id,
+            status="ingested",
+            subject="Job B",
+        )
+        pe3 = ProcessedEmailModel(
+            message_id="msg-unlinked-01",
+            account_id=None,
+            status="ingested",
+            subject="Pasted text",
+        )
+        db_session.add_all([pe1, pe2, pe3])
+        await db_session.commit()
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+        ) as client:
+            resp = await client.delete("/api/v1/email_accounts/processed-emails/all")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "success"
+            assert data["deleted_count"] == 3
+
+        # Check all accounts have reset cursors
+        await db_session.refresh(acc1)
+        assert acc1.sync_cursor is None
+        assert acc1.last_synced_at is None
+
+        await db_session.refresh(acc2)
+        assert acc2.sync_cursor is None
+        assert acc2.last_synced_at is None
+
+        # Check no ProcessedEmailModel records remain
+        remaining = (
+            (await db_session.execute(select(ProcessedEmailModel))).scalars().all()
+        )
+        assert len(remaining) == 0
+    finally:
+        app.dependency_overrides.clear()

@@ -27,18 +27,103 @@ async def persist_or_stage_job_assessment(
     force_new: bool = False,
     target_status: str = "ASSESSMENT",
     structured_spec: dict[str, Any] | None = None,
+    target_application_id: int | None = None,
 ) -> dict[str, Any]:
     """
-    Persists an AI job assessment to the database in ASSESSMENT status unconditionally as a new application entry.
-    Unrestricted submissions are allowed without duplicate blocking or staging redirects.
+    Persists an AI job assessment to the database. If target_application_id is provided,
+    updates the existing application's match payload and JobPosting without altering its active pipeline status.
+    Otherwise creates a new application in target_status.
     """
     company_name = (assessment.company or "Unknown Company").strip()
     company_norm = company_name.lower()
     position_name = (assessment.position or "Unspecified Position").strip()
     position_norm = position_name.lower()
     clean_url = normalize_job_url(job_url)
+    now = datetime.now(UTC)
 
-    # 1. Find or Create Company
+    all_skills = list(
+        dict.fromkeys(
+            (assessment.matching_skills or []) + (assessment.missing_skills or [])
+        )
+    )
+
+    # 1. Update Existing Target Application (if specified)
+    if target_application_id:
+        app_stmt = select(ApplicationModel).where(
+            ApplicationModel.id == target_application_id
+        )
+        app_res = await db.execute(app_stmt)
+        app_record = app_res.scalar_one_or_none()
+
+        if app_record:
+            if clean_url and not app_record.job_url:
+                app_record.job_url = clean_url
+            app_record.match_analysis_payload = assessment.model_dump()
+            app_record.last_activity_at = now
+
+            # Upsert JobPostingModel
+            jp_stmt = select(JobPostingModel).where(
+                JobPostingModel.application_id == app_record.id
+            )
+            jp_res = await db.execute(jp_stmt)
+            job_posting = jp_res.scalar_one_or_none()
+
+            if not job_posting:
+                job_posting = JobPostingModel(
+                    application_id=app_record.id,
+                    job_url=clean_url or f"lead-{uuid.uuid4().hex[:8]}",
+                    description_markdown=raw_text or assessment.summary,
+                    salary_min=assessment.salary_min,
+                    salary_max=assessment.salary_max,
+                    currency=assessment.currency or "USD",
+                    location=assessment.location,
+                    work_model=assessment.work_model,
+                    required_skills=all_skills,
+                    structured_spec=structured_spec,
+                )
+                db.add(job_posting)
+            else:
+                if raw_text or assessment.summary:
+                    job_posting.description_markdown = raw_text or assessment.summary
+                if clean_url:
+                    job_posting.job_url = clean_url
+                if assessment.salary_min is not None:
+                    job_posting.salary_min = assessment.salary_min
+                if assessment.salary_max is not None:
+                    job_posting.salary_max = assessment.salary_max
+                if assessment.location:
+                    job_posting.location = assessment.location
+                if assessment.work_model:
+                    job_posting.work_model = assessment.work_model
+                if all_skills:
+                    job_posting.required_skills = all_skills
+                if structured_spec:
+                    job_posting.structured_spec = structured_spec
+
+            # Record Timeline Event
+            event = ApplicationEventModel(
+                email_application_id=app_record.id,
+                email_conversation_id=f"lead-conv-{app_record.id}",
+                email_event_type="JOB_EVALUATION",
+                email_status_after_event=app_record.status,
+                email_summary=assessment.summary
+                or f"AI Job fit assessment completed for {app_record.position}.",
+                email_received_at=now,
+                source_channel="INTAKE",
+                raw_payload=assessment.model_dump(),
+            )
+            db.add(event)
+            await db.commit()
+            await db.refresh(app_record)
+            await db.refresh(event)
+
+            logger.info(
+                "Updated existing Application %d with AI job evaluation & spec",
+                app_record.id,
+            )
+            return {"application_id": app_record.id, "event_id": event.id}
+
+    # 2. Find or Create Company
     resolved_domain = await resolve_company_domain(
         company_name=company_name,
         source_url=clean_url,
@@ -62,7 +147,6 @@ async def persist_or_stage_job_assessment(
         await db.flush()
 
     # 3. Create Application
-    now = datetime.now(UTC)
     app_record = ApplicationModel(
         company_id=company.id,
         position=position_name,
@@ -76,11 +160,6 @@ async def persist_or_stage_job_assessment(
     await db.flush()
 
     # 4. Create Job Posting Record
-    all_skills = list(
-        dict.fromkeys(
-            (assessment.matching_skills or []) + (assessment.missing_skills or [])
-        )
-    )
     job_posting = JobPostingModel(
         application_id=app_record.id,
         job_url=clean_url or f"lead-{uuid.uuid4().hex[:8]}",

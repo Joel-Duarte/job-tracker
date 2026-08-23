@@ -168,6 +168,11 @@ function selectAllSections() {
 }
 
 async function handleGenerateGuide() {
+  if (uiStore.aiStatus === 'offline' && !uiStore.aiFallbackProviderName) {
+    uiStore.openRetryModal()
+    return
+  }
+
   if (selectedSections.value.length === 0) {
     uiStore.showToast('Please select at least one section to generate', 'warning')
     return
@@ -259,6 +264,20 @@ watch(
   { immediate: true }
 )
 
+const hasJobSpecData = computed(() => {
+  const app = appStore.selectedApplication
+  if (!app) return false
+  const jp = app.job_posting
+  if (structuredSpec.value && Object.keys(structuredSpec.value).length > 0) return true
+  if (!jp) return false
+  if (jp.description_markdown && jp.description_markdown.trim()) return true
+  if (jp.salary_min !== null && jp.salary_min !== undefined) return true
+  if (jp.salary_max !== null && jp.salary_max !== undefined) return true
+  if (jp.location && jp.location.trim()) return true
+  if (jp.work_model && jp.work_model.trim()) return true
+  if (jp.required_skills && jp.required_skills.length > 0) return true
+  return false
+})
 
 const parsedJobSpecSections = computed(() => {
   const md = appStore.selectedApplication?.job_posting?.description_markdown || ''
@@ -796,7 +815,7 @@ function formatDate(isoStr) {
 
             <!-- 2. JOB SPEC (Pure Structured Job Details) -->
             <div v-else-if="activeTab === 'job_spec'" class="job-spec-panel">
-              <div v-if="appStore.selectedApplication.job_posting" class="spec-container">
+              <div v-if="hasJobSpecData" class="spec-container">
                 <!-- Overview Metadata Cards -->
                 <div class="spec-grid">
                   <div class="spec-card">

@@ -11,8 +11,10 @@ from sqlalchemy.orm.attributes import flag_modified
 
 import app.services.llm as llm_service
 from app.core.config_manager import get_setting
+from app.core.html_utils import clean_html_text
 from app.core.url_utils import normalize_job_url
 from app.models.applications import (
+    ActionItemModel,
     ApplicationEventModel,
     ApplicationModel,
     CompanyModel,
@@ -24,6 +26,10 @@ from app.models.processed_email import ProcessedEmailModel
 from app.models.staging import StagingItemModel
 from app.schemas.graph_state import JobTrackerState
 
+generate_and_save_application_embedding = (
+    llm_service.generate_and_save_application_embedding
+)
+
 logger = logging.getLogger(__name__)
 STAGING_MATCH_THRESHOLD = 0.75
 
@@ -33,10 +39,52 @@ def _parse_email_date(date_val: str | datetime | None) -> datetime | None:
         return None
     if isinstance(date_val, datetime):
         return date_val
-    try:
-        return datetime.fromisoformat(str(date_val).replace("Z", "+00:00"))
-    except Exception:
-        return None
+    if isinstance(date_val, str):
+        try:
+            return datetime.fromisoformat(date_val.replace("Z", "+00:00"))
+        except Exception:
+            return datetime.now(UTC)
+    return None
+
+
+async def _upsert_processed_email(
+    db: AsyncSession,
+    message_id: str | None,
+    status: str,
+    subject: str | None = None,
+    account_id: int | None = None,
+) -> None:
+    if not message_id:
+        return
+    stmt = select(ProcessedEmailModel).where(
+        ProcessedEmailModel.message_id == message_id
+    )
+    res = await db.execute(stmt)
+    record = res.scalar_one_or_none()
+    if record:
+        record.status = status
+        record.subject = subject or record.subject
+        if account_id is not None:
+            record.account_id = account_id
+    else:
+        record = ProcessedEmailModel(
+            message_id=message_id,
+            subject=subject,
+            status=status,
+            account_id=account_id,
+        )
+        db.add(record)
+    await db.commit()
+
+
+async def is_email_already_processed(db: AsyncSession, message_id: str | None) -> bool:
+    """Checks whether an email has already been processed using the unified ProcessedEmailModel table."""
+    if not message_id:
+        return False
+    stmt = select(ProcessedEmailModel.id).where(
+        ProcessedEmailModel.message_id == message_id
+    )
+    return (await db.execute(stmt)).scalar_one_or_none() is not None
 
 
 def _get_db(config: RunnableConfig) -> AsyncSession:
@@ -49,54 +97,10 @@ def _get_db(config: RunnableConfig) -> AsyncSession:
     return db
 
 
-async def _upsert_processed_email(
-    db: AsyncSession,
-    message_id: str | None,
-    status: str,
-    subject: str | None = None,
-) -> None:
-    """Write a record to processed_email_ids. Silently ignores duplicate inserts."""
-    if not message_id:
-        return
-    try:
-        db.add(
-            ProcessedEmailModel(
-                message_id=message_id,
-                status=status,
-                subject=(subject or "")[:500] if subject else None,
-            )
-        )
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        logger.debug(
-            "processed_email_ids: insert skipped (likely duplicate) for message_id=%s",
-            message_id,
-        )
-
-
-async def is_email_already_processed(db: AsyncSession, message_id: str | None) -> bool:
-    """Checks whether an email has already been processed using the unified ProcessedEmailModel table,
-    with fallback to legacy event tables for existing/historical records."""
-    if not message_id:
-        return False
-    stmt = select(ProcessedEmailModel.id).where(
-        ProcessedEmailModel.message_id == message_id
-    )
-    if (await db.execute(stmt)).scalar_one_or_none() is not None:
-        return True
-
-    for model in (ApplicationEventModel, OtherEventModel, StagingItemModel):
-        stmt = select(model.id).where(model.email_message_id == message_id)
-        if (await db.execute(stmt)).scalar_one_or_none():
-            return True
-    return False
-
-
 async def normalize_and_dedupe_node(
     state: JobTrackerState, config: RunnableConfig
 ) -> dict[str, Any]:
-    """Pre-LLM dedup: checks the unified processed_email_ids table."""
+    """Pre-LLM dedup: checks the unified processed_email_ids table and strips HTML tags."""
     db = _get_db(config)
     message_id = state.get("message_id")
 
@@ -104,10 +108,12 @@ async def normalize_and_dedupe_node(
         logger.info("Duplicate email detected for message_id=%s, skipping.", message_id)
         return {"is_duplicate": True, "route": "skip"}
 
+    cleaned_body = clean_html_text(state.get("body", ""))
+
     return {
         "is_duplicate": False,
         "subject": state.get("subject", "").strip(),
-        "body": state.get("body", "").strip(),
+        "body": cleaned_body,
     }
 
 
@@ -144,17 +150,54 @@ async def extraction_node(
 
     email_type = str(extracted_dict.get("email_type") or "").upper()
     pos = extracted_dict.get("position")
-    pos_clean = None if (not pos or pos == "unknownPosition") else pos
+    pos_clean = (
+        None
+        if (
+            not pos
+            or pos.strip().lower() in ["unknownposition", "unknown", "none", "null"]
+        )
+        else pos.strip()
+    )
     comp = extracted_dict.get("company")
+    comp_clean = (
+        None
+        if (
+            not comp
+            or comp.strip().lower()
+            in ["none", "null", "unknown", "n/a", "not specified"]
+        )
+        else comp.strip()
+    )
 
     raw_job_url = extracted_dict.get("job_url")
     clean_job_url = normalize_job_url(raw_job_url) if raw_job_url else None
 
-    is_app = (email_type == "JOB_APPLICATION") or bool(comp and pos_clean)
+    # Recruitment communication includes:
+    # 1. Any email typed as JOB_APPLICATION or RECRUITER_OUTREACH
+    # 2. Any email with a company or position extracted
+    # 3. Any email with a recruitment event_type or status
+    is_recruitment_type = email_type in ["JOB_APPLICATION", "RECRUITER_OUTREACH"]
+    has_company_or_position = bool(comp_clean or pos_clean)
+    has_recruitment_event = bool(
+        extracted_dict.get("event_type")
+        and str(extracted_dict.get("event_type")).upper()
+        not in ["OTHER", "NONE", "NULL", ""]
+    ) or bool(
+        extracted_dict.get("status")
+        and str(extracted_dict.get("status")).upper()
+        not in ["OTHER", "NONE", "NULL", ""]
+    )
+
+    is_app = (
+        is_recruitment_type
+        or (has_company_or_position and email_type not in ["NEWSLETTER", "SPAM"])
+        or has_recruitment_event
+    )
+
     return {
         "extracted_data": extracted_dict,
         "is_application": is_app,
-        "company_name": comp,
+        "company_name": comp_clean,
         "position_name": pos_clean,
         "job_url": clean_job_url,
         "route": "match" if is_app else "other_event",
@@ -172,12 +215,13 @@ async def fuzzy_match_node(
     position_norm = position_name.strip().lower() if position_name else ""
 
     if not company_norm:
-        # No company extracted -> cannot match or create reliably, send to staging
+        # No company extracted -> route to staging for user to assign company
         return {
             "match_score": 0.0,
             "company_id": None,
             "application_id": None,
             "route": "staging",
+            "match_reason": "MISSING_COMPANY_NAME",
         }
 
     stmt = select(CompanyModel)
@@ -208,6 +252,7 @@ async def fuzzy_match_node(
             "company_id": None,
             "application_id": None,
             "route": "staging",
+            "match_reason": "NEW_COMPANY_LEAD",
         }
 
     # Match application under matched company
@@ -235,6 +280,7 @@ async def fuzzy_match_node(
                 "company_id": best_company.id,
                 "application_id": None,
                 "route": "staging",
+                "match_reason": "AMBIGUOUS_MULTIPLE_APPLICATIONS",
             }
 
         best_app = None
@@ -260,6 +306,7 @@ async def fuzzy_match_node(
                 "company_id": best_company.id,
                 "application_id": None,
                 "route": "staging",
+                "match_reason": "AMBIGUOUS_MULTIPLE_APPLICATIONS",
             }
 
     # Case 3: 0 applications exist for this company
@@ -278,6 +325,32 @@ async def staging_node(
     received_at_dt = _parse_email_date(state.get("received_at"))
     message_id = state.get("message_id")
 
+    if message_id:
+        existing_stmt = select(StagingItemModel).where(
+            StagingItemModel.email_message_id == message_id
+        )
+        existing_res = await db.execute(existing_stmt)
+        existing_item = existing_res.scalar_one_or_none()
+        if existing_item:
+            existing_item.extracted_data = (
+                state.get("extracted_data") or existing_item.extracted_data
+            )
+            existing_item.match_score = state.get(
+                "match_score", existing_item.match_score
+            )
+            existing_item.match_reason = (
+                state.get("match_reason") or existing_item.match_reason
+            )
+            existing_item.email_raw_body = state.get(
+                "body", existing_item.email_raw_body
+            )
+            await db.commit()
+            await db.refresh(existing_item)
+            await _upsert_processed_email(
+                db, message_id, "staged", state.get("subject")
+            )
+            return {"staging_item_id": existing_item.id, "route": "staging_done"}
+
     staging_item = StagingItemModel(
         email_message_id=message_id,
         email_conversation_id=state.get("conversation_id"),
@@ -287,7 +360,7 @@ async def staging_node(
         email_raw_body=state.get("body", ""),
         extracted_data=state.get("extracted_data"),
         match_score=state.get("match_score", 0.0),
-        match_reason="LOW_FUZZY_MATCH_CONFIDENCE",
+        match_reason=state.get("match_reason") or "LOW_FUZZY_MATCH_CONFIDENCE",
         status="PENDING",
     )
     db.add(staging_item)
@@ -328,8 +401,23 @@ async def db_commit_node(
     extracted = state.get("extracted_data") or {}
 
     if not state.get("is_application"):
+        msg_id = state.get("message_id")
+        if msg_id:
+            existing_other = (
+                await db.execute(
+                    select(OtherEventModel).where(
+                        OtherEventModel.email_message_id == msg_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing_other:
+                await _upsert_processed_email(
+                    db, msg_id, "other_event", state.get("subject")
+                )
+                return {"event_id": existing_other.id, "application_id": None}
+
         other_event = OtherEventModel(
-            email_message_id=state.get("message_id"),
+            email_message_id=msg_id,
             email_conversation_id=state.get("conversation_id"),
             email_subject=state.get("subject", ""),
             email_received_at=received_at_dt,
@@ -405,9 +493,24 @@ async def db_commit_node(
         if status_val:
             application.status = status_val
 
+    msg_id = state.get("message_id")
+    if msg_id:
+        existing_app_ev = (
+            await db.execute(
+                select(ApplicationEventModel).where(
+                    ApplicationEventModel.email_message_id == msg_id
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_app_ev:
+            await _upsert_processed_email(
+                db, msg_id, "application_event", state.get("subject")
+            )
+            return {"event_id": existing_app_ev.id, "application_id": application_id}
+
     event = ApplicationEventModel(
         email_application_id=application_id,
-        email_message_id=state.get("message_id"),
+        email_message_id=msg_id,
         email_conversation_id=state.get("conversation_id"),
         email_received_at=received_at_dt,
         email_event_type=extracted.get("event_type") or "UPDATED",
@@ -418,6 +521,57 @@ async def db_commit_node(
         email_raw_body=state.get("body", ""),
     )
     db.add(event)
+    await db.flush()
+
+    # Automatically create pending ActionItemModel if action is required
+    if extracted.get("action_required") and extracted.get("action"):
+        action_text = str(extracted.get("action")).strip()
+        if action_text:
+            raw_due = extracted.get("due_date")
+            parsed_due = _parse_email_date(raw_due) if raw_due else None
+
+            if parsed_due:
+                now_utc = datetime.now(UTC)
+                due_dt = (
+                    parsed_due if parsed_due.tzinfo else parsed_due.replace(tzinfo=UTC)
+                )
+                diff = (due_dt - now_utc).total_seconds()
+                if diff <= 48 * 3600:
+                    urgency = "HIGH"
+                elif diff <= 7 * 24 * 3600:
+                    urgency = "MEDIUM"
+                else:
+                    urgency = "LOW"
+            else:
+                act_lower = action_text.lower()
+                urgency = (
+                    "HIGH"
+                    if any(
+                        k in act_lower
+                        for k in [
+                            "interview",
+                            "assessment",
+                            "urgent",
+                            "deadline",
+                            "schedule",
+                            "offer",
+                            "today",
+                            "tomorrow",
+                            "expir",
+                        ]
+                    )
+                    else "MEDIUM"
+                )
+            action_item = ActionItemModel(
+                application_id=application_id,
+                event_id=event.id,
+                title=action_text[:500],
+                urgency=urgency,
+                due_date=parsed_due,
+                status="PENDING",
+            )
+            db.add(action_item)
+
     await db.commit()
     await db.refresh(event)
 

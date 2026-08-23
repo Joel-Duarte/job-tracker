@@ -18,6 +18,10 @@ class EmailExtractionResult(BaseModel):
     status: str | None = Field(default=None, description="Application status")
     action_required: bool = Field(description="Whether user action is required")
     action: str | None = Field(default=None, description="Action details if required")
+    due_date: str | None = Field(
+        default=None,
+        description="Explicit deadline date or scheduled interview date in ISO YYYY-MM-DD format if mentioned in the email",
+    )
     summary: str = Field(description="Brief summary of the email body")
 
 

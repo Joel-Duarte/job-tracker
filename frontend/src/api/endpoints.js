@@ -77,7 +77,13 @@ export const SearchAPI = {
   companies: (q = '') => apiClient.get('/search/companies', { params: { q } }),
 }
 
+export const SystemSettingsAPI = {
+  get: () => apiClient.get('/config/system'),
+  update: (data) => apiClient.patch('/config/system', data),
+}
+
 export const AIConfigAPI = {
+  checkHealth: () => apiClient.get('/config/ai/health'),
   getGlobalSettings: () => apiClient.get('/ai/global-settings'),
   updateGlobalSettings: (data) => apiClient.patch('/ai/global-settings', data),
   reindexEmbeddings: () => apiClient.post('/ai/reindex-embeddings'),
@@ -87,6 +93,7 @@ export const AIConfigAPI = {
   deleteProvider: (id) => apiClient.delete(`/ai/providers/${id}`),
   testProvider: (id) => apiClient.post(`/ai/providers/${id}/test`),
   getProviderModels: (id) => apiClient.get(`/ai/providers/${id}/models`),
+  probeModel: (id, modelName) => apiClient.post(`/ai/providers/${id}/probe-model`, { model_name: modelName }),
   listBindings: () => apiClient.get('/ai/bindings'),
   setBinding: (taskType, data) => apiClient.put(`/ai/bindings/${taskType}`, data),
   deleteBinding: (taskType) => apiClient.delete(`/ai/bindings/${taskType}`),
@@ -102,6 +109,9 @@ export const EmailAccountsAPI = {
   delete: (id) => apiClient.delete(`/email_accounts/${id}`),
   getOAuthUrl: (params) => apiClient.get('/email_accounts/oauth/authorize-url', { params }),
   getOAuthConfig: () => apiClient.get('/email_accounts/oauth/config'),
+  getFolders: (id) => apiClient.get(`/email_accounts/${id}/folders`),
+  clearHistory: (id) => apiClient.delete(`/email_accounts/${id}/processed-emails`),
+  clearAllHistory: () => apiClient.delete('/email_accounts/processed-emails/all'),
 }
 
 export const ActionItemsAPI = {

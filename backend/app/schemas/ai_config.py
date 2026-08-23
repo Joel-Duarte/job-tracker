@@ -29,6 +29,9 @@ class AIProviderCreate(BaseModel):
         default=1, ge=1, le=50, description="Max parallel AI requests to this provider"
     )
     is_active: bool = Field(default=True)
+    is_fallback: bool = Field(
+        default=False, description="Designated secondary auto-failover provider"
+    )
 
 
 class AIProviderUpdate(BaseModel):
@@ -38,6 +41,7 @@ class AIProviderUpdate(BaseModel):
     api_key: str | None = None
     max_concurrency: int | None = Field(default=None, ge=1, le=50)
     is_active: bool | None = None
+    is_fallback: bool | None = None
 
 
 class AIProviderRead(BaseModel):
@@ -48,6 +52,7 @@ class AIProviderRead(BaseModel):
     api_key_masked: str | None = None
     max_concurrency: int = 1
     is_active: bool
+    is_fallback: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -62,7 +67,12 @@ class AITaskBindingCreate(BaseModel):
     )
     temperature: float = Field(default=0.2, description="Sampling temperature")
     reasoning_effort: str | None = Field(
-        default="none", description="Thinking mode: 'none', 'low', 'medium', 'high'"
+        default="none",
+        description="Thinking mode: 'none', 'low', 'medium', 'high', 'custom'",
+    )
+    custom_extra_body: dict[str, Any] | None = Field(
+        default=None,
+        description="Custom payload parameters / extra body for local engines",
     )
     max_tokens: int | None = Field(default=None)
     top_p: float | None = Field(default=None)
@@ -76,6 +86,7 @@ class AITaskBindingUpdate(BaseModel):
     model_name: str | None = None
     temperature: float | None = None
     reasoning_effort: str | None = None
+    custom_extra_body: dict[str, Any] | None = None
     max_tokens: int | None = None
     top_p: float | None = None
     embedding_dimensions: int | None = None
@@ -92,6 +103,7 @@ class AITaskBindingRead(BaseModel):
     model_name: str
     temperature: float
     reasoning_effort: str | None = "none"
+    custom_extra_body: dict[str, Any] | None = None
     max_tokens: int | None = None
     top_p: float | None = None
     embedding_dimensions: int | None = None
@@ -101,6 +113,28 @@ class AITaskBindingRead(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ModelProbeRequest(BaseModel):
+    model_name: str = Field(..., description="Target model name to probe")
+
+
+class ModelProbeResponse(BaseModel):
+    provider_id: int
+    provider_name: str
+    provider_type: str
+    model_name: str
+    is_reasoning_model: bool
+    supported_reasoning_modes: list[str] = Field(
+        default_factory=lambda: ["none", "low", "medium", "high", "custom"]
+    )
+    supports_reasoning_effort: bool = False
+    supports_chat_template_kwargs: bool = False
+    supports_thinking_config: bool = False
+    recommended_reasoning_effort: str = "none"
+    recommended_extra_body: dict[str, Any] | None = None
+    detected_tags: list[str] = Field(default_factory=list)
+    notes: str = ""
 
 
 class AITaskTestResponse(BaseModel):
@@ -134,3 +168,16 @@ class AIProviderModelsResponse(BaseModel):
     provider_name: str
     provider_type: str
     models: list[DiscoveredModel]
+
+
+class AIHealthStatusRead(BaseModel):
+    status: str
+    provider_id: int | None = None
+    provider_name: str | None = None
+    provider_type: str | None = None
+    base_url: str | None = None
+    model_name: str | None = None
+    latency_ms: float = 0.0
+    error_message: str | None = None
+    fallback_provider_id: int | None = None
+    fallback_provider_name: str | None = None

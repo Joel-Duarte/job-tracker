@@ -22,6 +22,8 @@ async def get_system_settings_model(
         if not record:
             record = SystemSettingsModel(
                 id=1,
+                has_completed_onboarding=False,
+                enable_email_intake=False,
                 enable_embeddings=True,
                 agent_chat_retention_days=7,
                 enable_auto_cover_letter=False,
@@ -41,20 +43,50 @@ async def get_system_settings_model(
 
 
 async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
-    """Loads system settings as a dictionary."""
+    """Loads system settings as a dictionary with both canonical lower-case and upper-case keys."""
     try:
         model = await get_system_settings_model(db)
+        has_completed_onboarding = getattr(model, "has_completed_onboarding", False)
+        enable_email_intake = getattr(model, "enable_email_intake", False)
+        enable_embeddings = getattr(model, "enable_embeddings", True)
+        agent_chat_retention_days = getattr(model, "agent_chat_retention_days", 7)
+        enable_auto_cover_letter = getattr(model, "enable_auto_cover_letter", False)
+        cover_letter_match_threshold = getattr(
+            model, "cover_letter_match_threshold", 70
+        )
+        cover_letter_length = (
+            getattr(model, "cover_letter_length", "standard") or "standard"
+        )
+
         return {
-            "ENABLE_EMBEDDINGS": model.enable_embeddings,
-            "AGENT_CHAT_RETENTION_DAYS": model.agent_chat_retention_days,
-            "ENABLE_AUTO_COVER_LETTER": model.enable_auto_cover_letter,
-            "COVER_LETTER_MATCH_THRESHOLD": model.cover_letter_match_threshold,
-            "COVER_LETTER_LENGTH": getattr(model, "cover_letter_length", "standard")
-            or "standard",
+            "has_completed_onboarding": has_completed_onboarding,
+            "enable_email_intake": enable_email_intake,
+            "enable_embeddings": enable_embeddings,
+            "agent_chat_retention_days": agent_chat_retention_days,
+            "enable_auto_cover_letter": enable_auto_cover_letter,
+            "cover_letter_match_threshold": cover_letter_match_threshold,
+            "cover_letter_length": cover_letter_length,
+            # Backward compatibility uppercase keys
+            "HAS_COMPLETED_ONBOARDING": has_completed_onboarding,
+            "ENABLE_EMAIL_INTAKE": enable_email_intake,
+            "ENABLE_EMBEDDINGS": enable_embeddings,
+            "AGENT_CHAT_RETENTION_DAYS": agent_chat_retention_days,
+            "ENABLE_AUTO_COVER_LETTER": enable_auto_cover_letter,
+            "COVER_LETTER_MATCH_THRESHOLD": cover_letter_match_threshold,
+            "COVER_LETTER_LENGTH": cover_letter_length,
         }
     except Exception as e:
         logger.error(f"Failed to load global settings from DB: {e}")
         return {
+            "has_completed_onboarding": False,
+            "enable_email_intake": True,
+            "enable_embeddings": True,
+            "agent_chat_retention_days": 7,
+            "enable_auto_cover_letter": False,
+            "cover_letter_match_threshold": 70,
+            "cover_letter_length": "standard",
+            "HAS_COMPLETED_ONBOARDING": False,
+            "ENABLE_EMAIL_INTAKE": True,
             "ENABLE_EMBEDDINGS": True,
             "AGENT_CHAT_RETENTION_DAYS": 7,
             "ENABLE_AUTO_COVER_LETTER": False,
@@ -66,24 +98,66 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
 async def save_settings(
     settings: dict[str, Any], db: AsyncSession | None = None
 ) -> None:
-    """Saves system settings from a dictionary."""
+    """Saves system settings from a dictionary supporting lower-case and upper-case keys."""
 
     async def _update_settings(session: AsyncSession) -> None:
         model = await get_system_settings_model(session)
-        if "ENABLE_EMBEDDINGS" in settings:
-            model.enable_embeddings = bool(settings["ENABLE_EMBEDDINGS"])
-        if "AGENT_CHAT_RETENTION_DAYS" in settings:
-            model.agent_chat_retention_days = int(settings["AGENT_CHAT_RETENTION_DAYS"])
-        if "ENABLE_AUTO_COVER_LETTER" in settings:
-            model.enable_auto_cover_letter = bool(settings["ENABLE_AUTO_COVER_LETTER"])
-        if "COVER_LETTER_MATCH_THRESHOLD" in settings:
-            model.cover_letter_match_threshold = int(
-                settings["COVER_LETTER_MATCH_THRESHOLD"]
-            )
-        if "COVER_LETTER_LENGTH" in settings:
-            model.cover_letter_length = (
-                str(settings["COVER_LETTER_LENGTH"]).strip().lower()
-            )
+        val_onboarding = (
+            settings.get("has_completed_onboarding")
+            if "has_completed_onboarding" in settings
+            else settings.get("HAS_COMPLETED_ONBOARDING")
+        )
+        if val_onboarding is not None:
+            model.has_completed_onboarding = bool(val_onboarding)
+
+        val_email_intake = (
+            settings.get("enable_email_intake")
+            if "enable_email_intake" in settings
+            else settings.get("ENABLE_EMAIL_INTAKE")
+        )
+        if val_email_intake is not None:
+            model.enable_email_intake = bool(val_email_intake)
+
+        val_embeddings = (
+            settings.get("enable_embeddings")
+            if "enable_embeddings" in settings
+            else settings.get("ENABLE_EMBEDDINGS")
+        )
+        if val_embeddings is not None:
+            model.enable_embeddings = bool(val_embeddings)
+
+        val_retention = (
+            settings.get("agent_chat_retention_days")
+            if "agent_chat_retention_days" in settings
+            else settings.get("AGENT_CHAT_RETENTION_DAYS")
+        )
+        if val_retention is not None:
+            model.agent_chat_retention_days = int(val_retention)
+
+        val_auto_cl = (
+            settings.get("enable_auto_cover_letter")
+            if "enable_auto_cover_letter" in settings
+            else settings.get("ENABLE_AUTO_COVER_LETTER")
+        )
+        if val_auto_cl is not None:
+            model.enable_auto_cover_letter = bool(val_auto_cl)
+
+        val_threshold = (
+            settings.get("cover_letter_match_threshold")
+            if "cover_letter_match_threshold" in settings
+            else settings.get("COVER_LETTER_MATCH_THRESHOLD")
+        )
+        if val_threshold is not None:
+            model.cover_letter_match_threshold = int(val_threshold)
+
+        val_length = (
+            settings.get("cover_letter_length")
+            if "cover_letter_length" in settings
+            else settings.get("COVER_LETTER_LENGTH")
+        )
+        if val_length is not None:
+            model.cover_letter_length = str(val_length).strip().lower()
+
         await session.commit()
 
     try:
@@ -101,11 +175,15 @@ async def get_setting(
 ) -> Any:
     """Retrieves a specific system setting by key asynchronously."""
     settings = await load_settings(db)
-    return settings.get(key, default)
+    return settings.get(
+        key, settings.get(key.lower(), settings.get(key.upper(), default))
+    )
 
 
 async def set_setting(key: str, value: Any, db: AsyncSession | None = None) -> None:
     """Sets a specific system setting by key asynchronously."""
     settings = await load_settings(db)
     settings[key] = value
+    settings[key.lower()] = value
+    settings[key.upper()] = value
     await save_settings(settings, db)

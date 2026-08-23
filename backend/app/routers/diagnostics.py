@@ -22,7 +22,12 @@ router = APIRouter(
 
 @router.get("/export")
 async def export_diagnostics(db: AsyncSession = Depends(get_db)):
-    stmt = select(TraceEventModel).order_by(TraceEventModel.timestamp.desc()).limit(500)
+    stmt = (
+        select(TraceEventModel)
+        .where(TraceEventModel.event_type != "health_check")
+        .order_by(TraceEventModel.timestamp.desc())
+        .limit(500)
+    )
     result = await db.execute(stmt)
     records = result.scalars().all()
 
@@ -63,7 +68,9 @@ async def export_diagnostics(db: AsyncSession = Depends(get_db)):
 
 @router.get("/stats")
 async def get_diagnostics_stats(db: AsyncSession = Depends(get_db)):
-    stmt = select(TraceEventModel.category, TraceEventModel.payload)
+    stmt = select(TraceEventModel.category, TraceEventModel.payload).where(
+        TraceEventModel.event_type != "health_check"
+    )
     result = await db.execute(stmt)
     records = result.all()
 
@@ -147,7 +154,11 @@ async def get_traces(
     ),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(TraceEventModel).order_by(TraceEventModel.timestamp.desc())
+    stmt = (
+        select(TraceEventModel)
+        .where(TraceEventModel.event_type != "health_check")
+        .order_by(TraceEventModel.timestamp.desc())
+    )
 
     if category and category.strip() and category.lower() != "all":
         stmt = stmt.where(TraceEventModel.category == category.lower())

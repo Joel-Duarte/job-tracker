@@ -246,3 +246,108 @@ async def test_domain_entity_models(db_session: AsyncSession):
     assert loaded_app.job_posting.salary_min == 180000
     assert len(loaded_app.action_items) == 1
     assert loaded_app.action_items[0].urgency == "HIGH"
+
+
+@pytest.mark.asyncio
+async def test_probe_model_capabilities(db_session: AsyncSession):
+    from app.core.llm_factory import strip_reasoning_tags
+
+    # Test tag stripping
+    raw_with_think = "<think>Analyzing candidate experience...</think>Extracted Job Title: Senior Engineer"
+    assert (
+        strip_reasoning_tags(raw_with_think) == "Extracted Job Title: Senior Engineer"
+    )
+
+    # Setup test provider
+    prov = AIProviderModel(
+        name="Test Local Ollama",
+        provider_type="ollama",
+        base_url="http://localhost:11434",
+        api_key=None,
+        is_active=True,
+    )
+    db_session.add(prov)
+    await db_session.commit()
+    await db_session.refresh(prov)
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # Probe DeepSeek-R1 model
+        probe_res = await ac.post(
+            f"/api/v1/ai/providers/{prov.id}/probe-model",
+            json={"model_name": "deepseek-r1:7b"},
+        )
+        assert probe_res.status_code == 200
+        data = probe_res.json()
+        assert data["is_reasoning_model"] is True
+        assert "<think>" in data["detected_tags"]
+        assert data["supports_chat_template_kwargs"] is True
+        assert data["recommended_extra_body"] == {
+            "chat_template_kwargs": {"thinking": False}
+        }
+
+        # Probe Standard model
+        probe_std = await ac.post(
+            f"/api/v1/ai/providers/{prov.id}/probe-model",
+            json={"model_name": "llama3.2:3b"},
+        )
+        assert probe_std.status_code == 200
+        std_data = probe_std.json()
+        assert std_data["is_reasoning_model"] is False
+
+    app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_task_binding_custom_extra_body(db_session: AsyncSession):
+    prov = AIProviderModel(
+        name="Local LM Studio",
+        provider_type="openai",
+        base_url="http://127.0.0.1:1234/v1",
+        api_key=None,
+        is_active=True,
+    )
+    db_session.add(prov)
+    await db_session.commit()
+    await db_session.refresh(prov)
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # Create task binding with custom extra body
+        bind_res = await ac.put(
+            "/api/v1/ai/bindings/EMAIL_EXTRACTION",
+            json={
+                "provider_id": prov.id,
+                "model_name": "deepseek-r1-distill-qwen-7b",
+                "temperature": 0.1,
+                "reasoning_effort": "custom",
+                "custom_extra_body": {
+                    "chat_template_kwargs": {"thinking": False},
+                    "enable_thinking": False,
+                },
+            },
+        )
+        assert bind_res.status_code == 200
+        bind_data = bind_res.json()
+        assert bind_data["reasoning_effort"] == "custom"
+        assert bind_data["custom_extra_body"] == {
+            "chat_template_kwargs": {"thinking": False},
+            "enable_thinking": False,
+        }
+
+        # List bindings and verify custom_extra_body is present
+        list_res = await ac.get("/api/v1/ai/bindings")
+        assert list_res.status_code == 200
+        items = list_res.json()
+        match = next((b for b in items if b["task_type"] == "EMAIL_EXTRACTION"), None)
+        assert match is not None
+        assert match["custom_extra_body"] == {
+            "chat_template_kwargs": {"thinking": False},
+            "enable_thinking": False,
+        }
+
+    app.dependency_overrides.clear()
