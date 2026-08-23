@@ -7,6 +7,7 @@ import { normalizeAppUrl } from '../utils/api.js';
 
 let extractedData = null;
 let countdownTimer = null;
+let autoSaveDebounceTimer = null;
 let isAiAvailable = true;
 let currentSettings = {
   dockMode: 'AUTO-DETECT',
@@ -21,6 +22,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await extractActiveTab();
   setupEventListeners();
   setupClearFieldButtons();
+  setupAutoSaveSettings();
   updateQueueBadgeCount();
 });
 
@@ -65,10 +67,72 @@ function setupClearFieldButtons() {
         if (inputEl) {
           inputEl.value = '';
           inputEl.focus();
+          // Trigger input event for auto-save if clearing setting field
+          inputEl.dispatchEvent(new Event('input'));
         }
       }
     });
   });
+}
+
+/**
+ * Automatically persists settings on input/change events with temporary visual feedback.
+ */
+function setupAutoSaveSettings() {
+  const appUrlInput = document.getElementById('input-app-url');
+  const themeSel = document.getElementById('select-theme');
+  const dockSel = document.getElementById('select-dock-mode');
+  const pollSelect = document.getElementById('select-poll-interval');
+  const notifToggle = document.getElementById('toggle-notifications');
+
+  const triggerAutoSave = async () => {
+    const updated = {
+      appUrl: normalizeAppUrl(appUrlInput?.value || 'http://localhost:5173'),
+      theme: themeSel?.value || 'LIGHT',
+      dockMode: dockSel?.value || 'AUTO-DETECT',
+      pollInterval: parseInt(pollSelect?.value || '60', 10),
+      notificationsEnabled: notifToggle?.checked ?? true
+    };
+
+    await saveSettings(updated);
+    currentSettings = { ...currentSettings, ...updated };
+    applyTheme(updated.theme);
+
+    try {
+      chrome.runtime.sendMessage({ type: 'SETTINGS_UPDATED', settings: updated });
+      const tabs = await chrome.tabs.query({});
+      tabs.forEach((t) => {
+        if (t.id) chrome.tabs.sendMessage(t.id, { type: 'SETTINGS_UPDATED', settings: updated }).catch(() => {});
+      });
+    } catch (e) {
+      // Ignore
+    }
+
+    showAutoSaveIndicator();
+  };
+
+  if (appUrlInput) {
+    appUrlInput.addEventListener('input', () => {
+      clearTimeout(autoSaveDebounceTimer);
+      autoSaveDebounceTimer = setTimeout(triggerAutoSave, 400);
+    });
+  }
+
+  [themeSel, dockSel, pollSelect, notifToggle].forEach((el) => {
+    if (el) {
+      el.addEventListener('change', triggerAutoSave);
+    }
+  });
+}
+
+function showAutoSaveIndicator() {
+  const statusMsg = document.getElementById('settings-status');
+  if (statusMsg) {
+    statusMsg.classList.remove('hidden', 'error');
+    statusMsg.classList.add('success');
+    statusMsg.textContent = '✓ Settings Saved';
+    setTimeout(() => statusMsg.classList.add('hidden'), 1500);
+  }
 }
 
 /**
@@ -219,15 +283,6 @@ function setupEventListeners() {
     });
   });
 
-  // Toggle Manual Fields Button
-  const toggleFieldsBtn = document.getElementById('btn-toggle-fields');
-  const formFieldsContainer = document.getElementById('form-fields-container');
-  if (toggleFieldsBtn && formFieldsContainer) {
-    toggleFieldsBtn.addEventListener('click', () => {
-      formFieldsContainer.classList.toggle('hidden');
-    });
-  }
-
   // Ingestion Mode Option Styling, Dynamic Field Toggling & Persistence
   document.querySelectorAll('input[name="ingestMode"]').forEach((radio) => {
     radio.addEventListener('change', (e) => {
@@ -315,50 +370,6 @@ function setupEventListeners() {
       );
     });
   }
-
-  // Save Settings Button
-  const saveSettingsBtn = document.getElementById('btn-save-settings');
-  if (saveSettingsBtn) {
-    saveSettingsBtn.addEventListener('click', async () => {
-      const appUrlInput = document.getElementById('input-app-url');
-      const themeSel = document.getElementById('select-theme');
-      const dockSel = document.getElementById('select-dock-mode');
-      const pollSelect = document.getElementById('select-poll-interval');
-      const notifToggle = document.getElementById('toggle-notifications');
-      const statusMsg = document.getElementById('settings-status');
-
-      const updated = {
-        appUrl: normalizeAppUrl(appUrlInput?.value || 'http://localhost:5173'),
-        theme: themeSel?.value || 'LIGHT',
-        dockMode: dockSel?.value || 'AUTO-DETECT',
-        pollInterval: parseInt(pollSelect?.value || '60', 10),
-        notificationsEnabled: notifToggle?.checked ?? true
-      };
-
-      await saveSettings(updated);
-      currentSettings = { ...currentSettings, ...updated };
-      applyTheme(updated.theme);
-
-      try {
-        chrome.runtime.sendMessage({ type: 'SETTINGS_UPDATED', settings: updated });
-        const tabs = await chrome.tabs.query({});
-        tabs.forEach((t) => {
-          if (t.id) chrome.tabs.sendMessage(t.id, { type: 'SETTINGS_UPDATED', settings: updated }).catch(() => {});
-        });
-      } catch (e) {
-        // Ignore
-      }
-
-      if (statusMsg) {
-        statusMsg.classList.remove('hidden', 'error');
-        statusMsg.classList.add('success');
-        statusMsg.textContent = 'Settings saved successfully!';
-        setTimeout(() => statusMsg.classList.add('hidden'), 3000);
-      }
-
-      await checkBackendConnection();
-    });
-  }
 }
 
 /**
@@ -380,7 +391,7 @@ function switchTab(tabName) {
 }
 
 /**
- * Dynamically toggles input fields and submit button text based on selected ingestion mode & dockMode.
+ * Dynamically toggles input fields and submit button text based strictly on selected ingestion mode.
  * @param {'AI_QUEUE'|'DIRECT_APPLIED'} selectedMode
  */
 function updateModeOptionLayout(selectedMode) {
@@ -393,23 +404,13 @@ function updateModeOptionLayout(selectedMode) {
   if (aiOpt) aiOpt.classList.toggle('active', selectedMode === 'AI_QUEUE');
   if (directOpt) directOpt.classList.toggle('active', selectedMode === 'DIRECT_APPLIED');
 
-  const dockMode = currentSettings.dockMode || 'AUTO-DETECT';
-
   if (selectedMode === 'AI_QUEUE') {
     if (submitText) submitText.textContent = 'Send Page to AI Assessment';
     if (submitIcon) submitIcon.textContent = '⚡';
-
-    // Collapse fields by default in AI Queue mode when in-page dock is active
-    if (dockMode === 'AUTO-DETECT' || dockMode === 'ALL_PAGES') {
-      if (formFieldsContainer) formFieldsContainer.classList.add('hidden');
-    } else {
-      if (formFieldsContainer) formFieldsContainer.classList.remove('hidden');
-    }
+    if (formFieldsContainer) formFieldsContainer.classList.add('hidden');
   } else {
     if (submitText) submitText.textContent = 'Save Application to Board';
     if (submitIcon) submitIcon.textContent = '📌';
-
-    // Expand fields in Direct Applied mode
     if (formFieldsContainer) formFieldsContainer.classList.remove('hidden');
   }
 }

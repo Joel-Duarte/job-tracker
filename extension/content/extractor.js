@@ -144,33 +144,51 @@
       }
     }
 
-    // 2. Indeed (Scoped strictly inside view pane)
+    // 2. Indeed (Supports standalone /viewjob and search pane)
     else if (host.includes('indeed.com')) {
       site_type = 'INDEED';
-      const pane = queryFirst(['#jobsearch-ViewjobPaneWrapper', '#jobsearch-JobComponent']) || document;
+      const pane = queryFirst(['#jobsearch-ViewjobPaneWrapper', '.jobsearch-JobComponent', 'main']) || document;
       title = getTextIn(pane, ['h1.jobsearch-JobInfoHeader-title', '[data-testid="simpler-jobTitle"]', '[data-testid="jobsearch-JobInfoHeader-title"]', 'h1']);
       company = getTextIn(pane, ['[data-testid="inlineHeader-companyName"]', '.jobsearch-CompanyReview-companyHeader']);
-      location = getTextIn(pane, ['[data-testid="inlineHeader-companyLocation"]', '[data-testid="job-location"]']);
+      location = getTextIn(pane, [
+        '[data-testid="inlineHeader-companyLocation"]',
+        'div[data-testid="job-location"]',
+        '#jobLocationText',
+        '.jobsearch-JobInfoHeader-companyLocation',
+        '.jobsearch-CompanyInfoContainer div'
+      ]);
       salary = getTextIn(pane, ['#salaryInfoAndJobType', '[data-testid="jobsearch-OtherJobDetailsContainer"]']);
 
-      const descEl = queryFirstIn(pane, ['#jobDescriptionText']);
+      const descEl = queryFirstIn(pane, ['#jobDescriptionText', '.jobsearch-JobComponent-description']);
       if (descEl) {
         description_text = convertNodeToText(descEl);
         raw_html_snippet = descEl.innerHTML;
       }
     }
 
-    // 3. LinkedIn (Scoped strictly inside job details pane)
+    // 3. LinkedIn (Supports standalone /jobs/view/... and search pane)
     else if (host.includes('linkedin.com')) {
       site_type = 'LINKEDIN';
-      const pane = queryFirst(['.jobs-search__job-details', '#job-details', '.job-view-layout']) || document;
-      title = getTextIn(pane, ['.job-details-jobs-unified-top-card__job-title', '.top-card-layout__title', 'h1.t-24', 'h1']);
-      company = getTextIn(pane, ['.job-details-jobs-unified-top-card__company-name', '.topcard__org-name-link', '.job-details-jobs-unified-top-card__primary-description a']);
+      const pane = queryFirst(['.jobs-search__job-details', '#job-details', '.job-view-layout', '.top-card-layout', 'main']) || document;
+      title = getTextIn(pane, [
+        'h1.top-card-layout__title',
+        'h1.job-details-jobs-unified-top-card__job-title',
+        'h1.t-24',
+        '.topcard__title',
+        'h1'
+      ]);
+      company = getTextIn(pane, [
+        'a.topcard__org-name-link',
+        '.top-card-layout__first-subline a',
+        '.job-details-jobs-unified-top-card__company-name',
+        'a[data-tracking-control-name="public_jobs_topcard-org-name"]'
+      ]);
       location = getTextIn(pane, [
-        '.job-details-jobs-unified-top-card__primary-description-container span.tvm__text',
+        '.topcard__flavor--bullet',
+        '.top-card-layout__first-subline .topcard__flavor:not(.topcard__flavor--link)',
         '.job-details-jobs-unified-top-card__bullet',
-        '.jobs-unified-top-card__bullet',
-        '.topcard__flavor--bullet'
+        'span.topcard__flavor',
+        '.job-details-jobs-unified-top-card__primary-description-container span.tvm__text'
       ]);
 
       if (!location) {
@@ -183,7 +201,12 @@
         }
       }
 
-      const descEl = queryFirstIn(pane, ['#job-details', '.jobs-description__content']);
+      const descEl = queryFirstIn(pane, [
+        '.show-more-less-html__markup',
+        '.description__text',
+        '#job-details',
+        '.jobs-description__content'
+      ]);
       if (descEl) {
         description_text = convertNodeToText(descEl);
         raw_html_snippet = descEl.innerHTML;
@@ -318,7 +341,7 @@
         if (pathMatch && pathMatch[1]) {
           return `https://www.linkedin.com/jobs/view/${pathMatch[1]}/`;
         }
-        const pane = document.querySelector('.jobs-search__job-details, #job-details, .job-view-layout, body');
+        const pane = document.querySelector('.jobs-search__job-details, #job-details, .job-view-layout, .top-card-layout, body');
         if (pane) {
           const activeLink = pane.querySelector('a[href*="/jobs/view/"]');
           if (activeLink && activeLink.href) {
@@ -343,7 +366,7 @@
         if (vjk) {
           return `https://www.indeed.com/viewjob?jk=${encodeURIComponent(vjk)}`;
         }
-        const pane = document.querySelector('#jobsearch-ViewjobPaneWrapper, #jobsearch-JobComponent, body');
+        const pane = document.querySelector('#jobsearch-ViewjobPaneWrapper, .jobsearch-JobComponent, main, body');
         if (pane) {
           const link = pane.querySelector('a[href*="/viewjob"]');
           if (link && link.href) {
@@ -375,7 +398,7 @@
         }
       }
 
-      // 4. General ATS & Sites: Check <link rel="canonical"> or strip tracking params
+      // 4. General ATS & Sites
       const canonicalTag = document.querySelector('link[rel="canonical"]')?.href;
       const targetUrl = canonicalTag ? new URL(canonicalTag, rawUrl).href : rawUrl;
       const cleanObj = new URL(targetUrl);
