@@ -11,10 +11,12 @@
   let lastObservedUrl = window.location.href;
   let glassdoorObserver = null;
   let currentJobData = null;
+  let isPillDragging = false;
   let currentSettings = {
     appUrl: 'http://localhost:5173',
     dockMode: 'AUTO-DETECT',
     dockExpanded: true,
+    dockPosition: null,
     theme: 'LIGHT',
     lastMode: 'AI_QUEUE'
   };
@@ -67,6 +69,7 @@
             appUrl: 'http://localhost:5173',
             dockMode: 'AUTO-DETECT',
             dockExpanded: true,
+            dockPosition: null,
             theme: 'LIGHT',
             lastMode: 'AI_QUEUE'
           },
@@ -114,29 +117,24 @@
       return;
     }
 
-    const isLinkedIn = window.location.hostname.includes('linkedin.com');
-
     if (!hostEl) {
       hostEl = document.createElement('div');
       hostEl.id = DOCK_ID;
 
-      if (isLinkedIn) {
-        hostEl.style.cssText = 'position: fixed; top: 80px; right: 24px; bottom: auto; z-index: 2147483647; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;';
+      if (currentSettings.dockPosition && typeof currentSettings.dockPosition.top === 'number' && typeof currentSettings.dockPosition.left === 'number') {
+        hostEl.style.cssText = `position: fixed; top: ${currentSettings.dockPosition.top}px; left: ${currentSettings.dockPosition.left}px; bottom: auto; right: auto; z-index: 2147483647; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;`;
       } else {
-        hostEl.style.cssText = 'position: fixed; bottom: 20px; right: 20px; top: auto; z-index: 2147483647; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;';
+        hostEl.style.cssText = 'position: fixed; bottom: 24px; right: 24px; top: auto; left: auto; z-index: 2147483647; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;';
       }
 
       document.body.appendChild(hostEl);
       shadowRoot = hostEl.attachShadow({ mode: 'open' });
     } else {
-      if (isLinkedIn) {
-        hostEl.style.top = '80px';
-        hostEl.style.right = '24px';
+      if (currentSettings.dockPosition && typeof currentSettings.dockPosition.top === 'number' && typeof currentSettings.dockPosition.left === 'number') {
+        hostEl.style.top = `${currentSettings.dockPosition.top}px`;
+        hostEl.style.left = `${currentSettings.dockPosition.left}px`;
         hostEl.style.bottom = 'auto';
-      } else {
-        hostEl.style.bottom = '20px';
-        hostEl.style.right = '20px';
-        hostEl.style.top = 'auto';
+        hostEl.style.right = 'auto';
       }
       shadowRoot = hostEl.shadowRoot;
     }
@@ -189,7 +187,7 @@
           color: ${isDark ? '#09090b' : '#ffffff'};
           border-radius: 30px;
           box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
-          cursor: pointer;
+          cursor: grab;
           font-weight: 700;
           font-size: 13px;
           border: none;
@@ -222,6 +220,7 @@
           border-bottom: 1px solid ${borderColor};
           padding-bottom: 8px;
           width: 100%;
+          cursor: grab;
           transition: background-color 0.3s ease;
         }
 
@@ -403,10 +402,12 @@
       </style>
 
       <div class="dock-wrapper">
+        <!-- Collapsed Pill Button -->
         <button id="dock-pill-btn" class="pill-btn ${isExpanded ? 'hidden' : ''}">
           💼 Job Tracker
         </button>
 
+        <!-- Card View -->
         <div id="dock-card-view" class="dock-card ${isExpanded ? '' : 'hidden'}">
           <div id="dock-header-el" class="dock-header">
             <span class="dock-title">💼 Job Tracker Capture</span>
@@ -482,8 +483,89 @@
     `;
 
     setupDockEventListeners();
+    setupDraggable(hostEl);
     checkFloatingAiHealthGating();
     scheduleHydrationRetries();
+  }
+
+  /**
+   * Attaches drag handlers to pill and header for persistent drag positioning.
+   */
+  function setupDraggable(hostEl) {
+    if (!shadowRoot) return;
+    const pillBtn = shadowRoot.getElementById('dock-pill-btn');
+    const headerEl = shadowRoot.getElementById('dock-header-el');
+
+    if (pillBtn) enableDraggable(pillBtn, hostEl, true);
+    if (headerEl) enableDraggable(headerEl, hostEl, false);
+  }
+
+  function enableDraggable(handleEl, hostEl, isPill = false) {
+    let isDragging = false;
+    let startX, startY, initialLeft, initialTop;
+    let hasMoved = false;
+
+    handleEl.style.cursor = 'grab';
+
+    handleEl.addEventListener('mousedown', (e) => {
+      if (e.target.closest('button:not(#dock-pill-btn)')) return;
+
+      isDragging = true;
+      hasMoved = false;
+      if (isPill) isPillDragging = false;
+
+      startX = e.clientX;
+      startY = e.clientY;
+
+      const rect = hostEl.getBoundingClientRect();
+      initialLeft = rect.left;
+      initialTop = rect.top;
+
+      handleEl.style.cursor = 'grabbing';
+      document.body.style.userSelect = 'none';
+
+      function onMouseMove(me) {
+        if (!isDragging) return;
+        const dx = me.clientX - startX;
+        const dy = me.clientY - startY;
+
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+          hasMoved = true;
+          if (isPill) isPillDragging = true;
+        }
+
+        if (hasMoved) {
+          let newLeft = Math.max(10, Math.min(window.innerWidth - hostEl.offsetWidth - 10, initialLeft + dx));
+          let newTop = Math.max(10, Math.min(window.innerHeight - hostEl.offsetHeight - 10, initialTop + dy));
+
+          hostEl.style.top = `${newTop}px`;
+          hostEl.style.left = `${newLeft}px`;
+          hostEl.style.bottom = 'auto';
+          hostEl.style.right = 'auto';
+        }
+      }
+
+      function onMouseUp() {
+        if (!isDragging) return;
+        isDragging = false;
+        handleEl.style.cursor = 'grab';
+        document.body.style.userSelect = '';
+
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+
+        if (hasMoved) {
+          const rect = hostEl.getBoundingClientRect();
+          const pos = { top: rect.top, left: rect.left };
+          if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+            chrome.storage.local.set({ dockPosition: pos });
+          }
+        }
+      }
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    });
   }
 
   function scheduleHydrationRetries() {
@@ -560,6 +642,10 @@
     });
 
     pillBtn.addEventListener('click', () => {
+      if (isPillDragging) {
+        isPillDragging = false;
+        return;
+      }
       pillBtn.classList.add('hidden');
       cardView.classList.remove('hidden');
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
