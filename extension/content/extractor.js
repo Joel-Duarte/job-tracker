@@ -151,7 +151,7 @@
         'header'
       ]) || detailPane;
 
-      company = getTextIn(header, [
+      const employerEl = queryFirstIn(header, [
         '[data-test="employer-name"]',
         'a[href*="/Overview/"]',
         '[class*="employerName" i]',
@@ -162,7 +162,19 @@
         'div:first-child a',
         'div:first-child'
       ]);
-      company = company.replace(/\s*\d+(\.\d+)?\s*★.*$/, '').replace(/★.*$/, '').trim();
+
+      if (employerEl) {
+        const clone = employerEl.cloneNode(true);
+        clone.querySelectorAll('[class*="rating" i], [data-test="rating"], [class*="star" i], [class*="review" i]').forEach((el) => el.remove());
+        company = clone.textContent.trim();
+      }
+
+      company = company
+        .replace(/\s*★.*$/, '')
+        .replace(/\s+\d+(\.\d+)?(\s*★)?\s*$/, '')
+        .replace(/\b\d\.\d\b/g, '')
+        .replace(/[\r\n\t]+/g, ' ')
+        .trim();
 
       title = getTextIn(header, [
         '[data-test="job-title"]',
@@ -214,7 +226,7 @@
       }
     }
 
-    // 3. LinkedIn (Topcard Hierarchy & Title Sanitization)
+    // 3. LinkedIn (Topcard Heading Exclusion & Notification Filter)
     else if (host.includes('linkedin.com')) {
       site_type = 'LINKEDIN';
       const pane = queryFirst([
@@ -227,17 +239,33 @@
       ])?.closest('.job-view-layout, .jobs-search__job-details, main, body') || document;
 
       title = getTextIn(pane, [
-        'h1.top-card-layout__title',
-        'h1.job-details-jobs-unified-top-card__job-title',
-        'h1.topcard__title',
-        'h1.t-24',
-        'h1[class*="job-title" i]',
-        'h1[class*="title" i]',
-        'main h1',
-        'article h1',
-        'h1'
+        '.job-details-jobs-unified-top-card__job-title h1:not(.visually-hidden)',
+        '.job-details-jobs-unified-top-card__job-title a:not(.visually-hidden)',
+        '.job-details-jobs-unified-top-card__job-title:not(.visually-hidden)',
+        '.jobs-unified-top-card__job-title h1:not(.visually-hidden)',
+        'h1.top-card-layout__title:not(.visually-hidden)',
+        'h1.topcard__title:not(.visually-hidden)',
+        'h1.t-24.t-bold:not(.visually-hidden)',
+        'h1.t-24:not(.visually-hidden)',
+        'h1[class*="job-title" i]:not(.visually-hidden)',
+        'h1[class*="title" i]:not(.visually-hidden)',
+        '.job-view-layout h1:not(.visually-hidden)',
+        'main.scaffold-layout__main h1:not(.visually-hidden)',
+        'h1:not(.visually-hidden)'
       ]);
+
       title = title.replace(/^\(\d+\)\s*/, '').trim();
+
+      const lowerTitle = title.toLowerCase();
+      if (
+        lowerTitle.includes('notification') ||
+        lowerTitle.includes('notificações') ||
+        lowerTitle.includes('messaging') ||
+        lowerTitle.includes('my network') ||
+        lowerTitle === 'linkedin'
+      ) {
+        title = '';
+      }
 
       company = getTextIn(pane, [
         'a.topcard__org-name-link',
