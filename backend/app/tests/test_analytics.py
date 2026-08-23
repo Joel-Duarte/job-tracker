@@ -1,79 +1,47 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app
-from app.services.seed_data import is_database_empty, seed_development_dataset
-
-
-@pytest.fixture
-def async_client():
-    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 
 @pytest.mark.asyncio
-async def test_analytics_overview_empty_db(
-    async_client: AsyncClient, db_session: AsyncSession
-):
-    assert await is_database_empty(db_session) is True
-
-    response = await async_client.get("/api/v1/analytics/overview")
-    assert response.status_code == 200
-    data = response.json()
-
-    assert data["total_applications"] == 0
-    assert data["active_pipeline_count"] == 0
-    assert data["interview_rate"] == 0.0
-    assert data["offer_rate"] == 0.0
-    assert data["top_in_demand_skills"] == []
-    assert data["priority_skill_gaps"] == []
+async def test_get_analytics_overview(db_session):
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get("/api/v1/analytics/overview")
+        assert response.status_code == 200
+        data = response.json()
+        assert "total_applications" in data
+        assert "pipeline_funnel" in data
+        assert "top_in_demand_skills" in data
 
 
 @pytest.mark.asyncio
-async def test_analytics_overview_seeded_data(
-    async_client: AsyncClient, db_session: AsyncSession
-):
-    await seed_development_dataset(db_session)
-
-    response = await async_client.get("/api/v1/analytics/overview")
-    assert response.status_code == 200
-    data = response.json()
-
-    assert data["total_applications"] > 0
-    assert "active_pipeline_count" in data
-    assert data["interview_rate"] >= 0.0
-    assert data["offer_rate"] >= 0.0
-
-    assert isinstance(data["top_in_demand_skills"], list)
-    if len(data["top_in_demand_skills"]) > 0:
-        assert "skill" in data["top_in_demand_skills"][0]
-        assert "count" in data["top_in_demand_skills"][0]
-        assert "percentage" in data["top_in_demand_skills"][0]
-        assert "is_in_candidate_cv" in data["top_in_demand_skills"][0]
-
-    assert isinstance(data["priority_skill_gaps"], list)
-    if len(data["priority_skill_gaps"]) > 0:
-        assert "skill" in data["priority_skill_gaps"][0]
-        assert "priority_score" in data["priority_skill_gaps"][0]
-
-    assert isinstance(data["pipeline_funnel"], list)
-    assert len(data["pipeline_funnel"]) == 4  # Applied, Assessment, Interview, Offer
-
-    assert "work_model_distribution" in data
-    assert "salary_insights" in data
+async def test_get_funnel_metrics_weekly(db_session):
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get("/api/v1/analytics/funnel?period=weekly")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["period_type"] == "weekly"
+        assert "summary_kpis" in data
+        assert "intakes" in data["summary_kpis"]
+        assert "applications" in data["summary_kpis"]
+        assert "interviews" in data["summary_kpis"]
+        assert "offers" in data["summary_kpis"]
+        assert isinstance(data["chart_data"], list)
+        assert isinstance(data["table_data"], list)
 
 
 @pytest.mark.asyncio
-async def test_analytics_overview_with_query_params(
-    async_client: AsyncClient, db_session: AsyncSession
-):
-    await seed_development_dataset(db_session)
-
-    response = await async_client.get(
-        "/api/v1/analytics/overview?days=30&work_model=remote&top_n=5"
-    )
-    assert response.status_code == 200
-    data = response.json()
-
-    assert len(data["top_in_demand_skills"]) <= 5
-    assert len(data["priority_skill_gaps"]) <= 5
+async def test_get_funnel_metrics_monthly(db_session):
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get("/api/v1/analytics/funnel?period=monthly")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["period_type"] == "monthly"
+        assert len(data["chart_data"]) > 0

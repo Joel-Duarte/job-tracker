@@ -45,6 +45,10 @@ export const CandidateProfileAPI = {
   getTaskStatus: (taskId) => apiClient.get(`/profile/cv/tasks/${taskId}`),
   update: (id, data) => apiClient.patch(`/profile/cv/${id}`, data),
   delete: (id) => apiClient.delete(`/profile/cv/${id}`),
+  parseFile: (formData) =>
+    apiClient.post('/profile/cv/parse-file', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
 }
 
 export const AgentAPI = {
@@ -73,7 +77,13 @@ export const SearchAPI = {
   companies: (q = '') => apiClient.get('/search/companies', { params: { q } }),
 }
 
+export const SystemSettingsAPI = {
+  get: () => apiClient.get('/config/system'),
+  update: (data) => apiClient.patch('/config/system', data),
+}
+
 export const AIConfigAPI = {
+  checkHealth: () => apiClient.get('/config/ai/health'),
   getGlobalSettings: () => apiClient.get('/ai/global-settings'),
   updateGlobalSettings: (data) => apiClient.patch('/ai/global-settings', data),
   reindexEmbeddings: () => apiClient.post('/ai/reindex-embeddings'),
@@ -83,6 +93,7 @@ export const AIConfigAPI = {
   deleteProvider: (id) => apiClient.delete(`/ai/providers/${id}`),
   testProvider: (id) => apiClient.post(`/ai/providers/${id}/test`),
   getProviderModels: (id) => apiClient.get(`/ai/providers/${id}/models`),
+  probeModel: (id, modelName) => apiClient.post(`/ai/providers/${id}/probe-model`, { model_name: modelName }),
   listBindings: () => apiClient.get('/ai/bindings'),
   setBinding: (taskType, data) => apiClient.put(`/ai/bindings/${taskType}`, data),
   deleteBinding: (taskType) => apiClient.delete(`/ai/bindings/${taskType}`),
@@ -98,6 +109,9 @@ export const EmailAccountsAPI = {
   delete: (id) => apiClient.delete(`/email_accounts/${id}`),
   getOAuthUrl: (params) => apiClient.get('/email_accounts/oauth/authorize-url', { params }),
   getOAuthConfig: () => apiClient.get('/email_accounts/oauth/config'),
+  getFolders: (id) => apiClient.get(`/email_accounts/${id}/folders`),
+  clearHistory: (id) => apiClient.delete(`/email_accounts/${id}/processed-emails`),
+  clearAllHistory: () => apiClient.delete('/email_accounts/processed-emails/all'),
 }
 
 export const ActionItemsAPI = {
@@ -118,6 +132,17 @@ export const DiagnosticsAPI = {
 export const AnalyticsAPI = {
   getOverview: (params = {}) => apiClient.get('/analytics/overview', { params }),
   getWorkModelBreakdown: () => apiClient.get('/analytics/work-model-breakdown'),
-  getFunnelMetrics: () => apiClient.get('/analytics/funnel'),
+  getFunnelMetrics: (params = {}) => apiClient.get('/analytics/funnel', { params }),
 }
 
+export const InterviewSimulatorAPI = {
+  startSession: (data) => apiClient.post('/interviews/sessions/start', data),
+  evaluateAnswer: (sessionId, data) => apiClient.post(`/interviews/sessions/${sessionId}/evaluate-answer`, data),
+  nextQuestion: (sessionId) => apiClient.post(`/interviews/sessions/${sessionId}/next-question`),
+  drillDown: (sessionId, data = {}) => apiClient.post(`/interviews/sessions/${sessionId}/drill-down`, data),
+  finalizeSession: (sessionId) => apiClient.post(`/interviews/sessions/${sessionId}/finalize`),
+  saveNotes: (sessionId, data = {}) => apiClient.post(`/interviews/sessions/${sessionId}/save-notes`, data),
+  getSession: (sessionId) => apiClient.get(`/interviews/sessions/${sessionId}`),
+  listSessions: (params = {}) => apiClient.get('/interviews/sessions', { params }),
+  deleteSession: (sessionId) => apiClient.delete(`/interviews/sessions/${sessionId}`),
+}

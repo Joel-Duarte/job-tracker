@@ -10,6 +10,12 @@ class SystemSettingsModel(Base):
     __tablename__ = "system_settings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    has_completed_onboarding: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    enable_email_intake: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     enable_embeddings: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True
     )

@@ -2,10 +2,11 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
-import { AIConfigAPI, EmailAccountsAPI, IntakeAPI, PromptsAPI, DiagnosticsAPI } from '../api/endpoints'
+import { AIConfigAPI, EmailAccountsAPI, IntakeAPI, PromptsAPI, DiagnosticsAPI, SystemSettingsAPI } from '../api/endpoints'
 import CandidateProfileView from './CandidateProfileView.vue'
 import PageHeader from '../components/common/PageHeader.vue'
 import {
+  Activity,
   Cpu,
   Layers,
   Mail,
@@ -50,6 +51,8 @@ import {
   BookOpen,
   UserCheck,
   FileText,
+  ArrowLeft,
+  ArrowRight,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -422,6 +425,23 @@ async function toggleEmbeddings() {
   }
 }
 
+async function toggleEmailIntake() {
+  try {
+    const newVal = !uiStore.enableEmailIntake
+    await SystemSettingsAPI.update({ enable_email_intake: newVal })
+    uiStore.enableEmailIntake = newVal
+    uiStore.showToast(
+      newVal ? 'Email Auto-Sync enabled.' : 'Email Auto-Sync disabled.',
+      'success'
+    )
+    if (newVal && emailAccounts.value.length === 0) {
+      openAddEmailAccountModal()
+    }
+  } catch (err) {
+    uiStore.showToast('Failed to update email intake setting', 'error')
+  }
+}
+
 async function reindexMissingEmbeddings() {
   isReindexingEmbeddings.value = true
   try {
@@ -569,13 +589,72 @@ const studioForm = ref({
   provider_id: null,
   model_name: '',
   temperature: 0.2,
-  reasoning_effort: 'none', // 'none' | 'low' | 'medium' | 'high'
+  reasoning_effort: 'none', // 'none' | 'low' | 'medium' | 'high' | 'custom'
+  custom_extra_body_json: '',
   max_tokens: null,
   embedding_dimensions: 768,
   prompt_template: '',
 })
 const isSyncingStudio = ref(false)
 let studioAutoSaveTimer = null
+
+const probeLoading = ref(false)
+const probeResult = ref(null)
+const probeError = ref(null)
+
+const customExtraBodyError = computed(() => {
+  if (!studioForm.value.custom_extra_body_json?.trim()) return null
+  try {
+    const parsed = JSON.parse(studioForm.value.custom_extra_body_json.trim())
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return 'Must be a valid JSON object e.g. {"chat_template_kwargs": {"thinking": false}}'
+    }
+    return null
+  } catch (e) {
+    return `Invalid JSON: ${e.message}`
+  }
+})
+
+async function runModelProbe() {
+  if (!studioForm.value.provider_id || !studioForm.value.model_name.trim()) {
+    uiStore.showToast('Please select a provider and specify a model name first.', 'warning')
+    return
+  }
+
+  probeLoading.value = true
+  probeResult.value = null
+  probeError.value = null
+  try {
+    const res = await AIConfigAPI.probeModel(
+      studioForm.value.provider_id,
+      studioForm.value.model_name.trim()
+    )
+    probeResult.value = res.data
+    uiStore.showToast(`Probe completed for '${studioForm.value.model_name}'!`, 'success')
+  } catch (err) {
+    probeError.value = err.message || 'Model probe failed'
+    uiStore.showToast(`Model probe error: ${err.message}`, 'error')
+  } finally {
+    probeLoading.value = false
+  }
+}
+
+function applyProbeRecommendations() {
+  if (!probeResult.value) return
+  if (probeResult.value.recommended_reasoning_effort) {
+    studioForm.value.reasoning_effort = probeResult.value.recommended_reasoning_effort
+  }
+  if (probeResult.value.recommended_extra_body) {
+    studioForm.value.reasoning_effort = 'custom'
+    studioForm.value.custom_extra_body_json = JSON.stringify(
+      probeResult.value.recommended_extra_body,
+      null,
+      2
+    )
+  }
+  scheduleStudioAutoSave(50)
+  uiStore.showToast('Applied recommended reasoning configuration!', 'success')
+}
 
 function scheduleStudioAutoSave(delay = 500) {
   if (isSyncingStudio.value || loadingStudio.value) return
@@ -589,6 +668,8 @@ function scheduleStudioAutoSave(delay = 500) {
 function syncStudioForm() {
   isSyncingStudio.value = true
   if (studioAutoSaveTimer) clearTimeout(studioAutoSaveTimer)
+  probeResult.value = null
+  probeError.value = null
 
   const taskKey = selectedTaskKey.value
   const taskDef = activeTaskDef.value
@@ -613,6 +694,8 @@ function syncStudioForm() {
   studioForm.value.model_name = existingBinding?.model_name || (taskKey === 'EMBEDDING' ? 'nomic-embed-text' : 'qwen3.5-4b')
   studioForm.value.temperature = existingBinding?.temperature !== undefined ? existingBinding.temperature : defaultTemp
   studioForm.value.reasoning_effort = existingBinding?.reasoning_effort || existingBinding?.extra_kwargs?.reasoning_effort || taskDef.recommendedReasoning || 'none'
+  const customExtra = existingBinding?.custom_extra_body || existingBinding?.extra_kwargs?.custom_extra_body || null
+  studioForm.value.custom_extra_body_json = customExtra ? JSON.stringify(customExtra, null, 2) : ''
   studioForm.value.max_tokens = existingBinding?.max_tokens || null
   studioForm.value.embedding_dimensions = existingBinding?.embedding_dimensions || (taskKey === 'EMBEDDING' ? 768 : null)
 
@@ -680,6 +763,19 @@ async function saveStudioTask(isAutoSave = false) {
   const taskDef = activeTaskDef.value
 
   try {
+    let customExtraParsed = undefined
+    if (studioForm.value.custom_extra_body_json?.trim()) {
+      try {
+        customExtraParsed = JSON.parse(studioForm.value.custom_extra_body_json.trim())
+      } catch (jsonErr) {
+        if (!isAutoSave) {
+          uiStore.showToast(`Invalid Custom Extra Body JSON: ${jsonErr.message}`, 'error')
+        }
+        isSavingStudio.value = false
+        return
+      }
+    }
+
     // 1. Save Model Binding
     const useGlobal = studioForm.value.use_global_default && taskKey !== 'EMBEDDING'
     await AIConfigAPI.setBinding(taskKey, {
@@ -691,11 +787,13 @@ async function saveStudioTask(isAutoSave = false) {
         : studioForm.value.model_name.trim(),
       temperature: studioForm.value.temperature,
       reasoning_effort: studioForm.value.reasoning_effort,
+      custom_extra_body: customExtraParsed,
       max_tokens: studioForm.value.max_tokens ? Number(studioForm.value.max_tokens) : undefined,
       embedding_dimensions: taskKey === 'EMBEDDING' ? studioForm.value.embedding_dimensions : undefined,
       extra_kwargs: {
         use_global_default: useGlobal,
         reasoning_effort: studioForm.value.reasoning_effort,
+        custom_extra_body: customExtraParsed,
       },
     })
 
@@ -704,11 +802,15 @@ async function saveStudioTask(isAutoSave = false) {
       await PromptsAPI.update(taskDef.promptKey, studioForm.value.prompt_template)
     }
 
-    uiStore.showToast(`Task '${taskDef.label}' configuration saved!`, 'success')
+    if (!isAutoSave) {
+      uiStore.showToast(`Task '${taskDef.label}' configuration saved!`, 'success')
+    }
     await loadBindings()
     await loadPrompts()
   } catch (err) {
-    uiStore.showToast(err.message || 'Failed to save task configuration', 'error')
+    if (!isAutoSave) {
+      uiStore.showToast(err.message || 'Failed to save task configuration', 'error')
+    }
   } finally {
     isSavingStudio.value = false
   }
@@ -918,6 +1020,21 @@ const accountToDelete = ref(null)
 const isSavingAccount = ref(false)
 const isDeletingAccount = ref(false)
 
+const showClearAccountModal = ref(false)
+const accountToClear = ref(null)
+const isClearingAccount = ref(false)
+
+const showClearAllModal = ref(false)
+const isClearingAll = ref(false)
+
+function formatFolderDisplay(folder) {
+  if (!folder) return 'INBOX'
+  if (folder.length > 24) {
+    return folder.slice(0, 10) + '…' + folder.slice(-6)
+  }
+  return folder
+}
+
 const emailAccountForm = ref({
   name: '',
   provider_preset: 'gmail',
@@ -945,6 +1062,121 @@ const oauthConfig = ref({
 const showOAuthGuide = ref(false)
 const showClientSecret = ref(false)
 const copiedRedirectUri = ref(false)
+const availableMailFolders = ref([])
+const isLoadingFolders = ref(false)
+const isCustomFolderMode = ref(false)
+
+async function fetchEmailFolders(accountId) {
+  const id = accountId || editingAccount.value?.id
+  if (!id) return
+  isLoadingFolders.value = true
+  try {
+    const res = await EmailAccountsAPI.getFolders(id)
+    if (res.data?.folders && res.data.folders.length > 0) {
+      availableMailFolders.value = res.data.folders
+      const folderIds = availableMailFolders.value.map((f) => (typeof f === 'object' ? f.id : f))
+      if (!emailAccountForm.value.folder || !folderIds.includes(emailAccountForm.value.folder)) {
+        const first = availableMailFolders.value[0]
+        emailAccountForm.value.folder = typeof first === 'object' ? first.id : first
+      }
+    }
+  } catch (err) {
+    console.warn('Could not fetch folders:', err)
+  } finally {
+    isLoadingFolders.value = false
+  }
+}
+
+const emailModalStep = ref(1)
+const createdEmailAccountId = ref(null)
+
+const EMAIL_PROVIDER_PRESETS = [
+  {
+    key: 'gmail',
+    name: 'Google / Gmail',
+    desc: 'Personal Gmail or Google Workspace accounts',
+    auth_type: 'GMAIL_OAUTH',
+    auth_method: 'oauth',
+    defaultName: 'Gmail Inbox',
+    host: 'imap.gmail.com',
+    port: 993,
+    supportsOAuth: true,
+    badge: 'OAuth2 & App Password',
+  },
+  {
+    key: 'outlook',
+    name: 'Microsoft Outlook / 365',
+    desc: 'Personal Outlook.com, Hotmail, or Microsoft 365',
+    auth_type: 'MS_GRAPH_OAUTH',
+    auth_method: 'oauth',
+    defaultName: 'Outlook Inbox',
+    host: 'outlook.office365.com',
+    port: 993,
+    supportsOAuth: true,
+    badge: 'OAuth2 & App Password',
+  },
+  {
+    key: 'icloud',
+    name: 'Apple iCloud Mail',
+    desc: 'iCloud.com / me.com accounts with App-Specific Password',
+    auth_type: 'IMAP',
+    auth_method: 'app_password',
+    defaultName: 'iCloud Mail',
+    host: 'imap.mail.me.com',
+    port: 993,
+    supportsOAuth: false,
+    badge: 'App-Specific Password',
+  },
+  {
+    key: 'popular',
+    name: 'Fastmail / Yahoo / Proton',
+    desc: 'Fastmail, Yahoo Mail, Proton Mail Bridge, Zoho Mail',
+    auth_type: 'IMAP',
+    auth_method: 'app_password',
+    defaultName: 'Personal Mailbox',
+    host: 'imap.fastmail.com',
+    port: 993,
+    supportsOAuth: false,
+    badge: 'Direct IMAP SSL',
+  },
+  {
+    key: 'custom',
+    name: 'Custom IMAP Server',
+    desc: 'Any standard private, self-hosted, or corporate IMAP server',
+    auth_type: 'IMAP',
+    auth_method: 'app_password',
+    defaultName: 'Work Mailbox',
+    host: '',
+    port: 993,
+    supportsOAuth: false,
+    badge: 'Manual Server Setup',
+  },
+]
+
+function canNavigateToEmailStep(step) {
+  if (editingAccount.value) return true
+  if (step === 1) return true
+  if (step === 2) return true
+  if (step === 3) return !!createdEmailAccountId.value || availableMailFolders.value.length > 0
+  return false
+}
+
+function goToEmailStep(step) {
+  if (canNavigateToEmailStep(step)) {
+    emailModalStep.value = step
+  }
+}
+
+function onSelectProviderPreset(presetKey) {
+  const preset = EMAIL_PROVIDER_PRESETS.find((p) => p.key === presetKey) || EMAIL_PROVIDER_PRESETS[0]
+  emailAccountForm.value.provider_preset = preset.key
+  emailAccountForm.value.name = emailAccountForm.value.name || preset.defaultName
+  emailAccountForm.value.imap_host = preset.host || ''
+  emailAccountForm.value.imap_port = preset.port || 993
+  emailAccountForm.value.auth_method = preset.auth_method
+  emailAccountForm.value.auth_type = preset.auth_type
+  emailModalStep.value = 2
+}
 
 async function copyRedirectUri(uri) {
   if (!uri) return
@@ -1022,8 +1254,44 @@ function onAuthMethodChange(method) {
   }
 }
 
+function buildEmailAccountPayload() {
+  const isOAuth = emailAccountForm.value.auth_type === 'GMAIL_OAUTH' || emailAccountForm.value.auth_type === 'MS_GRAPH_OAUTH'
+  const fallbackUsername = isOAuth ? (editingAccount.value?.username || 'oauth_pending') : ''
+  return {
+    name: emailAccountForm.value.name.trim() || 'Recruitment Inbox',
+    auth_type: emailAccountForm.value.auth_type,
+    username: emailAccountForm.value.username.trim() || fallbackUsername,
+    app_password: emailAccountForm.value.app_password || undefined,
+    imap_host: emailAccountForm.value.imap_host.trim(),
+    imap_port: Number(emailAccountForm.value.imap_port),
+    folder: emailAccountForm.value.folder.trim() || 'INBOX',
+    client_id: emailAccountForm.value.client_id.trim() || undefined,
+    client_secret: emailAccountForm.value.client_secret.trim() || undefined,
+    sync_interval: emailAccountForm.value.sync_interval,
+    sync_schedule_time: `${emailAccountForm.value.sync_schedule_hour}:${emailAccountForm.value.sync_schedule_min}`,
+    sync_schedule_day: emailAccountForm.value.sync_schedule_day,
+    is_active: emailAccountForm.value.is_active,
+  }
+}
+
 async function startOAuthLogin(providerName) {
+  if (!emailAccountForm.value.client_id?.trim() || !emailAccountForm.value.client_secret?.trim()) {
+    uiStore.showToast('Please enter both OAuth Client ID and Client Secret before authorizing.', 'error')
+    return
+  }
+
+  isSavingAccount.value = true
   try {
+    const payload = buildEmailAccountPayload()
+    if (createdEmailAccountId.value) {
+      await EmailAccountsAPI.update(createdEmailAccountId.value, payload)
+    } else if (!editingAccount.value) {
+      const res = await EmailAccountsAPI.create(payload)
+      if (res.data?.id) createdEmailAccountId.value = res.data.id
+    } else {
+      await EmailAccountsAPI.update(editingAccount.value.id, payload)
+    }
+
     const prov = providerName || emailAccountForm.value.provider_preset
     const redirectUri = prov === 'outlook'
       ? oauthConfig.value.microsoft_redirect_uri
@@ -1036,17 +1304,24 @@ async function startOAuthLogin(providerName) {
     })
     if (res.data.auth_url) {
       window.open(res.data.auth_url, '_blank', 'width=600,height=700')
+      uiStore.showToast('Authorization window opened. Please sign in to connect.', 'info')
     } else {
       uiStore.showToast(res.data.message || 'No OAuth credentials configured.', 'info')
     }
   } catch (err) {
-    uiStore.showToast(err.message || 'Failed to initiate OAuth', 'error')
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to initiate OAuth', 'error')
+  } finally {
+    isSavingAccount.value = false
   }
 }
 
 function openAddEmailAccountModal() {
   loadOAuthConfig()
   editingAccount.value = null
+  createdEmailAccountId.value = null
+  emailModalStep.value = 1
+  availableMailFolders.value = []
+  isCustomFolderMode.value = false
   emailAccountForm.value = {
     name: 'Gmail Inbox',
     provider_preset: 'gmail',
@@ -1070,6 +1345,10 @@ function openAddEmailAccountModal() {
 
 function openEditEmailAccountModal(acc) {
   editingAccount.value = acc
+  createdEmailAccountId.value = acc.id
+  emailModalStep.value = 3
+  availableMailFolders.value = []
+  isCustomFolderMode.value = false
   let preset = 'custom'
   let method = 'app_password'
   if (acc.auth_type === 'GMAIL_OAUTH') {
@@ -1107,29 +1386,55 @@ function openEditEmailAccountModal(acc) {
     is_active: acc.is_active !== false,
   }
   isEmailAccountModalOpen.value = true
+  fetchEmailFolders(acc.id)
+}
+
+async function handleStep2NextIMAP() {
+  if (!emailAccountForm.value.username?.trim()) {
+    uiStore.showToast('Please enter your email address / login.', 'error')
+    return
+  }
+  if (!emailAccountForm.value.app_password?.trim() && !editingAccount.value) {
+    uiStore.showToast('Please enter your App Password.', 'error')
+    return
+  }
+  if (!emailAccountForm.value.imap_host?.trim()) {
+    uiStore.showToast('Please enter your IMAP host.', 'error')
+    return
+  }
+
+  isSavingAccount.value = true
+  try {
+    const payload = buildEmailAccountPayload()
+    if (editingAccount.value) {
+      await EmailAccountsAPI.update(editingAccount.value.id, payload)
+      fetchEmailFolders(editingAccount.value.id)
+    } else if (createdEmailAccountId.value) {
+      await EmailAccountsAPI.update(createdEmailAccountId.value, payload)
+      fetchEmailFolders(createdEmailAccountId.value)
+    } else {
+      const res = await EmailAccountsAPI.create(payload)
+      if (res.data?.id) {
+        createdEmailAccountId.value = res.data.id
+        fetchEmailFolders(res.data.id)
+      }
+    }
+    emailModalStep.value = 3
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to save credentials', 'error')
+  } finally {
+    isSavingAccount.value = false
+  }
 }
 
 async function saveEmailAccount() {
   isSavingAccount.value = true
   try {
-    const payload = {
-      name: emailAccountForm.value.name.trim(),
-      auth_type: emailAccountForm.value.auth_type,
-      username: emailAccountForm.value.username.trim(),
-      app_password: emailAccountForm.value.app_password || undefined,
-      imap_host: emailAccountForm.value.imap_host.trim(),
-      imap_port: Number(emailAccountForm.value.imap_port),
-      folder: emailAccountForm.value.folder.trim() || 'INBOX',
-      client_id: emailAccountForm.value.client_id.trim() || undefined,
-      client_secret: emailAccountForm.value.client_secret.trim() || undefined,
-      sync_interval: emailAccountForm.value.sync_interval,
-      sync_schedule_time: `${emailAccountForm.value.sync_schedule_hour}:${emailAccountForm.value.sync_schedule_min}`,
-      sync_schedule_day: emailAccountForm.value.sync_schedule_day,
-      is_active: emailAccountForm.value.is_active,
-    }
+    const payload = buildEmailAccountPayload()
+    const targetId = editingAccount.value?.id || createdEmailAccountId.value
 
-    if (editingAccount.value) {
-      await EmailAccountsAPI.update(editingAccount.value.id, payload)
+    if (targetId) {
+      await EmailAccountsAPI.update(targetId, payload)
       uiStore.showToast('Email account updated successfully', 'success')
     } else {
       await EmailAccountsAPI.create(payload)
@@ -1181,12 +1486,59 @@ async function confirmDeleteAccount() {
   }
 }
 
+function openClearAccountModal(acc) {
+  accountToClear.value = acc
+  showClearAccountModal.value = true
+}
+
+async function confirmClearAccountHistory() {
+  if (!accountToClear.value) return
+  isClearingAccount.value = true
+  try {
+    const res = await EmailAccountsAPI.clearHistory(accountToClear.value.id)
+    uiStore.showToast(res.data?.message || `Email sync history cleared for ${accountToClear.value.name}`, 'success')
+    showClearAccountModal.value = false
+    accountToClear.value = null
+    loadEmailAccounts()
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to clear sync history', 'error')
+  } finally {
+    isClearingAccount.value = false
+  }
+}
+
+function openClearAllModal() {
+  showClearAllModal.value = true
+}
+
+async function confirmClearAllHistory() {
+  isClearingAll.value = true
+  try {
+    const res = await EmailAccountsAPI.clearAllHistory()
+    uiStore.showToast(res.data?.message || 'All email sync history cleared across accounts', 'success')
+    showClearAllModal.value = false
+    loadEmailAccounts()
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to clear all sync history', 'error')
+  } finally {
+    isClearingAll.value = false
+  }
+}
+
 onMounted(async () => {
   window.addEventListener('message', async (event) => {
     if (event.origin !== window.location.origin || event.data?.type !== 'oauth_success') return
     uiStore.showToast('Mailbox OAuth connected successfully!', 'success')
-    isEmailAccountModalOpen.value = false
     await loadEmailAccounts()
+    if (isEmailAccountModalOpen.value) {
+      const match = emailAccounts.value.find((a) => a.id === createdEmailAccountId.value) || emailAccounts.value[emailAccounts.value.length - 1]
+      if (match) {
+        editingAccount.value = match
+        createdEmailAccountId.value = match.id
+        emailModalStep.value = 3
+        await fetchEmailFolders(match.id)
+      }
+    }
   })
 
   await Promise.all([
@@ -1352,121 +1704,6 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- COVER LETTER AUTOMATION CARD -->
-          <div class="cover-letter-control-card">
-            <div class="cover-letter-control-header">
-              <div class="cover-letter-title-group">
-                <FileText class="text-primary" :size="20" />
-                <div>
-                  <h3 class="cover-letter-title">Automated Cover Letter Generation</h3>
-                  <p class="cover-letter-desc">
-                    Automatically draft tailored cover letters during job intake when fit score meets or exceeds your threshold.
-                  </p>
-                </div>
-              </div>
-
-              <div class="cover-letter-actions">
-                <label class="switch-toggle" title="Toggle automatic cover letter generation">
-                  <input
-                    type="checkbox"
-                    :checked="enableAutoCoverLetter"
-                    :disabled="isUpdatingCoverLetterSettings"
-                    @change="toggleAutoCoverLetter"
-                  />
-                  <span class="slider round"></span>
-                </label>
-              </div>
-            </div>
-
-            <div v-if="enableAutoCoverLetter" class="cover-letter-control-body">
-              <div class="cover-letter-info-box flex-col items-start gap-2">
-                <div class="flex items-center justify-between w-full">
-                  <span class="cover-letter-status-text">
-                    Minimum Match Score Threshold: <strong>{{ coverLetterMatchThreshold }}%</strong>
-                  </span>
-                </div>
-                <div class="form-range-container w-full">
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="1"
-                    :value="coverLetterMatchThreshold"
-                    :disabled="isUpdatingCoverLetterSettings"
-                    class="form-range"
-                    @change="updateCoverLetterThreshold"
-                  />
-                </div>
-                <p class="text-xs text-muted">
-                  Jobs with fit score &ge; {{ coverLetterMatchThreshold }}% will trigger automatic cover letter drafting at the end of intake.
-                </p>
-                <div class="flex items-center justify-between w-full mt-2 pt-2 border-t border-subtle">
-                  <div class="flex flex-col">
-                    <span class="cover-letter-status-text font-semibold">
-                      Default Cover Letter Length:
-                    </span>
-                    <span class="text-xs text-muted">
-                      Target length guidelines passed into the prompt runner.
-                    </span>
-                  </div>
-                  <select
-                    :value="coverLetterLength"
-                    :disabled="isUpdatingCoverLetterSettings"
-                    class="form-select form-select-sm font-mono text-xs"
-                    @change="updateCoverLetterLength"
-                  >
-                    <option value="concise">Concise (~150 words)</option>
-                    <option value="standard">Standard (~300 words)</option>
-                    <option value="detailed">Detailed (~450 words)</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- VECTOR KNOWLEDGE & EMBEDDINGS CARD -->
-          <div class="embeddings-control-card">
-            <div class="embeddings-control-header">
-              <div class="embeddings-title-group">
-                <Cpu class="text-primary" :size="20" />
-                <div>
-                  <h3 class="embeddings-title">Vector Knowledge &amp; Embeddings</h3>
-                  <p class="embeddings-desc">
-                    Enable dense vector indexing for AI natural language search. Disable to make application intake significantly faster.
-                  </p>
-                </div>
-              </div>
-
-              <div class="embeddings-actions">
-                <label class="switch-toggle" title="Toggle Vector Embeddings generation">
-                  <input
-                    type="checkbox"
-                    :checked="enableEmbeddings"
-                    :disabled="isUpdatingEmbeddings"
-                    @change="toggleEmbeddings"
-                  />
-                  <span class="slider round"></span>
-                </label>
-              </div>
-            </div>
-
-            <div v-if="enableEmbeddings" class="embeddings-control-body">
-              <div class="embeddings-info-box">
-                <span class="embeddings-status-text">
-                  Vector Knowledge is <strong>ACTIVE</strong> — new applications automatically generate embeddings for semantic search.
-                </span>
-                <button
-                  class="btn btn-outline btn-xs"
-                  :disabled="isReindexingEmbeddings"
-                  @click="reindexMissingEmbeddings"
-                >
-                  <RefreshCw :size="12" :class="{ 'animate-spin': isReindexingEmbeddings }" />
-                  <span>{{ isReindexingEmbeddings ? 'Re-indexing...' : 'Rebuild Missing Embeddings' }}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
           <!-- ADVANCED OVERRIDES ACCORDION -->
           <div class="advanced-overrides-section">
             <button class="advanced-toggle-btn" @click="isAdvancedOpen = !isAdvancedOpen">
@@ -1592,17 +1829,30 @@ onMounted(async () => {
               <div class="input-group">
                 <div class="label-with-hint">
                   <label class="input-label">Model Identifier *</label>
-                  <button
-                    v-if="studioForm.provider_id"
-                    type="button"
-                    class="btn-refresh-models"
-                    :disabled="loadingStudioModels"
-                    @click="fetchStudioModels(studioForm.provider_id, true)"
-                    title="Auto-discover models from live endpoint"
-                  >
-                    <RefreshCw :class="{ 'animate-spin': loadingStudioModels }" :size="12" />
-                    <span>{{ loadingStudioModels ? 'Discovering...' : 'Auto-Discover' }}</span>
-                  </button>
+                  <div class="flex items-center gap-2">
+                    <button
+                      v-if="studioForm.provider_id && studioForm.model_name"
+                      type="button"
+                      class="btn-refresh-models"
+                      :disabled="probeLoading"
+                      @click="runModelProbe"
+                      title="Probe model capabilities, thinking flags, and parameters"
+                    >
+                      <Zap :class="{ 'animate-spin': probeLoading }" :size="12" />
+                      <span>{{ probeLoading ? 'Probing...' : 'Probe Capabilities' }}</span>
+                    </button>
+                    <button
+                      v-if="studioForm.provider_id"
+                      type="button"
+                      class="btn-refresh-models"
+                      :disabled="loadingStudioModels"
+                      @click="fetchStudioModels(studioForm.provider_id, true)"
+                      title="Auto-discover models from live endpoint"
+                    >
+                      <RefreshCw :class="{ 'animate-spin': loadingStudioModels }" :size="12" />
+                      <span>{{ loadingStudioModels ? 'Discovering...' : 'Auto-Discover' }}</span>
+                    </button>
+                  </div>
                 </div>
 
                 <input
@@ -1614,6 +1864,45 @@ onMounted(async () => {
                   @input="scheduleStudioAutoSave(600)"
                 />
               </div>
+            </div>
+
+            <!-- Model Probe Insights Banner -->
+            <div v-if="probeResult" class="probe-result-box mt-3 mb-2 animate-fade-in">
+              <div class="probe-result-header">
+                <div class="probe-result-title">
+                  <Sparkles :size="14" class="text-primary" />
+                  <span>Model Capability Insights: <strong>{{ probeResult.model_name }}</strong></span>
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-primary btn-xs"
+                  @click="applyProbeRecommendations"
+                >
+                  <Check :size="12" />
+                  <span>Apply Recommended Settings</span>
+                </button>
+              </div>
+
+              <div class="probe-details-grid">
+                <div class="probe-detail-item">
+                  <span class="probe-detail-label">Architecture:</span>
+                  <span class="probe-detail-val font-mono" :class="probeResult.is_reasoning_model ? 'text-warning' : 'text-success'">
+                    {{ probeResult.is_reasoning_model ? '🧠 Reasoning Architecture' : '⚡ Standard Fast LLM' }}
+                  </span>
+                </div>
+
+                <div v-if="probeResult.detected_tags?.length" class="probe-detail-item">
+                  <span class="probe-detail-label">Tags:</span>
+                  <span class="probe-detail-val font-mono text-info">{{ probeResult.detected_tags.join(', ') }}</span>
+                </div>
+
+                <div class="probe-detail-item">
+                  <span class="probe-detail-label">Reasoning Effort:</span>
+                  <span class="probe-detail-val font-mono text-primary">{{ probeResult.supports_reasoning_effort ? 'Supported' : 'Standard' }}</span>
+                </div>
+              </div>
+
+              <p v-if="probeResult.notes" class="probe-notes mt-1.5">{{ probeResult.notes }}</p>
             </div>
 
             <!-- Curated / Discovered Models Quick Pick Chips -->
@@ -1667,14 +1956,14 @@ onMounted(async () => {
                   </div>
                   <div class="reasoning-pills">
                     <button
-                      v-for="effort in ['none', 'low', 'medium', 'high']"
+                      v-for="effort in ['none', 'low', 'medium', 'high', 'custom']"
                       :key="effort"
                       type="button"
                       class="reasoning-pill font-mono"
                       :class="{ active: studioForm.reasoning_effort === effort }"
                       @click="setStudioReasoningEffort(effort)"
                     >
-                      {{ effort === 'none' ? 'None (Fast)' : effort }}
+                      {{ effort === 'none' ? 'None (Fast)' : (effort === 'custom' ? 'Custom JSON' : effort) }}
                     </button>
                   </div>
                 </div>
@@ -1695,6 +1984,24 @@ onMounted(async () => {
                     @input="scheduleStudioAutoSave(600)"
                   />
                 </div>
+              </div>
+
+              <!-- Custom Extra Body JSON (Expandable Editor) -->
+              <div v-if="studioForm.reasoning_effort === 'custom'" class="input-group mt-3 animate-fade-in">
+                <div class="label-with-hint">
+                  <label class="input-label">Custom Request Extra Body (JSON)</label>
+                  <span class="text-xs text-muted">Pass engine-specific parameters like <code>chat_template_kwargs</code> or <code>thinking</code></span>
+                </div>
+                <textarea
+                  v-model="studioForm.custom_extra_body_json"
+                  rows="3"
+                  class="form-input font-mono text-xs"
+                  placeholder='{\n  "chat_template_kwargs": { "thinking": false }\n}'
+                  @input="scheduleStudioAutoSave(800)"
+                ></textarea>
+                <span v-if="customExtraBodyError" class="text-xs text-danger mt-1">
+                  {{ customExtraBodyError }}
+                </span>
               </div>
 
               <!-- Sampling Temperature Slider -->
@@ -1778,7 +2085,7 @@ onMounted(async () => {
     <div v-else-if="activeTab === 'providers'" class="tab-content animate-fade-in">
       <div class="section-card">
         <div class="section-header-row">
-          <div>
+          <div class="section-header-text">
             <h3>Configured AI Providers</h3>
             <p>Connect local endpoints (LM Studio, Ollama, vLLM) or Cloud APIs (OpenAI, Anthropic, Gemini, OpenRouter).</p>
           </div>
@@ -1859,44 +2166,80 @@ onMounted(async () => {
     <div v-else-if="activeTab === 'email_accounts'" class="tab-content animate-fade-in">
       <div class="section-card">
         <div class="section-header-row">
-          <div>
+          <div class="section-header-text">
             <h3>Connected Mailboxes &amp; Sync Schedule</h3>
             <p>Connect mailboxes via 1-Click OAuth (Google / Microsoft) or IMAP, and configure automated background sync schedules.</p>
           </div>
-          <button class="btn btn-primary btn-sm" @click="openAddEmailAccountModal">
-            <Plus :size="15" />
-            <span>Connect Account</span>
-          </button>
+          <div class="section-header-actions">
+            <button
+              v-if="emailAccounts.length > 0 && uiStore.enableEmailIntake"
+              class="btn btn-secondary btn-sm"
+              @click="openClearAllModal"
+              title="Clear all email deduplication history across accounts"
+            >
+              <RotateCcw :size="14" />
+              <span>Clear All Sync History</span>
+            </button>
+            <div class="email-sync-toggle-pill">
+              <span class="sync-status-label">
+                Auto-Sync:
+                <strong :class="uiStore.enableEmailIntake ? 'text-success' : 'text-muted'">
+                  {{ uiStore.enableEmailIntake ? 'Active' : 'Paused' }}
+                </strong>
+              </span>
+              <label class="switch-toggle" title="Toggle automatic email syncing">
+                <input
+                  type="checkbox"
+                  :checked="uiStore.enableEmailIntake"
+                  @change="toggleEmailIntake"
+                />
+                <span class="slider round"></span>
+              </label>
+            </div>
+            <button class="btn btn-primary btn-sm" @click="openAddEmailAccountModal">
+              <Plus :size="15" />
+              <span>Connect Account</span>
+            </button>
+          </div>
         </div>
 
-        <div class="accounts-grid">
+        <!-- Accounts Grid (Collapsed when auto-sync is off) -->
+        <div v-if="uiStore.enableEmailIntake" class="accounts-grid animate-fade-in">
           <div v-for="acc in emailAccounts" :key="acc.id" class="account-card">
             <div class="account-card-header">
               <div class="account-title-row">
-                <Mail :size="16" class="text-primary" />
-                <span class="account-name">{{ acc.name }}</span>
+                <div class="account-icon-wrap">
+                  <Mail :size="15" class="text-primary" />
+                </div>
+                <div class="account-name-group">
+                  <span class="account-name">{{ acc.name }}</span>
+                </div>
               </div>
               <span class="badge badge-applied font-mono">{{ acc.auth_type }}</span>
             </div>
 
             <div class="account-card-body">
               <div class="meta-row">
-                <span class="meta-k">Username:</span>
-                <span class="meta-v font-mono">{{ acc.username }}</span>
+                <span class="meta-k">Username</span>
+                <span class="meta-v font-mono" :title="acc.username">{{ acc.username }}</span>
               </div>
               <div class="meta-row">
-                <span class="meta-k">Folder:</span>
-                <span class="meta-v font-mono">{{ acc.folder }}</span>
+                <span class="meta-k">Folder</span>
+                <span class="meta-v font-mono" :title="acc.folder">{{ formatFolderDisplay(acc.folder) }}</span>
               </div>
               <div class="meta-row">
-                <span class="meta-k">Sync Interval:</span>
+                <span class="meta-k">Sync Interval</span>
                 <span class="meta-v font-mono">{{ acc.sync_interval || '1h' }}</span>
+              </div>
+              <div v-if="acc.last_synced_at" class="meta-row">
+                <span class="meta-k">Last Synced</span>
+                <span class="meta-v text-muted">{{ new Date(acc.last_synced_at).toLocaleDateString() }} {{ new Date(acc.last_synced_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</span>
               </div>
             </div>
 
             <div class="account-actions">
               <button
-                class="btn btn-primary btn-sm"
+                class="btn btn-primary btn-sm btn-sync-action"
                 :disabled="syncingAccount === acc.id"
                 @click="triggerSync(acc)"
               >
@@ -1905,12 +2248,11 @@ onMounted(async () => {
                 <span>{{ syncingAccount === acc.id ? 'Syncing...' : 'Sync Now' }}</span>
               </button>
 
-              <button class="btn btn-secondary btn-sm" @click="openEditEmailAccountModal(acc)">
+              <button class="btn btn-secondary btn-sm btn-icon" title="Edit mailbox settings" @click="openEditEmailAccountModal(acc)">
                 <Edit3 :size="14" />
-                <span>Edit</span>
               </button>
 
-              <button class="btn btn-danger btn-sm" @click="openDeleteAccountModal(acc)">
+              <button class="btn btn-danger btn-sm btn-icon" title="Remove mailbox" @click="openDeleteAccountModal(acc)">
                 <Trash2 :size="14" />
               </button>
             </div>
@@ -1932,69 +2274,128 @@ onMounted(async () => {
       <div class="section-card">
         <div class="card-intro">
           <h3>System &amp; Workspace Preferences</h3>
-          <p>Configure default currency for offers and salaries, interface view mode, and appearance settings.</p>
+          <p>Configure global defaults, intake automations, telemetry, and background indexing.</p>
         </div>
 
         <div class="preferences-grid">
-          <!-- Diagnostics Export Card -->
-          <div class="preference-card">
-            <div class="preference-header">
-              <div class="preference-icon text-primary">
-                <Save :size="18" />
-              </div>
-              <div>
-                <h4 class="preference-title">Diagnostics & Telemetry</h4>
-                <p class="preference-desc">Monitor LangGraph execution telemetry, trace errors, and export zip logs.</p>
-              </div>
-            </div>
-            <div style="margin-top: 1rem; display: flex; gap: 8px;">
-              <button class="btn btn-primary" @click="$router.push('/diagnostics')">
-                View Dashboard
-              </button>
-              <button class="btn btn-outline" @click="exportDiagnostics" :disabled="isExporting">
-                <Loader2 v-if="isExporting" class="animate-spin" :size="14" />
-                <span v-else>Download Logs</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Currency Setting Card -->
+          <!-- 1. Default System Currency Card -->
           <div class="preference-card">
             <div class="preference-header">
               <div class="preference-icon text-primary">
                 <DollarSign :size="18" />
               </div>
-              <div>
-                <h4 class="preference-title">Default System Currency</h4>
-                <p class="preference-desc">Used as the default currency for salary inputs, offer packages, and compensation ranges.</p>
+              <div class="preference-header-text">
+                <h4 class="preference-title">Default Currency</h4>
+                <p class="preference-desc">Standard currency unit for compensation ranges, salary inputs, and offer packages.</p>
               </div>
             </div>
-
-            <div class="currency-chips-grid">
-              <button
-                v-for="c in uiStore.SUPPORTED_CURRENCIES"
-                :key="c.code"
-                type="button"
-                class="currency-chip"
-                :class="{ active: uiStore.defaultCurrency === c.code }"
-                @click="uiStore.setDefaultCurrency(c.code)"
-              >
-                <span class="chip-code">{{ c.code }}</span>
-                <span class="chip-symbol">{{ c.symbol }}</span>
-              </button>
+            <div class="preference-body">
+              <div class="input-group">
+                <div class="label-with-hint">
+                  <label class="input-label">Base Currency</label>
+                </div>
+                <select
+                  class="form-input"
+                  :value="uiStore.defaultCurrency"
+                  @change="e => uiStore.setDefaultCurrency(e.target.value)"
+                >
+                  <option
+                    v-for="c in uiStore.SUPPORTED_CURRENCIES"
+                    :key="c.code"
+                    :value="c.code"
+                  >
+                    {{ c.code }} ({{ c.symbol }})
+                  </option>
+                </select>
+                <span class="preference-field-hint">
+                  Used for automatic currency normalization during job intake.
+                </span>
+              </div>
             </div>
           </div>
 
-          <!-- Application Auto-Archiver Card -->
+          <!-- 2. Automated Cover Letter Generation Card -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <FileText :size="18" />
+              </div>
+              <div class="preference-header-text">
+                <div class="preference-header-between">
+                  <h4 class="preference-title">Automated Cover Letters</h4>
+                  <label class="switch-toggle" title="Toggle automatic cover letter generation">
+                    <input
+                      type="checkbox"
+                      :checked="enableAutoCoverLetter"
+                      :disabled="isUpdatingCoverLetterSettings"
+                      @change="toggleAutoCoverLetter"
+                    />
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+                <p class="preference-desc">Automatically drafts tailored cover letters during intake when fit score meets your threshold.</p>
+              </div>
+            </div>
+
+            <div class="preference-body" :class="{ 'is-disabled': !enableAutoCoverLetter }">
+              <div class="cover-letter-pref-grid">
+                <!-- Minimum Match Score Threshold -->
+                <div class="input-group">
+                  <div class="label-with-hint">
+                    <label class="input-label">Match Threshold</label>
+                  </div>
+                  <div class="threshold-slider-control">
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      :value="coverLetterMatchThreshold"
+                      :disabled="!enableAutoCoverLetter || isUpdatingCoverLetterSettings"
+                      class="form-range cover-letter-slider"
+                      @input="coverLetterMatchThreshold = Number($event.target.value)"
+                      @change="updateCoverLetterThreshold"
+                    />
+                    <span class="threshold-badge">{{ coverLetterMatchThreshold }}%</span>
+                  </div>
+                  <span class="preference-field-hint">
+                    Minimum score to trigger drafting.
+                  </span>
+                </div>
+
+                <!-- Default Cover Letter Length -->
+                <div class="input-group">
+                  <div class="label-with-hint">
+                    <label class="input-label">Target Length</label>
+                  </div>
+                  <select
+                    :value="coverLetterLength"
+                    :disabled="!enableAutoCoverLetter || isUpdatingCoverLetterSettings"
+                    class="form-input"
+                    @change="updateCoverLetterLength"
+                  >
+                    <option value="concise">Concise (~150w)</option>
+                    <option value="standard">Standard (~300w)</option>
+                    <option value="detailed">Detailed (~450w)</option>
+                  </select>
+                  <span class="preference-field-hint">
+                    Word count passed to generation prompt.
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. Application Auto-Archiver Card -->
           <div class="preference-card">
             <div class="preference-header">
               <div class="preference-icon text-primary">
                 <Archive :size="18" />
               </div>
-              <div style="flex: 1;">
+              <div class="preference-header-text">
                 <div class="preference-header-between">
                   <h4 class="preference-title">Application Auto-Archiver</h4>
-                  <label class="switch-toggle">
+                  <label class="switch-toggle" title="Toggle application auto-archiving">
                     <input
                       type="checkbox"
                       :checked="uiStore.autoArchiveEnabled"
@@ -2003,16 +2404,19 @@ onMounted(async () => {
                     <span class="slider round"></span>
                   </label>
                 </div>
-                <p class="preference-desc">Automatically moves inactive applications in the Applied stage to the Archived/Rejected tab.</p>
+                <p class="preference-desc">Moves stale applications in the Applied stage to the Archived tab after a period of inactivity.</p>
               </div>
             </div>
 
-            <div v-if="uiStore.autoArchiveEnabled" style="margin-top: 12px;">
+            <div class="preference-body" :class="{ 'is-disabled': !uiStore.autoArchiveEnabled }">
               <div class="input-group">
-                <label class="input-label">Inactivity Threshold</label>
+                <div class="label-with-hint">
+                  <label class="input-label">Inactivity Window</label>
+                </div>
                 <select
                   class="form-input"
                   :value="uiStore.autoArchiveDays"
+                  :disabled="!uiStore.autoArchiveEnabled"
                   @change="e => uiStore.setAutoArchiveDays(parseInt(e.target.value))"
                 >
                   <option :value="14">14 days</option>
@@ -2021,6 +2425,111 @@ onMounted(async () => {
                   <option :value="60">60 days</option>
                   <option :value="90">90 days</option>
                 </select>
+                <span class="preference-field-hint">
+                  Active applications with scheduled interviews or pending tasks are never archived.
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 4. Vector Knowledge & Embeddings Card -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <Cpu :size="18" />
+              </div>
+              <div class="preference-header-text">
+                <div class="preference-header-between">
+                  <h4 class="preference-title">Vector Embeddings</h4>
+                  <label class="switch-toggle" title="Toggle Vector Embeddings generation">
+                    <input
+                      type="checkbox"
+                      :checked="enableEmbeddings"
+                      :disabled="isUpdatingEmbeddings"
+                      @change="toggleEmbeddings"
+                    />
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+                <p class="preference-desc">Dense vector indexing for semantic job matching and search. Disable to speed up intake.</p>
+              </div>
+            </div>
+
+            <div class="preference-body" :class="{ 'is-disabled': !enableEmbeddings }">
+              <div class="input-group">
+                <div class="label-with-hint">
+                  <label class="input-label">pgvector Index</label>
+                </div>
+                <button
+                  class="btn btn-secondary btn-sm w-full"
+                  :disabled="!enableEmbeddings || isReindexingEmbeddings"
+                  @click="reindexMissingEmbeddings"
+                >
+                  <RefreshCw :size="13" :class="{ 'animate-spin': isReindexingEmbeddings }" />
+                  <span>{{ isReindexingEmbeddings ? 'Re-indexing Embeddings...' : 'Rebuild Missing Embeddings' }}</span>
+                </button>
+                <span class="preference-field-hint">
+                  Backfills vector embeddings across all existing applications.
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 5. Diagnostics & Telemetry Card -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <Activity :size="18" />
+              </div>
+              <div class="preference-header-text">
+                <h4 class="preference-title">Diagnostics &amp; Telemetry</h4>
+                <p class="preference-desc">Real-time AI pipeline traces, API latency logs, and system execution diagnostics.</p>
+              </div>
+            </div>
+            <div class="preference-body">
+              <div class="input-group">
+                <div class="label-with-hint">
+                  <label class="input-label">System Telemetry</label>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button class="btn btn-primary btn-sm flex-1" @click="$router.push('/diagnostics')">
+                    View Dashboard
+                  </button>
+                  <button class="btn btn-outline btn-sm flex-1" @click="exportDiagnostics" :disabled="isExporting">
+                    <Loader2 v-if="isExporting" class="animate-spin" :size="14" />
+                    <span v-else>Download Logs</span>
+                  </button>
+                </div>
+                <span class="preference-field-hint">
+                  Export bundled JSON logs for offline inspection or troubleshooting.
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 6. Guided Setup & Onboarding Wizard Card -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <Sparkles :size="18" />
+              </div>
+              <div class="preference-header-text">
+                <h4 class="preference-title">Guided Setup Wizard</h4>
+                <p class="preference-desc">Step-by-step assistant for configuring AI providers, candidate CV profile, and system feature flags.</p>
+              </div>
+            </div>
+            <div class="preference-body">
+              <div class="input-group">
+                <div class="label-with-hint">
+                  <label class="input-label">Onboarding Assistant</label>
+                </div>
+                <button class="btn btn-primary btn-sm w-full" @click="uiStore.openOnboardingWizard()">
+                  <Sparkles :size="14" />
+                  <span>Launch Setup Wizard</span>
+                </button>
+                <span class="preference-field-hint">
+                  Safely reconfigures preferences without modifying existing application records.
+                </span>
               </div>
             </div>
           </div>
@@ -2095,7 +2604,7 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- EMAIL ACCOUNT MODAL -->
+    <!-- EMAIL ACCOUNT MODAL (3-STEP WIZARD) -->
     <div v-if="isEmailAccountModalOpen" class="modal-backdrop" @click.self="isEmailAccountModalOpen = false">
       <div class="modal-card modal-lg animate-fade-in">
         <div class="modal-header">
@@ -2103,302 +2612,562 @@ onMounted(async () => {
           <button class="btn-close" @click="isEmailAccountModalOpen = false">×</button>
         </div>
 
+        <!-- Stepper Header -->
+        <div class="modal-stepper-header">
+          <div class="stepper-track">
+            <button
+              type="button"
+              class="stepper-item"
+              :class="{
+                active: emailModalStep === 1,
+                completed: emailModalStep > 1,
+                clickable: canNavigateToEmailStep(1)
+              }"
+              :disabled="!canNavigateToEmailStep(1)"
+              @click="goToEmailStep(1)"
+            >
+              <div class="stepper-circle">
+                <Check v-if="emailModalStep > 1" :size="12" />
+                <span v-else>1</span>
+              </div>
+              <span class="stepper-label">1. Provider</span>
+            </button>
+
+            <div class="stepper-line" :class="{ completed: emailModalStep > 1 }"></div>
+
+            <button
+              type="button"
+              class="stepper-item"
+              :class="{
+                active: emailModalStep === 2,
+                completed: emailModalStep > 2,
+                clickable: canNavigateToEmailStep(2)
+              }"
+              :disabled="!canNavigateToEmailStep(2)"
+              @click="goToEmailStep(2)"
+            >
+              <div class="stepper-circle">
+                <Check v-if="emailModalStep > 2" :size="12" />
+                <span v-else>2</span>
+              </div>
+              <span class="stepper-label">2. Credentials</span>
+            </button>
+
+            <div class="stepper-line" :class="{ completed: emailModalStep > 2 }"></div>
+
+            <button
+              type="button"
+              class="stepper-item"
+              :class="{
+                active: emailModalStep === 3,
+                completed: emailModalStep === 3 && editingAccount,
+                clickable: canNavigateToEmailStep(3)
+              }"
+              :disabled="!canNavigateToEmailStep(3)"
+              @click="goToEmailStep(3)"
+            >
+              <div class="stepper-circle">
+                <span>3</span>
+              </div>
+              <span class="stepper-label">3. Sync &amp; Folders</span>
+            </button>
+          </div>
+        </div>
+
         <div class="modal-body">
-          <!-- Step 1: Provider Presets -->
-          <div class="input-group">
-            <label class="input-label">Select Email Provider</label>
-            <div class="provider-presets-grid">
-              <button
-                type="button"
-                class="provider-preset-card"
-                :class="{ active: emailAccountForm.provider_preset === 'gmail' }"
-                @click="onProviderPresetChange('gmail')"
-              >
-                <div class="preset-icon gmail-icon"><Mail :size="18" /></div>
-                <div class="preset-info">
-                  <span class="preset-name">Google Gmail</span>
-                  <span class="preset-sub">OAuth2 or App Password</span>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                class="provider-preset-card"
-                :class="{ active: emailAccountForm.provider_preset === 'outlook' }"
-                @click="onProviderPresetChange('outlook')"
-              >
-                <div class="preset-icon outlook-icon"><Mail :size="18" /></div>
-                <div class="preset-info">
-                  <span class="preset-name">Microsoft Outlook</span>
-                  <span class="preset-sub">MS Graph OAuth2 or IMAP</span>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                class="provider-preset-card"
-                :class="{ active: emailAccountForm.provider_preset === 'custom' }"
-                @click="onProviderPresetChange('custom')"
-              >
-                <div class="preset-icon imap-icon"><Server :size="18" /></div>
-                <div class="preset-info">
-                  <span class="preset-name">Custom IMAP</span>
-                  <span class="preset-sub">iCloud, Fastmail, Yahoo</span>
-                </div>
-              </button>
-            </div>
-          </div>
-
-          <!-- Step 2: Auth Method Toggle (if Gmail or Outlook) -->
-          <div v-if="emailAccountForm.provider_preset !== 'custom'" class="input-group">
-            <label class="input-label">Authentication Method</label>
-            <div class="auth-method-toggle">
-              <button
-                type="button"
-                class="auth-toggle-btn"
-                :class="{ active: emailAccountForm.auth_method === 'oauth' }"
-                @click="onAuthMethodChange('oauth')"
-              >
-                <Lock :size="14" />
-                <span>OAuth2 Connect <span class="auth-badge recommended">Recommended</span></span>
-              </button>
-              <button
-                type="button"
-                class="auth-toggle-btn"
-                :class="{ active: emailAccountForm.auth_method === 'app_password' }"
-                @click="onAuthMethodChange('app_password')"
-              >
-                <Key :size="14" />
-                <span>Email &amp; App Password</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- OAuth2 Mode Fields & Guide -->
-          <template v-if="emailAccountForm.auth_method === 'oauth' && emailAccountForm.provider_preset !== 'custom'">
-            <!-- Authorized Redirect URI Box -->
-            <div class="oauth-redirect-box">
-              <div class="label-with-hint mb-1">
-                <span class="redirect-uri-label">Authorized Redirect URI (Copy to Console)</span>
-                <button
-                  type="button"
-                  class="btn-copy-uri"
-                  @click="copyRedirectUri(emailAccountForm.provider_preset === 'outlook' ? oauthConfig.microsoft_redirect_uri : oauthConfig.google_redirect_uri)"
-                >
-                  <Check v-if="copiedRedirectUri" :size="12" class="text-success" />
-                  <Copy v-else :size="12" />
-                  <span>{{ copiedRedirectUri ? 'Copied!' : 'Copy URI' }}</span>
-                </button>
-              </div>
-              <div class="uri-display font-mono">
-                {{ emailAccountForm.provider_preset === 'outlook' ? oauthConfig.microsoft_redirect_uri : oauthConfig.google_redirect_uri }}
-              </div>
+          <!-- STEP 1: SELECT PROVIDER -->
+          <div v-if="emailModalStep === 1" class="step-content animate-fade-in">
+            <div class="step-intro-text mb-3">
+              <h4 class="text-sm font-semibold text-main mb-0.5">Select Email Service Provider</h4>
+              <p class="text-xs text-secondary mb-0">Choose your mail host to automatically load recommended connection settings.</p>
             </div>
 
-            <!-- Collapsible OAuth Setup Guide -->
-            <div class="oauth-guide-card">
+            <!-- Provider Presets Grid (5 Cards) -->
+            <div class="provider-presets-grid-5 mt-4">
               <button
+                v-for="provider in EMAIL_PROVIDER_PRESETS"
+                :key="provider.key"
                 type="button"
-                class="guide-toggle-header"
-                @click="showOAuthGuide = !showOAuthGuide"
+                class="email-provider-card"
+                :class="{ active: emailAccountForm.provider_preset === provider.key }"
+                @click="onSelectProviderPreset(provider.key)"
               >
-                <div class="flex items-center gap-2">
-                  <Info :size="14" class="text-primary" />
-                  <span class="font-semibold text-xs text-main">
-                    {{ emailAccountForm.provider_preset === 'gmail' ? 'Google Cloud OAuth Setup Guide' : 'Microsoft Entra ID / Azure OAuth Setup Guide' }}
+                <div class="provider-card-header">
+                  <div class="provider-icon-badge">
+                    <Mail v-if="provider.key === 'gmail' || provider.key === 'outlook'" :size="20" class="text-primary" />
+                    <Server v-else :size="20" class="text-primary" />
+                  </div>
+                  <span class="provider-auth-badge">{{ provider.badge }}</span>
+                </div>
+
+                <div class="provider-card-body">
+                  <h4 class="provider-card-title">{{ provider.name }}</h4>
+                  <p class="provider-card-desc">{{ provider.desc }}</p>
+                </div>
+
+                <div class="provider-card-footer">
+                  <div class="selection-radio" :class="{ 'radio-checked': emailAccountForm.provider_preset === provider.key }">
+                    <div v-if="emailAccountForm.provider_preset === provider.key" class="radio-inner" />
+                  </div>
+                  <span class="text-xs font-semibold" :class="emailAccountForm.provider_preset === provider.key ? 'text-primary' : 'text-secondary'">
+                    {{ emailAccountForm.provider_preset === provider.key ? 'Selected' : 'Select' }}
                   </span>
                 </div>
-                <component :is="showOAuthGuide ? ChevronUp : ChevronDown" :size="14" class="text-muted" />
               </button>
+            </div>
 
-              <div v-if="showOAuthGuide" class="guide-content animate-fade-in">
-                <ol v-if="emailAccountForm.provider_preset === 'gmail'" class="guide-steps-list">
-                  <li>
-                    Go to the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="guide-link">Google Cloud Console <ExternalLink :size="10" /></a> and create or select a project.
-                  </li>
-                  <li>Enable the <strong>Gmail API</strong> in APIs &amp; Services &gt; Library.</li>
-                  <li>In <strong>OAuth consent screen</strong>, select User Type: <em>External</em>, and add the scopes: <code>https://www.googleapis.com/auth/gmail.readonly</code> and <code>https://www.googleapis.com/auth/userinfo.email</code>.</li>
-                  <li>In <strong>Credentials</strong>, click <em>Create Credentials</em> &gt; <em>OAuth Client ID</em> (Application type: <strong>Web application</strong>).</li>
-                  <li>Add the <strong>Authorized Redirect URI</strong> displayed above, then copy your Client ID and Client Secret below.</li>
-                </ol>
+            <div class="modal-actions mt-5 flex justify-between">
+              <button type="button" class="btn btn-secondary" @click="isEmailAccountModalOpen = false">Cancel</button>
+              <button type="button" class="btn btn-primary" @click="emailModalStep = 2">
+                <span>Continue to Credentials</span>
+                <ArrowRight :size="14" />
+              </button>
+            </div>
+          </div>
 
-                <ol v-else class="guide-steps-list">
-                  <li>
-                    Open the <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener" class="guide-link">Azure Portal / Entra ID <ExternalLink :size="10" /></a> &gt; <strong>App registrations</strong> &gt; <strong>New registration</strong>.
-                  </li>
-                  <li>Set Supported account types to <em>Accounts in any organizational directory and personal Microsoft accounts</em>.</li>
-                  <li>Set Redirect URI Platform to <strong>Web</strong> and paste the Authorized Redirect URI shown above.</li>
-                  <li>Under <strong>API permissions</strong>, add Delegated permissions: <code>Mail.Read</code>, <code>User.Read</code>, and <code>offline_access</code>.</li>
-                  <li>Under <strong>Certificates &amp; secrets</strong>, generate a new Client Secret and paste the value below.</li>
-                </ol>
+          <!-- STEP 2: CREDENTIALS & AUTHENTICATION -->
+          <div v-else-if="emailModalStep === 2" class="step-content animate-fade-in">
+            <!-- Auth Method Toggle (if Gmail or Outlook) -->
+            <div v-if="emailAccountForm.provider_preset === 'gmail' || emailAccountForm.provider_preset === 'outlook'" class="input-group">
+              <label class="input-label">Authentication Method</label>
+              <div class="auth-method-toggle">
+                <button
+                  type="button"
+                  class="auth-toggle-btn"
+                  :class="{ active: emailAccountForm.auth_method === 'oauth' }"
+                  @click="onAuthMethodChange('oauth')"
+                >
+                  <Lock :size="14" />
+                  <span>OAuth2 Connect <span class="auth-badge recommended">Recommended</span></span>
+                </button>
+                <button
+                  type="button"
+                  class="auth-toggle-btn"
+                  :class="{ active: emailAccountForm.auth_method === 'app_password' }"
+                  @click="onAuthMethodChange('app_password')"
+                >
+                  <Key :size="14" />
+                  <span>Email &amp; App Password</span>
+                </button>
               </div>
             </div>
 
-            <!-- OAuth Form Fields -->
-            <div class="form-grid-2">
+            <!-- OAuth2 Mode -->
+            <template v-if="emailAccountForm.auth_method === 'oauth' && (emailAccountForm.provider_preset === 'gmail' || emailAccountForm.provider_preset === 'outlook')">
+              <!-- Authorized Redirect URI Box -->
+              <div class="oauth-redirect-box">
+                <div class="label-with-hint mb-1">
+                  <span class="redirect-uri-label">Authorized Redirect URI (Copy to Console)</span>
+                  <button
+                    type="button"
+                    class="btn-copy-uri"
+                    @click="copyRedirectUri(emailAccountForm.provider_preset === 'outlook' ? oauthConfig.microsoft_redirect_uri : oauthConfig.google_redirect_uri)"
+                  >
+                    <Check v-if="copiedRedirectUri" :size="12" class="text-success" />
+                    <Copy v-else :size="12" />
+                    <span>{{ copiedRedirectUri ? 'Copied!' : 'Copy URI' }}</span>
+                  </button>
+                </div>
+                <div class="uri-display font-mono">
+                  {{ emailAccountForm.provider_preset === 'outlook' ? oauthConfig.microsoft_redirect_uri : oauthConfig.google_redirect_uri }}
+                </div>
+              </div>
+
+              <!-- Collapsible OAuth Setup Guide -->
+              <div class="oauth-guide-card">
+                <button
+                  type="button"
+                  class="guide-toggle-header"
+                  @click="showOAuthGuide = !showOAuthGuide"
+                >
+                  <div class="flex items-center gap-2">
+                    <Info :size="14" class="text-primary" />
+                    <span class="font-semibold text-xs text-main">
+                      {{ emailAccountForm.provider_preset === 'gmail' ? 'Google Cloud OAuth Setup Guide' : 'Microsoft Entra ID / Azure OAuth Setup Guide' }}
+                    </span>
+                  </div>
+                  <component :is="showOAuthGuide ? ChevronUp : ChevronDown" :size="14" class="text-muted" />
+                </button>
+
+                <div v-if="showOAuthGuide" class="guide-content animate-fade-in">
+                  <ol v-if="emailAccountForm.provider_preset === 'gmail'" class="guide-steps-list">
+                    <li>Go to the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="guide-link">Google Cloud Console <ExternalLink :size="10" /></a> and create or select a project.</li>
+                    <li>Enable the <strong>Gmail API</strong> in APIs &amp; Services &gt; Library.</li>
+                    <li>In <strong>OAuth consent screen</strong>, select User Type: <em>External</em>, and add the scopes: <code>https://www.googleapis.com/auth/gmail.readonly</code> and <code>https://www.googleapis.com/auth/userinfo.email</code>.</li>
+                    <li>In <strong>Credentials</strong>, click <em>Create Credentials</em> &gt; <em>OAuth Client ID</em> (Application type: <strong>Web application</strong>).</li>
+                    <li>Add the <strong>Authorized Redirect URI</strong> displayed above, then copy your Client ID and Client Secret below.</li>
+                  </ol>
+
+                  <ol v-else class="guide-steps-list">
+                    <li>Open the <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener" class="guide-link">Azure Portal / Entra ID <ExternalLink :size="10" /></a> &gt; <strong>App registrations</strong> &gt; <strong>New registration</strong>.</li>
+                    <li>Set Supported account types to <em>Accounts in any organizational directory and personal Microsoft accounts</em>.</li>
+                    <li>Set Redirect URI Platform to <strong>Web</strong> and paste the Authorized Redirect URI shown above.</li>
+                    <li>Under <strong>API permissions</strong>, add Delegated permissions: <code>Mail.Read</code>, <code>User.Read</code>, and <code>offline_access</code>.</li>
+                    <li>Under <strong>Certificates &amp; secrets</strong>, generate a new Client Secret and paste the value below.</li>
+                  </ol>
+                </div>
+              </div>
+
+              <!-- OAuth Form Fields -->
               <div class="input-group">
                 <label class="input-label">Account Label *</label>
                 <input v-model="emailAccountForm.name" type="text" placeholder="e.g. Personal Gmail" class="form-input" required />
               </div>
 
               <div class="input-group">
-                <label class="input-label">Sync Interval</label>
+                <label class="input-label">OAuth Client ID *</label>
+                <input
+                  v-model="emailAccountForm.client_id"
+                  type="text"
+                  :placeholder="emailAccountForm.provider_preset === 'gmail' ? 'e.g. 12345-abc.apps.googleusercontent.com' : 'e.g. 00000000-0000-0000-0000-000000000000'"
+                  class="form-input font-mono"
+                  required
+                />
+              </div>
+
+              <div class="input-group">
+                <label class="input-label">OAuth Client Secret *</label>
+                <div class="input-with-action">
+                  <input
+                    v-model="emailAccountForm.client_secret"
+                    :type="showClientSecret ? 'text' : 'password'"
+                    placeholder="Enter client secret"
+                    class="form-input font-mono flex-1"
+                    required
+                  />
+                  <button
+                    type="button"
+                    class="btn-input-action"
+                    @click="showClientSecret = !showClientSecret"
+                    tabindex="-1"
+                  >
+                    <component :is="showClientSecret ? EyeOff : Eye" :size="14" />
+                  </button>
+                </div>
+              </div>
+
+              <div class="modal-actions mt-4 flex justify-between">
+                <button type="button" class="btn btn-secondary" @click="emailModalStep = 1">
+                  <ArrowLeft :size="14" />
+                  <span>Back to Providers</span>
+                </button>
+
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    class="btn btn-primary"
+                    :disabled="isSavingAccount"
+                    @click="startOAuthLogin(emailAccountForm.provider_preset)"
+                  >
+                    <Loader2 v-if="isSavingAccount" class="animate-spin" :size="14" />
+                    <Lock v-else :size="14" />
+                    <span>Authorize &amp; Set Preferences</span>
+                  </button>
+                </div>
+              </div>
+            </template>
+
+            <!-- App Password / Direct IMAP Mode -->
+            <template v-else>
+              <!-- App Password Callout only for 2FA Gmail / Outlook -->
+              <div v-if="emailAccountForm.provider_preset === 'gmail' || emailAccountForm.provider_preset === 'outlook'" class="app-password-callout">
+                <Info :size="14" class="text-primary flex-shrink-0 mt-0.5" />
+                <div class="text-xs text-secondary leading-relaxed">
+                  <span v-if="emailAccountForm.provider_preset === 'gmail'">
+                    Google requires an <strong>App Password</strong> if 2-Step Verification is enabled. Generate one at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" class="guide-link">Google Account Security <ExternalLink :size="10" /></a>.
+                  </span>
+                  <span v-else-if="emailAccountForm.provider_preset === 'outlook'">
+                    Microsoft accounts with 2FA require generating an App Password in your Microsoft Account Security settings.
+                  </span>
+                </div>
+              </div>
+
+              <div class="form-grid-2">
+                <div class="input-group">
+                  <label class="input-label">Account Label *</label>
+                  <input v-model="emailAccountForm.name" type="text" placeholder="e.g. Work Mailbox" class="form-input" required />
+                </div>
+
+                <div class="input-group">
+                  <label class="input-label">Email Address / Login *</label>
+                  <input v-model="emailAccountForm.username" type="email" placeholder="user@domain.com" class="form-input" required />
+                </div>
+              </div>
+
+              <div class="input-group">
+                <label class="input-label">App Password / Password *</label>
+                <div class="input-with-action">
+                  <input
+                    v-model="emailAccountForm.app_password"
+                    :type="showClientSecret ? 'text' : 'password'"
+                    placeholder="••••••••••••••••"
+                    class="form-input font-mono flex-1"
+                    required
+                  />
+                  <button
+                    type="button"
+                    class="btn-input-action"
+                    @click="showClientSecret = !showClientSecret"
+                    tabindex="-1"
+                  >
+                    <component :is="showClientSecret ? EyeOff : Eye" :size="14" />
+                  </button>
+                </div>
+              </div>
+
+              <div class="form-grid-2">
+                <div class="input-group">
+                  <label class="input-label">IMAP Host *</label>
+                  <input v-model="emailAccountForm.imap_host" type="text" placeholder="imap.gmail.com" class="form-input font-mono" required />
+                </div>
+
+                <div class="input-group">
+                  <label class="input-label">IMAP Port *</label>
+                  <input v-model.number="emailAccountForm.imap_port" type="number" placeholder="993" class="form-input font-mono" required />
+                </div>
+              </div>
+
+              <div class="modal-actions mt-4 flex justify-between">
+                <button type="button" class="btn btn-secondary" @click="emailModalStep = 1">
+                  <ArrowLeft :size="14" />
+                  <span>Back to Providers</span>
+                </button>
+                <button type="button" class="btn btn-primary" :disabled="isSavingAccount" @click="handleStep2NextIMAP">
+                  <Loader2 v-if="isSavingAccount" class="animate-spin" :size="14" />
+                  <span>Next: Sync &amp; Folders</span>
+                  <ArrowRight v-if="!isSavingAccount" :size="14" />
+                </button>
+              </div>
+            </template>
+          </div>
+
+          <!-- STEP 3: FOLDER & SYNC PREFERENCES -->
+          <div v-else-if="emailModalStep === 3" class="step-content animate-fade-in">
+            <!-- Account Connected Banner -->
+            <div v-if="editingAccount || createdEmailAccountId" class="account-connected-banner">
+              <div class="flex items-center gap-2">
+                <CheckCircle2 class="text-success flex-shrink-0" :size="16" />
+                <span class="text-xs font-semibold text-main">
+                  Connected: {{ emailAccountForm.name }}
+                  <span v-if="emailAccountForm.username && emailAccountForm.username !== 'oauth_pending'" class="text-muted font-normal">({{ emailAccountForm.username }})</span>
+                </span>
+              </div>
+              <span class="auth-badge-connected">Ready for Sync</span>
+            </div>
+
+            <!-- Target Mailbox Folder -->
+            <div class="input-group">
+              <div class="label-with-hint mb-1">
+                <label class="input-label">Target Mailbox Folder *</label>
+                <span class="folder-tip-text">
+                  (Tip: Dedicated folder or email prefiltering recommended)
+                </span>
+              </div>
+
+              <!-- Discovered Folders Dropdown / Custom Input Row -->
+              <div class="folder-selection-row">
+                <div class="folder-input-wrapper">
+                  <select
+                    v-if="availableMailFolders.length > 0 && !isCustomFolderMode"
+                    v-model="emailAccountForm.folder"
+                    class="form-input font-mono w-full"
+                  >
+                    <option
+                      v-for="folder in availableMailFolders"
+                      :key="typeof folder === 'object' ? folder.id : folder"
+                      :value="typeof folder === 'object' ? folder.id : folder"
+                    >
+                      {{ typeof folder === 'object' ? folder.path : folder }}
+                    </option>
+                  </select>
+
+                  <input
+                    v-else
+                    v-model="emailAccountForm.folder"
+                    type="text"
+                    placeholder="e.g. INBOX or Jobs"
+                    class="form-input font-mono w-full"
+                    required
+                  />
+                </div>
+
+                <button
+                  v-if="availableMailFolders.length > 0"
+                  type="button"
+                  class="btn btn-secondary btn-sm flex-shrink-0"
+                  @click="isCustomFolderMode = !isCustomFolderMode; if (!isCustomFolderMode && availableMailFolders.length > 0) emailAccountForm.folder = typeof availableMailFolders[0] === 'object' ? availableMailFolders[0].id : availableMailFolders[0]"
+                >
+                  <span>{{ isCustomFolderMode ? 'Choose from List' : 'Custom Path' }}</span>
+                </button>
+
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm text-secondary flex-shrink-0"
+                  :disabled="isLoadingFolders || (!editingAccount && !createdEmailAccountId)"
+                  title="Re-scan mailbox folders"
+                  @click="fetchEmailFolders(editingAccount?.id || createdEmailAccountId)"
+                >
+                  <Loader2 v-if="isLoadingFolders" class="animate-spin" :size="14" />
+                  <RefreshCw v-else :size="14" />
+                </button>
+              </div>
+
+              <div v-if="isLoadingFolders" class="flex items-center gap-1.5 text-xs text-primary mt-1">
+                <Loader2 class="animate-spin" :size="12" />
+                <span>Scanning available mailbox folders...</span>
+              </div>
+
+              <p class="field-help-text">
+                JobTracker will scan this folder for job application confirmations, interview invitations, and recruiter messages.
+              </p>
+            </div>
+
+            <!-- Sync Schedule & Frequency Section -->
+            <div class="form-grid-2 pt-2 border-t border-subtle">
+              <div class="input-group">
+                <label class="input-label">Sync Frequency</label>
                 <select v-model="emailAccountForm.sync_interval" class="form-input">
                   <option value="15m">Every 15 minutes</option>
                   <option value="30m">Every 30 minutes</option>
                   <option value="1h">Every hour (Recommended)</option>
                   <option value="6h">Every 6 hours</option>
-                  <option value="24h">Once a day</option>
+                  <option value="24h">Once a day (Scheduled Time)</option>
+                  <option value="WEEKLY">Weekly (Scheduled Day &amp; Time)</option>
                   <option value="MANUAL">Manual Sync Only</option>
                 </select>
               </div>
-            </div>
 
-            <div class="input-group">
-              <label class="input-label">OAuth Client ID *</label>
-              <input
-                v-model="emailAccountForm.client_id"
-                type="text"
-                :placeholder="emailAccountForm.provider_preset === 'gmail' ? 'e.g. 12345-abc.apps.googleusercontent.com' : 'e.g. 00000000-0000-0000-0000-000000000000'"
-                class="form-input font-mono"
-                required
-              />
-            </div>
+              <!-- Scheduled Day (if weekly) -->
+              <div v-if="emailAccountForm.sync_interval === 'WEEKLY'" class="input-group">
+                <label class="input-label">Sync Day</label>
+                <select v-model="emailAccountForm.sync_schedule_day" class="form-input">
+                  <option value="MON">Every Monday</option>
+                  <option value="TUE">Every Tuesday</option>
+                  <option value="WED">Every Wednesday</option>
+                  <option value="THU">Every Thursday</option>
+                  <option value="FRI">Every Friday</option>
+                  <option value="SAT">Every Saturday</option>
+                  <option value="SUN">Every Sunday</option>
+                </select>
+              </div>
 
-            <div class="input-group">
-              <label class="input-label">OAuth Client Secret *</label>
-              <div class="input-with-action">
-                <input
-                  v-model="emailAccountForm.client_secret"
-                  :type="showClientSecret ? 'text' : 'password'"
-                  placeholder="Enter client secret"
-                  class="form-input font-mono flex-1"
-                  required
-                />
-                <button
-                  type="button"
-                  class="btn-input-action"
-                  @click="showClientSecret = !showClientSecret"
-                  tabindex="-1"
-                >
-                  <component :is="showClientSecret ? EyeOff : Eye" :size="14" />
-                </button>
+              <!-- Preferred Time (if 24h or WEEKLY) -->
+              <div v-if="emailAccountForm.sync_interval === '24h' || emailAccountForm.sync_interval === 'WEEKLY'" class="input-group">
+                <label class="input-label">Preferred Sync Time</label>
+                <div class="schedule-time-row">
+                  <select v-model="emailAccountForm.sync_schedule_hour" class="form-input font-mono flex-1">
+                    <option v-for="h in 24" :key="h" :value="String(h - 1).padStart(2, '0')">
+                      {{ String(h - 1).padStart(2, '0') }}:00
+                    </option>
+                  </select>
+                  <span class="text-muted font-bold">:</span>
+                  <select v-model="emailAccountForm.sync_schedule_min" class="form-input font-mono flex-1">
+                    <option value="00">00</option>
+                    <option value="15">15</option>
+                    <option value="30">30</option>
+                    <option value="45">45</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            <div class="input-group">
-              <div class="label-with-hint">
-                <label class="input-label">Email Address</label>
-                <span class="text-xs text-muted">Auto-resolved upon OAuth login</span>
-              </div>
-              <input
-                v-model="emailAccountForm.username"
-                type="email"
-                placeholder="Optional (populated automatically on sign in)"
-                class="form-input"
-              />
-            </div>
-
-            <div class="modal-actions mt-4">
-              <button class="btn btn-secondary" @click="isEmailAccountModalOpen = false">Cancel</button>
-              <button class="btn btn-secondary" :disabled="isSavingAccount" @click="saveEmailAccount">
-                <Save :size="14" />
-                <span>Save Credentials</span>
+            <div class="modal-actions mt-4 flex justify-between">
+              <button type="button" class="btn btn-secondary" @click="emailModalStep = 2">
+                <ArrowLeft :size="14" />
+                <span>Back to Credentials</span>
               </button>
-              <button class="btn btn-primary" @click="startOAuthLogin(emailAccountForm.provider_preset)">
-                <Lock :size="14" />
-                <span>Authorize &amp; Connect Mailbox</span>
+              <button type="button" class="btn btn-primary" :disabled="isSavingAccount" @click="saveEmailAccount">
+                <Loader2 v-if="isSavingAccount" class="animate-spin" :size="14" />
+                <Save v-else :size="14" />
+                <span>{{ editingAccount ? 'Update & Save Settings' : 'Complete Setup & Save' }}</span>
               </button>
             </div>
-          </template>
+          </div>
+        </div>
+      </div>
+    </div>
 
-          <!-- App Password / Direct IMAP Mode -->
-          <template v-else>
-            <div class="app-password-callout">
-              <Info :size="14" class="text-primary flex-shrink-0 mt-0.5" />
-              <div class="text-xs text-secondary leading-relaxed">
-                <span v-if="emailAccountForm.provider_preset === 'gmail'">
-                  Google requires an <strong>App Password</strong> if 2-Step Verification is enabled. Generate one at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" class="guide-link">Google Account Security <ExternalLink :size="10" /></a>.
-                </span>
-                <span v-else-if="emailAccountForm.provider_preset === 'outlook'">
-                  Microsoft accounts with 2FA require generating an App Password in your Microsoft Account Security settings.
-                </span>
-                <span v-else>
-                  Enter your standard IMAP host, port (default 993 SSL), and mailbox credentials.
-                </span>
-              </div>
-            </div>
+    <!-- DELETE EMAIL ACCOUNT CONFIRMATION MODAL -->
+    <div v-if="showDeleteAccountModal" class="modal-backdrop" @click.self="showDeleteAccountModal = false">
+      <div class="modal-card modal-sm animate-fade-in">
+        <div class="modal-header">
+          <h3 class="modal-title">Remove Mailbox Account</h3>
+          <button class="btn-close" @click="showDeleteAccountModal = false">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="text-sm text-main">
+            Are you sure you want to remove mailbox <strong>{{ accountToDelete?.name }}</strong>
+            <span v-if="accountToDelete?.username" class="text-muted font-normal"> ({{ accountToDelete?.username }})</span>?
+          </p>
+          <p class="text-xs text-secondary">
+            Automated intake and scheduled background syncing for this mailbox will stop immediately.
+          </p>
+          <div class="modal-actions mt-3">
+            <button class="btn btn-secondary" @click="showDeleteAccountModal = false">Cancel</button>
+            <button class="btn btn-danger" :disabled="isDeletingAccount" @click="confirmDeleteAccount">
+              <Loader2 v-if="isDeletingAccount" class="animate-spin" :size="14" />
+              <Trash2 v-else :size="14" />
+              <span>{{ isDeletingAccount ? 'Removing...' : 'Remove Mailbox' }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 
-            <div class="form-grid-2">
-              <div class="input-group">
-                <label class="input-label">Account Label *</label>
-                <input v-model="emailAccountForm.name" type="text" placeholder="e.g. Work Mailbox" class="form-input" required />
-              </div>
+    <!-- CLEAR ACCOUNT SYNC HISTORY MODAL -->
+    <div v-if="showClearAccountModal" class="modal-backdrop" @click.self="showClearAccountModal = false">
+      <div class="modal-card modal-sm animate-fade-in">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <RotateCcw :size="16" class="text-warning flex-shrink-0" />
+            <h3 class="modal-title">Clear Email Sync History</h3>
+          </div>
+          <button class="btn-close" @click="showClearAccountModal = false">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="text-sm text-main">
+            Are you sure you want to clear sync history for <strong>{{ accountToClear?.name }}</strong>?
+          </p>
+          <p class="text-xs text-secondary">
+            This removes all recorded deduplication IDs for this mailbox and resets its sync cursor. Subsequent syncs will re-fetch and re-evaluate emails from the mailbox. Existing job applications and timeline events remain untouched.
+          </p>
+          <div class="modal-actions mt-3">
+            <button class="btn btn-secondary" :disabled="isClearingAccount" @click="showClearAccountModal = false">Cancel</button>
+            <button class="btn btn-warning" :disabled="isClearingAccount" @click="confirmClearAccountHistory">
+              <Loader2 v-if="isClearingAccount" class="animate-spin" :size="14" />
+              <RotateCcw v-else :size="14" />
+              <span>{{ isClearingAccount ? 'Clearing...' : 'Clear History' }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 
-              <div class="input-group">
-                <label class="input-label">Email Address / Login *</label>
-                <input v-model="emailAccountForm.username" type="email" placeholder="user@domain.com" class="form-input" required />
-              </div>
-            </div>
-
-            <div class="input-group">
-              <label class="input-label">App Password / Password *</label>
-              <div class="input-with-action">
-                <input
-                  v-model="emailAccountForm.app_password"
-                  :type="showClientSecret ? 'text' : 'password'"
-                  placeholder="••••••••••••••••"
-                  class="form-input font-mono flex-1"
-                  required
-                />
-                <button
-                  type="button"
-                  class="btn-input-action"
-                  @click="showClientSecret = !showClientSecret"
-                  tabindex="-1"
-                >
-                  <component :is="showClientSecret ? EyeOff : Eye" :size="14" />
-                </button>
-              </div>
-            </div>
-
-            <div class="form-grid-3">
-              <div class="input-group">
-                <label class="input-label">IMAP Host *</label>
-                <input v-model="emailAccountForm.imap_host" type="text" placeholder="imap.gmail.com" class="form-input font-mono" required />
-              </div>
-
-              <div class="input-group">
-                <label class="input-label">IMAP Port *</label>
-                <input v-model.number="emailAccountForm.imap_port" type="number" placeholder="993" class="form-input font-mono" required />
-              </div>
-
-              <div class="input-group">
-                <label class="input-label">Mailbox Folder *</label>
-                <input v-model="emailAccountForm.folder" type="text" placeholder="INBOX" class="form-input font-mono" required />
-              </div>
-            </div>
-
-            <div class="input-group">
-              <label class="input-label">Sync Interval</label>
-              <select v-model="emailAccountForm.sync_interval" class="form-input">
-                <option value="15m">Every 15 minutes</option>
-                <option value="30m">Every 30 minutes</option>
-                <option value="1h">Every hour (Recommended)</option>
-                <option value="6h">Every 6 hours</option>
-                <option value="24h">Once a day</option>
-                <option value="MANUAL">Manual Sync Only</option>
-              </select>
-            </div>
-
-            <div class="modal-actions mt-4">
-              <button class="btn btn-secondary" @click="isEmailAccountModalOpen = false">Cancel</button>
-              <button class="btn btn-primary" :disabled="isSavingAccount" @click="saveEmailAccount">
-                <Save :size="14" />
-                <span>{{ editingAccount ? 'Update Account' : 'Save & Connect Account' }}</span>
-              </button>
-            </div>
-          </template>
+    <!-- CLEAR ALL SYNC HISTORY MODAL -->
+    <div v-if="showClearAllModal" class="modal-backdrop" @click.self="showClearAllModal = false">
+      <div class="modal-card modal-sm animate-fade-in">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <RotateCcw :size="16" class="text-warning flex-shrink-0" />
+            <h3 class="modal-title">Clear All Email Sync History</h3>
+          </div>
+          <button class="btn-close" @click="showClearAllModal = false">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="text-sm text-main">
+            Are you sure you want to clear all email sync history across <strong>all accounts</strong>?
+          </p>
+          <p class="text-xs text-secondary">
+            This removes all email deduplication records from the database and resets sync cursors for all connected mailboxes. Existing applications, notes, and timeline events will not be deleted.
+          </p>
+          <div class="modal-actions mt-3">
+            <button class="btn btn-secondary" :disabled="isClearingAll" @click="showClearAllModal = false">Cancel</button>
+            <button class="btn btn-warning" :disabled="isClearingAll" @click="confirmClearAllHistory">
+              <Loader2 v-if="isClearingAll" class="animate-spin" :size="14" />
+              <RotateCcw v-else :size="14" />
+              <span>{{ isClearingAll ? 'Clearing All...' : 'Clear All' }}</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -2407,6 +3176,7 @@ onMounted(async () => {
 
 <style scoped>
 .page-container {
+  width: 100%;
   max-width: 1240px;
   margin: 0 auto;
   padding: 32px 24px 80px;
@@ -2497,8 +3267,12 @@ onMounted(async () => {
 }
 
 .settings-inner-container {
+  width: 100%;
   max-width: 100%;
   margin: 0 auto;
+}
+
+.tab-content {
   width: 100%;
 }
 
@@ -2508,6 +3282,7 @@ onMounted(async () => {
   grid-template-columns: 280px 1fr;
   gap: 20px;
   align-items: start;
+  width: 100%;
 }
 
 @media (max-width: 900px) {
@@ -2784,11 +3559,7 @@ onMounted(async () => {
   height: 38px;
   display: flex;
   align-items: center;
-}
-
-.form-range {
   width: 100%;
-  accent-color: var(--primary);
 }
 
 .form-grid-2 .form-input,
@@ -2974,16 +3745,40 @@ onMounted(async () => {
 
 .section-header-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 24px;
+  gap: 20px;
   margin-bottom: 20px;
   flex-wrap: wrap;
 }
 
-.section-header-row > div {
+.section-header-text {
   flex: 1;
   min-width: 260px;
+}
+
+.section-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.email-sync-toggle-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+}
+
+.sync-status-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .section-header-row h3 {
@@ -3002,7 +3797,6 @@ onMounted(async () => {
 
 .section-header-row .btn {
   flex-shrink: 0;
-  margin-top: 2px;
 }
 
 .providers-grid, .accounts-grid {
@@ -3011,7 +3805,7 @@ onMounted(async () => {
   gap: 16px;
 }
 
-.provider-card, .account-card {
+.provider-card {
   background-color: var(--bg-main);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
@@ -3019,6 +3813,22 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.account-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.account-card:hover {
+  border-color: var(--border-color-hover);
 }
 
 .provider-header, .account-card-header {
@@ -3036,35 +3846,83 @@ onMounted(async () => {
   color: var(--text-main);
 }
 
-.provider-body, .account-card-body {
+.account-icon-wrap {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background-color: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.account-name-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.account-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.provider-body {
   display: flex;
   flex-direction: column;
   gap: 6px;
   font-size: 12px;
 }
 
+.account-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  background-color: var(--bg-main);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+}
+
 .meta-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 8px;
 }
 
 .meta-k {
   color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  flex-shrink: 0;
 }
 
 .meta-v {
   color: var(--text-main);
   text-align: right;
+  font-size: 11px;
   word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
 }
 
 .provider-actions, .account-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: auto;
+}
+
+.btn-sync-action {
+  flex: 1;
+  justify-content: center;
 }
 
 .provider-test-pill {
@@ -3094,9 +3952,10 @@ onMounted(async () => {
 /* Preferences Grid & Background Customizer */
 .preferences-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
   gap: 16px;
   margin-top: 16px;
+  align-items: stretch;
 }
 
 .swatches-container {
@@ -3191,114 +4050,111 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 4px;
-}
-
-.theme-customizer-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
-  margin-top: 4px;
-}
-
-.customizer-subcard {
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
   gap: 10px;
-}
-
-.subcard-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.subcard-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.subcard-token {
-  font-size: 10px;
-}
-
-.input-sm {
-  max-width: 120px;
-  height: 34px;
-  padding: 4px 8px;
-  font-size: 12px;
-  text-transform: uppercase;
+  min-height: 24px;
 }
 
 .preference-card {
-  background-color: var(--bg-main);
+  background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 16px;
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  height: 100%;
+  box-sizing: border-box;
 }
 
 .preference-header {
   display: flex;
   align-items: flex-start;
   gap: 12px;
+  min-height: 64px;
+}
+
+.preference-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.preference-header-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .preference-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text-main);
+  margin: 0;
+  line-height: 24px;
 }
 
 .preference-desc {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.4;
-  margin-top: 2px;
+  margin-top: 4px;
+  margin-bottom: 0;
 }
 
-.currency-chips-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-}
-
-.currency-chip {
+.preference-body {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px;
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-elevated);
-  border-radius: 4px;
-  cursor: pointer;
+  flex-direction: column;
+  justify-content: flex-start;
+  flex: 1;
+  transition: opacity 0.2s ease, filter 0.2s ease;
 }
 
-.currency-chip.active {
-  border-color: var(--primary);
-  background-color: rgba(59, 130, 246, 0.12);
+.preference-body .input-group {
+  margin-bottom: 0;
 }
 
-.chip-code {
+.cover-letter-pref-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 480px) {
+  .cover-letter-pref-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.preference-body.is-disabled {
+  opacity: 0.42;
+  pointer-events: none;
+  filter: grayscale(0.5);
+  user-select: none;
+}
+
+.preference-field-hint {
   font-size: 11px;
-  font-weight: 700;
-  color: var(--text-main);
+  color: var(--text-secondary);
+  margin-top: 6px;
+  display: block;
+  line-height: 1.4;
 }
 
-.chip-symbol {
+.btn-xs {
+  padding: 3px 8px;
   font-size: 11px;
-  color: var(--primary);
-  font-family: monospace;
+  height: 24px;
+  gap: 4px;
 }
 
 .view-mode-toggle-row {
@@ -3362,6 +4218,12 @@ onMounted(async () => {
   border-bottom: 1px solid var(--border-color);
 }
 
+.modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .modal-title {
   font-size: 15px;
   font-weight: 700;
@@ -3383,14 +4245,21 @@ onMounted(async () => {
   gap: 14px;
 }
 
+.step-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
 .input-group {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
 }
 
 .input-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -3405,8 +4274,8 @@ onMounted(async () => {
   background-color: var(--bg-main);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  font-size: 12px;
+  padding: 9px 12px;
+  font-size: 13px;
   color: var(--text-main);
 }
 
@@ -3422,39 +4291,121 @@ onMounted(async () => {
   margin-top: 10px;
 }
 
-.provider-presets-grid {
+.provider-presets-grid-5 {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 600px) {
+  .provider-presets-grid-5 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.email-provider-card {
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-main);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.email-provider-card:hover {
+  border-color: var(--border-focus);
+  background-color: var(--bg-surface);
+}
+
+.email-provider-card.active {
+  border-color: var(--primary);
+  background-color: var(--primary-subtle);
+  box-shadow: 0 0 0 1px var(--primary-glow);
+}
+
+.provider-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
 
-.provider-preset-card {
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-main);
+.provider-icon-badge {
+  width: 32px;
+  height: 32px;
   border-radius: var(--radius-sm);
-  padding: 10px 8px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.provider-auth-badge {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--primary);
+  background-color: var(--primary-subtle);
+  border: 1px solid var(--primary-glow);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.provider-card-body {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 6px;
-  cursor: pointer;
+  gap: 4px;
 }
 
-.provider-preset-card.active {
-  border-color: var(--primary);
-  background-color: rgba(59, 130, 246, 0.08);
-}
-
-.preset-name {
-  font-size: 11px;
+.provider-card-title {
+  font-size: 13px;
   font-weight: 700;
   color: var(--text-main);
+  margin: 0;
+  line-height: 1.3;
 }
 
-.preset-sub {
-  font-size: 9px;
-  color: var(--text-muted);
+.provider-card-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.provider-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.selection-radio {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.selection-radio.radio-checked {
+  border-color: var(--primary);
+}
+
+.radio-inner {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--primary);
 }
 
 .auth-method-toggle {
@@ -3490,6 +4441,148 @@ onMounted(async () => {
   font-weight: 700;
   padding: 1px 4px;
   border-radius: 3px;
+}
+
+/* Email Modal Stepper Bar */
+.modal-stepper-header {
+  padding: 14px 20px;
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.stepper-track {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 440px;
+  margin: 0 auto;
+}
+
+.stepper-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: default;
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.stepper-item.clickable {
+  cursor: pointer;
+}
+
+.stepper-item.clickable:hover .stepper-label {
+  color: var(--text-main);
+}
+
+.stepper-circle {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.stepper-item.active .stepper-circle {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  box-shadow: 0 0 8px var(--primary-glow);
+}
+
+.stepper-item.completed .stepper-circle {
+  background-color: rgba(16, 185, 129, 0.15);
+  border-color: var(--success, #10b981);
+  color: var(--success, #10b981);
+}
+
+.stepper-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.stepper-item.active .stepper-label {
+  color: var(--text-main);
+  font-weight: 700;
+}
+
+.stepper-item.completed .stepper-label {
+  color: var(--text-secondary);
+}
+
+.stepper-line {
+  flex: 1;
+  height: 2px;
+  background-color: var(--border-color);
+  margin: 0 12px;
+  transition: all var(--transition-fast);
+}
+
+.stepper-line.completed {
+  background-color: var(--success, #10b981);
+}
+
+.account-connected-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+}
+
+.auth-badge-connected {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--success, #10b981);
+  background-color: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.folder-tip-text {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.folder-selection-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.folder-input-wrapper {
+  flex: 1;
+  min-width: 0;
+}
+
+.schedule-time-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field-help-text {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin: 2px 0 0 0;
 }
 
 .empty-state {
@@ -3682,9 +4775,7 @@ onMounted(async () => {
     grid-template-columns: 1fr;
   }
 }
-</style>
 
-<style scoped>
 .global-hero-card {
   background-color: var(--bg-surface);
   border: 1px solid var(--primary);
@@ -3692,6 +4783,7 @@ onMounted(async () => {
   padding: 20px;
   margin-bottom: 24px;
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+  width: 100%;
 }
 
 .global-hero-header {
@@ -3851,6 +4943,14 @@ onMounted(async () => {
   gap: 12px;
 }
 
+.threshold-slider-control {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
 .cover-letter-control-card,
 .embeddings-control-card {
   background-color: var(--bg-surface);
@@ -3858,6 +4958,13 @@ onMounted(async () => {
   border-radius: var(--radius-md);
   padding: 16px 20px;
   margin-bottom: 24px;
+  width: 100%;
+}
+
+.advanced-overrides-section {
+  margin-top: 0;
+  margin-bottom: 24px;
+  width: 100%;
 }
 
 .cover-letter-control-header,
@@ -3873,47 +4980,47 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 12px;
+  height: 38px;
+  width: 100%;
 }
 
-.cover-letter-title,
-.embeddings-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-main);
-  margin: 0;
+.cover-letter-slider {
+  flex: 1;
+  min-width: 0;
 }
 
-.cover-letter-desc,
-.embeddings-desc {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin: 2px 0 0 0;
+.threshold-badge {
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  min-width: 48px;
+  text-align: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
 }
 
-.cover-letter-control-body,
-.embeddings-control-body {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.cover-letter-info-box,
-.embeddings-info-box {
+.pref-status-box {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
   padding: 8px 12px;
   border-radius: var(--radius-sm);
+  width: 100%;
+  box-sizing: border-box;
 }
 
-.cover-letter-status-text,
-.embeddings-status-text {
-  font-size: 12px;
-  color: var(--text-secondary);
+.pref-status-text {
+  font-size: 11.5px;
   line-height: 1.4;
+  color: var(--text-secondary);
 }
 
 /* Switch Toggle Component */
@@ -3984,6 +5091,25 @@ input:checked + .slider:before {
   color: var(--text-main);
 }
 
+.email-disabled-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background-color: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.banner-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .opacity-50 {
   opacity: 0.5;
 }
@@ -3995,5 +5121,58 @@ input:checked + .slider:before {
 }
 .mb-4 {
   margin-bottom: 20px;
+}
+
+/* Probe Result Box */
+.probe-result-box {
+  background-color: rgba(59, 130, 246, 0.06);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+
+.probe-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.probe-result-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.probe-details-grid {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.probe-detail-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.probe-detail-label {
+  color: var(--text-muted);
+}
+
+.probe-detail-val {
+  font-weight: 600;
+}
+
+.probe-notes {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
 }
 </style>

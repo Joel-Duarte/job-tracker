@@ -15,10 +15,6 @@ class PostgresTracer(AsyncBaseTracer):
         super().__init__(**kwargs)
         self._background_tasks: set[asyncio.Task] = set()
 
-    def on_llm_error(self, error: BaseException, *, run_id, **kwargs) -> None:
-        # Override to properly mark error on the run object if the tracer catches it directly
-        super().on_llm_error(error, run_id=run_id, **kwargs)
-
     async def _persist_run_async(self, run: Run) -> None:
         try:
             # Note: We serialize directly via model_dump(mode='json') to avoid UUID/datetime serialization issues

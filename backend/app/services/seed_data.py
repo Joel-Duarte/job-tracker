@@ -15,6 +15,7 @@ from app.models.applications import (
     OtherEventModel,
 )
 from app.models.candidate_profile import CandidateCVModel
+from app.models.diagnostics import TraceEventModel
 from app.models.email_accounts import EmailAccountModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.models.staging import StagingItemModel
@@ -22,338 +23,108 @@ from app.models.staging import StagingItemModel
 logger = logging.getLogger(__name__)
 
 
-def build_stripe_dossier() -> dict:
+def build_dossier(
+    company: str,
+    position: str,
+    fit_score: int,
+    prog_score: int,
+    fit_tier: str,
+    summary_text: str,
+    matching_skills: list[str],
+    missing_skills: list[str],
+    sal_min: float,
+    sal_max: float,
+    location: str,
+    work_model: str,
+    recommendation: str,
+) -> dict:
     return {
-        "company": "Stripe",
-        "position": "Senior Backend Engineer - Global Payments",
-        "fit_score": 94,
-        "programmatic_match_score": 90,
-        "fit_tier": "STRONG_MATCH",
-        "match_summary": (
-            "Exceptional alignment with candidate's 8+ years scaling high-throughput Python/FastAPI distributed systems, "
-            "PostgreSQL transactional consistency, and Kafka streaming pipelines."
-        ),
+        "company": company,
+        "position": position,
+        "fit_score": fit_score,
+        "programmatic_match_score": prog_score,
+        "fit_tier": fit_tier,
+        "match_summary": summary_text,
         "hard_matches": {
-            "keyword_match_rate": "9/10 core skills found",
-            "top_alignment": [
-                "Python & FastAPI Backend Architecture",
-                "PostgreSQL Transaction Isolation & Concurrency",
-                "Kafka Distributed Event Streaming",
-            ],
+            "keyword_match_rate": f"{len(matching_skills)}/{len(matching_skills) + len(missing_skills)} core skills found",
+            "top_alignment": matching_skills[:3],
         },
         "optimization_gaps": {
-            "missing_completely": [
-                "Direct ISO 20022 / SWIFT interbank settlement protocol experience"
-            ],
+            "missing_completely": missing_skills,
             "vocabulary_mismatches": [
-                "Ledger Consistency (used 'billing reconciliation' in CV vs 'double-entry ledger' in JD)"
-            ],
-            "experience_mismatch": None,
+                f"Vocabulary alignment recommended for {missing_skills[0]}"
+            ]
+            if missing_skills
+            else [],
+            "experience_mismatch": f"Role requires skills delta: {', '.join(missing_skills)}"
+            if missing_skills
+            else None,
         },
         "tailoring_strategy": {
             "vocabulary_translation": [
                 {
-                    "jd_term": "Double-entry ledger infrastructure",
-                    "cv_term": "Payment reconciliation pipelines",
-                    "replacement_guidance": "Explicitly highlight double-entry bookkeeping and exact-once transactional semantics.",
-                },
-                {
-                    "jd_term": "Asynchronous idempotency keys",
-                    "cv_term": "Deduplicated API requests",
-                    "replacement_guidance": "Use standard fintech terminology: 'Idempotency key management with Redis distributed locks'.",
-                },
+                    "jd_term": f"{skill} Infrastructure",
+                    "cv_term": f"{skill} Integration",
+                    "replacement_guidance": f"Explicitly highlight production scale with {skill}.",
+                }
+                for skill in matching_skills[:2]
             ],
             "impact_reframing": [
                 {
-                    "bullet_point": "Scaled payment settlement pipelines to 45,000 req/sec at CloudTech.",
-                    "suggested_rewrite": "Architected zero-downtime distributed payment settlement engine handling 45k req/sec with 99.999% SLA across multi-region PostgreSQL clusters.",
-                    "reason": "Emphasizes reliability SLAs and distributed database resilience required for Stripe's tier-1 payment services.",
+                    "bullet_point": f"Engineered scalable services for {company}.",
+                    "suggested_rewrite": f"Architected high-throughput microservices for {company} handling 20,000 req/sec with 99.99% reliability.",
+                    "reason": "Quantifies impact and aligns with senior backend requirements.",
                 }
             ],
             "structural_adjustments": [
-                "Elevate the CloudTech payment settlement section to the top of the Experience section.",
-                "Group Kafka, Redis, and PostgreSQL under a dedicated 'Distributed Data Primitives' skill category.",
+                "Elevate core distributed systems competencies to the summary section.",
             ],
         },
-        "matching_skills": [
-            "Python",
-            "FastAPI",
-            "PostgreSQL",
-            "Distributed Systems",
-            "Kafka",
-            "Redis",
-            "Docker",
-            "Kubernetes",
-            "AWS",
-            "System Design",
-        ],
-        "missing_skills": ["ISO 20022", "Financial Ledger Auditing"],
+        "matching_skills": matching_skills,
+        "missing_skills": missing_skills,
         "pros": [
-            "Industry-leading compensation package ($195k-$245k + top-tier equity)",
-            "World-class distributed systems engineering culture and tooling",
-            "High leverage and direct business impact on global commerce",
+            f"Competitive compensation range (${int(sal_min):,}-${int(sal_max):,})",
+            "Strong technical engineering culture and autonomy",
         ],
         "cons": [
-            "High-stakes on-call rotation with strict latency SLAs",
-            "High technical complexity across cross-border acquiring networks",
+            "High throughput operational SLA expectations",
         ],
-        "salary_min": 195000.0,
-        "salary_max": 245000.0,
+        "salary_min": sal_min,
+        "salary_max": sal_max,
         "currency": "USD",
-        "location": "Remote (North America / Europe)",
-        "work_model": "Remote",
-        "recommendation": "APPLY_STRONGLY",
-        "summary": "Outstanding candidate-job match. Highly recommended to pursue through immediate recruiter interview scheduling.",
+        "location": location,
+        "work_model": work_model,
+        "recommendation": recommendation,
+        "summary": summary_text,
     }
 
 
-def build_linear_dossier() -> dict:
+def build_structured_spec(
+    company: str,
+    domain: str,
+    position: str,
+    why_hiring: str,
+    what_you_will_build: str,
+    responsibilities: list[str],
+    requirements: list[str],
+    extracted_skills: list[str],
+    comp_text: str,
+    location_text: str,
+    workplace_type: str,
+) -> dict:
     return {
-        "company": "Linear",
-        "position": "Staff Systems & Sync Engineer",
-        "fit_score": 89,
-        "programmatic_match_score": 85,
-        "fit_tier": "STRONG_MATCH",
-        "match_summary": (
-            "Strong match across distributed state synchronization, PostgreSQL performance, and real-time backend architecture. "
-            "Candidate's deep systems background directly translates to local-first client sync."
-        ),
-        "hard_matches": {
-            "keyword_match_rate": "8/10 core skills found",
-            "top_alignment": [
-                "Distributed Systems & State Synchronization",
-                "PostgreSQL Performance & Index Tuning",
-                "TypeScript / Node.js High-Concurrency Backends",
-            ],
-        },
-        "optimization_gaps": {
-            "missing_completely": ["CRDT implementation experience in production"],
-            "vocabulary_mismatches": [
-                "Real-time sync (used 'event streaming' vs 'delta-based state reconciliation')"
-            ],
-            "experience_mismatch": None,
-        },
-        "tailoring_strategy": {
-            "vocabulary_translation": [
-                {
-                    "jd_term": "Local-first client state sync",
-                    "cv_term": "Optimistic UI and real-time backend events",
-                    "replacement_guidance": "Frame experience around offline delta sync protocols and conflict resolution algorithms.",
-                }
-            ],
-            "impact_reframing": [
-                {
-                    "bullet_point": "Built async ingestion engines and PostgreSQL partitioned storage at DataSphere.",
-                    "suggested_rewrite": "Engineered low-latency async state synchronization engine utilizing PostgreSQL JSONB and WebSocket subscriptions, reducing client round-trip latency to <15ms.",
-                    "reason": "Highlights speed and latency metrics that align directly with Linear's brand of instantaneous responsiveness.",
-                }
-            ],
-            "structural_adjustments": [
-                "Add a 'Sync & Concurrency Patterns' bullet point to the core competencies summary.",
-            ],
-        },
-        "matching_skills": [
-            "TypeScript",
-            "PostgreSQL",
-            "Distributed Systems",
-            "Redis",
-            "System Design",
-            "Docker",
-        ],
-        "missing_skills": ["CRDTs", "SQLite/Wasm Client Storage"],
-        "pros": [
-            "Exceptionally high product quality standard and engineering autonomy",
-            "Pure remote-first work culture with low meeting overhead",
-            "Competitive staff-level compensation ($210k - $275k)",
-        ],
-        "cons": [
-            "Small team requiring strong cross-functional ownership from protocol to UI",
-        ],
-        "salary_min": 210000.0,
-        "salary_max": 275000.0,
-        "currency": "USD",
-        "location": "Remote (Global)",
-        "work_model": "Remote",
-        "recommendation": "APPLY_STRONGLY",
-        "summary": "Excellent fit for Staff Systems role. Technical interview preparation should focus on synchronization architecture.",
-    }
-
-
-def build_figma_dossier() -> dict:
-    return {
-        "company": "Figma",
-        "position": "Principal Platform Engineer",
-        "fit_score": 86,
-        "programmatic_match_score": 80,
-        "fit_tier": "STRONG_MATCH",
-        "match_summary": (
-            "Strong platform match with deep Kubernetes, distributed compute, and systems expertise. "
-            "Candidate has extensive scale experience to support Figma multiplayer canvas infrastructure."
-        ),
-        "hard_matches": {
-            "keyword_match_rate": "8/10 core skills found",
-            "top_alignment": [
-                "Cloud-Native Kubernetes & Platform Engineering",
-                "High-Concurrency Go and Systems Architecture",
-                "Multi-Tenant Distributed Compute Clustering",
-            ],
-        },
-        "optimization_gaps": {
-            "missing_completely": ["C++ Canvas Engine Rendering"],
-            "vocabulary_mismatches": ["Rust/WASM runtime bridge"],
-            "experience_mismatch": None,
-        },
-        "tailoring_strategy": {
-            "vocabulary_translation": [
-                {
-                    "jd_term": "Multiplayer state synchronization",
-                    "cv_term": "Distributed consensus and stream processing",
-                    "replacement_guidance": "Frame data streams as real-time collaborative document mutations.",
-                }
-            ],
-            "impact_reframing": [
-                {
-                    "bullet_point": "Managed platform infrastructure across multi-region Kubernetes clusters.",
-                    "suggested_rewrite": "Architected resilient multi-cluster Kubernetes platform supporting 10M+ daily active sessions with automated traffic failover and zero packet loss.",
-                    "reason": "Demonstrates the massive scale demanded by Figma's global collaborative user base.",
-                }
-            ],
-            "structural_adjustments": [
-                "Highlight Go, Kubernetes, and WebAssembly in the top technical summary.",
-            ],
-        },
-        "matching_skills": [
-            "Go",
-            "Kubernetes",
-            "Distributed Systems",
-            "AWS",
-            "Docker",
-            "PostgreSQL",
-        ],
-        "missing_skills": ["Rust WebAssembly Compilation", "C++"],
-        "pros": [
-            "Lucrative offer package ($285k base + $140k/yr equity)",
-            "Industry-defining collaborative creative suite platform",
-            "High-caliber platform engineering organization",
-        ],
-        "cons": [
-            "Complex legacy C++ engine interfaces alongside modern Rust/WASM stacks",
-        ],
-        "salary_min": 240000.0,
-        "salary_max": 310000.0,
-        "currency": "USD",
-        "location": "San Francisco, CA / Remote",
-        "work_model": "Hybrid",
-        "recommendation": "APPLY_STRONGLY",
-        "summary": "Outstanding offer secured. Evaluation shows strong technical alignment and compelling career growth.",
-    }
-
-
-def build_datadog_dossier() -> dict:
-    return {
-        "company": "Datadog",
-        "position": "Senior Software Engineer - Distributed Tracing",
-        "fit_score": 84,
-        "programmatic_match_score": 82,
-        "fit_tier": "STRONG_MATCH",
-        "match_summary": (
-            "Solid match for APM ingest and distributed tracing pipelines. "
-            "Candidate's Go/Python streaming background aligns with high-scale telemetry ingestion."
-        ),
-        "hard_matches": {
-            "keyword_match_rate": "8/10 core skills found",
-            "top_alignment": [
-                "Go & Python High-Performance Backends",
-                "Kafka High-Throughput Ingestion Pipelines",
-                "Distributed Systems Reliability",
-            ],
-        },
-        "optimization_gaps": {
-            "missing_completely": ["eBPF kernel telemetry probing"],
-            "vocabulary_mismatches": ["OpenTelemetry span instrumentation"],
-            "experience_mismatch": None,
-        },
-        "tailoring_strategy": {
-            "vocabulary_translation": [
-                {
-                    "jd_term": "Distributed trace propagation",
-                    "cv_term": "Correlation ID request tracing",
-                    "replacement_guidance": "Use W3C Trace Context and OpenTelemetry terminology.",
-                }
-            ],
-            "impact_reframing": [],
-            "structural_adjustments": [],
-        },
-        "matching_skills": [
-            "Go",
-            "Python",
-            "Kafka",
-            "Redis",
-            "Distributed Systems",
-            "Kubernetes",
-        ],
-        "missing_skills": ["eBPF", "OpenTelemetry SDK internals"],
-        "pros": [
-            "Market leader in cloud observability with massive dataset scale",
-            "Strong engineering focus on low-level Linux and memory efficiency",
-        ],
-        "cons": [
-            "Heavy operational footprint and continuous telemetry data pressure",
-        ],
-        "salary_min": 185000.0,
-        "salary_max": 235000.0,
-        "currency": "USD",
-        "location": "New York, NY / Remote",
-        "work_model": "Hybrid",
-        "recommendation": "APPLY",
-        "summary": "High alignment on backend ingest pipelines. Online assessment sent to evaluate algorithms and concurrency.",
-    }
-
-
-def build_airbnb_dossier() -> dict:
-    return {
-        "company": "Airbnb",
-        "position": "Senior Platform Engineer",
-        "fit_score": 78,
-        "programmatic_match_score": 75,
-        "fit_tier": "MODERATE_MATCH",
-        "match_summary": (
-            "Good core platform background, but role requires heavy JVM/Java ecosystem experience "
-            "which is a slight delta from candidate's Python/Go focus."
-        ),
-        "hard_matches": {
-            "keyword_match_rate": "6/10 core skills found",
-            "top_alignment": [
-                "Kubernetes & Cloud Infrastructure Platform",
-                "AWS Infrastructure as Code & Terraform",
-            ],
-        },
-        "optimization_gaps": {
-            "missing_completely": ["Java / Spring Boot Microservices Platform"],
-            "vocabulary_mismatches": [],
-            "experience_mismatch": "Position prioritized internal JVM platform specialists",
-        },
-        "tailoring_strategy": {
-            "vocabulary_translation": [],
-            "impact_reframing": [],
-            "structural_adjustments": [],
-        },
-        "matching_skills": [
-            "Kubernetes",
-            "AWS",
-            "Docker",
-            "Distributed Systems",
-        ],
-        "missing_skills": ["Java", "Spring Boot", "Spinnaker"],
-        "pros": ["Strong brand, generous travel benefits"],
-        "cons": ["Heavy legacy JVM platform stack"],
-        "salary_min": 190000.0,
-        "salary_max": 240000.0,
-        "currency": "USD",
-        "location": "San Francisco, CA / Remote",
-        "work_model": "Remote",
-        "recommendation": "CAUTION",
-        "summary": "Application closed following internal candidate selection.",
+        "job_found": True,
+        "company": company,
+        "company_url": domain,
+        "position": position,
+        "why_hiring": why_hiring,
+        "what_you_will_build": what_you_will_build,
+        "responsibilities": responsibilities,
+        "requirements": requirements,
+        "extracted_skills": extracted_skills,
+        "compensation_text": comp_text,
+        "location_text": location_text,
+        "workplace_type": workplace_type,
     }
 
 
@@ -370,19 +141,13 @@ async def is_database_empty(session: AsyncSession) -> bool:
 
 async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
     """
-    Populates a rich, multi-domain mock development dataset covering all application features:
-    - 1 Active Candidate CV Profile
-    - 5 Companies & Applications with diverse statuses and full candidate dossiers
-    - 5 Linked Job Postings with salaries, skills, and descriptions
-    - 9 Timeline Application Events
-    - 5 Action Items with varying urgencies and deadlines
-    - 3 Non-Job 'Other' Recruitment & Tech Events
-    - 3 Ambiguous Staging Queue Leads for triage
-    - 3 Persisted Intake AI Evaluation Tasks with complete dossier results
-    - 3 AI Providers & default Task Bindings
-    - 2 Connected Email Accounts
-
-    Note: Vector embeddings are deliberately omitted to avoid external model requirements during bootstrap.
+    Populates a rich, 90-day rolling development test dataset following `guide.md` specs and edge cases:
+    - Strictly aligned ApplicationModel.status and ApplicationEventModel timeline events
+    - Realistic distribution of Cover Letters and Interview Guides according to pipeline stage
+    - Diverse AI Task Queue states (QUEUED, PROCESSING, COMPLETED, FAILED with rate limits/scraping timeouts)
+    - Fit score alignment: high fit scores (80-98%) for Interview/Offer stages vs low fit scores (30-55%) for Assessment/Rejected/Archived
+    - Full email staging items triage workflow (PENDING, APPROVED, REJECTED, PROCESSED)
+    - Diagnostics trace telemetry records (TraceEventModel)
     """
     now = datetime.now(UTC)
     stats: dict[str, int] = {}
@@ -457,588 +222,728 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
     stats["candidate_cvs"] = 1
 
     # -------------------------------------------------------------------------
-    # 2. Companies & Applications (with Match Analysis Dossiers)
+    # 2. Companies & Applications (25 Companies spanning rolling 90-day window)
     # -------------------------------------------------------------------------
 
-    # --- Company 1: Stripe (Status: APPLIED) ---
-    stripe_dossier = build_stripe_dossier()
-    stripe = CompanyModel(name="Stripe", name_normalized="stripe", domain="stripe.com")
-    session.add(stripe)
-    await session.flush()
-
-    app_stripe = ApplicationModel(
-        company_id=stripe.id,
-        position="Senior Backend Engineer - Global Payments",
-        position_normalized="senior backend engineer - global payments",
-        external_job_id="stripe-pay-8821",
-        job_url="https://stripe.com/jobs/senior-backend-payments",
-        status="APPLIED",
-        application_date=now - timedelta(days=4),
-        last_activity_at=now - timedelta(days=1),
-        match_analysis_payload=stripe_dossier,
-    )
-    session.add(app_stripe)
-    await session.flush()
-
-    jp_stripe = JobPostingModel(
-        application_id=app_stripe.id,
-        job_url="https://stripe.com/jobs/senior-backend-payments",
-        description_markdown="""# Senior Backend Engineer - Global Payments
-
-Stripe is looking for a Senior Backend Engineer to join our Core Payments Infrastructure organization.
-
-### What you will do:
-- Architect, build, and maintain high-reliability transactional APIs processing millions of daily transactions.
-- Optimize distributed consensus and asynchronous idempotency across international acquiring networks.
-- Partner with security and compliance teams to enforce zero-trust payment primitives.
-
-### Qualifications:
-- 5+ years of software engineering experience in Python, Go, or Java.
-- Deep expertise in PostgreSQL, transaction isolation levels, and data modeling.
-- Experience with Kafka, RabbitMQ, or distributed event streaming.
-- Strong fundamentals in distributed systems consistency models.
-""",
-        salary_min=195000,
-        salary_max=245000,
-        currency="USD",
-        location="Remote (North America / Europe)",
-        work_model="Remote",
-        required_skills=[
-            "Python",
-            "Distributed Systems",
-            "Kafka",
-            "PostgreSQL",
-            "FastAPI",
-        ],
-        structured_spec={
-            "job_found": True,
-            "company": "Stripe",
-            "company_url": "stripe.com",
-            "position": "Senior Backend Engineer - Global Payments",
-            "why_hiring": "Expanding core global payments platform to support multi-currency cross-border settlement scaling.",
-            "what_you_will_build": "Zero-downtime double-entry ledger engines and high-throughput transactional APIs for global acquiring networks.",
-            "responsibilities": [
-                "Architect, build, and maintain high-reliability transactional APIs processing millions of daily transactions.",
-                "Optimize distributed consensus and asynchronous idempotency across international acquiring networks.",
-                "Partner with security and compliance teams to enforce zero-trust payment primitives.",
-            ],
-            "requirements": [
-                "5+ years of software engineering experience in Python, Go, or Java.",
-                "Deep expertise in PostgreSQL, transaction isolation levels, and data modeling.",
-                "Experience with Kafka, RabbitMQ, or distributed event streaming.",
-                "Strong fundamentals in distributed systems consistency models.",
-            ],
-            "extracted_skills": [
-                "Python",
-                "Go",
-                "PostgreSQL",
-                "Kafka",
-                "Distributed Systems",
-                "FastAPI",
-                "Redis",
-            ],
-            "compensation_text": "$195,000 - $245,000 USD",
-            "location_text": "San Francisco, CA / Remote",
-            "workplace_type": "Remote",
+    company_seed_specs = [
+        # --- Days 0-14 (Current Period: ~35% of apps) ---
+        {
+            "name": "Stripe",
+            "domain": "stripe.com",
+            "pos": "Senior Backend Engineer - Global Payments",
+            "status": "APPLIED",
+            "days_ago": 2,
+            "sal_min": 195000,
+            "sal_max": 245000,
+            "work_model": "Remote",
+            "fit_score": 94,
+            "prog_score": 90,
+            "fit_tier": "STRONG_MATCH",
+            "skills": ["Python", "FastAPI", "PostgreSQL", "Kafka", "Redis"],
+            "missing": ["ISO 20022"],
+            "has_action": True,
+            "action_title": "Book 30-minute intro call via Calendly link",
+            "action_urgency": "HIGH",
+            "action_due_days": 2,
+            "has_cover_letter": True,
+            "cover_letter_status": "GENERATED",
+            "cover_letter_text": (
+                "Dear Hiring Manager at Stripe,\n\nI am writing to express my strong enthusiasm for the Senior Backend Engineer position..."
+            ),
         },
-    )
-    session.add(jp_stripe)
-
-    event_stripe_1 = ApplicationEventModel(
-        email_application_id=app_stripe.id,
-        email_message_id="stripe-msg-001",
-        email_sender="recruiting@stripe.com",
-        email_sender_name="Stripe Talent Team",
-        email_subject="Application Received: Senior Backend Engineer - Global Payments",
-        email_received_at=now - timedelta(days=4),
-        email_event_type="APPLICATION_SUBMITTED",
-        email_status_after_event="APPLIED",
-        email_summary="Confirmation that your application for Senior Backend Engineer was received.",
-        email_action_required=False,
-        email_raw_body="Hi Alex, thank you for applying to Stripe! Our engineering team is currently reviewing your background.",
-    )
-    event_stripe_2 = ApplicationEventModel(
-        email_application_id=app_stripe.id,
-        email_message_id="stripe-msg-002",
-        email_sender="sarah.connor@stripe.com",
-        email_sender_name="Sarah Connor (Stripe Recruiting)",
-        email_subject="Next Steps with Stripe: Senior Backend Engineer",
-        email_received_at=now - timedelta(days=1),
-        email_event_type="RECRUITER_SCREEN",
-        email_status_after_event="APPLIED",
-        email_summary="Recruiter reached out to schedule a 30-minute initial conversation.",
-        email_action_required=True,
-        email_action="Book a 30-minute intro call via Calendly link",
-        email_raw_body="Hi Alex, we were impressed with your distributed systems background and would love to schedule a 30-minute introductory call this week.",
-    )
-    session.add_all([event_stripe_1, event_stripe_2])
-    await session.flush()
-
-    action_stripe = ActionItemModel(
-        application_id=app_stripe.id,
-        event_id=event_stripe_2.id,
-        title="Schedule 30-min recruiter screen with Sarah (Stripe Talent)",
-        due_date=now + timedelta(hours=20),
-        status="PENDING",
-        urgency="HIGH",
-        action_url="https://calendly.com/stripe-talent/alex-30min",
-    )
-    session.add(action_stripe)
-
-    # --- Company 2: Linear (Status: TECHNICAL_INTERVIEW) ---
-    linear_dossier = build_linear_dossier()
-    linear = CompanyModel(name="Linear", name_normalized="linear", domain="linear.app")
-    session.add(linear)
-    await session.flush()
-
-    guide_html = """<div class="interview-guide-container">
-<h2>Linear Technical Architecture Interview Guide</h2>
-<p>Tailored preparation for Linear Staff Systems & Sync Engineer round.</p>
-<section>
-<h3>1. Core Architecture Focus Areas</h3>
-<ul>
-<li><strong>Offline-first synchronization:</strong> CRDTs, optimistic UI updates, and conflict resolution over WebSockets.</li>
-<li><strong>PostgreSQL high-performance indexing:</strong> Partitioning, GiST/GIN indexes for issue tracking, and transaction latency.</li>
-<li><strong>Client-server protocol design:</strong> Delta sync payloads and low-bandwidth state reconciliation.</li>
-</ul>
-</section>
-<section>
-<h3>2. Strategic Behavioral Points</h3>
-<p>Highlight your experience scaling async event streaming pipelines and real-time multi-tenant data sync engines.</p>
-</section>
-</div>"""
-
-    app_linear = ApplicationModel(
-        company_id=linear.id,
-        position="Staff Systems & Sync Engineer",
-        position_normalized="staff systems & sync engineer",
-        external_job_id="linear-eng-402",
-        job_url="https://linear.app/careers/staff-systems-engineer",
-        status="TECHNICAL_INTERVIEW",
-        application_date=now - timedelta(days=12),
-        last_activity_at=now - timedelta(hours=14),
-        interview_guide_html=guide_html,
-        interview_guide_generated_at=now - timedelta(hours=10),
-        match_analysis_payload=linear_dossier,
-    )
-    session.add(app_linear)
-    await session.flush()
-
-    jp_linear = JobPostingModel(
-        application_id=app_linear.id,
-        job_url="https://linear.app/careers/staff-systems-engineer",
-        description_markdown="""# Staff Systems & Sync Engineer
-
-Linear is building the future of software project management with instantaneous UI responsiveness.
-
-### Responsibilities:
-- Lead the architecture of our real-time client-cloud sync engine.
-- Build fault-tolerant distributed sync protocols that work offline and online.
-- Optimize database queries and caching layers for sub-10ms response times globally.
-
-### Requirements:
-- Deep experience in TypeScript, Node.js, and PostgreSQL.
-- Understanding of distributed state, CRDTs, and local-first software patterns.
-- Strong background in high-performance WebSockets and Redis pub/sub.
-""",
-        salary_min=210000,
-        salary_max=275000,
-        currency="USD",
-        location="Remote (Global)",
-        work_model="Remote",
-        required_skills=[
-            "TypeScript",
-            "PostgreSQL",
-            "Real-time Sync",
-            "Distributed Systems",
-            "Redis",
-        ],
-        structured_spec={
-            "job_found": True,
-            "company": "Linear",
-            "company_url": "linear.app",
-            "position": "Staff Systems & Sync Engineer",
-            "why_hiring": "Scaling real-time sync infrastructure for global local-first desktop and web clients.",
-            "what_you_will_build": "Offline-first sync engine utilizing delta-based state reconciliation over WebSockets.",
-            "responsibilities": [
-                "Lead the architecture of our real-time client-cloud sync engine.",
-                "Build fault-tolerant distributed sync protocols that work offline and online.",
-                "Optimize database queries and caching layers for sub-10ms response times globally.",
-            ],
-            "requirements": [
-                "Deep experience in TypeScript, Node.js, and PostgreSQL.",
-                "Understanding of distributed state, CRDTs, and local-first software patterns.",
-                "Strong background in high-performance WebSockets and Redis pub/sub.",
-            ],
-            "extracted_skills": [
-                "TypeScript",
-                "Node.js",
-                "PostgreSQL",
-                "CRDTs",
-                "WebSockets",
-                "Redis",
-            ],
-            "compensation_text": "$210,000 - $275,000 USD",
-            "location_text": "Remote (Global)",
-            "workplace_type": "Remote",
+        {
+            "name": "Datadog",
+            "domain": "datadoghq.com",
+            "pos": "Senior Software Engineer - Distributed Tracing",
+            "status": "ONLINE_ASSESSMENT",
+            "days_ago": 4,
+            "sal_min": 185000,
+            "sal_max": 235000,
+            "work_model": "Hybrid",
+            "fit_score": 52,
+            "prog_score": 48,
+            "fit_tier": "LOW_MATCH",
+            "skills": ["Go", "Python", "eBPF", "OpenTelemetry", "Linux Internals"],
+            "missing": ["eBPF", "OpenTelemetry Internals", "Linux Kernel Probing"],
+            "has_action": True,
+            "action_title": "Complete Datadog 90-minute online coding & systems assessment",
+            "action_urgency": "HIGH",
+            "action_due_days": 1,
         },
-    )
-    session.add(jp_linear)
-
-    event_linear_1 = ApplicationEventModel(
-        email_application_id=app_linear.id,
-        email_message_id="linear-msg-001",
-        email_sender="jobs@linear.app",
-        email_sender_name="Linear Recruiting",
-        email_subject="Linear Application: Staff Systems Engineer",
-        email_received_at=now - timedelta(days=12),
-        email_event_type="APPLICATION_SUBMITTED",
-        email_status_after_event="APPLIED",
-        email_summary="Application confirmed.",
-        email_action_required=False,
-    )
-    event_linear_2 = ApplicationEventModel(
-        email_application_id=app_linear.id,
-        email_message_id="linear-msg-002",
-        email_sender="tuomas@linear.app",
-        email_sender_name="Tuomas Artman (Linear)",
-        email_subject="Linear Architecture Round - System Design Interview Invitation",
-        email_received_at=now - timedelta(hours=14),
-        email_event_type="INTERVIEW_INVITE",
-        email_status_after_event="TECHNICAL_INTERVIEW",
-        email_summary="Invited to the 60-minute System Design & Synchronization round.",
-        email_action_required=True,
-        email_action="Prepare diagrams for offline sync architecture session",
-        email_raw_body="Hi Alex, we enjoyed our chat! We would like to invite you to our 60-minute technical architecture interview focusing on data sync and local-first persistence.",
-        raw_payload={"scheduled_at": (now + timedelta(days=2)).isoformat()},
-    )
-    session.add_all([event_linear_1, event_linear_2])
-    await session.flush()
-
-    action_linear = ActionItemModel(
-        application_id=app_linear.id,
-        event_id=event_linear_2.id,
-        title="Prepare system design diagrams for Linear sync architecture round",
-        due_date=now + timedelta(days=2),
-        status="PENDING",
-        urgency="HIGH",
-    )
-    session.add(action_linear)
-
-    # --- Company 3: Figma (Status: OFFER) ---
-    figma_dossier = build_figma_dossier()
-    figma = CompanyModel(name="Figma", name_normalized="figma", domain="figma.com")
-    session.add(figma)
-    await session.flush()
-
-    app_figma = ApplicationModel(
-        company_id=figma.id,
-        position="Principal Platform Engineer",
-        position_normalized="principal platform engineer",
-        external_job_id="figma-platform-99",
-        job_url="https://figma.com/careers/principal-platform",
-        status="OFFER",
-        application_date=now - timedelta(days=25),
-        last_activity_at=now - timedelta(hours=6),
-        match_analysis_payload=figma_dossier,
-    )
-    session.add(app_figma)
-    await session.flush()
-
-    jp_figma = JobPostingModel(
-        application_id=app_figma.id,
-        job_url="https://figma.com/careers/principal-platform",
-        description_markdown="""# Principal Platform Engineer
-
-Help Figma scale multiplayer collaborative canvas technology to hundreds of millions of users worldwide.
-
-### Requirements:
-- 8+ years building high-performance compute and platform infrastructure in Rust, Go, or C++.
-- Expertise in WebAssembly, Kubernetes, and distributed memory caching.
-- Proven leadership driving multi-quarter infrastructure roadmaps.
-""",
-        salary_min=240000,
-        salary_max=310000,
-        currency="USD",
-        location="San Francisco, CA / Remote",
-        work_model="Hybrid",
-        required_skills=[
-            "Rust",
-            "Go",
-            "Kubernetes",
-            "WebAssembly",
-            "Distributed Systems",
-        ],
-        structured_spec={
-            "job_found": True,
-            "company": "Figma",
-            "company_url": "figma.com",
-            "position": "Principal Platform Engineer",
-            "why_hiring": "Expanding global multiplayer canvas infrastructure and multi-cluster Kubernetes platform.",
-            "what_you_will_build": "Resilient multi-cluster Kubernetes platform supporting 10M+ daily active collaborative sessions.",
-            "responsibilities": [
-                "Architect resilient multi-cluster Kubernetes platform supporting global canvas sessions.",
-                "Lead infrastructure scaling initiatives in Rust, Go, and WebAssembly.",
-                "Drive multi-quarter reliability and latency roadmaps across distributed compute nodes.",
-            ],
-            "requirements": [
-                "8+ years building high-performance compute and platform infrastructure in Rust, Go, or C++.",
-                "Expertise in WebAssembly, Kubernetes, and distributed memory caching.",
-                "Proven leadership driving multi-quarter infrastructure roadmaps.",
-            ],
-            "extracted_skills": [
-                "Rust",
-                "Go",
-                "Kubernetes",
-                "WebAssembly",
-                "C++",
-                "Distributed Systems",
-            ],
-            "compensation_text": "$240,000 - $310,000 USD",
-            "location_text": "San Francisco, CA",
-            "workplace_type": "Hybrid",
+        {
+            "name": "Linear",
+            "domain": "linear.app",
+            "pos": "Staff Systems & Sync Engineer",
+            "status": "TECHNICAL_INTERVIEW",
+            "days_ago": 6,
+            "sal_min": 210000,
+            "sal_max": 275000,
+            "work_model": "Remote",
+            "fit_score": 89,
+            "prog_score": 85,
+            "fit_tier": "STRONG_MATCH",
+            "skills": ["TypeScript", "PostgreSQL", "Real-time Sync", "Redis", "CRDTs"],
+            "missing": ["CRDTs"],
+            "has_action": True,
+            "action_title": "Prepare system design diagrams for Linear sync architecture round",
+            "action_urgency": "HIGH",
+            "action_due_days": 2,
+            "has_guide": True,
         },
-    )
-    session.add(jp_figma)
-
-    event_figma_pre = ApplicationEventModel(
-        email_application_id=app_figma.id,
-        email_message_id="figma-msg-000",
-        email_sender="careers@figma.com",
-        email_sender_name="Figma Talent Team",
-        email_subject="Thank you for applying to Figma",
-        email_received_at=now - timedelta(days=25),
-        email_event_type="APPLICATION_SUBMITTED",
-        email_status_after_event="APPLIED",
-        email_summary="Application confirmed for Principal Platform Engineer.",
-        email_action_required=False,
-    )
-    event_figma_1 = ApplicationEventModel(
-        email_application_id=app_figma.id,
-        email_message_id="figma-msg-001",
-        email_sender="recruiter@figma.com",
-        email_sender_name="Figma People Team",
-        email_subject="Figma Offer: Principal Platform Engineer 🎉",
-        email_received_at=now - timedelta(hours=6),
-        email_event_type="OFFER_RECEIVED",
-        email_status_after_event="OFFER",
-        email_summary="Official offer letter received ($285k Base + $140k/yr Equity).",
-        email_action_required=True,
-        email_action="Review offer documents and schedule decision call before Friday",
-        email_raw_body="Alex, we are thrilled to extend an offer to join Figma as Principal Platform Engineer! Attached is your formal offer breakdown.",
-    )
-    session.add_all([event_figma_pre, event_figma_1])
-    await session.flush()
-
-    action_figma = ActionItemModel(
-        application_id=app_figma.id,
-        event_id=event_figma_1.id,
-        title="Review Figma offer package details ($285k base + equity) and send questions",
-        due_date=now + timedelta(days=4),
-        status="PENDING",
-        urgency="MEDIUM",
-    )
-    session.add(action_figma)
-
-    # --- Company 4: Datadog (Status: ONLINE_ASSESSMENT) ---
-    datadog_dossier = build_datadog_dossier()
-    datadog = CompanyModel(
-        name="Datadog", name_normalized="datadog", domain="datadoghq.com"
-    )
-    session.add(datadog)
-    await session.flush()
-
-    app_datadog = ApplicationModel(
-        company_id=datadog.id,
-        position="Senior Software Engineer - Distributed Tracing",
-        position_normalized="senior software engineer - distributed tracing",
-        external_job_id="datadog-apm-512",
-        job_url="https://careers.datadoghq.com/detail/512",
-        status="ONLINE_ASSESSMENT",
-        application_date=now - timedelta(days=5),
-        last_activity_at=now - timedelta(days=2),
-        match_analysis_payload=datadog_dossier,
-    )
-    session.add(app_datadog)
-    await session.flush()
-
-    jp_datadog = JobPostingModel(
-        application_id=app_datadog.id,
-        job_url="https://careers.datadoghq.com/detail/512",
-        description_markdown="""# Senior Software Engineer - Distributed Tracing
-
-Datadog is looking for a Senior Software Engineer to build high-scale APM ingest pipelines.
-
-### Requirements:
-- Strong experience in Go, Python, or C++.
-- Understanding of eBPF, OpenTelemetry, and Linux tracing internals.
-- Deep focus on memory optimization, concurrency, and low latency processing.
-""",
-        salary_min=185000,
-        salary_max=235000,
-        currency="USD",
-        location="New York, NY / Remote",
-        work_model="Hybrid",
-        required_skills=[
-            "Go",
-            "Python",
-            "Observability",
-            "Linux Internals",
-            "OpenTelemetry",
-        ],
-        structured_spec={
-            "job_found": True,
-            "company": "Datadog",
-            "company_url": "datadoghq.com",
-            "position": "Senior Software Engineer - Distributed Tracing",
-            "why_hiring": "Scaling high-throughput APM telemetry ingestion pipelines across multi-tenant clusters.",
-            "what_you_will_build": "Low-latency distributed tracing propagation and eBPF kernel telemetry probing engines.",
-            "responsibilities": [
-                "Build and optimize high-scale APM ingest pipelines in Go and Python.",
-                "Implement low-overhead span collection and W3C Trace Context propagation.",
-                "Optimize memory efficiency and concurrency across distributed Linux clusters.",
-            ],
-            "requirements": [
-                "Strong experience in Go, Python, or C++.",
-                "Understanding of eBPF, OpenTelemetry, and Linux tracing internals.",
-                "Deep focus on memory optimization, concurrency, and low latency processing.",
-            ],
-            "extracted_skills": [
-                "Go",
-                "Python",
-                "eBPF",
-                "OpenTelemetry",
-                "Linux Internals",
-                "Kafka",
-            ],
-            "compensation_text": "$185,000 - $235,000 USD",
-            "location_text": "New York, NY",
-            "workplace_type": "Hybrid",
+        {
+            "name": "Figma",
+            "domain": "figma.com",
+            "pos": "Principal Platform Engineer",
+            "status": "OFFER",
+            "days_ago": 8,
+            "sal_min": 240000,
+            "sal_max": 310000,
+            "work_model": "Hybrid",
+            "fit_score": 96,
+            "prog_score": 92,
+            "fit_tier": "STRONG_MATCH",
+            "skills": ["Rust", "Go", "Kubernetes", "WebAssembly", "C++"],
+            "missing": ["C++ Canvas Engine Rendering"],
+            "has_action": True,
+            "action_title": "Review Figma offer package details ($285k base + equity) and send questions",
+            "action_urgency": "MEDIUM",
+            "action_due_days": 4,
+            "has_cover_letter": True,
+            "cover_letter_status": "GENERATED",
+            "cover_letter_text": (
+                "Dear Figma Engineering Team,\n\nThank you for extending this Principal Platform Engineer offer. I am thrilled..."
+            ),
         },
-    )
-    session.add(jp_datadog)
-
-    event_datadog_1 = ApplicationEventModel(
-        email_application_id=app_datadog.id,
-        email_message_id="datadog-msg-001",
-        email_sender="recruiting@datadoghq.com",
-        email_sender_name="Datadog Technical Recruitment",
-        email_subject="Datadog Online Technical Assessment (90 min)",
-        email_received_at=now - timedelta(days=2),
-        email_event_type="ASSESSMENT_REQUEST",
-        email_status_after_event="ONLINE_ASSESSMENT",
-        email_summary="Received HackerRank automated coding & systems test link.",
-        email_action_required=True,
-        email_action="Complete HackerRank assessment by Thursday",
-        email_raw_body="Hi Alex, please complete this 90-minute technical evaluation covering algorithmic problem solving and concurrent system design.",
-    )
-    session.add(event_datadog_1)
-    await session.flush()
-
-    action_datadog = ActionItemModel(
-        application_id=app_datadog.id,
-        event_id=event_datadog_1.id,
-        title="Complete Datadog 90-minute online coding & systems assessment",
-        due_date=now + timedelta(hours=36),
-        status="PENDING",
-        urgency="HIGH",
-    )
-    session.add(action_datadog)
-
-    # --- Company 5: Airbnb (Status: REJECTED) ---
-    airbnb_dossier = build_airbnb_dossier()
-    airbnb = CompanyModel(name="Airbnb", name_normalized="airbnb", domain="airbnb.com")
-    session.add(airbnb)
-    await session.flush()
-
-    app_airbnb = ApplicationModel(
-        company_id=airbnb.id,
-        position="Senior Platform Engineer",
-        position_normalized="senior platform engineer",
-        external_job_id="airbnb-plat-303",
-        job_url="https://careers.airbnb.com/positions/303",
-        status="REJECTED",
-        application_date=now - timedelta(days=20),
-        last_activity_at=now - timedelta(days=6),
-        match_analysis_payload=airbnb_dossier,
-    )
-    session.add(app_airbnb)
-    await session.flush()
-
-    jp_airbnb = JobPostingModel(
-        application_id=app_airbnb.id,
-        job_url="https://careers.airbnb.com/positions/303",
-        description_markdown="# Senior Platform Engineer\nBuilding Airbnb core developer infrastructure.",
-        salary_min=190000,
-        salary_max=240000,
-        currency="USD",
-        location="San Francisco, CA / Remote",
-        work_model="Remote",
-        required_skills=["Java", "Kubernetes", "AWS", "Terraform"],
-        structured_spec={
-            "job_found": True,
-            "company": "Airbnb",
-            "company_url": "airbnb.com",
-            "position": "Senior Platform Engineer",
-            "why_hiring": None,
-            "what_you_will_build": "Developer infrastructure and service delivery platform for internal microservices.",
-            "responsibilities": [
-                "Maintain and scale core JVM developer platform infrastructure.",
-                "Automate cloud deployment pipelines using Kubernetes and Terraform on AWS.",
-            ],
-            "requirements": [
-                "Senior engineering experience with Java and Spring Boot microservices.",
-                "Hands-on expertise with Kubernetes, Terraform, and AWS cloud environments.",
-            ],
-            "extracted_skills": [
-                "Java",
-                "Spring Boot",
-                "Kubernetes",
-                "AWS",
-                "Terraform",
-                "Spinnaker",
-            ],
-            "compensation_text": "$190,000 - $240,000 USD",
-            "location_text": "San Francisco, CA",
-            "workplace_type": "Remote",
+        {
+            "name": "Vercel",
+            "domain": "vercel.com",
+            "pos": "Staff Edge Infrastructure Engineer",
+            "status": "APPLIED",
+            "days_ago": 9,
+            "sal_min": 200000,
+            "sal_max": 260000,
+            "work_model": "Remote",
+            "fit_score": 91,
+            "prog_score": 88,
+            "fit_tier": "STRONG_MATCH",
+            "skills": ["TypeScript", "Go", "WebAssembly", "Edge Compute", "Redis"],
+            "missing": ["Rust WASM Compiler Tools"],
+            "has_action": False,
+            "has_cover_letter": True,
+            "cover_letter_status": "GENERATED",
+            "cover_letter_text": "Dear Vercel Hiring Team,\n\nI am excited to apply for the Staff Edge Infrastructure Engineer role...",
         },
-    )
-    session.add(jp_airbnb)
+        {
+            "name": "Supabase",
+            "domain": "supabase.com",
+            "pos": "Senior PostgreSQL Platform Engineer",
+            "status": "TECHNICAL_INTERVIEW",
+            "days_ago": 11,
+            "sal_min": 190000,
+            "sal_max": 240000,
+            "work_model": "Remote",
+            "fit_score": 93,
+            "prog_score": 90,
+            "fit_tier": "STRONG_MATCH",
+            "skills": ["PostgreSQL", "Go", "Distributed Systems", "Elixir"],
+            "missing": ["Elixir / Erlang VM"],
+            "has_action": False,
+            "has_guide": True,
+        },
+        {
+            "name": "Resend",
+            "domain": "resend.com",
+            "pos": "Senior Infrastructure & Email Engine Specialist",
+            "status": "APPLIED",
+            "days_ago": 13,
+            "sal_min": 175000,
+            "sal_max": 225000,
+            "work_model": "Remote",
+            "fit_score": 87,
+            "prog_score": 84,
+            "fit_tier": "STRONG_MATCH",
+            "skills": ["TypeScript", "Node.js", "PostgreSQL", "SMTP Protocols"],
+            "missing": ["DKIM / SPF Deliverability Tuning"],
+            "has_action": False,
+        },
+        {
+            "name": "PostHog",
+            "domain": "posthog.com",
+            "pos": "Senior Analytics Ingestion Engineer",
+            "status": "ONLINE_ASSESSMENT",
+            "days_ago": 14,
+            "sal_min": 180000,
+            "sal_max": 230000,
+            "work_model": "Remote",
+            "fit_score": 45,
+            "prog_score": 42,
+            "fit_tier": "LOW_MATCH",
+            "skills": ["Python", "ClickHouse", "Kafka", "Django"],
+            "missing": ["ClickHouse Internal Sharding", "Django Legacy ORM"],
+            "has_action": False,
+        },
+        # --- Days 15-30 (Previous Period: ~30% of apps) ---
+        {
+            "name": "Snowflake",
+            "domain": "snowflake.com",
+            "pos": "Principal Cloud Database Architect",
+            "status": "APPLIED",
+            "days_ago": 16,
+            "sal_min": 220000,
+            "sal_max": 280000,
+            "work_model": "Hybrid",
+            "fit_score": 82,
+            "prog_score": 78,
+            "fit_tier": "STRONG_MATCH",
+            "skills": ["C++", "Java", "Distributed Query Engines", "AWS"],
+            "missing": ["Java Virtual Machine Optimization"],
+            "has_action": False,
+        },
+        {
+            "name": "Airbnb",
+            "domain": "airbnb.com",
+            "pos": "Senior Platform Engineer",
+            "status": "REJECTED",
+            "days_ago": 18,
+            "sal_min": 190000,
+            "sal_max": 240000,
+            "work_model": "Remote",
+            "fit_score": 38,
+            "prog_score": 35,
+            "fit_tier": "LOW_MATCH",
+            "skills": ["Java", "Kubernetes", "AWS", "Spring Boot"],
+            "missing": ["Java", "Spring Boot", "Spinnaker"],
+            "has_action": False,
+        },
+        {
+            "name": "Cloudflare",
+            "domain": "cloudflare.com",
+            "pos": "Staff Network & Distributed Edge Engineer",
+            "status": "TECHNICAL_INTERVIEW",
+            "days_ago": 21,
+            "sal_min": 210000,
+            "sal_max": 270000,
+            "work_model": "Hybrid",
+            "fit_score": 88,
+            "prog_score": 84,
+            "fit_tier": "STRONG_MATCH",
+            "skills": ["Rust", "Go", "BGP Protocols", "Linux Kernel"],
+            "missing": ["Linux Kernel eBPF"],
+            "has_action": False,
+            "has_guide": True,
+        },
+        {
+            "name": "Retool",
+            "domain": "retool.com",
+            "pos": "Senior Full-Stack Backend Lead",
+            "status": "APPLIED",
+            "days_ago": 23,
+            "sal_min": 185000,
+            "sal_max": 235000,
+            "work_model": "Hybrid",
+            "fit_score": 88,
+            "prog_score": 86,
+            "fit_tier": "STRONG_MATCH",
+            "skills": ["TypeScript", "Node.js", "PostgreSQL", "React"],
+            "missing": [],
+            "has_action": False,
+        },
+        {
+            "name": "Modal",
+            "domain": "modal.com",
+            "pos": "Systems Engineer - Serverless GPU Runtime",
+            "status": "ONLINE_ASSESSMENT",
+            "days_ago": 25,
+            "sal_min": 210000,
+            "sal_max": 280000,
+            "work_model": "Remote",
+            "fit_score": 49,
+            "prog_score": 45,
+            "fit_tier": "LOW_MATCH",
+            "skills": ["Python", "Rust", "Linux Containers", "CUDA"],
+            "missing": ["CUDA Driver Kernels", "Low-level Memory Isolation"],
+            "has_action": False,
+        },
+        {
+            "name": "Sentry",
+            "domain": "sentry.io",
+            "pos": "Senior Python Backend Systems Engineer",
+            "status": "HIRED",
+            "days_ago": 28,
+            "sal_min": 190000,
+            "sal_max": 240000,
+            "work_model": "Remote",
+            "fit_score": 97,
+            "prog_score": 94,
+            "fit_tier": "STRONG_MATCH",
+            "skills": ["Python", "Django", "ClickHouse", "PostgreSQL", "Kafka"],
+            "missing": [],
+            "has_action": False,
+        },
+        {
+            "name": "Pinecone",
+            "domain": "pinecone.io",
+            "pos": "Senior Vector Indexing Engineer",
+            "status": "APPLIED",
+            "days_ago": 30,
+            "sal_min": 195000,
+            "sal_max": 250000,
+            "work_model": "Remote",
+            "fit_score": 84,
+            "prog_score": 80,
+            "fit_tier": "STRONG_MATCH",
+            "skills": ["C++", "Go", "HNSW Algorithms", "Distributed Vector Search"],
+            "missing": ["SIMD Acceleration"],
+            "has_action": False,
+        },
+        # --- Days 31-90 (Historical Cohorts: ~35% of apps) ---
+        {
+            "name": "Weights & Biases",
+            "domain": "wandb.ai",
+            "pos": "Senior MLOps Platform Engineer",
+            "status": "APPLIED",
+            "days_ago": 35,
+            "sal_min": 185000,
+            "sal_max": 235000,
+            "work_model": "Remote",
+            "fit_score": 83,
+            "prog_score": 80,
+            "fit_tier": "STRONG_MATCH",
+            "skills": ["Python", "Kubernetes", "AWS", "PyTorch"],
+            "missing": ["PyTorch Distributed Training"],
+            "has_action": False,
+        },
+        {
+            "name": "Chroma",
+            "domain": "trychroma.com",
+            "pos": "Distributed Database Engineer",
+            "status": "REJECTED",
+            "days_ago": 42,
+            "sal_min": 180000,
+            "sal_max": 230000,
+            "work_model": "Remote",
+            "fit_score": 42,
+            "prog_score": 40,
+            "fit_tier": "LOW_MATCH",
+            "skills": ["Python", "Rust", "SQLite", "Vector Embeddings"],
+            "missing": ["Rust Internal Memory Safety"],
+            "has_action": False,
+        },
+        {
+            "name": "LangChain",
+            "domain": "langchain.com",
+            "pos": "Staff Agent Frameworks Engineer",
+            "status": "TECHNICAL_INTERVIEW",
+            "days_ago": 48,
+            "sal_min": 195000,
+            "sal_max": 255000,
+            "work_model": "Remote",
+            "fit_score": 94,
+            "prog_score": 90,
+            "fit_tier": "STRONG_MATCH",
+            "skills": ["Python", "TypeScript", "LangGraph", "AsyncIO", "LLM APIs"],
+            "missing": [],
+            "has_action": False,
+            "has_guide": True,
+        },
+        {
+            "name": "Scale AI",
+            "domain": "scale.com",
+            "pos": "Senior Data Engine Infrastructure Engineer",
+            "status": "APPLIED",
+            "days_ago": 54,
+            "sal_min": 200000,
+            "sal_max": 260000,
+            "work_model": "Hybrid",
+            "fit_score": 86,
+            "prog_score": 82,
+            "fit_tier": "STRONG_MATCH",
+            "skills": ["Python", "PostgreSQL", "Kafka", "Kubernetes"],
+            "missing": [],
+            "has_action": False,
+        },
+        {
+            "name": "Astral",
+            "domain": "astral.sh",
+            "pos": "Systems Engineer - Python Tooling in Rust",
+            "status": "ONLINE_ASSESSMENT",
+            "days_ago": 60,
+            "sal_min": 190000,
+            "sal_max": 250000,
+            "work_model": "Remote",
+            "fit_score": 55,
+            "prog_score": 50,
+            "fit_tier": "LOW_MATCH",
+            "skills": ["Rust", "Python ASTs", "Compiler Design"],
+            "missing": ["Compiler AST Parsing"],
+            "has_action": False,
+        },
+        {
+            "name": "ClickHouse",
+            "domain": "clickhouse.com",
+            "pos": "Principal Columnar Engine Engineer",
+            "status": "ARCHIVED",
+            "days_ago": 68,
+            "sal_min": 220000,
+            "sal_max": 290000,
+            "work_model": "Remote",
+            "fit_score": 35,
+            "prog_score": 30,
+            "fit_tier": "LOW_MATCH",
+            "skills": ["C++", "Columnar Storage", "SIMD"],
+            "missing": ["C++20 SIMD Primitives"],
+            "has_action": False,
+        },
+        {
+            "name": "Cockroach Labs",
+            "domain": "cockroachlabs.com",
+            "pos": "Distributed Consensus Engineer",
+            "status": "APPLIED",
+            "days_ago": 75,
+            "sal_min": 200000,
+            "sal_max": 260000,
+            "work_model": "Remote",
+            "fit_score": 88,
+            "prog_score": 85,
+            "fit_tier": "STRONG_MATCH",
+            "skills": ["Go", "Raft Consensus", "Distributed SQL"],
+            "missing": [],
+            "has_action": False,
+        },
+        {
+            "name": "Tailscale",
+            "domain": "tailscale.com",
+            "pos": "Senior Networking Software Engineer",
+            "status": "APPLIED",
+            "days_ago": 81,
+            "sal_min": 185000,
+            "sal_max": 240000,
+            "work_model": "Remote",
+            "fit_score": 87,
+            "prog_score": 84,
+            "fit_tier": "STRONG_MATCH",
+            "skills": ["Go", "WireGuard Protocols", "Networking"],
+            "missing": ["WireGuard Kernel Routing"],
+            "has_action": False,
+        },
+        {
+            "name": "PlanetScale",
+            "domain": "planetscale.com",
+            "pos": "Senior Vitess Database Engineer",
+            "status": "REJECTED",
+            "days_ago": 86,
+            "sal_min": 190000,
+            "sal_max": 245000,
+            "work_model": "Remote",
+            "fit_score": 32,
+            "prog_score": 30,
+            "fit_tier": "LOW_MATCH",
+            "skills": ["Go", "MySQL Internals", "Vitess Sharding"],
+            "missing": ["MySQL Storage Engine Internals"],
+            "has_action": False,
+        },
+        {
+            "name": "Fly.io",
+            "domain": "fly.io",
+            "pos": "Staff MicroVM Runtime Engineer",
+            "status": "APPLIED",
+            "days_ago": 89,
+            "sal_min": 205000,
+            "sal_max": 265000,
+            "work_model": "Remote",
+            "fit_score": 89,
+            "prog_score": 86,
+            "fit_tier": "STRONG_MATCH",
+            "skills": ["Go", "Rust", "Firecracker MicroVMs", "Linux Kernel"],
+            "missing": [],
+            "has_action": False,
+        },
+    ]
 
-    event_airbnb_1 = ApplicationEventModel(
-        email_application_id=app_airbnb.id,
-        email_message_id="airbnb-msg-001",
-        email_sender="talent@airbnb.com",
-        email_sender_name="Airbnb Recruiting",
-        email_subject="Your Application at Airbnb",
-        email_received_at=now - timedelta(days=6),
-        email_event_type="REJECTION",
-        email_status_after_event="REJECTED",
-        email_summary="Application not moving forward due to internal candidate placement.",
-        email_action_required=False,
-        email_raw_body="Hi Alex, thank you for your interest in Airbnb. At this time, we have decided to proceed with an internal candidate for this role.",
-    )
-    session.add(event_airbnb_1)
-    await session.flush()
+    total_companies = len(company_seed_specs)
+    total_apps = len(company_seed_specs)
+    total_job_postings = len(company_seed_specs)
+    total_events = 0
+    total_actions = 0
 
-    action_airbnb = ActionItemModel(
-        application_id=app_airbnb.id,
-        event_id=event_airbnb_1.id,
-        title="Archive application notes and reconnect with recruiter on LinkedIn",
-        due_date=now - timedelta(days=5),
-        status="COMPLETED",
-        urgency="LOW",
-    )
-    session.add(action_airbnb)
+    for spec in company_seed_specs:
+        app_date = now - timedelta(days=spec["days_ago"])
 
-    stats["companies"] = 5
-    stats["applications"] = 5
-    stats["job_postings"] = 5
-    stats["application_events"] = 8
-    stats["action_items"] = 5
+        # 2a. Company Model
+        company = CompanyModel(
+            name=spec["name"],
+            name_normalized=spec["name"].lower(),
+            domain=spec["domain"],
+        )
+        session.add(company)
+        await session.flush()
+
+        # Build Match Analysis Dossier Payload
+        dossier = build_dossier(
+            company=spec["name"],
+            position=spec["pos"],
+            fit_score=spec["fit_score"],
+            prog_score=spec["prog_score"],
+            fit_tier=spec["fit_tier"],
+            summary_text=f"Match evaluation for {spec['pos']} at {spec['name']}.",
+            matching_skills=spec["skills"],
+            missing_skills=spec["missing"],
+            sal_min=float(spec["sal_min"]),
+            sal_max=float(spec["sal_max"]),
+            location=f"{spec['work_model']} (US / Europe)",
+            work_model=spec["work_model"],
+            recommendation="APPLY_STRONGLY"
+            if spec["fit_score"] >= 85
+            else ("APPLY" if spec["fit_score"] >= 65 else "CAUTION"),
+        )
+
+        # 2b. Application Model
+        guide_html = None
+        if spec.get("has_guide"):
+            guide_html = (
+                f"<div class='interview-guide-container'><h2>{spec['name']} Technical Architecture Guide</h2>"
+                f"<p>System design and architecture preparation for {spec['pos']}.</p></div>"
+            )
+
+        app = ApplicationModel(
+            company_id=company.id,
+            position=spec["pos"],
+            position_normalized=spec["pos"].lower(),
+            external_job_id=f"{company.name_normalized}-job-{spec['days_ago']}",
+            job_url=f"https://{spec['domain']}/careers/{company.name_normalized}",
+            status=spec["status"],
+            application_date=app_date,
+            last_activity_at=app_date + timedelta(hours=12),
+            interview_guide_html=guide_html,
+            interview_guide_generated_at=app_date + timedelta(hours=10)
+            if guide_html
+            else None,
+            cover_letter_text=spec.get("cover_letter_text"),
+            cover_letter_status=spec.get("cover_letter_status"),
+            cover_letter_generated_at=app_date + timedelta(hours=2)
+            if spec.get("has_cover_letter")
+            else None,
+            match_analysis_payload=dossier,
+        )
+        session.add(app)
+        await session.flush()
+
+        # 2c. Job Posting Model
+        structured_spec = build_structured_spec(
+            company=spec["name"],
+            domain=spec["domain"],
+            position=spec["pos"],
+            why_hiring=f"Expanding core engineering team at {spec['name']}.",
+            what_you_will_build=f"High performance systems for {spec['pos']}.",
+            responsibilities=[
+                f"Design and maintain scalable microservices for {spec['name']}.",
+                "Optimize query performance and database transactional consistency.",
+            ],
+            requirements=[
+                "5+ years backend software engineering experience.",
+                "Expertise in distributed systems, SQL, and event streaming.",
+            ],
+            extracted_skills=spec["skills"],
+            comp_text=f"${spec['sal_min']:,} - ${spec['sal_max']:,} USD",
+            location_text=spec["work_model"],
+            workplace_type=spec["work_model"],
+        )
+
+        jp = JobPostingModel(
+            application_id=app.id,
+            job_url=f"https://{spec['domain']}/careers/{company.name_normalized}",
+            description_markdown=f"# {spec['pos']}\n\nJoin {spec['name']} to build scalable backend systems.",
+            salary_min=float(spec["sal_min"]),
+            salary_max=float(spec["sal_max"]),
+            currency="USD",
+            location=spec["work_model"],
+            work_model=spec["work_model"],
+            required_skills=spec["skills"],
+            structured_spec=structured_spec,
+        )
+        session.add(jp)
+
+        # 2d. Application Events (Strict status alignment with ApplicationModel.status)
+        is_applied_only = spec["status"] == "APPLIED"
+        evt1 = ApplicationEventModel(
+            email_application_id=app.id,
+            email_message_id=f"msg-{app.id}-sub",
+            email_sender=f"recruiting@{spec['domain']}",
+            email_sender_name=f"{spec['name']} Talent Team",
+            email_subject=f"Application Confirmation: {spec['pos']}",
+            email_received_at=app_date,
+            email_event_type="APPLICATION_SUBMITTED",
+            email_status_after_event="APPLIED",
+            email_summary=f"Application for {spec['pos']} received.",
+            email_action_required=spec.get("has_action", False)
+            if is_applied_only
+            else False,
+            email_action=spec.get("action_title")
+            if (is_applied_only and spec.get("has_action"))
+            else None,
+            email_raw_body=f"Hi Alex, thank you for applying to {spec['name']}!",
+        )
+        session.add(evt1)
+        await session.flush()
+        total_events += 1
+
+        active_evt = evt1
+        if not is_applied_only:
+            evt_type_map = {
+                "ONLINE_ASSESSMENT": "ASSESSMENT_REQUEST",
+                "TECHNICAL_INTERVIEW": "INTERVIEW_INVITE",
+                "OFFER": "OFFER_RECEIVED",
+                "HIRED": "OFFER_RECEIVED",
+                "REJECTED": "REJECTION",
+                "ARCHIVED": "REJECTION",
+            }
+            evt2 = ApplicationEventModel(
+                email_application_id=app.id,
+                email_message_id=f"msg-{app.id}-status",
+                email_sender=f"recruiting@{spec['domain']}",
+                email_sender_name=f"{spec['name']} Recruiting",
+                email_subject=f"Update regarding your application at {spec['name']}",
+                email_received_at=app_date + timedelta(days=1),
+                email_event_type=evt_type_map.get(
+                    spec["status"], "APPLICATION_SUBMITTED"
+                ),
+                email_status_after_event=spec["status"],
+                email_summary=f"Status update: moved to {spec['status']}.",
+                email_action_required=spec.get("has_action", False),
+                email_action=spec.get("action_title")
+                if spec.get("has_action")
+                else None,
+            )
+            session.add(evt2)
+            await session.flush()
+            total_events += 1
+            active_evt = evt2
+
+        # 2e. Action Item
+        if spec.get("has_action"):
+            action = ActionItemModel(
+                application_id=app.id,
+                event_id=active_evt.id,
+                title=spec["action_title"],
+                due_date=now + timedelta(days=spec.get("action_due_days", 2)),
+                status="PENDING",
+                urgency=spec.get("action_urgency", "MEDIUM"),
+            )
+            session.add(action)
+            total_actions += 1
+
+    stats["companies"] = total_companies
+    stats["applications"] = total_apps
+    stats["job_postings"] = total_job_postings
+    stats["application_events"] = total_events
+    stats["action_items"] = total_actions
 
     # -------------------------------------------------------------------------
-    # 3. Other Recruitment & Tech Events
+    # 3. AI Queue & Task Variations (IntakeEvaluationTaskModel)
+    # -------------------------------------------------------------------------
+    tasks_to_seed = [
+        # Successful completions across task types
+        IntakeEvaluationTaskModel(
+            task_type="JOB_ASSESSMENT",
+            job_url="https://stripe.com/careers/senior-backend",
+            title_hint="Stripe - Senior Backend Engineer",
+            status="COMPLETED",
+            stage="COMPLETE",
+            result_json=build_dossier(
+                "Stripe",
+                "Senior Backend Engineer",
+                94,
+                90,
+                "STRONG_MATCH",
+                "Evaluated Stripe lead",
+                ["Python", "FastAPI"],
+                ["ISO 20022"],
+                195000,
+                245000,
+                "Remote",
+                "Remote",
+                "APPLY_STRONGLY",
+            ),
+            created_at=now - timedelta(days=2),
+            completed_at=now - timedelta(days=2, minutes=-2),
+        ),
+        IntakeEvaluationTaskModel(
+            task_type="CV_ANONYMIZATION",
+            title_hint="Alex Morgan CV Anonymization",
+            status="COMPLETED",
+            stage="COMPLETE",
+            result_json={
+                "anonymized_text": "[Candidate] - Staff Software Engineer",
+                "extracted_skills": ["Python", "FastAPI", "Go", "PostgreSQL"],
+            },
+            created_at=now - timedelta(days=5),
+            completed_at=now - timedelta(days=5, minutes=-1),
+        ),
+        IntakeEvaluationTaskModel(
+            task_type="COVER_LETTER",
+            title_hint="Vercel Cover Letter Draft",
+            status="COMPLETED",
+            stage="COMPLETE",
+            result_json={
+                "cover_letter_text": "Dear Vercel Hiring Team,\n\nI am writing to express my enthusiasm...",
+            },
+            created_at=now - timedelta(days=1),
+            completed_at=now - timedelta(days=1, minutes=-1),
+        ),
+        # Active processing & queued tasks
+        IntakeEvaluationTaskModel(
+            task_type="JOB_ASSESSMENT",
+            job_url="https://anthropic.com/careers/systems-engineer",
+            title_hint="Anthropic - Systems Engineer",
+            status="PROCESSING",
+            stage="MATCHING",
+            created_at=now - timedelta(minutes=5),
+        ),
+        IntakeEvaluationTaskModel(
+            task_type="COVER_LETTER",
+            title_hint="Anthropic Cover Letter Draft",
+            status="QUEUED",
+            stage="FETCHING",
+            created_at=now - timedelta(minutes=2),
+        ),
+        # Explicit error states for queue retry testing
+        IntakeEvaluationTaskModel(
+            task_type="JOB_ASSESSMENT",
+            job_url="https://openai.com/careers/research-engineer",
+            title_hint="OpenAI - Research Engineer",
+            status="FAILED",
+            stage="FETCHING",
+            error_message="FETCH_FAILED: 429 Too Many Requests - Provider rate limit exceeded.",
+            created_at=now - timedelta(hours=3),
+            completed_at=now - timedelta(hours=3, minutes=-1),
+        ),
+        IntakeEvaluationTaskModel(
+            task_type="JOB_ASSESSMENT",
+            job_url="https://notion.so/careers/backend-lead",
+            title_hint="Notion - Backend Lead",
+            status="FAILED",
+            stage="SCRUBBING",
+            error_message="INVALID_JOB_CONTENT: Scraped page does not appear to be a job description.",
+            created_at=now - timedelta(hours=6),
+            completed_at=now - timedelta(hours=6, minutes=-1),
+        ),
+        IntakeEvaluationTaskModel(
+            task_type="JOB_ASSESSMENT",
+            job_url="https://snowflake.com/careers/cloud-architect",
+            title_hint="Snowflake - Principal Cloud Architect",
+            status="FAILED",
+            stage="ASSESSING",
+            error_message="NetworkTimeout: Connection timed out after 30s while fetching model response.",
+            created_at=now - timedelta(hours=12),
+            completed_at=now - timedelta(hours=12, minutes=-1),
+        ),
+    ]
+
+    session.add_all(tasks_to_seed)
+    stats["intake_tasks"] = len(tasks_to_seed)
+
+    # -------------------------------------------------------------------------
+    # 4. Other Recruitment & Tech Events
     # -------------------------------------------------------------------------
     other_1 = OtherEventModel(
         email_message_id="other-msg-001",
@@ -1050,7 +955,6 @@ Datadog is looking for a Senior Software Engineer to build high-scale APM ingest
         company="ByteByteGo",
         summary="Engineering deep dive on Raft vs Paxos in modern cloud databases.",
         action_required=False,
-        raw_body="In this week's issue, we break down how modern distributed databases implement Raft leader election...",
     )
     other_2 = OtherEventModel(
         email_message_id="other-msg-002",
@@ -1062,7 +966,6 @@ Datadog is looking for a Senior Software Engineer to build high-scale APM ingest
         company="Venture Talent",
         summary="Cold outreach for Founding Engineer role with 1.5% equity stake.",
         action_required=False,
-        raw_body="Hi Alex, came across your distributed systems profile on GitHub. We are partnering with an early-stage AI compute company looking for a Founding Engineer...",
     )
     other_3 = OtherEventModel(
         email_message_id="other-msg-003",
@@ -1079,7 +982,7 @@ Datadog is looking for a Senior Software Engineer to build high-scale APM ingest
     stats["other_events"] = 3
 
     # -------------------------------------------------------------------------
-    # 4. Staging Queue Items (Ambiguous Leads for Triage)
+    # 5. Staging Queue Items (Email Triage Workflow)
     # -------------------------------------------------------------------------
     staging_1 = StagingItemModel(
         email_message_id="staging-msg-001",
@@ -1115,7 +1018,7 @@ Datadog is looking for a Senior Software Engineer to build high-scale APM ingest
         },
         match_score=0.62,
         match_reason="MULTIPLE_COMPANY_MATCHES: Ambiguous company match against Nexa Global vs NexaCorp",
-        status="PENDING",
+        status="APPROVED",
     )
     staging_3 = StagingItemModel(
         email_message_id="staging-msg-003",
@@ -1133,47 +1036,28 @@ Datadog is looking for a Senior Software Engineer to build high-scale APM ingest
         },
         match_score=0.35,
         match_reason="UNSPECIFIED_ROLE: Missing company identifier in subject and body",
-        status="PENDING",
+        status="REJECTED",
     )
-    session.add_all([staging_1, staging_2, staging_3])
-    stats["staging_items"] = 3
-
-    # -------------------------------------------------------------------------
-    # 5. Intake Evaluation Tasks (Persisted AI Queue with Dossier Results)
-    # -------------------------------------------------------------------------
-    task_1 = IntakeEvaluationTaskModel(
-        task_type="JOB_ASSESSMENT",
-        job_url="https://stripe.com/jobs/senior-backend-payments",
-        title_hint="Stripe - Senior Backend Engineer",
-        status="COMPLETED",
-        stage="COMPLETE",
-        result_json=stripe_dossier,
-        created_at=now - timedelta(days=4),
-        completed_at=now - timedelta(days=4, minutes=-2),
+    staging_4 = StagingItemModel(
+        email_message_id="staging-msg-004",
+        email_sender="recruiting@linear.app",
+        email_sender_name="Tuomas Artman (Linear)",
+        email_subject="Linear Technical Architecture Interview Schedule",
+        email_received_at=now - timedelta(hours=6),
+        email_raw_body="Confirmed for Thursday 2:00 PM PST. Here is the Google Meet link.",
+        extracted_data={
+            "company": "Linear",
+            "position": "Staff Systems & Sync Engineer",
+            "status": "TECHNICAL_INTERVIEW",
+            "event_type": "INTERVIEW_INVITE",
+            "summary": "Confirmed technical interview calendar invite.",
+        },
+        match_score=0.95,
+        match_reason="HIGH_CONFIDENCE_MATCH",
+        status="PROCESSED",
     )
-    task_2 = IntakeEvaluationTaskModel(
-        task_type="JOB_ASSESSMENT",
-        job_url="https://linear.app/careers/staff-systems-engineer",
-        title_hint="Linear - Staff Systems & Sync Engineer",
-        status="COMPLETED",
-        stage="COMPLETE",
-        result_json=linear_dossier,
-        created_at=now - timedelta(days=12),
-        completed_at=now - timedelta(days=12, minutes=-3),
-    )
-    task_3 = IntakeEvaluationTaskModel(
-        task_type="JOB_ASSESSMENT",
-        job_url="https://snowflake.com/careers/cloud-architect",
-        title_hint="Snowflake - Principal Cloud Architect",
-        status="FAILED",
-        stage="FAILED",
-        error_message="NetworkTimeout: Connection timed out after 30s while fetching job posting from snowflake.com",
-        result_json=None,
-        created_at=now - timedelta(minutes=15),
-        completed_at=now - timedelta(minutes=14),
-    )
-    session.add_all([task_1, task_2, task_3])
-    stats["intake_tasks"] = 3
+    session.add_all([staging_1, staging_2, staging_3, staging_4])
+    stats["staging_items"] = 4
 
     # -------------------------------------------------------------------------
     # 6. AI Providers & Task Bindings (Local LM Studio Default)
@@ -1264,9 +1148,47 @@ Datadog is looking for a Senior Software Engineer to build high-scale APM ingest
     session.add_all([account_1, account_2])
     stats["email_accounts"] = 2
 
+    # -------------------------------------------------------------------------
+    # 8. Diagnostics Telemetry Traces (TraceEventModel)
+    # -------------------------------------------------------------------------
+    trace_1 = TraceEventModel(
+        run_id="run-stripe-eval-001",
+        category="llm",
+        event_type="llm_start",
+        payload={
+            "model": "qwen/qwen3.5-9b",
+            "prompt": "Evaluate candidate alignment for Stripe Senior Backend Engineer...",
+        },
+        timestamp=now - timedelta(hours=4),
+    )
+    trace_2 = TraceEventModel(
+        run_id="run-stripe-eval-001",
+        category="llm",
+        event_type="llm_end",
+        payload={
+            "output": {"fit_score": 94, "recommendation": "APPLY_STRONGLY"},
+            "token_usage": {"prompt_tokens": 850, "completion_tokens": 420},
+        },
+        timestamp=now - timedelta(hours=4, seconds=-2),
+    )
+    trace_3 = TraceEventModel(
+        run_id="run-snowflake-err-002",
+        category="llm",
+        event_type="llm_error",
+        payload={
+            "error": "NetworkTimeout: Connection timed out after 30s while fetching model response.",
+            "retry_count": 3,
+        },
+        timestamp=now - timedelta(hours=12),
+    )
+    session.add_all([trace_1, trace_2, trace_3])
+    stats["trace_events"] = 3
+
     # Commit all seeded data in a single clean transaction
     await session.commit()
-    logger.info("Successfully seeded development dataset: %s", stats)
+    logger.info(
+        "Successfully seeded expanded development dataset with edge cases: %s", stats
+    )
     return stats
 
 
@@ -1292,11 +1214,11 @@ async def maybe_seed_dev_data(session_factory) -> bool:
             return False
 
         logger.info(
-            "🌱 Clean database detected in development mode. Populating mock test dataset..."
+            "🌱 Clean database detected in development mode. Populating expanded test dataset..."
         )
         stats = await seed_development_dataset(session)
         print("\n" + "=" * 60)
-        print(" 🌱 SEED DATA LOADED: Job Tracker Development Dataset Initialized")
+        print(" 🌱 SEED DATA LOADED: Job Tracker 90-Day Rolling Dataset Initialized")
         print(f"    - Companies:          {stats.get('companies', 0)}")
         print(f"    - Applications:       {stats.get('applications', 0)}")
         print(f"    - Job Postings:       {stats.get('job_postings', 0)}")
@@ -1306,5 +1228,6 @@ async def maybe_seed_dev_data(session_factory) -> bool:
         print(f"    - AI Queue Tasks:     {stats.get('intake_tasks', 0)}")
         print(f"    - AI Providers:       {stats.get('ai_providers', 0)}")
         print(f"    - Email Accounts:     {stats.get('email_accounts', 0)}")
+        print(f"    - Telemetry Traces:   {stats.get('trace_events', 0)}")
         print("=" * 60 + "\n")
         return True

@@ -79,6 +79,7 @@
   --danger: #ef4444;
 
   /* Radii — Tight, geometric, tool-like */
+  --radius-xs: 2px;
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
@@ -176,6 +177,7 @@ html.daylight {
   --danger: #dc2626;
 
   /* Radii — Generous, soft, approachable */
+  --radius-xs: 4px;
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
@@ -240,6 +242,34 @@ input, select, textarea {
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
+select,
+.form-select,
+.sort-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 14px 14px;
+  padding-right: 32px;
+  cursor: pointer;
+}
+
+html.daylight select,
+html.daylight .form-select,
+html.daylight .sort-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2378716c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+select option,
+.form-select option,
+.sort-select option {
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  padding: 6px 10px;
+}
+
 input:focus, select:focus, textarea:focus {
   border-color: var(--border-focus);
   box-shadow: 0 0 0 3px var(--primary-glow);
@@ -255,6 +285,21 @@ input:focus, select:focus, textarea:focus {
   color: var(--text-main);
   box-sizing: border-box;
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.form-select {
+  padding-right: 32px;
+}
+
+.form-input-sm, .form-select-sm {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.form-select-sm {
+  padding-right: 26px;
+  background-position: right 8px center;
+  background-size: 12px 12px;
 }
 
 .form-input:focus, .form-select:focus {
@@ -281,6 +326,82 @@ input:focus, select:focus, textarea:focus {
 .form-textarea:focus {
   outline: none;
   border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+/* ==========================================================================
+   Range Sliders (form-range)
+   ========================================================================== */
+
+.form-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 20px;
+  background: transparent;
+  cursor: pointer;
+  margin: 0;
+  padding: 0;
+}
+
+.form-range:focus {
+  outline: none;
+}
+
+/* WebKit / Blink (Chrome, Safari, Edge) */
+.form-range::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 6px;
+  background-color: var(--border-subtle);
+  border-radius: var(--radius-full);
+  border: none;
+}
+
+.form-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: var(--primary);
+  border: 2px solid var(--bg-surface);
+  margin-top: -5px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.form-range:hover::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+
+.form-range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+/* Gecko (Firefox) */
+.form-range::-moz-range-track {
+  width: 100%;
+  height: 6px;
+  background-color: var(--border-subtle);
+  border-radius: var(--radius-full);
+  border: none;
+}
+
+.form-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: var(--primary);
+  border: 2px solid var(--bg-surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.form-range:hover::-moz-range-thumb {
+  transform: scale(1.15);
+}
+
+.form-range:focus-visible::-moz-range-thumb {
   box-shadow: 0 0 0 3px var(--primary-glow);
 }
 
@@ -385,6 +506,109 @@ html.daylight ::-webkit-scrollbar-thumb {
   color: #fff;
 }
 
+/* ==========================================================================
+   Standardized Dropdowns & Context Menus
+   ========================================================================== */
+
+.dropdown-menu,
+.context-menu,
+.card-teleport-menu {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: 0 14px 35px -4px rgba(0, 0, 0, 0.4), 0 6px 14px -2px rgba(0, 0, 0, 0.25);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 1000;
+  box-sizing: border-box;
+}
+
+.dropdown-item,
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  text-decoration: none;
+  box-sizing: border-box;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.dropdown-item:hover,
+.menu-item:hover {
+  background-color: var(--bg-surface-hover);
+  color: var(--text-main);
+}
+
+.dropdown-item.active,
+.dropdown-item.selected,
+.menu-item.active,
+.menu-item.selected {
+  background-color: var(--primary-subtle);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.dropdown-item.text-warning:hover,
+.menu-item.text-warning:hover {
+  background-color: var(--status-interview-bg);
+  color: var(--status-interview-text);
+}
+
+.dropdown-item.text-danger:hover,
+.menu-item.text-danger:hover {
+  background-color: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+}
+
+.dropdown-item.text-success:hover,
+.menu-item.text-success:hover {
+  background-color: var(--status-offer-bg, rgba(16, 185, 129, 0.12));
+  color: var(--status-offer-text, #34d399);
+}
+
+.dropdown-divider,
+.menu-divider {
+  height: 1px;
+  background-color: var(--border-subtle, var(--border-color));
+  margin: 3px 0;
+  border: none;
+}
+
+.dropdown-trigger,
+.menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.dropdown-trigger:hover,
+.dropdown-trigger.active,
+.menu-trigger:hover,
+.menu-trigger.active {
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  border-color: var(--border-subtle);
+}
 
 /* ==========================================================================
    Badges — Status & Urgency
@@ -629,4 +853,32 @@ h1, h2, h3, .heading {
 
 .animate-spin {
   animation: spin 1s linear infinite !important;
+}
+
+/* ==========================================================================
+   Utility Helpers
+   ========================================================================== */
+
+.w-full {
+  width: 100% !important;
+}
+
+.flex-1 {
+  flex: 1 1 0% !important;
+}
+
+.flex-col {
+  flex-direction: column !important;
+}
+
+.items-start {
+  align-items: flex-start !important;
+}
+
+.items-center {
+  align-items: center !important;
+}
+
+.justify-between {
+  justify-content: space-between !important;
 }

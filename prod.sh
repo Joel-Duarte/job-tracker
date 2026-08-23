@@ -9,11 +9,16 @@ RESET_ONLY=false
 STOP_ONLY=false
 STATUS_ONLY=false
 LOGS_ONLY=false
+USE_EXTERNAL=false
 DOCKER_ARGS=()
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --external)
+      USE_EXTERNAL=true
+      shift
+      ;;
     --reset|--clean|-r|--reset-db)
       RESET_DB=true
       shift
@@ -41,6 +46,7 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: ./prod.sh [OPTIONS] [DOCKER_COMPOSE_ARGS...]"
       echo ""
       echo "Options:"
+      echo "  --external                         Use external PostgreSQL/Camofox (via docker-compose.external.yml)"
       echo "  --reset, --clean, -r, --reset-db   Wipe PostgreSQL database & application data, then start fresh"
       echo "  --reset-only                       Wipe database & data volumes without restarting containers"
       echo "  --down, --stop                     Stop running production containers"
@@ -108,13 +114,15 @@ if [ ! -f .env ] && [ -f .env.example ]; then
 fi
 
 echo "🚀 Starting Job Tracker in PERMANENT PRODUCTION mode..."
-echo " - Frontend: Production Nginx SPA & Reverse Proxy (http://localhost:4173)"
-echo " - Backend:  FastAPI Production Workers (http://localhost:8008)"
-echo " - Database: PostgreSQL 16 + pgvector (localhost:54320, data persisted)"
-echo " - Scraper:  Camofox Automation Server (http://localhost:9377)"
-echo ""
+echo " - Web Application & Ingress: http://localhost:4173"
+echo " - API Docs (Swagger UI):     http://localhost:4173/api/docs"
+echo " - Internal Services:         Backend, Database & Scraper (Isolated in Docker Network)"
+COMPOSE_FILES=(-f docker-compose.yml)
+if [ "$USE_EXTERNAL" = true ]; then
+  COMPOSE_FILES+=(-f docker-compose.external.yml)
+fi
 
-docker compose up -d --build "${DOCKER_ARGS[@]}"
+docker compose "${COMPOSE_FILES[@]}" up -d --build "${DOCKER_ARGS[@]}"
 
 echo ""
 echo "================================================================================"
@@ -125,7 +133,7 @@ echo "    - Containers will automatically start on PC boot whenever Docker is ac
 echo "    - Containers will only stop if you explicitly run './prod.sh --down'."
 echo ""
 echo " 🌐 Web Application: http://localhost:4173"
-echo " 📚 API Docs:        http://localhost:8008/docs"
+echo " 📚 API Docs:        http://localhost:4173/api/docs"
 echo ""
 echo " 💡 Quick Management Commands:"
 echo "    ./prod.sh --status    # Check running services"

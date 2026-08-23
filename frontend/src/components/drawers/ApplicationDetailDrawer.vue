@@ -168,6 +168,11 @@ function selectAllSections() {
 }
 
 async function handleGenerateGuide() {
+  if (uiStore.aiStatus === 'offline' && !uiStore.aiFallbackProviderName) {
+    uiStore.openRetryModal()
+    return
+  }
+
   if (selectedSections.value.length === 0) {
     uiStore.showToast('Please select at least one section to generate', 'warning')
     return
@@ -259,6 +264,20 @@ watch(
   { immediate: true }
 )
 
+const hasJobSpecData = computed(() => {
+  const app = appStore.selectedApplication
+  if (!app) return false
+  const jp = app.job_posting
+  if (structuredSpec.value && Object.keys(structuredSpec.value).length > 0) return true
+  if (!jp) return false
+  if (jp.description_markdown && jp.description_markdown.trim()) return true
+  if (jp.salary_min !== null && jp.salary_min !== undefined) return true
+  if (jp.salary_max !== null && jp.salary_max !== undefined) return true
+  if (jp.location && jp.location.trim()) return true
+  if (jp.work_model && jp.work_model.trim()) return true
+  if (jp.required_skills && jp.required_skills.length > 0) return true
+  return false
+})
 
 const parsedJobSpecSections = computed(() => {
   const md = appStore.selectedApplication?.job_posting?.description_markdown || ''
@@ -559,9 +578,13 @@ function formatDate(isoStr) {
 </script>
 
 <template>
-  <Transition name="drawer-slide">
-    <div v-if="uiStore.activeDetailId" class="drawer-overlay" @click.self="close">
-      <div class="drawer-panel">
+  <div v-if="uiStore.activeDetailId" class="drawer-overlay-container">
+    <Transition name="drawer-backdrop">
+      <div v-if="uiStore.activeDetailId" class="drawer-backdrop" @click="close" />
+    </Transition>
+
+    <Transition name="drawer-slide">
+      <div v-if="uiStore.activeDetailId" class="drawer-panel">
         <!-- Loading State -->
         <div v-if="appStore.loadingDetail" class="drawer-loading">
           <div class="pulse-dot"></div>
@@ -590,6 +613,14 @@ function formatDate(isoStr) {
             </div>
 
             <div class="header-actions">
+              <button
+                class="btn btn-primary btn-sm"
+                title="Practice Mock Interview"
+                @click="router.push(`/chat?appId=${appStore.selectedApplication.id}&mock=true`)"
+              >
+                <Sparkles :size="14" />
+                <span>Practice Interview</span>
+              </button>
               <button
                 class="btn-icon-danger"
                 title="Delete Application"
@@ -784,7 +815,7 @@ function formatDate(isoStr) {
 
             <!-- 2. JOB SPEC (Pure Structured Job Details) -->
             <div v-else-if="activeTab === 'job_spec'" class="job-spec-panel">
-              <div v-if="appStore.selectedApplication.job_posting" class="spec-container">
+              <div v-if="hasJobSpecData" class="spec-container">
                 <!-- Overview Metadata Cards -->
                 <div class="spec-grid">
                   <div class="spec-card">
@@ -1138,6 +1169,13 @@ function formatDate(isoStr) {
                   </button>
                   <button
                     class="btn btn-secondary"
+                    @click="router.push(`/chat?appId=${appStore.selectedApplication.id}&mock=true`)"
+                  >
+                    <Sparkles :size="15" />
+                    <span>Practice Interview</span>
+                  </button>
+                  <button
+                    class="btn btn-secondary"
                     title="Re-configure or regenerate"
                     @click="showConfigPanel = true"
                   >
@@ -1169,8 +1207,8 @@ function formatDate(isoStr) {
           </div>
         </div>
       </div>
-    </div>
-  </Transition>
+    </Transition>
+  </div>
 
   <!-- TRANSITION POPUP MODAL -->
   <Transition name="fade">
@@ -1438,15 +1476,22 @@ function formatDate(isoStr) {
 </template>
 
 <style scoped>
-.drawer-overlay {
+.drawer-overlay-container {
   position: fixed;
   inset: 0;
   z-index: 400;
-  background-color: var(--bg-backdrop);
-  backdrop-filter: blur(4px);
   display: flex;
   justify-content: flex-end;
-  transition: backdrop-filter 0.3s ease;
+  pointer-events: none;
+}
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: var(--bg-backdrop);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  pointer-events: auto;
 }
 
 .drawer-panel {
@@ -1459,6 +1504,9 @@ function formatDate(isoStr) {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  position: relative;
+  z-index: 401;
+  pointer-events: auto;
 }
 
 .drawer-loading {
@@ -1613,11 +1661,13 @@ function formatDate(isoStr) {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .event-sender {
   font-size: 11px;
   color: var(--text-secondary);
+  font-weight: 500;
 }
 
 .meta-item {
@@ -1625,6 +1675,7 @@ function formatDate(isoStr) {
   align-items: center;
   gap: 6px;
   color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .btn-link {
@@ -1895,8 +1946,15 @@ function formatDate(isoStr) {
   gap: 10px;
 }
 
-.form-input-sm, .form-select-sm {
+.form-input-sm {
   padding: 6px 10px;
+}
+
+.form-select-sm {
+  padding: 6px 26px 6px 10px;
+}
+
+.form-input-sm, .form-select-sm {
   font-size: 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
@@ -2147,15 +2205,26 @@ function formatDate(isoStr) {
   margin-bottom: 8px;
 }
 
-/* Transitions */
-.drawer-slide-enter-active,
-.drawer-slide-leave-active {
-  transition: all var(--transition-spring);
+/* Decoupled Transitions */
+.drawer-backdrop-enter-active {
+  transition: opacity 0.2s ease-out;
+}
+.drawer-backdrop-leave-active {
+  transition: opacity 0.15s ease-in;
+}
+.drawer-backdrop-enter-from,
+.drawer-backdrop-leave-to {
+  opacity: 0;
 }
 
+.drawer-slide-enter-active {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.drawer-slide-leave-active {
+  transition: transform 0.18s cubic-bezier(0.4, 0, 1, 1);
+}
 .drawer-slide-enter-from,
 .drawer-slide-leave-to {
-  opacity: 0;
   transform: translateX(100%);
 }
 

@@ -106,3 +106,35 @@ class ProviderConcurrencyManager:
 
 # Global singleton instance
 concurrency_manager = ProviderConcurrencyManager()
+
+# In-flight task registry for background evaluation workers
+_RUNNING_TASKS: dict[int, asyncio.Task] = {}
+
+
+def register_running_task(task_id: int, task: asyncio.Task) -> None:
+    """Registers an in-memory running asyncio Task by database task ID."""
+    _RUNNING_TASKS[task_id] = task
+
+
+def unregister_running_task(task_id: int) -> None:
+    """Removes a finished or cancelled task from the in-memory registry."""
+    _RUNNING_TASKS.pop(task_id, None)
+
+
+def cancel_running_task(task_id: int) -> bool:
+    """
+    Cancels an active background asyncio.Task in memory.
+    Disconnects the active socket connection to the AI provider.
+    Returns True if an active task was found and cancellation requested.
+    """
+    task = _RUNNING_TASKS.get(task_id)
+    if task and not task.done():
+        logger.info("Cancelling in-flight asyncio task for task ID %d", task_id)
+        task.cancel()
+        return True
+    return False
+
+
+def get_running_task_ids() -> list[int]:
+    """Returns list of currently active running task IDs."""
+    return [tid for tid, t in _RUNNING_TASKS.items() if not t.done()]

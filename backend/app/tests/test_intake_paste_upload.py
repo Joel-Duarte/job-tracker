@@ -95,11 +95,9 @@ async def test_intake_paste_endpoint(db_session: AsyncSession):
 
         assert res.status_code == 200
         data = res.json()
-        assert data["status"] == "success"
-        assert data["route"] == "commit"
-        assert data["company"] == "Datadog"
-        assert data["position"] == "Core Services Engineer"
-        assert data["application_id"] is not None
+        assert data["status"] == "queued"
+        assert "task_id" in data
+        assert "message" in data
 
     app.dependency_overrides.clear()
 
@@ -150,9 +148,8 @@ Thanks for applying to Palantir for Forward Deployed Engineer."""
 
         assert res.status_code == 200
         data = res.json()
-        assert len(data) == 1
-        assert data[0]["status"] == "success"
-        assert data[0]["company"] == "Palantir"
-        assert data[0]["position"] == "Forward Deployed Engineer"
+        assert data["status"] == "queued"
+        assert data["total_files"] == 1
+        assert "task_id" in data
 
     app.dependency_overrides.clear()

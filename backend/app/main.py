@@ -19,10 +19,13 @@ from app.routers import (
     events,
     extension,
     intake,
+    interview_simulator,
     llm,
+    metrics,
     prompts,
     search,
     staging,
+    system_settings,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -87,6 +90,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Job Tracking API",
     version="1.0.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
     lifespan=lifespan,
 )
 
@@ -112,10 +118,13 @@ app.add_middleware(
 # Register routers
 app.include_router(intake.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
+app.include_router(metrics.router, prefix="/api/v1")
 app.include_router(candidate_profile.router, prefix="/api/v1")
 app.include_router(extension.router, prefix="/api/v1")
 app.include_router(agent_chat.router, prefix="/api/v1")
+app.include_router(ai_config.config_ai_router, prefix="/api/v1")
 app.include_router(ai_config.router, prefix="/api/v1")
+app.include_router(system_settings.router, prefix="/api/v1")
 app.include_router(applications.router, prefix="/api/v1")
 app.include_router(action_items.router, prefix="/api/v1")
 app.include_router(events.router, prefix="/api/v1")
@@ -126,9 +135,11 @@ app.include_router(email_accounts.router, prefix="/api/v1")
 app.include_router(staging.router, prefix="/api/v1")
 app.include_router(diagnostics.router, prefix="/api/v1")
 app.include_router(llm.router, prefix="/api/v1")
+app.include_router(interview_simulator.router)
 
 
 @app.get("/health", tags=["Health"])
+@app.get("/api/health", tags=["Health"])
 async def health_check(response: Response):
     """
     Health check endpoint for application and database connectivity.

@@ -1,10 +1,10 @@
 import json
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -14,67 +14,432 @@ from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
     CompanyModel,
+    JobPostingModel,
 )
+from app.models.intake_tasks import IntakeEvaluationTaskModel
+from app.schemas.agent_tools import (
+    AnalyzePipelineMetricsInput,
+    ApplicationDetailsInput,
+    DetectStalledApplicationsInput,
+    EvaluateAIFitScoreInput,
+    ListApplicationsInput,
+    ManageActionItemsInput,
+    ManageIntakeQueueInput,
+    QueryMarketBenchmarksInput,
+    SemanticSearchInput,
+    StartMockInterviewInput,
+    UpdateApplicationPipelineInput,
+)
+from app.services.analytics import get_funnel_performance_metrics
+from app.services.interview_simulator_service import InterviewSimulatorService
 from app.services.llm import generate_and_save_application_embedding, generate_embedding
 
 logger = logging.getLogger(__name__)
 
 
-class SemanticSearchInput(BaseModel):
-    query: str = Field(
-        description="Semantic search query describing the company, role, email content, or recruiter communication."
+# 1. Analyze Pipeline Metrics Tool
+async def execute_analyze_pipeline_metrics(
+    db: AsyncSession,
+    period: str = "weekly",
+    num_periods: int = 8,
+) -> dict[str, Any]:
+    """Retrieves aggregated funnel performance metrics, conversion counts, and period-over-period trend deltas."""
+    normalized_period = "monthly" if period.strip().lower() == "monthly" else "weekly"
+    metrics = await get_funnel_performance_metrics(
+        db=db, period=normalized_period, num_periods=num_periods
     )
-    limit: int = Field(
-        default=5,
-        ge=1,
-        le=10,
-        description="Max number of matching documents to return.",
-    )
+    return metrics.model_dump()
 
 
-class ListApplicationsInput(BaseModel):
-    status: str | None = Field(
-        default=None,
-        description="Filter by status: APPLIED, TECHNICAL_INTERVIEW, OFFER, REJECTED, ASSESSMENT.",
-    )
-    action_required_only: bool = Field(
-        default=False,
-        description="If true, only returns applications with pending tasks or deadlines.",
-    )
-    limit: int = Field(default=20, ge=1, le=50, description="Max records to return.")
-
-
-class ApplicationDetailsInput(BaseModel):
-    company_or_id: str = Field(
-        description="Company name (e.g. 'Stripe') or numeric Application ID (e.g. '12')."
-    )
-
-
-class UpdateStatusInput(BaseModel):
-    company_name: str = Field(
-        description="Name of the company whose application status to update."
-    )
-    new_status: str = Field(
-        description="New status: APPLIED, TECHNICAL_INTERVIEW, OFFER, REJECTED, or ASSESSMENT."
-    )
-    notes: str | None = Field(
-        default=None,
-        description="Optional explanation or reason for the status change.",
+# 2. Detect Stalled Applications Tool
+async def execute_detect_stalled_applications(
+    db: AsyncSession,
+    inactivity_threshold_days: int = 14,
+    status: str | None = None,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Identifies active job applications that have had no recruiter or timeline activity for longer than the inactivity threshold."""
+    active_statuses = ["APPLIED", "TECHNICAL_INTERVIEW", "ASSESSMENT"]
+    stmt = select(ApplicationModel).options(
+        joinedload(ApplicationModel.company),
+        selectinload(ApplicationModel.events),
     )
 
+    if status:
+        stmt = stmt.where(ApplicationModel.status == status.upper())
+    else:
+        stmt = stmt.where(ApplicationModel.status.in_(active_statuses))
 
-class ActionItemsInput(BaseModel):
-    urgency: str | None = Field(
-        default=None, description="Optional urgency filter: HIGH, MEDIUM, or LOW."
+    stmt = stmt.order_by(ApplicationModel.last_activity_at.asc().nulls_first()).limit(
+        limit * 2
+    )
+    res = await db.execute(stmt)
+    apps = res.scalars().all()
+
+    now = datetime.now(UTC)
+    stalled = []
+
+    for app in apps:
+        last_act = app.last_activity_at or app.updated_at or app.application_date
+        if not last_act:
+            continue
+
+        if last_act.tzinfo is None:
+            last_act = last_act.replace(tzinfo=UTC)
+
+        days_inactive = (now - last_act).days
+        if days_inactive >= inactivity_threshold_days:
+            company_name = app.company.name if app.company else "Unknown"
+            stalled.append(
+                {
+                    "application_id": app.id,
+                    "company": company_name,
+                    "position": app.position,
+                    "status": app.status,
+                    "days_inactive": days_inactive,
+                    "last_activity_at": last_act.isoformat(),
+                    "recommended_action": f"Send follow-up nudge email to {company_name} recruiting team regarding {app.position} status.",
+                }
+            )
+            if len(stalled) >= limit:
+                break
+
+    return stalled
+
+
+# 3. Query Market Benchmarks Tool
+async def execute_query_market_benchmarks(
+    db: AsyncSession,
+    position_keyword: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Aggregates salary ranges, top required skills, and remote/hybrid work distributions across stored job postings and applications."""
+    stmt = (
+        select(JobPostingModel)
+        .options(
+            joinedload(JobPostingModel.application).joinedload(ApplicationModel.company)
+        )
+        .limit(limit)
     )
 
+    if position_keyword:
+        kw = f"%{position_keyword.strip().lower()}%"
+        stmt = (
+            stmt.join(
+                ApplicationModel,
+                JobPostingModel.application_id == ApplicationModel.id,
+                isouter=True,
+            )
+            .join(
+                CompanyModel,
+                ApplicationModel.company_id == CompanyModel.id,
+                isouter=True,
+            )
+            .where(
+                or_(
+                    ApplicationModel.position.ilike(kw),
+                    CompanyModel.name.ilike(kw),
+                    JobPostingModel.job_url.ilike(kw),
+                )
+            )
+        )
 
+    res = await db.execute(stmt)
+    postings = res.scalars().all()
+
+    salaries_min = []
+    salaries_max = []
+    skill_counts: dict[str, int] = {}
+    work_models: dict[str, int] = {"remote": 0, "hybrid": 0, "on-site": 0, "unknown": 0}
+
+    for p in postings:
+        if p.salary_min is not None and p.salary_min > 0:
+            salaries_min.append(p.salary_min)
+        if p.salary_max is not None and p.salary_max > 0:
+            salaries_max.append(p.salary_max)
+
+        skills = p.required_skills or p.extracted_keywords or []
+        for s in skills:
+            if isinstance(s, str) and s.strip():
+                s_clean = s.strip().title()
+                skill_counts[s_clean] = skill_counts.get(s_clean, 0) + 1
+
+        wm = (p.work_model or "unknown").lower().strip()
+        if "remote" in wm:
+            work_models["remote"] += 1
+        elif "hybrid" in wm:
+            work_models["hybrid"] += 1
+        elif "site" in wm or "office" in wm:
+            work_models["on-site"] += 1
+        else:
+            work_models["unknown"] += 1
+
+    top_skills = sorted(skill_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    avg_min_sal = sum(salaries_min) / len(salaries_min) if salaries_min else None
+    avg_max_sal = sum(salaries_max) / len(salaries_max) if salaries_max else None
+
+    return {
+        "sample_size": len(postings),
+        "position_filter": position_keyword,
+        "salary_benchmarks": {
+            "currency": "USD",
+            "average_min": round(avg_min_sal, 2) if avg_min_sal else None,
+            "average_max": round(avg_max_sal, 2) if avg_max_sal else None,
+            "overall_min": min(salaries_min) if salaries_min else None,
+            "overall_max": max(salaries_max) if salaries_max else None,
+        },
+        "top_demanded_skills": [{"skill": k, "count": v} for k, v in top_skills],
+        "work_model_distribution": work_models,
+    }
+
+
+# 4. Evaluate AI Fit Score Tool
+async def execute_evaluate_ai_fit_score(
+    db: AsyncSession, company_or_id: str
+) -> dict[str, Any]:
+    """Fetches programmatic match scores and qualitative AI evaluation details for a specific application."""
+    stmt = select(ApplicationModel).options(
+        joinedload(ApplicationModel.company),
+        selectinload(ApplicationModel.job_posting),
+    )
+    if company_or_id.isdigit():
+        stmt = stmt.where(ApplicationModel.id == int(company_or_id))
+    else:
+        stmt = stmt.join(CompanyModel).where(
+            CompanyModel.name_normalized.ilike(f"%{company_or_id.strip().lower()}%")
+        )
+
+    res = await db.execute(stmt)
+    app = res.scalars().first()
+    if not app:
+        return {"error": f"No application found matching '{company_or_id}'."}
+
+    payload = app.match_analysis_payload or {}
+    prog_score = payload.get("programmatic_match_score") or payload.get("match_score")
+    fit_score = (
+        payload.get("fit_score") or payload.get("overall_fit_score") or prog_score
+    )
+
+    return {
+        "application_id": app.id,
+        "company": app.company.name if app.company else "Unknown",
+        "position": app.position,
+        "status": app.status,
+        "programmatic_match_score": prog_score,
+        "fit_score": fit_score,
+        "matching_skills": payload.get("matching_skills")
+        or payload.get("matched_skills")
+        or [],
+        "missing_skills": payload.get("missing_skills")
+        or payload.get("gap_skills")
+        or [],
+        "pros": payload.get("pros") or payload.get("strengths") or [],
+        "cons": payload.get("cons") or payload.get("weaknesses") or [],
+        "recommendations": payload.get("recommendations")
+        or payload.get("summary")
+        or "No detailed analysis recommendations available.",
+    }
+
+
+# 5. Manage Intake Queue Tool
+async def execute_manage_intake_queue(
+    db: AsyncSession,
+    action: str = "list",
+    task_id: int | None = None,
+    fix_raw_text: str | None = None,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Interacts with background intake evaluation queue tasks to list, retry, cancel, or fix job postings."""
+    action_norm = action.lower().strip()
+
+    if action_norm == "list":
+        stmt = (
+            select(IntakeEvaluationTaskModel)
+            .order_by(IntakeEvaluationTaskModel.id.desc())
+            .limit(limit)
+        )
+        res = await db.execute(stmt)
+        tasks = res.scalars().all()
+        return {
+            "action": "list",
+            "tasks": [
+                {
+                    "id": t.id,
+                    "task_type": t.task_type,
+                    "status": t.status,
+                    "stage": t.stage,
+                    "job_url": t.job_url,
+                    "error_message": t.error_message,
+                    "created_at": t.created_at.isoformat() if t.created_at else None,
+                }
+                for t in tasks
+            ],
+        }
+
+    if not task_id:
+        return {"error": f"task_id is required for action '{action}'."}
+
+    task = await db.get(IntakeEvaluationTaskModel, task_id)
+    if not task:
+        return {"error": f"Intake task #{task_id} not found."}
+
+    if action_norm == "cancel":
+        task.status = "FAILED"
+        task.stage = "FAILED"
+        task.error_message = "Task stopped by user via agent tool."
+        task.completed_at = datetime.now(UTC)
+        db.add(task)
+        await db.commit()
+        return {
+            "success": True,
+            "action": "cancel",
+            "task_id": task_id,
+            "message": f"Successfully cancelled intake task #{task_id}.",
+        }
+
+    if action_norm == "retry":
+        task.status = "PENDING"
+        task.error_message = None
+        task.completed_at = None
+        db.add(task)
+        await db.commit()
+        return {
+            "success": True,
+            "action": "retry",
+            "task_id": task_id,
+            "message": f"Successfully re-queued intake task #{task_id} for processing.",
+        }
+
+    if action_norm == "fix":
+        if not fix_raw_text or not fix_raw_text.strip():
+            return {"error": "fix_raw_text is required when action='fix'."}
+        task.raw_text = fix_raw_text.strip()
+        task.status = "PENDING"
+        task.error_message = None
+        task.completed_at = None
+        db.add(task)
+        await db.commit()
+        return {
+            "success": True,
+            "action": "fix",
+            "task_id": task_id,
+            "message": f"Successfully updated job text and re-queued intake task #{task_id}.",
+        }
+
+    return {"error": f"Unsupported queue action '{action}'."}
+
+
+# 6. Manage Action Items Tool
+async def execute_manage_action_items(
+    db: AsyncSession,
+    action: str = "list",
+    item_id: int | None = None,
+    urgency: str | None = None,
+    title: str | None = None,
+    due_date: str | None = None,
+    application_id: int | None = None,
+) -> dict[str, Any]:
+    """Lists, completes, dismisses, or creates candidate tasks and action item deadlines."""
+    action_norm = action.lower().strip()
+
+    if action_norm == "list":
+        stmt = (
+            select(ActionItemModel)
+            .options(
+                joinedload(ActionItemModel.application).joinedload(
+                    ApplicationModel.company
+                )
+            )
+            .where(ActionItemModel.status == "PENDING")
+        )
+        if urgency:
+            stmt = stmt.where(ActionItemModel.urgency == urgency.upper())
+        stmt = stmt.order_by(ActionItemModel.due_date.asc().nulls_last())
+        res = await db.execute(stmt)
+        items = res.scalars().all()
+        return {
+            "action": "list",
+            "action_items": [
+                {
+                    "id": item.id,
+                    "company": (
+                        item.application.company.name
+                        if (item.application and item.application.company)
+                        else "General"
+                    ),
+                    "title": item.title,
+                    "due_date": item.due_date.isoformat() if item.due_date else None,
+                    "urgency": item.urgency,
+                    "status": item.status,
+                }
+                for item in items
+            ],
+        }
+
+    if action_norm in ("complete", "dismiss"):
+        if not item_id:
+            return {"error": f"item_id is required for action '{action}'."}
+        item = await db.get(ActionItemModel, item_id)
+        if not item:
+            return {"error": f"Action item #{item_id} not found."}
+
+        if action_norm == "complete":
+            item.status = "COMPLETED"
+            item.completed_at = datetime.now(UTC)
+            db.add(item)
+            await db.commit()
+            return {
+                "success": True,
+                "action": "complete",
+                "item_id": item_id,
+                "message": f"Marked action item '{item.title}' as COMPLETED.",
+            }
+        else:
+            await db.delete(item)
+            await db.commit()
+            return {
+                "success": True,
+                "action": "dismiss",
+                "item_id": item_id,
+                "message": f"Dismissed action item #{item_id}.",
+            }
+
+    if action_norm == "create":
+        if not title or not title.strip():
+            return {"error": "title is required when action='create'."}
+        parsed_due = None
+        if due_date:
+            try:
+                parsed_due = datetime.fromisoformat(due_date)
+            except Exception:
+                pass
+        new_item = ActionItemModel(
+            title=title.strip(),
+            urgency=(urgency or "MEDIUM").upper(),
+            status="PENDING",
+            due_date=parsed_due,
+            application_id=application_id,
+        )
+        db.add(new_item)
+        await db.commit()
+        await db.refresh(new_item)
+        return {
+            "success": True,
+            "action": "create",
+            "item_id": new_item.id,
+            "title": new_item.title,
+            "message": f"Created new action item '{new_item.title}'.",
+        }
+
+    return {"error": f"Unsupported action_items action '{action}'."}
+
+
+# 7. Semantic Vector Search Tool
 async def execute_semantic_vector_search(
     db: AsyncSession, query: str, limit: int = 5
 ) -> list[dict[str, Any]]:
     """Performs semantic vector search across pgvector application embeddings, with fallback if embeddings are disabled."""
-    from sqlalchemy import or_
-
     from app.core.config_manager import get_setting
 
     if not await get_setting("ENABLE_EMBEDDINGS", True, db):
@@ -152,6 +517,77 @@ async def execute_semantic_vector_search(
     return results
 
 
+# 8. Update Application Pipeline Tool
+async def execute_update_application_pipeline(
+    db: AsyncSession,
+    company_or_id: str,
+    new_status: str,
+    notes: str | None = None,
+    event_type: str = "STATUS_CHANGE",
+) -> dict[str, Any]:
+    """Updates application pipeline status in DB, creates timeline event, and triggers vector embedding refresh."""
+    valid_statuses = [
+        "APPLIED",
+        "TECHNICAL_INTERVIEW",
+        "OFFER",
+        "REJECTED",
+        "ASSESSMENT",
+        "HIRED",
+    ]
+    status_norm = new_status.upper()
+    if status_norm not in valid_statuses:
+        return {"error": f"Invalid status '{new_status}'. Allowed: {valid_statuses}"}
+
+    stmt = select(ApplicationModel).options(joinedload(ApplicationModel.company))
+    if company_or_id.isdigit():
+        stmt = stmt.where(ApplicationModel.id == int(company_or_id))
+    else:
+        stmt = stmt.join(CompanyModel).where(
+            CompanyModel.name_normalized.ilike(f"%{company_or_id.strip().lower()}%")
+        )
+
+    res = await db.execute(stmt)
+    app = res.scalars().first()
+    if not app:
+        return {"error": f"No application found matching '{company_or_id}'."}
+
+    old_status = app.status
+    app.status = status_norm
+    app.last_activity_at = datetime.now(UTC)
+
+    event = ApplicationEventModel(
+        email_application_id=app.id,
+        email_event_type=event_type,
+        email_status_after_event=status_norm,
+        email_summary=notes
+        or f"Status transitioned from {old_status} to {status_norm} via AI Agent assistant.",
+        source_channel="AGENT",
+    )
+    db.add(event)
+    await db.commit()
+    await db.refresh(app)
+
+    # Update vector embeddings
+    if status_norm != "ASSESSMENT":
+        try:
+            await generate_and_save_application_embedding(
+                db, app.id, skip_llm_summary=True
+            )
+        except Exception as err:
+            logger.warning("Embedding update deferred: %s", err)
+
+    comp_name = app.company.name if app.company else "Unknown"
+    return {
+        "success": True,
+        "application_id": app.id,
+        "company": comp_name,
+        "old_status": old_status,
+        "new_status": status_norm,
+        "message": f"Successfully transitioned {comp_name} application from {old_status} to {status_norm}.",
+    }
+
+
+# Retained Legacy Helpers
 async def execute_list_applications(
     db: AsyncSession,
     status: str | None = None,
@@ -256,116 +692,139 @@ async def execute_get_application_details(
     }
 
 
-async def execute_update_application_status(
+# 11. Start Mock Interview Tool
+async def execute_start_mock_interview(
     db: AsyncSession,
-    company_name: str,
-    new_status: str,
-    notes: str | None = None,
+    company_or_id: str | None = None,
+    question_mode: str = "TEXT_CONVERSATIONAL",
 ) -> dict[str, Any]:
-    """Updates an application status in the database and updates vector embeddings."""
-    valid_statuses = [
-        "APPLIED",
-        "TECHNICAL_INTERVIEW",
-        "OFFER",
-        "REJECTED",
-        "ASSESSMENT",
-    ]
-    status_norm = new_status.upper()
-    if status_norm not in valid_statuses:
-        return {"error": f"Invalid status '{new_status}'. Allowed: {valid_statuses}"}
-
-    comp_stmt = select(CompanyModel).where(
-        CompanyModel.name_normalized.ilike(f"%{company_name.strip().lower()}%")
-    )
-    comp_res = await db.execute(comp_stmt)
-    comp = comp_res.scalars().first()
-    if not comp:
-        return {"error": f"Company '{company_name}' not found in database."}
-
-    app_stmt = select(ApplicationModel).where(ApplicationModel.company_id == comp.id)
-    app_res = await db.execute(app_stmt)
-    app = app_res.scalars().first()
-    if not app:
-        return {"error": f"No application found for company '{company_name}'."}
-
-    old_status = app.status
-    app.status = status_norm
-
-    event = ApplicationEventModel(
-        email_application_id=app.id,
-        email_event_type="STATUS_CHANGE",
-        email_status_after_event=status_norm,
-        email_summary=notes
-        or f"Status transitioned from {old_status} to {status_norm} via AI Agent assistant.",
-        source_channel="AGENT",
-    )
-    db.add(event)
-    await db.commit()
-    await db.refresh(app)
-
-    # Update vector embeddings
-    if status_norm != "ASSESSMENT":
+    """Launches an interactive live mock interview simulation tailored to a target application or general practice."""
+    app_id = None
+    company_name = "General Software Engineering"
+    position = "Software Engineer"
+    if company_or_id:
+        app_id_val = None
         try:
-            await generate_and_save_application_embedding(
-                db, app.id, skip_llm_summary=True
+            app_id_val = int(company_or_id)
+        except (ValueError, TypeError):
+            pass
+
+        if app_id_val is not None:
+            stmt = (
+                select(ApplicationModel)
+                .options(joinedload(ApplicationModel.company))
+                .where(ApplicationModel.id == app_id_val)
             )
-        except Exception as err:
-            logger.warning("Embedding update deferred: %s", err)
+        else:
+            stmt = (
+                select(ApplicationModel)
+                .join(CompanyModel)
+                .options(joinedload(ApplicationModel.company))
+                .where(CompanyModel.name.ilike(f"%{str(company_or_id).strip()}%"))
+            )
+
+        res = await db.execute(stmt)
+        app = res.scalars().first()
+        if app:
+            app_id = app.id
+            company_name = app.company.name if app.company else "Company"
+            position = app.position or "Software Engineer"
+
+    # Normalize question_mode
+    mode_str = str(question_mode).upper().strip()
+    if mode_str not in ("TEXT_CONVERSATIONAL", "MULTIPLE_CHOICE", "HYBRID"):
+        mode_str = "TEXT_CONVERSATIONAL"
+
+    session = await InterviewSimulatorService.start_session(
+        db=db,
+        application_id=app_id,
+        persona="TECHNICAL_BAR_RAISER",
+        question_mode=mode_str,
+    )
+
+    first_q = session.turns_data[0].get("question") if session.turns_data else ""
 
     return {
-        "success": True,
-        "application_id": app.id,
-        "company": comp.name,
-        "old_status": old_status,
-        "new_status": status_norm,
-        "message": f"Successfully transitioned {comp.name} application from {old_status} to {status_norm}.",
+        "status": "started",
+        "session_id": session.id,
+        "application_id": app_id,
+        "company_name": company_name,
+        "position": position,
+        "question_mode": session.question_mode,
+        "first_question": first_q,
+        "message": f"Live mock interview session #{session.id} started for {company_name} ({position}).",
     }
-
-
-async def execute_get_action_items(
-    db: AsyncSession, urgency: str | None = None
-) -> list[dict[str, Any]]:
-    """Fetches pending action items and deadlines."""
-    stmt = (
-        select(ActionItemModel)
-        .options(
-            joinedload(ActionItemModel.application).joinedload(ApplicationModel.company)
-        )
-        .where(ActionItemModel.status == "PENDING")
-    )
-    if urgency:
-        stmt = stmt.where(ActionItemModel.urgency == urgency.upper())
-    stmt = stmt.order_by(ActionItemModel.due_date.asc().nulls_last())
-    res = await db.execute(stmt)
-    items = res.scalars().all()
-    out = []
-    for item in items:
-        comp_name = (
-            item.application.company.name
-            if (item.application and item.application.company)
-            else "General"
-        )
-        out.append(
-            {
-                "id": item.id,
-                "company": comp_name,
-                "title": item.title,
-                "due_date": item.due_date.isoformat() if item.due_date else None,
-                "urgency": item.urgency,
-                "status": item.status,
-            }
-        )
-    return out
 
 
 def create_agent_tools(db: AsyncSession) -> list[StructuredTool]:
     """Factory creating bound LangChain tools for the active async database session."""
 
-    async def _vector_search(query: str, limit: int = 5) -> str:
+    async def _analyze_pipeline_metrics(
+        period: str = "weekly", num_periods: int = 8
+    ) -> str:
+        res = await execute_analyze_pipeline_metrics(db, period, num_periods)
+        return json.dumps(res, indent=2)
+
+    async def _detect_stalled_applications(
+        inactivity_threshold_days: int = 14,
+        status: str | None = None,
+        limit: int = 10,
+    ) -> str:
+        res = await execute_detect_stalled_applications(
+            db, inactivity_threshold_days, status, limit
+        )
+        return json.dumps(res, indent=2)
+
+    async def _query_market_benchmarks(
+        position_keyword: str | None = None, limit: int = 50
+    ) -> str:
+        res = await execute_query_market_benchmarks(db, position_keyword, limit)
+        return json.dumps(res, indent=2)
+
+    async def _evaluate_ai_fit_score(company_or_id: str) -> str:
+        res = await execute_evaluate_ai_fit_score(db, company_or_id)
+        return json.dumps(res, indent=2)
+
+    async def _manage_intake_queue(
+        action: str = "list",
+        task_id: int | None = None,
+        fix_raw_text: str | None = None,
+        limit: int = 20,
+    ) -> str:
+        res = await execute_manage_intake_queue(
+            db, action, task_id, fix_raw_text, limit
+        )
+        return json.dumps(res, indent=2)
+
+    async def _manage_action_items(
+        action: str = "list",
+        item_id: int | None = None,
+        urgency: str | None = None,
+        title: str | None = None,
+        due_date: str | None = None,
+        application_id: int | None = None,
+    ) -> str:
+        res = await execute_manage_action_items(
+            db, action, item_id, urgency, title, due_date, application_id
+        )
+        return json.dumps(res, indent=2)
+
+    async def _semantic_vector_search(query: str, limit: int = 5) -> str:
         res = await execute_semantic_vector_search(db, query, limit)
         return json.dumps(res, indent=2)
 
-    async def _list_apps(
+    async def _update_application_pipeline(
+        company_or_id: str,
+        new_status: str,
+        notes: str | None = None,
+        event_type: str = "STATUS_CHANGE",
+    ) -> str:
+        res = await execute_update_application_pipeline(
+            db, company_or_id, new_status, notes, event_type
+        )
+        return json.dumps(res, indent=2)
+
+    async def _list_applications(
         status: str | None = None,
         action_required_only: bool = False,
         limit: int = 20,
@@ -373,51 +832,82 @@ def create_agent_tools(db: AsyncSession) -> list[StructuredTool]:
         res = await execute_list_applications(db, status, action_required_only, limit)
         return json.dumps(res, indent=2)
 
-    async def _app_details(company_or_id: str) -> str:
+    async def _get_application_details(company_or_id: str) -> str:
         res = await execute_get_application_details(db, company_or_id)
         return json.dumps(res, indent=2)
 
-    async def _update_status(
-        company_name: str, new_status: str, notes: str | None = None
+    async def _start_mock_interview(
+        company_or_id: str | None = None,
+        question_mode: str = "TEXT_CONVERSATIONAL",
     ) -> str:
-        res = await execute_update_application_status(
-            db, company_name, new_status, notes
-        )
-        return json.dumps(res, indent=2)
-
-    async def _action_items(urgency: str | None = None) -> str:
-        res = await execute_get_action_items(db, urgency)
+        res = await execute_start_mock_interview(db, company_or_id, question_mode)
         return json.dumps(res, indent=2)
 
     return [
         StructuredTool.from_function(
-            coroutine=_vector_search,
+            coroutine=_analyze_pipeline_metrics,
+            name="analyze_pipeline_metrics",
+            description="Analyzes cohort funnel performance metrics, stage conversion counts, and period-over-period trend deltas (weekly or monthly).",
+            args_schema=AnalyzePipelineMetricsInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_detect_stalled_applications,
+            name="detect_stalled_applications",
+            description="Queries active applications that have had no recruiter activity exceeding an inactivity threshold (e.g. 14 days) and suggests follow-up actions.",
+            args_schema=DetectStalledApplicationsInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_query_market_benchmarks,
+            name="query_market_benchmarks",
+            description="Aggregates market salary benchmarks, top in-demand skills, and remote/hybrid work distributions across job postings.",
+            args_schema=QueryMarketBenchmarksInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_evaluate_ai_fit_score,
+            name="evaluate_ai_fit_score",
+            description="Retrieves both programmatic match score and qualitative AI evaluation details (matching skills, missing skills, pros, cons, recommendations) for an application.",
+            args_schema=EvaluateAIFitScoreInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_manage_intake_queue,
+            name="manage_intake_queue",
+            description="Manages background job intake evaluation tasks (list, retry, cancel, or fix failed job descriptions).",
+            args_schema=ManageIntakeQueueInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_manage_action_items,
+            name="manage_action_items",
+            description="Lists, completes, dismisses, or creates candidate action items, deadlines, and tasks.",
+            args_schema=ManageActionItemsInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_semantic_vector_search,
             name="semantic_vector_search",
-            description="Searches the vector database for relevant job applications, recruiter emails, and timeline updates using semantic cosine similarity. Use this tool FIRST for queries asking about company progress, status updates, or communication history.",
+            description="Searches the vector database for relevant job applications, recruiter emails, and timeline updates using semantic cosine similarity.",
             args_schema=SemanticSearchInput,
         ),
         StructuredTool.from_function(
-            coroutine=_list_apps,
+            coroutine=_update_application_pipeline,
+            name="update_application_pipeline",
+            description="Updates an application status in the pipeline (e.g. APPLIED, TECHNICAL_INTERVIEW, OFFER, REJECTED, ASSESSMENT, HIRED), logs a timeline event, and updates vector embeddings.",
+            args_schema=UpdateApplicationPipelineInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_list_applications,
             name="list_applications",
-            description="Lists applications directly from the database with optional status filtering (e.g. APPLIED, TECHNICAL_INTERVIEW, OFFER, REJECTED, ASSESSMENT) or action required filtering.",
+            description="Lists job applications directly from the database with optional status or action required filtering.",
             args_schema=ListApplicationsInput,
         ),
         StructuredTool.from_function(
-            coroutine=_app_details,
+            coroutine=_get_application_details,
             name="get_application_details",
-            description="Retrieves the detailed chronological event timeline, recruiter emails, and action items for a specific company or application ID.",
+            description="Retrieves chronological timeline events, recruiter emails, and action items for a company or application ID.",
             args_schema=ApplicationDetailsInput,
         ),
         StructuredTool.from_function(
-            coroutine=_update_status,
-            name="update_application_status",
-            description="Updates an application's pipeline status in the database (e.g. transitions to APPLIED, TECHNICAL_INTERVIEW, OFFER, REJECTED, ASSESSMENT) and automatically updates vector embeddings.",
-            args_schema=UpdateStatusInput,
-        ),
-        StructuredTool.from_function(
-            coroutine=_action_items,
-            name="get_action_items",
-            description="Fetches pending high-urgency action items, upcoming interview deadlines, and tasks that require candidate response.",
-            args_schema=ActionItemsInput,
+            coroutine=_start_mock_interview,
+            name="start_mock_interview",
+            description="Launches an interactive live mock interview simulation for a target application or general software engineering practice.",
+            args_schema=StartMockInterviewInput,
         ),
     ]

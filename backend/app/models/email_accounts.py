@@ -26,9 +26,9 @@ class EmailAccountModel(Base):
     imap_port: Mapped[int | None] = mapped_column(Integer, default=993, nullable=True)
     username: Mapped[str] = mapped_column(String(255), nullable=False)  # Email / Login
     _app_password: Mapped[str | None] = mapped_column(
-        "app_password", String(255), nullable=True
+        "app_password", Text, nullable=True
     )  # Encrypted/Stored App Password
-    folder: Mapped[str] = mapped_column(String(100), default="INBOX", nullable=False)
+    folder: Mapped[str] = mapped_column(Text, default="INBOX", nullable=False)
 
     # Modern OAuth2 Configuration
     _access_token: Mapped[str | None] = mapped_column(
@@ -39,7 +39,7 @@ class EmailAccountModel(Base):
     )
     client_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     _client_secret: Mapped[str | None] = mapped_column(
-        "client_secret", String(255), nullable=True
+        "client_secret", Text, nullable=True
     )
     sync_cursor: Mapped[str | None] = mapped_column(
         Text, nullable=True

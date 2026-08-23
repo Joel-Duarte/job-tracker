@@ -1,7 +1,14 @@
-import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,9 +20,11 @@ from app.schemas.candidate_profile import (
     CandidateCVResponse,
     CandidateCVSaveRequest,
     CandidateCVUpdateRequest,
+    CVParsedDocumentResponse,
     CVTaskStatusResponse,
 )
 from app.services.evaluation_worker import process_evaluation_task
+from app.services.file_parser import normalize_resume_text, parse_cv_document
 
 logger = logging.getLogger(__name__)
 
@@ -39,13 +48,14 @@ async def get_active_cv_profile(db: AsyncSession = Depends(get_db)):
 )
 async def enqueue_cv_profile_processing(
     payload: CandidateCVSaveRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Enqueues candidate CV for asynchronous de-identification, duration conversion,
     and canonical skill extraction bounded by provider concurrency limits.
     """
-    raw_text = payload.raw_text.strip()
+    raw_text = normalize_resume_text(payload.raw_text.strip())
     if not raw_text:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -64,7 +74,7 @@ async def enqueue_cv_profile_processing(
     await db.refresh(task)
 
     # Dispatch to shared background worker queue
-    asyncio.create_task(process_evaluation_task(task.id))
+    background_tasks.add_task(process_evaluation_task, task_id=task.id)
 
     return CVTaskStatusResponse(
         task_id=task.id,
@@ -77,6 +87,51 @@ async def enqueue_cv_profile_processing(
         completed_at=None,
         result=None,
     )
+
+
+@router.post(
+    "/parse-file",
+    response_model=CVParsedDocumentResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_admin_access)],
+)
+async def parse_cv_document_file(
+    file: UploadFile = File(...),
+):
+    """
+    Parses an uploaded resume file (.pdf, .docx, .doc, .txt) and returns extracted plain text.
+    Does not save to database, enforcing a manual review step in the client.
+    """
+    filename = file.filename or "uploaded_resume.txt"
+
+    # 10 MB size limit check
+    MAX_FILE_SIZE = 10 * 1024 * 1024
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File size exceeds maximum allowed limit of 10 MB.",
+        )
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty.",
+        )
+
+    try:
+        extracted_text = parse_cv_document(filename, content)
+        return CVParsedDocumentResponse(text=extracted_text, filename=filename)
+    except ValueError as err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(err),
+        ) from err
+    except Exception as err:
+        logger.error("Error parsing document file %s: %s", filename, err, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process document file '{filename}': {err!s}",
+        ) from err
 
 
 @router.get("/tasks/{task_id}", response_model=CVTaskStatusResponse)

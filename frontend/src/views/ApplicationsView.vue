@@ -1737,7 +1737,7 @@ async function confirmDelete() {
 
 .filter-select {
   height: 34px;
-  padding: 0 10px;
+  padding: 0 28px 0 10px;
   font-size: 13px;
 }
 

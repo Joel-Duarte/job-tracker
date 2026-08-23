@@ -14,6 +14,7 @@ from app.models.candidate_profile import CandidateCVModel
 from app.models.diagnostics import TraceEventModel
 from app.models.email_accounts import EmailAccountModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
+from app.models.interview_session import InterviewSessionModel
 from app.models.llm import LLMConfigModel
 from app.models.processed_email import ProcessedEmailModel
 from app.models.prompts import PromptModel
@@ -32,6 +33,7 @@ __all__ = [
     "CompanyModel",
     "EmailAccountModel",
     "IntakeEvaluationTaskModel",
+    "InterviewSessionModel",
     "JobPostingModel",
     "LLMConfigModel",
     "OtherEventModel",

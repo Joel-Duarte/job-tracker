@@ -73,13 +73,15 @@ fi
 
 if [ "$RESET_DB" = true ]; then
   echo "⚠️  RESETTING DATABASE & APPLICATION DATA..."
-  echo "   Stopping containers and wiping volume: job_tracker_postgres_data..."
-  docker compose "${COMPOSE_FILES[@]}" down -v --remove-orphans
+  echo "   Stopping containers and wiping database volumes..."
+  docker compose "${COMPOSE_FILES[@]}" down -v --remove-orphans --timeout 2 2>/dev/null || true
   
-  # Ensure named volumes are explicitly removed if detached
-  docker volume rm -f job_tracker_postgres_data 2>/dev/null || true
+  # Ensure all related containers and volumes are forcefully removed
+  docker rm -f job-tracker-postgresdb job-tracker-backend job-tracker-frontend-dev job-tracker-scraper 2>/dev/null || true
+  docker volume rm -f job_tracker_postgres_data job-tracker_postgres_data 2>/dev/null || true
+  docker volume prune -f --filter "label=com.docker.compose.project=job-tracker" 2>/dev/null || true
   
-  echo "🧹 Database volume wiped clean."
+  echo "🧹 Database volume wiped clean. A fresh database will be initialized on boot."
   echo ""
 
   if [ "$RESET_ONLY" = true ]; then
@@ -95,9 +97,10 @@ if [ ! -f .env ] && [ -f .env.example ]; then
 fi
 
 echo "🚀 Starting Job Tracker in LIVE DEVELOPMENT mode..."
-echo " - Frontend (Vite HMR):   http://localhost:5173"
-echo " - Backend API (Proxied):  http://localhost:5173/api"
-echo " - Database & Scraper:    Internal Docker Network"
+echo " - Frontend (Vite HMR):       http://localhost:5173"
+echo " - Backend API (Proxied):      http://localhost:5173/api"
+echo " - API Docs (Swagger UI):     http://localhost:5173/api/docs"
+echo " - Database & Scraper:        Internal Docker Network"
 if [ "$RESET_DB" = true ]; then
   echo " - Database Status:       FRESH / INITIALIZED"
 else

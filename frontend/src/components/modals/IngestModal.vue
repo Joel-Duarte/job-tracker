@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
 import { IntakeAPI, EmailAccountsAPI } from '../../api/endpoints'
@@ -67,21 +67,36 @@ function resolveSinceDate(window, customDate) {
   return null
 }
 
-async function loadEmailAccounts() {
-  if (emailAccounts.value.length > 0) return
+async function loadEmailAccounts(force = false) {
+  if (!force && emailAccounts.value.length > 0) return
   loadingAccounts.value = true
   try {
     const res = await EmailAccountsAPI.list()
     emailAccounts.value = res.data || []
-    if (emailAccounts.value.length === 1) {
-      syncAccountId.value = emailAccounts.value[0].id
+    if (emailAccounts.value.length > 0) {
+      const stillExists = emailAccounts.value.some((a) => a.id === syncAccountId.value)
+      if (!syncAccountId.value || !stillExists) {
+        syncAccountId.value = emailAccounts.value[0].id
+      }
+    } else {
+      syncAccountId.value = null
     }
-  } catch {
+  } catch (err) {
+    console.error('Failed to load email accounts:', err)
     emailAccounts.value = []
   } finally {
     loadingAccounts.value = false
   }
 }
+
+watch(
+  () => uiStore.isIngestModalOpen,
+  (isOpen) => {
+    if (isOpen) {
+      loadEmailAccounts(true)
+    }
+  }
+)
 
 onMounted(() => {
   loadEmailAccounts()
@@ -89,7 +104,7 @@ onMounted(() => {
 
 function onTabChange(tab) {
   activeTab.value = tab
-  if (tab === 'sync') loadEmailAccounts()
+  if (tab === 'sync') loadEmailAccounts(true)
 }
 
 // ── actions ───────────────────────────────────────────────────
@@ -123,7 +138,7 @@ async function handlePasteSubmit() {
     ingestResult.value = res.data
     pasteText.value = ''
     pasteSubject.value = ''
-    uiStore.showToast('Intake processed successfully', 'success')
+    uiStore.showToast('Pasted email queued for AI extraction', 'success')
     appStore.fetchApplications()
   } catch (err) {
     uiStore.showToast(err.message, 'error')
@@ -152,9 +167,10 @@ async function handleUploadSubmit() {
       formData.append('files', file)
     }
     const res = await IntakeAPI.upload(formData)
-    ingestResult.value = { isBatch: true, items: res.data }
+    ingestResult.value = res.data
+    const count = selectedFiles.value.length
     selectedFiles.value = []
-    uiStore.showToast(`Uploaded ${res.data.length} files`, 'success')
+    uiStore.showToast(`Queued ${count} email file(s) for AI processing`, 'success')
     appStore.fetchApplications()
   } catch (err) {
     uiStore.showToast(err.message, 'error')
@@ -183,7 +199,7 @@ async function handleEmailSync() {
       keyword_filter: keywords,
     })
     syncResult.value = res.data
-    uiStore.showToast('Email sync started', 'success')
+    uiStore.showToast(res.data.message || 'Email sync queued for AI extraction', 'success')
     appStore.fetchApplications()
   } catch (err) {
     uiStore.showToast(err?.response?.data?.detail || err.message, 'error')
@@ -375,15 +391,15 @@ const syncButtonLabel = computed => {
           <div class="input-group">
             <label class="input-label">
               <Filter :size="12" class="inline-icon" />
-              Extra Keywords <span class="label-optional">(optional)</span>
+              Filter Keywords <span class="label-optional">(optional)</span>
             </label>
             <input
               v-model="syncKeywords"
               type="text"
-              placeholder="e.g. assessment, onsite, take-home"
+              placeholder="e.g. interview, offer, recruiter"
               class="form-input"
             />
-            <p class="field-hint">Smart defaults always active: <em>application, interview, offer, hiring…</em> Add comma-separated extras above.</p>
+            <p class="field-hint">By default, all new emails in the selected mailbox folder are processed. Add comma-separated keywords to filter if desired.</p>
           </div>
 
           <div class="modal-actions">

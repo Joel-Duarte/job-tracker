@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import AsyncSessionLocal
+import app.core.database as db_module
 from app.models.diagnostics import TraceEventModel
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ async def record_diagnostic_event(
             db.add(event)
             await db.commit()
         else:
-            async with AsyncSessionLocal() as session:
+            async with db_module.AsyncSessionLocal() as session:
                 event = TraceEventModel(
                     run_id=generated_run_id,
                     category=category,

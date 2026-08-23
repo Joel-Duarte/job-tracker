@@ -1,18 +1,31 @@
 import datetime
+import logging
 from collections import defaultdict
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.applications import ApplicationModel, CompanyModel, JobPostingModel
+from app.models.applications import (
+    ApplicationEventModel,
+    ApplicationModel,
+    CompanyModel,
+    JobPostingModel,
+)
 from app.models.candidate_profile import CandidateCVModel
+from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.schemas.analytics import (
     AnalyticsOverviewResponse,
+    FunnelChartStage,
+    FunnelCohortPeriod,
+    FunnelKpiCard,
+    FunnelMetricsResponse,
     FunnelStageItem,
     SkillDemandItem,
     SkillGapItem,
     WorkModelBreakdown,
 )
+
+logger = logging.getLogger(__name__)
 
 
 async def get_analytics_overview(
@@ -21,36 +34,44 @@ async def get_analytics_overview(
     work_model: str | None = None,
     top_n_skills: int | None = None,
 ) -> AnalyticsOverviewResponse:
-    # 1. Fetch the active candidate CV to get extracted_skills
-    cv_query = select(CandidateCVModel).where(CandidateCVModel.is_active).limit(1)
-    cv_result = await db.execute(cv_query)
-    cv = cv_result.scalar_one_or_none()
-    candidate_skills = set(cv.extracted_skills) if cv and cv.extracted_skills else set()
+    candidate_skills = set()
+    rows = []
 
-    # 2. Build the base query for Applications and JobPostings
-    base_filters = []
-    if days_limit is not None:
-        cutoff_date = datetime.datetime.now(datetime.UTC) - datetime.timedelta(
-            days=days_limit
+    try:
+        # 1. Fetch the active candidate CV to get extracted_skills
+        cv_query = select(CandidateCVModel).where(CandidateCVModel.is_active).limit(1)
+        cv_result = await db.execute(cv_query)
+        cv = cv_result.scalar_one_or_none()
+        candidate_skills = (
+            set(cv.extracted_skills) if cv and cv.extracted_skills else set()
         )
-        base_filters.append(ApplicationModel.application_date >= cutoff_date)
 
-    if work_model and work_model.lower() != "all":
-        base_filters.append(JobPostingModel.work_model.ilike(f"%{work_model}%"))
+        # 2. Build the base query for Applications and JobPostings
+        base_filters = []
+        if days_limit is not None:
+            cutoff_date = datetime.datetime.now(datetime.UTC) - datetime.timedelta(
+                days=days_limit
+            )
+            base_filters.append(ApplicationModel.application_date >= cutoff_date)
 
-    query = (
-        select(ApplicationModel, JobPostingModel, CompanyModel)
-        .outerjoin(
-            JobPostingModel, ApplicationModel.id == JobPostingModel.application_id
+        if work_model and work_model.lower() != "all":
+            base_filters.append(JobPostingModel.work_model.ilike(f"%{work_model}%"))
+
+        query = (
+            select(ApplicationModel, JobPostingModel, CompanyModel)
+            .outerjoin(
+                JobPostingModel, ApplicationModel.id == JobPostingModel.application_id
+            )
+            .outerjoin(CompanyModel, ApplicationModel.company_id == CompanyModel.id)
         )
-        .outerjoin(CompanyModel, ApplicationModel.company_id == CompanyModel.id)
-    )
 
-    if base_filters:
-        query = query.where(and_(*base_filters))
+        if base_filters:
+            query = query.where(and_(*base_filters))
 
-    result = await db.execute(query)
-    rows = result.all()
+        result = await db.execute(query)
+        rows = result.all()
+    except Exception as exc:
+        logger.warning(f"Error querying database for analytics overview: {exc}")
 
     # 3. Initialize metrics
     total_applications = len(rows)
@@ -283,4 +304,259 @@ async def get_analytics_overview(
         pipeline_funnel=pipeline_funnel,
         work_model_distribution=work_model_distribution,
         salary_insights=salary_insights,
+    )
+
+
+async def get_funnel_performance_metrics(
+    db: AsyncSession, period: str = "weekly", num_periods: int = 8
+) -> FunnelMetricsResponse:
+    """
+    Aggregates intake leads, applications, interviews, and offers by cohort periods (weekly or monthly).
+    Calculates summary KPIs with trend deltas vs the previous period and builds cohort tables and chart data.
+    """
+    now = datetime.datetime.now(datetime.UTC)
+
+    # Build cohort periods boundaries
+    periods = []
+    if period == "monthly":
+        # Current month
+        year = now.year
+        month = now.month
+        for _ in range(num_periods):
+            # Calculate start and end of month
+            start_dt = datetime.datetime(year, month, 1, tzinfo=datetime.UTC)
+            if month == 12:
+                next_month_start = datetime.datetime(
+                    year + 1, 1, 1, tzinfo=datetime.UTC
+                )
+            else:
+                next_month_start = datetime.datetime(
+                    year, month + 1, 1, tzinfo=datetime.UTC
+                )
+            end_dt = next_month_start - datetime.timedelta(microseconds=1)
+            period_key = f"{year}-{month:02d}"
+            period_label = start_dt.strftime("%b %Y")
+
+            periods.append(
+                {
+                    "key": period_key,
+                    "label": period_label,
+                    "start": start_dt,
+                    "end": end_dt,
+                }
+            )
+
+            # Move back 1 month
+            if month == 1:
+                month = 12
+                year -= 1
+            else:
+                month -= 1
+    else:  # weekly (Mon-Sun)
+        # Start of current week (Monday)
+        current_mon = now - datetime.timedelta(days=now.weekday())
+        current_mon = current_mon.replace(
+            hour=0, minute=0, second=0, microsecond=0, tzinfo=datetime.UTC
+        )
+
+        for i in range(num_periods):
+            start_dt = current_mon - datetime.timedelta(weeks=i)
+            end_dt = start_dt + datetime.timedelta(
+                days=6, hours=23, minutes=59, seconds=59, microseconds=999999
+            )
+            period_key = start_dt.strftime("%Y-W%U")
+            period_label = f"W{start_dt.strftime('%U')} ({start_dt.strftime('%b %d')})"
+
+            periods.append(
+                {
+                    "key": period_key,
+                    "label": period_label,
+                    "start": start_dt,
+                    "end": end_dt,
+                }
+            )
+
+    # 1. Fetch Intake Tasks, Applications, and Application Events
+    oldest_start = periods[-1]["start"]
+    latest_end = periods[0]["end"]
+
+    intake_dates = []
+    app_rows = []
+    event_rows = []
+
+    try:
+        intake_query = select(IntakeEvaluationTaskModel.created_at).where(
+            and_(
+                IntakeEvaluationTaskModel.created_at >= oldest_start,
+                IntakeEvaluationTaskModel.created_at <= latest_end,
+            )
+        )
+        intake_res = await db.execute(intake_query)
+        intake_dates = intake_res.scalars().all()
+
+        app_query = select(
+            ApplicationModel.id,
+            ApplicationModel.application_date,
+            ApplicationModel.created_at,
+            ApplicationModel.status,
+        ).where(
+            and_(
+                ApplicationModel.created_at >= oldest_start,
+                ApplicationModel.created_at <= latest_end,
+            )
+        )
+        app_res = await db.execute(app_query)
+        app_rows = app_res.all()
+
+        event_query = select(
+            ApplicationEventModel.email_application_id,
+            ApplicationEventModel.email_event_type,
+            ApplicationEventModel.email_status_after_event,
+            ApplicationEventModel.email_received_at,
+            ApplicationEventModel.created_at,
+        ).where(
+            and_(
+                ApplicationEventModel.created_at >= oldest_start,
+                ApplicationEventModel.created_at <= latest_end,
+            )
+        )
+        event_res = await db.execute(event_query)
+        event_rows = event_res.all()
+    except Exception as exc:
+        logger.warning(f"Error querying database for funnel metrics: {exc}")
+
+    # Aggregate counts by period key
+    cohort_data = []
+
+    for p in periods:
+        p_start = p["start"]
+        p_end = p["end"]
+
+        # Intakes count
+        intakes_cnt = sum(1 for d in intake_dates if d and p_start <= d <= p_end)
+
+        # Applications count
+        apps_cnt = sum(
+            1
+            for row in app_rows
+            if (row.application_date or row.created_at)
+            and p_start <= (row.application_date or row.created_at) <= p_end
+        )
+
+        # Interviews count (Apps created or transitioned to Interview stage during this period)
+        interviews_apps = set()
+        for row in app_rows:
+            st = (row.status or "").upper()
+            dt = row.application_date or row.created_at
+            if ("INTERVIEW" in st or st == "TECHNICAL_INTERVIEW") and (
+                dt and p_start <= dt <= p_end
+            ):
+                interviews_apps.add(row.id)
+
+        for evt in event_rows:
+            evt_dt = evt.email_received_at or evt.created_at
+            if evt_dt and p_start <= evt_dt <= p_end:
+                st = (evt.email_status_after_event or "").upper()
+                et = (evt.email_event_type or "").upper()
+                if (
+                    "INTERVIEW" in st
+                    or st == "TECHNICAL_INTERVIEW"
+                    or "INTERVIEW" in et
+                ):
+                    interviews_apps.add(evt.email_application_id)
+
+        interviews_cnt = len(interviews_apps)
+
+        # Offers count (Apps created or transitioned to Offer stage during this period)
+        offers_apps = set()
+        for row in app_rows:
+            st = (row.status or "").upper()
+            dt = row.application_date or row.created_at
+            if st in ["OFFER", "HIRED"] and (dt and p_start <= dt <= p_end):
+                offers_apps.add(row.id)
+
+        for evt in event_rows:
+            evt_dt = evt.email_received_at or evt.created_at
+            if evt_dt and p_start <= evt_dt <= p_end:
+                st = (evt.email_status_after_event or "").upper()
+                et = (evt.email_event_type or "").upper()
+                if st in ["OFFER", "HIRED"] or "OFFER" in et:
+                    offers_apps.add(evt.email_application_id)
+
+        offers_cnt = len(offers_apps)
+
+        conv_rate = round(
+            (interviews_cnt / apps_cnt * 100.0) if apps_cnt > 0 else 0.0, 1
+        )
+
+        stages = [
+            FunnelChartStage(stage="Intake", count=intakes_cnt),
+            FunnelChartStage(stage="Applications", count=apps_cnt),
+            FunnelChartStage(stage="Interviews", count=interviews_cnt),
+            FunnelChartStage(stage="Offers", count=offers_cnt),
+        ]
+
+        cohort = FunnelCohortPeriod(
+            period_key=p["key"],
+            period_label=p["label"],
+            start_date=p_start.strftime("%Y-%m-%d"),
+            end_date=p_end.strftime("%Y-%m-%d"),
+            intakes=intakes_cnt,
+            applications=apps_cnt,
+            interviews=interviews_cnt,
+            offers=offers_cnt,
+            conversion_rate=conv_rate,
+            stages=stages,
+        )
+        cohort_data.append(cohort)
+
+    # Current period (index 0) and previous period (index 1 if exists)
+    curr = cohort_data[0]
+    prev = cohort_data[1] if len(cohort_data) > 1 else None
+
+    def calc_trend(curr_val: float, prev_val: float | None) -> float | None:
+        if prev_val is None or prev_val == 0:
+            return 100.0 if curr_val > 0 else 0.0
+        return round(((curr_val - prev_val) / prev_val) * 100.0, 1)
+
+    intake_trend = calc_trend(curr.intakes, prev.intakes if prev else None)
+    app_trend = calc_trend(curr.applications, prev.applications if prev else None)
+    interview_trend = calc_trend(curr.interviews, prev.interviews if prev else None)
+    offer_trend = calc_trend(curr.offers, prev.offers if prev else None)
+
+    summary_kpis = {
+        "intakes": FunnelKpiCard(
+            label="Total Intake Leads",
+            value=curr.intakes,
+            trend_percentage=intake_trend,
+            is_positive=(intake_trend >= 0 if intake_trend is not None else True),
+        ),
+        "applications": FunnelKpiCard(
+            label="Submitted Applications",
+            value=curr.applications,
+            trend_percentage=app_trend,
+            is_positive=(app_trend >= 0 if app_trend is not None else True),
+        ),
+        "interviews": FunnelKpiCard(
+            label="Interview Conversions",
+            value=curr.interviews,
+            trend_percentage=interview_trend,
+            is_positive=(interview_trend >= 0 if interview_trend is not None else True),
+        ),
+        "offers": FunnelKpiCard(
+            label="Offers Received",
+            value=curr.offers,
+            trend_percentage=offer_trend,
+            is_positive=(offer_trend >= 0 if offer_trend is not None else True),
+        ),
+    }
+
+    # Reverse chart_data so chronological order (oldest to newest) is rendered left-to-right
+    chart_data = list(reversed(cohort_data))
+
+    return FunnelMetricsResponse(
+        period_type=period,
+        summary_kpis=summary_kpis,
+        chart_data=chart_data,
+        table_data=cohort_data,
     )

@@ -120,23 +120,27 @@ async def db_session(postgres_container):
     await test_pool.open(wait=True)
     orig_engine = db_module.engine
     orig_session_local = db_module.AsyncSessionLocal
+    orig_checkpointer_pool = db_module.checkpointer_pool
+    orig_saver_conn = db_module.postgres_saver.conn
+
     db_module.engine = engine
     db_module.AsyncSessionLocal = session_factory
     db_module.checkpointer_pool = test_pool
     db_module.postgres_saver.conn = test_pool
     await db_module.postgres_saver.setup()
 
-    async with session_factory() as session:
-        yield session
-
-    # Clean up test pool and drop tables after test run
-    db_module.engine = orig_engine
-    db_module.AsyncSessionLocal = orig_session_local
-    await test_pool.close()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-
-    await engine.dispose()
+    try:
+        async with session_factory() as session:
+            yield session
+    finally:
+        db_module.engine = orig_engine
+        db_module.AsyncSessionLocal = orig_session_local
+        db_module.checkpointer_pool = orig_checkpointer_pool
+        db_module.postgres_saver.conn = orig_saver_conn
+        await test_pool.close()
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+        await engine.dispose()
 
 
 @pytest_asyncio.fixture

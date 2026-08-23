@@ -2,7 +2,6 @@
 import { ref, computed, onMounted } from 'vue'
 import { useUIStore } from '../stores/uiStore'
 import { CandidateProfileAPI, IntakeAPI } from '../api/endpoints'
-import { scrubCVText } from '../utils/scrubber'
 import {
   ShieldCheck,
   Sparkles,
@@ -29,6 +28,9 @@ import {
   Check,
   Power,
   RotateCcw,
+  Upload,
+  AlertTriangle,
+  Square,
 } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -42,19 +44,229 @@ const uiStore = useUIStore()
 
 const profile = ref(null)
 const rawCVInput = ref('')
-const activeInputTab = ref('raw') // 'raw' | 'preview'
+const modalStep = ref('input') // 'input' | 'warning'
 const isEditingCV = ref(false)
 const editedCVText = ref('')
 const isEditingSummary = ref(false)
 const editedSummaryText = ref('')
-const showUpdateDrawer = ref(false)
+const showCvModal = ref(false)
 const isDocExpanded = ref(true)
 
-// Local scrubber preview
-const localScrubResult = computed(() => {
-  if (!rawCVInput.value) return { scrubbedText: '', stats: { total: 0 } }
-  return scrubCVText(rawCVInput.value)
-})
+function openCvModal() {
+  modalStep.value = 'input'
+  showCvModal.value = true
+}
+
+function closeCvModal() {
+  if (isProcessing.value) return
+  showCvModal.value = false
+  modalStep.value = 'input'
+}
+
+function handleAnalyzeClick() {
+  if (!rawCVInput.value.trim() || rawCVInput.value.trim().length < 20) {
+    uiStore.showToast('Please provide a complete resume or CV text (at least 20 characters).', 'error')
+    return
+  }
+  modalStep.value = 'warning'
+}
+
+// File upload & parsing
+const fileInput = ref(null)
+const isParsingFile = ref(false)
+
+function triggerFileInput() {
+  fileInput.value?.click()
+}
+
+async function handleFileUpload(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+
+  // 10 MB file size limit check
+  const MAX_SIZE = 10 * 1024 * 1024
+  if (file.size > MAX_SIZE) {
+    uiStore.showToast('File size exceeds the 10 MB limit.', 'error')
+    if (event.target) event.target.value = ''
+    return
+  }
+
+  // File extension check
+  const ext = file.name.split('.').pop()?.toLowerCase()
+  const allowed = ['pdf', 'docx', 'doc', 'txt']
+  if (!ext || !allowed.includes(ext)) {
+    uiStore.showToast('Unsupported file format. Please select a .pdf, .docx, .doc, or .txt file.', 'error')
+    if (event.target) event.target.value = ''
+    return
+  }
+
+  isParsingFile.value = true
+
+  const actionText = profile.value ? 'updating profile' : 'activating profile'
+
+  try {
+    if (ext === 'txt') {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const text = e.target?.result
+        if (typeof text === 'string' && text.trim()) {
+          rawCVInput.value = cleanCVText(text.trim())
+          uiStore.showToast(`Loaded ${file.name}. Please review text before ${actionText}.`, 'success')
+        } else {
+          uiStore.showToast('Uploaded text file is empty.', 'error')
+        }
+        isParsingFile.value = false
+        if (event.target) event.target.value = ''
+      }
+      reader.onerror = () => {
+        uiStore.showToast('Failed to read text file.', 'error')
+        isParsingFile.value = false
+        if (event.target) event.target.value = ''
+      }
+      reader.readAsText(file)
+    } else {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await CandidateProfileAPI.parseFile(formData)
+      const text = res.data?.text
+      if (text && text.trim()) {
+        rawCVInput.value = cleanCVText(text.trim())
+        uiStore.showToast(`Extracted text from ${file.name}. Please review text before ${actionText}.`, 'success')
+      } else {
+        uiStore.showToast('Could not extract text from document file.', 'error')
+      }
+      isParsingFile.value = false
+      if (event.target) event.target.value = ''
+    }
+  } catch (err) {
+    const errMsg = err.response?.data?.detail || err.message || 'Failed to extract text from file'
+    uiStore.showToast(errMsg, 'error')
+    isParsingFile.value = false
+    if (event.target) event.target.value = ''
+  }
+}
+
+function cleanCVText(text) {
+  if (!text) return ''
+  let cleaned = text
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\xa0/g, ' ')
+    .replace(/\u200b/g, '')
+
+  // Ensure bullet points start on new lines
+  const bullets = ['●', '•', '▪', '▫', '◆', '◦']
+  bullets.forEach((b) => {
+    cleaned = cleaned.replace(new RegExp(`(?<!\\n)[ \\t]*\\${b}[ \\t]*`, 'g'), `\n${b} `)
+  })
+  cleaned = cleaned.replace(/(?<!\n)[ \t]+-[ \t]+/g, '\n- ')
+
+  // Collapse multiple horizontal spaces
+  cleaned = cleaned.replace(/[^\S\n]+/g, ' ')
+
+  // Clean spaces before punctuation
+  cleaned = cleaned.replace(/\s+([,.:;!?])/g, '$1')
+  cleaned = cleaned.replace(/\(\s+/g, '(').replace(/\s+\)/g, ')')
+  cleaned = cleaned.replace(/(\w+)\s+-\s*based/gi, '$1-based')
+
+  const rawLines = cleaned.split('\n').map((l) => l.trim())
+  const merged = []
+  const bulletPrefixes = ['●', '•', '▪', '▫', '◆', '◦', '-', '*', '–', '—']
+
+  for (const line of rawLines) {
+    if (!line) {
+      if (merged.length && merged[merged.length - 1] !== '') {
+        merged.push('')
+      }
+      continue
+    }
+
+    if (!merged.length) {
+      merged.push(line)
+      continue
+    }
+
+    let prevLine = ''
+    let hasBlank = false
+    if (merged[merged.length - 1] === '') {
+      prevLine = merged.length >= 2 ? merged[merged.length - 2] : ''
+      hasBlank = true
+    } else {
+      prevLine = merged[merged.length - 1]
+    }
+
+    const isBullet = bulletPrefixes.some((b) => line.startsWith(b)) || /^\d+[\.\)]\s+/.test(line)
+    const isPrevHeader =
+      prevLine.endsWith(':') ||
+      (bulletPrefixes.some((b) => prevLine.startsWith(`${b} `)) &&
+        prevLine.split(' ').length <= 4 &&
+        !/[.,]$/.test(prevLine))
+    const isSectionHeader =
+      line.split(' ').length <= 4 &&
+      !/[.,;]$/.test(line) &&
+      !isBullet &&
+      ((line === line.toUpperCase() && /[A-Z]/.test(line)) ||
+        [
+          'Professional Summary',
+          'Technical Skills',
+          'Professional Experience',
+          'Work Experience',
+          'Experience',
+          'Education',
+          'Certifications',
+          'Projects',
+          'Summary',
+          'Core Competencies',
+          'Languages',
+        ].includes(line))
+
+    if (isBullet || isSectionHeader || isPrevHeader) {
+      merged.push(line)
+      continue
+    }
+
+    const isPrevEnd = /[.!?]$/.test(prevLine)
+    const isShortFragment =
+      line.split(' ').length <= 2 || line.length <= 25 || /^[a-z,;\)/]/.test(line)
+
+    const shouldMerge =
+      !isPrevEnd ||
+      (hasBlank && isShortFragment && !prevLine.endsWith(':')) ||
+      (!hasBlank && (!isPrevEnd || isShortFragment))
+
+    if (shouldMerge && prevLine) {
+      if (hasBlank) {
+        merged.pop()
+      }
+      merged[merged.length - 1] = `${merged[merged.length - 1]} ${line}`
+    } else {
+      merged.push(line)
+    }
+  }
+
+  const result = []
+  for (const line of merged) {
+    const trimmed = line.trim()
+    if (!trimmed) {
+      if (result.length && result[result.length - 1] !== '') {
+        result.push('')
+      }
+    } else {
+      result.push(trimmed.replace(/[^\S\n]+/g, ' ').replace(/\s+([,.:;!?])/g, '$1'))
+    }
+  }
+
+  return result.join('\n').trim()
+}
+
+function handleFormatCleanClick() {
+  if (!rawCVInput.value.trim()) {
+    uiStore.showToast('Please enter or paste text to clean.', 'info')
+    return
+  }
+  rawCVInput.value = cleanCVText(rawCVInput.value)
+  uiStore.showToast('Cleaned and normalized CV formatting!', 'success')
+}
 
 // Chips and inputs
 const newSkillInput = ref('')
@@ -110,7 +322,15 @@ async function pollTaskUntilComplete(taskId) {
         uiStore.showToast('Resume de-identified and canonical profile activated!', 'success')
         isProcessing.value = false
         currentTaskId.value = null
-        showUpdateDrawer.value = false
+        showCvModal.value = false
+        modalStep.value = 'input'
+        return
+      }
+
+      if (task.status === 'CANCELLED') {
+        uiStore.showToast(task.error_message || 'CV processing was cancelled.', 'info')
+        isProcessing.value = false
+        currentTaskId.value = null
         return
       }
 
@@ -129,7 +349,31 @@ async function pollTaskUntilComplete(taskId) {
   isProcessing.value = false
 }
 
+const isCancelling = ref(false)
+
+async function stopCurrentTask() {
+  if (!currentTaskId.value) return
+  isCancelling.value = true
+  try {
+    await IntakeAPI.cancelEvaluation(currentTaskId.value)
+    uiStore.showToast('Task processing stopped.', 'info')
+    isProcessing.value = false
+    currentTaskStatus.value = 'CANCELLED'
+    currentTaskStage.value = 'CANCELLED'
+    currentTaskId.value = null
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to stop task', 'error')
+  } finally {
+    isCancelling.value = false
+  }
+}
+
 async function processCV() {
+  if (uiStore.aiStatus === 'offline' && !uiStore.aiFallbackProviderName) {
+    uiStore.openRetryModal()
+    return
+  }
+
   if (!rawCVInput.value.trim() || rawCVInput.value.trim().length < 20) {
     uiStore.showToast('Please provide a complete resume or CV text.', 'error')
     return
@@ -344,149 +588,25 @@ onMounted(async () => {
         </p>
       </div>
 
-      <div v-if="profile" class="header-actions">
+      <div class="header-actions">
         <button
           class="btn btn-secondary btn-sm"
-          @click="showUpdateDrawer = !showUpdateDrawer"
+          @click="openCvModal"
         >
-          <Edit3 :size="14" />
-          <span>{{ showUpdateDrawer ? 'Close Resume Input' : 'Update / Re-Paste Resume' }}</span>
+          <FileText :size="14" />
+          <span>{{ profile ? 'Input / Update CV' : 'Input CV' }}</span>
         </button>
 
         <button
+          v-if="profile"
           class="btn btn-ghost btn-sm text-danger"
           :disabled="isDeleting"
           @click="deleteProfile"
-          title="Delete profile"
+          title="Remove candidate profile"
         >
           <Trash2 :size="14" />
-          <span>Clear Profile</span>
+          <span>Remove CV</span>
         </button>
-      </div>
-    </div>
-
-    <!-- =================================================================== -->
-    <!-- COLLAPSIBLE RESUME SOURCE & SANITIZATION DRAWER / TOP PANEL        -->
-    <!-- =================================================================== -->
-    <div v-if="showUpdateDrawer || !profile" class="resume-input-panel animate-fade-in">
-      <div class="panel-card">
-        <div class="panel-header">
-          <div class="panel-title">
-            <FileText :size="16" class="text-primary" />
-            <span>{{ profile ? 'Update Resume Source Text' : 'Import Candidate Resume / CV' }}</span>
-          </div>
-
-          <!-- Input Tabs -->
-          <div class="input-tabs">
-            <button
-              class="tab-btn"
-              :class="{ active: activeInputTab === 'raw' }"
-              @click="activeInputTab = 'raw'"
-            >
-              Raw Input
-            </button>
-            <button
-              class="tab-btn"
-              :class="{ active: activeInputTab === 'preview' }"
-              @click="activeInputTab = 'preview'"
-            >
-              <Lock :size="12" />
-              <span>Local Scrubbed Preview</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Cloud vs Local Advisory -->
-        <div class="privacy-callout">
-          <Info :size="15" class="text-primary flex-shrink-0" />
-          <span>
-            <strong>Zero-Cloud Contact Sanitization:</strong> Real names, emails, phone numbers, addresses, and personal links are redacted client-side via regex before AI dispatch.
-          </span>
-        </div>
-
-        <!-- Live Redaction Stats -->
-        <div v-if="localScrubResult.stats.total > 0" class="redaction-stats-pill font-mono">
-          🛡️ <strong>{{ localScrubResult.stats.total }}</strong> PII item(s) sanitized locally:
-          <span v-if="localScrubResult.stats.emails">{{ localScrubResult.stats.emails }} email(s) </span>
-          <span v-if="localScrubResult.stats.phones">{{ localScrubResult.stats.phones }} phone(s) </span>
-          <span v-if="localScrubResult.stats.urls">{{ localScrubResult.stats.urls }} link(s) </span>
-          <span v-if="localScrubResult.stats.addresses">{{ localScrubResult.stats.addresses }} address(es)</span>
-        </div>
-
-        <!-- Raw Textarea -->
-        <textarea
-          v-if="activeInputTab === 'raw'"
-          v-model="rawCVInput"
-          rows="10"
-          class="form-textarea font-mono text-xs"
-          placeholder="Paste your complete resume or CV text here..."
-        ></textarea>
-
-        <!-- Local Preview -->
-        <div
-          v-else
-          class="local-preview-box font-mono text-xs"
-        >
-          {{ localScrubResult.scrubbedText || 'Paste resume text to see live local sanitization preview...' }}
-        </div>
-
-        <!-- Queue Processing Stepper Card -->
-        <div v-if="isProcessing" class="queue-progress-card animate-fade-in">
-          <div class="queue-progress-header">
-            <div class="queue-status-title">
-              <Loader2 class="animate-spin text-primary" :size="16" />
-              <span>Processing in AI Queue (Task #{{ currentTaskId || '...' }})</span>
-            </div>
-            <span class="queue-stage-badge">{{ currentTaskStage }}</span>
-          </div>
-
-          <div class="stepper-track">
-            <div
-              class="stepper-step"
-              :class="{
-                active: currentTaskStage === 'SCRUBBING',
-                complete: ['EXTRACTING', 'SAVING', 'COMPLETE'].includes(currentTaskStage),
-              }"
-            >
-              <div class="step-dot">1</div>
-              <span class="step-label">Local PII Scrubbing</span>
-            </div>
-
-            <div
-              class="stepper-step"
-              :class="{
-                active: currentTaskStage === 'EXTRACTING',
-                complete: ['SAVING', 'COMPLETE'].includes(currentTaskStage),
-              }"
-            >
-              <div class="step-dot">2</div>
-              <span class="step-label">AI Extraction</span>
-            </div>
-
-            <div
-              class="stepper-step"
-              :class="{
-                active: currentTaskStage === 'SAVING',
-                complete: currentTaskStage === 'COMPLETE',
-              }"
-            >
-              <div class="step-dot">3</div>
-              <span class="step-label">Profile Activation</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="panel-actions">
-          <button
-            class="btn btn-primary"
-            :disabled="isProcessing || !rawCVInput.trim()"
-            @click="processCV"
-          >
-            <Loader2 v-if="isProcessing" class="animate-spin" :size="16" />
-            <Sparkles v-else :size="16" />
-            <span>{{ isProcessing ? 'Processing in Queue...' : (profile ? 'Re-Analyze & Update Profile' : 'De-Identify & Activate Profile') }}</span>
-          </button>
-        </div>
       </div>
     </div>
 
@@ -512,31 +632,14 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- Overall Years Stepper -->
-          <div class="experience-counter-box">
-            <span class="counter-label">Cumulative Experience</span>
-            <div class="stepper-controls">
-              <button
-                type="button"
-                class="step-btn"
-                title="Decrease overall experience by 0.5 yrs"
-                @click="adjustTotalYears(-0.5)"
-              >
-                -
-              </button>
-              <span class="counter-val font-mono font-bold">
-                {{ profile.years_of_experience || 0 }} <span class="counter-unit">yrs</span>
-              </span>
-              <button
-                type="button"
-                class="step-btn"
-                title="Increase overall experience by 0.5 yrs"
-                @click="adjustTotalYears(0.5)"
-              >
-                +
-              </button>
-            </div>
-          </div>
+          <!-- Update CV Action Button -->
+          <button
+            class="btn btn-secondary btn-sm"
+            @click="openCvModal"
+          >
+            <Edit3 :size="14" />
+            <span>Update CV</span>
+          </button>
         </div>
 
         <!-- Executive Summary -->
@@ -579,6 +682,32 @@ onMounted(async () => {
             <p class="card-sub">
               Granular durations across your core industry specializations. Muted domains are preserved on your profile but automatically excluded from AI match qualifications.
             </p>
+          </div>
+
+          <!-- Cumulative Experience Stepper Controls -->
+          <div class="experience-counter-box">
+            <span class="counter-label">Cumulative Experience</span>
+            <div class="stepper-controls">
+              <button
+                type="button"
+                class="step-btn"
+                title="Decrease overall experience by 0.5 yrs"
+                @click="adjustTotalYears(-0.5)"
+              >
+                -
+              </button>
+              <span class="counter-val font-mono font-bold">
+                {{ profile.years_of_experience || 0 }} <span class="counter-unit">yrs</span>
+              </span>
+              <button
+                type="button"
+                class="step-btn"
+                title="Increase overall experience by 0.5 yrs"
+                @click="adjustTotalYears(0.5)"
+              >
+                +
+              </button>
+            </div>
           </div>
         </div>
 
@@ -745,70 +874,6 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- 4. Sanitized Resume Document Viewer / Editor -->
-      <div class="content-card">
-        <div class="card-header-clean">
-          <div>
-            <h3 class="card-title">Sanitized Resume Document</h3>
-            <p class="card-sub">
-              Clean markdown document with contact info stripped and dates converted to duration windows. Used for AI qualification audits.
-            </p>
-          </div>
-
-          <div class="header-actions-group">
-            <button
-              v-if="!isEditingCV"
-              class="btn btn-ghost btn-xs"
-              title="Edit sanitized resume text"
-              @click="startEditingCV"
-            >
-              <Edit3 :size="13" />
-              <span>Edit Document</span>
-            </button>
-
-            <button
-              v-if="!isEditingCV"
-              class="btn btn-ghost btn-xs"
-              title="Copy sanitized resume text"
-              @click="copyAnonymizedCV"
-            >
-              <Copy :size="13" />
-              <span>Copy</span>
-            </button>
-
-            <button
-              class="btn btn-ghost btn-xs"
-              @click="isDocExpanded = !isDocExpanded"
-            >
-              <component :is="isDocExpanded ? ChevronUp : ChevronDown" :size="14" />
-              <span>{{ isDocExpanded ? 'Collapse' : 'Expand' }}</span>
-            </button>
-          </div>
-        </div>
-
-        <div v-if="isDocExpanded" class="doc-container animate-fade-in">
-          <!-- Read-only Document View -->
-          <div v-if="!isEditingCV" class="sanitized-doc-body font-mono text-xs">
-            {{ profile.anonymized_text || 'No anonymized text generated yet.' }}
-          </div>
-
-          <!-- In-place Markdown Editor -->
-          <div v-else class="doc-editor-box">
-            <textarea
-              v-model="editedCVText"
-              rows="16"
-              class="form-textarea font-mono text-xs"
-            ></textarea>
-            <div class="editor-actions-row">
-              <button class="btn btn-secondary btn-sm" @click="isEditingCV = false">Cancel</button>
-              <button class="btn btn-primary btn-sm" @click="saveEditedCV">
-                <Save :size="14" />
-                <span>Save Sanitized Document</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- =================================================================== -->
@@ -819,8 +884,186 @@ onMounted(async () => {
         <ShieldCheck :size="42" class="text-primary" />
         <h2 class="empty-title">No Candidate Profile Active</h2>
         <p class="empty-sub">
-          Paste your resume or CV in the form above to activate your privacy-first profile. The system scrubs PII locally and extracts skills for AI job matching.
+          Upload or paste your resume/CV to activate your candidate profile and extract skills for AI job matching.
         </p>
+        <button class="btn btn-primary btn-sm mt-2" @click="openCvModal">
+          <FileText :size="15" />
+          <span>Input / Update CV</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- DEDICATED CV INTAKE & UPDATE MODAL POPUP                           -->
+    <!-- =================================================================== -->
+    <div v-if="showCvModal" class="modal-backdrop" @click.self="closeCvModal">
+      <div class="modal-card modal-lg animate-fade-in">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <FileText :size="18" class="text-primary" />
+            <h3 class="modal-title">{{ profile ? 'Update Candidate Resume / CV' : 'Input Candidate Resume / CV' }}</h3>
+          </div>
+
+          <!-- Top-Right Actions -->
+          <div v-if="modalStep === 'input'" class="modal-header-actions">
+            <input
+              ref="fileInput"
+              type="file"
+              accept=".pdf,.docx,.doc,.txt"
+              class="hidden-file-input"
+              @change="handleFileUpload"
+            />
+
+            <button
+              type="button"
+              class="btn btn-secondary btn-xs"
+              :disabled="isParsingFile || isProcessing || !rawCVInput.trim()"
+              @click="handleFormatCleanClick"
+              title="Automatically heal line breaks, remove double spaces, and format bullet points"
+            >
+              <Sparkles :size="13" />
+              <span>Clean &amp; Format</span>
+            </button>
+
+            <button
+              type="button"
+              class="btn btn-primary btn-xs"
+              :disabled="isParsingFile || isProcessing"
+              @click="triggerFileInput"
+            >
+              <Loader2 v-if="isParsingFile" class="animate-spin" :size="13" />
+              <Upload v-else :size="13" />
+              <span>{{ isParsingFile ? 'Extracting File...' : 'Upload Resume File' }}</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="modal-body">
+          <!-- Step 1: Raw Input -->
+          <div v-if="modalStep === 'input'" class="modal-step-container animate-fade-in">
+            <!-- Raw Textarea -->
+            <textarea
+              v-model="rawCVInput"
+              rows="13"
+              class="form-textarea font-mono text-xs"
+              placeholder="Paste your complete resume or CV text here or click 'Upload Resume File' above..."
+              :disabled="isProcessing"
+            ></textarea>
+          </div>
+
+          <!-- Step 2: Privacy Warning Confirmation -->
+          <div v-else-if="modalStep === 'warning'" class="modal-step-container animate-fade-in">
+            <div class="privacy-warning-box">
+              <div class="warning-icon-wrapper">
+                <AlertTriangle :size="28" class="warning-icon" />
+              </div>
+              <div class="warning-content">
+                <h4 class="warning-title">Privacy Notice: AI Data Transmission</h4>
+                <p class="warning-description">
+                  You are about to send this CV text to the AI provider for automated analysis, qualification matching, and skill extraction.
+                </p>
+                <p class="warning-advice">
+                  It is strongly advised that you scrub any sensitive personal information (such as full legal names, personal phone numbers, home addresses, private emails, or confidential identifiers) from the input before proceeding.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Queue Processing Stepper Card -->
+          <div v-if="isProcessing" class="queue-progress-card animate-fade-in mt-2">
+            <div class="queue-progress-header">
+              <div class="queue-status-title">
+                <Loader2 class="animate-spin text-primary" :size="16" />
+                <span>Processing in AI Queue (Task #{{ currentTaskId || '...' }})</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="queue-stage-badge">{{ currentTaskStage }}</span>
+                <button
+                  v-if="currentTaskId"
+                  type="button"
+                  class="btn btn-danger btn-xs"
+                  :disabled="isCancelling"
+                  title="Stop in-flight AI processing"
+                  @click="stopCurrentTask"
+                >
+                  <Loader2 v-if="isCancelling" class="animate-spin" :size="11" />
+                  <Square v-else :size="11" />
+                  <span>{{ isCancelling ? 'Stopping...' : 'Stop' }}</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="stepper-track">
+              <div
+                class="stepper-step"
+                :class="{
+                  active: currentTaskStage === 'SCRUBBING',
+                  complete: ['EXTRACTING', 'SAVING', 'COMPLETE'].includes(currentTaskStage),
+                }"
+              >
+                <div class="step-dot">1</div>
+                <span class="step-label">Sanitizing</span>
+              </div>
+
+              <div
+                class="stepper-step"
+                :class="{
+                  active: currentTaskStage === 'EXTRACTING',
+                  complete: ['SAVING', 'COMPLETE'].includes(currentTaskStage),
+                }"
+              >
+                <div class="step-dot">2</div>
+                <span class="step-label">AI Extraction</span>
+              </div>
+
+              <div
+                class="stepper-step"
+                :class="{
+                  active: currentTaskStage === 'SAVING',
+                  complete: currentTaskStage === 'COMPLETE',
+                }"
+              >
+                <div class="step-dot">3</div>
+                <span class="step-label">Profile Activation</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <!-- Step 1 Footer -->
+          <template v-if="modalStep === 'input'">
+            <button class="btn btn-secondary btn-sm" :disabled="isProcessing" @click="closeCvModal">Cancel</button>
+            <button
+              class="btn btn-primary btn-sm"
+              :disabled="isProcessing || !rawCVInput.trim()"
+              @click="handleAnalyzeClick"
+            >
+              <Sparkles :size="15" />
+              <span>{{ profile ? 'Analyze & Update Profile' : 'Analyze Resume / CV' }}</span>
+            </button>
+          </template>
+
+          <!-- Step 2 (Warning) Footer -->
+          <template v-else-if="modalStep === 'warning'">
+            <button
+              class="btn btn-secondary btn-sm"
+              :disabled="isProcessing"
+              @click="modalStep = 'input'"
+            >
+              Back to Edit
+            </button>
+            <button
+              class="btn btn-primary btn-sm"
+              :disabled="isProcessing"
+              @click="processCV"
+            >
+              <Loader2 v-if="isProcessing" class="animate-spin" :size="15" />
+              <Sparkles v-else :size="15" />
+              <span>{{ isProcessing ? 'Processing in Queue...' : 'Continue & Analyze' }}</span>
+            </button>
+          </template>
+        </div>
       </div>
     </div>
   </div>
@@ -910,74 +1153,77 @@ onMounted(async () => {
   color: var(--text-main);
 }
 
-.input-tabs {
-  display: flex;
-  background-color: var(--bg-main);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 2px;
-  gap: 2px;
+.hidden-file-input {
+  display: none;
 }
 
-.tab-btn {
+.panel-header-actions {
   display: flex;
   align-items: center;
-  gap: 5px;
-  border: none;
-  background: transparent;
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  cursor: pointer;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-.tab-btn.active {
-  background-color: var(--bg-elevated);
-  color: var(--text-main);
-  box-shadow: var(--shadow-sm);
-}
-
-.privacy-callout {
+.modal-step-container {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  background-color: var(--primary-subtle);
-  border: 1px solid var(--primary);
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
-  font-size: 11px;
-  color: var(--text-secondary);
-  line-height: 1.5;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.redaction-stats-pill {
-  font-size: 11px;
-  color: var(--text-success);
-  background-color: var(--status-offer-bg);
-  border: 1px solid var(--status-offer-border);
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-}
-
-.local-preview-box {
+.privacy-warning-box {
+  display: flex;
+  gap: 16px;
   background-color: var(--bg-main);
   border: 1px solid var(--border-color);
+  border-left: 4px solid #eab308;
   border-radius: var(--radius-sm);
-  padding: 14px;
-  max-height: 220px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--text-secondary);
-  line-height: 1.5;
+  padding: 20px;
+  align-items: flex-start;
 }
 
-.panel-actions {
+.warning-icon-wrapper {
+  background-color: rgba(234, 179, 8, 0.12);
+  border-radius: var(--radius-sm);
+  padding: 10px;
   display: flex;
-  justify-content: flex-end;
-  margin-top: 6px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.warning-icon {
+  color: #eab308;
+}
+
+.warning-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.warning-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.warning-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.warning-advice {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
 }
 
 /* Queue Progress Stepper */
@@ -1516,5 +1762,79 @@ onMounted(async () => {
 .embedded-profile-container {
   padding: 0 0 80px 0 !important;
   max-width: 100% !important;
+}
+
+/* Modal Popup Styles */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 20px;
+}
+
+.modal-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  width: 100%;
+  max-width: 520px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+  overflow: hidden;
+}
+
+.modal-card.modal-lg {
+  max-width: 720px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
 }
 </style>

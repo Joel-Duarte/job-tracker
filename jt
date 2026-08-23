@@ -1,0 +1,248 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Job Tracker (jt) - Unified Daily-Driver CLI Launcher
+# Cross-platform support for Linux, macOS, and WSL / Git Bash
+# ==============================================================================
+set -e
+
+# Change directory to the repository root where this script resides
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
+
+# Formatting and color helpers
+BOLD='\033[1m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+# ------------------------------------------------------------------------------
+# Helper: Verify Docker is installed and running
+# ------------------------------------------------------------------------------
+check_docker() {
+  if ! command -v docker >/dev/null 2>&1; then
+    echo -e "${RED}❌ Error: 'docker' command not found.${NC}"
+    echo "Please install Docker Desktop or Docker Engine before running Job Tracker."
+    echo "Visit: https://docs.docker.com/get-docker/"
+    exit 1
+  fi
+
+  if ! docker info >/dev/null 2>&1; then
+    echo -e "${RED}❌ Error: Docker daemon is not running or current user lacks permissions.${NC}"
+    echo "Please start Docker Desktop / daemon and verify access ('docker ps')."
+    exit 1
+  fi
+}
+
+# ------------------------------------------------------------------------------
+# Helper: Ensure .env exists with sensible defaults
+# ------------------------------------------------------------------------------
+ensure_env() {
+  if [ ! -f .env ] && [ -f .env.example ]; then
+    echo -e "${CYAN}📝 Creating initial .env from .env.example...${NC}"
+    cp .env.example .env
+  fi
+}
+
+# ------------------------------------------------------------------------------
+# Helper: Open URL in default browser across Linux / macOS / WSL / Git Bash
+# ------------------------------------------------------------------------------
+open_browser() {
+  local url="${1:-http://localhost:4173}"
+  echo -e "${CYAN}🌐 Opening ${url} in your default browser...${NC}"
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$url" >/dev/null 2>&1 &
+  elif command -v open >/dev/null 2>&1; then
+    open "$url" >/dev/null 2>&1 &
+  elif command -v wslview >/dev/null 2>&1; then
+    wslview "$url" >/dev/null 2>&1 &
+  elif command -v cmd.exe >/dev/null 2>&1; then
+    cmd.exe /c start "$url" >/dev/null 2>&1 &
+  else
+    echo -e "${YELLOW}⚠️  Could not detect browser opener. Please navigate to: ${url}${NC}"
+  fi
+}
+
+# ------------------------------------------------------------------------------
+# Help menu
+# ------------------------------------------------------------------------------
+show_help() {
+  echo -e "${BOLD}Job Tracker (jt) - Unified Daily-Driver CLI Launcher${NC}"
+  echo ""
+  echo -e "${BOLD}Usage:${NC}"
+  echo "  jt [command] [options]"
+  echo ""
+  echo -e "${BOLD}Commands:${NC}"
+  echo -e "  ${GREEN}start, up${NC}       Start Job Tracker in production background mode (default if no args)"
+  echo -e "                   Use ${CYAN}--open${NC} / ${CYAN}-o${NC} to automatically launch the web UI in browser"
+  echo -e "  ${GREEN}dev${NC}             Start Job Tracker in live development mode (Hot Reloading + Dev DB)"
+  echo -e "  ${GREEN}stop, down${NC}      Stop all Job Tracker production containers"
+  echo -e "  ${GREEN}status, ps${NC}      Show status of Job Tracker containers"
+  echo -e "  ${GREEN}logs${NC}            View and follow live container logs (Ctrl+C to exit)"
+  echo -e "  ${GREEN}open${NC}            Open Web Application (http://localhost:4173) in default browser"
+  echo -e "  ${GREEN}update${NC}          Pull latest images, rebuild containers, and apply database migrations"
+  echo -e "  ${GREEN}reset${NC}           Wipe database & data volumes after user confirmation"
+  echo -e "  ${GREEN}seed${NC}            Run dynamic local LLM mock generator to synthesize fresh tech leads"
+  echo -e "  ${GREEN}help, -h${NC}        Show this help message"
+  echo ""
+  echo -e "${BOLD}Examples:${NC}"
+  echo "  jt                     # Quick start in background"
+  echo "  jt start --open        # Start and immediately open web app in browser"
+  echo "  jt dev                 # Start live development environment with hot reloading"
+  echo "  jt logs -f backend     # Follow backend API logs"
+  echo "  jt status              # Check container health and port bindings"
+  echo "  jt update              # Rebuild containers and run database migrations"
+  echo "  jt stop                # Stop production background containers"
+  echo ""
+}
+
+# ------------------------------------------------------------------------------
+# Main Dispatcher
+# ------------------------------------------------------------------------------
+COMMAND="${1:-start}"
+
+case "$COMMAND" in
+  start|up)
+    shift || true
+    AUTO_OPEN=false
+    PASSTHROUGH_ARGS=()
+
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --open|-o)
+          AUTO_OPEN=true
+          shift
+          ;;
+        *)
+          PASSTHROUGH_ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
+
+    check_docker
+    ensure_env
+    ./prod.sh "${PASSTHROUGH_ARGS[@]}"
+
+    if [ "$AUTO_OPEN" = true ]; then
+      sleep 1
+      open_browser "http://localhost:4173"
+    fi
+    ;;
+
+  dev)
+    shift || true
+    check_docker
+    ensure_env
+    ./dev.sh "$@"
+    ;;
+
+  stop|down)
+    shift || true
+    check_docker
+    ./prod.sh --down "$@"
+    ;;
+
+  status|ps)
+    shift || true
+    check_docker
+    ./prod.sh --status "$@"
+    ;;
+
+  logs)
+    shift || true
+    check_docker
+    if [ $# -eq 0 ]; then
+      ./prod.sh --logs
+    else
+      docker compose logs -f "$@"
+    fi
+    ;;
+
+  open)
+    shift || true
+    open_browser "${1:-http://localhost:4173}"
+    ;;
+
+  update)
+    shift || true
+    check_docker
+    ensure_env
+    echo -e "${CYAN}🔄 Updating Job Tracker...${NC}"
+    echo ">> 1. Pulling upstream base images..."
+    docker compose pull 2>/dev/null || true
+
+    echo ""
+    echo ">> 2. Rebuilding and starting containers..."
+    docker compose up -d --build "$@"
+
+    echo ""
+    echo ">> 3. Applying database migrations (Alembic)..."
+    # Execute migration inside backend container if healthy/running
+    if docker compose ps --services --filter "status=running" | grep -q "^backend$"; then
+      docker compose exec -T backend python -m alembic upgrade head 2>/dev/null || \
+      docker compose exec -T backend uv run alembic upgrade head 2>/dev/null || \
+      echo -e "${YELLOW}⚠️  Alembic migration command skipped or already at head.${NC}"
+    fi
+
+    echo ""
+    echo -e "${GREEN}================================================================================${NC}"
+    echo -e "${GREEN} ✅ Job Tracker successfully updated and database migrations applied!${NC}"
+    echo -e "${GREEN}--------------------------------------------------------------------------------${NC}"
+    echo -e " 🌐 Web Application: ${BOLD}http://localhost:4173${NC}"
+    echo -e " 📚 API Documentation: ${BOLD}http://localhost:4173/api/docs${NC}"
+    echo -e "${GREEN}================================================================================${NC}"
+    ;;
+
+  reset)
+    shift || true
+    FORCE=false
+    PASSTHROUGH_ARGS=()
+
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --yes|-y|--force|-f)
+          FORCE=true
+          shift
+          ;;
+        *)
+          PASSTHROUGH_ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
+
+    if [ "$FORCE" != true ]; then
+      echo -e "${YELLOW}⚠️  WARNING: This will permanently wipe all Job Tracker PostgreSQL database data,${NC}"
+      echo -e "${YELLOW}   vector embeddings, and saved application dossiers.${NC}"
+      read -r -p "Are you sure you want to proceed? [y/N]: " CONFIRMATION
+      if [[ ! "$CONFIRMATION" =~ ^[Yy]([Ee][Ss])?$ ]]; then
+        echo -e "${CYAN}Operation cancelled.${NC}"
+        exit 0
+      fi
+    fi
+
+    check_docker
+    ./prod.sh --reset "${PASSTHROUGH_ARGS[@]}"
+    ;;
+
+  seed)
+    shift || true
+    check_docker
+    ./dev.sh --generate-mocks "$@"
+    ;;
+
+  help|--help|-h)
+    show_help
+    exit 0
+    ;;
+
+  *)
+    echo -e "${RED}❌ Unknown command: '$COMMAND'${NC}"
+    echo ""
+    show_help
+    exit 1
+    ;;
+esac

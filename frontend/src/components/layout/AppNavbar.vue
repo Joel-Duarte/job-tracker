@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUIStore } from '../../stores/uiStore'
 import { useQueueStore } from '../../stores/queueStore'
@@ -20,6 +20,9 @@ import {
   Cpu,
   Mail,
   BarChart3,
+  Activity,
+  RefreshCw,
+  AlertTriangle,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -31,6 +34,46 @@ const pendingStagingCount = ref(0)
 const pendingTasksCount = ref(0)
 
 const readyAssessmentsCount = computed(() => queueStore.readyAssessmentsCount)
+
+const isHealthPopoverOpen = ref(false)
+const popoverContainerRef = ref(null)
+
+const pillLabel = computed(() => {
+  switch (uiStore.aiStatus) {
+    case 'healthy':
+      return `${uiStore.aiActiveProviderName || 'AI Online'} • ${Math.round(uiStore.aiLatencyMs)}ms`
+    case 'degraded':
+      return `${uiStore.aiActiveProviderName || 'AI Busy'} • ${Math.round(uiStore.aiLatencyMs)}ms`
+    case 'offline':
+      return 'AI Offline'
+    case 'unconfigured':
+    default:
+      return 'No AI Configured'
+  }
+})
+
+const pillTitle = computed(() => {
+  if (uiStore.aiStatus === 'healthy') return `AI Provider ${uiStore.aiActiveProviderName} is Healthy (${Math.round(uiStore.aiLatencyMs)}ms)`
+  if (uiStore.aiStatus === 'degraded') return `AI Provider ${uiStore.aiActiveProviderName} is Degraded (${Math.round(uiStore.aiLatencyMs)}ms)`
+  if (uiStore.aiStatus === 'offline') return `AI Provider Offline: ${uiStore.aiErrorMessage || 'Unreachable'}`
+  return 'No AI Provider Configured'
+})
+
+async function handlePingNow() {
+  await uiStore.checkAIHealth()
+}
+
+function goToAISettings() {
+  isHealthPopoverOpen.value = false
+  uiStore.setLastNonSettingsRoute(route.fullPath)
+  router.push('/settings')
+}
+
+function handleClickOutside(event) {
+  if (popoverContainerRef.value && !popoverContainerRef.value.contains(event.target)) {
+    isHealthPopoverOpen.value = false
+  }
+}
 
 async function fetchBadgeCounts() {
   try {
@@ -117,8 +160,14 @@ watch(
 )
 
 onMounted(() => {
+  uiStore.initAIHealthMonitor()
   fetchBadgeCounts()
   setInterval(fetchBadgeCounts, 10000)
+  document.addEventListener('click', handleClickOutside)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
 })
 </script>
 
@@ -169,17 +218,10 @@ onMounted(() => {
           </span>
         </router-link>
 
-        <router-link
-          to="/analytics"
-          class="nav-link"
-          :class="{ active: route.path === '/analytics' }"
-          @click="uiStore.clearLastNonSettingsRoute()"
-        >
-          <BarChart3 :size="16" />
-          <span>Analytics</span>
-        </router-link>
+        
 
         <router-link
+          v-if="uiStore.enableEmailIntake"
           to="/staging"
           class="nav-link"
           :class="{ active: route.path === '/staging' }"
@@ -190,6 +232,16 @@ onMounted(() => {
           <span v-if="pendingStagingCount > 0" class="nav-badge">
             {{ pendingStagingCount }}
           </span>
+        </router-link>
+
+        <router-link
+          to="/analytics"
+          class="nav-link"
+          :class="{ active: route.path === '/analytics' }"
+          @click="uiStore.clearLastNonSettingsRoute()"
+        >
+          <BarChart3 :size="16" />
+          <span>Analytics</span>
         </router-link>
 
         <router-link
@@ -206,6 +258,78 @@ onMounted(() => {
     </div>
 
     <div class="nav-right">
+      <!-- AI Health Monitoring Pill & Diagnostic Popover -->
+      <div class="health-pill-container" ref="popoverContainerRef">
+        <button
+          class="health-pill"
+          :class="`status-${uiStore.aiStatus}`"
+          @click.stop="isHealthPopoverOpen = !isHealthPopoverOpen"
+          :title="pillTitle"
+        >
+          <span class="status-dot"></span>
+          <span class="pill-text">{{ pillLabel }}</span>
+        </button>
+
+        <div v-if="isHealthPopoverOpen" class="ai-health-popover" @click.stop>
+          <div class="popover-header">
+            <div class="popover-title">
+              <Activity :size="15" />
+              <span>AI Engine Health</span>
+            </div>
+            <span class="status-badge" :class="`badge-${uiStore.aiStatus}`">
+              {{ uiStore.aiStatus.toUpperCase() }}
+            </span>
+          </div>
+
+          <div class="popover-body">
+            <div class="info-row">
+              <span class="info-label">Active Provider</span>
+              <span class="info-value font-medium">{{ uiStore.aiActiveProviderName || 'None Configured' }}</span>
+            </div>
+            <div class="info-row" v-if="uiStore.aiProviderType || uiStore.aiModelName">
+              <span class="info-label">Type & Model</span>
+              <span class="info-value font-mono">{{ uiStore.aiProviderType || '-' }} / {{ uiStore.aiModelName || '-' }}</span>
+            </div>
+            <div class="info-row" v-if="uiStore.aiBaseUrl">
+              <span class="info-label">Base URL</span>
+              <span class="info-value font-mono text-xs">{{ uiStore.aiBaseUrl }}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Latency</span>
+              <span class="info-value font-mono">{{ uiStore.aiLatencyMs > 0 ? `${Math.round(uiStore.aiLatencyMs)} ms` : 'N/A' }}</span>
+            </div>
+            <div class="info-row highlight-row">
+              <span class="info-label">Auto-Failover Target</span>
+              <span class="info-value text-primary font-medium">
+                {{ uiStore.aiFallbackProviderName ? uiStore.aiFallbackProviderName : 'None Configured' }}
+              </span>
+            </div>
+            <div v-if="uiStore.aiErrorMessage" class="error-box">
+              <AlertTriangle :size="14" class="text-danger flex-shrink-0" />
+              <span>{{ uiStore.aiErrorMessage }}</span>
+            </div>
+          </div>
+
+          <div class="popover-footer">
+            <button
+              class="btn btn-sm btn-secondary"
+              @click="handlePingNow"
+              :disabled="uiStore.isCheckingAIHealth"
+            >
+              <RefreshCw :size="13" :class="{ 'spin': uiStore.isCheckingAIHealth }" />
+              <span>{{ uiStore.isCheckingAIHealth ? 'Testing...' : 'Ping Now' }}</span>
+            </button>
+            <button
+              class="btn btn-sm btn-outline"
+              @click="goToAISettings"
+            >
+              <Settings :size="13" />
+              <span>Configure in Settings</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
       <button
         class="btn btn-primary btn-ingest"
         @click="uiStore.openJobIntakeModal"
@@ -216,6 +340,7 @@ onMounted(() => {
       </button>
 
       <button
+        v-if="uiStore.enableEmailIntake"
         class="btn btn-primary btn-ingest"
         @click="uiStore.openIngestModal"
         title="Sync email accounts, paste threads, or upload message files"
@@ -388,5 +513,193 @@ onMounted(() => {
   border-color: var(--primary);
   color: var(--primary-contrast, #0a0d14);
   box-shadow: 0 0 0 2px var(--primary-subtle);
+}
+
+/* Health Pill & Diagnostic Popover Styling */
+.health-pill-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.health-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full, 9999px);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.health-pill:hover {
+  background-color: var(--bg-surface-hover);
+  color: var(--text-main);
+  border-color: var(--border-focus, var(--primary));
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* Status colors and effects */
+.status-healthy .status-dot {
+  background-color: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+  animation: pulse-green 2s infinite ease-in-out;
+}
+
+.status-degraded .status-dot {
+  background-color: #f59e0b;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.6);
+}
+
+.status-offline .status-dot {
+  background-color: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+}
+
+.status-unconfigured .status-dot {
+  background-color: #9ca3af;
+}
+
+@keyframes pulse-green {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.25);
+    opacity: 0.8;
+  }
+}
+
+.ai-health-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 8px;
+}
+
+.popover-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.status-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm, 4px);
+  letter-spacing: 0.03em;
+}
+
+.badge-healthy {
+  background-color: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.badge-degraded {
+  background-color: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.badge-offline {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.badge-unconfigured {
+  background-color: rgba(156, 163, 175, 0.15);
+  color: #9ca3af;
+}
+
+.popover-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.info-label {
+  color: var(--text-secondary);
+}
+
+.info-value {
+  color: var(--text-main);
+}
+
+.highlight-row {
+  padding-top: 4px;
+  border-top: 1px stroke var(--border-subtle);
+}
+
+.error-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 8px;
+  background-color: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 11px;
+  color: var(--danger, #ef4444);
+  word-break: break-word;
+}
+
+.popover-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>
