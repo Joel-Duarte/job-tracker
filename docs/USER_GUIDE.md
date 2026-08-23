@@ -247,6 +247,9 @@ Job Tracker connects directly to your recruitment email accounts to track inboun
 - **Conversation Threading**: Ongoing recruiter email threads are linked directly to the corresponding application's chronological event timeline.
 - **Status Progression**: AI extracts intent from email bodies (e.g., "We'd love to schedule a technical round" transitions the application to `TECHNICAL_INTERVIEW`).
 
+> [!TIP]
+> For a full walkthrough on setting up OAuth 2.0 apps in Google Cloud / Azure or generating 16-character App Passwords for iCloud, Fastmail, Yahoo, and Zoho, check the [OAuth & Mailbox Setup Guide](file:///home/joel/Projects/job-tracker/docs/OAUTH_SETUP.md).
+
 ---
 
 ## 4. Workflow 3: AI Fit Dossier & Gap Analysis

@@ -181,6 +181,8 @@ Explore our guides to get the most out of Job Tracker:
 | [`docs/QUICKSTART.md`](file:///home/joel/Projects/job-tracker/docs/QUICKSTART.md) | Detailed installation steps, first-run wizard guide, and troubleshooting FAQs. |
 | [`docs/USER_GUIDE.md`](file:///home/joel/Projects/job-tracker/docs/USER_GUIDE.md) | Complete "Day in the Life" guide covering intake, AI analysis, simulations, and tracking. |
 | [`docs/AI_PROVIDERS.md`](file:///home/joel/Projects/job-tracker/docs/AI_PROVIDERS.md) | Local AI configuration (LM Studio, Ollama) and Cloud AI setup (OpenAI, Anthropic, Gemini). |
+| [`docs/OAUTH_SETUP.md`](file:///home/joel/Projects/job-tracker/docs/OAUTH_SETUP.md) | Complete step-by-step guide for Gmail/Outlook OAuth 2.0 and IMAP App-Specific Passwords. |
+| [`docs/EXTERNAL_SERVICES.md`](file:///home/joel/Projects/job-tracker/docs/EXTERNAL_SERVICES.md) | Guide for connecting external PostgreSQL databases and custom Camofox scraper instances. |
 | [`docs/ARCHITECTURE.md`](file:///home/joel/Projects/job-tracker/docs/ARCHITECTURE.md) | Architectural blueprints, LangGraph state machine flows, pgvector vector search, and Camofox scraper design. |
 | [`extension/README.md`](file:///home/joel/Projects/job-tracker/extension/README.md) | Installation and setup guide for the companion Chrome, Brave, Edge, and Firefox browser extension. |
 | [`backend/README.md`](file:///home/joel/Projects/job-tracker/backend/README.md) | Backend developer guide, API schemas, testing hierarchy, and database migration rules. |

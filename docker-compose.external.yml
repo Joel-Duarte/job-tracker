@@ -1,0 +1,43 @@
+name: job-tracker
+
+# ==============================================================================
+# Docker Compose External Services Override
+#
+# Use this override file when connecting Job Tracker to external or host-managed
+# services (e.g., an existing PostgreSQL 16+ instance, standalone Camofox scraper)
+# instead of running the bundled containerized 'db' and 'scraper' services.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.external.yml up -d
+#
+# For detailed configuration instructions, see:
+#   docs/EXTERNAL_SERVICES.md
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # Disable bundled internal PostgreSQL container
+  # ----------------------------------------------------------------------------
+  db:
+    profiles: ["disabled"]
+
+  # ----------------------------------------------------------------------------
+  # Disable bundled internal Camofox scraper container
+  # ----------------------------------------------------------------------------
+  scraper:
+    profiles: ["disabled"]
+
+  # ----------------------------------------------------------------------------
+  # Backend API & Workers: Reconfigured for External Database & Scraper
+  # ----------------------------------------------------------------------------
+  backend:
+    depends_on: !override []
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST:-host.docker.internal}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      CAMOUFOX_ENDPOINT: ${CAMOUFOX_ENDPOINT:-http://host.docker.internal:9377}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

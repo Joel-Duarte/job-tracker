@@ -113,6 +113,8 @@ Automate interview invites, online assessments, and recruiter update tracking:
 - **Apple iCloud / Fastmail / Yahoo / Custom IMAP:** Direct IMAP connection over SSL (Port 993).
 - Choose your recruitment folder (e.g., `INBOX`, `Jobs`, `Recruitment`) and sync schedule.
 
+> For complete step-by-step instructions with Cloud Console / Azure setup and App Password generation, see the [OAuth & Mailbox Setup Guide](file:///home/joel/Projects/job-tracker/docs/OAUTH_SETUP.md).
+
 ### Step 5: Launch!
 Click **"Launch Job Tracker"** to enter your workspace. Your background evaluation worker starts immediately, ready to triage and assess leads.
 
