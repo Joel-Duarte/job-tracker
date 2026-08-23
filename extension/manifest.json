@@ -3,6 +3,12 @@
   "name": "Job Tracker Companion",
   "version": "1.0.0",
   "description": "1-Click job description capture, AI fit assessment, and application tracking for Job Tracker.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "job-tracker-companion@local",
+      "strict_min_version": "115.0"
+    }
+  },
   "action": {
     "default_popup": "popup/popup.html",
     "default_icon": {
