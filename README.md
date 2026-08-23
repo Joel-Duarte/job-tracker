@@ -8,7 +8,7 @@
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![Camofox](https://img.shields.io/badge/Camofox-Stealth%20Scraper-FF6B6B?style=for-the-badge)](https://github.com/jo-inc/camofox-browser)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial-red.svg?style=for-the-badge)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
 
 ---
 
@@ -227,4 +227,6 @@ Contributions, issues, and feature requests are welcome!
 
 ## 📄 License
 
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **PolyForm Noncommercial License 1.0.0** — see the [LICENSE](LICENSE) file for details.
+
+> Free for personal, educational, and individual non-commercial use. Commercial use, third-party SaaS hosting, redistribution for profit, and commercial exploitation are strictly prohibited without prior written permission from the copyright holder (Joel Duarte).

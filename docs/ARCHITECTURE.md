@@ -2,7 +2,7 @@
 
 ## 1. System Overview & Philosophy
 
-**Job Tracker** is an open-source, privacy-first, full-stack application designed to automate and streamline the job application and recruitment lifecycle. The system provides intelligent extraction from job postings and recruiter emails, AI-driven candidate-job fit analysis, automated cover letter drafting, interview preparation guide generation, and an interactive real-time mock interview simulator.
+**Job Tracker** is a source-available, privacy-first, full-stack application designed to automate and streamline the job application and recruitment lifecycle. The system provides intelligent extraction from job postings and recruiter emails, AI-driven candidate-job fit analysis, automated cover letter drafting, interview preparation guide generation, and an interactive real-time mock interview simulator.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
