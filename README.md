@@ -72,12 +72,15 @@ jt.cmd start
 docker compose up -d
 ```
 
-### 🌐 Access URLs
+### 🌐 Access URLs & Ingress Architecture
 
-- **Web Application:** [http://localhost:4173](http://localhost:4173) *(Production)* or [http://localhost:5173](http://localhost:5173) *(Dev)*
-- **Interactive API Docs:** [http://localhost:8008/docs](http://localhost:8008/docs) *(Swagger UI)* / [http://localhost:8008/redoc](http://localhost:8008/redoc)
-- **Stealth Scraper Service:** `http://localhost:9377`
-- **PostgreSQL + pgvector:** `localhost:54320`
+Job Tracker is designed with a **closed-by-default, single-port ingress architecture**. All backend, database, and scraper services run securely inside the private Docker network and are never exposed directly to the outside host. Everything is accessed through the Frontend Reverse Proxy:
+
+- **Web Application:** [http://localhost:4173](http://localhost:4173) *(Production)* or [http://localhost:5173](http://localhost:5173) *(Development)*
+- **Interactive API Docs (Swagger UI):** [http://localhost:4173/api/docs](http://localhost:4173/api/docs) *(Production)* or [http://localhost:5173/api/docs](http://localhost:5173/api/docs) *(Development)*
+- **ReDoc Documentation:** [http://localhost:4173/api/redoc](http://localhost:4173/api/redoc) *(Production)* or [http://localhost:5173/api/redoc](http://localhost:5173/api/redoc) *(Development)*
+- **API Endpoints:** `http://localhost:4173/api/v1/...` *(proxied internally to FastAPI)*
+- **Internal Services (Sealed in Docker Network):** Backend (`backend:8000`), Database (`db:5432`), and Camofox Scraper (`scraper:9377`) are protected and not exposed to the host.
 
 ---
 

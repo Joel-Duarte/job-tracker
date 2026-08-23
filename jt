@@ -192,7 +192,7 @@ case "$COMMAND" in
     echo -e "${GREEN} ✅ Job Tracker successfully updated and database migrations applied!${NC}"
     echo -e "${GREEN}--------------------------------------------------------------------------------${NC}"
     echo -e " 🌐 Web Application: ${BOLD}http://localhost:4173${NC}"
-    echo -e " 📚 API Documentation: ${BOLD}http://localhost:8008/docs${NC}"
+    echo -e " 📚 API Documentation: ${BOLD}http://localhost:4173/api/docs${NC}"
     echo -e "${GREEN}================================================================================${NC}"
     ;;
 

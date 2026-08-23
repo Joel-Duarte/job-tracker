@@ -97,9 +97,10 @@ if [ ! -f .env ] && [ -f .env.example ]; then
 fi
 
 echo "🚀 Starting Job Tracker in LIVE DEVELOPMENT mode..."
-echo " - Frontend (Vite HMR):   http://localhost:5173"
-echo " - Backend API (Proxied):  http://localhost:5173/api"
-echo " - Database & Scraper:    Internal Docker Network"
+echo " - Frontend (Vite HMR):       http://localhost:5173"
+echo " - Backend API (Proxied):      http://localhost:5173/api"
+echo " - API Docs (Swagger UI):     http://localhost:5173/api/docs"
+echo " - Database & Scraper:        Internal Docker Network"
 if [ "$RESET_DB" = true ]; then
   echo " - Database Status:       FRESH / INITIALIZED"
 else

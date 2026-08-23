@@ -90,6 +90,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Job Tracking API",
     version="1.0.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
     lifespan=lifespan,
 )
 
@@ -136,6 +139,7 @@ app.include_router(interview_simulator.router)
 
 
 @app.get("/health", tags=["Health"])
+@app.get("/api/health", tags=["Health"])
 async def health_check(response: Response):
     """
     Health check endpoint for application and database connectivity.

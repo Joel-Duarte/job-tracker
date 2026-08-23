@@ -53,9 +53,9 @@ uv run uvicorn app.main:app --reload --port 8000
 ```
 
 - API Base URL: `http://localhost:8000`
-- Interactive OpenAPI Docs (Swagger UI): `http://localhost:8000/docs`
-- ReDoc API Documentation: `http://localhost:8000/redoc`
-- Health Check Endpoint: `http://localhost:8000/health`
+- Interactive OpenAPI Docs (Swagger UI): `http://localhost:8000/api/docs`
+- ReDoc API Documentation: `http://localhost:8000/api/redoc`
+- Health Check Endpoint: `http://localhost:8000/api/health` (or `/health`)
 
 ### Option B: Full Dev Stack via Docker Compose
 From the repository root, start all microservices (PostgreSQL, Camofox Scraper, Backend, and Frontend):

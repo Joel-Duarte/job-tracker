@@ -82,7 +82,7 @@ echo ===========================================================================
 echo  Job Tracker is running permanently in the background!
 echo --------------------------------------------------------------------------------
 echo  Web Application:   http://localhost:4173
-echo  API Documentation: http://localhost:8008/docs
+echo  API Documentation: http://localhost:4173/api/docs
 echo.
 echo  Quick Commands:
 echo    jt status        Check container status
@@ -145,7 +145,7 @@ echo ===========================================================================
 echo  Job Tracker successfully updated and database migrations applied!
 echo --------------------------------------------------------------------------------
 echo  Web Application:   http://localhost:4173
-echo  API Documentation: http://localhost:8008/docs
+echo  API Documentation: http://localhost:4173/api/docs
 echo ================================================================================
 exit /b 0
 

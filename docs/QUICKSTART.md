@@ -40,12 +40,13 @@ REM or alternatively:
 docker compose up -d
 ```
 
-### Accessing the Services
-Once initialized, the services will be accessible at:
-- **🌐 Web Application UI:** [`http://localhost:4173`](http://localhost:4173)
-- **📚 Backend REST API & Swagger Docs:** [`http://localhost:8008/docs`](http://localhost:8008/docs)
-- **🕷️ Camofox Stealth Scraper:** `http://localhost:9377`
-- **🐘 PostgreSQL 16 + pgvector Database:** `localhost:54320`
+### Accessing the Services & Architecture
+Job Tracker operates on a **closed-by-default, single-port ingress architecture**. All backend API workers, PostgreSQL database, and Camofox scraper instances run securely isolated within the internal Docker network. Access to the entire platform is unified through the Frontend Reverse Proxy:
+
+- **🌐 Web Application UI:** [`http://localhost:4173`](http://localhost:4173) *(Production)* or [`http://localhost:5173`](http://localhost:5173) *(Development)*
+- **📚 Interactive API Docs (Swagger UI):** [`http://localhost:4173/api/docs`](http://localhost:4173/api/docs) *(Production)* or [`http://localhost:5173/api/docs`](http://localhost:5173/api/docs) *(Development)*
+- **📖 ReDoc API Reference:** [`http://localhost:4173/api/redoc`](http://localhost:4173/api/redoc) *(Production)* or [`http://localhost:5173/api/redoc`](http://localhost:5173/api/redoc) *(Development)*
+- **🔒 Internal Services:** The FastAPI backend (`backend:8000`), PostgreSQL (`db:5432`), and Camofox scraper (`scraper:9377`) remain sealed within the private Docker network, eliminating external host port collisions.
 
 > [!TIP]
 > **Production Boot Persistence:**
@@ -146,7 +147,7 @@ The **Job Tracker Companion** extension adds a 1-click capture pill directly ont
 3. Select `extension/manifest.json` inside the repository `extension/` folder.
 
 ### Extension Settings
-By default, the browser extension communicates with the API at `http://localhost:8008` (production) or `http://localhost:5173/api` (dev proxy). Click the extension icon in your toolbar, go to the **Settings** tab, and adjust the backend URL if running on a custom port or remote server.
+By default, the browser extension communicates with the reverse proxy API at `http://localhost:4173` (production) or `http://localhost:5173` (development). Click the extension icon in your toolbar, go to the **Settings** tab, and adjust the backend URL if running on a custom port or remote server.
 
 ---
 
