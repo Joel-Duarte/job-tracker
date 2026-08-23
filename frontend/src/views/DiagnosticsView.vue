@@ -466,6 +466,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   height: calc(100vh - var(--navbar-height));
+  min-height: 0;
   background-color: var(--bg-app);
   overflow: hidden;
   padding: 0;
@@ -514,9 +515,10 @@ onMounted(() => {
 }
 
 .settings-content-area {
-  flex: 1;
+  flex: 1 1 0%;
+  min-height: 0;
   overflow-y: auto;
-  padding: 28px 32px 64px 32px;
+  padding: 24px 32px 48px 32px;
   background-color: var(--bg-app);
   display: flex;
   justify-content: center;
@@ -528,6 +530,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  min-height: 0;
 }
 
 /* KPI Cards */
@@ -535,6 +538,7 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
+  flex-shrink: 0;
 }
 
 .kpi-card {
@@ -582,6 +586,9 @@ onMounted(() => {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 /* Category Tabs Bar */
@@ -594,6 +601,7 @@ onMounted(() => {
   background: var(--bg-sidebar);
   gap: 12px;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .category-tabs {
@@ -681,6 +689,28 @@ onMounted(() => {
 /* Data Table */
 .table-responsive {
   position: relative;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 60vh;
+  min-height: 280px;
+}
+
+.table-responsive::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.table-responsive::-webkit-scrollbar-track {
+  background: var(--bg-surface);
+}
+
+.table-responsive::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
 }
 
 .data-table {
