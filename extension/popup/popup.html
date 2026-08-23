@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Job Tracker Companion</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand-row">
+        <div class="brand">
+          <div class="brand-icon">💼</div>
+          <span class="brand-name">Job Tracker</span>
+          <span class="badge-v3">V3</span>
+        </div>
+        <div id="conn-pill" class="conn-pill checking" title="Checking server connection">
+          <span class="conn-dot"></span>
+          <span id="conn-text" class="conn-text">Checking...</span>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="nav-tabs">
+        <button id="tab-btn-capture" class="nav-tab active" data-tab="capture">
+          <span class="tab-icon">🎯</span> Capture
+        </button>
+        <button id="tab-btn-queue" class="nav-tab" data-tab="queue">
+          <span class="tab-icon">⚡</span> AI Queue
+          <span id="queue-count-badge" class="queue-badge hidden">0</span>
+        </button>
+        <button id="tab-btn-settings" class="nav-tab" data-tab="settings">
+          <span class="tab-icon">⚙️</span> Settings
+        </button>
+      </nav>
+    </header>
+
+    <main class="content-area">
+      <!-- TAB 1: CAPTURE -->
+      <section id="tab-capture" class="tab-panel active">
+        <!-- Main Form Wrapper -->
+        <div id="capture-form-container">
+          <!-- Tab Meta Preview Card -->
+          <div class="card meta-card">
+            <div class="meta-header">
+              <span class="meta-label">Active Tab</span>
+              <span id="site-type-badge" class="site-badge">Detecting...</span>
+            </div>
+            <div id="meta-url" class="meta-url" title="Current tab URL">https://...</div>
+          </div>
+
+          <!-- AI Provider Offline Warning Banner -->
+          <div id="ai-offline-banner" class="banner warning-banner hidden">
+            ⚠️ AI Provider Offline - Defaulted to Direct Applied mode.
+          </div>
+
+          <!-- Extracted Fields Form -->
+          <div class="card form-card">
+            <!-- Ingestion Mode Selector -->
+            <div class="form-group">
+              <label>Ingestion Mode</label>
+              <div class="mode-selector">
+                <label class="mode-option active" id="mode-opt-ai">
+                  <input type="radio" name="ingestMode" value="AI_QUEUE" checked>
+                  <div class="mode-content">
+                    <span class="mode-title">🤖 AI Evaluation Queue</span>
+                    <span class="mode-desc">Evaluate fit score, skills match & pros/cons</span>
+                  </div>
+                </label>
+
+                <label class="mode-option" id="mode-opt-direct">
+                  <input type="radio" name="ingestMode" value="DIRECT_APPLIED">
+                  <div class="mode-content">
+                    <span class="mode-title">📌 Direct Applied</span>
+                    <span class="mode-desc">Instantly add to Kanban board under Applied</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Dynamic Manual Input Fields (Revealed in Direct Applied Mode) -->
+            <div id="form-fields-container" class="collapsible-fields hidden">
+              <div class="form-group">
+                <label for="input-company">Company Name</label>
+                <div class="input-with-clear">
+                  <input type="text" id="input-company" class="input-field" placeholder="e.g. Stripe, Anthropic">
+                  <button class="clear-field-btn" data-target="input-company" title="Clear">✕</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="input-position">Job Title / Role</label>
+                <div class="input-with-clear">
+                  <input type="text" id="input-position" class="input-field" placeholder="e.g. Senior Software Engineer">
+                  <button class="clear-field-btn" data-target="input-position" title="Clear">✕</button>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group col">
+                  <label for="input-location">Location</label>
+                  <div class="input-with-clear">
+                    <input type="text" id="input-location" class="input-field" placeholder="e.g. San Francisco, CA">
+                    <button class="clear-field-btn" data-target="input-location" title="Clear">✕</button>
+                  </div>
+                </div>
+                <div class="form-group col">
+                  <label for="input-salary">Salary (Optional)</label>
+                  <div class="input-with-clear">
+                    <input type="text" id="input-salary" class="input-field" placeholder="e.g. $180k - $220k">
+                    <button class="clear-field-btn" data-target="input-salary" title="Clear">✕</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="input-work-model">Work Model</label>
+                <select id="input-work-model" class="select-field">
+                  <option value="Unknown">Unknown</option>
+                  <option value="Remote">Remote</option>
+                  <option value="Hybrid">Hybrid</option>
+                  <option value="On-site">On-site</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Primary Submit Action -->
+            <button id="btn-capture-submit" class="btn btn-primary btn-block">
+              <span id="btn-submit-icon">⚡</span>
+              <span id="btn-submit-text">Send Page to AI Assessment</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Full-Card Feedback Screen (Swapped In-Place during submission) -->
+        <div id="full-card-feedback" class="card feedback-screen hidden">
+          <!-- Loading State -->
+          <div id="feedback-loading" class="feedback-state">
+            <div class="spinner-large"></div>
+            <h3 class="feedback-title">Capturing & Queuing Job...</h3>
+            <p id="feedback-loading-msg" class="feedback-desc">Extracting DOM markup and parsing job spec...</p>
+          </div>
+
+          <!-- Success State -->
+          <div id="feedback-success" class="feedback-state hidden">
+            <div class="feedback-icon success">✅</div>
+            <h3 id="feedback-success-title" class="feedback-title">Job Captured Successfully!</h3>
+            <p id="feedback-success-msg" class="feedback-desc">Task queued for AI analysis.</p>
+
+            <div class="countdown-bar-container">
+              <div id="countdown-bar" class="countdown-bar"></div>
+            </div>
+
+            <div class="feedback-actions">
+              <button id="btn-open-app-dashboard" class="btn btn-primary btn-block">
+                ↗ Open in Job Tracker
+              </button>
+              <button id="btn-capture-another" class="btn btn-secondary btn-block">
+                🔄 Capture Another Job
+              </button>
+            </div>
+          </div>
+
+          <!-- Error State -->
+          <div id="feedback-error" class="feedback-state hidden">
+            <div class="feedback-icon error">⚠️</div>
+            <h3 class="feedback-title">Submission Failed</h3>
+            <p id="feedback-error-msg" class="feedback-desc">Unable to reach Job Tracker server.</p>
+
+            <div class="feedback-actions">
+              <button id="btn-try-again" class="btn btn-primary btn-block">
+                ↩ Try Again
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: AI QUEUE -->
+      <section id="tab-queue" class="tab-panel">
+        <div class="queue-header-row">
+          <span class="queue-title">AI Evaluation Queue</span>
+          <div class="queue-header-actions">
+            <button id="btn-clear-completed" class="btn btn-outline-danger btn-xs" title="Clear completed and failed tasks">
+              🧹 Clear Completed
+            </button>
+            <button id="btn-refresh-queue" class="btn-icon" title="Refresh list">🔄</button>
+          </div>
+        </div>
+
+        <div id="queue-list" class="queue-list">
+          <div class="empty-state">
+            <span class="empty-icon">📥</span>
+            <p>No evaluation tasks queued yet.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: SETTINGS -->
+      <section id="tab-settings" class="tab-panel">
+        <div class="card form-card">
+          <div class="form-group">
+            <label for="input-app-url">Job Tracker App URL</label>
+            <div class="input-with-clear">
+              <input type="text" id="input-app-url" class="input-field" placeholder="http://localhost:5173">
+              <button class="clear-field-btn" data-target="input-app-url" title="Clear">✕</button>
+            </div>
+            <span class="field-hint">Base URL of your running Job Tracker application</span>
+          </div>
+
+          <div class="form-group">
+            <label for="select-theme">Design Theme</label>
+            <select id="select-theme" class="select-field">
+              <option value="LIGHT">Daylight (Saddle Brown Light)</option>
+              <option value="DARK">Midnight (Cyan Dark)</option>
+              <option value="SYSTEM">System Default</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="select-dock-mode">In-Page Floating Widget Mode</label>
+            <select id="select-dock-mode" class="select-field">
+              <option value="AUTO-DETECT">Auto-Detect (Known ATS & Job URLs)</option>
+              <option value="ALL_PAGES">All Websites (Always On)</option>
+              <option value="OFF">Disabled (Popup Only)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="select-poll-interval">Badge Counter Refresh Interval</label>
+            <select id="select-poll-interval" class="select-field">
+              <option value="15">15 Seconds</option>
+              <option value="30">30 Seconds</option>
+              <option value="60" selected>1 Minute (Default)</option>
+              <option value="0">Off (Manual Refresh Only)</option>
+            </select>
+          </div>
+
+          <div class="form-group toggle-group">
+            <label for="toggle-notifications">Desktop Notifications</label>
+            <label class="switch">
+              <input type="checkbox" id="toggle-notifications" checked>
+              <span class="slider round"></span>
+            </label>
+          </div>
+
+          <div class="settings-actions">
+            <button id="btn-test-conn" class="btn btn-secondary btn-block">
+              🔌 Test Connection
+            </button>
+          </div>
+
+          <div id="settings-status" class="settings-status-msg hidden"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
