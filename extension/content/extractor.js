@@ -113,18 +113,17 @@
     }
 
     function deriveTitleFromDoc() {
-      const ogTitle = document.querySelector('meta[property="og:title"]')?.content || '';
-      const docTitle = document.title || '';
-      let raw = (ogTitle || docTitle).replace(/^\(\d+\)\s*/, '');
-
-      const separators = [' at ', ' | ', ' - ', ' — ', ' • '];
-      for (const sep of separators) {
+      let raw = document.querySelector('meta[property="og:title"]')?.content || document.title || '';
+      raw = raw.replace(/^\(\d+\)\s*/, '');
+      raw = raw.replace(/\s*\|\s*LinkedIn.*$/i, '');
+      raw = raw.replace(/\s*\|\s*Glassdoor.*$/i, '');
+      raw = raw.replace(/\s*\|\s*Indeed.*$/i, '');
+      for (const sep of [' at ', ' | ', ' - ', ' — ', ' • ']) {
         if (raw.includes(sep)) {
-          raw = raw.split(sep)[0].trim();
-          break;
+          return raw.split(sep)[0].trim();
         }
       }
-      return raw.replace(/careers|jobs|hiring/gi, '').trim();
+      return raw.trim().replace(/careers|jobs|hiring/gi, '').trim();
     }
 
     let site_type = 'GENERIC';
@@ -137,7 +136,7 @@
 
     // --- Tier 1: Site-Specific High Precision Extraction Rules ---
 
-    // 1. Glassdoor (Strictly scoped inside detailPane)
+    // 1. Glassdoor (Wildcard Header Scoping + Star Rating Cleanup)
     if (host.includes('glassdoor.com') || host.includes('glassdoor.co.uk')) {
       site_type = 'GLASSDOOR';
       const descContainer = document.querySelector('#JobDescriptionContainer');
@@ -145,10 +144,46 @@
                          document.querySelector('[data-test="job-details"], div[class*="JobDetails_jobDetailsContainer"], div[class*="JobDetails_jobDetails"]') ||
                          document;
 
-      title = getTextIn(detailPane, ['[data-test="job-title"]', 'h1.JobDetails_jobTitle__', '.job-title', 'h1']);
-      company = getTextIn(detailPane, ['[data-test="employer-name"]', '.JobDetails_employerName__', '.employer-name']);
-      location = getTextIn(detailPane, ['[data-test="location"]', '.JobDetails_location__', '.location']);
-      salary = getTextIn(detailPane, ['[data-test="detailSalary"]', '[data-test="salaries"]']);
+      const header = queryFirstIn(detailPane, [
+        '[class*="JobDetails_jobDetailsHeader"]',
+        '[class*="StickyScrollSection_stickyHeader"]',
+        '[class*="JobDetails_header"]',
+        'header'
+      ]) || detailPane;
+
+      company = getTextIn(header, [
+        '[data-test="employer-name"]',
+        'a[href*="/Overview/"]',
+        '[class*="employerName" i]',
+        '[class*="EmployerName" i]',
+        '[class*="JobDetails_employerName"]',
+        'h4',
+        'div:first-child p',
+        'div:first-child a',
+        'div:first-child'
+      ]);
+      company = company.replace(/\s*\d+(\.\d+)?\s*★.*$/, '').replace(/★.*$/, '').trim();
+
+      title = getTextIn(header, [
+        '[data-test="job-title"]',
+        'h1[class*="JobDetails_jobTitle"]',
+        'h1[class*="jobTitle" i]',
+        'h1',
+        'h2'
+      ]);
+
+      location = getTextIn(header, [
+        '[data-test="location"]',
+        '[class*="JobDetails_location"]',
+        '[class*="location" i]',
+        'div:nth-child(3)',
+        'span[class*="location"]'
+      ]);
+
+      salary = getTextIn(header, [
+        '[data-test="detailSalary"]',
+        '[data-test="salaries"]'
+      ]);
 
       const descEl = queryFirstIn(detailPane, ['#JobDescriptionContainer', '.JobDetails_jobDescription__', '[data-test="jobDescription"]']);
       if (descEl) {
@@ -179,7 +214,7 @@
       }
     }
 
-    // 3. LinkedIn (Scoped strictly inside active job details pane)
+    // 3. LinkedIn (Topcard Hierarchy & Title Sanitization)
     else if (host.includes('linkedin.com')) {
       site_type = 'LINKEDIN';
       const pane = queryFirst([
@@ -192,29 +227,34 @@
       ])?.closest('.job-view-layout, .jobs-search__job-details, main, body') || document;
 
       title = getTextIn(pane, [
-        'h1.job-details-jobs-unified-top-card__job-title',
-        'h1.t-24',
-        'h1[class*="job-title"]',
         'h1.top-card-layout__title',
-        'a.job-details-jobs-unified-top-card__job-title-link',
+        'h1.job-details-jobs-unified-top-card__job-title',
+        'h1.topcard__title',
+        'h1.t-24',
+        'h1[class*="job-title" i]',
+        'h1[class*="title" i]',
+        'main h1',
+        'article h1',
         'h1'
       ]);
+      title = title.replace(/^\(\d+\)\s*/, '').trim();
 
       company = getTextIn(pane, [
-        '.job-details-jobs-unified-top-card__company-name a',
-        '.job-details-jobs-unified-top-card__company-name',
         'a.topcard__org-name-link',
         '.top-card-layout__first-subline a',
-        'a[data-tracking-control-name="public_jobs_topcard-org-name"]',
+        '.job-details-jobs-unified-top-card__company-name a',
+        '.job-details-jobs-unified-top-card__company-name',
+        'a[data-tracking-control-name*="company"]',
         'a[href*="/company/"]'
       ]);
+      if (company.toLowerCase().trim() === 'linkedin') company = '';
 
       location = getTextIn(pane, [
-        '.job-details-jobs-unified-top-card__primary-description-container span.tvm__text',
-        '.job-details-jobs-unified-top-card__bullet',
-        '.jobs-unified-top-card__bullet',
         '.topcard__flavor--bullet',
         '.top-card-layout__first-subline .topcard__flavor:not(.topcard__flavor--link)',
+        '.job-details-jobs-unified-top-card__primary-description-container span.tvm__text',
+        '.job-details-jobs-unified-top-card__bullet',
+        'span.topcard__flavor:nth-of-type(2)',
         'span.topcard__flavor'
       ]);
 
