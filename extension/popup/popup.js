@@ -8,6 +8,12 @@ import { normalizeAppUrl } from '../utils/api.js';
 let extractedData = null;
 let countdownTimer = null;
 let isAiAvailable = true;
+let currentSettings = {
+  dockMode: 'AUTO-DETECT',
+  lastMode: 'AI_QUEUE',
+  theme: 'LIGHT',
+  appUrl: 'http://localhost:5173'
+};
 
 document.addEventListener('DOMContentLoaded', async () => {
   await initSettingsAndTheme();
@@ -22,9 +28,9 @@ document.addEventListener('DOMContentLoaded', async () => {
  * Initializes settings input fields and applies design theme.
  */
 async function initSettingsAndTheme() {
-  const settings = await getSettings();
+  currentSettings = await getSettings();
 
-  applyTheme(settings.theme || 'LIGHT');
+  applyTheme(currentSettings.theme || 'LIGHT');
 
   const appUrlInput = document.getElementById('input-app-url');
   const themeSelect = document.getElementById('select-theme');
@@ -32,13 +38,13 @@ async function initSettingsAndTheme() {
   const pollSelect = document.getElementById('select-poll-interval');
   const notifToggle = document.getElementById('toggle-notifications');
 
-  if (appUrlInput) appUrlInput.value = settings.appUrl || 'http://localhost:5173';
-  if (themeSelect) themeSelect.value = settings.theme || 'LIGHT';
-  if (dockModeSelect) dockModeSelect.value = settings.dockMode || 'AUTO-DETECT';
-  if (pollSelect) pollSelect.value = String(settings.pollInterval ?? 60);
-  if (notifToggle) notifToggle.checked = settings.notificationsEnabled ?? true;
+  if (appUrlInput) appUrlInput.value = currentSettings.appUrl || 'http://localhost:5173';
+  if (themeSelect) themeSelect.value = currentSettings.theme || 'LIGHT';
+  if (dockModeSelect) dockModeSelect.value = currentSettings.dockMode || 'AUTO-DETECT';
+  if (pollSelect) pollSelect.value = String(currentSettings.pollInterval ?? 60);
+  if (notifToggle) notifToggle.checked = currentSettings.notificationsEnabled ?? true;
 
-  const modeVal = settings.lastMode || 'AI_QUEUE';
+  const modeVal = currentSettings.lastMode || 'AI_QUEUE';
   const modeRadio = document.querySelector(`input[name="ingestMode"][value="${modeVal}"]`);
   if (modeRadio) {
     modeRadio.checked = true;
@@ -213,6 +219,15 @@ function setupEventListeners() {
     });
   });
 
+  // Toggle Manual Fields Button
+  const toggleFieldsBtn = document.getElementById('btn-toggle-fields');
+  const formFieldsContainer = document.getElementById('form-fields-container');
+  if (toggleFieldsBtn && formFieldsContainer) {
+    toggleFieldsBtn.addEventListener('click', () => {
+      formFieldsContainer.classList.toggle('hidden');
+    });
+  }
+
   // Ingestion Mode Option Styling, Dynamic Field Toggling & Persistence
   document.querySelectorAll('input[name="ingestMode"]').forEach((radio) => {
     radio.addEventListener('change', (e) => {
@@ -321,6 +336,7 @@ function setupEventListeners() {
       };
 
       await saveSettings(updated);
+      currentSettings = { ...currentSettings, ...updated };
       applyTheme(updated.theme);
 
       try {
@@ -364,27 +380,37 @@ function switchTab(tabName) {
 }
 
 /**
- * Dynamically toggles input fields and submit button text based on selected ingestion mode.
+ * Dynamically toggles input fields and submit button text based on selected ingestion mode & dockMode.
  * @param {'AI_QUEUE'|'DIRECT_APPLIED'} selectedMode
  */
 function updateModeOptionLayout(selectedMode) {
   const aiOpt = document.getElementById('mode-opt-ai');
   const directOpt = document.getElementById('mode-opt-direct');
-  const manualFieldsContainer = document.getElementById('manual-fields-container');
+  const formFieldsContainer = document.getElementById('form-fields-container');
   const submitText = document.getElementById('btn-submit-text');
   const submitIcon = document.getElementById('btn-submit-icon');
 
   if (aiOpt) aiOpt.classList.toggle('active', selectedMode === 'AI_QUEUE');
   if (directOpt) directOpt.classList.toggle('active', selectedMode === 'DIRECT_APPLIED');
 
+  const dockMode = currentSettings.dockMode || 'AUTO-DETECT';
+
   if (selectedMode === 'AI_QUEUE') {
-    if (manualFieldsContainer) manualFieldsContainer.classList.add('hidden');
     if (submitText) submitText.textContent = 'Send Page to AI Assessment';
     if (submitIcon) submitIcon.textContent = '⚡';
+
+    // Collapse fields by default in AI Queue mode when in-page dock is active
+    if (dockMode === 'AUTO-DETECT' || dockMode === 'ALL_PAGES') {
+      if (formFieldsContainer) formFieldsContainer.classList.add('hidden');
+    } else {
+      if (formFieldsContainer) formFieldsContainer.classList.remove('hidden');
+    }
   } else {
-    if (manualFieldsContainer) manualFieldsContainer.classList.remove('hidden');
     if (submitText) submitText.textContent = 'Save Application to Board';
     if (submitIcon) submitIcon.textContent = '📌';
+
+    // Expand fields in Direct Applied mode
+    if (formFieldsContainer) formFieldsContainer.classList.remove('hidden');
   }
 }
 
@@ -428,7 +454,6 @@ async function handleCaptureSubmit() {
       targetUrl: `${appUrl}/assessments`
     });
 
-    // Pure Scoped DOM Payload in AI Queue Mode (No forced client regex overrides)
     chrome.runtime.sendMessage(
       {
         type: 'ENQUEUE_JOB',

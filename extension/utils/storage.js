@@ -5,6 +5,7 @@
 const DEFAULT_SETTINGS = {
   appUrl: 'http://localhost:5173',
   dockMode: 'AUTO-DETECT', // 'AUTO-DETECT' | 'ALL_PAGES' | 'OFF'
+  dockExpanded: true,      // boolean: floating dock open/closed persistence
   theme: 'LIGHT',          // 'LIGHT' | 'DARK' | 'SYSTEM'
   lastMode: 'AI_QUEUE',    // 'AI_QUEUE' | 'DIRECT_APPLIED'
   pollInterval: 60,        // seconds (15, 30, 60, 0=Off)

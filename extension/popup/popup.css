@@ -343,6 +343,20 @@ html[data-theme="dark"] .queue-badge {
   flex: 1;
 }
 
+/* Collapsible Fields */
+.btn-toggle-fields {
+  padding: 6px 10px;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.collapsible-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fadeIn 0.2s ease-in-out;
+}
+
 /* Input with Inline Clear Button */
 .input-with-clear {
   position: relative;

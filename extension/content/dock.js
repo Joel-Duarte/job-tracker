@@ -14,6 +14,7 @@
   let currentSettings = {
     appUrl: 'http://localhost:5173',
     dockMode: 'AUTO-DETECT',
+    dockExpanded: true,
     theme: 'LIGHT',
     lastMode: 'AI_QUEUE'
   };
@@ -65,6 +66,7 @@
           {
             appUrl: 'http://localhost:5173',
             dockMode: 'AUTO-DETECT',
+            dockExpanded: true,
             theme: 'LIGHT',
             lastMode: 'AI_QUEUE'
           },
@@ -158,6 +160,7 @@
     const activeChipColor = isDark ? '#2dd4bf' : '#854d0e';
 
     let currentMode = currentSettings.lastMode || 'AI_QUEUE';
+    const isExpanded = currentSettings.dockExpanded !== false;
 
     shadowRoot.innerHTML = `
       <style>
@@ -400,13 +403,11 @@
       </style>
 
       <div class="dock-wrapper">
-        <!-- Collapsed Pill Button Visible by Default -->
-        <button id="dock-pill-btn" class="pill-btn">
+        <button id="dock-pill-btn" class="pill-btn ${isExpanded ? 'hidden' : ''}">
           💼 Job Tracker
         </button>
 
-        <!-- Card View Initially Hidden -->
-        <div id="dock-card-view" class="dock-card hidden">
+        <div id="dock-card-view" class="dock-card ${isExpanded ? '' : 'hidden'}">
           <div id="dock-header-el" class="dock-header">
             <span class="dock-title">💼 Job Tracker Capture</span>
             <div class="header-actions">
@@ -561,16 +562,25 @@
     pillBtn.addEventListener('click', () => {
       pillBtn.classList.add('hidden');
       cardView.classList.remove('hidden');
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({ dockExpanded: true });
+      }
     });
 
     minBtn.addEventListener('click', () => {
       cardView.classList.add('hidden');
       pillBtn.classList.remove('hidden');
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({ dockExpanded: false });
+      }
     });
 
     closeBtn.addEventListener('click', () => {
       cardView.classList.add('hidden');
       pillBtn.classList.remove('hidden');
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({ dockExpanded: false });
+      }
     });
 
     chipAi.addEventListener('click', () => {
