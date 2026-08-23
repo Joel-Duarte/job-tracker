@@ -170,6 +170,14 @@ body {
   box-shadow: 0 0 6px var(--success-color);
 }
 
+.conn-pill.warning {
+  border-color: rgba(245, 158, 11, 0.4);
+  background: var(--warning-bg);
+}
+.conn-pill.warning .conn-dot {
+  background-color: var(--warning-color);
+}
+
 .conn-pill.error {
   border-color: rgba(239, 68, 68, 0.4);
   background: var(--danger-bg);
@@ -333,6 +341,38 @@ html[data-theme="dark"] .queue-badge {
 
 .form-row .col {
   flex: 1;
+}
+
+/* Input with Inline Clear Button */
+.input-with-clear {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.input-with-clear .input-field {
+  padding-right: 26px;
+}
+
+.clear-field-btn {
+  position: absolute;
+  right: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s ease;
+}
+
+.clear-field-btn:hover {
+  color: var(--text-primary);
 }
 
 .input-field, .select-field {

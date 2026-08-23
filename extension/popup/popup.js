@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await checkBackendConnection();
   await extractActiveTab();
   setupEventListeners();
+  setupClearFieldButtons();
   updateQueueBadgeCount();
 });
 
@@ -46,6 +47,25 @@ async function initSettingsAndTheme() {
 }
 
 /**
+ * Binds 1-click clear buttons to input fields.
+ */
+function setupClearFieldButtons() {
+  document.querySelectorAll('.clear-field-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const targetId = btn.getAttribute('data-target');
+      if (targetId) {
+        const inputEl = document.getElementById(targetId);
+        if (inputEl) {
+          inputEl.value = '';
+          inputEl.focus();
+        }
+      }
+    });
+  });
+}
+
+/**
  * Applies color theme to popup document element.
  * @param {'LIGHT'|'DARK'|'SYSTEM'} themeMode
  */
@@ -75,15 +95,36 @@ async function checkBackendConnection() {
 
   chrome.runtime.sendMessage({ type: 'TEST_CONNECTION' }, (response) => {
     if (response && response.success && response.data && response.data.success) {
-      connPill.className = 'conn-pill connected';
-      connText.textContent = 'Connected';
+      const aiReady = response.data.config ? response.data.config.ai_ready : true;
 
-      // Check if AI endpoint is healthy
-      isAiAvailable = true;
-      if (aiOfflineBanner) aiOfflineBanner.classList.add('hidden');
-      if (aiOpt) {
-        aiOpt.style.opacity = '1';
-        aiOpt.style.pointerEvents = 'auto';
+      if (aiReady !== false) {
+        connPill.className = 'conn-pill connected';
+        connText.textContent = 'Connected';
+        isAiAvailable = true;
+
+        if (aiOfflineBanner) aiOfflineBanner.classList.add('hidden');
+        if (aiOpt) {
+          aiOpt.style.opacity = '1';
+          aiOpt.style.pointerEvents = 'auto';
+        }
+      } else {
+        connPill.className = 'conn-pill warning';
+        connText.textContent = 'AI Offline';
+
+        isAiAvailable = false;
+        if (aiOfflineBanner) aiOfflineBanner.classList.remove('hidden');
+
+        if (aiOpt) {
+          aiOpt.style.opacity = '0.5';
+          aiOpt.style.pointerEvents = 'none';
+        }
+
+        const directRadio = document.querySelector('input[name="ingestMode"][value="DIRECT_APPLIED"]');
+        if (directRadio) {
+          directRadio.checked = true;
+          updateModeOptionLayout('DIRECT_APPLIED');
+          setSetting('lastMode', 'DIRECT_APPLIED');
+        }
       }
     } else {
       connPill.className = 'conn-pill error';
@@ -92,7 +133,6 @@ async function checkBackendConnection() {
       isAiAvailable = false;
       if (aiOfflineBanner) aiOfflineBanner.classList.remove('hidden');
 
-      // Soft-disable AI Queue and auto-switch to Direct Applied
       if (aiOpt) {
         aiOpt.style.opacity = '0.5';
         aiOpt.style.pointerEvents = 'none';
@@ -147,11 +187,13 @@ async function extractActiveTab() {
       const posInput = document.getElementById('input-position');
       const locInput = document.getElementById('input-location');
       const salInput = document.getElementById('input-salary');
+      const wmSelect = document.getElementById('input-work-model');
 
       if (compInput && extractedData.company) compInput.value = extractedData.company;
       if (posInput && extractedData.title) posInput.value = extractedData.title;
       if (locInput && extractedData.location) locInput.value = extractedData.location;
       if (salInput && extractedData.salary) salInput.value = extractedData.salary;
+      if (wmSelect && extractedData.work_model) wmSelect.value = extractedData.work_model;
     }
   } catch (err) {
     console.warn('DOM extraction warning:', err);
@@ -354,6 +396,7 @@ async function handleCaptureSubmit() {
   const posInput = document.getElementById('input-position');
   const locInput = document.getElementById('input-location');
   const salInput = document.getElementById('input-salary');
+  const wmSelect = document.getElementById('input-work-model');
 
   const selectedModeRadio = document.querySelector('input[name="ingestMode"]:checked');
   const ingestMode = selectedModeRadio ? selectedModeRadio.value : 'AI_QUEUE';
@@ -362,6 +405,7 @@ async function handleCaptureSubmit() {
   let position = posInput?.value?.trim() || extractedData?.title || 'Unknown Position';
   let location = locInput?.value?.trim() || extractedData?.location || '';
   let salary = salInput?.value?.trim() || extractedData?.salary || '';
+  let work_model = wmSelect?.value || extractedData?.work_model || 'Unknown';
 
   if (ingestMode === 'DIRECT_APPLIED' && (!compInput?.value?.trim() || !posInput?.value?.trim())) {
     showFullCardFeedback({
@@ -377,7 +421,6 @@ async function handleCaptureSubmit() {
   const jobUrl = extractedData?.url || '';
 
   if (ingestMode === 'AI_QUEUE') {
-    // Optimistic Instant Feedback
     showFullCardFeedback({
       type: 'success',
       title: 'Queued for AI Assessment! 🚀',
@@ -406,7 +449,6 @@ async function handleCaptureSubmit() {
       }
     );
   } else {
-    // Optimistic Instant Feedback
     showFullCardFeedback({
       type: 'success',
       title: 'Job Saved to Board! 📌',
@@ -424,6 +466,7 @@ async function handleCaptureSubmit() {
           description: rawText,
           location,
           salary,
+          work_model,
           status: 'APPLIED'
         }
       },
@@ -480,7 +523,6 @@ function showFullCardFeedback({ type, title, message, targetUrl }) {
       openAppBtn.setAttribute('data-url', targetUrl);
     }
 
-    // Start 1.5 second auto-reset countdown
     if (countdownBar) {
       countdownBar.style.transition = 'none';
       countdownBar.style.width = '100%';
@@ -546,9 +588,6 @@ function loadEvaluationsList() {
       return;
     }
 
-    const settings = await getSettings();
-    const appUrl = settings.appUrl || 'http://localhost:5173';
-
     queueList.innerHTML = tasks.map((task) => {
       const taskId = task.id;
       const titleHint = task.title_hint || 'Job Assessment';
@@ -597,7 +636,6 @@ function loadEvaluationsList() {
       `;
     }).join('');
 
-    // Attach Task Action Event Listeners
     queueList.querySelectorAll('.btn-task-cancel').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         const id = e.currentTarget.getAttribute('data-id');

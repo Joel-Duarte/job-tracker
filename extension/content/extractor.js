@@ -49,6 +49,15 @@
     return match ? match[0].trim() : '';
   }
 
+  function detectWorkModel(text) {
+    if (!text) return 'Unknown';
+    const low = text.toLowerCase();
+    if (low.includes('hybrid')) return 'Hybrid';
+    if (low.includes('remote') || low.includes('work from home') || low.includes('telecommute')) return 'Remote';
+    if (low.includes('on-site') || low.includes('onsite') || low.includes('in-office') || low.includes('in office')) return 'On-site';
+    return 'Unknown';
+  }
+
   function convertNodeToText(node) {
     if (!node) return '';
 
@@ -259,12 +268,15 @@
     salary = extractSalaryFromText(description_text);
   }
 
+  const work_model = detectWorkModel(`${location} ${description_text}`);
+
   const result = {
     url,
     title,
     company,
     location,
     salary,
+    work_model,
     description_text: description_text.substring(0, 30000),
     raw_html_snippet: raw_html_snippet ? raw_html_snippet.substring(0, 15000) : '',
     site_type,

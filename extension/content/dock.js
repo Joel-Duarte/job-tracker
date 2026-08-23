@@ -127,7 +127,7 @@
       ]);
       if (descEl) descriptionText = descEl.textContent.trim();
     }
-    // 2. Indeed (Scoped strictly inside view pane to avoid sidebar list)
+    // 2. Indeed (Scoped strictly inside view pane)
     else if (host.includes('indeed.com')) {
       const pane = queryFirst(['#jobsearch-ViewjobPaneWrapper', '#jobsearch-JobComponent']) || document;
       title = getTextIn(pane, [
@@ -197,14 +197,26 @@
       descriptionText = descEl ? descEl.textContent.substring(0, 15000) : '';
     }
 
+    const work_model = detectWorkModel(`${location} ${descriptionText}`);
+
     return {
       url: cleanUrl,
       title: title.substring(0, 100),
       company: company.substring(0, 60),
       description_text: descriptionText,
       location: location.substring(0, 60),
-      salary: salary.substring(0, 40)
+      salary: salary.substring(0, 40),
+      work_model
     };
+  }
+
+  function detectWorkModel(text) {
+    if (!text) return 'Unknown';
+    const low = text.toLowerCase();
+    if (low.includes('hybrid')) return 'Hybrid';
+    if (low.includes('remote') || low.includes('work from home') || low.includes('telecommute')) return 'Remote';
+    if (low.includes('on-site') || low.includes('onsite') || low.includes('in-office') || low.includes('in office')) return 'On-site';
+    return 'Unknown';
   }
 
   function queryFirst(selectors) {
@@ -258,7 +270,6 @@
       hostEl = document.createElement('div');
       hostEl.id = DOCK_ID;
 
-      // Smart Positioning for LinkedIn vs other sites
       if (isLinkedIn) {
         hostEl.style.cssText = 'position: fixed; top: 80px; right: 24px; bottom: auto; z-index: 2147483647; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;';
       } else {
@@ -291,7 +302,6 @@
     // Exact Daylight & Night Theme Palette
     const primaryColor = isDark ? '#2dd4bf' : '#854d0e';
     const bgColor = isDark ? '#18181b' : '#ede3d5';
-    const bodyBg = isDark ? '#09090b' : '#f5ede3';
     const textColor = isDark ? '#f4f4f5' : '#1c1917';
     const mutedColor = isDark ? '#a1a1aa' : '#78716c';
     const borderColor = isDark ? '#27272a' : '#dcd1c4';
@@ -413,10 +423,27 @@
           color: ${mutedColor};
         }
 
+        .input-row-half {
+          display: flex;
+          gap: 6px;
+          width: 100%;
+        }
+
+        .input-row-half .input-group {
+          flex: 1;
+        }
+
+        .input-with-clear {
+          position: relative;
+          display: flex;
+          align-items: center;
+          width: 100%;
+        }
+
         .dock-input {
           width: 100% !important;
           max-width: 100% !important;
-          padding: 8px 10px;
+          padding: 7px 24px 7px 9px;
           background: ${inputBg};
           border: 1px solid ${borderColor};
           border-radius: 6px;
@@ -427,6 +454,32 @@
         .dock-input:focus {
           outline: none;
           border-color: ${primaryColor};
+        }
+
+        .dock-select {
+          width: 100% !important;
+          max-width: 100% !important;
+          padding: 7px 9px;
+          background: ${inputBg};
+          border: 1px solid ${borderColor};
+          border-radius: 6px;
+          color: ${textColor};
+          font-size: 12px;
+        }
+
+        .clear-btn-inline {
+          position: absolute;
+          right: 6px;
+          background: transparent;
+          border: none;
+          color: ${mutedColor};
+          cursor: pointer;
+          font-size: 11px;
+          padding: 2px;
+        }
+
+        .clear-btn-inline:hover {
+          color: ${textColor};
         }
 
         .mode-row {
@@ -521,16 +574,50 @@
             </div>
           </div>
 
-          <!-- Dynamic Ingestion Mode Container -->
+          <!-- Dynamic Ingestion Mode Container (Full 5 Fields in Applied Mode) -->
           <div id="mode-fields-direct" class="${currentMode === 'AI_QUEUE' ? 'hidden' : ''}">
             <div class="input-group" style="margin-bottom: 6px;">
               <label>Company Name</label>
-              <input type="text" id="dock-input-company" class="dock-input" value="${escapeHtml(jobData.company)}">
+              <div class="input-with-clear">
+                <input type="text" id="dock-input-company" class="dock-input" value="${escapeHtml(jobData.company)}">
+                <button class="clear-btn-inline" data-target="dock-input-company" title="Clear">✕</button>
+              </div>
+            </div>
+
+            <div class="input-group" style="margin-bottom: 6px;">
+              <label>Job Title</label>
+              <div class="input-with-clear">
+                <input type="text" id="dock-input-position" class="dock-input" value="${escapeHtml(jobData.title)}">
+                <button class="clear-btn-inline" data-target="dock-input-position" title="Clear">✕</button>
+              </div>
+            </div>
+
+            <div class="input-row-half" style="margin-bottom: 6px;">
+              <div class="input-group">
+                <label>Location</label>
+                <div class="input-with-clear">
+                  <input type="text" id="dock-input-location" class="dock-input" value="${escapeHtml(jobData.location)}">
+                  <button class="clear-btn-inline" data-target="dock-input-location" title="Clear">✕</button>
+                </div>
+              </div>
+
+              <div class="input-group">
+                <label>Salary</label>
+                <div class="input-with-clear">
+                  <input type="text" id="dock-input-salary" class="dock-input" value="${escapeHtml(jobData.salary)}">
+                  <button class="clear-btn-inline" data-target="dock-input-salary" title="Clear">✕</button>
+                </div>
+              </div>
             </div>
 
             <div class="input-group">
-              <label>Job Title</label>
-              <input type="text" id="dock-input-position" class="dock-input" value="${escapeHtml(jobData.title)}">
+              <label>Work Model</label>
+              <select id="dock-select-work-model" class="dock-select">
+                <option value="Unknown" ${jobData.work_model === 'Unknown' ? 'selected' : ''}>Unknown</option>
+                <option value="Remote" ${jobData.work_model === 'Remote' ? 'selected' : ''}>Remote</option>
+                <option value="Hybrid" ${jobData.work_model === 'Hybrid' ? 'selected' : ''}>Hybrid</option>
+                <option value="On-site" ${jobData.work_model === 'On-site' ? 'selected' : ''}>On-site</option>
+              </select>
             </div>
           </div>
 
@@ -561,6 +648,21 @@
 
     let selectedMode = currentSettings.lastMode || 'AI_QUEUE';
 
+    // Clear Buttons Event Listeners inside Shadow DOM
+    shadowRoot.querySelectorAll('.clear-btn-inline').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const targetId = btn.getAttribute('data-target');
+        if (targetId) {
+          const inputEl = shadowRoot.getElementById(targetId);
+          if (inputEl) {
+            inputEl.value = '';
+            inputEl.focus();
+          }
+        }
+      });
+    });
+
     pillBtn.addEventListener('click', () => {
       pillBtn.classList.add('hidden');
       cardView.classList.remove('hidden');
@@ -582,6 +684,9 @@
       chipDirect.classList.remove('active');
       modeFieldsDirect.classList.add('hidden');
       submitBtn.textContent = '⚡ Send Page to AI Assessment';
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({ lastMode: 'AI_QUEUE' });
+      }
     });
 
     chipDirect.addEventListener('click', () => {
@@ -590,14 +695,23 @@
       chipAi.classList.remove('active');
       modeFieldsDirect.classList.remove('hidden');
       submitBtn.textContent = '🚀 Save Application';
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({ lastMode: 'DIRECT_APPLIED' });
+      }
     });
 
     submitBtn.addEventListener('click', async () => {
       const compInput = shadowRoot.getElementById('dock-input-company');
       const posInput = shadowRoot.getElementById('dock-input-position');
+      const locInput = shadowRoot.getElementById('dock-input-location');
+      const salInput = shadowRoot.getElementById('dock-input-salary');
+      const wmSelect = shadowRoot.getElementById('dock-select-work-model');
 
       const company = compInput?.value?.trim() || jobData.company || 'Job Posting';
       const position = posInput?.value?.trim() || jobData.title || 'Unknown Position';
+      const location = locInput?.value?.trim() || jobData.location || '';
+      const salary = salInput?.value?.trim() || jobData.salary || '';
+      const work_model = wmSelect?.value || jobData.work_model || 'Unknown';
 
       submitBtn.disabled = true;
 
@@ -638,6 +752,9 @@
                 position,
                 url: jobData.url,
                 description: jobData.description_text,
+                location,
+                salary,
+                work_model,
                 status: 'APPLIED'
               }
             },
@@ -662,7 +779,7 @@
   }
 
   /**
-   * Live SPA Selection Sync Observer (LinkedIn, Indeed, Glassdoor)
+   * Live SPA Selection Sync Observer (LinkedIn, Indeed, Glassdoor) with immediate + 250ms & 600ms delayed retries.
    */
   function setupSpaSelectionSync() {
     function handleLocationOrJobChange() {
@@ -670,13 +787,16 @@
       if (currentUrl !== lastObservedUrl) {
         lastObservedUrl = currentUrl;
         syncJobDetailsLive();
+
+        // 250ms & 600ms delayed retries for slow async rendered containers
+        setTimeout(syncJobDetailsLive, 250);
+        setTimeout(syncJobDetailsLive, 600);
       }
     }
 
     window.addEventListener('popstate', handleLocationOrJobChange);
     window.addEventListener('hashchange', handleLocationOrJobChange);
 
-    // 500ms debounced poller for SPAs that mutate pushState silently
     setInterval(handleLocationOrJobChange, 500);
   }
 
@@ -686,12 +806,17 @@
 
     const compInput = shadowRoot.getElementById('dock-input-company');
     const posInput = shadowRoot.getElementById('dock-input-position');
+    const locInput = shadowRoot.getElementById('dock-input-location');
+    const salInput = shadowRoot.getElementById('dock-input-salary');
+    const wmSelect = shadowRoot.getElementById('dock-select-work-model');
     const headerEl = shadowRoot.getElementById('dock-header-el');
 
     if (compInput) compInput.value = freshJobData.company;
     if (posInput) posInput.value = freshJobData.title;
+    if (locInput) locInput.value = freshJobData.location;
+    if (salInput) salInput.value = freshJobData.salary;
+    if (wmSelect) wmSelect.value = freshJobData.work_model;
 
-    // Trigger subtle header sync flash animation
     if (headerEl) {
       headerEl.classList.add('sync-flash');
       setTimeout(() => headerEl.classList.remove('sync-flash'), 600);

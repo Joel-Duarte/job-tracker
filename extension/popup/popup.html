@@ -80,27 +80,49 @@
               </div>
             </div>
 
-            <!-- Dynamic Manual Input Fields (Revealed only in Direct Applied Mode) -->
+            <!-- Dynamic Manual Input Fields (Revealed in Direct Applied Mode) -->
             <div id="manual-fields-container" class="hidden">
               <div class="form-group">
                 <label for="input-company">Company Name</label>
-                <input type="text" id="input-company" class="input-field" placeholder="e.g. Stripe, Anthropic">
+                <div class="input-with-clear">
+                  <input type="text" id="input-company" class="input-field" placeholder="e.g. Stripe, Anthropic">
+                  <button class="clear-field-btn" data-target="input-company" title="Clear">✕</button>
+                </div>
               </div>
 
               <div class="form-group">
                 <label for="input-position">Job Title / Role</label>
-                <input type="text" id="input-position" class="input-field" placeholder="e.g. Senior Software Engineer">
+                <div class="input-with-clear">
+                  <input type="text" id="input-position" class="input-field" placeholder="e.g. Senior Software Engineer">
+                  <button class="clear-field-btn" data-target="input-position" title="Clear">✕</button>
+                </div>
               </div>
 
               <div class="form-row">
                 <div class="form-group col">
                   <label for="input-location">Location</label>
-                  <input type="text" id="input-location" class="input-field" placeholder="e.g. San Francisco, Remote">
+                  <div class="input-with-clear">
+                    <input type="text" id="input-location" class="input-field" placeholder="e.g. San Francisco, CA">
+                    <button class="clear-field-btn" data-target="input-location" title="Clear">✕</button>
+                  </div>
                 </div>
                 <div class="form-group col">
                   <label for="input-salary">Salary (Optional)</label>
-                  <input type="text" id="input-salary" class="input-field" placeholder="e.g. $180k - $220k">
+                  <div class="input-with-clear">
+                    <input type="text" id="input-salary" class="input-field" placeholder="e.g. $180k - $220k">
+                    <button class="clear-field-btn" data-target="input-salary" title="Clear">✕</button>
+                  </div>
                 </div>
+              </div>
+
+              <div class="form-group">
+                <label for="input-work-model">Work Model</label>
+                <select id="input-work-model" class="select-field">
+                  <option value="Unknown">Unknown</option>
+                  <option value="Remote">Remote</option>
+                  <option value="Hybrid">Hybrid</option>
+                  <option value="On-site">On-site</option>
+                </select>
               </div>
             </div>
 
@@ -181,7 +203,10 @@
         <div class="card form-card">
           <div class="form-group">
             <label for="input-app-url">Job Tracker App URL</label>
-            <input type="text" id="input-app-url" class="input-field" placeholder="http://localhost:5173">
+            <div class="input-with-clear">
+              <input type="text" id="input-app-url" class="input-field" placeholder="http://localhost:5173">
+              <button class="clear-field-btn" data-target="input-app-url" title="Clear">✕</button>
+            </div>
             <span class="field-hint">Base URL of your running Job Tracker application</span>
           </div>
 

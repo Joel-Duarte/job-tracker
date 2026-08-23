@@ -61,8 +61,11 @@ router = APIRouter(prefix="/intake", tags=["Intake"])
 
 
 @router.get("/extension-config")
-async def get_extension_config(request: Request):
-    """Programmatically returns the exact exposed backend endpoint URL for browser extensions."""
+async def get_extension_config(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Programmatically returns exposed endpoint URLs and AI readiness status for browser extensions."""
     if settings.PUBLIC_API_URL:
         base_url = settings.PUBLIC_API_URL.rstrip("/")
     else:
@@ -74,11 +77,22 @@ async def get_extension_config(request: Request):
         )
         base_url = f"{forwarded_proto}://{forwarded_host}"
 
+    ai_ready = False
+    try:
+        from app.routers.ai_config import check_ai_provider_health
+
+        health = await check_ai_provider_health(db)
+        if health.status in ("healthy", "degraded"):
+            ai_ready = True
+    except Exception as err:
+        logger.warning("AI readiness check failed in extension-config: %s", err)
+
     return {
         "url_endpoint": f"{base_url}/api/v1/intake/url",
         "jd_endpoint": f"{base_url}/api/v1/intake/jd",
         "extension_ingest_url": f"{base_url}/api/v1/intake/assess-job",
         "api_base_url": f"{base_url}/api/v1",
+        "ai_ready": ai_ready,
     }
 
 
