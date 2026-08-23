@@ -135,3 +135,14 @@ export const AnalyticsAPI = {
   getFunnelMetrics: (params = {}) => apiClient.get('/analytics/funnel', { params }),
 }
 
+export const InterviewSimulatorAPI = {
+  startSession: (data) => apiClient.post('/interviews/sessions/start', data),
+  evaluateAnswer: (sessionId, data) => apiClient.post(`/interviews/sessions/${sessionId}/evaluate-answer`, data),
+  nextQuestion: (sessionId) => apiClient.post(`/interviews/sessions/${sessionId}/next-question`),
+  drillDown: (sessionId, data = {}) => apiClient.post(`/interviews/sessions/${sessionId}/drill-down`, data),
+  finalizeSession: (sessionId) => apiClient.post(`/interviews/sessions/${sessionId}/finalize`),
+  saveNotes: (sessionId, data = {}) => apiClient.post(`/interviews/sessions/${sessionId}/save-notes`, data),
+  getSession: (sessionId) => apiClient.get(`/interviews/sessions/${sessionId}`),
+  listSessions: (params = {}) => apiClient.get('/interviews/sessions', { params }),
+  deleteSession: (sessionId) => apiClient.delete(`/interviews/sessions/${sessionId}`),
+}

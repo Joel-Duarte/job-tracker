@@ -19,6 +19,7 @@ from app.routers import (
     events,
     extension,
     intake,
+    interview_simulator,
     llm,
     metrics,
     prompts,
@@ -131,6 +132,7 @@ app.include_router(email_accounts.router, prefix="/api/v1")
 app.include_router(staging.router, prefix="/api/v1")
 app.include_router(diagnostics.router, prefix="/api/v1")
 app.include_router(llm.router, prefix="/api/v1")
+app.include_router(interview_simulator.router)
 
 
 @app.get("/health", tags=["Health"])
