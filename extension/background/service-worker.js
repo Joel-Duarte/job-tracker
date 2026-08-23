@@ -43,7 +43,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.notifications.onClicked.addListener(async (notificationId) => {
   try {
     const settings = await getSettings();
-    const targetUrl = `${settings.webAppUrl || 'http://localhost:5173'}/assessments`;
+    const baseUrl = (settings.appUrl || 'http://localhost:5173').replace(/\/+$/, '');
+    const targetUrl = `${baseUrl}/assessments`;
     chrome.tabs.create({ url: targetUrl });
     chrome.notifications.clear(notificationId);
   } catch (err) {

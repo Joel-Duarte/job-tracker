@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -16,7 +16,7 @@
           <span class="brand-name">Job Tracker</span>
           <span class="badge-v3">V3</span>
         </div>
-        <div id="conn-pill" class="conn-pill checking" title="Checking API connection">
+        <div id="conn-pill" class="conn-pill checking" title="Checking server connection">
           <span class="conn-dot"></span>
           <span id="conn-text" class="conn-text">Checking...</span>
         </div>
@@ -40,77 +40,110 @@
     <main class="content-area">
       <!-- TAB 1: CAPTURE -->
       <section id="tab-capture" class="tab-panel active">
-        <!-- Tab Meta Preview Card -->
-        <div class="card meta-card">
-          <div class="meta-header">
-            <span class="meta-label">Active Tab</span>
-            <span id="site-type-badge" class="site-badge">Detecting...</span>
-          </div>
-          <div id="meta-url" class="meta-url" title="Current tab URL">https://...</div>
-        </div>
-
-        <!-- Extracted Fields Form -->
-        <div class="card form-card">
-          <div class="form-group">
-            <label for="input-company">Company Name</label>
-            <input type="text" id="input-company" class="input-field" placeholder="e.g. Stripe, Anthropic">
-          </div>
-
-          <div class="form-group">
-            <label for="input-position">Job Title / Role</label>
-            <input type="text" id="input-position" class="input-field" placeholder="e.g. Senior Software Engineer">
-          </div>
-
-          <div class="form-row">
-            <div class="form-group col">
-              <label for="input-location">Location</label>
-              <input type="text" id="input-location" class="input-field" placeholder="e.g. San Francisco, Remote">
+        <!-- Main Form Wrapper -->
+        <div id="capture-form-container">
+          <!-- Tab Meta Preview Card -->
+          <div class="card meta-card">
+            <div class="meta-header">
+              <span class="meta-label">Active Tab</span>
+              <span id="site-type-badge" class="site-badge">Detecting...</span>
             </div>
-            <div class="form-group col">
-              <label for="input-salary">Salary (Optional)</label>
-              <input type="text" id="input-salary" class="input-field" placeholder="e.g. $180k - $220k">
-            </div>
+            <div id="meta-url" class="meta-url" title="Current tab URL">https://...</div>
           </div>
 
-          <!-- Ingestion Mode Selector -->
-          <div class="form-group">
-            <label>Ingestion Mode</label>
-            <div class="mode-selector">
-              <label class="mode-option active" id="mode-opt-ai">
-                <input type="radio" name="ingestMode" value="AI_QUEUE" checked>
-                <div class="mode-content">
-                  <span class="mode-title">🤖 AI Evaluation Queue</span>
-                  <span class="mode-desc">Evaluate fit score, skills match & pros/cons</span>
-                </div>
-              </label>
-
-              <label class="mode-option" id="mode-opt-direct">
-                <input type="radio" name="ingestMode" value="DIRECT_APPLIED">
-                <div class="mode-content">
-                  <span class="mode-title">📌 Direct Applied</span>
-                  <span class="mode-desc">Instantly add to Kanban board under Applied</span>
-                </div>
-              </label>
+          <!-- Extracted Fields Form -->
+          <div class="card form-card">
+            <div class="form-group">
+              <label for="input-company">Company Name</label>
+              <input type="text" id="input-company" class="input-field" placeholder="e.g. Stripe, Anthropic">
             </div>
-          </div>
 
-          <!-- Primary Submit Action -->
-          <button id="btn-capture-submit" class="btn btn-primary btn-block">
-            <span id="btn-submit-icon">🚀</span>
-            <span id="btn-submit-text">Capture & Send Job</span>
-          </button>
-        </div>
+            <div class="form-group">
+              <label for="input-position">Job Title / Role</label>
+              <input type="text" id="input-position" class="input-field" placeholder="e.g. Senior Software Engineer">
+            </div>
 
-        <!-- Result / Feedback Card -->
-        <div id="capture-status-card" class="card status-card hidden">
-          <div id="status-spinner" class="spinner hidden"></div>
-          <div id="status-icon" class="status-icon"></div>
-          <div id="status-title" class="status-title">Processing Job Capture...</div>
-          <div id="status-message" class="status-message">Extracting DOM markup and sending payload...</div>
-          <div id="status-actions" class="status-actions hidden">
-            <button id="btn-open-tracker" class="btn btn-secondary btn-sm">
-              ↗ Open in Job Tracker
+            <div class="form-row">
+              <div class="form-group col">
+                <label for="input-location">Location</label>
+                <input type="text" id="input-location" class="input-field" placeholder="e.g. San Francisco, Remote">
+              </div>
+              <div class="form-group col">
+                <label for="input-salary">Salary (Optional)</label>
+                <input type="text" id="input-salary" class="input-field" placeholder="e.g. $180k - $220k">
+              </div>
+            </div>
+
+            <!-- Ingestion Mode Selector -->
+            <div class="form-group">
+              <label>Ingestion Mode</label>
+              <div class="mode-selector">
+                <label class="mode-option active" id="mode-opt-ai">
+                  <input type="radio" name="ingestMode" value="AI_QUEUE" checked>
+                  <div class="mode-content">
+                    <span class="mode-title">🤖 AI Evaluation Queue</span>
+                    <span class="mode-desc">Evaluate fit score, skills match & pros/cons</span>
+                  </div>
+                </label>
+
+                <label class="mode-option" id="mode-opt-direct">
+                  <input type="radio" name="ingestMode" value="DIRECT_APPLIED">
+                  <div class="mode-content">
+                    <span class="mode-title">📌 Direct Applied</span>
+                    <span class="mode-desc">Instantly add to Kanban board under Applied</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Primary Submit Action -->
+            <button id="btn-capture-submit" class="btn btn-primary btn-block">
+              <span id="btn-submit-icon">🚀</span>
+              <span id="btn-submit-text">Capture & Send Job</span>
             </button>
+          </div>
+        </div>
+
+        <!-- Full-Card Feedback Screen (Swapped In-Place during submission) -->
+        <div id="full-card-feedback" class="card feedback-screen hidden">
+          <!-- Loading State -->
+          <div id="feedback-loading" class="feedback-state">
+            <div class="spinner-large"></div>
+            <h3 class="feedback-title">Capturing & Queuing Job...</h3>
+            <p id="feedback-loading-msg" class="feedback-desc">Extracting DOM markup and parsing job spec...</p>
+          </div>
+
+          <!-- Success State -->
+          <div id="feedback-success" class="feedback-state hidden">
+            <div class="feedback-icon success">✅</div>
+            <h3 id="feedback-success-title" class="feedback-title">Job Captured Successfully!</h3>
+            <p id="feedback-success-msg" class="feedback-desc">Task #101 queued for AI analysis.</p>
+
+            <div class="countdown-bar-container">
+              <div id="countdown-bar" class="countdown-bar"></div>
+            </div>
+
+            <div class="feedback-actions">
+              <button id="btn-open-app-dashboard" class="btn btn-primary btn-block">
+                ↗ Open in Job Tracker
+              </button>
+              <button id="btn-capture-another" class="btn btn-secondary btn-block">
+                🔄 Capture Another Job
+              </button>
+            </div>
+          </div>
+
+          <!-- Error State -->
+          <div id="feedback-error" class="feedback-state hidden">
+            <div class="feedback-icon error">⚠️</div>
+            <h3 class="feedback-title">Submission Failed</h3>
+            <p id="feedback-error-msg" class="feedback-desc">Unable to reach Job Tracker server.</p>
+
+            <div class="feedback-actions">
+              <button id="btn-try-again" class="btn btn-primary btn-block">
+                ↩ Try Again
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -118,8 +151,13 @@
       <!-- TAB 2: AI QUEUE -->
       <section id="tab-queue" class="tab-panel">
         <div class="queue-header-row">
-          <span class="queue-title">Recent Assessments & Queue</span>
-          <button id="btn-refresh-queue" class="btn-icon" title="Refresh list">🔄</button>
+          <span class="queue-title">AI Evaluation Queue</span>
+          <div class="queue-header-actions">
+            <button id="btn-clear-completed" class="btn btn-outline-danger btn-xs" title="Clear completed and failed tasks">
+              🧹 Clear Completed
+            </button>
+            <button id="btn-refresh-queue" class="btn-icon" title="Refresh list">🔄</button>
+          </div>
         </div>
 
         <div id="queue-list" class="queue-list">
@@ -134,15 +172,27 @@
       <section id="tab-settings" class="tab-panel">
         <div class="card form-card">
           <div class="form-group">
-            <label for="input-api-url">Backend API Base URL</label>
-            <input type="text" id="input-api-url" class="input-field" placeholder="http://localhost:8000">
-            <span class="field-hint">FastAPI server endpoint</span>
+            <label for="input-app-url">Job Tracker App URL</label>
+            <input type="text" id="input-app-url" class="input-field" placeholder="http://localhost:5173">
+            <span class="field-hint">Base URL of your running Job Tracker application</span>
           </div>
 
           <div class="form-group">
-            <label for="input-webapp-url">Job Tracker Dashboard URL</label>
-            <input type="text" id="input-webapp-url" class="input-field" placeholder="http://localhost:5173">
-            <span class="field-hint">Frontend web application destination</span>
+            <label for="select-theme">Design Theme</label>
+            <select id="select-theme" class="select-field">
+              <option value="LIGHT">Daylight (Light Default)</option>
+              <option value="DARK">Midnight (Dark)</option>
+              <option value="SYSTEM">System Default</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="select-dock-mode">In-Page Floating Widget Mode</label>
+            <select id="select-dock-mode" class="select-field">
+              <option value="AUTO-DETECT">Auto-Detect (Known ATS & Job URLs)</option>
+              <option value="ALL_PAGES">All Websites (Always On)</option>
+              <option value="OFF">Disabled (Popup Only)</option>
+            </select>
           </div>
 
           <div class="form-group">

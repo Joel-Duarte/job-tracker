@@ -3,10 +3,11 @@
  */
 
 const DEFAULT_SETTINGS = {
-  apiBaseUrl: 'http://localhost:8000',
-  webAppUrl: 'http://localhost:5173',
-  lastMode: 'AI_QUEUE', // 'AI_QUEUE' | 'DIRECT_APPLIED'
-  pollInterval: 60,     // seconds (15, 30, 60, 0=Off)
+  appUrl: 'http://localhost:5173',
+  dockMode: 'AUTO-DETECT', // 'AUTO-DETECT' | 'ALL_PAGES' | 'OFF'
+  theme: 'LIGHT',          // 'LIGHT' | 'DARK' | 'SYSTEM'
+  lastMode: 'AI_QUEUE',    // 'AI_QUEUE' | 'DIRECT_APPLIED'
+  pollInterval: 60,        // seconds (15, 30, 60, 0=Off)
   notificationsEnabled: true
 };
 

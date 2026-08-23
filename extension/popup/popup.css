@@ -1,7 +1,41 @@
-/* Job Tracker Companion Extension - Dark Theme CSS */
+/* Job Tracker Companion Extension CSS - Daylight & Midnight Themes */
 
-:root {
+:root, html[data-theme="light"] {
+  --bg-app: #f8fafc;
+  --bg-header: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f1f5f9;
+  --bg-input: #ffffff;
+  --border-color: #e2e8f0;
+  --border-focus: #4f46e5;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+
+  --primary-gradient: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+  --primary-hover: linear-gradient(135deg, #4338ca 0%, #3730a3 100%);
+  --primary-color: #4f46e5;
+
+  --success-color: #059669;
+  --success-bg: rgba(16, 185, 129, 0.12);
+  --warning-color: #d97706;
+  --warning-bg: rgba(245, 158, 11, 0.12);
+  --danger-color: #dc2626;
+  --danger-bg: rgba(239, 68, 68, 0.12);
+  --info-color: #2563eb;
+  --info-bg: rgba(37, 99, 235, 0.12);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08);
+}
+
+html[data-theme="dark"] {
   --bg-app: #0f172a;
+  --bg-header: #111827;
   --bg-card: #1e293b;
   --bg-card-hover: #334155;
   --bg-input: #0f172a;
@@ -17,17 +51,16 @@
   --primary-color: #6366f1;
 
   --success-color: #10b981;
-  --success-bg: rgba(16, 185, 129, 0.15);
+  --success-bg: rgba(16, 185, 129, 0.18);
   --warning-color: #f59e0b;
-  --warning-bg: rgba(245, 158, 11, 0.15);
+  --warning-bg: rgba(245, 158, 11, 0.18);
   --danger-color: #ef4444;
-  --danger-bg: rgba(239, 68, 68, 0.15);
+  --danger-bg: rgba(239, 68, 68, 0.18);
   --info-color: #3b82f6;
-  --info-bg: rgba(59, 130, 246, 0.15);
+  --info-bg: rgba(59, 130, 246, 0.18);
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
 }
 
 * {
@@ -57,12 +90,13 @@ body {
 
 /* App Header */
 .app-header {
-  background-color: #111827;
+  background-color: var(--bg-header);
   border-bottom: 1px solid var(--border-color);
   padding: 12px 14px 0 14px;
   position: sticky;
   top: 0;
   z-index: 10;
+  box-shadow: var(--shadow-sm);
 }
 
 .brand-row {
@@ -86,17 +120,15 @@ body {
   font-weight: 700;
   font-size: 15px;
   letter-spacing: -0.3px;
-  background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--text-primary);
 }
 
 .badge-v3 {
   font-size: 10px;
   font-weight: 700;
-  color: #a5b4fc;
-  background: rgba(99, 102, 241, 0.2);
-  border: 1px solid rgba(99, 102, 241, 0.4);
+  color: var(--primary-color);
+  background: var(--info-bg);
+  border: 1px solid rgba(79, 70, 229, 0.3);
   padding: 2px 6px;
   border-radius: 12px;
 }
@@ -110,8 +142,8 @@ body {
   border-radius: 20px;
   font-size: 11px;
   font-weight: 500;
-  background: rgba(100, 116, 139, 0.15);
-  border: 1px solid rgba(100, 116, 139, 0.3);
+  background: rgba(100, 116, 139, 0.1);
+  border: 1px solid var(--border-color);
 }
 
 .conn-dot {
@@ -123,7 +155,7 @@ body {
 
 .conn-pill.connected {
   border-color: rgba(16, 185, 129, 0.4);
-  background: rgba(16, 185, 129, 0.1);
+  background: var(--success-bg);
 }
 .conn-pill.connected .conn-dot {
   background-color: var(--success-color);
@@ -132,7 +164,7 @@ body {
 
 .conn-pill.error {
   border-color: rgba(239, 68, 68, 0.4);
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--danger-bg);
 }
 .conn-pill.error .conn-dot {
   background-color: var(--danger-color);
@@ -172,7 +204,7 @@ body {
 }
 
 .nav-tab.active {
-  color: #818cf8;
+  color: var(--primary-color);
   border-bottom-color: var(--primary-color);
 }
 
@@ -208,10 +240,11 @@ body {
   border-radius: var(--radius-md);
   padding: 12px;
   margin-bottom: 12px;
+  box-shadow: var(--shadow-sm);
 }
 
 .meta-card {
-  background: linear-gradient(180deg, #1e293b 0%, #172033 100%);
+  background: var(--bg-card);
 }
 
 .meta-header {
@@ -234,9 +267,9 @@ body {
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 12px;
-  background: rgba(99, 102, 241, 0.15);
-  color: #a5b4fc;
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  background: var(--info-bg);
+  color: var(--info-color);
+  border: 1px solid rgba(37, 99, 235, 0.3);
 }
 
 .meta-url {
@@ -289,7 +322,7 @@ body {
 .input-field:focus, .select-field:focus {
   outline: none;
   border-color: var(--border-focus);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
 }
 
 .field-hint {
@@ -310,7 +343,7 @@ body {
   align-items: flex-start;
   gap: 8px;
   padding: 8px 10px;
-  background: rgba(15, 23, 42, 0.6);
+  background: var(--bg-input);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -318,12 +351,12 @@ body {
 }
 
 .mode-option:hover {
-  border-color: #475569;
+  border-color: var(--primary-color);
 }
 
 .mode-option.active {
   border-color: var(--primary-color);
-  background: rgba(99, 102, 241, 0.1);
+  background: var(--info-bg);
 }
 
 .mode-option input[type="radio"] {
@@ -371,10 +404,16 @@ body {
   font-size: 11px;
 }
 
+.btn-xs {
+  padding: 3px 8px;
+  font-size: 10px;
+  border-radius: 4px;
+}
+
 .btn-primary {
   background: var(--primary-gradient);
   color: #ffffff;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 2px 6px rgba(79, 70, 229, 0.25);
 }
 
 .btn-primary:hover {
@@ -382,12 +421,23 @@ body {
 }
 
 .btn-secondary {
-  background-color: #334155;
+  background-color: var(--bg-card-hover);
   color: var(--text-primary);
+  border: 1px solid var(--border-color);
 }
 
 .btn-secondary:hover {
-  background-color: #475569;
+  background-color: var(--border-color);
+}
+
+.btn-outline-danger {
+  background: transparent;
+  color: var(--danger-color);
+  border: 1px solid var(--danger-color);
+}
+
+.btn-outline-danger:hover {
+  background: var(--danger-bg);
 }
 
 .btn:disabled {
@@ -395,40 +445,70 @@ body {
   cursor: not-allowed;
 }
 
-/* Status Card */
-.status-card {
+/* Full-Card Feedback Screen */
+.feedback-screen {
+  padding: 24px 16px;
+  text-align: center;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.feedback-state {
   display: flex;
   flex-direction: column;
   align-items: center;
-  text-align: center;
-  gap: 6px;
-  padding: 16px 12px;
+  gap: 12px;
+  width: 100%;
 }
 
-.status-icon {
-  font-size: 24px;
+.feedback-icon {
+  font-size: 36px;
 }
 
-.status-title {
+.feedback-title {
+  font-size: 15px;
   font-weight: 700;
-  font-size: 13px;
+  color: var(--text-primary);
 }
 
-.status-message {
-  font-size: 11px;
+.feedback-desc {
+  font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.4;
+  max-width: 280px;
 }
 
-.status-actions {
-  margin-top: 8px;
+.feedback-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin-top: 10px;
+}
+
+.countdown-bar-container {
+  width: 100%;
+  height: 4px;
+  background: var(--border-color);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 6px 0;
+}
+
+.countdown-bar {
+  height: 100%;
+  background: var(--primary-color);
+  width: 100%;
 }
 
 /* Spinner */
-.spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.2);
+.spinner-large {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--border-color);
   border-radius: 50%;
   border-top-color: var(--primary-color);
   animation: spin 0.8s linear infinite;
@@ -448,6 +528,12 @@ body {
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.queue-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .btn-icon {
@@ -480,6 +566,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  box-shadow: var(--shadow-sm);
 }
 
 .queue-item-header {
@@ -509,6 +596,12 @@ body {
   color: var(--text-muted);
 }
 
+.task-action-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* Status Pills */
 .status-pill {
   font-size: 9px;
@@ -533,7 +626,7 @@ body {
   color: var(--success-color);
 }
 
-.status-pill.FAILED {
+.status-pill.FAILED, .status-pill.CANCELLED {
   background: var(--danger-bg);
   color: var(--danger-color);
 }
@@ -543,9 +636,9 @@ body {
   font-size: 10px;
   padding: 2px 6px;
   border-radius: 10px;
-  background: rgba(99, 102, 241, 0.2);
-  color: #a5b4fc;
-  border: 1px solid rgba(99, 102, 241, 0.4);
+  background: var(--info-bg);
+  color: var(--info-color);
+  border: 1px solid rgba(37, 99, 235, 0.3);
 }
 
 /* Empty State */
@@ -588,7 +681,7 @@ body {
   position: absolute;
   cursor: pointer;
   top: 0; left: 0; right: 0; bottom: 0;
-  background-color: #334155;
+  background-color: var(--border-color);
   transition: .2s;
   border-radius: 20px;
 }

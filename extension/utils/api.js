@@ -5,25 +5,24 @@
 import { getSettings } from './storage.js';
 
 /**
- * Normalizes base API URL by stripping trailing slashes and ensuring standard suffix.
+ * Normalizes app URL by stripping trailing slashes.
  * @param {string} rawUrl
  * @returns {string}
  */
-export function normalizeApiUrl(rawUrl) {
-  if (!rawUrl) return 'http://localhost:8000';
-  let url = rawUrl.trim().replace(/\/+$/, '');
-  return url;
+export function normalizeAppUrl(rawUrl) {
+  if (!rawUrl) return 'http://localhost:5173';
+  return rawUrl.trim().replace(/\/+$/, '');
 }
 
 /**
- * Tests connection to Job Tracker backend.
- * @param {string} [customBaseUrl]
- * @returns {Promise<{ success: boolean; version?: string; message: string }>}
+ * Tests connection to Job Tracker backend via app URL.
+ * @param {string} [customAppUrl]
+ * @returns {Promise<{ success: boolean; version?: string; message: string; config?: any }>}
  */
-export async function testConnection(customBaseUrl) {
+export async function testConnection(customAppUrl) {
   try {
     const settings = await getSettings();
-    const baseUrl = normalizeApiUrl(customBaseUrl || settings.apiBaseUrl);
+    const baseUrl = normalizeAppUrl(customAppUrl || settings.appUrl);
     const targetUrl = `${baseUrl}/api/v1/intake/extension-config`;
 
     const controller = new AbortController();
@@ -44,13 +43,13 @@ export async function testConnection(customBaseUrl) {
     return {
       success: true,
       version: '1.0.0',
-      message: `Connected: API ${baseUrl}`,
+      message: `Connected: ${baseUrl}`,
       config: data
     };
   } catch (err) {
     return {
       success: false,
-      message: err.name === 'AbortError' ? 'Connection timed out' : (err.message || 'Cannot reach backend')
+      message: err.name === 'AbortError' ? 'Connection timed out' : (err.message || 'Cannot reach server')
     };
   }
 }
@@ -62,7 +61,7 @@ export async function testConnection(customBaseUrl) {
  */
 export async function enqueueAssessment(payload) {
   const settings = await getSettings();
-  const baseUrl = normalizeApiUrl(settings.apiBaseUrl);
+  const baseUrl = normalizeAppUrl(settings.appUrl);
   const response = await fetch(`${baseUrl}/api/v1/intake/enqueue-assessment`, {
     method: 'POST',
     headers: {
@@ -87,7 +86,7 @@ export async function enqueueAssessment(payload) {
  */
 export async function clipJob(payload) {
   const settings = await getSettings();
-  const baseUrl = normalizeApiUrl(settings.apiBaseUrl);
+  const baseUrl = normalizeAppUrl(settings.appUrl);
   const response = await fetch(`${baseUrl}/api/v1/extension/clip-job`, {
     method: 'POST',
     headers: {
@@ -115,7 +114,7 @@ export async function clipJob(payload) {
  */
 export async function getEvaluations(limit = 20) {
   const settings = await getSettings();
-  const baseUrl = normalizeApiUrl(settings.apiBaseUrl);
+  const baseUrl = normalizeAppUrl(settings.appUrl);
   const response = await fetch(`${baseUrl}/api/v1/intake/evaluations?limit=${limit}`, {
     method: 'GET',
     headers: { 'Accept': 'application/json' }
@@ -123,6 +122,81 @@ export async function getEvaluations(limit = 20) {
 
   if (!response.ok) {
     throw new Error(`Failed to fetch evaluations (${response.status})`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Cancels an active evaluation task.
+ * @param {number|string} taskId
+ */
+export async function cancelEvaluation(taskId) {
+  const settings = await getSettings();
+  const baseUrl = normalizeAppUrl(settings.appUrl);
+  const response = await fetch(`${baseUrl}/api/v1/intake/evaluations/${taskId}/cancel`, {
+    method: 'POST',
+    headers: { 'Accept': 'application/json' }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Cancel task failed (${response.status})`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Retries a failed or cancelled evaluation task.
+ * @param {number|string} taskId
+ */
+export async function retryEvaluation(taskId) {
+  const settings = await getSettings();
+  const baseUrl = normalizeAppUrl(settings.appUrl);
+  const response = await fetch(`${baseUrl}/api/v1/intake/evaluations/${taskId}/retry`, {
+    method: 'POST',
+    headers: { 'Accept': 'application/json' }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Retry task failed (${response.status})`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Deletes an evaluation task.
+ * @param {number|string} taskId
+ */
+export async function deleteEvaluation(taskId) {
+  const settings = await getSettings();
+  const baseUrl = normalizeAppUrl(settings.appUrl);
+  const response = await fetch(`${baseUrl}/api/v1/intake/evaluations/${taskId}`, {
+    method: 'DELETE',
+    headers: { 'Accept': 'application/json' }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Delete task failed (${response.status})`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Clears all completed or failed evaluation tasks.
+ */
+export async function clearCompletedEvaluations() {
+  const settings = await getSettings();
+  const baseUrl = normalizeAppUrl(settings.appUrl);
+  const response = await fetch(`${baseUrl}/api/v1/intake/evaluations/clear-completed`, {
+    method: 'POST',
+    headers: { 'Accept': 'application/json' }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Clear completed failed (${response.status})`);
   }
 
   return await response.json();
