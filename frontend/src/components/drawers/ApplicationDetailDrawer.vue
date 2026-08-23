@@ -12,7 +12,7 @@ import PostHireModal from '../modals/PostHireModal.vue'
 import CompanyLogo from '../common/CompanyLogo.vue'
 
 import {
-  X, Check,
+  X, Check, Edit2,
   Building2,
   ExternalLink,
   Calendar,
@@ -69,6 +69,52 @@ async function onActivityLogged() {
 }
 const isDeleting = ref(false)
 const isReaderModalOpen = ref(false)
+
+// Header inline editing state (Company Name & Position Title)
+const isEditingHeader = ref(false)
+const isSavingHeader = ref(false)
+const headerEditForm = ref({
+  company_name: '',
+  position: '',
+})
+
+function startEditHeader() {
+  if (!appStore.selectedApplication) return
+  headerEditForm.value = {
+    company_name: appStore.selectedApplication.company?.name || '',
+    position: appStore.selectedApplication.position || '',
+  }
+  isEditingHeader.value = true
+}
+
+function cancelEditHeader() {
+  isEditingHeader.value = false
+}
+
+async function saveEditHeader() {
+  if (!appStore.selectedApplication) return
+  const company_name = headerEditForm.value.company_name.trim()
+  const position = headerEditForm.value.position.trim()
+  if (!company_name && !position) {
+    uiStore.showToast('Please provide a valid company name or position title', 'error')
+    return
+  }
+
+  isSavingHeader.value = true
+  try {
+    await appStore.updateApplication(appStore.selectedApplication.id, {
+      company_name: company_name || undefined,
+      position: position || undefined,
+    })
+    uiStore.showToast('Application details updated', 'success')
+    isEditingHeader.value = false
+    await appStore.fetchApplications()
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to update application details', 'error')
+  } finally {
+    isSavingHeader.value = false
+  }
+}
 
 
 // In-drawer Action Item creation state
@@ -602,12 +648,67 @@ function formatDate(isoStr) {
                 :size="44"
                 class="company-badge-large"
               />
-              <div class="header-titles">
-                <h2 class="company-name">
-                  {{ appStore.selectedApplication.company?.name || 'Company' }}
-                </h2>
-                <div class="position-title">
+              <div v-if="!isEditingHeader" class="header-titles">
+                <div class="title-with-edit">
+                  <h2 class="company-name">
+                    {{ appStore.selectedApplication.company?.name || 'Company' }}
+                  </h2>
+                  <button
+                    class="btn-edit-inline"
+                    title="Edit company name & position title"
+                    @click="startEditHeader"
+                  >
+                    <Edit2 :size="13" />
+                  </button>
+                </div>
+                <div class="position-title" title="Click to edit" @click="startEditHeader">
                   {{ appStore.selectedApplication.position || 'Position Not Specified' }}
+                </div>
+              </div>
+
+              <!-- Inline Editing Header Form -->
+              <div v-else class="header-edit-form">
+                <div class="edit-inputs-col">
+                  <input
+                    v-model="headerEditForm.company_name"
+                    type="text"
+                    placeholder="Company Name"
+                    class="edit-input-field edit-input-company"
+                    :disabled="isSavingHeader"
+                    @keyup.enter="saveEditHeader"
+                    @keyup.esc="cancelEditHeader"
+                    autofocus
+                  />
+                  <input
+                    v-model="headerEditForm.position"
+                    type="text"
+                    placeholder="Job Position Title"
+                    class="edit-input-field edit-input-position"
+                    :disabled="isSavingHeader"
+                    @keyup.enter="saveEditHeader"
+                    @keyup.esc="cancelEditHeader"
+                  />
+                </div>
+                <div class="edit-actions-row">
+                  <button
+                    class="btn btn-primary btn-xs"
+                    :disabled="isSavingHeader"
+                    title="Save changes"
+                    @click="saveEditHeader"
+                  >
+                    <Loader2 v-if="isSavingHeader" class="animate-spin" :size="12" />
+                    <Check v-else :size="12" />
+                    <span>Save</span>
+                  </button>
+                  <button
+                    class="btn btn-secondary btn-xs"
+                    :disabled="isSavingHeader"
+                    title="Cancel"
+                    @click="cancelEditHeader"
+                  >
+                    <X :size="12" />
+                    <span>Cancel</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -1552,10 +1653,90 @@ function formatDate(isoStr) {
   line-height: 1.2;
 }
 
+.title-with-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-edit-inline {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: var(--radius-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+  opacity: 0.7;
+}
+
+.btn-edit-inline:hover {
+  opacity: 1;
+  color: var(--primary);
+  background-color: var(--primary-subtle);
+  border-color: var(--primary-glow);
+}
+
 .position-title {
   font-size: 14px;
   color: var(--text-secondary);
   margin-top: 2px;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.position-title:hover {
+  color: var(--primary);
+}
+
+.header-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 320px;
+}
+
+.edit-inputs-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.edit-input-field {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  padding: 4px 8px;
+  font-size: 13px;
+  color: var(--text-main);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.edit-input-field:focus {
+  border-color: var(--primary);
+}
+
+.edit-input-company {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.edit-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.btn-xs {
+  padding: 3px 8px;
+  font-size: 11px;
+  gap: 4px;
 }
 
 .status-bar {

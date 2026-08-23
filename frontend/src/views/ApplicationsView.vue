@@ -249,12 +249,19 @@ onUnmounted(() => {
   window.removeEventListener('resize', handleScrollOrResize)
 })
 
+let searchDebounceTimer = null
+
 function handleSearch(e) {
-  appStore.searchQuery = e.target.value
-  appStore.fetchApplications()
+  const query = e.target.value
+  appStore.searchQuery = query
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = setTimeout(() => {
+    appStore.fetchApplications()
+  }, 250)
 }
 
 function clearSearch() {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
   appStore.searchQuery = ''
   appStore.fetchApplications()
 }
@@ -626,7 +633,7 @@ async function confirmDelete() {
           </button>
         </div>
 
-        <div class="search-input-wrapper" v-if="uiStore.enableEmbeddings">
+        <div class="search-input-wrapper">
           <Search :size="15" class="search-icon" />
           <input
             type="text"
@@ -638,8 +645,8 @@ async function confirmDelete() {
           <button
             v-if="appStore.searchQuery"
             class="btn-clear-search"
-            @click="clearSearch"
             title="Clear search"
+            @click="clearSearch"
           >
             <X :size="13" />
           </button>
@@ -970,16 +977,6 @@ async function confirmDelete() {
                   </div>
                 </div>
               </div>
-
-              <!-- Quick One-Click Advance Button (Middle-Right Side) -->
-              <button
-                v-if="getNextStatus(app.status) && app.status !== 'OFFER'"
-                class="card-advance-btn"
-                :title="`Advance to ${getNextStatus(app.status).replace('_', ' ')}`"
-                @click.stop="advanceAppStage(app, $event)"
-              >
-                <ChevronRight :size="16" />
-              </button>
 
               <!-- Position Title -->
               <div class="card-position">
@@ -2074,41 +2071,6 @@ async function confirmDelete() {
   z-index: 50;
   border-color: var(--primary);
   box-shadow: var(--shadow-md);
-}
-
-.card-advance-btn {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-full);
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  cursor: pointer;
-  opacity: 0.6;
-  transition: all var(--transition-fast);
-  z-index: 5;
-}
-
-.application-card:hover .card-advance-btn {
-  opacity: 1;
-  border-color: var(--primary);
-  color: var(--primary);
-  background-color: var(--primary-subtle);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-}
-
-.card-advance-btn:hover {
-  transform: translateY(-50%) scale(1.1);
-  background-color: var(--primary) !important;
-  color: #ffffff !important;
-  border-color: var(--primary) !important;
 }
 
 .application-card:hover {

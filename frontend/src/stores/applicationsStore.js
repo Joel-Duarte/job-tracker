@@ -27,6 +27,26 @@ export const useApplicationsStore = defineStore('applications', () => {
     return current.includes(target) || target.includes(current)
   }
 
+  function matchesSearch(app) {
+    if (!searchQuery.value) return true
+    const q = searchQuery.value.toLowerCase().trim()
+    if (!q) return true
+    const company = (app.company?.name || '').toLowerCase()
+    const position = (app.position || '').toLowerCase()
+    const location = (app.location || '').toLowerCase()
+    const workModel = (app.work_model || '').toLowerCase()
+    const salaryMin = app.salary_min ? String(app.salary_min) : ''
+    const salaryMax = app.salary_max ? String(app.salary_max) : ''
+    return (
+      company.includes(q) ||
+      position.includes(q) ||
+      location.includes(q) ||
+      workModel.includes(q) ||
+      salaryMin.includes(q) ||
+      salaryMax.includes(q)
+    )
+  }
+
   // Full status list
   const STATUSES = [
     { key: 'ASSESSMENT', label: 'AI Assessment', color: 'assessment' },
@@ -63,21 +83,21 @@ export const useApplicationsStore = defineStore('applications', () => {
       if (!status || TERMINAL_STATUSES.includes(status) || PENDING_ASSESSMENT_STATUSES.includes(status)) {
         return false
       }
-      return matchesWorkModel(a)
+      return matchesWorkModel(a) && matchesSearch(a)
     })
   })
 
   const archivedApplications = computed(() => {
     return applications.value.filter((a) => {
       const status = (a.status || '').toUpperCase()
-      return ['ARCHIVED', 'WITHDRAWN', 'REJECTED'].includes(status) && matchesWorkModel(a)
+      return ['ARCHIVED', 'WITHDRAWN', 'REJECTED'].includes(status) && matchesWorkModel(a) && matchesSearch(a)
     })
   })
 
   const hiredApplications = computed(() => {
     return applications.value.filter((a) => {
       const status = (a.status || '').toUpperCase()
-      return status === 'HIRED' && matchesWorkModel(a)
+      return status === 'HIRED' && matchesWorkModel(a) && matchesSearch(a)
     })
   })
 
@@ -89,6 +109,9 @@ export const useApplicationsStore = defineStore('applications', () => {
     }
 
     applications.value.forEach((app) => {
+      // Filter by search query if active
+      if (!matchesSearch(app)) return
+
       // Filter by work model if active
       if (!matchesWorkModel(app)) return
 
@@ -375,8 +398,26 @@ export const useApplicationsStore = defineStore('applications', () => {
       applications.value = appsSnapshot
       total.value = totalSnapshot
       selectedApplication.value = selectedSnapshot
-      error.value = err.message
       uiStore.showToast(err.message || 'Failed to delete application', 'error')
+      throw err
+    }
+  }
+
+  // Update application fields (e.g. position, company_name)
+  async function updateApplication(applicationId, payload) {
+    try {
+      const res = await ApplicationsAPI.update(applicationId, payload)
+      selectedApplication.value = res.data
+      const idx = applications.value.findIndex((a) => a.id === applicationId)
+      if (idx !== -1) {
+        applications.value[idx] = {
+          ...applications.value[idx],
+          ...res.data,
+        }
+      }
+      return res.data
+    } catch (err) {
+      error.value = err.message
       throw err
     }
   }
@@ -405,6 +446,7 @@ export const useApplicationsStore = defineStore('applications', () => {
     fetchApplications,
     fetchApplicationDetail,
     updateStatus,
+    updateApplication,
     transitionApplication,
     quickReject,
     quickWithdraw,

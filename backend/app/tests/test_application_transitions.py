@@ -141,9 +141,48 @@ async def test_application_transitions_and_deletion(db_session: AsyncSession):
         # Verify application and events are deleted from DB
         app_stmt = select(ApplicationModel).where(ApplicationModel.id == application.id)
         app_res = await db_session.execute(app_stmt)
-        # Verify application and events are deleted from DB
-        app_stmt = select(ApplicationModel).where(ApplicationModel.id == application.id)
-        app_res = await db_session.execute(app_stmt)
         assert app_res.scalar_one_or_none() is None
+
+    app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_application_patch_updates(db_session: AsyncSession):
+    app.dependency_overrides[get_db] = lambda: db_session
+
+    company = CompanyModel(
+        name="Acme Corp", name_normalized="acme corp", domain="acme.com"
+    )
+    db_session.add(company)
+    await db_session.flush()
+
+    application = ApplicationModel(
+        company_id=company.id,
+        position="Frontend Developer",
+        position_normalized="frontend developer",
+        status="APPLIED",
+        application_key="acme-dev-101",
+    )
+    db_session.add(application)
+    await db_session.commit()
+    await db_session.refresh(application)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch(
+            "app.routers.applications.async_enqueue_application_embedding",
+            new_callable=AsyncMock,
+        ):
+            resp = await client.patch(
+                f"/api/v1/applications/{application.id}",
+                json={
+                    "position": "Staff Frontend Architect",
+                    "company_name": "Acme Global Technologies",
+                },
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["position"] == "Staff Frontend Architect"
+            assert data["company"]["name"] == "Acme Global Technologies"
 
     app.dependency_overrides.clear()

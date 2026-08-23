@@ -582,7 +582,9 @@ async def update_application(
         .where(ApplicationModel.id == application_id)
         .options(
             joinedload(ApplicationModel.company),
+            selectinload(ApplicationModel.job_posting),
             selectinload(ApplicationModel.events),
+            selectinload(ApplicationModel.action_items),
         )
     )
     result = await db.execute(stmt)
@@ -603,19 +605,31 @@ async def update_application(
         )
 
     if "position" in update_data and update_data["position"] is not None:
-        app.position_normalized = update_data["position"].strip().lower()
+        pos = update_data["position"].strip()
+        app.position = pos
+        app.position_normalized = pos.lower()
+        if app.job_posting:
+            app.job_posting.title = pos
+
+    if "company_name" in update_data and update_data["company_name"] is not None:
+        c_name = update_data["company_name"].strip()
+        if c_name:
+            if app.company:
+                app.company.name = c_name
+            else:
+                comp_stmt = select(CompanyModel).where(CompanyModel.name == c_name)
+                comp = (await db.execute(comp_stmt)).scalars().first()
+                if not comp:
+                    comp = CompanyModel(name=c_name)
+                    db.add(comp)
+                    await db.flush()
+                app.company_id = comp.id
 
     for key, value in update_data.items():
-        if hasattr(app, key):
+        if key not in {"position", "company_name"} and hasattr(app, key):
             setattr(app, key, value)
 
     await db.commit()
-
-    result = await db.execute(stmt)
-    app = result.scalars().first()
-
-    if app is None:
-        raise HTTPException(status_code=404, detail="Application not found")
 
     # Enqueue non-blocking background embedding generation (only if active stage, not ASSESSMENT)
     if app.status != "ASSESSMENT":
