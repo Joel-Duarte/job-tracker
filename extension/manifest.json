@@ -26,6 +26,7 @@
         "<all_urls>"
       ],
       "js": [
+        "content/extractor.js",
         "content/dock.js"
       ],
       "run_at": "document_idle"

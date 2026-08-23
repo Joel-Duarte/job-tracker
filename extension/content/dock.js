@@ -10,6 +10,7 @@
   let shadowRoot = null;
   let lastObservedUrl = window.location.href;
   let glassdoorObserver = null;
+  let currentJobData = null;
   let currentSettings = {
     appUrl: 'http://localhost:5173',
     dockMode: 'AUTO-DETECT',
@@ -43,9 +44,6 @@
     'vaga', 'vagas', 'empleo', 'trabajo', 'postulate'
   ];
 
-  /**
-   * Evaluates if floating dock should mount on active page based on dockMode.
-   */
   function shouldMountDock(mode) {
     if (mode === 'OFF') return false;
     if (mode === 'ALL_PAGES') return true;
@@ -60,9 +58,6 @@
     return hasJobKeyword;
   }
 
-  /**
-   * Reads settings from extension storage safely.
-   */
   async function loadSettings() {
     return new Promise((resolve) => {
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
@@ -85,182 +80,23 @@
   }
 
   /**
-   * Extracts job data using page DOM with Glassdoor, Indeed & LinkedIn high precision rules.
+   * Unified Extractor Call (Single source of truth via extractor.js)
    */
   function extractPageJobData() {
-    const host = window.location.hostname.toLowerCase();
-    const docTitle = document.title || '';
-    const cleanUrl = window.location.href;
-
-    let title = '';
-    let company = '';
-    let location = '';
-    let salary = '';
-    let descriptionText = '';
-
-    // 1. Glassdoor
-    if (host.includes('glassdoor.com') || host.includes('glassdoor.co.uk')) {
-      title = getText([
-        '[data-test="job-title"]',
-        'h1.JobDetails_jobTitle__',
-        '.job-title',
-        'h1'
-      ]);
-      company = getText([
-        '[data-test="employer-name"]',
-        '.JobDetails_employerName__',
-        '.employer-name'
-      ]);
-      location = getText([
-        '[data-test="location"]',
-        '.JobDetails_location__',
-        '.location'
-      ]);
-      salary = getText([
-        '[data-test="detailSalary"]',
-        '[data-test="salaries"]'
-      ]);
-
-      const descEl = queryFirst([
-        '#JobDescriptionContainer',
-        '.JobDetails_jobDescription__',
-        '[data-test="jobDescription"]'
-      ]);
-      if (descEl) descriptionText = descEl.textContent.trim();
+    if (typeof window.__JOB_TRACKER_EXTRACT__ === 'function') {
+      return window.__JOB_TRACKER_EXTRACT__();
     }
-    // 2. Indeed (Scoped strictly inside view pane)
-    else if (host.includes('indeed.com')) {
-      const pane = queryFirst(['#jobsearch-ViewjobPaneWrapper', '#jobsearch-JobComponent']) || document;
-      title = getTextIn(pane, [
-        'h1.jobsearch-JobInfoHeader-title',
-        '[data-testid="simpler-jobTitle"]',
-        '[data-testid="jobsearch-JobInfoHeader-title"]',
-        'h1'
-      ]);
-      company = getTextIn(pane, [
-        '[data-testid="inlineHeader-companyName"]',
-        '.jobsearch-CompanyReview-companyHeader'
-      ]);
-      location = getTextIn(pane, [
-        '[data-testid="inlineHeader-companyLocation"]',
-        '[data-testid="job-location"]'
-      ]);
-      salary = getTextIn(pane, [
-        '#salaryInfoAndJobType',
-        '[data-testid="jobsearch-OtherJobDetailsContainer"]'
-      ]);
-
-      const descEl = queryFirstIn(pane, ['#jobDescriptionText']);
-      if (descEl) descriptionText = descEl.textContent.trim();
-    }
-    // 3. LinkedIn (Scoped strictly inside active job details pane)
-    else if (host.includes('linkedin.com')) {
-      const pane = queryFirst(['.jobs-search__job-details', '#job-details', '.job-view-layout']) || document;
-      title = getTextIn(pane, [
-        '.job-details-jobs-unified-top-card__job-title',
-        '.top-card-layout__title',
-        'h1.t-24',
-        'h1'
-      ]);
-      company = getTextIn(pane, [
-        '.job-details-jobs-unified-top-card__company-name',
-        '.topcard__org-name-link',
-        '.job-details-jobs-unified-top-card__primary-description a'
-      ]);
-      location = getTextIn(pane, [
-        '.job-details-jobs-unified-top-card__primary-description-container span.tvm__text',
-        '.job-details-jobs-unified-top-card__bullet',
-        '.jobs-unified-top-card__bullet',
-        '.topcard__flavor--bullet'
-      ]);
-
-      if (!location) {
-        const primaryDesc = getTextIn(pane, ['.job-details-jobs-unified-top-card__primary-description', '.job-details-jobs-unified-top-card__primary-description-container']);
-        if (primaryDesc) {
-          const parts = primaryDesc.split('·').map((p) => p.trim());
-          if (parts.length >= 2) {
-            location = parts[1];
-          }
-        }
-      }
-
-      const descEl = queryFirstIn(pane, ['#job-details', '.jobs-description__content']);
-      if (descEl) descriptionText = descEl.textContent.trim();
-    }
-
-    // Tier 2 Fallbacks
-    if (!title) {
-      const h1 = document.querySelector('h1')?.textContent?.trim() || '';
-      title = h1 || docTitle;
-    }
-
-    if (!company) {
-      company = document.querySelector('meta[property="og:site_name"]')?.content || '';
-      if (!company && docTitle.includes(' at ')) {
-        company = docTitle.split(' at ')[1].split(' ')[0];
-      } else if (!company && docTitle.includes(' - ')) {
-        const parts = docTitle.split(' - ');
-        company = parts[parts.length - 1];
-      }
-      if (!company) company = 'Job Posting';
-    }
-
-    if (!descriptionText) {
-      const descEl = document.querySelector('article, main, #job-description, .job-description, body') || document.body;
-      descriptionText = descEl ? descEl.textContent.substring(0, 15000) : '';
-    }
-
-    const work_model = detectWorkModel(`${location} ${descriptionText}`);
-
+    // Safe fallback if extractor script pending
     return {
-      url: cleanUrl,
-      title: title.substring(0, 100),
-      company: company.substring(0, 60),
-      description_text: descriptionText,
-      location: location.substring(0, 60),
-      salary: salary.substring(0, 40),
-      work_model
+      url: window.location.href,
+      title: document.title || 'Job Posting',
+      company: 'Job Posting',
+      description_text: document.body ? document.body.textContent.substring(0, 10000) : '',
+      location: '',
+      salary: '',
+      work_model: 'Unknown',
+      site_type: 'GENERIC'
     };
-  }
-
-  function detectWorkModel(text) {
-    if (!text) return 'Unknown';
-    const low = text.toLowerCase();
-    if (low.includes('hybrid')) return 'Hybrid';
-    if (low.includes('remote') || low.includes('work from home') || low.includes('telecommute')) return 'Remote';
-    if (low.includes('on-site') || low.includes('onsite') || low.includes('in-office') || low.includes('in office')) return 'On-site';
-    return 'Unknown';
-  }
-
-  function queryFirst(selectors) {
-    for (const sel of selectors) {
-      try {
-        const el = document.querySelector(sel);
-        if (el && el.textContent && el.textContent.trim()) return el;
-      } catch (e) {}
-    }
-    return null;
-  }
-
-  function queryFirstIn(parent, selectors) {
-    if (!parent) return null;
-    for (const sel of selectors) {
-      try {
-        const el = parent.querySelector(sel);
-        if (el && el.textContent && el.textContent.trim()) return el;
-      } catch (e) {}
-    }
-    return null;
-  }
-
-  function getText(selectors) {
-    const el = queryFirst(selectors);
-    return el ? el.textContent.trim() : '';
-  }
-
-  function getTextIn(parent, selectors) {
-    const el = queryFirstIn(parent, selectors);
-    return el ? el.textContent.trim() : '';
   }
 
   /**
@@ -304,7 +140,7 @@
       shadowRoot = hostEl.shadowRoot;
     }
 
-    const jobData = extractPageJobData();
+    currentJobData = extractPageJobData();
     let isDark = false;
     if (currentSettings.theme === 'DARK') {
       isDark = true;
@@ -573,6 +409,7 @@
           <div id="dock-header-el" class="dock-header">
             <span class="dock-title">💼 Job Tracker Capture</span>
             <div class="header-actions">
+              <button id="dock-rescan-btn" class="ctrl-btn" title="Re-scan job details from page">🔄</button>
               <button id="dock-minimize-btn" class="ctrl-btn" title="Minimize">—</button>
               <button id="dock-close-btn" class="ctrl-btn" title="Close">✕</button>
             </div>
@@ -591,7 +428,7 @@
             <div class="input-group" style="margin-bottom: 6px;">
               <label>Company Name</label>
               <div class="input-with-clear">
-                <input type="text" id="dock-input-company" class="dock-input" value="${escapeHtml(jobData.company)}">
+                <input type="text" id="dock-input-company" class="dock-input" value="${escapeHtml(currentJobData.company)}">
                 <button class="clear-btn-inline" data-target="dock-input-company" title="Clear">✕</button>
               </div>
             </div>
@@ -599,7 +436,7 @@
             <div class="input-group" style="margin-bottom: 6px;">
               <label>Job Title</label>
               <div class="input-with-clear">
-                <input type="text" id="dock-input-position" class="dock-input" value="${escapeHtml(jobData.title)}">
+                <input type="text" id="dock-input-position" class="dock-input" value="${escapeHtml(currentJobData.title)}">
                 <button class="clear-btn-inline" data-target="dock-input-position" title="Clear">✕</button>
               </div>
             </div>
@@ -608,7 +445,7 @@
               <div class="input-group">
                 <label>Location</label>
                 <div class="input-with-clear">
-                  <input type="text" id="dock-input-location" class="dock-input" value="${escapeHtml(jobData.location)}">
+                  <input type="text" id="dock-input-location" class="dock-input" value="${escapeHtml(currentJobData.location)}">
                   <button class="clear-btn-inline" data-target="dock-input-location" title="Clear">✕</button>
                 </div>
               </div>
@@ -616,7 +453,7 @@
               <div class="input-group">
                 <label>Salary</label>
                 <div class="input-with-clear">
-                  <input type="text" id="dock-input-salary" class="dock-input" value="${escapeHtml(jobData.salary)}">
+                  <input type="text" id="dock-input-salary" class="dock-input" value="${escapeHtml(currentJobData.salary)}">
                   <button class="clear-btn-inline" data-target="dock-input-salary" title="Clear">✕</button>
                 </div>
               </div>
@@ -625,10 +462,10 @@
             <div class="input-group">
               <label>Work Model</label>
               <select id="dock-select-work-model" class="dock-select">
-                <option value="Unknown" ${jobData.work_model === 'Unknown' ? 'selected' : ''}>Unknown</option>
-                <option value="Remote" ${jobData.work_model === 'Remote' ? 'selected' : ''}>Remote</option>
-                <option value="Hybrid" ${jobData.work_model === 'Hybrid' ? 'selected' : ''}>Hybrid</option>
-                <option value="On-site" ${jobData.work_model === 'On-site' ? 'selected' : ''}>On-site</option>
+                <option value="Unknown" ${currentJobData.work_model === 'Unknown' ? 'selected' : ''}>Unknown</option>
+                <option value="Remote" ${currentJobData.work_model === 'Remote' ? 'selected' : ''}>Remote</option>
+                <option value="Hybrid" ${currentJobData.work_model === 'Hybrid' ? 'selected' : ''}>Hybrid</option>
+                <option value="On-site" ${currentJobData.work_model === 'On-site' ? 'selected' : ''}>On-site</option>
               </select>
             </div>
           </div>
@@ -642,8 +479,17 @@
       </div>
     `;
 
-    setupDockEventListeners(jobData);
+    setupDockEventListeners();
     checkFloatingAiHealthGating();
+    scheduleHydrationRetries();
+  }
+
+  /**
+   * Schedules delayed re-scans at 400ms and 1000ms for slow React/Vue SPA hydration
+   */
+  function scheduleHydrationRetries() {
+    setTimeout(syncJobDetailsLive, 400);
+    setTimeout(syncJobDetailsLive, 1000);
   }
 
   /**
@@ -677,11 +523,12 @@
     }
   }
 
-  function setupDockEventListeners(jobData) {
+  function setupDockEventListeners() {
     if (!shadowRoot) return;
 
     const pillBtn = shadowRoot.getElementById('dock-pill-btn');
     const cardView = shadowRoot.getElementById('dock-card-view');
+    const rescanBtn = shadowRoot.getElementById('dock-rescan-btn');
     const minBtn = shadowRoot.getElementById('dock-minimize-btn');
     const closeBtn = shadowRoot.getElementById('dock-close-btn');
     const chipAi = shadowRoot.getElementById('chip-ai');
@@ -691,6 +538,17 @@
     const statusMsg = shadowRoot.getElementById('dock-status-msg');
 
     let selectedMode = currentSettings.lastMode || 'AI_QUEUE';
+
+    // Manual Re-scan Header Action
+    if (rescanBtn) {
+      rescanBtn.addEventListener('click', () => {
+        syncJobDetailsLive();
+        statusMsg.className = 'dock-status success';
+        statusMsg.textContent = 'Page re-scanned! ✨';
+        statusMsg.classList.remove('hidden');
+        setTimeout(() => statusMsg.classList.add('hidden'), 1200);
+      });
+    }
 
     shadowRoot.querySelectorAll('.clear-btn-inline').forEach((btn) => {
       btn.addEventListener('click', (e) => {
@@ -750,28 +608,27 @@
       const salInput = shadowRoot.getElementById('dock-input-salary');
       const wmSelect = shadowRoot.getElementById('dock-select-work-model');
 
-      const company = compInput?.value?.trim() || jobData.company || 'Job Posting';
-      const position = posInput?.value?.trim() || jobData.title || 'Unknown Position';
-      const location = locInput?.value?.trim() || jobData.location || '';
-      const salary = salInput?.value?.trim() || jobData.salary || '';
-      const work_model = wmSelect?.value || jobData.work_model || 'Unknown';
+      const company = compInput?.value?.trim() || currentJobData.company || 'Job Posting';
+      const position = posInput?.value?.trim() || currentJobData.title || 'Unknown Position';
+      const location = locInput?.value?.trim() || currentJobData.location || '';
+      const salary = salInput?.value?.trim() || currentJobData.salary || '';
+      const work_model = wmSelect?.value || currentJobData.work_model || 'Unknown';
 
       submitBtn.disabled = true;
 
-      // Safe Runtime Context Guard
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id) {
         if (selectedMode === 'AI_QUEUE') {
           statusMsg.className = 'dock-status success';
           statusMsg.textContent = '✅ Queued for AI Assessment!';
           statusMsg.classList.remove('hidden');
 
-          // Pure Scoped DOM Payload in AI Queue Mode (No client regex bias)
+          // Pure Scoped DOM Payload in AI Queue Mode
           chrome.runtime.sendMessage(
             {
               type: 'ENQUEUE_JOB',
               payload: {
-                text: jobData.description_text,
-                url: jobData.url
+                text: currentJobData.description_text,
+                url: currentJobData.url
               }
             },
             (res) => {
@@ -793,8 +650,8 @@
               payload: {
                 company,
                 position,
-                url: jobData.url,
-                description: jobData.description_text,
+                url: currentJobData.url,
+                description: currentJobData.description_text,
                 location,
                 salary,
                 work_model,
@@ -823,7 +680,6 @@
 
   /**
    * Live SPA Selection Sync Observer (LinkedIn, Indeed, Glassdoor)
-   * Includes MutationObserver targeting Glassdoor job elements and debounced retries at 0ms, 250ms, 600ms.
    */
   function setupSpaSelectionSync() {
     function handleLocationOrJobChange() {
@@ -845,7 +701,6 @@
 
     setInterval(handleLocationOrJobChange, 500);
 
-    // Glassdoor & Indeed MutationObserver
     const host = window.location.hostname.toLowerCase();
     if (host.includes('glassdoor.com') || host.includes('glassdoor.co.uk') || host.includes('indeed.com')) {
       const targetContainer = document.querySelector('#JobDescriptionContainer, #jobsearch-ViewjobPaneWrapper, body');
@@ -856,7 +711,6 @@
         glassdoorObserver.observe(targetContainer, { childList: true, subtree: true });
       }
 
-      // Add click listeners to job listing cards
       document.addEventListener('click', (e) => {
         if (e.target.closest('[data-test="jobListing"], [data-test="job-details"], .JobsList_jobListItem__, .jobsearch-ResultsList')) {
           triggerDelayedSyncs();
@@ -868,6 +722,9 @@
   function syncJobDetailsLive() {
     if (!shadowRoot) return;
     const freshJobData = extractPageJobData();
+
+    // Check if new data is richer/changed
+    currentJobData = freshJobData;
 
     const compInput = shadowRoot.getElementById('dock-input-company');
     const posInput = shadowRoot.getElementById('dock-input-position');
