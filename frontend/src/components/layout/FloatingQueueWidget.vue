@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUIStore } from '../../stores/uiStore'
 import { useQueueStore } from '../../stores/queueStore'
+import { IntakeAPI } from '../../api/endpoints'
 import {
   Cpu,
   Loader2,
@@ -63,16 +64,15 @@ async function submitFixJD() {
 
   isSubmittingFixJD.value = true
   try {
-    await IntakeAPI.fixJDEvaluation(activeFixJDTask.value.id, {
+    await queueStore.fixJDEvaluation(activeFixJDTask.value.id, {
       raw_text: fixJDRawText.value,
       job_url: fixJDJobUrl.value || null,
     })
-    uiStore.showToast(`Job description updated for Task #${activeFixJDTask.value.id}. Processing restarted!`, 'success')
     showFixJDModal.value = false
     activeFixJDTask.value = null
     await pollQueueStatus(true)
   } catch (err) {
-    uiStore.showToast(err.message || 'Failed to update job description', 'error')
+    // Handled in queueStore
   } finally {
     isSubmittingFixJD.value = false
   }
