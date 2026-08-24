@@ -40,6 +40,16 @@ class WorkModelBreakdown(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SalaryInsightItem(BaseModel):
+    skill: str
+    avg_min: float | None = None
+    avg_max: float | None = None
+    median_salary: float | None = None
+    sample_count: int = 1
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class AnalyticsOverviewResponse(BaseModel):
     total_applications: int
     active_pipeline_count: int
@@ -50,7 +60,7 @@ class AnalyticsOverviewResponse(BaseModel):
     priority_skill_gaps: list[SkillGapItem]
     pipeline_funnel: list[FunnelStageItem]
     work_model_distribution: WorkModelBreakdown
-    salary_insights: list[dict]
+    salary_insights: list[SalaryInsightItem]
 
     model_config = ConfigDict(from_attributes=True)
 

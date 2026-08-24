@@ -15,6 +15,7 @@ from app.models.applications import (
 )
 from app.schemas.llm import JobAssessmentResult
 from app.services.domain_resolver import resolve_company_domain
+from app.services.skill_normalizer import hybrid_extract_skills
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +42,10 @@ async def persist_or_stage_job_assessment(
     clean_url = normalize_job_url(job_url)
     now = datetime.now(UTC)
 
-    all_skills = list(
-        dict.fromkeys(
-            (assessment.matching_skills or []) + (assessment.missing_skills or [])
-        )
+    all_skills = hybrid_extract_skills(
+        raw_text=raw_text or assessment.summary,
+        llm_skills=(assessment.matching_skills or [])
+        + (assessment.missing_skills or []),
     )
 
     # 1. Update Existing Target Application (if specified)

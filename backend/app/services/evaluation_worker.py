@@ -30,6 +30,7 @@ from app.services.llm import (
 )
 from app.services.matcher import compute_programmatic_skill_match
 from app.services.scraper import scrape_job_url, validate_job_content
+from app.services.skill_normalizer import hybrid_extract_skills
 from app.services.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
@@ -257,10 +258,15 @@ async def _execute_cv_extraction_steps(
                 for d in domain_expertise
             ]
 
+        final_skills = hybrid_extract_skills(
+            raw_text=raw_text,
+            llm_skills=extracted_data.get("extracted_skills"),
+        )
+
         cv_record = CandidateCVModel(
             raw_text=raw_text,
             anonymized_text=extracted_data.get("anonymized_resume"),
-            extracted_skills=extracted_data.get("extracted_skills") or [],
+            extracted_skills=final_skills,
             years_of_experience=total_years,
             domain_expertise=domain_expertise,
             domain_experience=raw_breakdown,

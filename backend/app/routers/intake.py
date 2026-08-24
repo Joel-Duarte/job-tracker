@@ -52,6 +52,7 @@ from app.services.evaluation_worker import process_evaluation_task
 from app.services.file_parser import parse_uploaded_file
 from app.services.llm import assess_job_posting
 from app.services.scraper import scrape_job_url
+from app.services.skill_normalizer import hybrid_extract_skills
 from app.services.task_tracker import task_tracker
 from app.services.telemetry import trace_operation
 
@@ -559,6 +560,11 @@ async def confirm_job_assessment(
     job_posting = jp_res.scalar_one_or_none()
 
     if not job_posting:
+        req_skills = hybrid_extract_skills(
+            raw_text=payload.description_markdown,
+            llm_skills=payload.required_skills or [],
+        )
+
         job_posting = JobPostingModel(
             application_id=app_record.id,
             job_url=clean_job_url or f"lead-{uuid.uuid4().hex[:8]}",
@@ -568,7 +574,7 @@ async def confirm_job_assessment(
             currency=payload.currency or "USD",
             location=payload.location,
             work_model=payload.work_model,
-            required_skills=payload.required_skills or [],
+            required_skills=req_skills,
             structured_spec=payload.structured_spec
             if hasattr(payload, "structured_spec")
             else None,
@@ -585,8 +591,11 @@ async def confirm_job_assessment(
             job_posting.location = payload.location
         if payload.work_model:
             job_posting.work_model = payload.work_model
-        if payload.required_skills:
-            job_posting.required_skills = payload.required_skills
+        if payload.required_skills or payload.description_markdown:
+            job_posting.required_skills = hybrid_extract_skills(
+                raw_text=payload.description_markdown,
+                llm_skills=payload.required_skills or [],
+            )
         if hasattr(payload, "structured_spec") and payload.structured_spec:
             job_posting.structured_spec = payload.structured_spec
 

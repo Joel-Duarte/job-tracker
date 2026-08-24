@@ -24,6 +24,7 @@ from app.schemas.staging import (
 )
 from app.services.evaluation_worker import process_evaluation_task
 from app.services.llm import generate_and_save_application_embedding
+from app.services.skill_normalizer import normalize_skills_list
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +209,7 @@ async def resolve_staging_item(
         currency = payload.currency or extracted.get("currency", "USD")
         location = payload.location or extracted.get("location")
         work_model = payload.work_model or extracted.get("work_model")
-        skills = (
+        raw_skills = (
             payload.required_skills
             or extracted.get("required_skills")
             or list(
@@ -218,6 +219,7 @@ async def resolve_staging_item(
                 )
             )
         )
+        skills = normalize_skills_list(raw_skills)
 
         has_posting_data = any(
             [
