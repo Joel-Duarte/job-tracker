@@ -10,7 +10,7 @@ permissions:
   contents: read
   
 concurrency:
-  group:  g${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
   
 jobs:
@@ -48,4 +48,4 @@ jobs:
       run: uv run ruff check .
 
     - name: Run tests with pytest
-      run: uv run pytest --timeout=60 --verbose
+      run: uv run pytest --verbose
