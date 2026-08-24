@@ -2,6 +2,7 @@
 
 ### *AI-Powered Career Hub & Recruitment Intelligence Platform*
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-4f46e5?style=for-the-badge&logo=github&logoColor=white)](https://joel-duarte.github.io/job-tracker/)
 [![Vue 3](https://img.shields.io/badge/Vue.js-3.5-4FC08D?style=for-the-badge&logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16%20%2B%20pgvector-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
@@ -13,6 +14,8 @@
 ---
 
 **Job Tracker** is the all-in-one, local-first platform to automate job intake, assess skill fit with AI, practice interactive mock interviews, sync recruitment emails, and manage your job search pipeline. Built for privacy, speed, and intelligence.
+
+> 🎮 **Live Interactive Demo:** Try Job Tracker directly in your browser without installing anything: **[https://joel-duarte.github.io/job-tracker/](https://joel-duarte.github.io/job-tracker/)** (runs 100% client-side with full mock dataset & simulated AI workflows).
 
 ```
  ┌─────────────────────────────────────────────────────────────────────────────┐
