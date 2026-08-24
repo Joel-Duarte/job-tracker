@@ -71,7 +71,7 @@ async def test_process_new_job_application(
     application = app_res.scalar_one_or_none()
     assert application is not None
     assert application.position == "Senior Backend Engineer"
-    assert application.status == "TECHNICAL_INTERVIEW"
+    assert application.status == "APPLIED"
 
     # 3. Verify Timeline Event
     event_res = await db_session.execute(

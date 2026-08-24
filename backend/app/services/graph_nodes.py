@@ -1,5 +1,5 @@
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -255,6 +255,10 @@ async def fuzzy_match_node(
             "match_reason": "NEW_COMPANY_LEAD",
         }
 
+    extracted = state.get("extracted_data") or {}
+    raw_status = str(extracted.get("status") or "APPLIED").upper()
+    is_initial_application = raw_status in ["APPLIED", "IN_PROGRESS", "ASSESSMENT"]
+
     # Match application under matched company
     app_stmt = select(ApplicationModel).where(
         ApplicationModel.company_id == best_company.id
@@ -299,7 +303,9 @@ async def fuzzy_match_node(
                 "company_id": best_company.id,
                 "application_id": None,
                 "route": "staging",
-                "match_reason": "DIFFERENT_POSITION_NEW_LEAD",
+                "match_reason": "DIFFERENT_POSITION_NEW_LEAD"
+                if is_initial_application
+                else "UNMATCHED_STATUS_UPDATE",
             }
 
     # Case 2: Multiple Active Applications exist
@@ -342,23 +348,70 @@ async def fuzzy_match_node(
                 "match_reason": "AMBIGUOUS_MULTIPLE_APPLICATIONS",
             }
 
-    # Case 3: Only Terminal Applications exist — Re-Application scenario
+    # Case 3: Only Terminal Applications exist — Re-Application or Historical Concluded sync scenario
     if len(terminal_apps) > 0:
+        best_term_app = None
+        best_term_score = 0.0
+        for app in terminal_apps:
+            if not position_norm:
+                best_term_app = app
+                best_term_score = 1.0
+                break
+            if app.position_normalized:
+                score = (
+                    1.0
+                    if position_norm == app.position_normalized
+                    else fuzz.ratio(position_norm, app.position_normalized) / 100.0
+                )
+                if score > best_term_score:
+                    best_term_score = score
+                    best_term_app = app
+
+        if best_term_app and best_term_score >= threshold:
+            email_dt = _parse_email_date(state.get("received_at"))
+            term_date = best_term_app.updated_at or best_term_app.created_at
+            if email_dt and term_date:
+                email_utc = (
+                    email_dt if email_dt.tzinfo else email_dt.replace(tzinfo=UTC)
+                )
+                term_utc = (
+                    term_date if term_date.tzinfo else term_date.replace(tzinfo=UTC)
+                )
+                if email_utc <= term_utc + timedelta(days=7):
+                    # Historical sync / past event for this concluded application
+                    return {
+                        "match_score": best_term_score,
+                        "company_id": best_company.id,
+                        "application_id": best_term_app.id,
+                        "route": "commit",
+                    }
+
         return {
             "match_score": best_company_score,
             "company_id": best_company.id,
             "application_id": None,
             "route": "staging",
-            "match_reason": "REAPPLICATION_PREVIOUSLY_CONCLUDED",
+            "match_reason": "REAPPLICATION_PREVIOUSLY_CONCLUDED"
+            if is_initial_application
+            else "UNMATCHED_STATUS_UPDATE",
         }
 
     # Case 4: 0 Applications exist for Company
-    return {
-        "match_score": 1.0,
-        "company_id": best_company.id,
-        "application_id": None,
-        "route": "commit",
-    }
+    if is_initial_application:
+        return {
+            "match_score": 1.0,
+            "company_id": best_company.id,
+            "application_id": None,
+            "route": "commit",
+        }
+    else:
+        return {
+            "match_score": 1.0,
+            "company_id": best_company.id,
+            "application_id": None,
+            "route": "staging",
+            "match_reason": "UNMATCHED_STATUS_UPDATE",
+        }
 
 
 async def staging_node(
@@ -517,6 +570,15 @@ async def db_commit_node(
     status_val = stage_mapping.get(raw_status, "APPLIED")
 
     if not application_id:
+        if status_val not in ["APPLIED", "IN_PROGRESS", "ASSESSMENT"]:
+            logger.warning(
+                "Preventing automatic creation of ApplicationModel in status %s without matching application.",
+                status_val,
+            )
+            return await staging_node(
+                dict(state, match_reason="UNMATCHED_STATUS_UPDATE"), config
+            )
+
         raw_job_url = extracted.get("job_url") or state.get("job_url")
         application = ApplicationModel(
             company_id=company_id,

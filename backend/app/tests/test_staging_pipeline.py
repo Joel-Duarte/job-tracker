@@ -70,6 +70,19 @@ async def test_duplicate_email_deduplication(
     db_session, mock_job_email_payload, mock_extracted_job_info
 ):
     """Test that an email with an identical message_id is skipped if already present in event/staging tables."""
+    company = CompanyModel(name="Stripe", name_normalized="stripe")
+    db_session.add(company)
+    await db_session.flush()
+
+    app_model = ApplicationModel(
+        company_id=company.id,
+        position="Senior Backend Engineer",
+        position_normalized="senior backend engineer",
+        status="APPLIED",
+    )
+    db_session.add(app_model)
+    await db_session.commit()
+
     duplicate_payload = EmailPayload(
         conversation_id=mock_job_email_payload.conversation_id,
         message_id="msg-unique-id-999",
@@ -174,3 +187,123 @@ async def test_resolve_staged_item_and_generate_embeddings(db_session):
         assert company.name == "Acme Corporation"
         assert application.position == "Senior Backend Engineer"
         mock_gen_emb.assert_called_once_with(db_session, application.id)
+
+
+@pytest.mark.asyncio
+async def test_unmatched_rejection_email_sent_to_staging_never_creates_app(db_session):
+    """Test that a rejection email for a company with 0 active applications routes to staging and NEVER creates an application."""
+    company = CompanyModel(name="Google", name_normalized="google")
+    db_session.add(company)
+    await db_session.commit()
+
+    rejection_email = EmailPayload(
+        conversation_id="conv-rejection-404",
+        received_at=datetime.now(UTC),
+        subject="Thank you for your interest in Google",
+        body="Unfortunately we will not be moving forward with your candidacy.",
+    )
+
+    rejection_extracted = ExtractedEmailInfo(
+        company="Google",
+        position="Senior Staff Engineer",
+        status="REJECTED",
+        event_type="REJECTION",
+        summary="Application rejected.",
+        action_required=False,
+    )
+
+    task_id = task_tracker.create_task(total_emails=1)
+
+    with patch(
+        "app.services.intake.extract_email_info", new_callable=AsyncMock
+    ) as mock_extract:
+        mock_extract.return_value = rejection_extracted
+        await process_email_batch_sequential(db_session, [rejection_email], task_id)
+
+    # 1. Verify NO new application was created
+    app_res = await db_session.execute(select(ApplicationModel))
+    assert app_res.scalars().all() == []
+
+    # 2. Verify Item was stored in Staging Queue
+    staging_res = await db_session.execute(
+        select(StagingItemModel).where(
+            StagingItemModel.email_conversation_id == "conv-rejection-404"
+        )
+    )
+    staged_item = staging_res.scalar_one_or_none()
+    assert staged_item is not None
+    assert staged_item.status == "PENDING"
+    assert staged_item.match_reason == "UNMATCHED_STATUS_UPDATE"
+
+
+@pytest.mark.asyncio
+async def test_historical_rejection_attaches_to_terminal_application(db_session):
+    """Test that an older historical rejection email correctly attaches to an already concluded terminal application."""
+    company = CompanyModel(name="Meta", name_normalized="meta")
+    db_session.add(company)
+    await db_session.flush()
+
+    past_date = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
+    terminal_app = ApplicationModel(
+        company_id=company.id,
+        position="Production Engineer",
+        position_normalized="production engineer",
+        status="REJECTED",
+        updated_at=past_date,
+    )
+    db_session.add(terminal_app)
+    await db_session.commit()
+
+    historical_email = EmailPayload(
+        conversation_id="conv-meta-past",
+        received_at=datetime(2024, 1, 14, 10, 0, 0, tzinfo=UTC),
+        subject="Update on your Meta application",
+        body="We will not be proceeding at this time.",
+    )
+
+    extracted_info = ExtractedEmailInfo(
+        company="Meta",
+        position="Production Engineer",
+        status="REJECTED",
+        event_type="REJECTION",
+        summary="Historical rejection notice.",
+        action_required=False,
+    )
+
+    task_id = task_tracker.create_task(total_emails=1)
+
+    with (
+        patch(
+            "app.services.intake.extract_email_info", new_callable=AsyncMock
+        ) as mock_extract,
+        patch(
+            "app.services.graph_nodes.generate_and_save_application_embedding",
+            new_callable=AsyncMock,
+        ),
+    ):
+        mock_extract.return_value = extracted_info
+        await process_email_batch_sequential(db_session, [historical_email], task_id)
+
+    # 1. Verify NO new applications were created (still just 1)
+    apps = (await db_session.execute(select(ApplicationModel))).scalars().all()
+    assert len(apps) == 1
+    assert apps[0].id == terminal_app.id
+
+    # 2. Verify event was attached to the existing terminal application
+    events = (
+        (
+            await db_session.execute(
+                select(ApplicationEventModel).where(
+                    ApplicationEventModel.email_application_id == terminal_app.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(events) == 1
+    assert events[0].email_subject == "Update on your Meta application"
+
+    # 3. Verify Staging queue is empty
+    staged = (await db_session.execute(select(StagingItemModel))).scalars().all()
+    assert len(staged) == 0

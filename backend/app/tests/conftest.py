@@ -167,8 +167,8 @@ def mock_job_email_payload():
     return EmailPayload(
         conversation_id="msg-stripe-1001",
         received_at=datetime.now(UTC),
-        subject="Interview Invitation - Senior Backend Engineer",
-        body="Hi developer, we loved your profile and want to invite you to an interview at Stripe.",
+        subject="Application Confirmation - Senior Backend Engineer",
+        body="Thank you for applying to the Senior Backend Engineer position at Stripe.",
     )
 
 
@@ -178,9 +178,9 @@ def mock_extracted_job_info():
     return ExtractedEmailInfo(
         company="Stripe",
         position="Senior Backend Engineer",
-        status="INTERVIEW",
-        event_type="INTERVIEW_INVITE",
-        summary="Invited for interview at Stripe.",
-        action_required=True,
-        action="Schedule interview link.",
+        status="APPLIED",
+        event_type="APPLICATION_SUBMITTED",
+        summary="Application submitted for Senior Backend Engineer at Stripe.",
+        action_required=False,
+        action=None,
     )
