@@ -205,8 +205,23 @@ logger = logging.getLogger(__name__)
 
 config_ai_router = APIRouter(tags=["AI Health Monitoring"])
 
+_HEALTH_CACHE: tuple[float, AIHealthStatusRead] | None = None
+_HEALTH_CACHE_TTL = 15.0
+
+
+def invalidate_ai_health_cache() -> None:
+    global _HEALTH_CACHE
+    _HEALTH_CACHE = None
+
 
 async def check_ai_provider_health(db: AsyncSession) -> AIHealthStatusRead:
+    global _HEALTH_CACHE
+    now = time.monotonic()
+    if _HEALTH_CACHE is not None:
+        cached_time, cached_read = _HEALTH_CACHE
+        if now - cached_time < _HEALTH_CACHE_TTL:
+            return cached_read
+
     try:
         # 1. Resolve Global Default Task Binding
         global_binding_stmt = (
@@ -320,7 +335,7 @@ async def check_ai_provider_health(db: AsyncSession) -> AIHealthStatusRead:
         status_str = "offline"
         error_message = str(err)
 
-    return AIHealthStatusRead(
+    res_status = AIHealthStatusRead(
         status=status_str,
         provider_id=provider.id,
         provider_name=provider.name,
@@ -332,6 +347,8 @@ async def check_ai_provider_health(db: AsyncSession) -> AIHealthStatusRead:
         fallback_provider_id=fallback_provider_id,
         fallback_provider_name=fallback_provider_name,
     )
+    _HEALTH_CACHE = (time.monotonic(), res_status)
+    return res_status
 
 
 @config_ai_router.get("/config/ai/health", response_model=AIHealthStatusRead)
@@ -477,6 +494,7 @@ async def create_ai_provider(
     await db.commit()
     await db.refresh(provider)
     clear_embeddings_cache()
+    invalidate_ai_health_cache()
     return _to_provider_read(provider)
 
 
@@ -514,6 +532,8 @@ async def update_ai_provider(
 
     await db.commit()
     await db.refresh(provider)
+    clear_embeddings_cache()
+    invalidate_ai_health_cache()
     return _to_provider_read(provider)
 
 
@@ -710,6 +730,8 @@ async def delete_ai_provider(
 
     await db.delete(provider)
     await db.commit()
+    clear_embeddings_cache()
+    invalidate_ai_health_cache()
     logger.info(
         "Deleted AI Provider '%s' (ID: %d). Reassigned tasks %s to '%s' (ID: %d).",
         provider.name,
@@ -926,6 +948,7 @@ async def set_ai_task_binding(
     await db.refresh(binding)
     binding.provider = provider
     clear_embeddings_cache()
+    invalidate_ai_health_cache()
     return _to_binding_read(binding)
 
 
@@ -948,6 +971,8 @@ async def delete_ai_task_binding(
             detail=f"Task binding for '{task_type_norm}' not found.",
         )
 
+    clear_embeddings_cache()
+    invalidate_ai_health_cache()
     return {"message": f"Task binding for '{task_type_norm}' removed."}
 
 
