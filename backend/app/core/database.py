@@ -16,6 +16,11 @@ engine = create_async_engine(
     settings.get_database_url(),
     echo=(settings.LOG_LEVEL == "DEBUG"),
     future=True,
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
+    pool_timeout=settings.DB_POOL_TIMEOUT,
+    pool_recycle=settings.DB_POOL_RECYCLE,
+    pool_pre_ping=True,
 )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -31,7 +36,7 @@ db_url = settings.get_database_url().replace("+asyncpg", "")
 
 checkpointer_pool = AsyncConnectionPool(
     conninfo=db_url,
-    max_size=10,
+    max_size=settings.DB_POOL_SIZE,
     kwargs={"autocommit": True, "prepare_threshold": 0},
     open=False,  # Do not open immediately, wait for async loop
 )

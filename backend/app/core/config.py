@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "DEBUG"
     SEED_DEV_DATA: bool = False
 
+    # PostgreSQL Connection Pool Configuration
+    DB_POOL_SIZE: int = 20
+    DB_MAX_OVERFLOW: int = 40
+    DB_POOL_TIMEOUT: float = 60.0
+    DB_POOL_RECYCLE: int = 1800
+
     # Bootstrap security configuration; runtime provider credentials live in PostgreSQL.
     SECRET_KEY: str = ""
     ADMIN_SECRET: str = ""
