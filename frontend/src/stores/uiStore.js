@@ -289,7 +289,7 @@ export const useUIStore = defineStore('ui', () => {
   // Global Settings
   const hasCompletedOnboarding = ref(false)
   const enableEmailIntake = ref(false)
-  const enableEmbeddings = ref(true)
+  const enableEmbeddings = ref(false)
   const enableAutoCoverLetter = ref(false)
   const coverLetterMatchThreshold = ref(70)
   const coverLetterLength = ref('standard')
@@ -308,7 +308,7 @@ export const useUIStore = defineStore('ui', () => {
       if (res && res.data) {
         hasCompletedOnboarding.value = res.data.has_completed_onboarding ?? false
         enableEmailIntake.value = res.data.enable_email_intake ?? false
-        enableEmbeddings.value = res.data.enable_embeddings ?? true
+        enableEmbeddings.value = res.data.enable_embeddings ?? false
         enableAutoCoverLetter.value = res.data.enable_auto_cover_letter ?? false
         coverLetterMatchThreshold.value = res.data.cover_letter_match_threshold ?? 70
         coverLetterLength.value = res.data.cover_letter_length ?? 'standard'
@@ -319,7 +319,7 @@ export const useUIStore = defineStore('ui', () => {
         if (res && res.data) {
           hasCompletedOnboarding.value = res.data.HAS_COMPLETED_ONBOARDING ?? false
           enableEmailIntake.value = res.data.ENABLE_EMAIL_INTAKE ?? false
-          enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS ?? true
+          enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS ?? false
           enableAutoCoverLetter.value = res.data.ENABLE_AUTO_COVER_LETTER ?? false
           coverLetterMatchThreshold.value = res.data.COVER_LETTER_MATCH_THRESHOLD ?? 70
           coverLetterLength.value = res.data.COVER_LETTER_LENGTH ?? 'standard'
@@ -382,6 +382,9 @@ export const useUIStore = defineStore('ui', () => {
   const isCheckingAIHealth = ref(false)
   const isRetryModalOpen = ref(false)
 
+  const consecutiveHealthyChecks = ref(0)
+  const lastHealthCheckTimestamp = ref(null)
+
   let healthTimer = null
   let isMonitorInitialized = false
 
@@ -400,10 +403,18 @@ export const useUIStore = defineStore('ui', () => {
       aiBaseUrl.value = data.base_url || null
       aiProviderId.value = data.provider_id || null
       aiFallbackProviderId.value = data.fallback_provider_id || null
+
+      if (aiStatus.value === 'healthy') {
+        consecutiveHealthyChecks.value += 1
+      } else {
+        consecutiveHealthyChecks.value = 0
+      }
     } catch (err) {
       aiStatus.value = 'offline'
       aiErrorMessage.value = err?.response?.data?.detail || err?.message || 'Connection failed'
+      consecutiveHealthyChecks.value = 0
     } finally {
+      lastHealthCheckTimestamp.value = Date.now()
       isCheckingAIHealth.value = false
     }
   }
@@ -416,41 +427,86 @@ export const useUIStore = defineStore('ui', () => {
     isRetryModalOpen.value = false
   }
 
+  function getNextInterval() {
+    if (aiStatus.value === 'healthy') {
+      if (consecutiveHealthyChecks.value >= 2) {
+        return 300000 // 5 minutes
+      }
+      return 60000 // 60 seconds
+    }
+    return 15000 // 15 seconds (OFFLINE, DEGRADED, UNCONFIGURED)
+  }
+
+  function stopTimer() {
+    if (healthTimer) {
+      clearTimeout(healthTimer)
+      healthTimer = null
+    }
+  }
+
+  function scheduleNextCheck() {
+    stopTimer()
+    const ms = getNextInterval()
+    healthTimer = setTimeout(async () => {
+      if (!document.hidden) {
+        await checkAIHealth()
+      }
+      scheduleNextCheck()
+    }, ms)
+  }
+
+  function resetAIHealthTimer() {
+    consecutiveHealthyChecks.value = 0
+    stopTimer()
+    checkAIHealth().then(() => {
+      scheduleNextCheck()
+    })
+  }
+
+  async function ensureAIReady(options = { showModal: true }) {
+    const showModal = options?.showModal ?? true
+    const ageMs = lastHealthCheckTimestamp.value ? Date.now() - lastHealthCheckTimestamp.value : Infinity
+
+    const isHealthyOrDegraded = aiStatus.value === 'healthy' || aiStatus.value === 'degraded'
+    const hasFallback = Boolean(aiFallbackProviderName.value)
+
+    if ((isHealthyOrDegraded || hasFallback) && ageMs <= 30000) {
+      return true
+    }
+
+    await checkAIHealth()
+
+    if (aiStatus.value === 'offline' && !aiFallbackProviderName.value) {
+      if (showModal) {
+        openRetryModal()
+      } else {
+        showToast('AI Provider is currently offline. Please verify settings.', 'error')
+      }
+      return false
+    }
+
+    return true
+  }
+
   function initAIHealthMonitor() {
     if (isMonitorInitialized) return
     isMonitorInitialized = true
 
-    checkAIHealth()
-
-    window.addEventListener('focus', () => {
-      checkAIHealth()
+    checkAIHealth().then(() => {
+      scheduleNextCheck()
     })
 
-    function startTimer() {
-      if (!healthTimer) {
-        healthTimer = setInterval(() => {
-          if (!document.hidden) {
-            checkAIHealth()
-          }
-        }, 60000)
+    window.addEventListener('focus', () => {
+      if (!document.hidden) {
+        resetAIHealthTimer()
       }
-    }
-
-    function stopTimer() {
-      if (healthTimer) {
-        clearInterval(healthTimer)
-        healthTimer = null
-      }
-    }
-
-    startTimer()
+    })
 
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         stopTimer()
       } else {
-        checkAIHealth()
-        startTimer()
+        resetAIHealthTimer()
       }
     })
   }
@@ -570,9 +626,13 @@ export const useUIStore = defineStore('ui', () => {
     aiFallbackProviderId,
     isCheckingAIHealth,
     isRetryModalOpen,
+    consecutiveHealthyChecks,
+    lastHealthCheckTimestamp,
     checkAIHealth,
     openRetryModal,
     closeRetryModal,
+    resetAIHealthTimer,
+    ensureAIReady,
     initAIHealthMonitor,
   }
 })
