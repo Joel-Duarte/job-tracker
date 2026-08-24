@@ -1,61 +1,66 @@
 import apiClient from './client'
+import {
+  ApplicationsAdapter,
+  IntakeAdapter,
+  CandidateProfileAdapter,
+  AgentAdapter,
+  ActionItemsAdapter,
+  DiagnosticsAdapter,
+  AnalyticsAdapter,
+  AIConfigAdapter,
+  SystemSettingsAdapter,
+  EmailAccountsAdapter
+} from '../services/storageAdapter'
 
 export const ApplicationsAPI = {
-  list: (params = {}) => apiClient.get('/applications', { params }),
-  get: (id) => apiClient.get(`/applications/${id}`),
-  update: (id, data) => apiClient.patch(`/applications/${id}`, data),
-  transition: (id, data) => apiClient.post(`/applications/${id}/transition`, data),
-  bulkTransition: (data) => apiClient.post('/applications/bulk-transition', data),
-  delete: (id) => apiClient.delete(`/applications/${id}`),
-  byStatus: () => apiClient.get('/applications/by-status'),
-  generateInterviewGuide: (id, data = {}) => apiClient.post(`/applications/${id}/interview-guide`, data),
-  clearInterviewGuide: (id) => apiClient.delete(`/applications/${id}/interview-guide`),
-  getCoverLetter: (id) => apiClient.get(`/applications/${id}/cover-letter`),
-  generateCoverLetter: (id, data = {}) => apiClient.post(`/applications/${id}/cover-letter/generate`, data),
-  updateCoverLetter: (id, data) => apiClient.patch(`/applications/${id}/cover-letter`, data),
-  regenerateCoverLetter: (id, data = {}) => apiClient.post(`/applications/${id}/cover-letter/regenerate`, data),
+  list: (params = {}) => ApplicationsAdapter.list(params),
+  get: (id) => ApplicationsAdapter.get(id),
+  update: (id, data) => ApplicationsAdapter.update(id, data),
+  transition: (id, data) => ApplicationsAdapter.transition(id, data),
+  bulkTransition: (data) => ApplicationsAdapter.bulkTransition(data),
+  delete: (id) => ApplicationsAdapter.delete(id),
+  byStatus: () => ApplicationsAdapter.byStatus(),
+  generateInterviewGuide: (id, data = {}) => ApplicationsAdapter.generateInterviewGuide(id, data),
+  clearInterviewGuide: (id) => ApplicationsAdapter.clearInterviewGuide(id),
+  getCoverLetter: (id) => ApplicationsAdapter.getCoverLetter(id),
+  generateCoverLetter: (id, data = {}) => ApplicationsAdapter.generateCoverLetter(id, data),
+  updateCoverLetter: (id, data) => ApplicationsAdapter.updateCoverLetter(id, data),
+  regenerateCoverLetter: (id, data = {}) => ApplicationsAdapter.regenerateCoverLetter(id, data),
 }
 
 export const IntakeAPI = {
-  paste: (data) => apiClient.post('/intake/paste', data),
-  upload: (formData) =>
-    apiClient.post('/intake/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }),
+  paste: (data) => IntakeAdapter.paste(data),
+  upload: (formData) => IntakeAdapter.upload ? IntakeAdapter.upload(formData) : apiClient.post('/intake/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   assessJob: (data) => apiClient.post('/intake/assess-job', data),
-  enqueueAssessment: (data) => apiClient.post('/intake/enqueue-assessment', data),
-  getEvaluations: (limit = 50) => apiClient.get('/intake/evaluations', { params: { limit } }),
-  deleteEvaluation: (taskId) => apiClient.delete(`/intake/evaluations/${taskId}`),
-  cancelEvaluation: (taskId) => apiClient.post(`/intake/evaluations/${taskId}/cancel`),
-  retryEvaluation: (taskId) => apiClient.post(`/intake/evaluations/${taskId}/retry`),
+  enqueueAssessment: (data) => IntakeAdapter.enqueueAssessment(data),
+  getEvaluations: (limit = 50) => IntakeAdapter.getEvaluations(limit),
+  deleteEvaluation: (taskId) => IntakeAdapter.deleteEvaluation(taskId),
+  cancelEvaluation: (taskId) => IntakeAdapter.cancelEvaluation(taskId),
+  retryEvaluation: (taskId) => IntakeAdapter.retryEvaluation(taskId),
   fixJDEvaluation: (taskId, data) => apiClient.post(`/intake/evaluations/${taskId}/fix-jd`, data),
   bulkRetryEvaluations: (taskIds) => apiClient.post('/intake/evaluations/bulk-retry', { task_ids: taskIds }),
   bulkDeleteEvaluations: (taskIds) => apiClient.post('/intake/evaluations/bulk-delete', { task_ids: taskIds }),
-  clearCompletedEvaluations: () => apiClient.post('/intake/evaluations/clear-completed'),
-  confirmAssessment: (data) => apiClient.post('/intake/confirm-assessment', data),
-  getExtensionConfig: () => apiClient.get('/intake/extension-config'),
-  syncAccount: (data) => apiClient.post('/intake/sync-account', data),
+  clearCompletedEvaluations: () => IntakeAdapter.clearCompletedEvaluations(),
+  confirmAssessment: (data) => IntakeAdapter.confirmAssessment(data),
+  getExtensionConfig: () => IntakeAdapter.getExtensionConfig(),
+  syncAccount: (data) => IntakeAdapter.syncAccount(data),
   getTaskStatus: (taskId) => apiClient.get(`/intake/tasks/${taskId}`),
 }
 
-
 export const CandidateProfileAPI = {
-  get: () => apiClient.get('/profile/cv'),
-  save: (rawText) => apiClient.post('/profile/cv', { raw_text: rawText }),
+  get: () => CandidateProfileAdapter.get(),
+  save: (rawText) => CandidateProfileAdapter.save(rawText),
   getTaskStatus: (taskId) => apiClient.get(`/profile/cv/tasks/${taskId}`),
-  update: (id, data) => apiClient.patch(`/profile/cv/${id}`, data),
-  delete: (id) => apiClient.delete(`/profile/cv/${id}`),
-  parseFile: (formData) =>
-    apiClient.post('/profile/cv/parse-file', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }),
+  update: (id, data) => CandidateProfileAdapter.update ? CandidateProfileAdapter.update(id, data) : apiClient.patch(`/profile/cv/${id}`, data),
+  delete: (id) => CandidateProfileAdapter.delete ? CandidateProfileAdapter.delete(id) : apiClient.delete(`/profile/cv/${id}`),
+  parseFile: (formData) => CandidateProfileAdapter.parseFile(formData),
 }
 
 export const AgentAPI = {
   listChats: () => apiClient.get('/agent/chats'),
   getChat: (id) => apiClient.get(`/agent/chats/${id}`),
   deleteChat: (id) => apiClient.delete(`/agent/chats/${id}`),
-  chat: (messages, chatId = null) => apiClient.post('/agent/chat', { messages, chat_id: chatId }),
+  chat: (messages, chatId = null) => AgentAdapter.chat(messages, chatId),
 }
 
 export const PromptsAPI = {
@@ -82,31 +87,30 @@ export const SearchAPI = {
 }
 
 export const SystemSettingsAPI = {
-  get: () => apiClient.get('/config/system'),
-  update: (data) => apiClient.patch('/config/system', data),
+  get: () => SystemSettingsAdapter.get(),
+  update: (data) => SystemSettingsAdapter.update(data),
 }
 
 export const AIConfigAPI = {
-  checkHealth: () => apiClient.get('/config/ai/health'),
-  getGlobalSettings: () => apiClient.get('/ai/global-settings'),
-  updateGlobalSettings: (data) => apiClient.patch('/ai/global-settings', data),
+  checkHealth: () => AIConfigAdapter.checkHealth(),
+  getGlobalSettings: () => AIConfigAdapter.getGlobalSettings(),
+  updateGlobalSettings: (data) => AIConfigAdapter.updateGlobalSettings(data),
   reindexEmbeddings: () => apiClient.post('/ai/reindex-embeddings'),
-  listProviders: () => apiClient.get('/ai/providers'),
-  createProvider: (data) => apiClient.post('/ai/providers', data),
-  updateProvider: (id, data) => apiClient.patch(`/ai/providers/${id}`, data),
-  deleteProvider: (id) => apiClient.delete(`/ai/providers/${id}`),
+  listProviders: () => AIConfigAdapter.listProviders(),
+  createProvider: (data) => AIConfigAdapter.createProvider(data),
+  updateProvider: (id, data) => AIConfigAdapter.updateProvider(id, data),
+  deleteProvider: (id) => AIConfigAdapter.deleteProvider(id),
   testProvider: (id) => apiClient.post(`/ai/providers/${id}/test`),
   getProviderModels: (id) => apiClient.get(`/ai/providers/${id}/models`),
   probeModel: (id, modelName) => apiClient.post(`/ai/providers/${id}/probe-model`, { model_name: modelName }),
-  listBindings: () => apiClient.get('/ai/bindings'),
-  setBinding: (taskType, data) => apiClient.put(`/ai/bindings/${taskType}`, data),
+  listBindings: () => AIConfigAdapter.listBindings(),
+  setBinding: (taskType, data) => AIConfigAdapter.setBinding(taskType, data),
   deleteBinding: (taskType) => apiClient.delete(`/ai/bindings/${taskType}`),
   testBinding: (taskType) => apiClient.post(`/ai/bindings/${taskType}/test`),
 }
 
-
 export const EmailAccountsAPI = {
-  list: () => apiClient.get('/email_accounts'),
+  list: () => EmailAccountsAdapter.list(),
   get: (id) => apiClient.get(`/email_accounts/${id}`),
   create: (data) => apiClient.post('/email_accounts', data),
   update: (id, data) => apiClient.patch(`/email_accounts/${id}`, data),
@@ -119,24 +123,25 @@ export const EmailAccountsAPI = {
 }
 
 export const ActionItemsAPI = {
-  list: (params = {}) => apiClient.get('/action-items', { params }),
-  create: (data) => apiClient.post('/action-items', data),
-  update: (id, data) => apiClient.patch(`/action-items/${id}`, data),
-  updateUrgency: (id, manual_urgency) => apiClient.put(`/action-items/${id}/urgency`, { manual_urgency }),
-  delete: (id) => apiClient.delete(`/action-items/${id}`),
+  list: (params = {}) => ActionItemsAdapter.list(params),
+  create: (data) => ActionItemsAdapter.create(data),
+  update: (id, data) => ActionItemsAdapter.update(id, data),
+  updateUrgency: (id, manual_urgency) => ActionItemsAdapter.update(id, { manual_urgency }),
+  delete: (id) => ActionItemsAdapter.delete(id),
 }
 
 export const DiagnosticsAPI = {
   export: () => apiClient.get('/diagnostics/export', { responseType: 'blob' }),
-  getStats: () => apiClient.get('/diagnostics/stats'),
-  getTraces: (params = {}) => apiClient.get('/diagnostics/traces', { params }),
+  getStats: () => DiagnosticsAdapter.getStats(),
+  getTraces: (params = {}) => DiagnosticsAdapter.getTraces(params),
   getTrace: (runId) => apiClient.get(`/diagnostics/traces/${runId}`),
-  purge: () => apiClient.delete('/diagnostics/purge')
+  purge: () => DiagnosticsAdapter.purge()
 }
+
 export const AnalyticsAPI = {
-  getOverview: (params = {}) => apiClient.get('/analytics/overview', { params }),
+  getOverview: (params = {}) => AnalyticsAdapter.getOverview(params),
   getWorkModelBreakdown: () => apiClient.get('/analytics/work-model-breakdown'),
-  getFunnelMetrics: (params = {}) => apiClient.get('/analytics/funnel', { params }),
+  getFunnelMetrics: (params = {}) => AnalyticsAdapter.getFunnelMetrics(params),
 }
 
 export const InterviewSimulatorAPI = {
@@ -154,4 +159,3 @@ export const InterviewSimulatorAPI = {
 export const EventsAPI = {
   delete: (id, source = 'application') => apiClient.delete(`/events/${id}`, { params: { source } }),
 }
-

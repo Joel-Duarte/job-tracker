@@ -2,6 +2,8 @@
 import { onMounted } from 'vue'
 import { AIConfigAPI } from './api/endpoints'
 import { useUIStore } from './stores/uiStore'
+import { isLocalOrDemoMode } from './services/storageAdapter'
+import { db, initAndSeedDatabase } from './db/localDatabase'
 import AppNavbar from './components/layout/AppNavbar.vue'
 import ApplicationDetailDrawer from './components/drawers/ApplicationDetailDrawer.vue'
 import IngestModal from './components/modals/IngestModal.vue'
@@ -16,8 +18,32 @@ import ToastNotification from './components/common/ToastNotification.vue'
 
 const uiStore = useUIStore()
 
+async function runBootTimeStalenessCheck() {
+  if (!isLocalOrDemoMode()) return
+  try {
+    await initAndSeedDatabase()
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString()
+    const apps = await db.applications.toArray()
+    let archivedCount = 0
+    for (const app of apps) {
+      if (app.status === 'APPLIED' && app.created_at < thirtyDaysAgo) {
+        app.status = 'ARCHIVED'
+        app.updated_at = new Date().toISOString()
+        await db.applications.put(app)
+        archivedCount++
+      }
+    }
+    if (archivedCount > 0) {
+      console.log(`[Boot Check] Auto-archived ${archivedCount} inactive local application(s).`)
+    }
+  } catch (err) {
+    console.warn('[Boot Check Error]', err)
+  }
+}
+
 onMounted(async () => {
   try {
+    await runBootTimeStalenessCheck()
     await uiStore.fetchSystemSettings()
     const provRes = await AIConfigAPI.listProviders()
     const providers = provRes.data || []
@@ -53,7 +79,6 @@ onMounted(async () => {
     <ToastNotification />
   </div>
 </template>
-
 
 <style scoped>
 .app-layout {
