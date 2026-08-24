@@ -22,8 +22,10 @@ import {
   ArrowDownRight,
   Filter,
   PieChart,
+  Banknote,
 } from 'lucide-vue-next'
 import { useUIStore } from '../stores/uiStore'
+import { getCurrencySymbol } from '../utils/formatters'
 import PageHeader from '../components/common/PageHeader.vue'
 
 const uiStore = useUIStore()
@@ -230,9 +232,11 @@ const workModelStats = computed(() => {
   }
 })
 
-function formatSalary(value) {
+function formatSalary(value, currency = null) {
   if (!value || isNaN(value)) return ''
-  return `$${(value / 1000).toFixed(0)}k`
+  const curr = currency || uiStore.defaultCurrency || 'EUR'
+  const sym = getCurrencySymbol(curr)
+  return `${sym}${(value / 1000).toFixed(0)}k`
 }
 
 function getSalaryTooltip(item) {
@@ -710,7 +714,7 @@ const maxCohortVolume = computed(() => {
               </div>
 
               <div v-if="analyticsData.salary_insights.length === 0" class="empty-state">
-                <DollarSign :size="24" class="text-muted" />
+                <Banknote :size="24" class="text-muted" />
                 <span>No salary compensation data found in tracked postings.</span>
               </div>
 

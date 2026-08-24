@@ -62,24 +62,53 @@ export function normalizeEmploymentType(raw) {
  * Formats salary ranges cleanly into compact representation:
  * - (180000, 220000, 'USD') -> "$180k–$220k"
  * - (150000, null, 'USD') -> "From $150k"
+/**
+ * Returns canonical currency symbol for display (e.g., 'EUR' -> '€', 'GBP' -> '£', 'USD' -> '$')
+ */
+export function getCurrencySymbol(curr = 'USD') {
+  switch (String(curr || '').toUpperCase()) {
+    case 'EUR':
+    case 'EURO':
+    case 'EUROS':
+    case '€':
+      return '€'
+    case 'GBP':
+    case 'POUND':
+    case 'POUNDS':
+    case '£':
+      return '£'
+    case 'CAD':
+    case 'CA$':
+      return 'CA$'
+    case 'AUD':
+    case 'AU$':
+      return 'AU$'
+    case 'CHF':
+      return 'CHF'
+    case 'BRL':
+    case 'R$':
+      return 'R$'
+    case 'JPY':
+    case '¥':
+      return '¥'
+    case 'USD':
+    case '$':
+    default:
+      return '$'
+  }
+}
+
+/**
+ * Formats salary ranges cleanly into compact representation:
+ * - (180000, 220000, 'USD') -> "$180k–$220k"
+ * - (150000, null, 'USD') -> "From $150k"
  * - (null, 200000, 'EUR') -> "Up to €200k"
  */
 export function formatSalaryRange(min, max, currency = 'USD') {
   const numMin = min !== null && min !== undefined ? Number(min) : null
   const numMax = max !== null && max !== undefined ? Number(max) : null
 
-  const getSymbol = (curr) => {
-    switch (String(curr || '').toUpperCase()) {
-      case 'EUR': return '€'
-      case 'GBP': return '£'
-      case 'CAD': return 'CA$'
-      case 'AUD': return 'AU$'
-      case 'USD':
-      default: return '$'
-    }
-  }
-
-  const sym = getSymbol(currency)
+  const sym = getCurrencySymbol(currency)
 
   if (numMin && numMax) {
     const minK = Math.round(numMin / 1000)

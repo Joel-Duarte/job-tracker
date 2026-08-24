@@ -20,6 +20,43 @@ from app.services.skill_normalizer import hybrid_extract_skills
 logger = logging.getLogger(__name__)
 
 
+def resolve_job_currency(
+    extracted_currency: str | None, raw_text: str | None = None
+) -> str:
+    if extracted_currency:
+        c = extracted_currency.strip().upper()
+        if c in ["EUR", "€", "EURO", "EUROS"]:
+            return "EUR"
+        if c in ["GBP", "£", "POUND", "POUNDS"]:
+            return "GBP"
+        if c in ["USD", "$"]:
+            return "USD"
+        if c in ["CAD", "CA$"]:
+            return "CAD"
+        if c in ["AUD", "AU$"]:
+            return "AUD"
+        if c in ["CHF"]:
+            return "CHF"
+        if len(c) == 3:
+            return c
+
+    if raw_text:
+        text_lower = raw_text.lower()
+        if (
+            "€" in raw_text
+            or " eur " in text_lower
+            or " euros" in text_lower
+            or " euro " in text_lower
+        ):
+            return "EUR"
+        if "£" in raw_text or " gbp " in text_lower or " pounds" in text_lower:
+            return "GBP"
+        if "$" in raw_text or " usd " in text_lower:
+            return "USD"
+
+    return "EUR"
+
+
 async def persist_or_stage_job_assessment(
     db: AsyncSession,
     assessment: JobAssessmentResult,
@@ -41,6 +78,9 @@ async def persist_or_stage_job_assessment(
     position_norm = position_name.lower()
     clean_url = normalize_job_url(job_url)
     now = datetime.now(UTC)
+    detected_currency = resolve_job_currency(
+        assessment.currency, raw_text or assessment.summary
+    )
 
     all_skills = hybrid_extract_skills(
         raw_text=raw_text or assessment.summary,
@@ -76,7 +116,7 @@ async def persist_or_stage_job_assessment(
                     description_markdown=raw_text or assessment.summary,
                     salary_min=assessment.salary_min,
                     salary_max=assessment.salary_max,
-                    currency=assessment.currency or "USD",
+                    currency=detected_currency,
                     location=assessment.location,
                     work_model=assessment.work_model,
                     required_skills=all_skills,
@@ -92,6 +132,7 @@ async def persist_or_stage_job_assessment(
                     job_posting.salary_min = assessment.salary_min
                 if assessment.salary_max is not None:
                     job_posting.salary_max = assessment.salary_max
+                job_posting.currency = detected_currency
                 if assessment.location:
                     job_posting.location = assessment.location
                 if assessment.work_model:
@@ -167,7 +208,7 @@ async def persist_or_stage_job_assessment(
         description_markdown=raw_text or assessment.summary,
         salary_min=assessment.salary_min,
         salary_max=assessment.salary_max,
-        currency=assessment.currency or "USD",
+        currency=detected_currency,
         location=assessment.location,
         work_model=assessment.work_model,
         required_skills=all_skills,
