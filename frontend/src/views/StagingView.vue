@@ -35,6 +35,7 @@ import PageHeader from '../components/common/PageHeader.vue'
 import DateTimePicker from '../components/common/DateTimePicker.vue'
 import CompanyLogo from '../components/common/CompanyLogo.vue'
 import { renderEmailBody } from '../utils/emailRenderer'
+import { fuzzyFilterApplications, scoreApplicationMatch } from '../utils/fuzzyMatch'
 
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
@@ -248,30 +249,36 @@ const selectedItem = computed(() => {
   return stagingItems.value.find((i) => i.id === selectedItemId.value) || null
 })
 
-// Smart suggestion existing/concluded application
+// Smart suggestion existing/concluded application with fuzzy company matching
 const smartSuggestionApp = computed(() => {
   if (!selectedItem.value || selectedItem.value.status !== 'PENDING') return null
-  const companyName = getItemCompany(selectedItem.value).toLowerCase().trim()
-  if (!companyName || companyName === 'unknown company') return null
+  const companyName = getItemCompany(selectedItem.value).trim()
+  if (!companyName || companyName.toLowerCase() === 'unknown company') return null
 
-  const companyApps = (appStore.applications || []).filter(
-    (a) => (a.company?.name || '').toLowerCase().trim() === companyName
-  )
-  if (!companyApps.length) return null
+  const scoredApps = (appStore.applications || [])
+    .map((a) => ({
+      app: a,
+      score: scoreApplicationMatch(a, companyName),
+    }))
+    .filter((entry) => entry.score >= 0.6)
+    .sort((a, b) => b.score - a.score)
+
+  if (!scoredApps.length) return null
+  const matchedApps = scoredApps.map((entry) => entry.app)
 
   if (selectedItem.value.match_reason === 'REAPPLICATION_PREVIOUSLY_CONCLUDED') {
-    const terminalApps = companyApps.filter((a) =>
+    const terminalApps = matchedApps.filter((a) =>
       ['REJECTED', 'ARCHIVED', 'WITHDRAWN', 'HIRED'].includes(a.status)
     )
-    if (!terminalApps.length) return companyApps[0]
+    if (!terminalApps.length) return matchedApps[0]
     return [...terminalApps].sort(
       (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
     )[0]
   } else {
-    const activeApps = companyApps.filter(
+    const activeApps = matchedApps.filter(
       (a) => !['REJECTED', 'ARCHIVED', 'WITHDRAWN', 'HIRED'].includes(a.status)
     )
-    return activeApps.length ? activeApps[0] : companyApps[0]
+    return activeApps.length ? activeApps[0] : matchedApps[0]
   }
 })
 
@@ -316,19 +323,18 @@ function selectNextItem() {
   }
 }
 
-// Applications search for linking
+// Applications search for linking with fuzzy matching & relevance ranking
 const filteredExistingApps = computed(() => {
   let apps = appStore.applications || []
   if (!includeArchivedApps.value) {
     apps = apps.filter((a) => !['REJECTED', 'ARCHIVED', 'WITHDRAWN'].includes(a.status))
   }
-  if (!appSearchQuery.value.trim()) return apps
-  const q = appSearchQuery.value.toLowerCase().trim()
-  return apps.filter(
-    (a) =>
-      (a.company?.name || '').toLowerCase().includes(q) ||
-      (a.position || '').toLowerCase().includes(q)
-  )
+  if (!appSearchQuery.value.trim()) {
+    return [...apps].sort(
+      (a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0)
+    )
+  }
+  return fuzzyFilterApplications(apps, appSearchQuery.value.trim(), 0.25)
 })
 
 // Populate resolveForm whenever selected item changes
