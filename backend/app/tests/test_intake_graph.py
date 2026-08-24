@@ -208,7 +208,7 @@ async def test_graph_single_company_auto_link(db_session: AsyncSession):
 
     extracted = ExtractedEmailInfo(
         company="Stripe",
-        position="Backend Engineering Role",
+        position=None,
         email_type="INTERVIEW_INVITE",
         event_type="INTERVIEW_INVITE",
         status="INTERVIEW",

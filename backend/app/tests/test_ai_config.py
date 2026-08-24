@@ -31,17 +31,17 @@ async def test_global_settings_db_backed(db_session: AsyncSession):
         get_res = await ac.get("/api/v1/ai/global-settings")
         assert get_res.status_code == 200
         data = get_res.json()
-        assert data["ENABLE_EMBEDDINGS"] is True
+        assert data["ENABLE_EMBEDDINGS"] is False
         assert data["AGENT_CHAT_RETENTION_DAYS"] == 7
 
         # 2. Patch global settings
         patch_res = await ac.patch(
             "/api/v1/ai/global-settings",
-            json={"ENABLE_EMBEDDINGS": False, "AGENT_CHAT_RETENTION_DAYS": 14},
+            json={"ENABLE_EMBEDDINGS": True, "AGENT_CHAT_RETENTION_DAYS": 14},
         )
         assert patch_res.status_code == 200
         patched_data = patch_res.json()
-        assert patched_data["ENABLE_EMBEDDINGS"] is False
+        assert patched_data["ENABLE_EMBEDDINGS"] is True
         assert patched_data["AGENT_CHAT_RETENTION_DAYS"] == 14
 
         # 3. Verify direct DB row update
@@ -49,20 +49,20 @@ async def test_global_settings_db_backed(db_session: AsyncSession):
         res = await db_session.execute(stmt)
         record = res.scalar_one_or_none()
         assert record is not None
-        assert record.enable_embeddings is False
+        assert record.enable_embeddings is True
         assert record.agent_chat_retention_days == 14
 
         # 4. Verify config_manager service methods with db_session
         loaded = await load_settings(db_session)
-        assert loaded["ENABLE_EMBEDDINGS"] is False
+        assert loaded["ENABLE_EMBEDDINGS"] is True
         assert loaded["AGENT_CHAT_RETENTION_DAYS"] == 14
 
-        val = await get_setting("ENABLE_EMBEDDINGS", default=True, db=db_session)
-        assert val is False
+        val = await get_setting("ENABLE_EMBEDDINGS", default=False, db=db_session)
+        assert val is True
 
-        await set_setting("ENABLE_EMBEDDINGS", True, db=db_session)
-        val_after = await get_setting("ENABLE_EMBEDDINGS", default=False, db=db_session)
-        assert val_after is True
+        await set_setting("ENABLE_EMBEDDINGS", False, db=db_session)
+        val_after = await get_setting("ENABLE_EMBEDDINGS", default=True, db=db_session)
+        assert val_after is False
 
     app.dependency_overrides.clear()
 

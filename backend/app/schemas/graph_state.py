@@ -25,6 +25,7 @@ class JobTrackerState(TypedDict, total=False):
     match_score: float
     company_id: int | None
     application_id: int | None
+    match_reason: str | None
     route: str  # "commit" | "staging" | "skip" | "other_event"
 
     # Scraping & Enrichment (Phase 3 readiness)

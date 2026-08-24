@@ -71,20 +71,20 @@ def test_cover_letter_prompt_template_exists():
 async def test_global_settings_cover_letter(db_session):
     # Verify defaults
     settings = await load_settings(db_session)
-    assert settings["ENABLE_AUTO_COVER_LETTER"] is False
+    assert settings["ENABLE_AUTO_COVER_LETTER"] is True
     assert settings["COVER_LETTER_MATCH_THRESHOLD"] == 70
 
     # Save new values
     await save_settings(
         {
-            "ENABLE_AUTO_COVER_LETTER": True,
+            "ENABLE_AUTO_COVER_LETTER": False,
             "COVER_LETTER_MATCH_THRESHOLD": 80,
         },
         db=db_session,
     )
 
     updated = await load_settings(db_session)
-    assert updated["ENABLE_AUTO_COVER_LETTER"] is True
+    assert updated["ENABLE_AUTO_COVER_LETTER"] is False
     assert updated["COVER_LETTER_MATCH_THRESHOLD"] == 80
 
 

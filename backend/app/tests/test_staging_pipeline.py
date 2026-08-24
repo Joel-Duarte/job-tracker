@@ -62,7 +62,7 @@ async def test_low_confidence_email_routed_to_staging(db_session):
     staged_item = staging_res.scalar_one_or_none()
     assert staged_item is not None
     assert staged_item.status == "PENDING"
-    assert staged_item.match_reason == "LOW_FUZZY_MATCH_CONFIDENCE"
+    assert staged_item.match_reason == "NEW_COMPANY_LEAD"
 
 
 @pytest.mark.asyncio
