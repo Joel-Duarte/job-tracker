@@ -12,11 +12,15 @@ const DEFAULT_WELCOME_MESSAGE = {
 }
 
 export const useAgentChatStore = defineStore('agentChat', () => {
+  const uiStore = useUIStore()
+  const appStore = useApplicationsStore()
+
   const chatId = ref(null)
   const chatsList = ref([])
   const messages = ref([{ ...DEFAULT_WELCOME_MESSAGE }])
   const isSending = ref(false)
   const isLoadingChats = ref(false)
+  const isLoadingMessages = ref(false)
 
   async function fetchChats(silent = false) {
     if (!silent && !chatsList.value.length) {
@@ -25,16 +29,9 @@ export const useAgentChatStore = defineStore('agentChat', () => {
     try {
       const res = await AgentAPI.listChats()
       const list = res.data || []
-      // Preserve optimistic placeholder if present during initial creation
-      if (chatId.value && String(chatId.value).startsWith('temp-')) {
-        const optimistic = chatsList.value.find(c => c.id === chatId.value)
-        if (optimistic) {
-          chatsList.value = [optimistic, ...list.filter(c => c.id !== chatId.value)]
-        } else {
-          chatsList.value = list
-        }
-      } else {
-        chatsList.value = list
+      chatsList.value = list
+      if (!chatId.value && list.length > 0) {
+        await loadChat(list[0].id)
       }
     } catch (e) {
       console.error('Failed to load chats:', e)
@@ -50,7 +47,7 @@ export const useAgentChatStore = defineStore('agentChat', () => {
       return
     }
     if (chatId.value === id) return
-    isLoadingChats.value = true
+    isLoadingMessages.value = true
     try {
       const res = await AgentAPI.getChat(id)
       chatId.value = res.data.id
@@ -60,10 +57,9 @@ export const useAgentChatStore = defineStore('agentChat', () => {
       }
     } catch (e) {
       console.error('Failed to load chat:', e)
-      const uiStore = useUIStore()
       uiStore.showToast('Failed to load chat', 'error')
     } finally {
-      isLoadingChats.value = false
+      isLoadingMessages.value = false
     }
   }
 
@@ -82,11 +78,9 @@ export const useAgentChatStore = defineStore('agentChat', () => {
       if (chatId.value === id) {
         resetChat()
       }
-      const uiStore = useUIStore()
       uiStore.showToast('Chat deleted', 'success')
     } catch (e) {
       console.error('Failed to delete chat:', e)
-      const uiStore = useUIStore()
       uiStore.showToast('Failed to delete chat', 'error')
     }
   }
@@ -135,10 +129,8 @@ export const useAgentChatStore = defineStore('agentChat', () => {
         actions: res.data.actions_performed || [],
       })
 
-      // Refresh chats list so the real title and id show up
-      fetchChats()
+      fetchChats(true)
 
-      // If any DB mutations occurred, refresh application store
       if (res.data.actions_performed?.length) {
         appStore.fetchApplications()
         uiStore.showToast('Agent updated pipeline records', 'success')
@@ -160,6 +152,7 @@ export const useAgentChatStore = defineStore('agentChat', () => {
     messages,
     isSending,
     isLoadingChats,
+    isLoadingMessages,
     fetchChats,
     loadChat,
     deleteChat,

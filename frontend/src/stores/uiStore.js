@@ -1,10 +1,15 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { SystemSettingsAPI, AIConfigAPI } from '../api/endpoints'
+import { isDemoModeEnabled, setDemoModeEnabled, resetDemoDb } from '../demo/demoStorage'
+import { useApplicationsStore } from './applicationsStore'
+import { useAgentChatStore } from './agentChatStore'
 
 export const useUIStore = defineStore('ui', () => {
   const theme = ref(localStorage.getItem('jt_theme') || 'midnight')
   const viewMode = ref(localStorage.getItem('jt_view_mode') || 'kanban') // 'kanban' | 'table'
+  const isDemoMode = ref(isDemoModeEnabled())
+
   const isIngestModalOpen = ref(false)
   const isJobIntakeModalOpen = ref(false)
   const isOnboardingWizardOpen = ref(false)
@@ -32,6 +37,38 @@ export const useUIStore = defineStore('ui', () => {
 
   function hideToast() {
     toast.value.show = false
+  }
+
+  function toggleDemoMode(enabled) {
+    const val = enabled !== undefined ? enabled : !isDemoMode.value
+    isDemoMode.value = val
+    setDemoModeEnabled(val)
+    showToast(
+      val ? 'Client Demo Mode activated (running locally without FastAPI backend).' : 'Live Backend Mode activated.',
+      'info'
+    )
+    // Refresh active applications store
+    try {
+      const appStore = useApplicationsStore()
+      appStore.fetchApplications()
+
+      const chatStore = useAgentChatStore()
+      chatStore.resetChat()
+      chatStore.fetchChats()
+    } catch {
+      // ignore
+    }
+  }
+
+  function resetDemoData() {
+    resetDemoDb()
+    showToast('Demo dataset reset to pristine mock state!', 'success')
+    try {
+      const appStore = useApplicationsStore()
+      appStore.fetchApplications()
+    } catch {
+      // ignore
+    }
   }
 
   function openJobIntakeModal() {
@@ -91,7 +128,6 @@ export const useUIStore = defineStore('ui', () => {
     const r = (num >> 16) & 255
     const g = (num >> 8) & 255
     const b = num & 255
-    // Relative luminance YIQ calculation (WCAG standard)
     const yiq = (r * 299 + g * 587 + b * 114) / 1000
     return yiq >= 128 ? '#0a0d14' : '#ffffff'
   }
@@ -105,14 +141,12 @@ export const useUIStore = defineStore('ui', () => {
 
     const rootStyle = document.documentElement.style
 
-    // 1. Background Canvas
     if (bg) {
       rootStyle.setProperty('--bg-app', bg)
     } else {
       rootStyle.removeProperty('--bg-app')
     }
 
-    // 2. Card / Surface
     if (surface) {
       rootStyle.setProperty('--bg-surface', surface)
       rootStyle.setProperty('--bg-card', surface)
@@ -125,7 +159,6 @@ export const useUIStore = defineStore('ui', () => {
       rootStyle.removeProperty('--bg-elevated')
     }
 
-    // 3. Primary Accent & Dynamic Contrast Text
     const effectivePrimary = primary || (isDark ? '#2dd4bf' : '#854d0e')
     const contrastText = getContrastColor(effectivePrimary)
     rootStyle.setProperty('--primary-contrast', contrastText)
@@ -146,7 +179,6 @@ export const useUIStore = defineStore('ui', () => {
       rootStyle.removeProperty('--primary-subtle')
     }
 
-    // 4. Border / Divider
     if (border) {
       rootStyle.setProperty('--border-color', border)
       rootStyle.setProperty('--border-subtle', border)
@@ -205,7 +237,6 @@ export const useUIStore = defineStore('ui', () => {
     ;['bg', 'surface', 'primary', 'border'].forEach((k) => resetCustomColor(themeName, k))
   }
 
-  // Alias functions for backward compatibility
   function setCustomBg(themeName, colorHex) {
     setCustomColor(themeName, 'bg', colorHex)
   }
@@ -217,14 +248,6 @@ export const useUIStore = defineStore('ui', () => {
   function setViewMode(mode) {
     viewMode.value = mode
     localStorage.setItem('jt_view_mode', mode)
-  }
-
-  function openIngestModal() {
-    isIngestModalOpen.value = true
-  }
-
-  function closeIngestModal() {
-    isIngestModalOpen.value = false
   }
 
   function openDetail(id, tab = 'timeline') {
@@ -291,7 +314,6 @@ export const useUIStore = defineStore('ui', () => {
         coverLetterLength.value = res.data.cover_letter_length ?? 'standard'
       }
     } catch (err) {
-      // Fallback to global settings endpoint if system config fails
       try {
         const res = await AIConfigAPI.getGlobalSettings()
         if (res && res.data) {
@@ -345,7 +367,6 @@ export const useUIStore = defineStore('ui', () => {
     autoArchiveDays.value = days
     localStorage.setItem('jt_auto_archiver_days', String(days))
   }
-
 
   // AI Health Monitoring State
   const aiStatus = ref('unconfigured') // 'healthy' | 'degraded' | 'offline' | 'unconfigured'
@@ -482,6 +503,9 @@ export const useUIStore = defineStore('ui', () => {
     setCustomBg,
     resetCustomBg,
     viewMode,
+    isDemoMode,
+    toggleDemoMode,
+    resetDemoData,
     defaultCurrency,
     SUPPORTED_CURRENCIES,
     isIngestModalOpen,

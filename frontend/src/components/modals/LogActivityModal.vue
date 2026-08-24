@@ -42,14 +42,13 @@ async function submitLog() {
     // We will just do a transition with notes to log the event.
     // ApplicationsAPI.transition actually accepts notes.
     // Wait, transition expects a 'status'. If we don't change status, we just send current status.
-    const app = appStore.applications.find(a => a.id === props.applicationId) ||
-                appStore.activeApplications.find(a => a.id === props.applicationId)
+    const app = appStore.applications.find(a => String(a.id) === String(props.applicationId)) ||
+                appStore.activeApplications.find(a => String(a.id) === String(props.applicationId))
     const currentStatus = app?.status || 'APPLIED'
 
-    // Instead of transition, is there a direct log event?
-    // Let's use transition to current status with notes for now
     await appStore.transitionApplication(props.applicationId, {
       status: currentStatus,
+      event_type: eventType.value,
       notes: `${eventType.value === 'CUSTOM_NOTE' ? '' : `[${eventType.value}] `}${summary.value.trim()}`
     })
 

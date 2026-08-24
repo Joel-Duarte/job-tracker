@@ -258,6 +258,17 @@ onUnmounted(() => {
     </div>
 
     <div class="nav-right">
+      <!-- Demo Mode Pill Badge -->
+      <button
+        v-if="uiStore.isDemoMode"
+        class="demo-mode-badge"
+        @click="goToAISettings"
+        title="Client Demo Mode Active - Running locally in browser. Click to manage in Settings."
+      >
+        <Sparkles :size="12" class="text-primary" />
+        <span>DEMO MODE</span>
+      </button>
+
       <!-- AI Health Monitoring Pill & Diagnostic Popover -->
       <div class="health-pill-container" ref="popoverContainerRef">
         <button
@@ -373,6 +384,27 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.demo-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background-color: var(--primary-subtle);
+  border: 1px solid var(--primary-glow);
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: var(--radius-full, 9999px);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.demo-mode-badge:hover {
+  background-color: rgba(59, 130, 246, 0.2);
+  transform: scale(1.02);
+}
+
 .navbar {
   display: flex;
   align-items: center;
