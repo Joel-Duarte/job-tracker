@@ -252,9 +252,17 @@ async def resolve_staging_item(
                     external_job_id=payload.external_job_id,
                     job_url=clean_job_url,
                     status=payload.status or "ASSESSMENT",
+                    application_date=(
+                        staged_item.email_received_at.date()
+                        if staged_item.email_received_at
+                        else datetime.now(UTC).date()
+                    ),
+                    last_activity_at=staged_item.email_received_at or datetime.now(UTC),
                 )
                 db.add(application)
                 await db.flush()
+            elif staged_item.email_received_at:
+                application.last_activity_at = staged_item.email_received_at
 
         # Update application status if modified
         if payload.status:

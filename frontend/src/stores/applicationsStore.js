@@ -24,10 +24,25 @@ export const useApplicationsStore = defineStore('applications', () => {
 
   const pipelineViewMode = ref('active') // 'active' | 'archive' | 'hired'
 
+  function getAppActivityDate(app) {
+    if (!app) return null
+    return (
+      app.last_activity_at ||
+      app.latest_event?.email_received_at ||
+      app.latest_event?.created_at ||
+      app.events?.[0]?.email_received_at ||
+      app.events?.[0]?.created_at ||
+      app.application_date ||
+      app.applied_at ||
+      app.created_at ||
+      null
+    )
+  }
+
   function matchesDateRange(app) {
     if (!selectedDateRange.value || selectedDateRange.value === 'all') return true
 
-    const appDateRaw = app.last_activity_at || app.applied_at || app.created_at || app.latest_event?.created_at
+    const appDateRaw = getAppActivityDate(app)
     if (!appDateRaw) return false
 
     const appTime = new Date(appDateRaw).getTime()
@@ -518,6 +533,7 @@ export const useApplicationsStore = defineStore('applications', () => {
     archivedApplications,
     hiredApplications,
     kanbanColumns,
+    getAppActivityDate,
     fetchApplications,
     fetchApplicationDetail,
     updateStatus,

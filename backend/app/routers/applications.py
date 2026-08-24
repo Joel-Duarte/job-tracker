@@ -268,6 +268,19 @@ async def list_applications(
             )
         )
 
+        effective_activity_at = (
+            app.last_activity_at
+            or (latest_evt.email_received_at if latest_evt else None)
+            or (
+                datetime.combine(app.application_date, datetime.min.time()).replace(
+                    tzinfo=UTC
+                )
+                if app.application_date
+                else None
+            )
+            or app.created_at
+        )
+
         items.append(
             ApplicationListItem(
                 id=app.id,
@@ -277,7 +290,7 @@ async def list_applications(
                 position=app.position,
                 status=app.status,
                 application_date=app.application_date,
-                last_activity_at=app.last_activity_at,
+                last_activity_at=effective_activity_at,
                 has_action_required=has_action,
                 has_interview_guide=bool(app.interview_guide_html),
                 has_cover_letter=bool(app.cover_letter_text),
@@ -512,6 +525,19 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
         else (match_payload.get("currency", "USD") if match_payload else "USD")
     )
 
+    effective_activity_at = (
+        app.last_activity_at
+        or (latest_evt.email_received_at if latest_evt else None)
+        or (
+            datetime.combine(app.application_date, datetime.min.time()).replace(
+                tzinfo=UTC
+            )
+            if app.application_date
+            else None
+        )
+        or app.created_at
+    )
+
     return ApplicationDetailResponse(
         id=app.id,
         company=CompanySummary(
@@ -520,7 +546,7 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
         position=app.position,
         status=app.status,
         application_date=app.application_date,
-        last_activity_at=app.last_activity_at,
+        last_activity_at=effective_activity_at,
         has_action_required=has_action,
         has_interview_guide=bool(app.interview_guide_html),
         has_cover_letter=bool(app.cover_letter_text),

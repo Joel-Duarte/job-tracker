@@ -870,7 +870,7 @@ async function confirmDelete() {
                 </td>
 
                 <td class="cell-date">
-                  {{ formatDate(app.rejection_date || app.last_activity_at) }}
+                  {{ formatDate(app.rejection_date || appStore.getAppActivityDate(app)) }}
                 </td>
 
                 <td class="cell-match">
@@ -949,7 +949,7 @@ async function confirmDelete() {
               <span v-if="app.salary_min || app.salary_max" class="hired-salary">
                 {{ formatSalaryRange(app.salary_min, app.salary_max, app.currency) }}
               </span>
-              <span class="hired-date">{{ formatDate(app.last_activity_at) }}</span>
+              <span class="hired-date">{{ formatDate(appStore.getAppActivityDate(app)) }}</span>
             </div>
           </div>
         </div>
@@ -1265,7 +1265,7 @@ async function confirmDelete() {
                 </td>
 
                 <td class="cell-date">
-                  {{ formatDate(app.last_activity_at || app.application_date) }}
+                  {{ formatDate(appStore.getAppActivityDate(app)) }}
                 </td>
 
                 <td>

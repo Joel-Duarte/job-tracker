@@ -587,6 +587,10 @@ async def db_commit_node(
             external_job_id=extracted.get("external_job_id"),
             job_url=normalize_job_url(raw_job_url) if raw_job_url else None,
             status=status_val,
+            application_date=(
+                received_at_dt.date() if received_at_dt else datetime.now(UTC).date()
+            ),
+            last_activity_at=received_at_dt or datetime.now(UTC),
         )
         db.add(application)
         await db.flush()
@@ -597,6 +601,8 @@ async def db_commit_node(
         application = app_res.scalar_one()
         if status_val:
             application.status = status_val
+        if received_at_dt:
+            application.last_activity_at = received_at_dt
 
     msg_id = state.get("message_id")
     if msg_id:
