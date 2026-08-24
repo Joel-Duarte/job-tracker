@@ -66,6 +66,22 @@ def test_normalize_skill_taxonomy():
     assert normalize_skill("javascript") == "JavaScript"
 
 
+def test_parenthetical_and_noise_stripping():
+    assert normalize_skill("CI/CD (GitHub Actions & GitLab CI)") == "CI/CD"
+    assert normalize_skill("Postgres database") == "PostgreSQL"
+    assert normalize_skill("AWS cloud infrastructure") == "AWS"
+    assert (
+        normalize_skill("vector embeddings retrieval augmented (rag)")
+        == "Retrieval-Augmented Generation (RAG)"
+    )
+
+
+def test_compound_splitting():
+    raw_list = ["Docker / Kubernetes", "React & Redux", "CI/CD"]
+    expected = ["Docker", "Kubernetes", "React", "Redux", "CI/CD"]
+    assert normalize_skills_list(raw_list) == expected
+
+
 def test_normalize_skill_casing_fallback():
     # Known taxonomy terms in dict
     assert normalize_skill("gRPC") == "gRPC"

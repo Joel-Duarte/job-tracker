@@ -22,12 +22,20 @@ async def test_get_analytics_overview_unit():
     company = CompanyModel(id=1, name="TechCorp")
 
     # 5 job postings with salaries: [100k, 120k, 150k, 180k, 500k (outlier)]
-    salaries = [(100000, 120000), (110000, 130000), (140000, 160000), (170000, 190000), (450000, 550000)]
+    salaries = [
+        (100000, 120000),
+        (110000, 130000),
+        (140000, 160000),
+        (170000, 190000),
+        (450000, 550000),
+    ]
     rows = []
     for i, (s_min, s_max) in enumerate(salaries):
-        app = ApplicationModel(id=i+1, company_id=1, status="APPLIED", application_date=datetime.now(UTC))
+        app = ApplicationModel(
+            id=i + 1, company_id=1, status="APPLIED", application_date=datetime.now(UTC)
+        )
         jp = JobPostingModel(
-            application_id=i+1,
+            application_id=i + 1,
             work_model="Remote",
             required_skills=["python", "fastapi"],
             salary_min=s_min,

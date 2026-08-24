@@ -44,7 +44,8 @@ async def persist_or_stage_job_assessment(
 
     all_skills = hybrid_extract_skills(
         raw_text=raw_text or assessment.summary,
-        llm_skills=(assessment.matching_skills or []) + (assessment.missing_skills or []),
+        llm_skills=(assessment.matching_skills or [])
+        + (assessment.missing_skills or []),
     )
 
     # 1. Update Existing Target Application (if specified)

@@ -341,7 +341,6 @@ async def get_analytics_overview(
         unknown_count=work_models["unknown"],
     )
 
-
     return AnalyticsOverviewResponse(
         total_applications=total_applications,
         active_pipeline_count=active_pipeline_count,

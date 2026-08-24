@@ -30,7 +30,6 @@ CANONICAL_SKILL_TAXONOMY: dict[str, str] = {
     "scikitlearn": "scikit-learn",
     "langchain": "LangChain",
     "langgraph": "LangGraph",
-
     # DevOps / Infrastructure / Cloud
     "ci/cd": "CI/CD",
     "cicd": "CI/CD",
@@ -54,7 +53,6 @@ CANONICAL_SKILL_TAXONOMY: dict[str, str] = {
     "ansible": "Ansible",
     "prometheus": "Prometheus",
     "grafana": "Grafana",
-
     # Databases & Storage
     "postgres": "PostgreSQL",
     "postgresql": "PostgreSQL",
@@ -70,7 +68,6 @@ CANONICAL_SKILL_TAXONOMY: dict[str, str] = {
     "qdrant": "Qdrant",
     "chromadb": "ChromaDB",
     "elasticsearch": "Elasticsearch",
-
     # Frontend Technologies
     "vue": "Vue.js",
     "vuejs": "Vue.js",
@@ -93,7 +90,6 @@ CANONICAL_SKILL_TAXONOMY: dict[str, str] = {
     "html5": "HTML5",
     "css": "CSS3",
     "css3": "CSS3",
-
     # Languages & Runtime
     "python": "Python",
     "python3": "Python",
@@ -113,7 +109,6 @@ CANONICAL_SKILL_TAXONOMY: dict[str, str] = {
     "java": "Java",
     "kotlin": "Kotlin",
     "swift": "Swift",
-
     # Backend / APIs / Web Frameworks
     "fastapi": "FastAPI",
     "fast api": "FastAPI",
@@ -130,6 +125,29 @@ CANONICAL_SKILL_TAXONOMY: dict[str, str] = {
     "oauth2": "OAuth 2.0",
 }
 
+# Protected acronyms/terms that contain slashes or hyphens and must never be split
+PROTECTED_COMPOUNDS = {"ci/cd", "pl/sql", "tcp/ip", "os/2"}
+
+# Common boilerplate filler suffixes
+NOISE_SUFFIXES = {
+    "pipelines",
+    "pipeline",
+    "development",
+    "developer",
+    "engineering",
+    "engineer",
+    "cloud",
+    "infrastructure",
+    "database",
+    "databases",
+    "architecture",
+    "management",
+    "administration",
+    "experience",
+    "skills",
+    "tools",
+}
+
 # Pre-compile regex search patterns for taxonomy keys sorted by length descending
 _SORTED_TAXONOMY_KEYS = sorted(CANONICAL_SKILL_TAXONOMY.keys(), key=len, reverse=True)
 _SKILL_PATTERNS: list[tuple[re.Pattern, str]] = []
@@ -144,11 +162,11 @@ for _key in _SORTED_TAXONOMY_KEYS:
 
 def normalize_skill(skill: str) -> str:
     """
-    Normalizes a single skill string.
-    - Trims whitespace.
-    - Performs exact lookup against CANONICAL_SKILL_TAXONOMY dictionary (lowercased key).
-    - If unmatched and the string is all lowercase or all uppercase, applies title-casing.
-    - Otherwise preserves original mixed-case / camelCase formatting.
+    Normalizes a single skill string using a multi-stage pipeline:
+    - Stage 1: Direct Taxonomy Match
+    - Stage 3: Parenthetical Stripping
+    - Stage 4: Boilerplate Noise Suffix Stripping
+    - Stage 5: Fallback Casing Rules
     """
     if not skill or not isinstance(skill, str):
         return ""
@@ -158,21 +176,67 @@ def normalize_skill(skill: str) -> str:
         return ""
 
     lookup_key = raw_trimmed.lower()
+
+    # Stage 1: Direct Taxonomy Match
     if lookup_key in CANONICAL_SKILL_TAXONOMY:
         return CANONICAL_SKILL_TAXONOMY[lookup_key]
 
-    # Unmatched term handling:
-    # Check if raw_trimmed is entirely lowercase or entirely uppercase
-    if raw_trimmed.islower() or raw_trimmed.isupper():
-        return raw_trimmed.title()
+    # Stage 3: Parenthetical Stripping
+    no_parens = re.sub(r"\(.*?\)", "", raw_trimmed).strip()
+    no_parens_key = no_parens.lower()
+    if no_parens_key and no_parens_key in CANONICAL_SKILL_TAXONOMY:
+        return CANONICAL_SKILL_TAXONOMY[no_parens_key]
+
+    current = no_parens if no_parens else raw_trimmed
+    current_key = current.lower()
+
+    # Stage 4: Boilerplate Noise Suffix Stripping
+    words = current.split()
+    while len(words) > 1 and words[-1].lower() in NOISE_SUFFIXES:
+        words.pop()
+        stem_candidate = " ".join(words).strip()
+        stem_key = stem_candidate.lower()
+        if stem_key in CANONICAL_SKILL_TAXONOMY:
+            return CANONICAL_SKILL_TAXONOMY[stem_key]
+        current = stem_candidate
+        current_key = stem_key
+
+    if current_key in CANONICAL_SKILL_TAXONOMY:
+        return CANONICAL_SKILL_TAXONOMY[current_key]
+
+    # Stage 5: Fallback Formatting
+    if current.islower() or current.isupper():
+        return current.title()
 
     # Preserve casing on mixed-case/camelCase terms
-    return raw_trimmed
+    return current
+
+
+def _split_compound_skill(skill: str) -> list[str]:
+    """Helper to split compound skills unless protected."""
+    if not skill or not isinstance(skill, str):
+        return []
+
+    trimmed = skill.strip()
+    if not trimmed:
+        return []
+
+    lower_val = trimmed.lower()
+    if lower_val in PROTECTED_COMPOUNDS or lower_val in CANONICAL_SKILL_TAXONOMY:
+        return [trimmed]
+
+    no_parens = re.sub(r"\(.*?\)", "", trimmed).strip().lower()
+    if no_parens in PROTECTED_COMPOUNDS or no_parens in CANONICAL_SKILL_TAXONOMY:
+        return [trimmed]
+
+    # Stage 2: Compound Splitting on " / ", " & ", or " + "
+    parts = re.split(r"\s+/\s+|\s+&\s+|\s+\+\s+", trimmed)
+    return [p.strip() for p in parts if p.strip()]
 
 
 def normalize_skills_list(skills: list[str]) -> list[str]:
     """
-    Normalizes an array of skills, removes duplicates (preserving canonical order),
+    Normalizes an array of skills with compound splitting, removes duplicates (preserving canonical order),
     and filters empty entries.
     """
     if not skills or not isinstance(skills, list):
@@ -182,10 +246,12 @@ def normalize_skills_list(skills: list[str]) -> list[str]:
     seen: set[str] = set()
 
     for s in skills:
-        norm = normalize_skill(s)
-        if norm and norm.lower() not in seen:
-            seen.add(norm.lower())
-            normalized_skills.append(norm)
+        sub_skills = _split_compound_skill(s)
+        for sub in sub_skills:
+            norm = normalize_skill(sub)
+            if norm and norm.lower() not in seen:
+                seen.add(norm.lower())
+                normalized_skills.append(norm)
 
     return normalized_skills
 
