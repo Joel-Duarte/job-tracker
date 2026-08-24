@@ -15,7 +15,7 @@
 
 **Job Tracker** is the all-in-one, local-first platform to automate job intake, assess skill fit with AI, practice interactive mock interviews, sync recruitment emails, and manage your job search pipeline. Built for privacy, speed, and intelligence.
 
-> 🎮 **Live Interactive Demo:** Try Job Tracker directly in your browser without installing anything: **[https://joel-duarte.github.io/job-tracker/](https://joel-duarte.github.io/job-tracker/)** (runs 100% client-side with full mock dataset & simulated AI workflows).
+> 🎮 **Live Interactive Demo:** Try Job Tracker directly in your browser without installing anything: **[https://joel-duarte.github.io/job-tracker/](https://joel-duarte.github.io/job-tracker/?ref=github)** (runs 100% client-side with full mock dataset & simulated AI workflows).
 
 ```
  ┌─────────────────────────────────────────────────────────────────────────────┐
