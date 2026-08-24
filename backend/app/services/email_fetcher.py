@@ -39,6 +39,7 @@ def _fetch_imap_emails_sync(
     folder: str = "INBOX",
     account_id: int | None = None,
     since_date: datetime | None = None,
+    max_results: int = 500,
 ) -> list[EmailPayload]:
     """Synchronous worker that performs actual IMAP connection and retrieval using scalar params."""
     if not imap_host or not app_password:
@@ -67,6 +68,9 @@ def _fetch_imap_emails_sync(
             return []
 
         email_ids = messages[0].split()
+        if len(email_ids) > max_results:
+            email_ids = email_ids[-max_results:]
+
         results = []
         batch_size = 50
 
@@ -146,7 +150,9 @@ def _fetch_imap_emails_sync(
 
 
 async def fetch_emails_from_account(
-    account: EmailAccountModel, since_date: datetime | None = None
+    account: EmailAccountModel,
+    since_date: datetime | None = None,
+    max_results: int = 500,
 ) -> tuple[list[EmailPayload], str | None]:
     """
     Fetches emails using either modern OAuth adapters (Google Workspace, Microsoft Graph)
@@ -169,6 +175,7 @@ async def fetch_emails_from_account(
             "auth_type": auth_type,
             "folder": getattr(account, "folder", "INBOX") or "INBOX",
             "since_date": since_date.isoformat() if since_date else None,
+            "max_results": max_results,
         },
     ) as ctx:
         raw_emails: list[EmailPayload] = []
@@ -205,6 +212,7 @@ async def fetch_emails_from_account(
                 raw_emails, new_cursor = await GmailOAuthAdapter.fetch_messages_delta(
                     access_token=token,
                     history_id=account.sync_cursor,
+                    max_results=max_results,
                     query=query_str,
                     since_date=since_date,
                 )
@@ -229,6 +237,7 @@ async def fetch_emails_from_account(
                     ) = await GmailOAuthAdapter.fetch_messages_delta(
                         access_token=token,
                         history_id=account.sync_cursor,
+                        max_results=max_results,
                         query=query_str,
                         since_date=since_date,
                     )
@@ -265,6 +274,7 @@ async def fetch_emails_from_account(
                 ) = await MicrosoftGraphAdapter.fetch_messages_delta(
                     access_token=token,
                     delta_link=account.sync_cursor,
+                    max_results=max_results,
                     folder_id=account.folder or "Inbox",
                     since_date=since_date,
                 )
@@ -289,6 +299,7 @@ async def fetch_emails_from_account(
                     ) = await MicrosoftGraphAdapter.fetch_messages_delta(
                         access_token=token,
                         delta_link=account.sync_cursor,
+                        max_results=max_results,
                         folder_id=account.folder or "Inbox",
                         since_date=since_date,
                     )
@@ -306,6 +317,7 @@ async def fetch_emails_from_account(
                 account.folder or "INBOX",
                 account.id,
                 since_date,
+                max_results,
             )
             new_cursor = None
 

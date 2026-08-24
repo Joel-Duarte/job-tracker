@@ -437,6 +437,7 @@ async def get_funnel_performance_metrics(
             and_(
                 IntakeEvaluationTaskModel.created_at >= oldest_start,
                 IntakeEvaluationTaskModel.created_at <= latest_end,
+                IntakeEvaluationTaskModel.task_type != "CV_EXTRACTION",
             )
         )
         intake_res = await db.execute(intake_query)

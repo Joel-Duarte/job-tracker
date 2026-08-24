@@ -198,6 +198,12 @@ class SyncFolderRequest(BaseModel):
     )
     folder: str | None = Field(default=None)
     since_date: datetime | None = Field(default=None)
+    max_results: int = Field(
+        default=500,
+        ge=1,
+        le=2000,
+        description="Maximum number of emails to scan/fetch during sync (default 500, up to 2000).",
+    )
     keyword_filter: list[str] = Field(
         default_factory=list,
         description="Optional filter keywords. If specified, only emails containing at least one keyword are ingested; otherwise all non-duplicate emails in the folder are processed.",
@@ -676,7 +682,9 @@ async def sync_email_account(
     # --- Step 1: Fetch from provider ---
     try:
         raw_emails, next_cursor = await fetch_emails_from_account(
-            account, since_date=payload.since_date
+            account,
+            since_date=payload.since_date,
+            max_results=payload.max_results,
         )
     except Exception as fetch_err:
         logger.error(

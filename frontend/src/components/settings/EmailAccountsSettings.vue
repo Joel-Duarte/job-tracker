@@ -298,6 +298,7 @@ async function triggerSync(acc) {
     const res = await IntakeAPI.syncAccount({
       account_id: acc.id,
       since_date: '2024-01-01',
+      max_results: 500,
     })
     uiStore.showToast(res.data.message || `Mailbox sync initiated for ${acc.name}!`, 'success')
     emit('refresh')

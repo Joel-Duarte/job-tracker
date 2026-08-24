@@ -15,6 +15,7 @@ import {
   Mail,
   Calendar,
   Filter,
+  Layers,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
@@ -36,6 +37,7 @@ const emailAccounts = ref([])
 const loadingAccounts = ref(false)
 const syncAccountId = ref(null)
 const syncWindow = ref(null)          // 'today' | '3d' | '7d' | '30d' | 'custom'
+const syncMaxResults = ref(500)
 const syncCustomDate = ref('')
 const syncKeywords = ref('')
 const syncResult = ref(null)
@@ -196,6 +198,7 @@ async function handleEmailSync() {
     const res = await IntakeAPI.syncAccount({
       account_id: syncAccountId.value,
       since_date: sinceDate,
+      max_results: Number(syncMaxResults.value) || 500,
       keyword_filter: keywords,
     })
     syncResult.value = res.data
@@ -400,6 +403,21 @@ const syncButtonLabel = computed => {
               class="form-input"
             />
             <p class="field-hint">By default, all new emails in the selected mailbox folder are processed. Add comma-separated keywords to filter if desired.</p>
+          </div>
+
+          <!-- Max Scan Limit selector -->
+          <div class="input-group">
+            <label class="input-label">
+              <Layers :size="12" class="inline-icon" />
+              Maximum Emails to Scan
+            </label>
+            <select v-model="syncMaxResults" class="form-select">
+              <option :value="100">100 emails (Fast)</option>
+              <option :value="250">250 emails</option>
+              <option :value="500">500 emails (Recommended)</option>
+              <option :value="1000">1,000 emails (Deep Backlog)</option>
+            </select>
+            <p class="field-hint">Paginates through mailbox history to backfill recruitment emails up to this limit.</p>
           </div>
 
           <div class="modal-actions">

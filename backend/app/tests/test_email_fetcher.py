@@ -104,4 +104,5 @@ async def test_fetch_emails_from_account_imap_threaded():
             "INBOX",
             account.id,
             None,
+            500,
         )

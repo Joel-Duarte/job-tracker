@@ -223,4 +223,5 @@ async def test_mock_imap_email_fetching():
             "INBOX",
             account.id,
             None,
+            500,
         )
