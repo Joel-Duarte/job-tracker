@@ -1,4 +1,9 @@
-from app.services.skill_normalizer import normalize_skill, normalize_skills_list
+from app.services.skill_normalizer import (
+    extract_skills_from_text,
+    hybrid_extract_skills,
+    normalize_skill,
+    normalize_skills_list,
+)
 
 
 def test_normalize_skill_taxonomy():
@@ -102,3 +107,27 @@ def test_normalize_skills_list():
         "React",
     ]
     assert normalize_skills_list(raw_list) == expected
+
+
+def test_extract_skills_from_text():
+    text = "Experience with Python, FastAPI, Docker, and CI/CD pipelines"
+    extracted = extract_skills_from_text(text)
+    assert "Python" in extracted
+    assert "FastAPI" in extracted
+    assert "Docker" in extracted
+    assert "CI/CD" in extracted
+
+
+def test_hybrid_extract_skills():
+    raw_text = "We build LLM apps with Python, Postgres, and Docker containers."
+    llm_skills = ["python", "Large Language Models", "PostgreSQL", "Tailwind CSS"]
+
+    result = hybrid_extract_skills(raw_text, llm_skills)
+
+    assert "Python" in result
+    assert "Large Language Models (LLM)" in result
+    assert "PostgreSQL" in result
+    assert "Docker" in result
+    assert "Tailwind CSS" in result
+    # Check no duplicate variations
+    assert len(result) == len(set(s.lower() for s in result))

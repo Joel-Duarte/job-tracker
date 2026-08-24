@@ -1,9 +1,10 @@
 """
 Skill Canonicalization Engine.
 Provides zero-latency taxonomy dictionary mapping for technology skills, aliases, acronyms,
-and formatting normalization.
+and formatting normalization, alongside fast deterministic regex text scanning and hybrid extraction.
 """
 
+import re
 
 CANONICAL_SKILL_TAXONOMY: dict[str, str] = {
     # AI / ML / LLMs / Vector Search
@@ -129,6 +130,17 @@ CANONICAL_SKILL_TAXONOMY: dict[str, str] = {
     "oauth2": "OAuth 2.0",
 }
 
+# Pre-compile regex search patterns for taxonomy keys sorted by length descending
+_SORTED_TAXONOMY_KEYS = sorted(CANONICAL_SKILL_TAXONOMY.keys(), key=len, reverse=True)
+_SKILL_PATTERNS: list[tuple[re.Pattern, str]] = []
+
+for _key in _SORTED_TAXONOMY_KEYS:
+    _escaped_key = re.escape(_key)
+    _prefix = r"(?<![a-zA-Z0-9])" if _key[0].isalnum() else r"(?<!\S)"
+    _suffix = r"(?![a-zA-Z0-9])"
+    _pattern = re.compile(_prefix + _escaped_key + _suffix, re.IGNORECASE)
+    _SKILL_PATTERNS.append((_pattern, CANONICAL_SKILL_TAXONOMY[_key]))
+
 
 def normalize_skill(skill: str) -> str:
     """
@@ -176,3 +188,37 @@ def normalize_skills_list(skills: list[str]) -> list[str]:
             normalized_skills.append(norm)
 
     return normalized_skills
+
+
+def extract_skills_from_text(text: str | None) -> list[str]:
+    """
+    Scans raw text using pre-compiled regex patterns to deterministically
+    detect all explicitly mentioned technical skills in CANONICAL_SKILL_TAXONOMY.
+    Returns a list of canonical skill names.
+    """
+    if not text or not isinstance(text, str):
+        return []
+
+    found_skills: list[str] = []
+    seen: set[str] = set()
+
+    for pattern, canonical_name in _SKILL_PATTERNS:
+        if pattern.search(text):
+            if canonical_name.lower() not in seen:
+                seen.add(canonical_name.lower())
+                found_skills.append(canonical_name)
+
+    return found_skills
+
+
+def hybrid_extract_skills(
+    raw_text: str | None,
+    llm_skills: list[str] | None = None,
+) -> list[str]:
+    """
+    Combines regex-scanned skills from raw text with LLM-extracted skills,
+    returning a clean, deduplicated, canonical array.
+    """
+    regex_skills = extract_skills_from_text(raw_text)
+    combined = regex_skills + (llm_skills or [])
+    return normalize_skills_list(combined)
