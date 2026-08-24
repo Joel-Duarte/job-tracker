@@ -18,6 +18,8 @@ from app.models.applications import (
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.models.staging import StagingItemModel
 from app.schemas.staging import (
+    StagingBulkDismissRequest,
+    StagingBulkDismissResponse,
     StagingItemRead,
     StagingItemResolve,
     StagingPaginationResponse,
@@ -35,19 +37,33 @@ router = APIRouter(prefix="/staging", tags=["staging"])
 async def list_staging_items(
     status_filter: str | None = Query(default="PENDING", alias="status"),
     search: str | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=500),
+    sort_by: str = Query(default="received_at", pattern="^(received_at|created_at)$"),
+    sort_order: str = Query(default="desc", pattern="^(asc|desc)$"),
+    limit: int = Query(default=50, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
+    # Extract safe values for direct Python test calls and FastAPI queries
+    status_filter_val = (
+        status_filter
+        if isinstance(status_filter, str) or status_filter is None
+        else "PENDING"
+    )
+    search_val = search if isinstance(search, str) else None
+    sort_by_val = sort_by if isinstance(sort_by, str) else "received_at"
+    sort_order_val = sort_order if isinstance(sort_order, str) else "desc"
+    limit_val = limit if isinstance(limit, int) else 50
+    offset_val = offset if isinstance(offset, int) else 0
+
     query = select(StagingItemModel)
     count_query = select(func.count()).select_from(StagingItemModel)
 
-    if status_filter:
-        query = query.where(StagingItemModel.status == status_filter)
-        count_query = count_query.where(StagingItemModel.status == status_filter)
+    if status_filter_val:
+        query = query.where(StagingItemModel.status == status_filter_val)
+        count_query = count_query.where(StagingItemModel.status == status_filter_val)
 
-    if search and isinstance(search, str) and search.strip():
-        search_term = f"%{search.strip()}%"
+    if search_val and search_val.strip():
+        search_term = f"%{search_val.strip()}%"
         search_filter = or_(
             StagingItemModel.email_sender.ilike(search_term),
             StagingItemModel.email_sender_name.ilike(search_term),
@@ -61,9 +77,27 @@ async def list_staging_items(
     total_res = await db.execute(count_query)
     total = total_res.scalar_one()
 
-    query = (
-        query.order_by(StagingItemModel.created_at.desc()).offset(offset).limit(limit)
-    )
+    # Dynamic SQL Sorting
+    is_asc = sort_order_val.lower() == "asc"
+    if sort_by_val == "received_at":
+        sort_col = func.coalesce(
+            StagingItemModel.email_received_at, StagingItemModel.created_at
+        )
+        if is_asc:
+            query = query.order_by(sort_col.asc(), StagingItemModel.id.asc())
+        else:
+            query = query.order_by(sort_col.desc(), StagingItemModel.id.desc())
+    else:
+        if is_asc:
+            query = query.order_by(
+                StagingItemModel.created_at.asc(), StagingItemModel.id.asc()
+            )
+        else:
+            query = query.order_by(
+                StagingItemModel.created_at.desc(), StagingItemModel.id.desc()
+            )
+
+    query = query.offset(offset_val).limit(limit_val)
     result = await db.execute(query)
     db_items = result.scalars().all()
 
@@ -71,6 +105,54 @@ async def list_staging_items(
     items = [StagingItemRead.model_validate(item) for item in db_items]
 
     return StagingPaginationResponse(total=total, items=items)
+
+
+@router.post("/bulk-dismiss", response_model=StagingBulkDismissResponse)
+async def bulk_dismiss_staging_items(
+    payload: StagingBulkDismissRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk dismisses specific staging items or all pending staging items matching filters."""
+    if payload.dismiss_all_pending:
+        del_query = delete(StagingItemModel)
+        if payload.status_filter:
+            del_query = del_query.where(
+                StagingItemModel.status == payload.status_filter
+            )
+        if payload.search and payload.search.strip():
+            search_term = f"%{payload.search.strip()}%"
+            search_filter = or_(
+                StagingItemModel.email_sender.ilike(search_term),
+                StagingItemModel.email_sender_name.ilike(search_term),
+                StagingItemModel.email_subject.ilike(search_term),
+                StagingItemModel.match_reason.ilike(search_term),
+                cast(StagingItemModel.extracted_data, String).ilike(search_term),
+            )
+            del_query = del_query.where(search_filter)
+
+        res = await db.execute(del_query)
+        await db.commit()
+        count = res.rowcount
+        return StagingBulkDismissResponse(
+            dismissed_count=count,
+            message=f"Successfully dismissed {count} staging item{'s' if count != 1 else ''}.",
+        )
+
+    if not payload.item_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Either item_ids or dismiss_all_pending=true must be provided.",
+        )
+
+    del_stmt = delete(StagingItemModel).where(StagingItemModel.id.in_(payload.item_ids))
+    res = await db.execute(del_stmt)
+    await db.commit()
+    count = res.rowcount
+
+    return StagingBulkDismissResponse(
+        dismissed_count=count,
+        message=f"Successfully dismissed {count} staging item{'s' if count != 1 else ''}.",
+    )
 
 
 @router.get("/{item_id}", response_model=StagingItemRead)

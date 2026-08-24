@@ -546,7 +546,33 @@ export async function handleDemoRequest(config) {
           s.subject?.toLowerCase().includes(q)
       )
     }
-    return ok({ items, total: items.length })
+
+    const sortOrder = params.sort_order || 'desc'
+    items.sort((a, b) => {
+      const dateA = new Date(a.email_received_at || a.created_at || 0).getTime()
+      const dateB = new Date(b.email_received_at || b.created_at || 0).getTime()
+      return sortOrder === 'asc' ? dateA - dateB : dateB - dateA
+    })
+
+    const total = items.length
+    const offset = parseInt(params.offset, 10) || 0
+    const limit = parseInt(params.limit, 10) || 50
+    const paginated = items.slice(offset, offset + limit)
+
+    return ok({ items: paginated, total })
+  }
+
+  if (urlPath === '/staging/bulk-dismiss' && method === 'post') {
+    const idsToDismiss = data.item_ids || []
+    if (data.dismiss_all_pending) {
+      const count = (db.staging_items || []).filter((s) => (s.status || 'PENDING') === 'PENDING').length
+      db.staging_items = (db.staging_items || []).filter((s) => (s.status || 'PENDING') !== 'PENDING')
+      saveDemoDb(db)
+      return ok({ dismissed_count: count, message: `Successfully dismissed ${count} items.` })
+    }
+    db.staging_items = (db.staging_items || []).filter((s) => !idsToDismiss.includes(s.id))
+    saveDemoDb(db)
+    return ok({ dismissed_count: idsToDismiss.length, message: `Successfully dismissed ${idsToDismiss.length} items.` })
   }
 
   const stagingResolveMatch = urlPath.match(/^\/staging\/([^/]+)\/resolve$/)

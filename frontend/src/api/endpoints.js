@@ -69,6 +69,7 @@ export const StagingAPI = {
   list: (params = {}) => apiClient.get('/staging', { params }),
   resolve: (id, data) => apiClient.post(`/staging/${id}/resolve`, data),
   delete: (id) => apiClient.delete(`/staging/${id}`),
+  bulkDismiss: (data) => apiClient.post('/staging/bulk-dismiss', data),
   clearResolved: (daysOlderThan = null) =>
     apiClient.delete('/staging/resolved', {
       params: daysOlderThan !== null ? { days_older_than: daysOlderThan } : {},

@@ -45,13 +45,42 @@ const totalCount = ref(0)
 const loading = ref(false)
 const isLoadingMore = ref(false)
 const isSubmitting = ref(false)
+const isBulkDismissing = ref(false)
 const selectedFilter = ref('PENDING') // 'PENDING' | 'PROCESSED'
 const pendingCount = ref(0)
 const searchFilterQuery = ref('')
 const sortOrder = ref('FIFO') // 'FIFO' (Oldest Email First) | 'LIFO' (Newest Email First)
+const pageSize = ref(50) // 50 | 100 | 250 | 500
+const selectedIds = ref([])
 
 const hasMore = computed(() => stagingItems.value.length < totalCount.value)
 const itemsListRef = ref(null)
+
+const isAllSelected = computed(() => {
+  if (!stagingItems.value.length) return false
+  return stagingItems.value.every((item) => selectedIds.value.includes(item.id))
+})
+
+const isIndeterminate = computed(() => {
+  return selectedIds.value.length > 0 && !isAllSelected.value
+})
+
+function toggleSelectAll() {
+  if (isAllSelected.value) {
+    selectedIds.value = []
+  } else {
+    selectedIds.value = stagingItems.value.map((item) => item.id)
+  }
+}
+
+function toggleSelectItem(id) {
+  const idx = selectedIds.value.indexOf(id)
+  if (idx > -1) {
+    selectedIds.value.splice(idx, 1)
+  } else {
+    selectedIds.value.push(id)
+  }
+}
 
 // Resolved Cleanup State
 const clearOlderThanDays = ref(90) // 90 | 30 | 7 | null (All)
@@ -370,16 +399,23 @@ watch(
   { immediate: true }
 )
 
-// Fetch Staging Items API
-async function fetchStagingItems(silent = false) {
+// Fetch Staging Items API with server-side sorting and limit
+async function fetchStagingItems(silent = false, resetSelection = false) {
   if (!silent) {
     loading.value = true
   }
+  if (resetSelection) {
+    selectedIds.value = []
+  }
   try {
+    const sort_by = 'received_at'
+    const sort_order = sortOrder.value === 'FIFO' ? 'asc' : 'desc'
     const res = await StagingAPI.list({
       status: selectedFilter.value,
       search: searchFilterQuery.value.trim() || undefined,
-      limit: 50,
+      sort_by,
+      sort_order,
+      limit: pageSize.value,
       offset: 0,
     })
     stagingItems.value = res.data.items || []
@@ -410,10 +446,14 @@ async function loadMoreItems() {
   if (isLoadingMore.value || !hasMore.value) return
   isLoadingMore.value = true
   try {
+    const sort_by = 'received_at'
+    const sort_order = sortOrder.value === 'FIFO' ? 'asc' : 'desc'
     const res = await StagingAPI.list({
       status: selectedFilter.value,
       search: searchFilterQuery.value.trim() || undefined,
-      limit: 50,
+      sort_by,
+      sort_order,
+      limit: pageSize.value,
       offset: stagingItems.value.length,
     })
     const newItems = res.data.items || []
@@ -426,27 +466,81 @@ async function loadMoreItems() {
   }
 }
 
-// Load all remaining items in queue
+// Load all remaining items in queue in loop batches of 500
 async function loadAllItems() {
   if (isLoadingMore.value || !hasMore.value) return
   isLoadingMore.value = true
   try {
-    const remaining = totalCount.value - stagingItems.value.length
-    const res = await StagingAPI.list({
-      status: selectedFilter.value,
-      search: searchFilterQuery.value.trim() || undefined,
-      limit: Math.min(remaining, 500),
-      offset: stagingItems.value.length,
-    })
-    const newItems = res.data.items || []
-    stagingItems.value = [...stagingItems.value, ...newItems]
-    totalCount.value = res.data.total ?? totalCount.value
+    const sort_by = 'received_at'
+    const sort_order = sortOrder.value === 'FIFO' ? 'asc' : 'desc'
+    while (stagingItems.value.length < totalCount.value) {
+      const remaining = totalCount.value - stagingItems.value.length
+      const batchLimit = Math.min(remaining, 500)
+      const res = await StagingAPI.list({
+        status: selectedFilter.value,
+        search: searchFilterQuery.value.trim() || undefined,
+        sort_by,
+        sort_order,
+        limit: batchLimit,
+        offset: stagingItems.value.length,
+      })
+      const newItems = res.data.items || []
+      if (newItems.length === 0) break
+      stagingItems.value = [...stagingItems.value, ...newItems]
+      totalCount.value = res.data.total ?? totalCount.value
+    }
+    uiStore.showToast(`Loaded all ${stagingItems.value.length} staging items`, 'info')
   } catch (err) {
     uiStore.showToast(err.message, 'error')
   } finally {
     isLoadingMore.value = false
   }
 }
+
+// Bulk Dismiss Actions
+async function executeBulkDismissSelected() {
+  if (!selectedIds.value.length) return
+  isBulkDismissing.value = true
+  try {
+    const count = selectedIds.value.length
+    await StagingAPI.bulkDismiss({ item_ids: [...selectedIds.value] })
+    uiStore.showToast(`Dismissed ${count} staging item${count !== 1 ? 's' : ''}`, 'info')
+    selectedIds.value = []
+    await fetchStagingItems(false, true)
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to dismiss selected items', 'error')
+  } finally {
+    isBulkDismissing.value = false
+  }
+}
+
+async function executeDismissAllPending() {
+  if (!confirm(`Are you sure you want to dismiss all ${totalCount.value} pending staging items? This cannot be undone.`)) return
+  isBulkDismissing.value = true
+  try {
+    const res = await StagingAPI.bulkDismiss({
+      dismiss_all_pending: true,
+      status_filter: 'PENDING',
+      search: searchFilterQuery.value.trim() || undefined,
+    })
+    uiStore.showToast(res.data.message || 'All pending items dismissed', 'info')
+    selectedIds.value = []
+    selectedItemId.value = null
+    await fetchStagingItems(false, true)
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to dismiss all pending items', 'error')
+  } finally {
+    isBulkDismissing.value = false
+  }
+}
+
+watch(sortOrder, () => {
+  fetchStagingItems(false, true)
+})
+
+watch(pageSize, () => {
+  fetchStagingItems(false, true)
+})
 
 function handleSidebarScroll() {
   if (!itemsListRef.value || isLoadingMore.value || loading.value || !hasMore.value) return
@@ -711,20 +805,60 @@ function formatRelativeTime(isoStr) {
             </button>
           </div>
 
-          <!-- FIFO Sort Toggle Header -->
+          <!-- FIFO Sort Toggle Header & Controls -->
           <div class="sidebar-sort-bar">
-            <span class="sort-count-label">
-              Showing {{ filteredAndSortedItems.length }} of {{ totalCount }}
-            </span>
-            <button
-              class="btn-sort-toggle"
-              :title="sortOrder === 'FIFO' ? 'Switch to Newest Email First' : 'Switch to Oldest Email First'"
-              @click="sortOrder = sortOrder === 'FIFO' ? 'LIFO' : 'FIFO'"
-            >
-              <Clock :size="12" />
-              <span>{{ sortOrder === 'FIFO' ? 'Oldest Email' : 'Newest Email' }}</span>
-              <ArrowUpDown :size="11" />
-            </button>
+            <div class="sort-select-all-wrap">
+              <input
+                type="checkbox"
+                :checked="isAllSelected"
+                :indeterminate="isIndeterminate"
+                class="staging-check-input"
+                title="Select all currently loaded items"
+                @change="toggleSelectAll"
+              />
+              <span class="sort-count-label">
+                {{ selectedIds.length ? `${selectedIds.length} of ${stagingItems.length} sel.` : `${filteredAndSortedItems.length} of ${totalCount}` }}
+              </span>
+            </div>
+
+            <div class="sort-actions-right">
+              <select v-model="pageSize" class="page-size-select" title="Batch Size">
+                <option :value="50">50</option>
+                <option :value="100">100</option>
+                <option :value="250">250</option>
+                <option :value="500">500</option>
+              </select>
+
+              <button
+                class="btn-sort-toggle"
+                :title="sortOrder === 'FIFO' ? 'Switch to Newest Email First' : 'Switch to Oldest Email First'"
+                @click="sortOrder = sortOrder === 'FIFO' ? 'LIFO' : 'FIFO'"
+              >
+                <Clock :size="12" />
+                <span>{{ sortOrder === 'FIFO' ? 'Oldest First' : 'Newest First' }}</span>
+                <ArrowUpDown :size="11" />
+              </button>
+            </div>
+          </div>
+
+          <!-- Bulk Selection Action Strip -->
+          <div v-if="selectedIds.length > 0" class="sidebar-bulk-strip animate-fade-in">
+            <span class="bulk-strip-label">{{ selectedIds.length }} Selected</span>
+            <div class="bulk-strip-actions">
+              <button
+                class="btn-bulk-dismiss-act"
+                :disabled="isBulkDismissing"
+                title="Dismiss selected items from queue"
+                @click="executeBulkDismissSelected"
+              >
+                <Loader2 v-if="isBulkDismissing" class="animate-spin" :size="12" />
+                <Trash2 v-else :size="12" />
+                <span>Dismiss</span>
+              </button>
+              <button class="btn-bulk-clear-act" @click="selectedIds = []">
+                Clear
+              </button>
+            </div>
           </div>
 
           <!-- Inline Resolved Cleanup Bar -->
@@ -772,14 +906,25 @@ function formatRelativeTime(isoStr) {
             :class="{
               active: selectedItemId === item.id,
               'has-action': item.extracted_data?.action_required,
-              resolved: item.status !== 'PENDING'
+              resolved: item.status !== 'PENDING',
+              'is-selected': selectedIds.includes(item.id)
             }"
             @click="selectItem(item)"
           >
             <div class="item-header-row">
-              <div class="item-company-tag">
-                <Building2 :size="14" class="text-primary" />
-                <span class="item-company-name">{{ getItemCompany(item) }}</span>
+              <div class="item-header-left">
+                <input
+                  type="checkbox"
+                  :checked="selectedIds.includes(item.id)"
+                  class="staging-check-input item-card-check"
+                  title="Select for bulk actions"
+                  @click.stop
+                  @change="toggleSelectItem(item.id)"
+                />
+                <div class="item-company-tag">
+                  <Building2 :size="14" class="text-primary" />
+                  <span class="item-company-name">{{ getItemCompany(item) }}</span>
+                </div>
               </div>
               <div class="item-header-right">
                 <span class="item-time-tag">{{ formatRelativeTime(item.email_received_at || item.created_at) }}</span>
@@ -1378,6 +1523,96 @@ function formatRelativeTime(isoStr) {
   justify-content: space-between;
 }
 
+.sort-select-all-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.staging-check-input {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--primary);
+  border-radius: 3px;
+}
+
+.sort-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.page-size-select {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  padding: 3px 6px;
+  cursor: pointer;
+  outline: none;
+}
+
+.page-size-select:focus {
+  border-color: var(--primary);
+}
+
+.sidebar-bulk-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background-color: var(--primary-subtle, rgba(59, 130, 246, 0.1));
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-xs);
+}
+
+.bulk-strip-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.bulk-strip-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-bulk-dismiss-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #ffffff;
+  background-color: var(--danger, #ef4444);
+  border: none;
+  border-radius: var(--radius-xs);
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: opacity var(--transition-fast);
+}
+
+.btn-bulk-dismiss-act:hover {
+  opacity: 0.9;
+}
+
+.btn-bulk-clear-act {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.btn-bulk-clear-act:hover {
+  color: var(--text-main);
+}
+
 .sort-count-label {
   font-size: 12px;
   font-weight: 600;
@@ -1402,6 +1637,23 @@ function formatRelativeTime(isoStr) {
 .btn-sort-toggle:hover {
   color: var(--primary);
   border-color: var(--primary);
+}
+
+.item-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.item-card-check {
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.queue-item-card.is-selected {
+  border-color: var(--primary);
+  background-color: var(--primary-subtle, rgba(59, 130, 246, 0.05));
 }
 
 .sidebar-items-list {

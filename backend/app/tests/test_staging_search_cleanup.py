@@ -113,3 +113,114 @@ async def test_clear_resolved_staging_items(db_session):
     assert len(remaining) == 1
     assert remaining[0].email_subject == "Pending Action Required"
     assert remaining[0].status == "PENDING"
+
+
+@pytest.mark.asyncio
+async def test_staging_server_side_sorting(db_session):
+    """Test server-side sorting by received_at ASC (FIFO) and DESC (LIFO)."""
+    now = datetime.now(UTC)
+
+    item1 = StagingItemModel(
+        email_sender="recruiter1@company.com",
+        email_subject="First Email (Oldest)",
+        extracted_data={"company": "Company 1"},
+        status="PENDING",
+        email_received_at=now - timedelta(days=10),
+    )
+    item2 = StagingItemModel(
+        email_sender="recruiter2@company.com",
+        email_subject="Second Email (Middle)",
+        extracted_data={"company": "Company 2"},
+        status="PENDING",
+        email_received_at=now - timedelta(days=5),
+    )
+    item3 = StagingItemModel(
+        email_sender="recruiter3@company.com",
+        email_subject="Third Email (Newest)",
+        extracted_data={"company": "Company 3"},
+        status="PENDING",
+        email_received_at=now - timedelta(days=1),
+    )
+    db_session.add_all([item1, item2, item3])
+    await db_session.commit()
+
+    # 1. Test FIFO (Oldest First / ASC)
+    res_fifo = await list_staging_items(
+        status_filter="PENDING",
+        sort_by="received_at",
+        sort_order="asc",
+        limit=2,
+        offset=0,
+        db=db_session,
+    )
+    assert res_fifo.total == 3
+    assert len(res_fifo.items) == 2
+    assert res_fifo.items[0].email_subject == "First Email (Oldest)"
+    assert res_fifo.items[1].email_subject == "Second Email (Middle)"
+
+    # 2. Test LIFO (Newest First / DESC)
+    res_lifo = await list_staging_items(
+        status_filter="PENDING",
+        sort_by="received_at",
+        sort_order="desc",
+        limit=2,
+        offset=0,
+        db=db_session,
+    )
+    assert res_lifo.total == 3
+    assert len(res_lifo.items) == 2
+    assert res_lifo.items[0].email_subject == "Third Email (Newest)"
+    assert res_lifo.items[1].email_subject == "Second Email (Middle)"
+
+
+@pytest.mark.asyncio
+async def test_staging_bulk_dismiss(db_session):
+    """Test bulk dismissing specific item IDs and all pending items."""
+    from app.routers.staging import bulk_dismiss_staging_items
+    from app.schemas.staging import StagingBulkDismissRequest
+
+    item1 = StagingItemModel(
+        email_sender="user1@company.com",
+        email_subject="Dismiss Item 1",
+        extracted_data={"company": "C1"},
+        status="PENDING",
+    )
+    item2 = StagingItemModel(
+        email_sender="user2@company.com",
+        email_subject="Dismiss Item 2",
+        extracted_data={"company": "C2"},
+        status="PENDING",
+    )
+    item3 = StagingItemModel(
+        email_sender="user3@company.com",
+        email_subject="Keep Item 3",
+        extracted_data={"company": "C3"},
+        status="PENDING",
+    )
+    db_session.add_all([item1, item2, item3])
+    await db_session.commit()
+    await db_session.refresh(item1)
+    await db_session.refresh(item2)
+    await db_session.refresh(item3)
+
+    # 1. Bulk dismiss item1 and item2
+    req = StagingBulkDismissRequest(item_ids=[item1.id, item2.id])
+    res = await bulk_dismiss_staging_items(req, db=db_session)
+    assert res.dismissed_count == 2
+
+    # Verify only item3 remains
+    remaining = (await db_session.execute(select(StagingItemModel))).scalars().all()
+    assert len(remaining) == 1
+    assert remaining[0].id == item3.id
+
+    # 2. Bulk dismiss all pending
+    req_all = StagingBulkDismissRequest(
+        dismiss_all_pending=True, status_filter="PENDING"
+    )
+    res_all = await bulk_dismiss_staging_items(req_all, db=db_session)
+    assert res_all.dismissed_count == 1
+
+    remaining_after = (
+        (await db_session.execute(select(StagingItemModel))).scalars().all()
+    )
+    assert len(remaining_after) == 0

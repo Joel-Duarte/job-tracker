@@ -110,3 +110,24 @@ class StagingPaginationResponse(BaseModel):
 
     total: int
     items: list[StagingItemRead]
+
+
+class StagingBulkDismissRequest(BaseModel):
+    item_ids: list[int] | None = Field(
+        default=None, description="List of specific staging item IDs to dismiss."
+    )
+    dismiss_all_pending: bool = Field(
+        default=False,
+        description="If True, dismisses all pending staging items matching filters.",
+    )
+    status_filter: str | None = Field(
+        default="PENDING", description="Status filter when dismiss_all_pending is True."
+    )
+    search: str | None = Field(
+        default=None, description="Search filter when dismiss_all_pending is True."
+    )
+
+
+class StagingBulkDismissResponse(BaseModel):
+    dismissed_count: int
+    message: str
