@@ -59,7 +59,7 @@ const showRawDescription = ref(false)
 const isArchiving = ref(false)
 const deletingEventId = ref(null)
 
-// Timeline Email Viewer Modal State
+// Timeline Event / Email Viewer Modal State
 const viewingEmailEvent = ref(null)
 const emailModalViewMode = ref('formatted') // 'formatted' | 'raw'
 
@@ -70,26 +70,28 @@ function openEmailViewer(event) {
 
 function isEmailEvent(event) {
   if (!event) return false
-  const nonEmailTypes = [
-    'PRE_APPLICATION_ASSESSMENT',
-    'JOB_EVALUATION',
-    'APPLICATION_ASSESSMENT',
-    'NOTE',
-    'STAGE_CHANGE',
-    'STATUS_CHANGE',
-    'MOCK_INTERVIEW_COMPLETED',
-    'SYSTEM_ARCHIVE',
-  ]
-  if (nonEmailTypes.includes(event.email_event_type)) {
+  if (['PRE_APPLICATION_ASSESSMENT', 'JOB_EVALUATION', 'APPLICATION_ASSESSMENT', 'NOTE', 'STAGE_CHANGE', 'STATUS_CHANGE', 'MOCK_INTERVIEW_COMPLETED', 'SYSTEM_ARCHIVE'].includes(event.email_event_type)) {
     return false
   }
   if (['INTAKE', 'SYSTEM', 'MANUAL', 'JOB_POSTING'].includes(event.source_channel)) {
     return false
   }
   if (event.source_channel === 'EMAIL' || event.source_channel === 'STAGING') {
-    return Boolean(event.email_raw_body || event.email_message_id)
+    return true
   }
-  return Boolean(event.email_sender && (event.email_raw_body || event.email_message_id))
+  return Boolean(event.email_sender || event.email_raw_body || event.email_message_id)
+}
+
+function formatDisplayPayload(payload) {
+  if (!payload || typeof payload !== 'object') return {}
+  const res = {}
+  for (const [k, v] of Object.entries(payload)) {
+    if (['notes', 'structured_spec', 'match_analysis'].includes(k)) continue
+    if (v !== null && v !== undefined && (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')) {
+      res[k.replace(/_/g, ' ')] = String(v)
+    }
+  }
+  return res
 }
 
 async function handleToggleArchive() {
@@ -998,18 +1000,18 @@ function formatDate(isoStr) {
                       <span>Action Required: {{ event.email_action || 'Pending response' }}</span>
                     </div>
 
-                    <!-- View Original Email Action Button -->
+                    <!-- View Email Action Button -->
                     <div
                       v-if="isEmailEvent(event)"
                       class="event-email-action-row"
                     >
                       <button
                         class="btn-timeline-email"
-                        title="Open and read full original email communication with interactive links"
+                        title="Open and read email communication with interactive links"
                         @click="openEmailViewer(event)"
                       >
                         <Mail :size="12" />
-                        <span>View Original Email</span>
+                        <span>View Email</span>
                         <ExternalLink :size="11" class="btn-ext-icon" />
                       </button>
                     </div>
@@ -1697,18 +1699,22 @@ function formatDate(isoStr) {
         <div class="email-viewer-modal-header">
           <div class="email-viewer-header-meta">
             <div class="email-viewer-icon-wrap">
-              <Mail :size="18" class="text-primary" />
+              <Mail v-if="isEmailEvent(viewingEmailEvent)" :size="18" class="text-primary" />
+              <FileText v-else :size="18" class="text-primary" />
             </div>
             <div class="email-viewer-titles">
               <h3 class="email-viewer-subject">
-                {{ viewingEmailEvent.email_subject || '(No Subject Line)' }}
+                {{ viewingEmailEvent.email_subject || viewingEmailEvent.email_summary || viewingEmailEvent.email_event_type?.replace(/_/g, ' ') || 'Event Details' }}
               </h3>
               <div class="email-viewer-sub-meta">
-                <span class="email-viewer-sender">
-                  <strong>{{ viewingEmailEvent.email_sender_name || viewingEmailEvent.email_sender || 'Unknown Sender' }}</strong>
+                <span v-if="viewingEmailEvent.email_sender_name || viewingEmailEvent.email_sender" class="email-viewer-sender">
+                  <strong>{{ viewingEmailEvent.email_sender_name || viewingEmailEvent.email_sender }}</strong>
                   <span v-if="viewingEmailEvent.email_sender_name && viewingEmailEvent.email_sender" class="email-viewer-addr">
                     &lt;{{ viewingEmailEvent.email_sender }}&gt;
                   </span>
+                </span>
+                <span v-else class="email-viewer-sender">
+                  <strong>Source:</strong> {{ viewingEmailEvent.source_channel || 'System' }}
                 </span>
                 <span class="email-meta-dot">•</span>
                 <span class="email-viewer-time">
@@ -1733,14 +1739,14 @@ function formatDate(isoStr) {
                 :class="{ active: emailModalViewMode === 'raw' }"
                 @click="emailModalViewMode = 'raw'"
               >
-                Raw Text
+                Raw JSON
               </button>
             </div>
 
             <!-- Close Button -->
             <button
               class="btn-modal-close"
-              title="Close email preview"
+              title="Close preview"
               @click="viewingEmailEvent = null"
             >
               <X :size="18" />
@@ -1751,13 +1757,46 @@ function formatDate(isoStr) {
         <!-- Modal Body Content -->
         <div class="email-viewer-modal-body">
           <div v-if="emailModalViewMode === 'formatted'" class="email-viewer-formatted">
+            <!-- Raw email body render if available -->
             <div
+              v-if="viewingEmailEvent.email_raw_body"
               class="email-html-render"
-              v-html="renderEmailBody(viewingEmailEvent.email_raw_body || viewingEmailEvent.email_summary || '')"
+              v-html="renderEmailBody(viewingEmailEvent.email_raw_body)"
             ></div>
+
+            <!-- Event Summary & Notes fallback/supplement -->
+            <div v-else class="event-details-formatted-wrap">
+              <div v-if="viewingEmailEvent.email_summary" class="event-detail-summary-card">
+                <div class="summary-card-label">Summary / Description</div>
+                <div class="summary-card-text">{{ viewingEmailEvent.email_summary }}</div>
+              </div>
+
+              <div v-if="viewingEmailEvent.raw_payload?.notes" class="event-detail-notes-card">
+                <div class="notes-card-label">
+                  <FileText :size="13" class="text-primary" />
+                  <span>Recorded Note</span>
+                </div>
+                <div class="notes-card-text">{{ viewingEmailEvent.raw_payload.notes }}</div>
+              </div>
+
+              <div
+                v-if="viewingEmailEvent.raw_payload && Object.keys(formatDisplayPayload(viewingEmailEvent.raw_payload)).length > 0"
+                class="event-detail-props-grid"
+              >
+                <div
+                  v-for="(val, key) in formatDisplayPayload(viewingEmailEvent.raw_payload)"
+                  :key="key"
+                  class="event-prop-chip"
+                >
+                  <span class="prop-chip-name">{{ key }}:</span>
+                  <span class="prop-chip-val">{{ val }}</span>
+                </div>
+              </div>
+            </div>
           </div>
+
           <div v-else class="email-viewer-raw">
-            <pre class="raw-code-block">{{ viewingEmailEvent.email_raw_body || JSON.stringify(viewingEmailEvent, null, 2) }}</pre>
+            <pre class="raw-code-block">{{ JSON.stringify(viewingEmailEvent, null, 2) }}</pre>
           </div>
         </div>
 
@@ -3639,5 +3678,90 @@ function formatDate(isoStr) {
   padding: 2px 6px;
   border-radius: var(--radius-xs);
   border: 1px solid var(--border-color);
+}
+
+/* EVENT DETAILS MODAL STYLING */
+.event-details-formatted-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.event-detail-summary-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.summary-card-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.summary-card-text {
+  font-size: 13px;
+  color: var(--text-main);
+  line-height: 1.5;
+}
+
+.event-detail-notes-card {
+  background-color: var(--primary-subtle);
+  border: 1px solid var(--primary-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.notes-card-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.notes-card-text {
+  font-size: 13px;
+  color: var(--text-main);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.event-detail-props-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.event-prop-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  padding: 4px 10px;
+  border-radius: var(--radius-xs);
+  font-size: 12px;
+}
+
+.prop-chip-name {
+  text-transform: capitalize;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.prop-chip-val {
+  color: var(--text-main);
 }
 </style>
