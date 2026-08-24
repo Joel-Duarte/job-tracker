@@ -254,9 +254,11 @@ export async function handleDemoRequest(config) {
   if (urlPath === '/intake/enqueue-assessment' && method === 'post') {
     const newTask = {
       id: `task_eval_${Date.now()}`,
-      url: data.url || '',
+      task_type: 'JOB_ASSESSMENT',
+      job_url: data.url || '',
       company_name: data.company_name || 'Enqueued Corp',
       position: data.position || 'Software Engineer',
+      title_hint: data.company_name || 'Enqueued Job Lead',
       status: 'COMPLETED',
       stage: 'COMPLETED',
       progress: 100,
@@ -266,10 +268,63 @@ export async function handleDemoRequest(config) {
       error_message: null,
       created_at: new Date().toISOString(),
       completed_at: new Date().toISOString(),
+      result_json: {
+        company: data.company_name || 'Enqueued Corp',
+        position: data.position || 'Software Engineer',
+        summary: 'Demo enqueued job lead qualification complete.',
+        match_score: 87,
+        fit_score: 87,
+        programmatic_match_score: 85,
+        salary_min: 190000,
+        salary_max: 240000,
+        currency: 'USD',
+        location: 'Remote',
+        work_model: 'Remote',
+        matching_skills: ['Go', 'Distributed Systems', 'PostgreSQL'],
+        missing_skills: ['Docker'],
+        pros: ['Strong core tech stack alignment'],
+        cons: ['High applicant volume'],
+      }
     }
     db.intake_evaluations = [newTask, ...(db.intake_evaluations || [])]
     saveDemoDb(db)
     return ok(newTask)
+  }
+
+  if (urlPath === '/intake/confirm-assessment' && method === 'post') {
+    const newApp = {
+      id: `app_demo_${Date.now()}`,
+      company_name: data.company || 'Confirmed Tech Corp',
+      position: data.position || 'Software Engineer',
+      status: data.status || 'APPLIED',
+      location: data.location || 'Remote',
+      work_model: data.work_model || 'Remote',
+      salary_min: data.salary_min || 190000,
+      salary_max: data.salary_max || 240000,
+      currency: data.currency || 'USD',
+      url: data.job_url || '',
+      application_date: new Date().toISOString(),
+      last_activity_at: new Date().toISOString(),
+      match_score: data.match_analysis_payload?.match_score || 90,
+      fit_score: data.match_analysis_payload?.fit_score || 90,
+      programmatic_match_score: 88,
+      description: data.description_markdown || 'Confirmed assessment job posting.',
+      match_analysis_payload: data.match_analysis_payload || {},
+      events: [
+        {
+          id: `evt_conf_${Date.now()}`,
+          application_id: `app_demo_${Date.now()}`,
+          event_type: 'APPLICATION_CREATED',
+          title: 'Promoted Lead to Active Pipeline',
+          description: `Confirmed assessment and created application in ${data.status || 'APPLIED'} status.`,
+          created_at: new Date().toISOString(),
+          raw_payload: {}
+        }
+      ]
+    }
+    db.applications = [newApp, ...(db.applications || [])]
+    saveDemoDb(db)
+    return ok(newApp)
   }
 
   if (urlPath === '/intake/evaluations' && method === 'get') {
@@ -340,7 +395,7 @@ export async function handleDemoRequest(config) {
   }
 
   if (urlPath === '/intake/sync-account' && method === 'post') {
-    return ok({ status: 'disabled', message: 'Email sync disabled in client demo mode' })
+    return ok({ status: 'success', message: 'Simulated email sync complete! Parsed 2 unread messages.' })
   }
 
   // 3. CANDIDATE PROFILE ENDPOINTS
@@ -527,7 +582,7 @@ export async function handleDemoRequest(config) {
   if (urlPath === '/ai/global-settings' && method === 'get') {
     return ok({
       HAS_COMPLETED_ONBOARDING: db.system_settings?.has_completed_onboarding ?? true,
-      ENABLE_EMAIL_INTAKE: false,
+      ENABLE_EMAIL_INTAKE: true,
       ENABLE_EMBEDDINGS: true,
       ENABLE_AUTO_COVER_LETTER: true,
       COVER_LETTER_MATCH_THRESHOLD: 70,
@@ -536,7 +591,15 @@ export async function handleDemoRequest(config) {
   }
 
   if (urlPath === '/email_accounts' && method === 'get') {
-    return ok([])
+    return ok([
+      {
+        id: "email_demo_001",
+        email: "alex.rivera@example.com",
+        provider: "IMAP",
+        is_active: true,
+        last_synced_at: new Date().toISOString()
+      }
+    ])
   }
 
   // 8. INTERVIEW SIMULATOR ENDPOINTS
@@ -641,6 +704,23 @@ export async function handleDemoRequest(config) {
     return ok(db.agent_chats || [])
   }
 
+  const agentChatDetailMatch = urlPath.match(/^\/agent\/chats\/([^/]+)$/)
+  if (agentChatDetailMatch) {
+    const chatId = agentChatDetailMatch[1]
+    const chatIndex = (db.agent_chats || []).findIndex((c) => c.id === chatId)
+    if (method === 'get') {
+      if (chatIndex === -1) throw new Error('Chat not found')
+      return ok(db.agent_chats[chatIndex])
+    }
+    if (method === 'delete') {
+      if (chatIndex !== -1) {
+        db.agent_chats.splice(chatIndex, 1)
+        saveDemoDb(db)
+      }
+      return ok({ message: 'Chat deleted' })
+    }
+  }
+
   if (urlPath === '/agent/chat' && method === 'post') {
     const messages = data.messages || []
     const lastUserMsg = messages[messages.length - 1]?.content || 'Hello'
@@ -669,8 +749,9 @@ export async function handleDemoRequest(config) {
     saveDemoDb(db)
 
     return ok({
-      message: assistantMsg,
+      reply: assistantMsg.content,
       chat_id: chatId,
+      actions_performed: [],
     })
   }
 

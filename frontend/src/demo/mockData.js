@@ -403,9 +403,11 @@ export const INITIAL_MOCK_DATA = {
   intake_evaluations: [
     {
       id: "task_eval_101",
-      url: "https://stripe.com/jobs/staff-infra-engineer",
+      task_type: "JOB_ASSESSMENT",
+      job_url: "https://stripe.com/jobs/staff-infra-engineer",
       company_name: "Stripe",
       position: "Staff Infrastructure Engineer - Core Platform",
+      title_hint: "Stripe - Staff Infrastructure Engineer",
       status: "COMPLETED",
       stage: "COMPLETED",
       progress: 100,
@@ -414,13 +416,55 @@ export const INITIAL_MOCK_DATA = {
       raw_text: "Stripe Staff Infrastructure Engineer core platform posting details...",
       error_message: null,
       created_at: new Date(Date.now() - 86400000 * 25).toISOString(),
-      completed_at: new Date(Date.now() - 86400000 * 25).toISOString()
+      completed_at: new Date(Date.now() - 86400000 * 25).toISOString(),
+      result_json: {
+        application_id: "app_stripe_001",
+        company: "Stripe",
+        company_domain: "stripe.com",
+        position: "Staff Infrastructure Engineer - Core Platform",
+        summary: "Exceptional qualification match. Over 10 years experience in Go/Rust distributed systems aligns directly with Stripe core platform infrastructure requirements.",
+        match_score: 94,
+        fit_score: 94,
+        programmatic_match_score: 92,
+        salary_min: 240000,
+        salary_max: 290000,
+        currency: "USD",
+        location: "San Francisco, CA (Hybrid)",
+        work_model: "Hybrid",
+        matching_skills: ["Go", "Rust", "Distributed Systems", "PostgreSQL", "System Architecture"],
+        missing_skills: ["Proprietary Stripe Financial Ledger Tooling"],
+        pros: [
+          "10+ years experience building fault-tolerant backend platforms",
+          "Deep expertise in event-driven streaming and Raft/Paxos consensus",
+          "Strong compensation alignment ($240k - $290k)"
+        ],
+        cons: [
+          "Requires hybrid attendance in San Francisco office"
+        ],
+        tailoring_strategy: {
+          impact_reframing: [
+            {
+              bullet_point: "Maintained Kafka event streaming clusters for backend services.",
+              suggested_rewrite: "Architected high-throughput Kafka streaming pipelines processing 10B+ daily financial events with zero data loss.",
+              reason: "Emphasize financial scale and zero-loss reliability."
+            }
+          ],
+          structural_adjustments: [
+            "Highlight Raft consensus implementation in top experience section."
+          ],
+          vocabulary_translation: [
+            { cv_term: "Backend Services", jd_term: "Core Distributed Platform", replacement_guidance: "Use Stripe platform terminology." }
+          ]
+        }
+      }
     },
     {
       id: "task_eval_102",
-      url: "https://linear.app/careers/principal-backend",
+      task_type: "JOB_ASSESSMENT",
+      job_url: "https://linear.app/careers/principal-backend",
       company_name: "Linear",
       position: "Principal Backend Engineer - Real-time Sync",
+      title_hint: "Linear - Principal Backend Engineer",
       status: "COMPLETED",
       stage: "COMPLETED",
       progress: 100,
@@ -429,13 +473,54 @@ export const INITIAL_MOCK_DATA = {
       raw_text: "Linear Principal Backend job spec details...",
       error_message: null,
       created_at: new Date(Date.now() - 86400000 * 18).toISOString(),
-      completed_at: new Date(Date.now() - 86400000 * 18).toISOString()
+      completed_at: new Date(Date.now() - 86400000 * 18).toISOString(),
+      result_json: {
+        application_id: "app_linear_002",
+        company: "Linear",
+        company_domain: "linear.app",
+        position: "Principal Backend Engineer - Real-time Sync",
+        summary: "Strong strategic match for Linear's local-first architecture. Candidate demonstrates deep knowledge of WebSocket backpressure and conflict-free state resolution.",
+        match_score: 91,
+        fit_score: 91,
+        programmatic_match_score: 89,
+        salary_min: 220000,
+        salary_max: 270000,
+        currency: "USD",
+        location: "Remote (US/EU)",
+        work_model: "Remote",
+        matching_skills: ["Rust", "Distributed Systems", "TypeScript", "WebSocket", "System Architecture"],
+        missing_skills: ["Linear GraphQL Mesh"],
+        pros: [
+          "Proven track record in real-time distributed state sync",
+          "100% remote flexibility across US/EU timezones"
+        ],
+        cons: [
+          "High competition for principal level engineering role"
+        ],
+        tailoring_strategy: {
+          impact_reframing: [
+            {
+              bullet_point: "Built WebSocket server in Go.",
+              suggested_rewrite: "Engineered high-concurrency WebSocket state sync engine handling 50k active concurrent sockets with <15ms latency.",
+              reason: "Quantify concurrency metrics."
+            }
+          ],
+          structural_adjustments: [
+            "Emphasize CRDT and local-first data sync experience."
+          ],
+          vocabulary_translation: [
+            { cv_term: "Realtime Messaging", jd_term: "Local-First Sync Engine", replacement_guidance: "Align with Linear local-first paradigms." }
+          ]
+        }
+      }
     },
     {
       id: "task_eval_103",
-      url: "https://private-career-portal.internal/job/9821",
+      task_type: "JOB_ASSESSMENT",
+      job_url: "https://private-career-portal.internal/job/9821",
       company_name: "Unknown Company",
       position: "Backend Developer",
+      title_hint: "Unknown Company - Scrape Error",
       status: "FAILED",
       stage: "SCRAPE_FAILED",
       progress: 20,
@@ -553,12 +638,11 @@ export const INITIAL_MOCK_DATA = {
       run_id: "run_email_554",
       category: "email_sync",
       name: "fetch_imap_unread_emails",
-      status: "error",
+      status: "success",
       latency_ms: 310,
       start_time: new Date(Date.now() - 3600000 * 24).toISOString(),
       end_time: new Date(Date.now() - 3600000 * 24 + 310).toISOString(),
-      error: "Client Demo Mode: IMAP Sync disabled",
-      metadata: { mode: "demo" }
+      metadata: { mode: "demo", status: "simulated_sync" }
     },
     {
       id: "tr_005",
@@ -575,7 +659,7 @@ export const INITIAL_MOCK_DATA = {
 
   system_settings: {
     has_completed_onboarding: true,
-    enable_email_intake: false,
+    enable_email_intake: true,
     enable_embeddings: true,
     enable_auto_cover_letter: true,
     cover_letter_match_threshold: 70,
@@ -596,14 +680,23 @@ export const INITIAL_MOCK_DATA = {
           turn_number: 1,
           question: "Can you describe a time when you designed a high-throughput, real-time synchronization system under tight latency constraints?",
           user_answer: "At my previous company, I led the redesign of our WebSocket state synchronization layer using Rust and CRDTs. We reduced message broadcast latencies from 120ms to under 15ms by adopting delta-based state updates.",
-          score: 92,
+          score: 94,
           star_breakdown: { situation: true, task: true, action: true, result: true },
           feedback: "Outstanding STAR structure. Directly quantified latency improvements and technical architecture choices.",
           exemplar_rewrite: "I spearheaded the real-time sync overhaul, implementing state delta replication over WebSocket connection pools in Rust."
+        },
+        {
+          turn_number: 2,
+          question: "How did you manage conflict resolution and backpressure when clients reconnected with divergent state?",
+          user_answer: "We implemented an append-only log with logical vector clocks. When clients reconnected, we sent compressed delta operations rather than full snapshots, mitigating socket congestion.",
+          score: 92,
+          star_breakdown: { situation: true, task: true, action: true, result: true },
+          feedback: "Solid technical explanation of logical clocks and delta compression under network partition recovery.",
+          exemplar_rewrite: "By combining logical vector clocks with LZ4-compressed delta payloads, we guaranteed deterministic client convergence."
         }
       ],
-      readiness_score: 92,
-      summary_feedback: "Demonstrates exceptional technical mastery in real-time systems architecture and clear STAR communication.",
+      readiness_score: 93,
+      summary_feedback: "Demonstrates exceptional technical mastery in real-time systems architecture, conflict-free data types, and structured STAR communication.",
       created_at: new Date(Date.now() - 86400000 * 2).toISOString()
     }
   ],
@@ -611,18 +704,18 @@ export const INITIAL_MOCK_DATA = {
   agent_chats: [
     {
       id: "chat_demo_1",
-      title: "Preparation for Linear Technical Interview",
+      title: "Pipeline Overview & Linear Prep",
       created_at: new Date(Date.now() - 86400000 * 1).toISOString(),
       messages: [
         {
           id: "msg_1",
           role: "user",
-          content: "How should I structure my preparation for Linear's system design round?"
+          content: "Can you summarize my active job applications and upcoming interview deadlines?"
         },
         {
           id: "msg_2",
           role: "assistant",
-          content: "For Linear, focus heavily on **Local-First Architecture**, **CRDT Data Structures**, and **WebSocket State Syncing**. Be prepared to detail how you handle offline optimistic updates and resolve concurrent state mutations."
+          content: "Here is your active pipeline breakdown:\n\n- **Stripe** (Offer Received): $265k Base offer package. Action item due in 3 days.\n- **Linear** (Technical Interview): System Architecture screen scheduled in 2 days.\n- **Datadog** (Online Assessment): Take-home telemetry challenge due tomorrow.\n- **Figma** (Applied): Application submitted 8 days ago."
         }
       ]
     }
