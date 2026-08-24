@@ -17,6 +17,7 @@ export const INITIAL_MOCK_DATA = {
       id: "app_stripe_001",
       company_id: "comp_stripe",
       company_name: "Stripe",
+      company: { id: "comp_stripe", name: "Stripe", domain: "stripe.com" },
       position: "Staff Infrastructure Engineer - Core Platform",
       status: "OFFER",
       location: "San Francisco, CA (Hybrid)",
@@ -25,6 +26,7 @@ export const INITIAL_MOCK_DATA = {
       salary_max: 290000,
       currency: "USD",
       url: "https://stripe.com/jobs/staff-infra-engineer",
+      job_url: "https://stripe.com/jobs/staff-infra-engineer",
       application_date: new Date(Date.now() - 86400000 * 25).toISOString(),
       last_activity_at: new Date(Date.now() - 86400000 * 1).toISOString(),
       scheduled_interview_at: null,
@@ -34,6 +36,36 @@ export const INITIAL_MOCK_DATA = {
       fit_score: 94,
       programmatic_match_score: 92,
       description: "### Position Overview\nStripe is hiring a Staff Infrastructure Engineer to lead our Core Platform team. You will be responsible for building high-availability storage systems, optimizing request routing, and driving reliability across our global financial infrastructure.\n\n### Key Requirements\n- 8+ years experience in distributed backend systems.\n- Expertise in Go or Rust.\n- Deep understanding of consensus protocols (Raft/Paxos) and relational DB internals.",
+      job_posting: {
+        id: "jp_stripe_001",
+        title: "Staff Infrastructure Engineer - Core Platform",
+        company_name: "Stripe",
+        description_markdown: "### Position Overview\nStripe is hiring a Staff Infrastructure Engineer to lead our Core Platform team. You will be responsible for building high-availability storage systems, optimizing request routing, and driving reliability across our global financial infrastructure.\n\n### Key Requirements\n- 8+ years experience in distributed backend systems.\n- Expertise in Go or Rust.\n- Deep understanding of consensus protocols (Raft/Paxos) and relational DB internals.",
+        salary_min: 240000,
+        salary_max: 290000,
+        currency: "USD",
+        location: "San Francisco, CA (Hybrid)",
+        work_model: "Hybrid",
+        required_skills: ["Go", "Rust", "Distributed Systems", "PostgreSQL", "Raft"],
+        structured_spec: {
+          compensation_text: "$240,000 - $290,000 USD",
+          location_text: "San Francisco, CA",
+          workplace_type: "Hybrid",
+          why_hiring: "Scaling global financial infrastructure for higher throughput and zero downtime.",
+          what_you_will_build: "High-availability storage systems, idempotent request routing, and consensus protocols.",
+          responsibilities: [
+            "Lead architecture of distributed core storage systems in Go and Rust",
+            "Optimize request routing and low-latency database consensus protocols",
+            "Drive high availability across Stripe's global financial ledger"
+          ],
+          requirements: [
+            "8+ years experience in distributed backend engineering",
+            "Expertise in Go or Rust",
+            "Deep understanding of consensus protocols (Raft/Paxos)"
+          ],
+          extracted_skills: ["Go", "Rust", "Distributed Systems", "PostgreSQL", "Raft"]
+        }
+      },
       match_analysis_payload: {
         match_score: 94,
         fit_score: 94,
@@ -57,9 +89,13 @@ export const INITIAL_MOCK_DATA = {
         {
           id: "evt_stripe_1",
           application_id: "app_stripe_001",
+          email_event_type: "OFFER_RECEIVED",
           event_type: "OFFER_RECEIVED",
           title: "Received Formal Written Offer",
           description: "Offer package received: $265,000 Base + $120,000/yr Equity RSUs + $30,000 Signing Bonus.",
+          email_summary: "Offer package received: $265,000 Base + $120,000/yr Equity RSUs + $30,000 Signing Bonus.",
+          email_sender: "recruiting@stripe.com",
+          email_sender_name: "Stripe Recruiting",
           created_at: new Date(Date.now() - 86400000 * 1).toISOString(),
           raw_payload: {
             decision_deadline: new Date(Date.now() + 86400000 * 3).toISOString()
@@ -68,18 +104,27 @@ export const INITIAL_MOCK_DATA = {
         {
           id: "evt_stripe_2",
           application_id: "app_stripe_001",
+          email_event_type: "INTERVIEW_COMPLETED",
           event_type: "INTERVIEW_COMPLETED",
           title: "System Design & Executive Onsite",
           description: "Completed 4-round virtual onsite interview with Bar Raiser and VP of Engineering.",
+          email_summary: "Completed 4-round virtual onsite interview with Bar Raiser and VP of Engineering.",
+          email_sender: "recruiting@stripe.com",
+          email_sender_name: "Stripe Recruiting",
           created_at: new Date(Date.now() - 86400000 * 5).toISOString(),
           raw_payload: {}
         },
         {
           id: "evt_stripe_3",
           application_id: "app_stripe_001",
+          email_event_type: "EMAIL_RECEIVED",
           event_type: "EMAIL_RECEIVED",
           title: "Recruiter Scheduling Confirmation",
           description: "From: recruiting@stripe.com\nSubject: Stripe Onsite Interview Schedule\nHi Alex, Attached is your schedule for the upcoming core platform system design loop.",
+          email_summary: "Hi Alex, Attached is your schedule for the upcoming core platform system design loop.",
+          email_subject: "Stripe Onsite Interview Schedule",
+          email_sender: "recruiting@stripe.com",
+          email_sender_name: "Stripe Recruiting",
           created_at: new Date(Date.now() - 86400000 * 8).toISOString(),
           raw_payload: {
             sender: "recruiting@stripe.com",
@@ -92,6 +137,7 @@ export const INITIAL_MOCK_DATA = {
       id: "app_linear_002",
       company_id: "comp_linear",
       company_name: "Linear",
+      company: { id: "comp_linear", name: "Linear", domain: "linear.app" },
       position: "Principal Backend Engineer - Real-time Sync",
       status: "TECHNICAL_INTERVIEW",
       location: "Remote (US/EU)",
@@ -100,6 +146,7 @@ export const INITIAL_MOCK_DATA = {
       salary_max: 270000,
       currency: "USD",
       url: "https://linear.app/careers/principal-backend",
+      job_url: "https://linear.app/careers/principal-backend",
       application_date: new Date(Date.now() - 86400000 * 18).toISOString(),
       last_activity_at: new Date(Date.now() - 86400000 * 2).toISOString(),
       scheduled_interview_at: new Date(Date.now() + 86400000 * 2).toISOString(),
@@ -109,6 +156,36 @@ export const INITIAL_MOCK_DATA = {
       fit_score: 91,
       programmatic_match_score: 89,
       description: "### About Linear\nLinear is designing the future of issue tracking and project management. We are seeking a Principal Backend Engineer to evolve our local-first real-time synchronization engine and WebSocket infrastructure.",
+      job_posting: {
+        id: "jp_linear_002",
+        title: "Principal Backend Engineer - Real-time Sync",
+        company_name: "Linear",
+        description_markdown: "### About Linear\nLinear is designing the future of issue tracking and project management. We are seeking a Principal Backend Engineer to evolve our local-first real-time synchronization engine and WebSocket infrastructure.",
+        salary_min: 220000,
+        salary_max: 270000,
+        currency: "USD",
+        location: "Remote (US/EU)",
+        work_model: "Remote",
+        required_skills: ["Rust", "TypeScript", "WebSocket", "CRDT", "Distributed Systems"],
+        structured_spec: {
+          compensation_text: "$220,000 - $270,000 USD",
+          location_text: "Remote (US/EU)",
+          workplace_type: "Remote",
+          why_hiring: "Scaling local-first real-time issue sync for global enterprise teams.",
+          what_you_will_build: "Local-first optimistic state replication engine and WebSocket infrastructure.",
+          responsibilities: [
+            "Evolve conflict-free replicated data type (CRDT) sync engine",
+            "Optimize low-latency WebSocket connection pools in Rust",
+            "Maintain high availability for multi-tenant state synchronization"
+          ],
+          requirements: [
+            "7+ years experience in distributed systems and realtime protocols",
+            "Hands-on expertise in Rust or C++",
+            "Experience with local-first databases or CRDTs"
+          ],
+          extracted_skills: ["Rust", "WebSocket", "CRDT", "TypeScript"]
+        }
+      },
       match_analysis_payload: {
         match_score: 91,
         fit_score: 91,
@@ -128,9 +205,13 @@ export const INITIAL_MOCK_DATA = {
         {
           id: "evt_linear_1",
           application_id: "app_linear_002",
+          email_event_type: "INTERVIEW_SCHEDULED",
           event_type: "INTERVIEW_SCHEDULED",
           title: "System Architecture Deep Dive",
           description: "Technical interview scheduled with Co-founder / CTO.",
+          email_summary: "Technical interview scheduled with Co-founder / CTO.",
+          email_sender: "careers@linear.app",
+          email_sender_name: "Linear Careers",
           created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
           raw_payload: {
             scheduled_at: new Date(Date.now() + 86400000 * 2).toISOString()
@@ -139,9 +220,14 @@ export const INITIAL_MOCK_DATA = {
         {
           id: "evt_linear_2",
           application_id: "app_linear_002",
+          email_event_type: "EMAIL_RECEIVED",
           event_type: "EMAIL_RECEIVED",
           title: "Technical Screen Invitation",
           description: "From: careers@linear.app\nSubject: Linear Architecture Interview Invitation\nHi Alex, We would love to move forward with the technical deep dive.",
+          email_summary: "Hi Alex, We would love to move forward with the technical deep dive.",
+          email_subject: "Linear Architecture Interview Invitation",
+          email_sender: "careers@linear.app",
+          email_sender_name: "Linear Careers",
           created_at: new Date(Date.now() - 86400000 * 4).toISOString(),
           raw_payload: {
             sender: "careers@linear.app",
@@ -154,6 +240,7 @@ export const INITIAL_MOCK_DATA = {
       id: "app_figma_003",
       company_id: "comp_figma",
       company_name: "Figma",
+      company: { id: "comp_figma", name: "Figma", domain: "figma.com" },
       position: "Staff Systems Engineer - Multiplayer Engine",
       status: "APPLIED",
       location: "San Francisco, CA",
@@ -162,6 +249,7 @@ export const INITIAL_MOCK_DATA = {
       salary_max: 280000,
       currency: "USD",
       url: "https://figma.com/careers/staff-systems-multiplayer",
+      job_url: "https://figma.com/careers/staff-systems-multiplayer",
       application_date: new Date(Date.now() - 86400000 * 8).toISOString(),
       last_activity_at: new Date(Date.now() - 86400000 * 8).toISOString(),
       scheduled_interview_at: null,
@@ -171,6 +259,34 @@ export const INITIAL_MOCK_DATA = {
       fit_score: 88,
       programmatic_match_score: 87,
       description: "### Role Overview\nFigma's Multiplayer Engine powers real-time collaboration for millions of designers simultaneously. Join us to scale C++/Rust server workers, low-latency WebSocket clusters, and memory-efficient document stores.",
+      job_posting: {
+        id: "jp_figma_003",
+        title: "Staff Systems Engineer - Multiplayer Engine",
+        company_name: "Figma",
+        description_markdown: "### Role Overview\nFigma's Multiplayer Engine powers real-time collaboration for millions of designers simultaneously. Join us to scale C++/Rust server workers, low-latency WebSocket clusters, and memory-efficient document stores.",
+        salary_min: 230000,
+        salary_max: 280000,
+        currency: "USD",
+        location: "San Francisco, CA",
+        work_model: "Hybrid",
+        required_skills: ["C++", "Rust", "WebAssembly", "Low Latency"],
+        structured_spec: {
+          compensation_text: "$230,000 - $280,000 USD",
+          location_text: "San Francisco, CA",
+          workplace_type: "Hybrid",
+          why_hiring: "Expanding real-time multiplayer collaborative document infrastructure.",
+          what_you_will_build: "Multiplayer document sync servers and WebAssembly vector rendering pipelines.",
+          responsibilities: [
+            "Architect C++/Rust multiplayer document servers",
+            "Optimize memory layout and low-latency network protocols"
+          ],
+          requirements: [
+            "8+ years experience in systems programming (C++, Rust)",
+            "Deep understanding of browser performance and WebAssembly"
+          ],
+          extracted_skills: ["C++", "Rust", "WebAssembly"]
+        }
+      },
       match_analysis_payload: {
         match_score: 88,
         fit_score: 88,
@@ -185,9 +301,13 @@ export const INITIAL_MOCK_DATA = {
         {
           id: "evt_figma_1",
           application_id: "app_figma_003",
+          email_event_type: "APPLICATION_SUBMITTED",
           event_type: "APPLICATION_SUBMITTED",
           title: "Submitted Online Application",
           description: "Submitted application via referral link.",
+          email_summary: "Submitted application via referral link.",
+          email_sender: "careers@figma.com",
+          email_sender_name: "Figma Recruiting",
           created_at: new Date(Date.now() - 86400000 * 8).toISOString(),
           raw_payload: {}
         }
@@ -197,6 +317,7 @@ export const INITIAL_MOCK_DATA = {
       id: "app_datacamp_004",
       company_id: "comp_datacamp",
       company_name: "Datadog",
+      company: { id: "comp_datacamp", name: "Datadog", domain: "datadoghq.com" },
       position: "Senior Lead Engineer - Telemetry Pipeline",
       status: "ONLINE_ASSESSMENT",
       location: "New York, NY (Remote)",
@@ -205,6 +326,7 @@ export const INITIAL_MOCK_DATA = {
       salary_max: 250000,
       currency: "USD",
       url: "https://datadoghq.com/careers/lead-telemetry",
+      job_url: "https://datadoghq.com/careers/lead-telemetry",
       application_date: new Date(Date.now() - 86400000 * 12).toISOString(),
       last_activity_at: new Date(Date.now() - 86400000 * 3).toISOString(),
       scheduled_interview_at: null,
@@ -214,6 +336,34 @@ export const INITIAL_MOCK_DATA = {
       fit_score: 85,
       programmatic_match_score: 84,
       description: "### Role Summary\nLead engineer responsible for processing petabyte-scale metric, trace, and log telemetry ingestion. You will optimize Vector/FluentBit aggregators and Kafka cluster backpressure.",
+      job_posting: {
+        id: "jp_dd_004",
+        title: "Senior Lead Engineer - Telemetry Pipeline",
+        company_name: "Datadog",
+        description_markdown: "### Role Summary\nLead engineer responsible for processing petabyte-scale metric, trace, and log telemetry ingestion. You will optimize Vector/FluentBit aggregators and Kafka cluster backpressure.",
+        salary_min: 210000,
+        salary_max: 250000,
+        currency: "USD",
+        location: "New York, NY (Remote)",
+        work_model: "Remote",
+        required_skills: ["Go", "Apache Kafka", "Observability", "Telemetry"],
+        structured_spec: {
+          compensation_text: "$210,000 - $250,000 USD",
+          location_text: "New York, NY (Remote)",
+          workplace_type: "Remote",
+          why_hiring: "Scaling petabyte-scale telemetry ingestion platform.",
+          what_you_will_build: "High-throughput log and metric intake pipelines using Kafka and Go.",
+          responsibilities: [
+            "Maintain high-throughput telemetry intake workers",
+            "Optimize Kafka backpressure and storage caching"
+          ],
+          requirements: [
+            "6+ years experience in distributed telemetry systems",
+            "Proficiency in Go or C++"
+          ],
+          extracted_skills: ["Go", "Apache Kafka", "Telemetry"]
+        }
+      },
       match_analysis_payload: {
         match_score: 85,
         fit_score: 85,
@@ -225,9 +375,13 @@ export const INITIAL_MOCK_DATA = {
         {
           id: "evt_dd_1",
           application_id: "app_datacamp_004",
+          email_event_type: "ASSESSMENT_RECEIVED",
           event_type: "ASSESSMENT_RECEIVED",
           title: "Online Coding & Systems Assessment Received",
           description: "Received 90-minute telemetry challenge link via HackerRank.",
+          email_summary: "Received 90-minute telemetry challenge link via HackerRank.",
+          email_sender: "recruiting@datadoghq.com",
+          email_sender_name: "Datadog Talent",
           created_at: new Date(Date.now() - 86400000 * 3).toISOString(),
           raw_payload: {}
         }
@@ -237,6 +391,7 @@ export const INITIAL_MOCK_DATA = {
       id: "app_snowflake_005",
       company_id: "comp_snowflake",
       company_name: "Snowflake",
+      company: { id: "comp_snowflake", name: "Snowflake", domain: "snowflake.com" },
       position: "Principal Distributed Database Engineer",
       status: "REJECTED",
       location: "San Mateo, CA",
@@ -245,6 +400,7 @@ export const INITIAL_MOCK_DATA = {
       salary_max: 310000,
       currency: "USD",
       url: "https://snowflake.com/careers/db-principal",
+      job_url: "https://snowflake.com/careers/db-principal",
       application_date: new Date(Date.now() - 86400000 * 40).toISOString(),
       last_activity_at: new Date(Date.now() - 86400000 * 15).toISOString(),
       scheduled_interview_at: null,
@@ -254,6 +410,33 @@ export const INITIAL_MOCK_DATA = {
       fit_score: 79,
       programmatic_match_score: 78,
       description: "### Description\nFocus on query engine execution optimization and cloud storage caching layers.",
+      job_posting: {
+        id: "jp_sf_005",
+        title: "Principal Distributed Database Engineer",
+        company_name: "Snowflake",
+        description_markdown: "### Description\nFocus on query engine execution optimization and cloud storage caching layers.",
+        salary_min: 250000,
+        salary_max: 310000,
+        currency: "USD",
+        location: "San Mateo, CA",
+        work_model: "On-site",
+        required_skills: ["C++", "SQL Engine", "Distributed Databases"],
+        structured_spec: {
+          compensation_text: "$250,000 - $310,000 USD",
+          location_text: "San Mateo, CA",
+          workplace_type: "On-site",
+          why_hiring: "Evolving core cloud data warehouse query engine.",
+          what_you_will_build: "Vectorized query execution operators and cloud micro-partition caching.",
+          responsibilities: [
+            "Optimize vectorized C++ query engine execution",
+            "Design multi-tenant cloud micro-partition caching"
+          ],
+          requirements: [
+            "10+ years database kernel development experience"
+          ],
+          extracted_skills: ["C++", "SQL Engine", "Distributed Databases"]
+        }
+      },
       match_analysis_payload: {
         match_score: 79,
         fit_score: 79,
@@ -261,7 +444,21 @@ export const INITIAL_MOCK_DATA = {
         gaps: ["On-site location preference mismatch"],
         gap_closing_tips: ["N/A"]
       },
-      events: []
+      events: [
+        {
+          id: "evt_sf_1",
+          application_id: "app_snowflake_005",
+          email_event_type: "REJECTION_RECEIVED",
+          event_type: "REJECTION_RECEIVED",
+          title: "Application Status Update",
+          description: "Thank you for interviewing. We have decided to proceed with another candidate.",
+          email_summary: "Thank you for interviewing. We have decided to proceed with another candidate.",
+          email_sender: "careers@snowflake.com",
+          email_sender_name: "Snowflake Talent",
+          created_at: new Date(Date.now() - 86400000 * 15).toISOString(),
+          raw_payload: {}
+        }
+      ]
     }
   ],
 

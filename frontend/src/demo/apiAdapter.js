@@ -433,21 +433,53 @@ export async function handleDemoRequest(config) {
 
   // 4. ACTION ITEMS ENDPOINTS
   if (urlPath === '/action-items' && method === 'get') {
-    return ok(db.action_items || [])
+    let items = [...(db.action_items || [])]
+
+    // Associate application object if present
+    items = items.map(item => {
+      const app = (db.applications || []).find(a => a.id === item.application_id)
+      return {
+        ...item,
+        application: app ? {
+          id: app.id,
+          company: { name: app.company_name || app.company?.name || 'Company' },
+          position: app.position
+        } : null
+      }
+    })
+
+    if (params.status) {
+      items = items.filter((i) => i.status === params.status)
+    }
+
+    const allItems = db.action_items || []
+    const total = allItems.length
+    const pending_count = allItems.filter(i => i.status === 'PENDING').length
+    const high_urgency_count = allItems.filter(i => i.status === 'PENDING' && i.urgency === 'HIGH').length
+    const completed_count = allItems.filter(i => i.status === 'COMPLETED').length
+
+    return ok({
+      items,
+      total,
+      pending_count,
+      high_urgency_count,
+      completed_count
+    })
   }
 
   if (urlPath === '/action-items' && method === 'post') {
+    const app = (db.applications || []).find(a => a.id === data.application_id)
     const newItem = {
       id: `action_${Date.now()}`,
       application_id: data.application_id || null,
-      company_name: data.company_name || 'General Task',
-      position: data.position || '',
+      company_name: app?.company_name || data.company_name || 'General Task',
+      position: app?.position || data.position || '',
       title: data.title || 'New Action Item',
       description: data.description || '',
       due_date: data.due_date || new Date(Date.now() + 86400000 * 3).toISOString(),
       urgency: data.urgency || 'MEDIUM',
       manual_urgency: data.manual_urgency || 'MEDIUM',
-      status: 'PENDING',
+      status: data.status || 'PENDING',
       created_at: new Date().toISOString(),
     }
     db.action_items = [newItem, ...(db.action_items || [])]
@@ -481,7 +513,14 @@ export async function handleDemoRequest(config) {
     const itemId = actionUrgencyMatch[1]
     const item = (db.action_items || []).find((i) => i.id === itemId)
     if (item) {
-      item.manual_urgency = data.manual_urgency
+      if (data.manual_urgency) {
+        item.urgency = data.manual_urgency
+        item.manual_urgency = data.manual_urgency
+        item.manual_urgency_override = true
+      } else {
+        item.manual_urgency = null
+        item.manual_urgency_override = false
+      }
       saveDemoDb(db)
     }
     return ok(item || {})
@@ -489,7 +528,21 @@ export async function handleDemoRequest(config) {
 
   // 5. STAGING ENDPOINTS
   if (urlPath === '/staging' && method === 'get') {
-    return ok(db.staging_items || [])
+    let items = [...(db.staging_items || [])]
+    if (params.status) {
+      const targetStatus = params.status === 'PROCESSED' ? 'RESOLVED' : params.status
+      items = items.filter((s) => (s.status || 'PENDING') === targetStatus)
+    }
+    if (params.search) {
+      const q = params.search.toLowerCase()
+      items = items.filter(
+        (s) =>
+          s.company_name?.toLowerCase().includes(q) ||
+          s.position?.toLowerCase().includes(q) ||
+          s.subject?.toLowerCase().includes(q)
+      )
+    }
+    return ok({ items, total: items.length })
   }
 
   const stagingResolveMatch = urlPath.match(/^\/staging\/([^/]+)\/resolve$/)
@@ -498,6 +551,86 @@ export async function handleDemoRequest(config) {
     const item = (db.staging_items || []).find((s) => s.id === stageId)
     if (item) {
       item.status = 'RESOLVED'
+
+      if (data.create_new) {
+        const newApp = {
+          id: `app_demo_${Date.now()}`,
+          company_id: `comp_${Date.now()}`,
+          company_name: data.company || item.company_name || 'New Company',
+          company: { id: `comp_${Date.now()}`, name: data.company || item.company_name || 'New Company', domain: `${(data.company || 'company').toLowerCase().replace(/\s+/g, '')}.com` },
+          position: data.position || item.position || 'Software Engineer',
+          status: data.status || 'APPLIED',
+          location: 'Remote',
+          work_model: 'Remote',
+          salary_min: 200000,
+          salary_max: 250000,
+          currency: 'USD',
+          url: data.job_url || '',
+          job_url: data.job_url || '',
+          application_date: new Date().toISOString(),
+          last_activity_at: new Date().toISOString(),
+          match_score: 90,
+          fit_score: 90,
+          programmatic_match_score: 88,
+          description: data.description_markdown || 'Created from staging triage email',
+          job_posting: {
+            id: `jp_${Date.now()}`,
+            title: data.position || item.position || 'Software Engineer',
+            company_name: data.company || item.company_name || 'New Company',
+            description_markdown: data.description_markdown || 'Created from staging triage email',
+            salary_min: 200000,
+            salary_max: 250000,
+            currency: 'USD',
+            location: 'Remote',
+            work_model: 'Remote',
+            required_skills: ['Distributed Systems'],
+            structured_spec: {
+              compensation_text: '$200,000 - $250,000 USD',
+              location_text: 'Remote',
+              workplace_type: 'Remote',
+              why_hiring: 'Expanding core platform capabilities.',
+              what_you_will_build: 'Distributed scalable backend microservices.',
+              responsibilities: ['Build backend platform microservices'],
+              requirements: ['Experience with distributed backend architecture'],
+              extracted_skills: ['Distributed Systems']
+            }
+          },
+          events: [
+            {
+              id: `evt_${Date.now()}`,
+              application_id: `app_demo_${Date.now()}`,
+              email_event_type: data.event_type || 'APPLICATION_CONFIRMATION',
+              event_type: data.event_type || 'APPLICATION_CONFIRMATION',
+              title: data.summary || 'Email Intake Event',
+              description: data.summary || 'Created application from staging email triage',
+              email_summary: data.summary || 'Created application from staging email triage',
+              email_sender: item.email_sender || 'recruiter@company.com',
+              created_at: new Date().toISOString(),
+              raw_payload: {}
+            }
+          ]
+        }
+        db.applications = [newApp, ...(db.applications || [])]
+      } else if (data.application_id) {
+        const targetApp = (db.applications || []).find(a => a.id === data.application_id)
+        if (targetApp) {
+          const newEvt = {
+            id: `evt_${Date.now()}`,
+            application_id: targetApp.id,
+            email_event_type: data.event_type || 'EMAIL_RECEIVED',
+            event_type: data.event_type || 'EMAIL_RECEIVED',
+            title: data.summary || 'Email Event Linked',
+            description: data.summary || 'Linked email event from staging triage',
+            email_summary: data.summary || 'Linked email event from staging triage',
+            email_sender: item.email_sender || 'recruiter@company.com',
+            created_at: new Date().toISOString(),
+            raw_payload: {}
+          }
+          targetApp.events = [newEvt, ...(targetApp.events || [])]
+          if (data.status) targetApp.status = data.status
+        }
+      }
+
       saveDemoDb(db)
     }
     return ok({ message: 'Staging item resolved' })
@@ -768,24 +901,72 @@ export async function handleDemoRequest(config) {
   }
 
   if (urlPath === '/analytics/overview' && method === 'get') {
-    const totalApps = (db.applications || []).length
-    const activeCount = (db.applications || []).filter((a) => ['APPLIED', 'TECHNICAL_INTERVIEW', 'OFFER'].includes(a.status)).length
+    const apps = db.applications || []
+    const totalApps = apps.length
+    const activeCount = apps.filter((a) => ['APPLIED', 'TECHNICAL_INTERVIEW', 'OFFER'].includes(a.status)).length
+    const offerCount = apps.filter((a) => a.status === 'OFFER' || a.status === 'HIRED').length
+    const interviewCount = apps.filter((a) => a.status === 'TECHNICAL_INTERVIEW' || a.status === 'OFFER' || a.status === 'HIRED').length
+
+    const remoteCount = apps.filter(a => (a.work_model || '').toLowerCase() === 'remote').length
+    const hybridCount = apps.filter(a => (a.work_model || '').toLowerCase() === 'hybrid').length
+    const onsiteCount = apps.filter(a => (a.work_model || '').toLowerCase() === 'on-site' || (a.work_model || '').toLowerCase() === 'onsite').length
+    const unknownCount = totalApps - remoteCount - hybridCount - onsiteCount
+
     return ok({
       total_applications: totalApps,
-      active_applications: activeCount,
-      offers_received: 1,
-      response_rate: 75.0,
+      active_pipeline_count: activeCount,
+      interview_rate: totalApps > 0 ? (interviewCount / totalApps) * 100 : 0,
+      offer_rate: totalApps > 0 ? (offerCount / totalApps) * 100 : 0,
+      average_fit_score: 90.0,
+      top_in_demand_skills: [
+        { skill: "Go", count: 4, is_in_candidate_cv: true, avg_salary_min: 240000, avg_salary_max: 290000 },
+        { skill: "Rust", count: 3, is_in_candidate_cv: true, avg_salary_min: 230000, avg_salary_max: 280000 },
+        { skill: "Distributed Systems", count: 5, is_in_candidate_cv: true, avg_salary_min: 220000, avg_salary_max: 290000 },
+        { skill: "PostgreSQL", count: 2, is_in_candidate_cv: true, avg_salary_min: 210000, avg_salary_max: 260000 },
+        { skill: "eBPF Kernel Tracing", count: 1, is_in_candidate_cv: false, avg_salary_min: 220000, avg_salary_max: 270000 }
+      ],
+      priority_skill_gaps: [
+        { skill: "eBPF Kernel Tracing", priority_score: 8.5, missing_frequency: 2, sample_companies: ["Datadog"] },
+        { skill: "GraphQL Schema Mesh", priority_score: 6.2, missing_frequency: 1, sample_companies: ["Linear"] }
+      ],
+      pipeline_funnel: [
+        { stage: "Applied", count: totalApps, conversion_rate: 100, dropoff_rate: 0 },
+        { stage: "Assessment", count: Math.max(3, activeCount), conversion_rate: 60, dropoff_rate: 40 },
+        { stage: "Interview", count: interviewCount, conversion_rate: 40, dropoff_rate: 33.3 },
+        { stage: "Offer", count: offerCount, conversion_rate: 20, dropoff_rate: 50 }
+      ],
+      work_model_distribution: {
+        remote_count: remoteCount,
+        hybrid_count: hybridCount,
+        onsite_count: onsiteCount,
+        unknown_count: unknownCount
+      },
+      salary_insights: [
+        { skill: "Go", avg_min: 240000, avg_max: 290000 },
+        { skill: "Rust", avg_min: 220000, avg_max: 280000 },
+        { skill: "C++", avg_min: 230000, avg_max: 310000 }
+      ]
     })
   }
 
   if (urlPath === '/analytics/funnel' && method === 'get') {
+    const period = params.period || 'weekly'
     return ok({
-      funnel: [
-        { stage: 'Intakes', count: 8 },
-        { stage: 'Applied', count: 5 },
-        { stage: 'Interview', count: 2 },
-        { stage: 'Offer', count: 1 },
+      period_type: period,
+      summary_kpis: {
+        intakes: { label: "Total Intake Leads", value: 14, trend_percentage: 12.0, is_positive: true },
+        applications: { label: "Submitted Applications", value: 10, trend_percentage: 8.5, is_positive: true },
+        interviews: { label: "Interview Conversions", value: 4, trend_percentage: 25.0, is_positive: true },
+        offers: { label: "Offers Received", value: 2, trend_percentage: 50.0, is_positive: true }
+      },
+      chart_data: [
+        { period_key: "P1", period_label: "W01", start_date: "2025-01-01", end_date: "2025-01-07", intakes: 10, applications: 7, interviews: 2, offers: 1, conversion_rate: 28.5 },
+        { period_key: "P2", period_label: "W02", start_date: "2025-01-08", end_date: "2025-01-14", intakes: 14, applications: 10, interviews: 4, offers: 2, conversion_rate: 40.0 }
       ],
+      table_data: [
+        { period_key: "P2", period_label: "W02", start_date: "2025-01-08", end_date: "2025-01-14", intakes: 14, applications: 10, interviews: 4, offers: 2, conversion_rate: 40.0 },
+        { period_key: "P1", period_label: "W01", start_date: "2025-01-01", end_date: "2025-01-07", intakes: 10, applications: 7, interviews: 2, offers: 1, conversion_rate: 28.5 }
+      ]
     })
   }
 

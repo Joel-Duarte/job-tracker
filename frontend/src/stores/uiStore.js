@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { SystemSettingsAPI, AIConfigAPI } from '../api/endpoints'
 import { isDemoModeEnabled, setDemoModeEnabled, resetDemoDb } from '../demo/demoStorage'
 import { useApplicationsStore } from './applicationsStore'
+import { useAgentChatStore } from './agentChatStore'
 
 export const useUIStore = defineStore('ui', () => {
   const theme = ref(localStorage.getItem('jt_theme') || 'midnight')
@@ -50,6 +51,10 @@ export const useUIStore = defineStore('ui', () => {
     try {
       const appStore = useApplicationsStore()
       appStore.fetchApplications()
+
+      const chatStore = useAgentChatStore()
+      chatStore.resetChat()
+      chatStore.fetchChats()
     } catch {
       // ignore
     }

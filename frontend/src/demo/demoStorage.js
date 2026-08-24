@@ -40,5 +40,17 @@ export function initDemoDb() {
 }
 
 export function resetDemoDb() {
+  // ClearIndexedDB databases if any exist
+  if (window.indexedDB && window.indexedDB.databases) {
+    window.indexedDB.databases().then((dbs) => {
+      dbs.forEach((db) => {
+        if (db.name) window.indexedDB.deleteDatabase(db.name)
+      })
+    }).catch(() => {})
+  }
+
+  // Clear demo localStorage keys
+  localStorage.removeItem(DEMO_STORAGE_KEY)
+
   return initDemoDb()
 }
