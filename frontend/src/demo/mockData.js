@@ -49,7 +49,8 @@ export const INITIAL_MOCK_DATA = {
           "Highlight past experience designing idempotency frameworks and distributed transaction boundaries."
         ]
       },
-      cover_letter_text: "Dear Hiring Team at Stripe,\n\nI am thrilled to express my enthusiasm for the Staff Infrastructure Engineer position. With over a decade of hands-on experience designing high-throughput distributed systems in Go and Rust, I have consistently delivered fault-tolerant platform services that scale to millions of requests per minute.\n\nAt my previous roles, I led core infrastructure initiatives that improved platform uptime to 99.999% while reducing P99 latency. Stripe's commitment to financial infrastructure excellence resonates deeply with my technical passion.\n\nSincerely,\nAlex Rivera",
+      interview_guide_markdown: "## Stripe Technical Interview Preparation Guide\n\n### Company Architecture Focus\nStripe's core ledger operates on idempotent, ACID-compliant distributed databases. Expect questions around consensus protocols (Raft/Paxos), multi-region replication, and rate-limiting gateway proxies.\n\n### Strategic STAR Story Scenarios\n1. **High-Throughput Idempotency:** Detail how you handled duplicate financial event delivery at scale.\n2. **Database Migration Under Load:** Describe zero-downtime database schema migrations.",
+      cover_letter_text: "Dear Hiring Team at Stripe,\n\nI am thrilled to express my enthusiasm for the Staff Infrastructure Engineer position. With over a decade of hands-on experience designing high-throughput distributed systems in Go and Rust, I have consistently delivered fault-tolerant platform services that scale to millions of requests per minute.\n\nSincerely,\nAlex Rivera",
       cover_letter_status: "COMPLETED",
       cover_letter_generated_at: new Date(Date.now() - 86400000 * 2).toISOString(),
       events: [
@@ -72,6 +73,18 @@ export const INITIAL_MOCK_DATA = {
           description: "Completed 4-round virtual onsite interview with Bar Raiser and VP of Engineering.",
           created_at: new Date(Date.now() - 86400000 * 5).toISOString(),
           raw_payload: {}
+        },
+        {
+          id: "evt_stripe_3",
+          application_id: "app_stripe_001",
+          event_type: "EMAIL_RECEIVED",
+          title: "Recruiter Scheduling Confirmation",
+          description: "From: recruiting@stripe.com\nSubject: Stripe Onsite Interview Schedule\nHi Alex, Attached is your schedule for the upcoming core platform system design loop.",
+          created_at: new Date(Date.now() - 86400000 * 8).toISOString(),
+          raw_payload: {
+            sender: "recruiting@stripe.com",
+            subject: "Stripe Onsite Interview Schedule"
+          }
         }
       ]
     },
@@ -95,7 +108,7 @@ export const INITIAL_MOCK_DATA = {
       match_score: 91,
       fit_score: 91,
       programmatic_match_score: 89,
-      description: "### About Linear\nLinear is designing the future of issue tracking and project management. We are seeking a Principal Backend Engineer to evolve our local-first real-time synchronization engine and WebSocket infrastructure.\n\n### Responsibilities\n- Scale real-time GraphQL subscriptions and CRDT synchronization.\n- Optimize client-side & server-side SQLite state persistence.",
+      description: "### About Linear\nLinear is designing the future of issue tracking and project management. We are seeking a Principal Backend Engineer to evolve our local-first real-time synchronization engine and WebSocket infrastructure.",
       match_analysis_payload: {
         match_score: 91,
         fit_score: 91,
@@ -110,6 +123,7 @@ export const INITIAL_MOCK_DATA = {
           "Prepare examples of conflict-free replicated data types (CRDTs) used in past projects."
         ]
       },
+      interview_guide_markdown: "## Linear System Architecture Interview Guide\n\n### Key Focus Areas\n- **CRDT Sync Protocols:** Local-first optimistic updates & conflict-free state resolution.\n- **WebSocket Backpressure:** Managing multi-tenant connection pools in Rust.",
       events: [
         {
           id: "evt_linear_1",
@@ -120,6 +134,18 @@ export const INITIAL_MOCK_DATA = {
           created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
           raw_payload: {
             scheduled_at: new Date(Date.now() + 86400000 * 2).toISOString()
+          }
+        },
+        {
+          id: "evt_linear_2",
+          application_id: "app_linear_002",
+          event_type: "EMAIL_RECEIVED",
+          title: "Technical Screen Invitation",
+          description: "From: careers@linear.app\nSubject: Linear Architecture Interview Invitation\nHi Alex, We would love to move forward with the technical deep dive.",
+          created_at: new Date(Date.now() - 86400000 * 4).toISOString(),
+          raw_payload: {
+            sender: "careers@linear.app",
+            subject: "Linear Architecture Interview Invitation"
           }
         }
       ]
@@ -195,7 +221,17 @@ export const INITIAL_MOCK_DATA = {
         gaps: ["eBPF kernel tracing"],
         gap_closing_tips: ["Review Linux kernel eBPF packet filter primitives."]
       },
-      events: []
+      events: [
+        {
+          id: "evt_dd_1",
+          application_id: "app_datacamp_004",
+          event_type: "ASSESSMENT_RECEIVED",
+          title: "Online Coding & Systems Assessment Received",
+          description: "Received 90-minute telemetry challenge link via HackerRank.",
+          created_at: new Date(Date.now() - 86400000 * 3).toISOString(),
+          raw_payload: {}
+        }
+      ]
     },
     {
       id: "app_snowflake_005",
@@ -333,6 +369,22 @@ export const INITIAL_MOCK_DATA = {
     {
       id: "stage_003",
       source: "EMAIL_INTAKE",
+      subject: "Ambiguous Title: Recruiter Reachout",
+      company_name: "Uncertain Scaleup Inc",
+      position: "Senior Engineer",
+      raw_content: "Hey Alex! Loved your Rust background. Are you open to exploring new engineering leadership opportunities?",
+      extracted_data: {
+        company: "Uncertain Scaleup Inc",
+        position: "Senior Backend / Infra Engineer",
+        suggested_stage: "APPLIED",
+        confidence: 0.62
+      },
+      status: "PENDING",
+      created_at: new Date(Date.now() - 86400000 * 3).toISOString()
+    },
+    {
+      id: "stage_004",
+      source: "EMAIL_INTAKE",
       subject: "Application Update: Supabase Database Engineer",
       company_name: "Supabase",
       position: "Senior Postgres Kernel Engineer",
@@ -393,6 +445,72 @@ export const INITIAL_MOCK_DATA = {
       error_message: "INVALID_JOB_CONTENT: Scraped page does not appear to be a job description. Authentication required.",
       created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
       completed_at: new Date(Date.now() - 3600000 * 2).toISOString()
+    }
+  ],
+
+  bindings: [
+    {
+      task_type: "GLOBAL_DEFAULT",
+      provider_id: "prov_demo_1",
+      model_name: "qwen/qwen3.5-9b",
+      temperature: 0.2,
+      reasoning_effort: "none",
+      extra_kwargs: {}
+    },
+    {
+      task_type: "JD_EXTRACTION",
+      provider_id: "prov_demo_1",
+      model_name: "qwen/qwen3.5-9b",
+      temperature: 0.0,
+      reasoning_effort: "none",
+      extra_kwargs: { use_global_default: true }
+    },
+    {
+      task_type: "EMAIL_EXTRACTION",
+      provider_id: "prov_demo_1",
+      model_name: "qwen/qwen3.5-9b",
+      temperature: 0.0,
+      reasoning_effort: "none",
+      extra_kwargs: { use_global_default: true }
+    },
+    {
+      task_type: "ASSESSMENT",
+      provider_id: "prov_demo_1",
+      model_name: "qwen/qwen3.5-9b",
+      temperature: 0.1,
+      reasoning_effort: "none",
+      extra_kwargs: { use_global_default: true }
+    },
+    {
+      task_type: "COVER_LETTER",
+      provider_id: "prov_demo_1",
+      model_name: "qwen/qwen3.5-9b",
+      temperature: 0.3,
+      reasoning_effort: "none",
+      extra_kwargs: { use_global_default: true }
+    },
+    {
+      task_type: "INTERVIEW_GUIDE",
+      provider_id: "prov_demo_1",
+      model_name: "qwen/qwen3.5-9b",
+      temperature: 0.3,
+      reasoning_effort: "none",
+      extra_kwargs: { use_global_default: true }
+    },
+    {
+      task_type: "AGENT_REASONING",
+      provider_id: "prov_demo_1",
+      model_name: "qwen/qwen3.5-9b",
+      temperature: 0.3,
+      reasoning_effort: "none",
+      extra_kwargs: { use_global_default: true }
+    },
+    {
+      task_type: "EMBEDDING",
+      provider_id: "prov_demo_1",
+      model_name: "nomic-embed-text",
+      embedding_dimensions: 768,
+      extra_kwargs: {}
     }
   ],
 

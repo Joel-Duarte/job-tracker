@@ -2341,17 +2341,10 @@ onUnmounted(() => {
               </div>
               <div class="preference-header-text">
                 <div class="preference-header-between">
-                  <h4 class="preference-title">Client-First Demo Mode</h4>
-                  <label class="switch-toggle" title="Toggle Client Demo Mode">
-                    <input
-                      type="checkbox"
-                      :checked="uiStore.isDemoMode"
-                      @change="e => uiStore.toggleDemoMode(e.target.checked)"
-                    />
-                    <span class="slider round"></span>
-                  </label>
+                  <h4 class="preference-title">Client-First Demo Mode Active</h4>
+                  <span class="badge badge-applied font-mono">STANDALONE DEMO</span>
                 </div>
-                <p class="preference-desc">Runs the frontend app standalone against browser <code>localStorage</code> and Pinia stores without requiring a live FastAPI backend server.</p>
+                <p class="preference-desc">Running standalone against browser <code>localStorage</code> and Pinia stores without requiring a live FastAPI backend server.</p>
               </div>
             </div>
             <div class="preference-body">
@@ -2361,7 +2354,7 @@ onUnmounted(() => {
                   <span class="text-xs text-secondary">Instantly restore pristine candidate profile, 5 applications, action items, staging tasks, and telemetry logs.</span>
                 </div>
                 <button
-                  class="btn btn-secondary btn-sm text-secondary"
+                  class="btn btn-primary btn-sm"
                   @click="uiStore.resetDemoData"
                   title="Reset localStorage demo keys and re-hydrate Pinia stores reactively"
                 >

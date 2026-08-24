@@ -506,6 +506,24 @@ export async function handleDemoRequest(config) {
     })
   }
 
+  if (urlPath === '/ai/bindings' && method === 'get') {
+    return ok(db.bindings || [])
+  }
+
+  const bindingTaskMatch = urlPath.match(/^\/ai\/bindings\/([^/]+)$/)
+  if (bindingTaskMatch && (method === 'put' || method === 'post')) {
+    const taskType = bindingTaskMatch[1]
+    const idx = (db.bindings || []).findIndex((b) => b.task_type === taskType)
+    const newBinding = { task_type: taskType, ...data }
+    if (idx !== -1) {
+      db.bindings[idx] = newBinding
+    } else {
+      db.bindings = [...(db.bindings || []), newBinding]
+    }
+    saveDemoDb(db)
+    return ok(newBinding)
+  }
+
   if (urlPath === '/ai/global-settings' && method === 'get') {
     return ok({
       HAS_COMPLETED_ONBOARDING: db.system_settings?.has_completed_onboarding ?? true,

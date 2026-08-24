@@ -8,7 +8,8 @@ export function isDemoModeEnabled() {
   if (localVal !== null) {
     return localVal === 'true'
   }
-  return import.meta.env.VITE_DEMO_MODE === 'true'
+  // Default to true in client demo mode
+  return true
 }
 
 export function setDemoModeEnabled(enabled) {
