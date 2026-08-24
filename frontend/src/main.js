@@ -15,7 +15,6 @@ if (typeof document !== 'undefined' && isDemoModeEnabled()) {
   gcScript.async = true
   gcScript.src = `${import.meta.env.BASE_URL}vendor/count.js`
   gcScript.setAttribute('data-goatcounter', 'https://djodev.goatcounter.com/count')
-  gcScript.setAttribute('data-goatcounter-settings', JSON.stringify({ no_onload: true }))
   document.head.appendChild(gcScript)
 }
 
