@@ -235,6 +235,19 @@ function formatSalary(value) {
   return `$${(value / 1000).toFixed(0)}k`
 }
 
+function getSalaryTooltip(item) {
+  if (!item) return ''
+  const count = item.sample_count || 1
+  const countText = `Based on ${count} tracked ${count === 1 ? 'job' : 'jobs'}`
+  const midText = item.median_salary
+    ? `${formatSalary(item.median_salary)} median`
+    : item.avg_min && item.avg_max
+    ? `${formatSalary((item.avg_min + item.avg_max) / 2)} avg`
+    : ''
+  const rangeText = `${formatSalary(item.avg_min) || 'N/A'} – ${formatSalary(item.avg_max) || 'N/A'}`
+  return `${countText}${midText ? ' • ' + midText : ''} • Range: ${rangeText}`
+}
+
 // Tab 1 Sankey Flow Calculations
 const sankeyData = computed(() => {
   if (!analyticsData.value?.pipeline_funnel?.length) return null
@@ -706,6 +719,7 @@ const maxCohortVolume = computed(() => {
                   v-for="item in analyticsData.salary_insights"
                   :key="item.skill"
                   class="salary-row-compact"
+                  :title="getSalaryTooltip(item)"
                 >
                   <span class="salary-skill-text">{{ item.skill }}</span>
 
@@ -715,6 +729,24 @@ const maxCohortVolume = computed(() => {
                         class="spectrum-span-fill"
                         :style="getSalarySpectrumStyle(item.avg_min, item.avg_max)"
                       ></div>
+                    </div>
+
+                    <!-- Floating Hover Tooltip -->
+                    <div class="salary-hover-tooltip">
+                      <div class="tooltip-header font-medium">
+                        Based on {{ item.sample_count || 1 }} tracked {{ (item.sample_count || 1) === 1 ? 'job' : 'jobs' }}
+                      </div>
+                      <div class="tooltip-metrics">
+                        <span v-if="item.median_salary" class="tooltip-badge">
+                          {{ formatSalary(item.median_salary) }} median
+                        </span>
+                        <span v-else-if="item.avg_min && item.avg_max" class="tooltip-badge">
+                          {{ formatSalary((item.avg_min + item.avg_max) / 2) }} avg
+                        </span>
+                        <span class="tooltip-range text-muted font-mono">
+                          {{ formatSalary(item.avg_min) || 'N/A' }} – {{ formatSalary(item.avg_max) || 'N/A' }}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -771,16 +803,6 @@ const maxCohortVolume = computed(() => {
                     <span class="gap-frequency-tag">
                       {{ gap.missing_frequency }} {{ gap.missing_frequency === 1 ? 'job' : 'jobs' }}
                     </span>
-                    <div v-if="gap.sample_companies?.length" class="gap-companies-flex">
-                      <span
-                        v-for="comp in gap.sample_companies"
-                        :key="comp"
-                        class="company-mini-badge"
-                      >
-                        <Building2 :size="10" />
-                        <span>{{ comp }}</span>
-                      </span>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -1757,7 +1779,7 @@ const maxCohortVolume = computed(() => {
   border-radius: 4px;
   background-color: var(--bg-elevated);
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .spectrum-span-fill {
@@ -1765,19 +1787,78 @@ const maxCohortVolume = computed(() => {
   top: 0;
   bottom: 0;
   border-radius: 4px;
-  background: linear-gradient(90deg, #d97706 0%, #c2410c 50%, #9a3412 100%);
-  box-shadow: 0 0 4px rgba(194, 65, 12, 0.25);
+  background: linear-gradient(
+    90deg,
+    rgba(217, 119, 6, 0.25) 0%,
+    rgba(194, 65, 12, 0.95) 50%,
+    rgba(217, 119, 6, 0.25) 100%
+  );
+  box-shadow: 0 0 6px rgba(194, 65, 12, 0.35);
   transition: all var(--transition-normal);
 }
 
 :global(.midnight) .spectrum-span-fill {
-  background: linear-gradient(90deg, #10b981 0%, #2dd4bf 50%, #38bdf8 100%);
-  box-shadow: 0 0 4px rgba(45, 212, 191, 0.3);
+  background: linear-gradient(
+    90deg,
+    rgba(45, 212, 191, 0.25) 0%,
+    rgba(45, 212, 191, 0.95) 50%,
+    rgba(45, 212, 191, 0.25) 100%
+  );
+  box-shadow: 0 0 6px rgba(45, 212, 191, 0.35);
 }
 
 :global(.daylight) .spectrum-span-fill {
-  background: linear-gradient(90deg, #d97706 0%, #c2410c 50%, #9a3412 100%);
-  box-shadow: 0 0 4px rgba(194, 65, 12, 0.25);
+  background: linear-gradient(
+    90deg,
+    rgba(217, 119, 6, 0.25) 0%,
+    rgba(194, 65, 12, 0.95) 50%,
+    rgba(217, 119, 6, 0.25) 100%
+  );
+  box-shadow: 0 0 6px rgba(194, 65, 12, 0.35);
+}
+
+.salary-hover-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+  border-radius: var(--radius-sm, 6px);
+  padding: 6px 10px;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-main);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+  z-index: 50;
+}
+
+.salary-row-compact:hover .salary-hover-tooltip,
+.salary-spectrum-container:hover .salary-hover-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+.tooltip-header {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.tooltip-metrics {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tooltip-badge {
+  font-weight: 700;
+  color: var(--text-amber, #f59e0b);
 }
 
 .salary-range-label {

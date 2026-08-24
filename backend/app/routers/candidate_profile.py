@@ -25,6 +25,7 @@ from app.schemas.candidate_profile import (
 )
 from app.services.evaluation_worker import process_evaluation_task
 from app.services.file_parser import normalize_resume_text, parse_cv_document
+from app.services.skill_normalizer import normalize_skills_list
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +195,7 @@ async def update_cv_profile(
     if payload.anonymized_text is not None:
         profile.anonymized_text = payload.anonymized_text
     if payload.extracted_skills is not None:
-        profile.extracted_skills = payload.extracted_skills
+        profile.extracted_skills = normalize_skills_list(payload.extracted_skills)
     if payload.years_of_experience is not None:
         profile.years_of_experience = payload.years_of_experience
     if payload.domain_experience is not None:

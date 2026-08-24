@@ -20,10 +20,12 @@ from app.schemas.analytics import (
     FunnelKpiCard,
     FunnelMetricsResponse,
     FunnelStageItem,
+    SalaryInsightItem,
     SkillDemandItem,
     SkillGapItem,
     WorkModelBreakdown,
 )
+from app.services.skill_normalizer import normalize_skill, normalize_skills_list
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +44,10 @@ async def get_analytics_overview(
         cv_query = select(CandidateCVModel).where(CandidateCVModel.is_active).limit(1)
         cv_result = await db.execute(cv_query)
         cv = cv_result.scalar_one_or_none()
-        candidate_skills = (
-            set(cv.extracted_skills) if cv and cv.extracted_skills else set()
+        candidate_skills = set(
+            normalize_skills_list(cv.extracted_skills)
+            if cv and cv.extracted_skills
+            else []
         )
 
         # 2. Build the base query for Applications and JobPostings
@@ -88,7 +92,7 @@ async def get_analytics_overview(
     work_models = {"remote": 0, "hybrid": 0, "onsite": 0, "unknown": 0}
 
     skill_counts = defaultdict(int)
-    skill_salaries = defaultdict(lambda: {"min": [], "max": []})
+    skill_salaries = defaultdict(lambda: {"min": [], "max": [], "midpoints": []})
 
     gap_frequencies = defaultdict(int)
     gap_companies = defaultdict(set)
@@ -154,8 +158,8 @@ async def get_analytics_overview(
                 missing = app.match_analysis_payload["missing_skills"]
                 if isinstance(missing, list):
                     for skill in missing:
-                        skill_str = str(skill)
-                        if skill_str not in candidate_skills:
+                        skill_str = normalize_skill(str(skill))
+                        if skill_str and skill_str not in candidate_skills:
                             gap_frequencies[skill_str] += 1
                             gap_job_counts[skill_str] += 1
                             if company:
@@ -179,12 +183,23 @@ async def get_analytics_overview(
                 work_models["unknown"] += 1
 
             if job.required_skills:
-                for skill in job.required_skills:
+                norm_req_skills = normalize_skills_list(job.required_skills)
+                for skill in norm_req_skills:
                     skill_counts[skill] += 1
+                    midpoint = None
+                    if job.salary_min is not None and job.salary_max is not None:
+                        midpoint = (job.salary_min + job.salary_max) / 2.0
+                    elif job.salary_min is not None:
+                        midpoint = float(job.salary_min)
+                    elif job.salary_max is not None:
+                        midpoint = float(job.salary_max)
+
                     if job.salary_min is not None:
-                        skill_salaries[skill]["min"].append(job.salary_min)
+                        skill_salaries[skill]["min"].append(float(job.salary_min))
                     if job.salary_max is not None:
-                        skill_salaries[skill]["max"].append(job.salary_max)
+                        skill_salaries[skill]["max"].append(float(job.salary_max))
+                    if midpoint is not None:
+                        skill_salaries[skill]["midpoints"].append(midpoint)
 
                     # Also fallback gap calculation
                     if skill not in candidate_skills:
@@ -204,17 +219,51 @@ async def get_analytics_overview(
 
     avg_fit_score = sum(fit_scores) / len(fit_scores) if fit_scores else None
 
+    def trim_outliers(values: list[float]) -> list[float]:
+        if len(values) < 3:
+            return values
+        sorted_vals = sorted(values)
+        n = len(sorted_vals)
+        if 3 <= n <= 4:
+            return sorted_vals[1:-1]
+        import math
+
+        low_idx = int(math.floor(n * 0.10))
+        high_idx = int(math.ceil(n * 0.90))
+        trimmed = sorted_vals[low_idx:high_idx]
+        return trimmed if trimmed else sorted_vals
+
+    def calc_median(values: list[float]) -> float | None:
+        if not values:
+            return None
+        sorted_vals = sorted(values)
+        n = len(sorted_vals)
+        mid = n // 2
+        if n % 2 == 1:
+            return sorted_vals[mid]
+        return (sorted_vals[mid - 1] + sorted_vals[mid]) / 2.0
+
     # Top Demand Skills
     top_skills_sorted = sorted(skill_counts.items(), key=lambda x: x[1], reverse=True)
     if top_n_skills is not None and top_n_skills > 0:
         top_skills_sorted = top_skills_sorted[:top_n_skills]
     top_in_demand_skills = []
+    salary_insights = []
+
     for skill, count in top_skills_sorted:
         pct = (count / total_applications * 100) if total_applications > 0 else 0
         s_min_list = skill_salaries[skill]["min"]
         s_max_list = skill_salaries[skill]["max"]
-        avg_s_min = sum(s_min_list) / len(s_min_list) if s_min_list else None
-        avg_s_max = sum(s_max_list) / len(s_max_list) if s_max_list else None
+        s_mid_list = skill_salaries[skill]["midpoints"]
+
+        trimmed_min = trim_outliers(s_min_list)
+        trimmed_max = trim_outliers(s_max_list)
+        trimmed_mid = trim_outliers(s_mid_list)
+
+        avg_s_min = sum(trimmed_min) / len(trimmed_min) if trimmed_min else None
+        avg_s_max = sum(trimmed_max) / len(trimmed_max) if trimmed_max else None
+        median_sal = calc_median(trimmed_mid)
+        sample_cnt = len(s_mid_list) if s_mid_list else 1
 
         top_in_demand_skills.append(
             SkillDemandItem(
@@ -226,6 +275,17 @@ async def get_analytics_overview(
                 is_in_candidate_cv=skill in candidate_skills,
             )
         )
+
+        if avg_s_min or avg_s_max or median_sal:
+            salary_insights.append(
+                SalaryInsightItem(
+                    skill=skill,
+                    avg_min=avg_s_min,
+                    avg_max=avg_s_max,
+                    median_salary=median_sal,
+                    sample_count=sample_cnt,
+                )
+            )
 
     # Skill Gaps
     gap_skills_sorted = sorted(
@@ -281,17 +341,6 @@ async def get_analytics_overview(
         unknown_count=work_models["unknown"],
     )
 
-    # Salary Insights (basic overall calculation)
-    # Using top skills salary info
-    salary_insights = [
-        {
-            "skill": item.skill,
-            "avg_min": item.avg_salary_min,
-            "avg_max": item.avg_salary_max,
-        }
-        for item in top_in_demand_skills
-        if item.avg_salary_min or item.avg_salary_max
-    ]
 
     return AnalyticsOverviewResponse(
         total_applications=total_applications,
