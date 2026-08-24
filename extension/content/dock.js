@@ -13,7 +13,7 @@
   let currentJobData = null;
   let isPillDragging = false;
   let currentSettings = {
-    appUrl: 'http://localhost:5173',
+    appUrl: 'http://localhost:4173',
     dockMode: 'AUTO-DETECT',
     dockExpanded: true,
     dockPosition: null,
@@ -66,7 +66,7 @@
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
         chrome.storage.local.get(
           {
-            appUrl: 'http://localhost:5173',
+            appUrl: 'http://localhost:4173',
             dockMode: 'AUTO-DETECT',
             dockExpanded: true,
             dockPosition: null,
