@@ -13,7 +13,7 @@ let currentSettings = {
   dockMode: 'AUTO-DETECT',
   lastMode: 'AI_QUEUE',
   theme: 'LIGHT',
-  appUrl: 'http://localhost:5173'
+  appUrl: 'http://localhost:4173'
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -40,7 +40,7 @@ async function initSettingsAndTheme() {
   const pollSelect = document.getElementById('select-poll-interval');
   const notifToggle = document.getElementById('toggle-notifications');
 
-  if (appUrlInput) appUrlInput.value = currentSettings.appUrl || 'http://localhost:5173';
+  if (appUrlInput) appUrlInput.value = currentSettings.appUrl || 'http://localhost:4173';
   if (themeSelect) themeSelect.value = currentSettings.theme || 'LIGHT';
   if (dockModeSelect) dockModeSelect.value = currentSettings.dockMode || 'AUTO-DETECT';
   if (pollSelect) pollSelect.value = String(currentSettings.pollInterval ?? 60);
@@ -87,7 +87,7 @@ function setupAutoSaveSettings() {
 
   const triggerAutoSave = async () => {
     const updated = {
-      appUrl: normalizeAppUrl(appUrlInput?.value || 'http://localhost:5173'),
+      appUrl: normalizeAppUrl(appUrlInput?.value || 'http://localhost:4173'),
       theme: themeSel?.value || 'LIGHT',
       dockMode: dockSel?.value || 'AUTO-DETECT',
       pollInterval: parseInt(pollSelect?.value || '60', 10),
@@ -310,7 +310,7 @@ function setupEventListeners() {
   const openAppBtn = document.getElementById('btn-open-app-dashboard');
   if (openAppBtn) {
     openAppBtn.addEventListener('click', async () => {
-      const targetUrl = openAppBtn.getAttribute('data-url') || 'http://localhost:5173/assessments';
+      const targetUrl = openAppBtn.getAttribute('data-url') || 'http://localhost:4173/assessments';
       chrome.tabs.create({ url: targetUrl });
     });
   }
@@ -443,7 +443,7 @@ async function handleCaptureSubmit() {
   }
 
   const settings = await getSettings();
-  const appUrl = settings.appUrl || 'http://localhost:5173';
+  const appUrl = settings.appUrl || 'http://localhost:4173';
   const rawText = extractedData?.description_text || `${company} - ${position}\nLocation: ${location}`;
   const jobUrl = extractedData?.url || '';
 
