@@ -466,6 +466,25 @@ function onDrop(colKey, event) {
   if (!draggedApp.value) return
 
   const app = draggedApp.value
+
+  if (colKey === 'BUCKET_REJECT') {
+    quickRejectApp(app)
+    draggedApp.value = null
+    return
+  }
+
+  if (colKey === 'BUCKET_ARCHIVE') {
+    executeTransition(app.id, { status: 'ARCHIVED' })
+    draggedApp.value = null
+    return
+  }
+
+  if (colKey === 'BUCKET_DELETE') {
+    openDeleteConfirm(app)
+    draggedApp.value = null
+    return
+  }
+
   if (app.status === colKey) {
     draggedApp.value = null
     return
@@ -676,6 +695,47 @@ async function confirmDelete() {
           <option value="Hybrid">🏢 Hybrid</option>
           <option value="On-site">📍 On-site</option>
         </select>
+
+        <!-- Date Range Filter (All Time / 7d / 30d / 90d / Custom) -->
+        <div class="date-filter-group">
+          <select
+            v-model="appStore.selectedDateRange"
+            class="filter-select date-range-select"
+            title="Filter by application/activity date"
+          >
+            <option value="all">📅 All Time</option>
+            <option value="7d">📅 Last 7 Days</option>
+            <option value="30d">📅 Last 30 Days</option>
+            <option value="90d">📅 Last 90 Days</option>
+            <option value="custom">📅 Custom Range...</option>
+          </select>
+
+          <!-- Custom Range Pickers -->
+          <div v-if="appStore.selectedDateRange === 'custom'" class="custom-date-inputs animate-fade-in">
+            <input
+              v-model="appStore.customDateStart"
+              type="date"
+              class="date-input"
+              title="Start Date"
+            />
+            <span class="date-sep">to</span>
+            <input
+              v-model="appStore.customDateEnd"
+              type="date"
+              class="date-input"
+              title="End Date"
+            />
+          </div>
+
+          <button
+            v-if="appStore.selectedDateRange !== 'all'"
+            class="btn-clear-date-filter"
+            title="Reset Date Filter"
+            @click="appStore.selectedDateRange = 'all'; appStore.customDateStart = ''; appStore.customDateEnd = ''"
+          >
+            <X :size="12" />
+          </button>
+        </div>
 
         <button
           v-if="appStore.pipelineViewMode === 'active'"
@@ -1586,6 +1646,56 @@ async function confirmDelete() {
       </div>
     </Teleport>
 
+    <!-- Floating Drag Action Dock -->
+    <Teleport to="body">
+      <Transition name="dock-slide">
+        <div v-if="draggedApp" class="drag-action-dock">
+          <div class="dock-inner">
+            <div class="dock-label">
+              <span>Drop <strong>{{ draggedApp.company?.name || 'Application' }}</strong> to:</span>
+            </div>
+            <div class="dock-buckets">
+              <!-- Bucket: Mark as Rejected -->
+              <div
+                class="dock-bucket bucket-reject"
+                :class="{ 'bucket-hover': dragOverCol === 'BUCKET_REJECT' }"
+                @dragover="onDragOver('BUCKET_REJECT', $event)"
+                @dragleave="onDragLeave('BUCKET_REJECT')"
+                @drop="onDrop('BUCKET_REJECT', $event)"
+              >
+                <Ban :size="18" />
+                <span class="bucket-title">Mark as Rejected</span>
+              </div>
+
+              <!-- Bucket: Archive -->
+              <div
+                class="dock-bucket bucket-archive"
+                :class="{ 'bucket-hover': dragOverCol === 'BUCKET_ARCHIVE' }"
+                @dragover="onDragOver('BUCKET_ARCHIVE', $event)"
+                @dragleave="onDragLeave('BUCKET_ARCHIVE')"
+                @drop="onDrop('BUCKET_ARCHIVE', $event)"
+              >
+                <Archive :size="18" />
+                <span class="bucket-title">Archive Lead</span>
+              </div>
+
+              <!-- Bucket: Delete -->
+              <div
+                class="dock-bucket bucket-delete"
+                :class="{ 'bucket-hover': dragOverCol === 'BUCKET_DELETE' }"
+                @dragover="onDragOver('BUCKET_DELETE', $event)"
+                @dragleave="onDragLeave('BUCKET_DELETE')"
+                @drop="onDrop('BUCKET_DELETE', $event)"
+              >
+                <Trash2 :size="18" />
+                <span class="bucket-title">Delete Application</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
     <PostHireModal
       :visible="showPostHireModal"
       :hired-application-id="lastHiredAppId || 0"
@@ -2485,27 +2595,190 @@ async function confirmDelete() {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-muted);
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-xs);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
   cursor: pointer;
-  opacity: 0.5;
-  transition: all var(--transition-fast);
-}
-
-.application-card:hover .card-menu-trigger,
-.card-menu-trigger.active {
   opacity: 1;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: all var(--transition-fast);
 }
 
 .card-menu-trigger:hover,
 .card-menu-trigger.active {
+  background-color: var(--bg-surface-hover);
+  color: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+/* Date Filter Group */
+.date-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.date-range-select {
+  font-size: 13px;
+  padding: 6px 10px;
+}
+
+.custom-date-inputs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.date-input {
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
   background-color: var(--bg-surface);
   color: var(--text-main);
-  border-color: var(--border-subtle);
+  outline: none;
+}
+
+.date-input:focus {
+  border-color: var(--primary);
+}
+
+.date-sep {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.btn-clear-date-filter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-card-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-clear-date-filter:hover {
+  color: var(--danger, #ef4444);
+  border-color: var(--danger, #ef4444);
+}
+
+/* Drag Action Dock */
+.drag-action-dock {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 99999;
+  pointer-events: auto;
+}
+
+.dock-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 12px 18px;
+  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px);
+}
+
+.dock-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.dock-label strong {
+  color: var(--text-main);
+}
+
+.dock-buckets {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dock-bucket {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 140px;
+  height: 72px;
+  border-radius: var(--radius-md);
+  border: 2px dashed var(--border-color);
+  background-color: var(--bg-app);
+  cursor: copy;
+  transition: all var(--transition-fast);
+}
+
+.dock-bucket .bucket-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* Reject Bucket */
+.dock-bucket.bucket-reject {
+  color: var(--warning, #f59e0b);
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.dock-bucket.bucket-reject.bucket-hover {
+  background-color: rgba(245, 158, 11, 0.15);
+  border-color: var(--warning, #f59e0b);
+  border-style: solid;
+  transform: scale(1.05);
+}
+
+/* Archive Bucket */
+.dock-bucket.bucket-archive {
+  color: var(--primary, #3b82f6);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.dock-bucket.bucket-archive.bucket-hover {
+  background-color: rgba(59, 130, 246, 0.15);
+  border-color: var(--primary, #3b82f6);
+  border-style: solid;
+  transform: scale(1.05);
+}
+
+/* Delete Bucket */
+.dock-bucket.bucket-delete {
+  color: var(--danger, #ef4444);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.dock-bucket.bucket-delete.bucket-hover {
+  background-color: rgba(239, 68, 68, 0.15);
+  border-color: var(--danger, #ef4444);
+  border-style: solid;
+  transform: scale(1.05);
+}
+
+/* Dock slide transition */
+.dock-slide-enter-active,
+.dock-slide-leave-active {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dock-slide-enter-from,
+.dock-slide-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 40px);
 }
 
 .card-teleport-menu {

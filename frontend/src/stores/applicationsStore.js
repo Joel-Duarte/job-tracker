@@ -16,10 +16,50 @@ export const useApplicationsStore = defineStore('applications', () => {
   const actionRequiredOnly = ref(false)
   const minMatchScore = ref(null)
   const selectedWorkModel = ref('') // '' | 'Remote' | 'Hybrid' | 'On-site'
+  const selectedDateRange = ref('all') // 'all' | '7d' | '30d' | '90d' | 'custom'
+  const customDateStart = ref('')
+  const customDateEnd = ref('')
   const selectedApplication = ref(null)
   const loadingDetail = ref(false)
 
   const pipelineViewMode = ref('active') // 'active' | 'archive' | 'hired'
+
+  function matchesDateRange(app) {
+    if (!selectedDateRange.value || selectedDateRange.value === 'all') return true
+
+    const appDateRaw = app.last_activity_at || app.applied_at || app.created_at || app.latest_event?.created_at
+    if (!appDateRaw) return false
+
+    const appTime = new Date(appDateRaw).getTime()
+    if (isNaN(appTime)) return false
+
+    const now = Date.now()
+    if (selectedDateRange.value === '7d') {
+      return appTime >= now - 7 * 24 * 60 * 60 * 1000
+    }
+    if (selectedDateRange.value === '30d') {
+      return appTime >= now - 30 * 24 * 60 * 60 * 1000
+    }
+    if (selectedDateRange.value === '90d') {
+      return appTime >= now - 90 * 24 * 60 * 60 * 1000
+    }
+    if (selectedDateRange.value === 'custom') {
+      let matchesStart = true
+      let matchesEnd = true
+
+      if (customDateStart.value) {
+        const startTs = new Date(customDateStart.value).setHours(0, 0, 0, 0)
+        matchesStart = appTime >= startTs
+      }
+      if (customDateEnd.value) {
+        const endTs = new Date(customDateEnd.value).setHours(23, 59, 59, 999)
+        matchesEnd = appTime <= endTs
+      }
+      return matchesStart && matchesEnd
+    }
+
+    return true
+  }
 
   function matchesWorkModel(app) {
     if (!selectedWorkModel.value) return true
@@ -99,21 +139,26 @@ export const useApplicationsStore = defineStore('applications', () => {
       if (actionRequiredOnly.value) {
         if (!appNeedsAction(a)) return false
       }
-      return matchesWorkModel(a) && matchesSearch(a)
+      return matchesWorkModel(a) && matchesSearch(a) && matchesDateRange(a)
     })
   })
 
   const archivedApplications = computed(() => {
     return applications.value.filter((a) => {
       const status = (a.status || '').toUpperCase()
-      return ['ARCHIVED', 'WITHDRAWN', 'REJECTED'].includes(status) && matchesWorkModel(a) && matchesSearch(a)
+      return (
+        ['ARCHIVED', 'WITHDRAWN', 'REJECTED'].includes(status) &&
+        matchesWorkModel(a) &&
+        matchesSearch(a) &&
+        matchesDateRange(a)
+      )
     })
   })
 
   const hiredApplications = computed(() => {
     return applications.value.filter((a) => {
       const status = (a.status || '').toUpperCase()
-      return status === 'HIRED' && matchesWorkModel(a) && matchesSearch(a)
+      return status === 'HIRED' && matchesWorkModel(a) && matchesSearch(a) && matchesDateRange(a)
     })
   })
 
@@ -130,6 +175,9 @@ export const useApplicationsStore = defineStore('applications', () => {
 
       // Filter by work model if active
       if (!matchesWorkModel(app)) return
+
+      // Filter by date range if active
+      if (!matchesDateRange(app)) return
 
       // Filter by action required if active
       if (actionRequiredOnly.value && !appNeedsAction(app)) return
@@ -456,6 +504,9 @@ export const useApplicationsStore = defineStore('applications', () => {
     actionRequiredOnly,
     minMatchScore,
     selectedWorkModel,
+    selectedDateRange,
+    customDateStart,
+    customDateEnd,
     selectedApplication,
     loadingDetail,
     pipelineViewMode,
