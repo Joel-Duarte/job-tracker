@@ -1,6 +1,6 @@
 /**
- * Lightweight client beacon utility bundled directly into the application.
- * Dispatches navigation hits to the Cloudflare proxy in Demo Mode.
+ * Stealth client beacon utility bundled directly into the application.
+ * Dispatches standard JSON POST requests to Cloudflare proxy in Demo Mode.
  */
 export function recordPageView(path) {
   if (typeof window === 'undefined') return
@@ -8,19 +8,25 @@ export function recordPageView(path) {
     // Ignore automated headless test runners
     if (navigator.webdriver || window.callPhantom || window._phantom) return
 
-    const endpoint = 'https://floral-pine-7c5e.joel-t-f82.workers.dev/count'
-    const query = new URLSearchParams({
-      p: path || (location.pathname + location.search) || '/',
-      r: document.referrer || '',
-      t: document.title || '',
-      s: String(window.screen?.width || 0),
-      rnd: Math.random().toString(36).substring(2, 7),
+    const endpoint = 'https://floral-pine-7c5e.joel-t-f82.workers.dev/api/ping'
+    const payload = JSON.stringify({
+      path: path || (location.pathname + location.search) || '/',
+      referrer: document.referrer || '',
+      title: document.title || '',
+      width: window.screen?.width || 0,
     })
 
-    const targetUrl = `${endpoint}?${query.toString()}`
-
-    if (!navigator.sendBeacon || !navigator.sendBeacon(targetUrl)) {
-      fetch(targetUrl, { mode: 'no-cors', priority: 'low' }).catch(() => {})
+    if (navigator.sendBeacon) {
+      const blob = new Blob([payload], { type: 'application/json' })
+      navigator.sendBeacon(endpoint, blob)
+    } else {
+      fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        mode: 'cors',
+        keepalive: true,
+      }).catch(() => {})
     }
   } catch {
     // silent fallback
