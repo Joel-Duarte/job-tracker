@@ -3,7 +3,7 @@
  */
 
 const DEFAULT_SETTINGS = {
-  appUrl: 'http://localhost:5173',
+  appUrl: 'http://localhost:4173',
   dockMode: 'AUTO-DETECT', // 'AUTO-DETECT' | 'ALL_PAGES' | 'OFF'
   dockExpanded: true,      // boolean: floating dock open/closed persistence
   dockPosition: null,      // { top: number, left: number } | null
