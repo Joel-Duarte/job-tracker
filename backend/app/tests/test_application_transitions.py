@@ -178,11 +178,13 @@ async def test_application_patch_updates(db_session: AsyncSession):
                 json={
                     "position": "Staff Frontend Architect",
                     "company_name": "Acme Global Technologies",
+                    "company_domain": "https://www.acmeglobal.com/careers",
                 },
             )
             assert resp.status_code == 200
             data = resp.json()
             assert data["position"] == "Staff Frontend Architect"
             assert data["company"]["name"] == "Acme Global Technologies"
+            assert data["company"]["domain"] == "acmeglobal.com"
 
     app.dependency_overrides.clear()

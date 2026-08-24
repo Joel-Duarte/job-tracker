@@ -1,5 +1,7 @@
 import logging
+import re
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -625,8 +627,41 @@ async def update_application(
                     await db.flush()
                 app.company_id = comp.id
 
+    if "company_domain" in update_data:
+        raw_dom = update_data["company_domain"]
+        cleaned_domain = None
+        if raw_dom and raw_dom.strip():
+            raw_val = raw_dom.strip().lower()
+            if "://" not in raw_val and not raw_val.startswith("//"):
+                raw_val = "https://" + raw_val
+            try:
+                parsed = urlparse(raw_val)
+                hostname = parsed.hostname or ""
+                if hostname.startswith("www."):
+                    hostname = hostname[4:]
+                cleaned_domain = hostname.strip() or None
+            except Exception:
+                cleaned = re.sub(r"^https?://", "", raw_dom.strip().lower())
+                cleaned = re.sub(r"^www\.", "", cleaned)
+                cleaned_domain = (
+                    cleaned.split("/")[0].split("?")[0].split("#")[0].strip() or None
+                )
+
+        if app.company:
+            app.company.domain = cleaned_domain
+        elif cleaned_domain:
+            comp = CompanyModel(
+                name=app.position or "Company",
+                domain=cleaned_domain,
+            )
+            db.add(comp)
+            await db.flush()
+            app.company_id = comp.id
+
     for key, value in update_data.items():
-        if key not in {"position", "company_name"} and hasattr(app, key):
+        if key not in {"position", "company_name", "company_domain"} and hasattr(
+            app, key
+        ):
             setattr(app, key, value)
 
     await db.commit()

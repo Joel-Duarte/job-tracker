@@ -1,17 +1,13 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useUIStore } from '../stores/uiStore'
 import { useApplicationsStore } from '../stores/applicationsStore'
-import { useQueueStore } from '../stores/queueStore'
 import { StagingAPI } from '../api/endpoints'
-import { getFitScores } from '../utils/fitScores'
 import {
   Inbox,
   CheckCircle2,
   XCircle,
-  Edit3,
   Mail,
-  AlertTriangle,
   Building2,
   Loader2,
   Sparkles,
@@ -24,24 +20,41 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
+  ArrowUpDown,
+  Trash2,
+  Clock,
+  User,
+  FileText,
+  Globe,
+  PlusCircle,
+  AlertCircle,
+  X,
 } from 'lucide-vue-next'
 import PageHeader from '../components/common/PageHeader.vue'
 import DateTimePicker from '../components/common/DateTimePicker.vue'
+import CompanyLogo from '../components/common/CompanyLogo.vue'
 
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
 
+// State
 const stagingItems = ref([])
 const loading = ref(false)
 const isSubmitting = ref(false)
-const selectedFilter = ref('PENDING')
+const selectedFilter = ref('PENDING') // 'PENDING' | 'PROCESSED' | 'ALL'
+const searchFilterQuery = ref('')
+const sortOrder = ref('FIFO') // 'FIFO' (Oldest Email First) | 'LIFO' (Newest Email First)
 
-// Modal State (2-Step Resolution Wizard)
-const resolvingItem = ref(null)
-const currentStep = ref(1) // 1 = Select Target, 2 = Configure Details
+// Master-detail active selection
+const selectedItemId = ref(null)
+const emailViewMode = ref('formatted') // 'formatted' | 'raw'
+
+// Resolution Form State
 const resolutionMode = ref('create') // 'create' | 'link'
 const selectedExistingAppId = ref(null)
 const appSearchQuery = ref('')
+const includeArchivedApps = ref(false)
 const showRawJobDesc = ref(false)
 
 const resolveForm = ref({
@@ -57,6 +70,69 @@ const resolveForm = ref({
   due_date: '',
 })
 
+// Item extraction helpers
+function getItemCompany(item) {
+  if (!item) return 'Unknown Company'
+  return (
+    item.extracted_data?.company ||
+    item.extracted_data?.company_name ||
+    item.suggested_company ||
+    'Unknown Company'
+  )
+}
+
+function getItemPosition(item) {
+  if (!item) return 'Position Not Specified'
+  return (
+    item.extracted_data?.position ||
+    item.suggested_position ||
+    'Software Engineer'
+  )
+}
+
+function getDetectedEventType(item) {
+  if (!item) return 'APPLICATION_CONFIRMATION'
+  const extracted = item.extracted_data || {}
+  return extracted.event_type || extracted.email_event_type || 'APPLICATION_CONFIRMATION'
+}
+
+function getAutoDetectedStatus(item) {
+  const eventType = (getDetectedEventType(item) || '').toUpperCase()
+  if (
+    eventType.includes('INTERVIEW') ||
+    eventType.includes('ASSESSMENT') ||
+    eventType.includes('OA') ||
+    eventType.includes('SCREEN')
+  ) {
+    return 'TECHNICAL_INTERVIEW'
+  }
+  if (eventType.includes('REJECT') || eventType.includes('NOT_MOVING_FORWARD')) {
+    return 'REJECTED'
+  }
+  if (eventType.includes('OFFER')) {
+    return 'OFFER'
+  }
+  return 'APPLIED'
+}
+
+function formatEventTypeLabel(eventType) {
+  const t = (eventType || '').toUpperCase()
+  if (t.includes('INTERVIEW')) return 'Interview Invitation'
+  if (t.includes('REJECT')) return 'Rejection Notice'
+  if (t.includes('OFFER')) return 'Offer Letter'
+  if (t.includes('OA') || t.includes('ASSESSMENT')) return 'Assessment / Test'
+  return 'Application Confirmation'
+}
+
+function getEventTypeBadgeClass(eventType) {
+  const t = (eventType || '').toUpperCase()
+  if (t.includes('OFFER')) return 'badge-offer'
+  if (t.includes('INTERVIEW') || t.includes('OA') || t.includes('ASSESSMENT')) return 'badge-interview'
+  if (t.includes('REJECT')) return 'badge-rejected'
+  return 'badge-applied'
+}
+
+// Computed Urgency
 const computedUrgency = computed(() => {
   if (resolveForm.value.due_date) {
     const due = new Date(resolveForm.value.due_date)
@@ -93,123 +169,75 @@ const computedUrgencyLabel = computed(() => {
   return 'Medium Urgency'
 })
 
-function getSelectedExistingApp() {
-  if (!selectedExistingAppId.value) return null
-  return appStore.applications.find((a) => a.id === selectedExistingAppId.value)
-}
+// Filtered & Sorted Queue Items
+const filteredAndSortedItems = computed(() => {
+  let items = [...stagingItems.value]
 
-function handleSelectExistingApp(appId) {
-  resolutionMode.value = 'link'
-  selectedExistingAppId.value = appId
-}
-
-function handleSelectCreateNew() {
-  resolutionMode.value = 'create'
-  selectedExistingAppId.value = null
-}
-
-function proceedToStep2() {
-  if (resolutionMode.value === 'link' && !selectedExistingAppId.value) {
-    uiStore.showToast(
-      'Please select an existing application to link with, or choose Create as New Application.',
-      'warning'
-    )
-    return
+  // Search filter
+  if (searchFilterQuery.value.trim()) {
+    const q = searchFilterQuery.value.toLowerCase().trim()
+    items = items.filter((item) => {
+      const comp = getItemCompany(item).toLowerCase()
+      const pos = getItemPosition(item).toLowerCase()
+      const sender = (item.email_sender || '').toLowerCase()
+      const senderName = (item.email_sender_name || '').toLowerCase()
+      const subject = (item.email_subject || '').toLowerCase()
+      return (
+        comp.includes(q) ||
+        pos.includes(q) ||
+        sender.includes(q) ||
+        senderName.includes(q) ||
+        subject.includes(q)
+      )
+    })
   }
-  currentStep.value = 2
-}
 
-function getItemCompany(item) {
-  return (
-    item.extracted_data?.company ||
-    item.extracted_data?.company_name ||
-    item.suggested_company ||
-    'Unknown Company'
-  )
-}
+  // FIFO / LIFO sorting on email received_at date (fallback to created_at)
+  items.sort((a, b) => {
+    const dateA = new Date(a.email_received_at || a.created_at).getTime()
+    const dateB = new Date(b.email_received_at || b.created_at).getTime()
+    return sortOrder.value === 'FIFO' ? dateA - dateB : dateB - dateA
+  })
 
-function getItemPosition(item) {
-  return (
-    item.extracted_data?.position ||
-    item.suggested_position ||
-    'Software Engineer'
-  )
-}
+  return items
+})
 
-function getDetectedEventType(item) {
-  const extracted = item.extracted_data || {}
-  return extracted.event_type || extracted.email_event_type || 'APPLICATION_CONFIRMATION'
-}
+// Selected Item in Master-Detail
+const selectedItem = computed(() => {
+  if (!selectedItemId.value) return null
+  return stagingItems.value.find((i) => i.id === selectedItemId.value) || null
+})
 
-function getAutoDetectedStatus(item) {
-  const eventType = (getDetectedEventType(item) || '').toUpperCase()
-  if (
-    eventType.includes('INTERVIEW') ||
-    eventType.includes('ASSESSMENT') ||
-    eventType.includes('OA') ||
-    eventType.includes('SCREEN')
-  ) {
-    return 'TECHNICAL_INTERVIEW'
-  }
-  if (eventType.includes('REJECT') || eventType.includes('NOT_MOVING_FORWARD')) {
-    return 'REJECTED'
-  }
-  if (eventType.includes('OFFER')) {
-    return 'OFFER'
-  }
-  return 'APPLIED'
-}
+const selectedItemIndex = computed(() => {
+  if (!selectedItemId.value) return -1
+  return filteredAndSortedItems.value.findIndex((i) => i.id === selectedItemId.value)
+})
 
-function formatEventTypeLabel(eventType) {
-  const t = (eventType || '').toUpperCase()
-  if (t.includes('INTERVIEW')) return 'Interview Invitation'
-  if (t.includes('REJECT')) return 'Rejection Notice'
-  if (t.includes('OFFER')) return 'Offer Letter'
-  if (t.includes('OA') || t.includes('ASSESSMENT')) return 'Assessment / Test'
-  return 'Application Confirmation'
-}
+const hasPreviousItem = computed(() => selectedItemIndex.value > 0)
+const hasNextItem = computed(() => selectedItemIndex.value >= 0 && selectedItemIndex.value < filteredAndSortedItems.value.length - 1)
 
-function getStatusBadgeClass(status) {
-  switch (status) {
-    case 'APPLIED':
-      return 'status-applied'
-    case 'TECHNICAL_INTERVIEW':
-      return 'status-interview'
-    case 'OFFER':
-      return 'status-offer'
-    case 'REJECTED':
-      return 'status-rejected'
-    default:
-      return 'status-neutral'
+function selectPreviousItem() {
+  if (hasPreviousItem.value) {
+    const prev = filteredAndSortedItems.value[selectedItemIndex.value - 1]
+    if (prev) selectItem(prev)
   }
 }
 
-function formatStatusLabel(status) {
-  switch (status) {
-    case 'APPLIED':
-      return 'Applied'
-    case 'TECHNICAL_INTERVIEW':
-      return 'Technical Interview'
-    case 'OFFER':
-      return 'Offer'
-    case 'REJECTED':
-      return 'Rejected'
-    case 'ASSESSMENT':
-      return 'AI Assessment'
-    default:
-      return status
+function selectNextItem() {
+  if (hasNextItem.value) {
+    const next = filteredAndSortedItems.value[selectedItemIndex.value + 1]
+    if (next) selectItem(next)
   }
 }
 
-const includeArchivedApps = ref(false)
-
+// Applications search for linking
 const filteredExistingApps = computed(() => {
   let apps = appStore.applications || []
   if (!includeArchivedApps.value) {
-    apps = apps.filter((a) => !['REJECTED', 'ARCHIVED'].includes(a.status))
+    apps = apps.filter((a) => !['REJECTED', 'ARCHIVED', 'WITHDRAWN'].includes(a.status))
   }
   if (!appSearchQuery.value.trim()) return apps
-  const q = appSearchQuery.value.toLowerCase()
+  const q = appSearchQuery.value.toLowerCase().trim()
   return apps.filter(
     (a) =>
       (a.company?.name || '').toLowerCase().includes(q) ||
@@ -217,57 +245,16 @@ const filteredExistingApps = computed(() => {
   )
 })
 
-async function fetchStagingItems(silent = false) {
-  if (!silent) {
-    loading.value = true
-  }
-  try {
-    const res = await StagingAPI.list({
-      status: selectedFilter.value,
-      limit: 50,
-    })
-    stagingItems.value = res.data.items || []
-  } catch (err) {
-    if (!silent) {
-      uiStore.showToast(err.message, 'error')
-    }
-  } finally {
-    if (!silent) {
-      loading.value = false
-    }
-  }
-}
-
-let stagingPollInterval = null
-
-onMounted(() => {
-  fetchStagingItems()
-  if (appStore.applications.length === 0) {
-    appStore.fetchApplications()
-  }
-
-  // Poll for newly staged items in real-time
-  stagingPollInterval = setInterval(() => {
-    if (!resolvingItem.value) {
-      fetchStagingItems(true)
-    }
-  }, 2500)
-})
-
-onUnmounted(() => {
-  if (stagingPollInterval) {
-    clearInterval(stagingPollInterval)
-  }
-})
-
-function openResolveModal(item) {
-  resolvingItem.value = item
-  currentStep.value = 1
+// Populate resolveForm whenever selected item changes
+function selectItem(item) {
+  if (!item) return
+  selectedItemId.value = item.id
   resolutionMode.value = 'create'
   selectedExistingAppId.value = null
   includeArchivedApps.value = false
   appSearchQuery.value = getItemCompany(item) || ''
   showRawJobDesc.value = false
+  emailViewMode.value = 'formatted'
 
   const extracted = item.extracted_data || {}
   const autoStatus = getAutoDetectedStatus(item)
@@ -300,11 +287,94 @@ function openResolveModal(item) {
     action: extracted.action || '',
     due_date: extractedDueDate,
   }
+
+  // Pre-match existing application if high confidence
+  const companyName = getItemCompany(item).toLowerCase().trim()
+  const matchedApp = (appStore.applications || []).find(
+    (a) => (a.company?.name || '').toLowerCase().trim() === companyName
+  )
+  if (matchedApp) {
+    selectedExistingAppId.value = matchedApp.id
+  }
 }
 
+// Watch sorted items to keep selection stable
+watch(
+  () => filteredAndSortedItems.value,
+  (items) => {
+    if (items.length > 0) {
+      if (!selectedItemId.value || !items.some((i) => i.id === selectedItemId.value)) {
+        selectItem(items[0])
+      }
+    } else {
+      selectedItemId.value = null
+    }
+  },
+  { immediate: true }
+)
+
+// Fetch Staging Items API
+async function fetchStagingItems(silent = false) {
+  if (!silent) {
+    loading.value = true
+  }
+  try {
+    const res = await StagingAPI.list({
+      status: selectedFilter.value === 'ALL' ? undefined : selectedFilter.value,
+      limit: 50,
+    })
+    stagingItems.value = res.data.items || []
+  } catch (err) {
+    if (!silent) {
+      uiStore.showToast(err.message, 'error')
+    }
+  } finally {
+    if (!silent) {
+      loading.value = false
+    }
+  }
+}
+
+let stagingPollInterval = null
+
+function handleKeyDown(e) {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+    return
+  }
+  if (e.key === 'ArrowLeft' || e.key === 'k') {
+    selectPreviousItem()
+  } else if (e.key === 'ArrowRight' || e.key === 'j') {
+    selectNextItem()
+  }
+}
+
+onMounted(() => {
+  fetchStagingItems()
+  if (appStore.applications.length === 0) {
+    appStore.fetchApplications()
+  }
+
+  window.addEventListener('keydown', handleKeyDown)
+
+  // Background real-time polling
+  stagingPollInterval = setInterval(() => {
+    fetchStagingItems(true)
+  }, 4000)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeyDown)
+  if (stagingPollInterval) {
+    clearInterval(stagingPollInterval)
+  }
+})
+
+// Submit Resolution with Auto-Advance
 async function submitResolution() {
-  if (!resolvingItem.value) return
+  if (!selectedItem.value) return
   isSubmitting.value = true
+
+  const currentIndex = selectedItemIndex.value
 
   try {
     const payload = {
@@ -329,7 +399,7 @@ async function submitResolution() {
         return
       }
 
-      await StagingAPI.resolve(resolvingItem.value.id, {
+      await StagingAPI.resolve(selectedItem.value.id, {
         ...payload,
         company: resolveForm.value.company.trim(),
         position: resolveForm.value.position.trim(),
@@ -341,7 +411,6 @@ async function submitResolution() {
         'success'
       )
     } else {
-      // Link to existing application
       if (!selectedExistingAppId.value) {
         uiStore.showToast('Please select an existing application to link with.', 'warning')
         isSubmitting.value = false
@@ -349,7 +418,7 @@ async function submitResolution() {
       }
 
       const matchedApp = appStore.applications.find((a) => a.id === selectedExistingAppId.value)
-      await StagingAPI.resolve(resolvingItem.value.id, {
+      await StagingAPI.resolve(selectedItem.value.id, {
         ...payload,
         application_id: selectedExistingAppId.value,
         company: matchedApp?.company?.name || resolveForm.value.company,
@@ -363,14 +432,18 @@ async function submitResolution() {
       )
     }
 
-    const resolvedMode = resolutionMode.value
-    const resolvedAppId = selectedExistingAppId.value
-
-    resolvingItem.value = null
-    fetchStagingItems()
+    // Refresh data
+    await fetchStagingItems(true)
     appStore.fetchApplications()
-    if (resolvedMode === 'link' && resolvedAppId) {
-      appStore.fetchApplicationDetail(resolvedAppId)
+
+    // Auto-advance to next item in queue
+    const remainingItems = filteredAndSortedItems.value
+    if (remainingItems.length > 0) {
+      const nextItem =
+        currentIndex < remainingItems.length ? remainingItems[currentIndex] : remainingItems[remainingItems.length - 1]
+      selectItem(nextItem)
+    } else {
+      selectedItemId.value = null
     }
   } catch (err) {
     uiStore.showToast(err.message, 'error')
@@ -379,24 +452,65 @@ async function submitResolution() {
   }
 }
 
-async function dismissItem(item) {
+async function dismissCurrentItem() {
+  if (!selectedItem.value) return
+  const currentIndex = selectedItemIndex.value
   try {
-    await StagingAPI.delete(item.id)
+    await StagingAPI.delete(selectedItem.value.id)
     uiStore.showToast('Staged communication dismissed', 'info')
-    fetchStagingItems()
+    await fetchStagingItems(true)
+
+    const remainingItems = filteredAndSortedItems.value
+    if (remainingItems.length > 0) {
+      const nextItem =
+        currentIndex < remainingItems.length ? remainingItems[currentIndex] : remainingItems[remainingItems.length - 1]
+      selectItem(nextItem)
+    } else {
+      selectedItemId.value = null
+    }
   } catch (err) {
     uiStore.showToast(err.message, 'error')
+  }
+}
+
+function formatDate(isoStr) {
+  if (!isoStr) return 'N/A'
+  try {
+    const d = new Date(isoStr)
+    return d.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return isoStr
+  }
+}
+
+function formatRelativeTime(isoStr) {
+  if (!isoStr) return ''
+  try {
+    const diffMs = Date.now() - new Date(isoStr).getTime()
+    const diffHrs = Math.floor(diffMs / (1000 * 60 * 60))
+    if (diffHrs < 1) return 'Just now'
+    if (diffHrs < 24) return `${diffHrs}h ago`
+    const diffDays = Math.floor(diffHrs / 24)
+    return `${diffDays}d ago`
+  } catch {
+    return ''
   }
 }
 </script>
 
 <template>
-  <div class="page-container">
-    <!-- Standardized Page Header -->
+  <div class="page-container staging-workspace-container">
+    <!-- Header Bar -->
     <PageHeader
-      title="Human-in-the-Loop Staging Queue"
-      subtitle="Review unmatched emails, resolve ambiguous job leads into new applications, or link them to existing pipeline records."
-      align="center"
+      title="Recruitment Staging Queue"
+      subtitle="Master-detail triage workspace: review incoming recruitment emails, match to existing applications, or spawn new tracked jobs."
+      align="left"
     >
       <template #tabs>
         <div class="filter-pills">
@@ -405,7 +519,7 @@ async function dismissItem(item) {
             :class="{ active: selectedFilter === 'PENDING' }"
             @click="selectedFilter = 'PENDING'; fetchStagingItems()"
           >
-            Pending Review
+            Pending ({{ stagingItems.filter(i => i.status === 'PENDING').length }})
           </button>
           <button
             class="pill-btn"
@@ -414,1240 +528,1175 @@ async function dismissItem(item) {
           >
             Resolved
           </button>
+          <button
+            class="pill-btn"
+            :class="{ active: selectedFilter === 'ALL' }"
+            @click="selectedFilter = 'ALL'; fetchStagingItems()"
+          >
+            All Items
+          </button>
         </div>
       </template>
     </PageHeader>
 
-    <!-- Main Content -->
-    <div class="content-area">
-      <div v-if="loading" class="loading-state">
-        <Loader2 class="animate-spin text-primary" :size="28" />
-        <span>Loading staging items...</span>
-      </div>
-
-      <div v-else-if="stagingItems.length === 0" class="empty-state-box">
-        <Inbox :size="48" class="empty-state-icon" />
-        <h3 class="empty-state-title">Staging Queue is Clear</h3>
-        <p class="empty-state-desc">All incoming recruiter communications have been matched and routed to your pipeline.</p>
-      </div>
-
-      <div v-else class="staging-grid">
-        <div
-          v-for="item in stagingItems"
-          :key="item.id"
-          class="staging-card animate-fade-in"
-        >
-          <!-- Card Top Bar -->
-          <div class="card-top">
-            <div class="company-tag">
-              <Building2 :size="16" class="text-primary" />
-              <span class="company-name">{{ getItemCompany(item) }}</span>
-            </div>
-          </div>
-
-          <!-- Position & Detected Event -->
-          <div class="role-row">
-            <span class="role-title">{{ getItemPosition(item) }}</span>
-            <span class="event-pill" :class="getStatusBadgeClass(getAutoDetectedStatus(item))">
-              {{ formatEventTypeLabel(getDetectedEventType(item)) }}
-            </span>
-          </div>
-
-          <!-- Email Preview Snippet -->
-          <div class="email-details-box">
-            <div class="detail-row">
-              <Mail :size="13" class="text-muted" />
-              <span class="detail-subject">{{ item.email_subject || 'No Subject Line' }}</span>
-            </div>
-            <div v-if="item.email_raw_body" class="detail-body-snippet font-mono text-xs">
-              {{ item.email_raw_body }}
-            </div>
-          </div>
-
-          <!-- Recommendation Banner -->
-          <div v-if="selectedFilter === 'PENDING'" class="recommendation-bar">
-            <Sparkles :size="13" class="text-primary" />
-            <span>
-              Target Stage: <strong>{{ formatStatusLabel(getAutoDetectedStatus(item)) }}</strong>
-            </span>
-          </div>
-
-          <!-- Action Buttons -->
-          <div v-if="selectedFilter === 'PENDING'" class="card-actions">
+    <!-- Workspace Master-Detail Split Pane -->
+    <div class="staging-split-workspace">
+      <!-- LEFT PANE: Filterable Staging Queue Sidebar -->
+      <aside class="staging-sidebar">
+        <!-- Sidebar Controls -->
+        <div class="sidebar-controls">
+          <div class="sidebar-search-box">
+            <Search :size="14" class="search-box-icon" />
+            <input
+              v-model="searchFilterQuery"
+              type="text"
+              placeholder="Search company, sender, or subject..."
+              class="sidebar-search-input"
+            />
             <button
-              class="btn btn-ghost btn-xs text-danger"
-              @click="dismissItem(item)"
-              title="Dismiss non-job email"
+              v-if="searchFilterQuery"
+              class="btn-clear-input"
+              @click="searchFilterQuery = ''"
             >
-              <XCircle :size="14" />
-              <span>Dismiss</span>
+              <X :size="12" />
             </button>
+          </div>
 
-            <div class="actions-right">
+          <!-- FIFO Sort Toggle Header -->
+          <div class="sidebar-sort-bar">
+            <span class="sort-count-label">
+              {{ filteredAndSortedItems.length }} item{{ filteredAndSortedItems.length === 1 ? '' : 's' }}
+            </span>
+            <button
+              class="btn-sort-toggle"
+              :title="sortOrder === 'FIFO' ? 'Switch to Newest Email First' : 'Switch to Oldest Email First (FIFO)'"
+              @click="sortOrder = sortOrder === 'FIFO' ? 'LIFO' : 'FIFO'"
+            >
+              <Clock :size="12" />
+              <span>{{ sortOrder === 'FIFO' ? 'Oldest Email (FIFO)' : 'Newest Email' }}</span>
+              <ArrowUpDown :size="11" />
+            </button>
+          </div>
+        </div>
+
+        <!-- Queue Item List -->
+        <div class="sidebar-items-list">
+          <div v-if="loading && stagingItems.length === 0" class="sidebar-loading">
+            <Loader2 class="animate-spin text-primary" :size="20" />
+            <span>Loading queue...</span>
+          </div>
+
+          <div v-else-if="filteredAndSortedItems.length === 0" class="sidebar-empty">
+            <Inbox :size="32" class="text-muted" />
+            <p class="empty-text">No matching staging items</p>
+          </div>
+
+          <div
+            v-for="item in filteredAndSortedItems"
+            :key="item.id"
+            class="queue-item-card"
+            :class="{
+              active: selectedItemId === item.id,
+              'has-action': item.extracted_data?.action_required,
+              resolved: item.status !== 'PENDING'
+            }"
+            @click="selectItem(item)"
+          >
+            <div class="item-header-row">
+              <div class="item-company-tag">
+                <Building2 :size="14" class="text-primary" />
+                <span class="item-company-name">{{ getItemCompany(item) }}</span>
+              </div>
+              <span class="item-time-tag">{{ formatRelativeTime(item.email_received_at || item.created_at) }}</span>
+            </div>
+
+            <div class="item-role-title">{{ getItemPosition(item) }}</div>
+            <div class="item-subject-snippet">{{ item.email_subject || 'No Subject' }}</div>
+
+            <div class="item-footer-row">
+              <span class="item-event-badge" :class="getEventTypeBadgeClass(getDetectedEventType(item))">
+                {{ formatEventTypeLabel(getDetectedEventType(item)) }}
+              </span>
+              <span v-if="item.extracted_data?.action_required" class="item-action-pill" title="Action required">
+                ⚡ Action
+              </span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- RIGHT MAIN PANE: Focused Triage Workspace -->
+      <main class="staging-main-detail">
+        <!-- Empty Selection / All Clear State -->
+        <div v-if="!selectedItem" class="workspace-empty-view">
+          <div class="empty-box-inner">
+            <Inbox :size="56" class="empty-inbox-icon" />
+            <h3>Staging Queue is Clear</h3>
+            <p>All incoming recruitment emails have been processed and linked to your pipeline.</p>
+          </div>
+        </div>
+
+        <!-- Active Item Triage Area -->
+        <div v-else class="workspace-content-grid">
+          <!-- Top Triage Action Navigation Bar -->
+          <div class="triage-nav-header">
+            <div class="nav-counter">
+              <span class="counter-badge">
+                Item {{ selectedItemIndex + 1 }} of {{ filteredAndSortedItems.length }}
+              </span>
+              <span class="nav-hint-text">Use [← / →] or J/K keys to navigate</span>
+            </div>
+
+            <div class="nav-actions">
+              <div class="chevron-nav-group">
+                <button
+                  class="btn-nav-chevron"
+                  :disabled="!hasPreviousItem"
+                  title="Previous Item (Left Arrow / K)"
+                  @click="selectPreviousItem"
+                >
+                  <ChevronLeft :size="16" />
+                  <span>Prev</span>
+                </button>
+                <button
+                  class="btn-nav-chevron"
+                  :disabled="!hasNextItem"
+                  title="Next Item (Right Arrow / J)"
+                  @click="selectNextItem"
+                >
+                  <span>Next</span>
+                  <ChevronRight :size="16" />
+                </button>
+              </div>
+
               <button
-                class="btn btn-primary btn-sm"
-                @click="openResolveModal(item)"
-                title="Review and resolve this staged item"
+                class="btn-dismiss-action"
+                title="Dismiss and remove this item"
+                @click="dismissCurrentItem"
               >
-                <Sparkles :size="13" />
-                <span>Resolve</span>
+                <Trash2 :size="14" />
+                <span>Dismiss</span>
               </button>
             </div>
           </div>
-
-          <!-- Resolved State Footer -->
-          <div v-else class="resolved-footer">
-            <Check :size="14" class="text-success" />
-            <span>Processed and committed to Application Pipeline</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- RESOLUTION MODAL (2-STEP WIZARD) -->
-    <div v-if="resolvingItem" class="modal-backdrop" @click.self="resolvingItem = null">
-      <div class="modal-card modal-lg animate-fade-in">
-        <div class="modal-header">
-          <div class="modal-title-group">
-            <Sparkles :size="18" class="text-primary" />
-            <div>
-              <h3 class="modal-title">Resolve Staging Item</h3>
-              <p class="modal-subtitle">
-                {{ currentStep === 1 ? 'Step 1 of 2: Select Target Application' : 'Step 2 of 2: Configure Event & Actions' }}
-              </p>
-            </div>
-          </div>
-          <button class="btn-close" @click="resolvingItem = null">×</button>
-        </div>
-
-        <!-- Step Indicator Bar -->
-        <div class="step-indicator-bar">
-          <div
-            class="step-badge"
-            :class="{ active: currentStep === 1, done: currentStep > 1 }"
-            @click="currentStep = 1"
-          >
-            <span class="step-num">1</span>
-            <span>Select Target</span>
-          </div>
-          <div class="step-divider"></div>
-          <div
-            class="step-badge"
-            :class="{ active: currentStep === 2, disabled: resolutionMode === 'link' && !selectedExistingAppId }"
-            @click="proceedToStep2"
-          >
-            <span class="step-num">2</span>
-            <span>Configure Event &amp; Actions</span>
-          </div>
-        </div>
-
-        <!-- STEP 1: SELECT DESTINATION -->
-        <div v-if="currentStep === 1" class="modal-body space-y-4">
-          <!-- Option A: Create New Application Card -->
-          <div
-            class="destination-card new-app-card"
-            :class="{ selected: resolutionMode === 'create' }"
-            @click="handleSelectCreateNew"
-          >
-            <div class="destination-card-header">
-              <div class="dest-icon-circle">
-                <Sparkles :size="16" />
-              </div>
-              <div class="dest-info">
-                <span class="dest-title">Create as New Application</span>
-                <span class="dest-desc">
-                  Start a new pipeline application for <strong>{{ getItemCompany(resolvingItem) }}</strong> — <em>{{ getItemPosition(resolvingItem) }}</em>
-                </span>
-              </div>
-              <div class="circle-checkbox" :class="{ checked: resolutionMode === 'create' }">
-                <Check v-if="resolutionMode === 'create'" :size="11" :stroke-width="3" />
-              </div>
-            </div>
-          </div>
-
-          <div class="divider-with-text">
-            <span>OR LINK TO AN EXISTING APPLICATION</span>
-          </div>
-
-          <!-- Option B: Search & List Existing Applications -->
-          <div class="link-search-bar-row">
-            <div class="search-box">
-              <Search :size="16" class="search-icon" />
-              <input
-                v-model="appSearchQuery"
-                type="text"
-                placeholder="Search applications by company or position..."
-                class="search-input"
-              />
-            </div>
-
-            <div
-              class="include-archived-toggle"
-              @click="includeArchivedApps = !includeArchivedApps"
-            >
-              <div class="circle-checkbox" :class="{ checked: includeArchivedApps }">
-                <Check v-if="includeArchivedApps" :size="11" :stroke-width="3" />
-              </div>
-              <span class="include-archived-text">Include Rejected / Archived</span>
-            </div>
-          </div>
-
-          <div class="existing-apps-list">
-            <div
-              v-if="filteredExistingApps.length === 0"
-              class="empty-apps-notice"
-            >
-              No existing applications match your search.
-            </div>
-            <div
-              v-for="app in filteredExistingApps"
-              :key="app.id"
-              class="existing-app-row"
-              :class="{ active: resolutionMode === 'link' && selectedExistingAppId === app.id }"
-              @click="handleSelectExistingApp(app.id)"
-            >
-              <div class="app-info">
-                <span class="app-company">{{ app.company?.name || 'Unknown' }}</span>
-                <span class="app-position">{{ app.position }}</span>
-              </div>
-              <div class="app-meta">
-                <span class="stage-pill" :class="getStatusBadgeClass(app.status)">
-                  {{ formatStatusLabel(app.status) }}
-                </span>
-                <div
-                  class="circle-checkbox"
-                  :class="{ checked: resolutionMode === 'link' && selectedExistingAppId === app.id }"
-                >
-                  <Check
-                    v-if="resolutionMode === 'link' && selectedExistingAppId === app.id"
-                    :size="11"
-                    :stroke-width="3"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- STEP 2: CONFIGURE DETAILS & ACTION ITEMS -->
-        <div v-else-if="currentStep === 2" class="modal-body space-y-4">
-          <!-- Target Application Context Banner -->
-          <div class="target-context-banner">
-            <div v-if="resolutionMode === 'create'" class="target-badge-new">
-              <Sparkles :size="14" class="text-primary" />
-              <span>Creating New Application: <strong>{{ resolveForm.company }}</strong> ({{ resolveForm.position }})</span>
-            </div>
-            <div v-else class="target-badge-link">
-              <LinkIcon :size="14" class="text-primary" />
-              <span>Linking Event to: <strong>{{ getSelectedExistingApp()?.company?.name || 'Selected Company' }}</strong> — <em>{{ getSelectedExistingApp()?.position || 'Application' }}</em></span>
-            </div>
-          </div>
-
-          <!-- If New Application: Show Company & Position edit fields -->
-          <div v-if="resolutionMode === 'create'" class="form-grid-2">
-            <div class="input-group">
-              <label class="input-label">Company Name *</label>
-              <div class="input-with-icon">
-                <Building2 :size="15" class="field-icon" />
-                <input
-                  v-model="resolveForm.company"
-                  type="text"
-                  placeholder="e.g. Stripe, OpenAI, Datadog"
-                  class="form-input"
-                  required
-                />
-              </div>
-            </div>
-
-            <div class="input-group">
-              <label class="input-label">Position / Job Title *</label>
-              <input
-                v-model="resolveForm.position"
-                type="text"
-                placeholder="e.g. Senior Backend Engineer"
-                class="form-input"
-                required
-              />
-            </div>
-          </div>
-
-          <!-- Stage and Event Type Dropdowns (NO Assessment Studio) -->
-          <div class="form-grid-2">
-            <div class="input-group">
-              <label class="input-label">Target Pipeline Status</label>
-              <select v-model="resolveForm.status" class="form-input">
-                <option value="APPLIED">Applied (Default)</option>
-                <option value="ONLINE_ASSESSMENT">Online Assessment (OA)</option>
-                <option value="TECHNICAL_INTERVIEW">Technical Interview</option>
-                <option value="OFFER">Offer</option>
-                <option value="REJECTED">Rejected</option>
-              </select>
-            </div>
-
-            <div class="input-group">
-              <label class="input-label">Email Event Type</label>
-              <select v-model="resolveForm.event_type" class="form-input">
-                <option value="APPLICATION_CONFIRMATION">Application Confirmation</option>
-                <option value="INTERVIEW_INVITATION">Interview Invitation</option>
-                <option value="ONLINE_ASSESSMENT">Online Assessment (OA)</option>
-                <option value="REJECTION">Rejection Notice</option>
-                <option value="OFFER_LETTER">Offer Letter</option>
-                <option value="STATUS_UPDATE">General Status Update</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Job Posting URL (Full Width) -->
-          <div class="input-group">
-            <label class="input-label">Job Posting URL (Optional)</label>
-            <div class="input-with-icon">
-              <LinkIcon :size="15" class="field-icon" />
-              <input
-                v-model="resolveForm.job_url"
-                type="url"
-                placeholder="https://jobs.lever.co/... or https://boards.greenhouse.io/..."
-                class="form-input"
-              />
-            </div>
-          </div>
-
-          <!-- Collapsible Raw Job Description (Full Width) -->
-          <div class="collapsible-section">
-            <button
-              type="button"
-              class="collapsible-toggle-btn"
-              @click="showRawJobDesc = !showRawJobDesc"
-            >
-              <ChevronRight :size="14" class="toggle-chevron" :class="{ 'rotate-90': showRawJobDesc }" />
-              <span>{{ showRawJobDesc ? 'Hide Job Description Text' : '+ Add Job Description Text (Optional)' }}</span>
-            </button>
-            <div v-if="showRawJobDesc" class="collapsible-content mt-2">
-              <textarea
-                v-model="resolveForm.description_markdown"
-                class="form-input"
-                rows="3"
-                placeholder="Paste full text or markdown job specs to trigger AI skill matching and evaluation..."
-                style="resize: vertical; min-height: 48px;"
-              ></textarea>
-            </div>
-          </div>
-
-          <!-- Event Summary -->
-          <div class="input-group">
-            <label class="input-label">Timeline Event Summary</label>
-            <input
-              v-model="resolveForm.summary"
-              type="text"
-              class="form-input"
-              placeholder="Brief snapshot of what this communication conveyed..."
-            />
-          </div>
-
-          <!-- Action Required Card with Urgency & Due Date -->
-          <div
-            class="action-required-card"
-            :class="{ active: resolveForm.action_required }"
-          >
-            <div
-              class="action-required-header"
-              @click="resolveForm.action_required = !resolveForm.action_required"
-            >
-              <div class="circle-checkbox action-circle" :class="{ checked: resolveForm.action_required }">
-                <Check v-if="resolveForm.action_required" :size="11" :stroke-width="3" />
-              </div>
-              <span class="action-required-label">Requires Follow-up / Action Item</span>
-            </div>
-
-            <div v-if="resolveForm.action_required" class="action-expanded-fields">
-              <div class="input-group">
-                <label class="input-label">Action Description *</label>
-                <input
-                  v-model="resolveForm.action"
-                  type="text"
-                  class="form-input text-xs"
-                  placeholder="e.g. Schedule recruiter screen via Calendly link"
-                  required
-                />
-              </div>
-
-              <div class="form-grid-2">
-                <div class="input-group">
-                  <label class="input-label">Due Date &amp; Time (Optional)</label>
-                  <DateTimePicker
-                    v-model="resolveForm.due_date"
-                    type="datetime"
-                    placeholder="Select deadline date &amp; time..."
-                  />
-                </div>
-
-                <div class="input-group">
-                  <label class="input-label">Calculated Urgency</label>
-                  <div class="urgency-live-indicator">
-                    <span
-                      class="urgency-live-badge"
-                      :class="{
-                        'urgency-high': computedUrgency === 'HIGH',
-                        'urgency-medium': computedUrgency === 'MEDIUM',
-                        'urgency-low': computedUrgency === 'LOW',
-                      }"
-                    >
-                      <span>{{ computedUrgencyLabel }}</span>
+                <!-- Two-Column Master Triage Area -->
+          <div class="triage-body-columns">
+            <!-- SUB-PANE 1: Full Email Inspector -->
+            <section class="email-inspector-panel">
+              <div class="inspector-header">
+                <div class="email-meta-block">
+                  <div class="email-subject-heading">{{ selectedItem.email_subject || '(No Subject)' }}</div>
+                  <div class="email-sender-line">
+                    <User :size="13" class="text-muted" />
+                    <strong>{{ selectedItem.email_sender_name || selectedItem.email_sender }}</strong>
+                    <span v-if="selectedItem.email_sender_name && selectedItem.email_sender" class="email-address">
+                      &lt;{{ selectedItem.email_sender }}&gt;
                     </span>
+                  </div>
+                  <div class="email-date-line">
+                    <Clock :size="13" class="text-muted" />
+                    <span>Received {{ formatDate(selectedItem.email_received_at || selectedItem.created_at) }}</span>
+                  </div>
+                </div>
+
+                <div class="email-view-toggle">
+                  <button
+                    class="btn-toggle-view"
+                    :class="{ active: emailViewMode === 'formatted' }"
+                    @click="emailViewMode = 'formatted'"
+                  >
+                    Formatted
+                  </button>
+                  <button
+                    class="btn-toggle-view"
+                    :class="{ active: emailViewMode === 'raw' }"
+                    @click="emailViewMode = 'raw'"
+                  >
+                    Raw Text
+                  </button>
+                </div>
+              </div>
+
+              <!-- Email Content Body -->
+              <div class="inspector-content-body">
+                <!-- Formatted Body View -->
+                <div v-if="emailViewMode === 'formatted'" class="email-body-formatted">
+                  <pre class="email-text-render">{{ selectedItem.email_raw_body || selectedItem.raw_payload?.body || 'No message body available.' }}</pre>
+                </div>
+
+                <!-- Raw JSON / Data View -->
+                <div v-else class="email-body-raw">
+                  <pre class="raw-code-block">{{ JSON.stringify(selectedItem, null, 2) }}</pre>
+                </div>
+              </div>
+            </section>
+
+            <!-- SUB-PANE 2: AI Suggestions & Resolution Controls -->
+            <section class="resolution-panel">
+              <!-- AI Extraction Highlights -->
+              <div class="ai-extraction-card">
+                <div class="ai-card-title">
+                  <Sparkles :size="14" class="text-primary" />
+                  <span>AI Extracted Intelligence</span>
+                </div>
+
+                <div class="ai-tags-grid">
+                  <div class="ai-tag-item">
+                    <span class="ai-tag-label">Company:</span>
+                    <strong class="ai-tag-val">{{ getItemCompany(selectedItem) }}</strong>
+                  </div>
+                  <div class="ai-tag-item">
+                    <span class="ai-tag-label">Position:</span>
+                    <strong class="ai-tag-val">{{ getItemPosition(selectedItem) }}</strong>
+                  </div>
+                  <div class="ai-tag-item">
+                    <span class="ai-tag-label">Detected Event:</span>
+                    <span class="badge-mini" :class="getEventTypeBadgeClass(getDetectedEventType(selectedItem))">
+                      {{ formatEventTypeLabel(getDetectedEventType(selectedItem)) }}
+                    </span>
+                  </div>
+                  <div v-if="selectedItem.extracted_data?.action" class="ai-tag-item full-width">
+                    <span class="ai-tag-label">Action Item:</span>
+                    <span class="ai-action-text">{{ selectedItem.extracted_data.action }}</span>
                   </div>
                 </div>
               </div>
-            </div>
+
+              <!-- Resolution Mode Tabs -->
+              <div class="mode-tab-selector">
+                <button
+                  class="mode-tab-btn"
+                  :class="{ active: resolutionMode === 'create' }"
+                  @click="resolutionMode = 'create'"
+                >
+                  <PlusCircle :size="14" />
+                  <span>Create as New Application</span>
+                </button>
+                <button
+                  class="mode-tab-btn"
+                  :class="{ active: resolutionMode === 'link' }"
+                  @click="resolutionMode = 'link'"
+                >
+                  <LinkIcon :size="14" />
+                  <span>Link to Existing Application</span>
+                </button>
+              </div>
+
+              <!-- FORM: Mode = CREATE NEW APPLICATION -->
+              <div v-if="resolutionMode === 'create'" class="triage-form-stack">
+                <div class="form-row-2col">
+                  <div class="form-group">
+                    <label class="form-label">Company Name *</label>
+                    <input
+                      v-model="resolveForm.company"
+                      type="text"
+                      class="form-input"
+                      placeholder="e.g. Stripe"
+                      required
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Position Title *</label>
+                    <input
+                      v-model="resolveForm.position"
+                      type="text"
+                      class="form-input"
+                      placeholder="e.g. Staff Backend Engineer"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div class="form-row-2col">
+                  <div class="form-group">
+                    <label class="form-label">Pipeline Stage</label>
+                    <select v-model="resolveForm.status" class="form-select">
+                      <option value="APPLIED">Applied</option>
+                      <option value="TECHNICAL_INTERVIEW">Technical Interview</option>
+                      <option value="OFFER">Offer</option>
+                      <option value="REJECTED">Rejected</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Timeline Event Type</label>
+                    <select v-model="resolveForm.event_type" class="form-select">
+                      <option value="APPLICATION_CONFIRMATION">Application Confirmation</option>
+                      <option value="INTERVIEW_INVITATION">Interview Invitation</option>
+                      <option value="TECHNICAL_ASSESSMENT">Assessment / Take-Home</option>
+                      <option value="OFFER_LETTER">Offer Letter</option>
+                      <option value="REJECTION">Rejection Notice</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label">Job Posting URL (Optional)</label>
+                  <input
+                    v-model="resolveForm.job_url"
+                    type="url"
+                    class="form-input"
+                    placeholder="https://..."
+                  />
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label">Event Summary / Timeline Note</label>
+                  <textarea
+                    v-model="resolveForm.summary"
+                    class="form-textarea"
+                    rows="2"
+                    placeholder="Brief description of this communication..."
+                  ></textarea>
+                </div>
+
+                <!-- Action Item Toggle -->
+                <div class="action-item-section">
+                  <label class="checkbox-label">
+                    <input v-model="resolveForm.action_required" type="checkbox" />
+                    <span>Create follow-up Action Item from this email</span>
+                  </label>
+
+                  <div v-if="resolveForm.action_required" class="action-item-details animate-fade-in">
+                    <div class="form-group">
+                      <label class="form-label">Task Description</label>
+                      <input
+                        v-model="resolveForm.action"
+                        type="text"
+                        class="form-input"
+                        placeholder="e.g. Schedule coding interview with recruiter"
+                      />
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label">Due Date & Urgency: <span class="text-primary">{{ computedUrgencyLabel }}</span></label>
+                      <DateTimePicker
+                        v-model="resolveForm.due_date"
+                        type="date"
+                        placeholder="Select deadline..."
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- FORM: Mode = LINK TO EXISTING APPLICATION -->
+              <div v-else class="triage-form-stack">
+                <div class="form-group">
+                  <label class="form-label">Search Target Application</label>
+                  <div class="app-search-input-wrapper">
+                    <Search :size="14" class="search-icon" />
+                    <input
+                      v-model="appSearchQuery"
+                      type="text"
+                      placeholder="Search active applications by company or role..."
+                      class="form-input search-input-with-icon"
+                    />
+                  </div>
+                </div>
+
+                <div class="app-select-cards-list">
+                  <div
+                    v-for="app in filteredExistingApps"
+                    :key="app.id"
+                    class="existing-app-option-card"
+                    :class="{ selected: selectedExistingAppId === app.id }"
+                    @click="selectedExistingAppId = app.id"
+                  >
+                    <div class="app-option-main">
+                      <CompanyLogo :name="app.company?.name" :domain="app.company?.domain" :size="24" />
+                      <div class="app-option-titles">
+                        <strong>{{ app.company?.name }}</strong>
+                        <span class="app-option-role">{{ app.position }}</span>
+                      </div>
+                    </div>
+                    <div class="app-option-badge">
+                      <span class="badge-mini" :class="`badge-${(app.status || 'applied').toLowerCase()}`">
+                        {{ app.status?.replace('_', ' ') }}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div v-if="filteredExistingApps.length === 0" class="no-apps-found">
+                    <span>No applications found matching "{{ appSearchQuery }}"</span>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label">Timeline Event Type to Record</label>
+                  <select v-model="resolveForm.event_type" class="form-select">
+                    <option value="APPLICATION_CONFIRMATION">Application Confirmation</option>
+                    <option value="INTERVIEW_INVITATION">Interview Invitation</option>
+                    <option value="TECHNICAL_ASSESSMENT">Assessment / Take-Home</option>
+                    <option value="OFFER_LETTER">Offer Letter</option>
+                    <option value="REJECTION">Rejection Notice</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label">Timeline Event Summary</label>
+                  <textarea
+                    v-model="resolveForm.summary"
+                    class="form-textarea"
+                    rows="2"
+                    placeholder="Brief description of this communication..."
+                  ></textarea>
+                </div>
+              </div>
+
+              <!-- Sticky Resolution Bottom Bar -->
+              <div class="resolution-footer-bar">
+                <button
+                  class="btn btn-primary btn-submit-resolve"
+                  :disabled="isSubmitting"
+                  @click="submitResolution"
+                >
+                  <Loader2 v-if="isSubmitting" class="animate-spin" :size="16" />
+                  <Check v-else :size="16" />
+                  <span>
+                    {{ resolutionMode === 'create' ? 'Create Application & Resolve' : 'Link Event & Resolve' }}
+                  </span>
+                  <ChevronRight :size="14" class="btn-advance-icon" />
+                </button>
+              </div>
+            </section>
           </div>
         </div>
-
-        <!-- Modal Footer -->
-        <div class="modal-actions">
-          <button
-            v-if="currentStep === 1"
-            class="btn btn-secondary"
-            @click="resolvingItem = null"
-            :disabled="isSubmitting"
-          >
-            Cancel
-          </button>
-          <button
-            v-else
-            class="btn btn-secondary"
-            @click="currentStep = 1"
-            :disabled="isSubmitting"
-          >
-            ← Back
-          </button>
-
-          <button
-            v-if="currentStep === 1"
-            class="btn btn-primary"
-            :disabled="resolutionMode === 'link' && !selectedExistingAppId"
-            @click="proceedToStep2"
-          >
-            <span>Next: Configure Event Details →</span>
-          </button>
-          <button
-            v-else
-            class="btn btn-primary"
-            :disabled="isSubmitting"
-            @click="submitResolution"
-          >
-            <Loader2 v-if="isSubmitting" class="animate-spin" :size="15" />
-            <span v-else>
-              {{ resolutionMode === 'create' ? 'Create & Link Application' : 'Link to Selected Application' }}
-            </span>
-          </button>
-        </div>
-      </div>
+      </main>
     </div>
   </div>
 </template>
 
 <style scoped>
-.page-container {
-  max-width: 1240px;
-  margin: 0 auto;
-  padding: 32px 24px 80px;
-  min-height: calc(100vh - var(--navbar-height));
-  width: 100%;
-}
-
-.filter-pills {
-  display: flex;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 3px;
-  gap: 3px;
-  justify-content: center;
-}
-
-.pill-btn {
-  padding: 4px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 4px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.pill-btn:hover {
-  color: var(--text-main);
-}
-
-.pill-btn.active {
-  background-color: var(--bg-elevated);
-  color: var(--primary);
-  font-weight: 600;
-}
-
-.content-area {
-  flex: 1;
-  overflow-y: auto;
-  padding: 24px;
-}
-
-.loading-state {
+.staging-workspace-container {
+  height: calc(100vh - var(--header-height, 60px));
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  height: 240px;
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-
-.staging-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-  gap: 16px;
-}
-
-.staging-card {
-  background-color: var(--bg-card);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--card-shadow);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
-}
-
-.staging-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--card-hover-shadow);
-}
-
-.card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.company-tag {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.company-name {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.confidence-badge {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  background-color: var(--bg-surface);
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
-}
-
-.confidence-lbl {
-  color: var(--text-muted);
-}
-
-.confidence-val {
-  color: var(--primary);
-  font-weight: 600;
-}
-
-.role-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.role-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.event-pill {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-}
-
-.status-applied {
-  background-color: var(--status-applied-bg);
-  color: var(--status-applied-text);
-  border-color: var(--status-applied-border);
-}
-
-.status-interview {
-  background-color: var(--status-interview-bg);
-  color: var(--status-interview-text);
-  border-color: var(--status-interview-border);
-}
-
-.status-offer {
-  background-color: var(--status-offer-bg);
-  color: var(--status-offer-text);
-  border-color: var(--status-offer-border);
-}
-
-.status-rejected {
-  background-color: var(--status-rejected-bg);
-  color: var(--status-rejected-text);
-  border-color: var(--status-rejected-border);
-}
-
-.status-neutral {
-  background-color: var(--bg-surface);
-  color: var(--text-muted);
-  border-color: var(--border-color);
-}
-
-.email-details-box {
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.detail-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.detail-subject {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-main);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.detail-body-snippet {
-  font-size: 11px;
-  color: var(--text-secondary);
-  line-height: 1.4;
-  max-height: 60px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-}
-
-.recommendation-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  background-color: var(--primary-subtle);
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-}
-
-.card-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: auto;
-  padding-top: 8px;
-  border-top: 1px solid var(--border-color);
-}
-
-.actions-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.resolved-footer {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-success);
-  padding-top: 8px;
-  border-top: 1px solid var(--border-color);
-}
-
-/* MODAL STYLES */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background-color: var(--bg-backdrop);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 20px;
-}
-
-.modal-card {
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  width: 100%;
-  max-width: 480px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: var(--shadow-lg);
-  overflow: hidden;
-}
-
-.modal-lg {
-  max-width: 640px;
-  width: 90%;
-}
-
-.modal-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color);
-  flex-shrink: 0;
-}
-
-.modal-title {
-  font-family: var(--font-heading);
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-main);
+  padding: 0;
   margin: 0;
+  max-width: 100%;
 }
 
-.modal-subtitle {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin: 4px 0 0 0;
-}
-
-.modal-body {
-  padding: 20px;
-  overflow-y: auto;
+.staging-split-workspace {
   flex: 1;
-}
-
-.modal-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  padding: 16px 20px;
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  min-height: 0;
   border-top: 1px solid var(--border-color);
-  background-color: var(--bg-card);
-  flex-shrink: 0;
+  background-color: var(--bg-app);
 }
 
-.modal-title-group {
+/* LEFT SIDEBAR */
+.staging-sidebar {
+  background-color: var(--bg-sidebar);
+  border-right: 1px solid var(--border-color);
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebar-controls {
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
   gap: 10px;
 }
 
-/* Step Indicator Bar */
-.step-indicator-bar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background-color: var(--bg-surface);
-  border-bottom: 1px solid var(--border-color);
-}
-
-.step-badge {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  user-select: none;
-}
-
-.step-badge.active {
-  color: var(--primary);
-  font-weight: 600;
-}
-
-.step-badge.done {
-  color: var(--text-secondary);
-}
-
-.step-badge.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.step-num {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background-color: var(--bg-card);
-  border: 1.5px solid var(--border-color);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-muted);
-  transition: all var(--transition-fast);
-}
-
-.step-badge.active .step-num {
-  background-color: var(--primary);
-  border-color: var(--primary);
-  color: #fff;
-}
-
-.step-badge.done .step-num {
-  background-color: var(--primary-subtle);
-  border-color: var(--primary);
-  color: var(--primary);
-}
-
-.step-divider {
-  width: 36px;
-  height: 1px;
-  background-color: var(--border-color);
-}
-
-/* Destination Cards (Step 1) */
-.destination-card {
-  background-color: var(--bg-surface);
-  border: 1.5px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 14px 16px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.destination-card:hover {
-  border-color: var(--primary);
-  background-color: var(--bg-hover);
-}
-
-.destination-card.selected {
-  border-color: var(--primary);
-  background-color: var(--primary-subtle);
-}
-
-.destination-card-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.dest-icon-circle {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-color);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--primary);
-  flex-shrink: 0;
-}
-
-.dest-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.dest-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.dest-desc {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.divider-with-text {
-  display: flex;
-  align-items: center;
-  text-align: center;
-  margin: 12px 0 6px;
-}
-
-.divider-with-text::before,
-.divider-with-text::after {
-  content: '';
-  flex: 1;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.divider-with-text span {
-  padding: 0 10px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-}
-
-.empty-apps-notice {
-  padding: 16px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--text-muted);
-  background-color: var(--bg-surface);
-  border: 1px dashed var(--border-color);
-  border-radius: var(--radius-sm);
-}
-
-/* Target Context Banner (Step 2) */
-.target-context-banner {
-  padding: 10px 14px;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-}
-
-.target-badge-new,
-.target-badge-link {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-main);
-}
-
-/* Urgency Live Indicator */
-.urgency-live-indicator {
-  display: flex;
-  align-items: center;
-  height: 38px;
-}
-
-.urgency-live-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  transition: all var(--transition-fast);
-}
-
-.urgency-live-badge.urgency-high {
-  background-color: rgba(239, 68, 68, 0.15);
-  border-color: #ef4444;
-  color: #ef4444;
-}
-
-.urgency-live-badge.urgency-medium {
-  background-color: rgba(234, 179, 8, 0.15);
-  border-color: #eab308;
-  color: #eab308;
-}
-
-.urgency-live-badge.urgency-low {
-  background-color: rgba(59, 130, 246, 0.15);
-  border-color: #3b82f6;
-  color: #3b82f6;
-}
-
-.form-grid-2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.input-with-icon {
+.sidebar-search-box {
   position: relative;
   display: flex;
   align-items: center;
 }
 
-.field-icon {
+.search-box-icon {
   position: absolute;
   left: 10px;
   color: var(--text-muted);
   pointer-events: none;
 }
 
-.input-with-icon .form-input {
-  padding-left: 32px;
+.sidebar-search-input {
+  width: 100%;
+  padding: 7px 28px 7px 30px;
+  font-size: 13px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  outline: none;
+  transition: border-color var(--transition-fast);
 }
 
-/* Collapsible Section */
-.collapsible-section {
+.sidebar-search-input:focus {
+  border-color: var(--primary);
+}
+
+.btn-clear-input {
+  position: absolute;
+  right: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+}
+
+.sidebar-sort-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sort-count-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.btn-sort-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-sort-toggle:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.sidebar-items-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
   display: flex;
   flex-direction: column;
+  gap: 8px;
 }
 
-.collapsible-toggle-btn {
+.sidebar-loading,
+.sidebar-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* QUEUE ITEM CARD */
+.queue-item-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.queue-item-card:hover {
+  background-color: var(--bg-card-hover);
+  border-color: var(--card-hover-border);
+  transform: translateY(-1px);
+}
+
+.queue-item-card.active {
+  border-color: var(--primary);
+  background-color: var(--primary-subtle);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+.item-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.item-company-tag {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-time-tag {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.item-role-title {
   font-size: 12px;
+  color: var(--text-secondary);
   font-weight: 500;
-  cursor: pointer;
-  padding: 4px 0;
-  transition: color var(--transition-fast);
-  align-self: flex-start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.collapsible-toggle-btn:hover {
-  color: var(--primary);
+.item-subject-snippet {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.toggle-chevron {
-  transition: transform var(--transition-fast);
+.item-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
 }
 
-.toggle-chevron.rotate-90 {
-  transform: rotate(90deg);
+.item-event-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  text-transform: uppercase;
 }
 
-/* Circle Checkbox */
-.circle-checkbox {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 1.5px solid var(--border-color);
-  background-color: var(--bg-card);
+.badge-interview {
+  background-color: var(--status-interview-bg);
+  color: var(--status-interview-text);
+}
+
+.badge-offer {
+  background-color: var(--status-offer-bg);
+  color: var(--status-offer-text);
+}
+
+.badge-rejected {
+  background-color: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+}
+
+.badge-applied {
+  background-color: var(--status-applied-bg);
+  color: var(--status-applied-text);
+}
+
+.item-action-pill {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--warning);
+  background-color: var(--warning-subtle);
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+}
+
+/* RIGHT MAIN DETAIL AREA */
+.staging-main-detail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background-color: var(--bg-surface);
+  overflow: hidden;
+}
+
+.workspace-empty-view {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+}
+
+.empty-box-inner {
+  text-align: center;
+  max-width: 360px;
+  color: var(--text-muted);
+}
+
+.empty-inbox-icon {
+  margin-bottom: 12px;
+  color: var(--primary);
+  opacity: 0.8;
+}
+
+.workspace-content-grid {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* NAVIGATION HEADER */
+.triage-nav-header {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: var(--bg-card);
+}
+
+.nav-counter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.counter-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  background-color: var(--bg-surface);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-color);
+}
+
+.nav-hint-text {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.chevron-nav-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-nav-chevron {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
   transition: all var(--transition-fast);
-  flex-shrink: 0;
 }
 
-.circle-checkbox:hover {
+.btn-nav-chevron:hover:not(:disabled) {
+  color: var(--primary);
   border-color: var(--primary);
 }
 
-.circle-checkbox.checked {
+.btn-nav-chevron:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-dismiss-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger);
+  background-color: var(--danger-subtle);
+  border: 1px solid var(--danger-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-dismiss-action:hover {
+  background-color: var(--danger);
+  color: #ffffff;
+}
+
+/* TWO-COLUMN TRIAGE BODY */
+.triage-body-columns {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* SUB-PANE 1: EMAIL INSPECTOR */
+.email-inspector-panel {
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background-color: var(--bg-surface);
+}
+
+.inspector-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  background-color: var(--bg-card);
+}
+
+.email-meta-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.email-subject-heading {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.email-sender-line,
+.email-date-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.email-address {
+  color: var(--text-muted);
+}
+
+.email-view-toggle {
+  display: flex;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+}
+
+.btn-toggle-view {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  background-color: var(--bg-surface);
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.btn-toggle-view.active {
   background-color: var(--primary);
+  color: #ffffff;
+}
+
+.inspector-content-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.email-text-render {
+  font-family: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-main);
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+.raw-code-block {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+}
+
+/* SUB-PANE 2: RESOLUTION & AI SUGGESTIONS PANEL */
+.resolution-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background-color: var(--bg-card);
+  padding: 16px 20px;
+  overflow-y: auto;
+  gap: 14px;
+}
+
+.ai-extraction-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ai-tags-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  font-size: 12px;
+}
+
+.ai-tag-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-tag-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.ai-tag-label {
+  color: var(--text-muted);
+}
+
+.badge-mini {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+}
+
+.mode-tab-selector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.mode-tab-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.mode-tab-btn.active {
+  background-color: var(--primary-subtle);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.triage-form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.form-row-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.form-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.form-input,
+.form-select,
+.form-textarea {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text-main);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.form-input:focus,
+.form-select:focus,
+.form-textarea:focus {
   border-color: var(--primary);
 }
 
-/* Action Required Card with Yellow Glow */
-.action-required-card {
+.action-item-section {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
-  transition: all var(--transition-fast);
-  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.action-required-card:hover {
-  border-color: rgba(234, 179, 8, 0.4);
-}
-
-.action-required-card.active {
-  border-color: rgba(234, 179, 8, 0.6);
-  background-color: rgba(234, 179, 8, 0.06);
-  box-shadow: 0 0 14px rgba(234, 179, 8, 0.16);
-}
-
-.action-required-card.active .circle-checkbox.action-circle.checked {
-  background-color: #eab308;
-  border-color: #eab308;
-  color: #1c1917;
-}
-
-.action-required-header {
+.checkbox-label {
   display: flex;
   align-items: center;
-  gap: 10px;
-  user-select: none;
-}
-
-.action-required-label {
+  gap: 8px;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-main);
+  cursor: pointer;
 }
 
-.action-expanded-fields {
-  margin-top: 14px;
+.action-item-details {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
 }
 
-/* Search bar & Include Archived Row */
-.link-search-bar-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.search-box {
+/* LINK APPLICATION LIST */
+.app-search-input-wrapper {
   position: relative;
-  flex: 1;
   display: flex;
   align-items: center;
 }
 
 .search-icon {
   position: absolute;
-  left: 12px;
-  width: 17px;
-  height: 17px;
+  left: 10px;
   color: var(--text-muted);
   pointer-events: none;
 }
 
-.search-input {
+.search-input-with-icon {
+  padding-left: 30px;
   width: 100%;
-  height: 38px;
-  padding: 0 14px 0 38px;
-  font-size: 13px;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  color: var(--text-main);
-  transition: all var(--transition-fast);
 }
 
-.search-input:focus {
-  outline: none;
-  border-color: var(--primary);
-  background-color: var(--bg-card);
-  box-shadow: 0 0 0 2px var(--primary-subtle);
-}
-
-.include-archived-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.include-archived-text {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  transition: color var(--transition-fast);
-}
-
-.include-archived-toggle:hover .include-archived-text {
-  color: var(--text-main);
-}
-
-.existing-apps-list {
-  max-height: 240px;
-  overflow-y: auto;
+.app-select-cards-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 6px;
+  background-color: var(--bg-surface);
 }
 
-.existing-app-row {
+.existing-app-option-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
-.existing-app-row:hover {
-  border-color: var(--primary);
-  background-color: var(--bg-hover);
+.existing-app-option-card:hover {
+  background-color: var(--bg-card-hover);
 }
 
-.existing-app-row.active {
-  border-color: var(--primary);
+.existing-app-option-card.selected {
   background-color: var(--primary-subtle);
+  border: 1px solid var(--primary);
 }
 
-.app-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.app-company {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.app-position {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.app-meta {
+.app-option-main {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
-.stage-pill {
+.app-option-titles {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+}
+
+.app-option-role {
   font-size: 11px;
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  font-weight: 500;
+  color: var(--text-muted);
 }
 
-.radio-circle {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 1px solid var(--border-color);
+.no-apps-found {
+  padding: 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* RESOLUTION FOOTER BAR */
+.resolution-footer-bar {
+  margin-top: auto;
+  padding-top: 10px;
+}
+
+.btn-submit-resolve {
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  background-color: var(--bg-app);
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
 }
 
-.radio-circle.checked {
-  background-color: var(--primary);
-  border-color: var(--primary);
+.btn-advance-icon {
+  margin-left: 4px;
 }
 
-.space-y-4 > * + * {
-  margin-top: 12px;
+@media (max-width: 1024px) {
+  .staging-split-workspace {
+    grid-template-columns: 300px 1fr;
+  }
+  .triage-body-columns {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+  .email-inspector-panel {
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+  }
 }
 </style>

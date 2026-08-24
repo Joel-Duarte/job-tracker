@@ -70,12 +70,13 @@ async function onActivityLogged() {
 const isDeleting = ref(false)
 const isReaderModalOpen = ref(false)
 
-// Header inline editing state (Company Name & Position Title)
+// Header inline editing state (Company Name, Position Title & Website Domain)
 const isEditingHeader = ref(false)
 const isSavingHeader = ref(false)
 const headerEditForm = ref({
   company_name: '',
   position: '',
+  company_domain: '',
 })
 
 function startEditHeader() {
@@ -83,6 +84,7 @@ function startEditHeader() {
   headerEditForm.value = {
     company_name: appStore.selectedApplication.company?.name || '',
     position: appStore.selectedApplication.position || '',
+    company_domain: appStore.selectedApplication.company?.domain || '',
   }
   isEditingHeader.value = true
 }
@@ -95,6 +97,7 @@ async function saveEditHeader() {
   if (!appStore.selectedApplication) return
   const company_name = headerEditForm.value.company_name.trim()
   const position = headerEditForm.value.position.trim()
+  const company_domain = headerEditForm.value.company_domain.trim()
   if (!company_name && !position) {
     uiStore.showToast('Please provide a valid company name or position title', 'error')
     return
@@ -105,6 +108,7 @@ async function saveEditHeader() {
     await appStore.updateApplication(appStore.selectedApplication.id, {
       company_name: company_name || undefined,
       position: position || undefined,
+      company_domain: company_domain !== undefined ? company_domain : undefined,
     })
     uiStore.showToast('Application details updated', 'success')
     isEditingHeader.value = false
@@ -655,7 +659,7 @@ function formatDate(isoStr) {
                   </h2>
                   <button
                     class="btn-edit-inline"
-                    title="Edit company name & position title"
+                    title="Edit company, position & website"
                     @click="startEditHeader"
                   >
                     <Edit2 :size="13" />
@@ -663,6 +667,30 @@ function formatDate(isoStr) {
                 </div>
                 <div class="position-title" title="Click to edit" @click="startEditHeader">
                   {{ appStore.selectedApplication.position || 'Position Not Specified' }}
+                </div>
+                <!-- Company Website / Domain Link -->
+                <div class="company-domain-row">
+                  <a
+                    v-if="appStore.selectedApplication.company?.domain"
+                    :href="`https://${appStore.selectedApplication.company.domain.replace(/^https?:\/\//, '')}`"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="company-domain-link"
+                    title="Open company website"
+                  >
+                    <Globe :size="12" />
+                    <span>{{ appStore.selectedApplication.company.domain }}</span>
+                    <ExternalLink :size="10" class="external-domain-icon" />
+                  </a>
+                  <button
+                    v-else
+                    class="btn-add-domain"
+                    title="Add company website"
+                    @click="startEditHeader"
+                  >
+                    <Globe :size="12" />
+                    <span>+ Add website</span>
+                  </button>
                 </div>
               </div>
 
@@ -688,6 +716,18 @@ function formatDate(isoStr) {
                     @keyup.enter="saveEditHeader"
                     @keyup.esc="cancelEditHeader"
                   />
+                  <div class="input-with-icon">
+                    <Globe :size="13" class="input-globe-icon" />
+                    <input
+                      v-model="headerEditForm.company_domain"
+                      type="text"
+                      placeholder="Company Website / Domain (e.g. stripe.com)"
+                      class="edit-input-field edit-input-domain"
+                      :disabled="isSavingHeader"
+                      @keyup.enter="saveEditHeader"
+                      @keyup.esc="cancelEditHeader"
+                    />
+                  </div>
                 </div>
                 <div class="edit-actions-row">
                   <button
@@ -1692,6 +1732,54 @@ function formatDate(isoStr) {
   color: var(--primary);
 }
 
+.company-domain-row {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.company-domain-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+  padding: 1px 4px;
+  border-radius: var(--radius-xs);
+}
+
+.company-domain-link:hover {
+  color: var(--primary);
+  background-color: var(--primary-subtle);
+}
+
+.external-domain-icon {
+  opacity: 0.6;
+}
+
+.btn-add-domain {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: var(--radius-xs);
+  opacity: 0.7;
+  transition: all var(--transition-fast);
+}
+
+.btn-add-domain:hover {
+  opacity: 1;
+  color: var(--primary);
+  background-color: var(--primary-subtle);
+}
+
 .header-edit-form {
   display: flex;
   flex-direction: column;
@@ -1706,6 +1794,19 @@ function formatDate(isoStr) {
   gap: 6px;
 }
 
+.input-with-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-globe-icon {
+  position: absolute;
+  left: 8px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
 .edit-input-field {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
@@ -1715,6 +1816,12 @@ function formatDate(isoStr) {
   color: var(--text-main);
   outline: none;
   transition: border-color var(--transition-fast);
+  width: 100%;
+}
+
+.edit-input-domain {
+  padding-left: 28px;
+  font-size: 12px;
 }
 
 .edit-input-field:focus {

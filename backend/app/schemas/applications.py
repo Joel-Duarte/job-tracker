@@ -223,6 +223,9 @@ class ApplicationTransitionRequest(BaseModel):
 class ApplicationUpdate(BaseModel):
     position: str | None = Field(None, description="Updated job title/position name")
     company_name: str | None = Field(None, description="Updated company name")
+    company_domain: str | None = Field(
+        None, description="Updated company website or domain"
+    )
     status: str | None = Field(
         None,
         description="Updated status, e.g., APPLIED, TECHNICAL_INTERVIEW, OFFER, REJECTED",
