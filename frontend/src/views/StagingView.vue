@@ -219,6 +219,52 @@ const selectedItem = computed(() => {
   return stagingItems.value.find((i) => i.id === selectedItemId.value) || null
 })
 
+// Smart suggestion existing/concluded application
+const smartSuggestionApp = computed(() => {
+  if (!selectedItem.value || selectedItem.value.status !== 'PENDING') return null
+  const companyName = getItemCompany(selectedItem.value).toLowerCase().trim()
+  if (!companyName || companyName === 'unknown company') return null
+
+  const companyApps = (appStore.applications || []).filter(
+    (a) => (a.company?.name || '').toLowerCase().trim() === companyName
+  )
+  if (!companyApps.length) return null
+
+  if (selectedItem.value.match_reason === 'REAPPLICATION_PREVIOUSLY_CONCLUDED') {
+    const terminalApps = companyApps.filter((a) =>
+      ['REJECTED', 'ARCHIVED', 'WITHDRAWN', 'HIRED'].includes(a.status)
+    )
+    if (!terminalApps.length) return companyApps[0]
+    return [...terminalApps].sort(
+      (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
+    )[0]
+  } else {
+    const activeApps = companyApps.filter(
+      (a) => !['REJECTED', 'ARCHIVED', 'WITHDRAWN', 'HIRED'].includes(a.status)
+    )
+    return activeApps.length ? activeApps[0] : companyApps[0]
+  }
+})
+
+function applySmartLink() {
+  if (!smartSuggestionApp.value) return
+  const isTerminal = ['REJECTED', 'ARCHIVED', 'WITHDRAWN', 'HIRED'].includes(
+    smartSuggestionApp.value.status
+  )
+  if (isTerminal) {
+    includeArchivedApps.value = true
+  }
+  resolutionMode.value = 'link'
+  selectedExistingAppId.value = smartSuggestionApp.value.id
+
+  const el =
+    document.querySelector('.resolution-footer-bar') ||
+    document.querySelector('.triage-form-stack')
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+}
+
 const selectedItemIndex = computed(() => {
   if (!selectedItemId.value) return -1
   return filteredAndSortedItems.value.findIndex((i) => i.id === selectedItemId.value)
@@ -942,6 +988,54 @@ function formatRelativeTime(isoStr) {
                     <span class="ai-tag-label">Action Item:</span>
                     <span class="ai-action-text">{{ selectedItem.extracted_data.action }}</span>
                   </div>
+                </div>
+              </div>
+
+              <!-- Smart Link Suggestion Banner -->
+              <div
+                v-if="smartSuggestionApp"
+                class="smart-link-banner"
+                :class="{
+                  'is-reapplication':
+                    selectedItem.match_reason === 'REAPPLICATION_PREVIOUSLY_CONCLUDED',
+                }"
+              >
+                <div class="banner-content">
+                  <div class="banner-text">
+                    <template
+                      v-if="
+                        selectedItem.match_reason ===
+                        'REAPPLICATION_PREVIOUSLY_CONCLUDED'
+                      "
+                    >
+                      Previous concluded application found:
+                      <strong>
+                        {{ smartSuggestionApp.company?.name }} —
+                        {{ smartSuggestionApp.position }}
+                      </strong>
+                      ({{ smartSuggestionApp.status?.replace('_', ' ') }}). Choose 'Create
+                      as New Application' to start a new cycle or 'Link' to attach to
+                      archive history.
+                    </template>
+                    <template v-else>
+                      Existing application found:
+                      <strong>
+                        {{ smartSuggestionApp.company?.name }} —
+                        {{ smartSuggestionApp.position }}
+                      </strong>
+                      <span
+                        class="badge-mini"
+                        :class="`badge-${(
+                          smartSuggestionApp.status || 'applied'
+                        ).toLowerCase()}`"
+                      >
+                        {{ smartSuggestionApp.status?.replace('_', ' ') }}
+                      </span>
+                    </template>
+                  </div>
+                  <button class="btn-smart-link" @click="applySmartLink">
+                    ⚡ Link to this Application
+                  </button>
                 </div>
               </div>
 
@@ -1833,6 +1927,51 @@ function formatRelativeTime(isoStr) {
   font-weight: 600;
   padding: 2px 6px;
   border-radius: var(--radius-xs);
+}
+
+.smart-link-banner {
+  background-color: var(--primary-subtle, rgba(99, 102, 241, 0.1));
+  border: 1px solid var(--primary, #6366f1);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+}
+
+.smart-link-banner.is-reapplication {
+  background-color: var(--warning-subtle, rgba(245, 158, 11, 0.1));
+  border-color: var(--warning, #f59e0b);
+}
+
+.banner-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.banner-text {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-main);
+}
+
+.btn-smart-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffffff;
+  background-color: var(--primary);
+  border: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity var(--transition-fast);
+}
+
+.btn-smart-link:hover {
+  opacity: 0.9;
 }
 
 .mode-tab-selector {

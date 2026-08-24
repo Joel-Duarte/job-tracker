@@ -376,6 +376,170 @@ async def test_graph_recruiter_outreach_staging_flow(db_session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_graph_different_position_routes_to_staging(db_session: AsyncSession):
+    """An email with a completely different position for a company with 1 active application routes to staging with DIFFERENT_POSITION_NEW_LEAD."""
+    comp = CompanyModel(name="Stripe", name_normalized="stripe")
+    db_session.add(comp)
+    await db_session.flush()
+
+    app = ApplicationModel(
+        company_id=comp.id,
+        position="Senior Backend Engineer",
+        position_normalized="senior backend engineer",
+        status="APPLIED",
+    )
+    db_session.add(app)
+    await db_session.commit()
+
+    state_input: JobTrackerState = {
+        "message_id": "msg-stripe-diff-pos",
+        "conversation_id": "conv-stripe-diff-pos",
+        "subject": "Thank you for applying to Product Manager at Stripe",
+        "body": "We received your application for Product Manager.",
+    }
+
+    extracted = ExtractedEmailInfo(
+        company="Stripe",
+        position="Product Manager",
+        email_type="JOB_APPLICATION",
+        event_type="APPLICATION_SUBMITTED",
+        status="APPLIED",
+        summary="Applied for Product Manager.",
+        action_required=False,
+        action=None,
+    )
+
+    with patch(
+        "app.services.intake.extract_email_info", new_callable=AsyncMock
+    ) as mock_extract:
+        mock_extract.return_value = extracted
+
+        result = await intake_graph.ainvoke(
+            state_input,
+            config={"configurable": {"db": db_session}},
+        )
+
+        assert result.get("staging_item_id") is not None
+
+    staging_res = await db_session.execute(
+        select(StagingItemModel).where(StagingItemModel.id == result["staging_item_id"])
+    )
+    staged = staging_res.scalar_one_or_none()
+    assert staged is not None
+    assert staged.status == "PENDING"
+    assert staged.match_reason == "DIFFERENT_POSITION_NEW_LEAD"
+
+
+@pytest.mark.asyncio
+async def test_graph_reapplication_concluded_routes_to_staging(db_session: AsyncSession):
+    """An email for a company with only a REJECTED / terminal application routes to staging with REAPPLICATION_PREVIOUSLY_CONCLUDED."""
+    comp = CompanyModel(name="Datadog", name_normalized="datadog")
+    db_session.add(comp)
+    await db_session.flush()
+
+    app = ApplicationModel(
+        company_id=comp.id,
+        position="Software Engineer",
+        position_normalized="software engineer",
+        status="REJECTED",
+    )
+    db_session.add(app)
+    await db_session.commit()
+
+    state_input: JobTrackerState = {
+        "message_id": "msg-datadog-reapply",
+        "conversation_id": "conv-datadog-reapply",
+        "subject": "Application Received - Datadog",
+        "body": "Thank you for applying to Datadog.",
+    }
+
+    extracted = ExtractedEmailInfo(
+        company="Datadog",
+        position="Software Engineer",
+        email_type="JOB_APPLICATION",
+        event_type="APPLICATION_SUBMITTED",
+        status="APPLIED",
+        summary="Re-applied to Datadog.",
+        action_required=False,
+        action=None,
+    )
+
+    with patch(
+        "app.services.intake.extract_email_info", new_callable=AsyncMock
+    ) as mock_extract:
+        mock_extract.return_value = extracted
+
+        result = await intake_graph.ainvoke(
+            state_input,
+            config={"configurable": {"db": db_session}},
+        )
+
+        assert result.get("staging_item_id") is not None
+
+    staging_res = await db_session.execute(
+        select(StagingItemModel).where(StagingItemModel.id == result["staging_item_id"])
+    )
+    staged = staging_res.scalar_one_or_none()
+    assert staged is not None
+    assert staged.status == "PENDING"
+    assert staged.match_reason == "REAPPLICATION_PREVIOUSLY_CONCLUDED"
+
+
+@pytest.mark.asyncio
+async def test_graph_single_active_no_title_autolinks(db_session: AsyncSession):
+    """An email with no position title for a company with 1 active application auto-links to commit."""
+    comp = CompanyModel(name="Linear", name_normalized="linear")
+    db_session.add(comp)
+    await db_session.flush()
+
+    app = ApplicationModel(
+        company_id=comp.id,
+        position="Frontend Engineer",
+        position_normalized="frontend engineer",
+        status="APPLIED",
+    )
+    db_session.add(app)
+    await db_session.commit()
+
+    state_input: JobTrackerState = {
+        "message_id": "msg-linear-notitle",
+        "conversation_id": "conv-linear-notitle",
+        "subject": "Update regarding your application at Linear",
+        "body": "Your application has moved to the next step.",
+    }
+
+    extracted = ExtractedEmailInfo(
+        company="Linear",
+        position=None,
+        email_type="STATUS_UPDATE",
+        event_type="STATUS_UPDATE",
+        status="TECHNICAL_INTERVIEW",
+        summary="Update from Linear.",
+        action_required=False,
+        action=None,
+    )
+
+    with (
+        patch(
+            "app.services.intake.extract_email_info", new_callable=AsyncMock
+        ) as mock_extract,
+        patch(
+            "app.services.graph_nodes.generate_and_save_application_embedding",
+            new_callable=AsyncMock,
+        ),
+    ):
+        mock_extract.return_value = extracted
+
+        result = await intake_graph.ainvoke(
+            state_input,
+            config={"configurable": {"db": db_session}},
+        )
+
+        assert result.get("is_application") is True
+        assert result.get("application_id") == app.id
+
+
+@pytest.mark.asyncio
 async def test_graph_action_item_generation(db_session: AsyncSession):
     """When an email requires action on a matched application, ActionItemModel is automatically created."""
     comp = CompanyModel(name="Figma", name_normalized="figma")

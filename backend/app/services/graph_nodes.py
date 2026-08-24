@@ -262,19 +262,49 @@ async def fuzzy_match_node(
     app_res = await db.execute(app_stmt)
     applications = app_res.scalars().all()
 
-    # Case 1: Exactly 1 application exists for this company -> auto-link directly
-    if len(applications) == 1:
-        return {
-            "match_score": 1.0,
-            "company_id": best_company.id,
-            "application_id": applications[0].id,
-            "route": "commit",
-        }
+    ACTIVE_STATUSES = {"APPLIED", "ONLINE_ASSESSMENT", "TECHNICAL_INTERVIEW", "OFFER"}
+    active_apps = [a for a in applications if a.status in ACTIVE_STATUSES]
+    terminal_apps = [a for a in applications if a.status not in ACTIVE_STATUSES]
 
-    # Case 2: Multiple applications exist for this company -> disambiguate by position name
-    if len(applications) > 1:
+    # Case 1: Exactly 1 Active Application exists
+    if len(active_apps) == 1:
+        target_app = active_apps[0]
         if not position_norm:
-            # Ambiguous: multiple applications exist but position is missing from email
+            return {
+                "match_score": 1.0,
+                "company_id": best_company.id,
+                "application_id": target_app.id,
+                "route": "commit",
+            }
+
+        pos_score = 0.0
+        if target_app.position_normalized:
+            if position_norm == target_app.position_normalized:
+                pos_score = 1.0
+            else:
+                pos_score = (
+                    fuzz.ratio(position_norm, target_app.position_normalized) / 100.0
+                )
+
+        if pos_score >= threshold:
+            return {
+                "match_score": pos_score,
+                "company_id": best_company.id,
+                "application_id": target_app.id,
+                "route": "commit",
+            }
+        else:
+            return {
+                "match_score": pos_score,
+                "company_id": best_company.id,
+                "application_id": None,
+                "route": "staging",
+                "match_reason": "DIFFERENT_POSITION_NEW_LEAD",
+            }
+
+    # Case 2: Multiple Active Applications exist
+    if len(active_apps) > 1:
+        if not position_norm:
             return {
                 "match_score": best_company_score,
                 "company_id": best_company.id,
@@ -285,9 +315,13 @@ async def fuzzy_match_node(
 
         best_app = None
         best_app_score = 0.0
-        for app in applications:
+        for app in active_apps:
             if app.position_normalized:
-                score = fuzz.ratio(position_norm, app.position_normalized) / 100.0
+                score = (
+                    1.0
+                    if position_norm == app.position_normalized
+                    else fuzz.ratio(position_norm, app.position_normalized) / 100.0
+                )
                 if score > best_app_score:
                     best_app_score = score
                     best_app = app
@@ -300,7 +334,6 @@ async def fuzzy_match_node(
                 "route": "commit",
             }
         else:
-            # Ambiguous: position didn't match any existing application closely
             return {
                 "match_score": best_app_score,
                 "company_id": best_company.id,
@@ -309,7 +342,17 @@ async def fuzzy_match_node(
                 "match_reason": "AMBIGUOUS_MULTIPLE_APPLICATIONS",
             }
 
-    # Case 3: 0 applications exist for this company
+    # Case 3: Only Terminal Applications exist — Re-Application scenario
+    if len(terminal_apps) > 0:
+        return {
+            "match_score": best_company_score,
+            "company_id": best_company.id,
+            "application_id": None,
+            "route": "staging",
+            "match_reason": "REAPPLICATION_PREVIOUSLY_CONCLUDED",
+        }
+
+    # Case 4: 0 Applications exist for Company
     return {
         "match_score": 1.0,
         "company_id": best_company.id,
