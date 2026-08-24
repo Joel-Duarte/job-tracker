@@ -4,7 +4,7 @@ from pydantic import BaseModel
 class SystemSettingsRead(BaseModel):
     has_completed_onboarding: bool = False
     enable_email_intake: bool = False
-    enable_embeddings: bool = True
+    enable_embeddings: bool = False
     enable_auto_cover_letter: bool = False
     cover_letter_match_threshold: int = 70
     cover_letter_length: str = "standard"
@@ -32,7 +32,7 @@ class GlobalSettingsUpdate(BaseModel):
 
 
 class GlobalSettingsRead(BaseModel):
-    ENABLE_EMBEDDINGS: bool
+    ENABLE_EMBEDDINGS: bool = False
     AGENT_CHAT_RETENTION_DAYS: int
     ENABLE_AUTO_COVER_LETTER: bool = False
     COVER_LETTER_MATCH_THRESHOLD: int = 70

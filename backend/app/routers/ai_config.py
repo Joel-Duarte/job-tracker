@@ -355,7 +355,7 @@ async def get_global_settings(
 ) -> GlobalSettingsRead:
     settings = await load_settings(db)
     return GlobalSettingsRead(
-        ENABLE_EMBEDDINGS=settings.get("enable_embeddings", True),
+        ENABLE_EMBEDDINGS=settings.get("enable_embeddings", False),
         AGENT_CHAT_RETENTION_DAYS=settings.get("agent_chat_retention_days", 7),
         ENABLE_AUTO_COVER_LETTER=settings.get("enable_auto_cover_letter", False),
         COVER_LETTER_MATCH_THRESHOLD=settings.get("cover_letter_match_threshold", 70),
@@ -387,7 +387,7 @@ async def update_global_settings(
         settings["has_completed_onboarding"] = payload.HAS_COMPLETED_ONBOARDING
     await save_settings(settings, db)
     return GlobalSettingsRead(
-        ENABLE_EMBEDDINGS=settings.get("enable_embeddings", True),
+        ENABLE_EMBEDDINGS=settings.get("enable_embeddings", False),
         AGENT_CHAT_RETENTION_DAYS=settings.get("agent_chat_retention_days", 7),
         ENABLE_AUTO_COVER_LETTER=settings.get("enable_auto_cover_letter", False),
         COVER_LETTER_MATCH_THRESHOLD=settings.get("cover_letter_match_threshold", 70),

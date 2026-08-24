@@ -855,7 +855,7 @@ export const INITIAL_MOCK_DATA = {
   system_settings: {
     has_completed_onboarding: true,
     enable_email_intake: true,
-    enable_embeddings: true,
+    enable_embeddings: false,
     enable_auto_cover_letter: true,
     cover_letter_match_threshold: 70,
     cover_letter_length: "standard"
