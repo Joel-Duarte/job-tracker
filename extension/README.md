@@ -87,8 +87,6 @@ Depending on how you run Job Tracker, configure the **Job Tracker App URL** in t
 | :--- | :--- | :--- |
 | **Development (`./dev.sh`)** | `http://localhost:5173` | Proxies through Vite dev server with Hot Module Reloading |
 | **Production (`./prod.sh`)** | `http://localhost:4173` | Production Nginx web server reverse proxy |
-| **Direct Backend API** | `http://localhost:8000` | Direct FastAPI server (when running standalone `uvicorn`) |
-| **Docker Direct Backend** | `http://localhost:8008` | Direct backend port exposed in `docker-compose.yml` |
 
 ---
 
@@ -96,8 +94,7 @@ Depending on how you run Job Tracker, configure the **Job Tracker App URL** in t
 
 #### 1. "Cannot connect to Job Tracker server"
 - Click **"Test Connection"** under the Settings tab.
-- Verify that Job Tracker is running (`curl -f http://localhost:8000/health` or `curl -f http://localhost:5173/api/v1/health`).
-- If running backend directly on `localhost:8000` or `localhost:8008`, ensure that URL is saved in Settings.
+- Verify that Job Tracker is running (`curl -f http://localhost:4173/api/v1/health` or `curl -f http://localhost:5173/api/v1/health`).
 
 #### 2. Floating Dock is not appearing on a career page
 - Check the **In-Page Floating Widget Mode** setting in the extension popup. If set to `Auto-Detect`, the URL must match known ATS hosts or career keywords.
