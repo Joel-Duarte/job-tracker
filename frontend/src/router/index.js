@@ -74,4 +74,21 @@ const router = createRouter({
   routes,
 })
 
+import { isDemoModeEnabled } from '../demo/demoStorage'
+
+// Track client-side page navigation in GoatCounter (Demo Mode only)
+router.afterEach((to) => {
+  if (
+    isDemoModeEnabled() &&
+    typeof window !== 'undefined' &&
+    window.goatcounter &&
+    typeof window.goatcounter.count === 'function'
+  ) {
+    window.goatcounter.count({
+      path: to.fullPath,
+      title: typeof document !== 'undefined' ? document.title : '',
+    })
+  }
+})
+
 export default router

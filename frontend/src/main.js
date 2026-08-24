@@ -7,6 +7,18 @@ import './style.css'
 import { useUIStore } from './stores/uiStore'
 import { useApplicationsStore } from './stores/applicationsStore'
 
+import { isDemoModeEnabled } from './demo/demoStorage'
+
+// In Demo Mode only (e.g. GitHub Pages), initialize privacy-friendly analytics
+if (typeof document !== 'undefined' && isDemoModeEnabled()) {
+  const gcScript = document.createElement('script')
+  gcScript.async = true
+  gcScript.src = `${import.meta.env.BASE_URL}vendor/count.js`
+  gcScript.setAttribute('data-goatcounter', 'https://djodev.goatcounter.com/count')
+  gcScript.setAttribute('data-goatcounter-settings', JSON.stringify({ no_onload: true }))
+  document.head.appendChild(gcScript)
+}
+
 const app = createApp(App)
 const pinia = createPinia()
 
