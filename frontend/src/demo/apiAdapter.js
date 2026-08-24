@@ -170,7 +170,7 @@ export async function handleDemoRequest(config) {
     const company = app?.company_name || 'Hiring Company'
     const position = app?.position || 'Target Position'
 
-    const letterText = `Dear Hiring Manager at ${company},\n\nI am writing to express my strong interest in the ${position} role. With my background as a Staff Distributed Systems Engineer and extensive hands-on experience in Go, Rust, and microservices architecture, I am confident in my ability to make an immediate positive impact on your team.\n\nThroughout my career, I have designed and deployed high-performance distributed systems, optimized real-time data streaming pipelines, and led critical infrastructure initiatives. I look forward to discussing how my skills align with ${company}'s goals.\n\nSincerely,\nAlex Rivera`
+    const letterText = `Dear Hiring Manager at ${company},\n\nI am writing to express my strong interest in the ${position} role. With my background as a Staff Distributed Systems Engineer and extensive hands-on experience in Go, Rust, and microservices architecture, I am confident in my ability to make an immediate positive impact on your team.\n\nThroughout my career, I have designed and deployed high-performance distributed systems, optimized real-time data streaming pipelines, and led critical infrastructure initiatives. I look forward to discussing how my skills align with ${company}'s goals.\n\nSincerely,\nJohn Souls`
 
     if (app) {
       app.cover_letter_text = letterText
@@ -857,6 +857,7 @@ export async function handleDemoRequest(config) {
   if (urlPath === '/agent/chat' && method === 'post') {
     const messages = data.messages || []
     const lastUserMsg = messages[messages.length - 1]?.content || 'Hello'
+    const lowerMsg = lastUserMsg.toLowerCase()
     let chatId = data.chat_id
     let chat = (db.agent_chats || []).find((c) => c.id === chatId)
 
@@ -871,10 +872,22 @@ export async function handleDemoRequest(config) {
       db.agent_chats = [chat, ...(db.agent_chats || [])]
     }
 
+    let replyText = `Here is advice regarding "${lastUserMsg}":\n\n1. Focus on core architectural principles.\n2. Quantify achievements with metrics.\n3. Prepare concrete STAR examples for your interview rounds.`
+
+    if (
+      lowerMsg.includes('tool') ||
+      lowerMsg.includes('can you do') ||
+      lowerMsg.includes('what can you') ||
+      lowerMsg.includes('available tools') ||
+      lowerMsg.includes('capabilities')
+    ) {
+      replyText = `I have access to the following tools to help you manage your job search:\n\n1. analyze_pipeline_metrics: Analyzes cohort funnel performance metrics, stage conversion counts, and period-over-period trend deltas (weekly or monthly).\n2. detect_stalled_applications: Queries active applications that have had no recruiter activity exceeding an inactivity threshold (e.g., 14 days) and suggests follow-up actions.\n3. query_market_benchmarks: Aggregates market salary benchmarks, top in-demand skills, and remote/hybrid work distributions across job postings.\n4. evaluate_ai_fit_score: Retrieves both programmatic match score and qualitative AI evaluation details (matching skills, missing skills, pros, cons, recommendations) for an application.\n5. manage_intake_queue: Manages background job intake evaluation tasks (list, retry, cancel, or fix failed job descriptions).\n6. manage_action_items: Lists, completes, dismisses, or creates candidate action items, deadlines, and tasks.\n7. semantic_vector_search: Searches the vector database for relevant job applications, recruiter emails, and timeline updates using semantic cosine similarity.\n8. update_application_pipeline: Updates an application status in the pipeline (e.g., APPLIED, TECHNICAL_INTERVIEW, OFFER, REJECTED, ASSESSMENT, HIRED), logs a timeline event, and updates vector embeddings.\n9. list_applications: Lists job applications directly from the database with optional status or action required filtering.\n10. get_application_details: Retrieves chronological timeline events, recruiter emails, and action items for a company or application ID.\n11. start_mock_interview: Launches an interactive live mock interview simulation for a target application or general software engineering practice.`
+    }
+
     const assistantMsg = {
       id: `msg_${Date.now()}`,
       role: 'assistant',
-      content: `Here is advice regarding "${lastUserMsg}":\n\n1. Focus on core architectural principles.\n2. Quantify achievements with metrics.\n3. Prepare concrete STAR examples for your interview rounds.`,
+      content: replyText,
     }
 
     chat.messages.push({ id: `msg_${Date.now() - 1}`, role: 'user', content: lastUserMsg })

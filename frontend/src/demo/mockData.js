@@ -1,13 +1,14 @@
 export const INITIAL_MOCK_DATA = {
   candidate_profile: {
     id: "cv_demo_001",
-    full_name: "Alex Rivera",
-    email: "alex.rivera@example.com",
+    full_name: "John Souls",
+    email: "john.souls.demo@example.com",
     phone: "+1 (555) 234-5678",
     title: "Staff Distributed Systems Engineer",
-    summary: "Experienced Staff Distributed Systems Engineer with 10+ years architecting high-throughput fault-tolerant backend microservices, event-driven streaming pipelines, and cloud-native infrastructure in Rust, Go, and Python.",
-    raw_text: "Alex Rivera\nStaff Distributed Systems Engineer\nalex.rivera@example.com | (555) 234-5678\nSan Francisco, CA\n\nSummary:\nStaff Distributed Systems Engineer with 10+ years of experience building scalable backend platforms, streaming architectures (Kafka, Flink), and distributed databases (PostgreSQL, Cassandra). Proven track record leading infrastructure architecture at scale.\n\nSkills:\n- Languages: Go, Rust, Python, TypeScript, SQL\n- Infrastructure: Kubernetes, Docker, Terraform, AWS, GCP\n- Streaming & DBs: Apache Kafka, PostgreSQL, Redis, Elasticsearch\n\nExperience:\n- Principal Systems Engineer @ TechCorp (2021 - Present)\n- Senior Distributed Systems Engineer @ CloudScale (2017 - 2021)",
-    extracted_skills: ["Go", "Rust", "Python", "Distributed Systems", "Apache Kafka", "Kubernetes", "PostgreSQL", "System Architecture", "Event-Driven Microservices"],
+    location: "San Francisco, CA / Remote",
+    summary: "High-impact systems architect specializing in high-throughput distributed state management, low-latency microservices, and cloud-native infrastructure in Go, Rust, and Python.",
+    raw_text: "John Souls\nStaff Distributed Systems Engineer\njohn.souls.demo@example.com | (555) 234-5678\nSan Francisco, CA / Remote\n\nSummary:\nHigh-impact systems architect specializing in high-throughput distributed state management, low-latency microservices, and cloud-native infrastructure in Go, Rust, and Python. Proven track record leading infrastructure architecture and real-time state synchronization engines at scale.\n\nSkills:\n- Core Languages & Frameworks: Go, Rust, Python, TypeScript, gRPC, SQL\n- Infrastructure & Cloud: Kubernetes, Docker, Terraform, AWS, GCP, Distributed Tracing\n- Streaming & Storage: Apache Kafka, PostgreSQL, Redis, Elasticsearch, Raft Consensus\n\nExperience:\n- Senior Infrastructure Engineer @ ScaleGrid (2021 - Present)\n  * Architected sub-15ms real-time event streaming pipeline processing 10B+ daily events in Rust and Kafka.\n  * Reduced cloud infrastructure compute expenditure by 38% via eBPF kernel packet inspection.\n- Systems Engineer @ CloudCore (2017 - 2021)\n  * Built fault-tolerant gRPC microservices and automated multi-region PostgreSQL failover orchestration.",
+    extracted_skills: ["Go", "Rust", "Kubernetes", "Distributed Systems", "Apache Kafka", "PostgreSQL", "gRPC", "AWS", "Terraform", "Distributed Tracing"],
     parsed_at: new Date(Date.now() - 86400000 * 5).toISOString(),
     created_at: new Date(Date.now() - 86400000 * 30).toISOString(),
   },
@@ -82,7 +83,7 @@ export const INITIAL_MOCK_DATA = {
         ]
       },
       interview_guide_markdown: "## Stripe Technical Interview Preparation Guide\n\n### Company Architecture Focus\nStripe's core ledger operates on idempotent, ACID-compliant distributed databases. Expect questions around consensus protocols (Raft/Paxos), multi-region replication, and rate-limiting gateway proxies.\n\n### Strategic STAR Story Scenarios\n1. **High-Throughput Idempotency:** Detail how you handled duplicate financial event delivery at scale.\n2. **Database Migration Under Load:** Describe zero-downtime database schema migrations.",
-      cover_letter_text: "Dear Hiring Team at Stripe,\n\nI am thrilled to express my enthusiasm for the Staff Infrastructure Engineer position. With over a decade of hands-on experience designing high-throughput distributed systems in Go and Rust, I have consistently delivered fault-tolerant platform services that scale to millions of requests per minute.\n\nSincerely,\nAlex Rivera",
+      cover_letter_text: "Dear Hiring Team at Stripe,\n\nI am thrilled to express my enthusiasm for the Staff Infrastructure Engineer position. With over a decade of hands-on experience designing high-throughput distributed systems in Go and Rust, I have consistently delivered fault-tolerant platform services that scale to millions of requests per minute.\n\nSincerely,\nJohn Souls",
       cover_letter_status: "COMPLETED",
       cover_letter_generated_at: new Date(Date.now() - 86400000 * 2).toISOString(),
       events: [
