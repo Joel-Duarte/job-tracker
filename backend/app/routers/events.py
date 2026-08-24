@@ -151,3 +151,32 @@ async def resolve_event_action(
         "event_id": event_id,
         "action_required": payload.action_required,
     }
+
+
+@router.delete(
+    "/{event_id}",
+    summary="Delete a timeline event",
+)
+async def delete_event(
+    event_id: int,
+    source: str = Query("application", pattern="^(application|other)$"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deletes an application timeline event or other event."""
+    if source == "application":
+        stmt = select(ApplicationEventModel).where(ApplicationEventModel.id == event_id)
+        result = await db.execute(stmt)
+        event = result.scalars().first()
+        if not event:
+            raise HTTPException(status_code=404, detail="Application event not found")
+        await db.delete(event)
+    else:
+        stmt = select(OtherEventModel).where(OtherEventModel.id == event_id)
+        result = await db.execute(stmt)
+        event = result.scalars().first()
+        if not event:
+            raise HTTPException(status_code=404, detail="Other event not found")
+        await db.delete(event)
+
+    await db.commit()
+    return {"status": "success", "event_id": event_id}

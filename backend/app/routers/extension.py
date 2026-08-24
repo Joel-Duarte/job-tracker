@@ -27,20 +27,51 @@ router = APIRouter(prefix="/extension", tags=["Browser Extension"])
 
 
 def _extract_text_from_html(html_content: str) -> str:
-    """Strips HTML tags and extracts visible text content."""
-    # Remove script and style elements
-    cleaned = re.sub(
-        r"<(script|style)[^>]*>[\s\S]*?</\1>", " ", html_content, flags=re.IGNORECASE
+    """Strips HTML tags, removes scripts/styles/nav/forms, and cleans visible text content."""
+    if not html_content or not html_content.strip():
+        return ""
+
+    from bs4 import BeautifulSoup
+
+    from app.services.scraper import clean_extracted_text
+
+    soup = BeautifulSoup(html_content, "html.parser")
+    for tag in soup(
+        [
+            "script",
+            "style",
+            "noscript",
+            "svg",
+            "nav",
+            "footer",
+            "header",
+            "iframe",
+            "form",
+            "aside",
+            "template",
+            "canvas",
+        ]
+    ):
+        tag.decompose()
+
+    for el in soup.find_all(
+        class_=re.compile(
+            r"wpcf7|cookie|consent|navbar|site-header|site-footer|menu",
+            re.IGNORECASE,
+        )
+    ):
+        el.decompose()
+
+    main_el = soup.find(
+        ["main", "article", "div"],
+        class_=re.compile(r"job|posting|description|detail", re.IGNORECASE),
     )
-    # Replace block tags with newlines
-    cleaned = re.sub(
-        r"<(p|div|br|h[1-6]|li|tr)[^>]*>", "\n", cleaned, flags=re.IGNORECASE
+    raw_text = (
+        main_el.get_text(separator="\n")
+        if main_el and len(main_el.get_text(strip=True)) > 150
+        else soup.get_text(separator="\n")
     )
-    # Strip remaining HTML tags
-    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
-    # Normalize whitespace
-    lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
-    return "\n".join(lines)
+    return clean_extracted_text(raw_text)
 
 
 @router.post(

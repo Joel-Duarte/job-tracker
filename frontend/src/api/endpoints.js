@@ -146,3 +146,8 @@ export const InterviewSimulatorAPI = {
   listSessions: (params = {}) => apiClient.get('/interviews/sessions', { params }),
   deleteSession: (sessionId) => apiClient.delete(`/interviews/sessions/${sessionId}`),
 }
+
+export const EventsAPI = {
+  delete: (id, source = 'application') => apiClient.delete(`/events/${id}`, { params: { source } }),
+}
+

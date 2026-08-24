@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
-import { ActionItemsAPI, ApplicationsAPI } from '../../api/endpoints'
+import { ActionItemsAPI, ApplicationsAPI, EventsAPI } from '../../api/endpoints'
 import DateTimePicker from '../common/DateTimePicker.vue'
 import InterviewReaderModal from '../modals/InterviewReaderModal.vue'
 import LogActivityModal from '../modals/LogActivityModal.vue'
@@ -42,7 +42,11 @@ import {
   ListChecks,
   ChevronDown,
   ChevronUp,
+  Mail,
+  Archive,
+  ArchiveRestore,
 } from 'lucide-vue-next'
+import { renderEmailBody } from '../../utils/emailRenderer'
 
 const uiStore = useUIStore()
 const router = useRouter()
@@ -52,6 +56,74 @@ const { detailActiveTab: activeTab } = storeToRefs(uiStore) // 'timeline' | 'job
 const showDeleteConfirm = ref(false)
 const isLogActivityModalOpen = ref(false)
 const showRawDescription = ref(false)
+const isArchiving = ref(false)
+const deletingEventId = ref(null)
+
+// Timeline Email Viewer Modal State
+const viewingEmailEvent = ref(null)
+const emailModalViewMode = ref('formatted') // 'formatted' | 'raw'
+
+function openEmailViewer(event) {
+  viewingEmailEvent.value = event
+  emailModalViewMode.value = 'formatted'
+}
+
+function isEmailEvent(event) {
+  if (!event) return false
+  const nonEmailTypes = [
+    'PRE_APPLICATION_ASSESSMENT',
+    'JOB_EVALUATION',
+    'APPLICATION_ASSESSMENT',
+    'NOTE',
+    'STAGE_CHANGE',
+    'STATUS_CHANGE',
+    'MOCK_INTERVIEW_COMPLETED',
+    'SYSTEM_ARCHIVE',
+  ]
+  if (nonEmailTypes.includes(event.email_event_type)) {
+    return false
+  }
+  if (['INTAKE', 'SYSTEM', 'MANUAL', 'JOB_POSTING'].includes(event.source_channel)) {
+    return false
+  }
+  if (event.source_channel === 'EMAIL' || event.source_channel === 'STAGING') {
+    return Boolean(event.email_raw_body || event.email_message_id)
+  }
+  return Boolean(event.email_sender && (event.email_raw_body || event.email_message_id))
+}
+
+async function handleToggleArchive() {
+  if (!appStore.selectedApplication) return
+  isArchiving.value = true
+  try {
+    const isCurrentlyArchived = appStore.selectedApplication.status === 'ARCHIVED'
+    const targetStatus = isCurrentlyArchived ? 'APPLIED' : 'ARCHIVED'
+    await appStore.transitionApplication(appStore.selectedApplication.id, { status: targetStatus })
+    uiStore.showToast(isCurrentlyArchived ? 'Application unarchived' : 'Application archived', 'info')
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to update archive status', 'error')
+  } finally {
+    isArchiving.value = false
+  }
+}
+
+async function handleDeleteEvent(event) {
+  if (!confirm(`Are you sure you want to delete this "${event.email_event_type || 'timeline'}" event?`)) {
+    return
+  }
+  deletingEventId.value = event.id
+  try {
+    await EventsAPI.delete(event.id)
+    uiStore.showToast('Event deleted successfully', 'info')
+    if (appStore.selectedApplication?.id) {
+      await appStore.fetchApplication(appStore.selectedApplication.id)
+    }
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to delete event', 'error')
+  } finally {
+    deletingEventId.value = null
+  }
+}
 
 const structuredSpec = computed(() => {
   return appStore.selectedApplication?.job_posting?.structured_spec || null
@@ -755,21 +827,23 @@ function formatDate(isoStr) {
 
             <div class="header-actions">
               <button
-                class="btn btn-primary btn-sm"
-                title="Practice Mock Interview"
-                @click="router.push(`/chat?appId=${appStore.selectedApplication.id}&mock=true`)"
-              >
-                <Sparkles :size="14" />
-                <span>Practice Interview</span>
-              </button>
-              <button
                 class="btn-icon-danger"
                 title="Delete Application"
                 @click="showDeleteConfirm = true"
               >
                 <Trash2 :size="16" />
               </button>
-              <button class="btn-close" @click="close">
+              <button
+                class="btn-icon-action"
+                :title="appStore.selectedApplication.status === 'ARCHIVED' ? 'Unarchive Application (Restore to Active)' : 'Archive Application'"
+                :disabled="isArchiving"
+                @click="handleToggleArchive"
+              >
+                <Loader2 v-if="isArchiving" class="animate-spin" :size="16" />
+                <ArchiveRestore v-else-if="appStore.selectedApplication.status === 'ARCHIVED'" :size="16" />
+                <Archive v-else :size="16" />
+              </button>
+              <button class="btn-close" @click="close" title="Close Drawer">
                 <X :size="18" />
               </button>
             </div>
@@ -798,26 +872,6 @@ function formatDate(isoStr) {
               <ExternalLink :size="14" />
               <span>Job Link</span>
             </a>
-          </div>
-
-          <!-- LATEST EVENT HIGHLIGHT BANNER -->
-          <div v-if="latestEvent" class="latest-event-banner">
-            <div class="latest-event-header">
-              <div class="latest-event-badge">
-                <span class="pulsing-dot"></span>
-                <span>LATEST ACTIVITY • {{ formatDate(latestEvent.email_received_at || latestEvent.created_at) }}</span>
-              </div>
-              <span class="badge" :class="`badge-${(latestEvent.email_status_after_event || appStore.selectedApplication.status || 'applied').toLowerCase()}`">
-                {{ latestEvent.email_event_type }}
-              </span>
-            </div>
-            <div class="latest-event-desc">
-              {{ latestEvent.email_summary || latestEvent.email_subject || 'Application updated.' }}
-            </div>
-            <div v-if="latestEvent.email_action_required" class="latest-action-badge">
-              <AlertCircle :size="13" />
-              <span>Action Required: {{ latestEvent.email_action || 'Response pending' }}</span>
-            </div>
           </div>
 
           <!-- Nav Tabs -->
@@ -859,40 +913,29 @@ function formatDate(isoStr) {
               <span>Interview Guide</span>
               <span v-if="appStore.selectedApplication.has_interview_guide" class="guide-ready-indicator"></span>
             </button>
-
           </div>
 
-          <!-- Tab Panels -->
+          <!-- Drawer Body Content -->
           <div class="drawer-body">
-            <!-- 1. TIMELINE STREAM (Newest First) -->
+            <!-- TAB 1: TIMELINE -->
             <div v-if="activeTab === 'timeline'" class="timeline-tab-content">
               <div class="timeline-action-header">
                 <div class="timeline-header-meta">
                   <span class="timeline-header-title">Timeline Events</span>
                   <span class="timeline-count-chip">{{ appStore.selectedApplication.events?.length || 0 }}</span>
                 </div>
-                <div class="timeline-action-btns">
-                  <!-- Update Phase / Stage / Offer button -->
-                  <button
-                    v-if="appStore.selectedApplication.status === 'TECHNICAL_INTERVIEW'"
-                    class="btn btn-secondary btn-sm"
-                    @click="openEditModal"
-                    title="Update interview phase, scheduled date, or notes"
-                  >
-                    <SlidersHorizontal :size="13" />
-                    <span>Update Interview Stage</span>
-                  </button>
 
+                <div class="timeline-action-btns">
+                  <!-- Offer Quick Update Button -->
                   <button
-                    v-else-if="appStore.selectedApplication.status === 'OFFER'"
-                    class="btn btn-secondary btn-sm"
-                    @click="openEditModal"
+                    v-if="appStore.selectedApplication.status === 'OFFER'"
+                    class="btn btn-warning btn-sm btn-offer-quick"
+                    @click="openTransitionModal('OFFER')"
                     title="Update offer package and decision deadline"
                   >
                     <Award :size="13" />
                     <span>Update Offer</span>
                   </button>
-
                   <!-- Log Activity button -->
                   <button class="btn btn-secondary btn-sm" @click="openLogActivity" title="Log custom activity or note">
                     <Plus :size="13" />
@@ -918,7 +961,19 @@ function formatDate(isoStr) {
                           {{ event.email_sender_name || event.email_sender }}
                         </span>
                       </div>
-                      <span class="event-date">{{ formatDate(event.email_received_at || event.created_at) }}</span>
+                      <div class="event-header-right">
+                        <span class="event-date">{{ formatDate(event.email_received_at || event.created_at) }}</span>
+                        <button
+                          v-if="event.id"
+                          class="btn-delete-event"
+                          title="Delete this event"
+                          :disabled="deletingEventId === event.id"
+                          @click.stop="handleDeleteEvent(event)"
+                        >
+                          <Loader2 v-if="deletingEventId === event.id" class="animate-spin" :size="12" />
+                          <Trash2 v-else :size="12" />
+                        </button>
+                      </div>
                     </div>
 
                     <div v-if="event.email_subject" class="event-subject">
@@ -941,6 +996,22 @@ function formatDate(isoStr) {
                     <div v-if="event.email_action_required" class="event-action-required">
                       <AlertCircle :size="14" />
                       <span>Action Required: {{ event.email_action || 'Pending response' }}</span>
+                    </div>
+
+                    <!-- View Original Email Action Button -->
+                    <div
+                      v-if="isEmailEvent(event)"
+                      class="event-email-action-row"
+                    >
+                      <button
+                        class="btn-timeline-email"
+                        title="Open and read full original email communication with interactive links"
+                        @click="openEmailViewer(event)"
+                      >
+                        <Mail :size="12" />
+                        <span>View Original Email</span>
+                        <ExternalLink :size="11" class="btn-ext-icon" />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1614,6 +1685,100 @@ function formatDate(isoStr) {
     @close="handlePostHireClose"
   />
 
+  <!-- TIMELINE EVENT EMAIL VIEWER MODAL -->
+  <Transition name="fade">
+    <div
+      v-if="viewingEmailEvent"
+      class="email-viewer-modal-backdrop"
+      @click.self="viewingEmailEvent = null"
+    >
+      <div class="email-viewer-modal-box animate-scale-up">
+        <!-- Modal Header -->
+        <div class="email-viewer-modal-header">
+          <div class="email-viewer-header-meta">
+            <div class="email-viewer-icon-wrap">
+              <Mail :size="18" class="text-primary" />
+            </div>
+            <div class="email-viewer-titles">
+              <h3 class="email-viewer-subject">
+                {{ viewingEmailEvent.email_subject || '(No Subject Line)' }}
+              </h3>
+              <div class="email-viewer-sub-meta">
+                <span class="email-viewer-sender">
+                  <strong>{{ viewingEmailEvent.email_sender_name || viewingEmailEvent.email_sender || 'Unknown Sender' }}</strong>
+                  <span v-if="viewingEmailEvent.email_sender_name && viewingEmailEvent.email_sender" class="email-viewer-addr">
+                    &lt;{{ viewingEmailEvent.email_sender }}&gt;
+                  </span>
+                </span>
+                <span class="email-meta-dot">•</span>
+                <span class="email-viewer-time">
+                  {{ formatDate(viewingEmailEvent.email_received_at || viewingEmailEvent.created_at) }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="email-viewer-header-actions">
+            <!-- View Mode Switcher -->
+            <div class="email-view-toggle">
+              <button
+                class="btn-toggle-view"
+                :class="{ active: emailModalViewMode === 'formatted' }"
+                @click="emailModalViewMode = 'formatted'"
+              >
+                Formatted
+              </button>
+              <button
+                class="btn-toggle-view"
+                :class="{ active: emailModalViewMode === 'raw' }"
+                @click="emailModalViewMode = 'raw'"
+              >
+                Raw Text
+              </button>
+            </div>
+
+            <!-- Close Button -->
+            <button
+              class="btn-modal-close"
+              title="Close email preview"
+              @click="viewingEmailEvent = null"
+            >
+              <X :size="18" />
+            </button>
+          </div>
+        </div>
+
+        <!-- Modal Body Content -->
+        <div class="email-viewer-modal-body">
+          <div v-if="emailModalViewMode === 'formatted'" class="email-viewer-formatted">
+            <div
+              class="email-html-render"
+              v-html="renderEmailBody(viewingEmailEvent.email_raw_body || viewingEmailEvent.email_summary || '')"
+            ></div>
+          </div>
+          <div v-else class="email-viewer-raw">
+            <pre class="raw-code-block">{{ viewingEmailEvent.email_raw_body || JSON.stringify(viewingEmailEvent, null, 2) }}</pre>
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="email-viewer-modal-footer">
+          <div class="email-viewer-footer-info">
+            <span class="badge" :class="`badge-${(viewingEmailEvent.email_status_after_event || 'applied').toLowerCase()}`">
+              {{ viewingEmailEvent.email_event_type }}
+            </span>
+            <span v-if="viewingEmailEvent.source_channel" class="email-source-chip">
+              Source: {{ viewingEmailEvent.source_channel }}
+            </span>
+          </div>
+          <button class="btn btn-secondary btn-sm" @click="viewingEmailEvent = null">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  </Transition>
+
 </template>
 
 <style scoped>
@@ -2102,7 +2267,38 @@ function formatDate(isoStr) {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   margin-bottom: 6px;
+}
+
+.event-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-delete-event {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--radius-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+  opacity: 0.5;
+}
+
+.timeline-card:hover .btn-delete-event,
+.btn-delete-event:hover {
+  opacity: 1;
+}
+
+.btn-delete-event:hover {
+  color: var(--danger);
+  background-color: var(--danger-subtle);
 }
 
 .event-date {
@@ -2346,13 +2542,40 @@ function formatDate(isoStr) {
   width: 32px;
   height: 32px;
   border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  cursor: pointer;
   color: var(--text-muted);
   transition: all var(--transition-fast);
 }
 
 .btn-icon-danger:hover {
-  background-color: var(--status-rejected-bg);
-  color: var(--status-rejected-text);
+  background-color: var(--status-rejected-bg, rgba(239, 68, 68, 0.12));
+  color: var(--danger, #ef4444);
+}
+
+.btn-icon-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.btn-icon-action:hover:not(:disabled) {
+  background-color: var(--bg-card-hover, rgba(255, 255, 255, 0.08));
+  color: var(--text-main);
+}
+
+.btn-icon-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* LATEST EVENT HIGHLIGHT BANNER */
@@ -3180,6 +3403,241 @@ function formatDate(isoStr) {
   list-style-type: disc;
 }
 
+/* TIMELINE EMAIL ACTION BUTTON */
+.event-email-action-row {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
 
+.btn-timeline-email {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  background-color: var(--primary-subtle);
+  border: 1px solid var(--primary-subtle);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
 
+.btn-timeline-email:hover {
+  background-color: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+}
+
+.btn-ext-icon {
+  opacity: 0.7;
+}
+
+/* EMAIL VIEWER MODAL DIALOG */
+.email-viewer-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.email-viewer-modal-box {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  width: 100%;
+  max-width: 720px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.email-viewer-modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  background-color: var(--bg-card);
+}
+
+.email-viewer-header-meta {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.email-viewer-icon-wrap {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background-color: var(--primary-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.email-viewer-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.email-viewer-subject {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+  word-break: break-word;
+}
+
+.email-viewer-sub-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.email-viewer-addr {
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+.email-meta-dot {
+  color: var(--text-muted);
+}
+
+.email-viewer-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.email-view-toggle {
+  display: flex;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+}
+
+.btn-toggle-view {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  background-color: var(--bg-surface);
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.btn-toggle-view.active {
+  background-color: var(--primary);
+  color: #ffffff;
+}
+
+.btn-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-xs);
+}
+
+.btn-modal-close:hover {
+  background-color: var(--bg-card-hover);
+  color: var(--text-main);
+}
+
+.email-viewer-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.email-html-render {
+  font-family: inherit;
+  color: var(--text-main);
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.email-html-render :deep(a),
+:deep(.email-rendered-link) {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 500;
+  transition: color var(--transition-fast);
+}
+
+.email-html-render :deep(a:hover),
+:deep(.email-rendered-link:hover) {
+  color: var(--primary-hover, #6366f1);
+  text-decoration: underline;
+}
+
+.email-html-render :deep(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-xs);
+}
+
+.raw-code-block {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+}
+
+.email-viewer-modal-footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.email-viewer-footer-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.email-source-chip {
+  font-size: 11px;
+  color: var(--text-muted);
+  background-color: var(--bg-surface);
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-color);
+}
 </style>

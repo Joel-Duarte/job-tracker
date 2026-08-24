@@ -34,6 +34,7 @@ import {
 import PageHeader from '../components/common/PageHeader.vue'
 import DateTimePicker from '../components/common/DateTimePicker.vue'
 import CompanyLogo from '../components/common/CompanyLogo.vue'
+import { renderEmailBody } from '../utils/emailRenderer'
 
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
@@ -42,7 +43,8 @@ const appStore = useApplicationsStore()
 const stagingItems = ref([])
 const loading = ref(false)
 const isSubmitting = ref(false)
-const selectedFilter = ref('PENDING') // 'PENDING' | 'PROCESSED' | 'ALL'
+const selectedFilter = ref('PENDING') // 'PENDING' | 'PROCESSED'
+const pendingCount = ref(0)
 const searchFilterQuery = ref('')
 const sortOrder = ref('FIFO') // 'FIFO' (Oldest Email First) | 'LIFO' (Newest Email First)
 
@@ -320,10 +322,20 @@ async function fetchStagingItems(silent = false) {
   }
   try {
     const res = await StagingAPI.list({
-      status: selectedFilter.value === 'ALL' ? undefined : selectedFilter.value,
+      status: selectedFilter.value,
       limit: 50,
     })
     stagingItems.value = res.data.items || []
+
+    if (selectedFilter.value === 'PENDING') {
+      pendingCount.value = res.data.total ?? stagingItems.value.length
+    } else {
+      StagingAPI.list({ status: 'PENDING', limit: 1 })
+        .then((pRes) => {
+          pendingCount.value = pRes.data.total ?? 0
+        })
+        .catch(() => {})
+    }
   } catch (err) {
     if (!silent) {
       uiStore.showToast(err.message, 'error')
@@ -507,37 +519,32 @@ function formatRelativeTime(isoStr) {
 <template>
   <div class="page-container staging-workspace-container">
     <!-- Header Bar -->
-    <PageHeader
-      title="Recruitment Staging Queue"
-      subtitle="Master-detail triage workspace: review incoming recruitment emails, match to existing applications, or spawn new tracked jobs."
-      align="left"
-    >
-      <template #tabs>
-        <div class="filter-pills">
-          <button
-            class="pill-btn"
-            :class="{ active: selectedFilter === 'PENDING' }"
-            @click="selectedFilter = 'PENDING'; fetchStagingItems()"
-          >
-            Pending ({{ stagingItems.filter(i => i.status === 'PENDING').length }})
-          </button>
-          <button
-            class="pill-btn"
-            :class="{ active: selectedFilter === 'PROCESSED' }"
-            @click="selectedFilter = 'PROCESSED'; fetchStagingItems()"
-          >
-            Resolved
-          </button>
-          <button
-            class="pill-btn"
-            :class="{ active: selectedFilter === 'ALL' }"
-            @click="selectedFilter = 'ALL'; fetchStagingItems()"
-          >
-            All Items
-          </button>
-        </div>
-      </template>
-    </PageHeader>
+    <div class="staging-header-wrap">
+      <PageHeader
+        title="Human-in-the-Loop Staging Queue"
+        subtitle="Review unmatched emails, resolve ambiguous job leads into new applications, or link them to existing pipeline records."
+        align="center"
+      >
+        <template #tabs>
+          <div class="filter-pills">
+            <button
+              class="pill-btn"
+              :class="{ active: selectedFilter === 'PENDING' }"
+              @click="selectedFilter = 'PENDING'; fetchStagingItems()"
+            >
+              Pending ({{ pendingCount }})
+            </button>
+            <button
+              class="pill-btn"
+              :class="{ active: selectedFilter === 'PROCESSED' }"
+              @click="selectedFilter = 'PROCESSED'; fetchStagingItems()"
+            >
+              Resolved
+            </button>
+          </div>
+        </template>
+      </PageHeader>
+    </div>
 
     <!-- Workspace Master-Detail Split Pane -->
     <div class="staging-split-workspace">
@@ -670,6 +677,7 @@ function formatRelativeTime(isoStr) {
               </div>
 
               <button
+                v-if="selectedItem.status === 'PENDING'"
                 class="btn-dismiss-action"
                 title="Dismiss and remove this item"
                 @click="dismissCurrentItem"
@@ -677,12 +685,33 @@ function formatRelativeTime(isoStr) {
                 <Trash2 :size="14" />
                 <span>Dismiss</span>
               </button>
+              <div v-else class="resolved-status-tag">
+                <CheckCircle2 :size="13" class="text-success" />
+                <span>Resolved Record</span>
+              </div>
             </div>
           </div>
-                <!-- Two-Column Master Triage Area -->
-          <div class="triage-body-columns">
+
+          <!-- Master Triage Area (Single Column when Resolved) -->
+          <div class="triage-body-columns" :class="{ 'is-resolved-view': selectedItem.status !== 'PENDING' }">
             <!-- SUB-PANE 1: Full Email Inspector -->
             <section class="email-inspector-panel">
+              <!-- Resolved Context Banner (shown when viewing resolved item) -->
+              <div v-if="selectedItem.status !== 'PENDING'" class="resolved-context-strip">
+                <div class="resolved-context-left">
+                  <CheckCircle2 :size="15" class="text-success" />
+                  <span><strong>Resolved Lead:</strong> This communication has been processed and saved to your pipeline.</span>
+                </div>
+                <div class="resolved-context-badges">
+                  <span class="badge-mini" :class="getEventTypeBadgeClass(getDetectedEventType(selectedItem))">
+                    {{ formatEventTypeLabel(getDetectedEventType(selectedItem)) }}
+                  </span>
+                  <span class="badge-mini badge-resolved-target">
+                    {{ getItemCompany(selectedItem) }} — {{ getItemPosition(selectedItem) }}
+                  </span>
+                </div>
+              </div>
+
               <div class="inspector-header">
                 <div class="email-meta-block">
                   <div class="email-subject-heading">{{ selectedItem.email_subject || '(No Subject)' }}</div>
@@ -721,18 +750,21 @@ function formatRelativeTime(isoStr) {
               <div class="inspector-content-body">
                 <!-- Formatted Body View -->
                 <div v-if="emailViewMode === 'formatted'" class="email-body-formatted">
-                  <pre class="email-text-render">{{ selectedItem.email_raw_body || selectedItem.raw_payload?.body || 'No message body available.' }}</pre>
+                  <div
+                    class="email-html-render"
+                    v-html="renderEmailBody(selectedItem.email_raw_body || selectedItem.raw_payload?.body || '')"
+                  ></div>
                 </div>
 
                 <!-- Raw JSON / Data View -->
                 <div v-else class="email-body-raw">
-                  <pre class="raw-code-block">{{ JSON.stringify(selectedItem, null, 2) }}</pre>
+                  <pre class="raw-code-block">{{ selectedItem.email_raw_body || JSON.stringify(selectedItem, null, 2) }}</pre>
                 </div>
               </div>
             </section>
 
-            <!-- SUB-PANE 2: AI Suggestions & Resolution Controls -->
-            <section class="resolution-panel">
+            <!-- SUB-PANE 2: AI Suggestions & Resolution Controls (Only shown for PENDING items) -->
+            <section v-if="selectedItem.status === 'PENDING'" class="resolution-panel">
               <!-- AI Extraction Highlights -->
               <div class="ai-extraction-card">
                 <div class="ai-card-title">
@@ -974,6 +1006,55 @@ function formatRelativeTime(isoStr) {
   padding: 0;
   margin: 0;
   max-width: 100%;
+}
+
+.staging-header-wrap {
+  padding: 24px 24px 16px;
+  background-color: var(--bg-app);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.staging-header-wrap :deep(.page-header) {
+  margin-bottom: 0;
+}
+
+.filter-pills {
+  display: inline-flex;
+  align-items: center;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  gap: 4px;
+}
+
+.pill-btn {
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-xs);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pill-btn:hover {
+  color: var(--text-main);
+  background-color: var(--bg-card-hover);
+}
+
+.pill-btn.active {
+  background-color: var(--primary);
+  color: #ffffff;
+  box-shadow: var(--shadow-sm);
 }
 
 .staging-split-workspace {
@@ -1329,13 +1410,34 @@ function formatRelativeTime(isoStr) {
   color: #ffffff;
 }
 
-/* TWO-COLUMN TRIAGE BODY */
+.resolved-status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-success);
+  background-color: var(--success-subtle);
+  border: 1px solid var(--success-subtle);
+  border-radius: var(--radius-sm);
+}
+
+/* MASTER TRIAGE BODY */
 .triage-body-columns {
   flex: 1;
   display: grid;
   grid-template-columns: 1.15fr 1fr;
   min-height: 0;
   overflow: hidden;
+}
+
+.triage-body-columns.is-resolved-view {
+  grid-template-columns: 1fr;
+}
+
+.triage-body-columns.is-resolved-view .email-inspector-panel {
+  border-right: none;
 }
 
 /* SUB-PANE 1: EMAIL INSPECTOR */
@@ -1345,6 +1447,36 @@ function formatRelativeTime(isoStr) {
   flex-direction: column;
   min-height: 0;
   background-color: var(--bg-surface);
+}
+
+.resolved-context-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  background-color: var(--success-subtle);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 13px;
+  gap: 12px;
+}
+
+.resolved-context-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-main);
+}
+
+.resolved-context-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge-resolved-target {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
 }
 
 .inspector-header {
@@ -1412,15 +1544,36 @@ function formatRelativeTime(isoStr) {
   line-height: 1.6;
 }
 
-.email-text-render {
+.email-html-render {
   font-family: inherit;
-  white-space: pre-wrap;
-  word-break: break-word;
   color: var(--text-main);
-  background: transparent;
-  border: none;
-  padding: 0;
-  margin: 0;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.email-html-render :deep(a),
+:deep(.email-rendered-link) {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 500;
+  transition: color var(--transition-fast);
+}
+
+.email-html-render :deep(a:hover),
+:deep(.email-rendered-link:hover) {
+  color: var(--primary-hover, #6366f1);
+  text-decoration: underline;
+}
+
+.email-html-render :deep(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-xs);
+}
+
+.email-html-render :deep(table) {
+  max-width: 100%;
 }
 
 .raw-code-block {

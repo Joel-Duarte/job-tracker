@@ -68,8 +68,12 @@ EXPAND_JS = """
 EXTRACT_JS = """
 (() => {
     try {
-        // 3. Remove non-content clutter: scripts, styles, SVGs, nav, footer, headers
-        const clutter = document.querySelectorAll('script, style, noscript, svg, nav, footer, header, iframe, canvas, aside, form');
+        // 3. Remove non-content clutter: scripts, styles, SVGs, nav, footer, headers, forms, cookie banners, menus, wpcf7
+        const clutter = document.querySelectorAll(
+            'script, style, noscript, svg, nav, footer, header, iframe, canvas, aside, form, ' +
+            '.wpcf7, .wpcf7-form, .cookie-banner, .consent-banner, #onetrust-consent-sdk, ' +
+            '[role="navigation"], [role="banner"], [role="contentinfo"], .menu, .navbar, .site-header, .site-footer'
+        );
         clutter.forEach(el => {
             try { el.remove(); } catch(e) {}
         });
@@ -93,6 +97,13 @@ EXTRACT_JS = """
         }
         if (!target) {
             target = document.body;
+        }
+
+        // Clean any leftover scripts or forms within target before extracting
+        if (target) {
+            target.querySelectorAll('script, style, noscript, form, .wpcf7, [role="navigation"]').forEach(el => {
+                try { el.remove(); } catch(e) {}
+            });
         }
 
         const text = target ? (target.innerText || target.textContent || '') : '';
@@ -448,15 +459,66 @@ def has_job_content_keywords(text: str, min_matches: int = 2) -> bool:
 
 
 def clean_extracted_text(raw_text: str, max_chars: int = 15000) -> str:
-    """Normalizes whitespace and removes noise lines from scraped web text."""
+    """Normalizes whitespace and strips javascript code blocks, jQuery artifacts, and noisy boilerplate."""
     if not raw_text:
         return ""
-    # Normalize unicode spaces and consecutive blank lines
-    text = re.sub(r"[ \t]+", " ", raw_text)
+
+    text = raw_text
+
+    # 1. Strip Javascript and jQuery code invocations
+    text = re.sub(
+        r"(?:jQuery|\$)\s*\([^)]*\)\s*(?:\.\w+\([^)]*\))*\s*;?",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"jQuery\([^)]*\)\s*\{[\s\S]*?\}\s*\)?\s*;?", " ", text, flags=re.IGNORECASE
+    )
+    text = re.sub(
+        r"\bfunction\s*\w*\s*\([^)]*\)\s*\{[\s\S]*?\}", " ", text, flags=re.IGNORECASE
+    )
+    text = re.sub(
+        r"(?:document\.(?:getElementById|querySelector|querySelectorAll|addEventListener)|window\.\w+)[^\n]*",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\.wpcf7[^\n]*", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?:var|const|let)\s+\w+\s*=[^\n]+", " ", text, flags=re.IGNORECASE)
+
+    # 2. Normalize whitespace and blank lines
+    text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)
-    # Strip leading/trailing lines
-    lines = [line.strip() for line in text.split("\n") if line.strip()]
-    cleaned = "\n".join(lines)
+
+    # 3. Filter line by line
+    cleaned_lines = []
+    for line in text.split("\n"):
+        line_s = line.strip()
+        if not line_s:
+            continue
+        # Skip obvious JS code lines or CSS fragments
+        if any(
+            frag in line_s
+            for frag in (
+                "jQuery(",
+                "$(document)",
+                "wpcf7",
+                "function(){",
+                "function () {",
+                ".unwrap()",
+                ".remove()",
+                "gtag(",
+                "dataLayer.push",
+                ".wpcf7-form",
+            )
+        ):
+            continue
+        if re.search(r"^[{}();,\s]+$", line_s):
+            continue
+        cleaned_lines.append(line_s)
+
+    cleaned = "\n".join(cleaned_lines)
     return cleaned[:max_chars]
 
 
