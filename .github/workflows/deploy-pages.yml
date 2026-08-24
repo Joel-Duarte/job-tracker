@@ -43,6 +43,8 @@ jobs:
           npm run build
           # Create 404.html copy for single-page application deep-link routing on GitHub Pages
           cp dist/index.html dist/404.html
+          # Disable Jekyll processing on GitHub Pages
+          touch dist/.nojekyll
 
       - name: Upload GitHub Pages Artifact
         uses: actions/upload-pages-artifact@v3
