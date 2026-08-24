@@ -17,7 +17,7 @@ class SystemSettingsModel(Base):
         Boolean, nullable=False, default=False
     )
     enable_embeddings: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True
+        Boolean, nullable=False, default=False
     )
     agent_chat_retention_days: Mapped[int] = mapped_column(
         Integer, nullable=False, default=7
