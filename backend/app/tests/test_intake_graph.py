@@ -431,7 +431,9 @@ async def test_graph_different_position_routes_to_staging(db_session: AsyncSessi
 
 
 @pytest.mark.asyncio
-async def test_graph_reapplication_concluded_routes_to_staging(db_session: AsyncSession):
+async def test_graph_reapplication_concluded_routes_to_staging(
+    db_session: AsyncSession,
+):
     """An email for a company with only a REJECTED / terminal application routes to staging with REAPPLICATION_PREVIOUSLY_CONCLUDED."""
     comp = CompanyModel(name="Datadog", name_normalized="datadog")
     db_session.add(comp)

@@ -48,7 +48,9 @@ async def test_check_ai_provider_health_caching_unit():
     mock_execute_fallback = MagicMock()
     mock_execute_fallback.scalars.return_value.all.return_value = []
 
-    mock_db.execute = AsyncMock(side_effect=[mock_execute_global, mock_execute_fallback])
+    mock_db.execute = AsyncMock(
+        side_effect=[mock_execute_global, mock_execute_fallback]
+    )
 
     mock_resp = httpx.Response(200, json={"data": []})
     mock_client = AsyncMock()
@@ -76,7 +78,9 @@ async def test_check_ai_provider_health_caching_unit():
         mock_execute_global_2.scalar_one_or_none.return_value = binding
         mock_execute_fallback_2 = MagicMock()
         mock_execute_fallback_2.scalars.return_value.all.return_value = []
-        mock_db.execute = AsyncMock(side_effect=[mock_execute_global_2, mock_execute_fallback_2])
+        mock_db.execute = AsyncMock(
+            side_effect=[mock_execute_global_2, mock_execute_fallback_2]
+        )
 
         res3 = await check_ai_provider_health(mock_db)
         assert res3.status == "healthy"
