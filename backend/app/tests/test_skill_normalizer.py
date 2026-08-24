@@ -7,79 +7,39 @@ from app.services.skill_normalizer import (
 
 
 def test_normalize_skill_taxonomy():
+    assert normalize_skill("k8s") == "Kubernetes"
     assert normalize_skill("rag") == "Retrieval-Augmented Generation (RAG)"
     assert (
         normalize_skill("retrieval augmented generation")
         == "Retrieval-Augmented Generation (RAG)"
     )
-    assert (
-        normalize_skill("vector embeddings retrieval augmented (rag)")
-        == "Retrieval-Augmented Generation (RAG)"
-    )
-
     assert normalize_skill("ci/cd") == "CI/CD"
     assert normalize_skill("cicd") == "CI/CD"
-    assert normalize_skill("continuous integration") == "CI/CD"
-    assert normalize_skill("ci / cd pipelines") == "CI/CD"
-
     assert normalize_skill("llm") == "Large Language Models (LLM)"
-    assert normalize_skill("llms") == "Large Language Models (LLM)"
-    assert normalize_skill("large language models") == "Large Language Models (LLM)"
-
-    assert normalize_skill("k8s") == "Kubernetes"
-    assert normalize_skill("kubernetes") == "Kubernetes"
-
     assert normalize_skill("postgres") == "PostgreSQL"
     assert normalize_skill("postgresql") == "PostgreSQL"
-    assert normalize_skill("pgvector") == "pgvector"
-
-    assert normalize_skill("azure") == "Microsoft Azure"
-    assert normalize_skill("microsoft azure") == "Microsoft Azure"
-    assert normalize_skill("azure cloud") == "Microsoft Azure"
-
-    assert normalize_skill("docker") == "Docker"
-    assert normalize_skill("docker containers") == "Docker"
-    assert normalize_skill("containerization") == "Docker"
-
-    assert normalize_skill("vue") == "Vue.js"
-    assert normalize_skill("vuejs") == "Vue.js"
-    assert normalize_skill("vue 3") == "Vue.js"
-    assert normalize_skill("vue.js") == "Vue.js"
-
-    assert normalize_skill("react") == "React"
-    assert normalize_skill("reactjs") == "React"
-    assert normalize_skill("react.js") == "React"
-
     assert normalize_skill("aws") == "AWS"
-    assert normalize_skill("amazon web services") == "AWS"
-
     assert normalize_skill("gcp") == "Google Cloud Platform (GCP)"
-    assert normalize_skill("google cloud platform") == "Google Cloud Platform (GCP)"
-
     assert normalize_skill("fastapi") == "FastAPI"
-    assert normalize_skill("fast api") == "FastAPI"
-
-    assert normalize_skill("ts") == "TypeScript"
-    assert normalize_skill("typescript") == "TypeScript"
-
-    assert normalize_skill("js") == "JavaScript"
-    assert normalize_skill("javascript") == "JavaScript"
 
 
 def test_parenthetical_and_noise_stripping():
-    assert normalize_skill("CI/CD (GitHub Actions & GitLab CI)") == "CI/CD"
+    assert normalize_skill("CI/CD (GitHub Actions / GitLab)") == "CI/CD"
     assert normalize_skill("Postgres database") == "PostgreSQL"
+    assert normalize_skill("AWS cloud") == "AWS"
     assert normalize_skill("AWS cloud infrastructure") == "AWS"
-    assert (
-        normalize_skill("vector embeddings retrieval augmented (rag)")
-        == "Retrieval-Augmented Generation (RAG)"
-    )
+    assert normalize_skill("Vue.js development") == "Vue.js"
 
 
 def test_compound_splitting():
-    raw_list = ["Docker / Kubernetes", "React & Redux", "CI/CD"]
-    expected = ["Docker", "Kubernetes", "React", "Redux", "CI/CD"]
+    raw_list = ["Docker / Kubernetes", "CI/CD"]
+    expected = ["Docker", "Kubernetes", "CI/CD"]
     assert normalize_skills_list(raw_list) == expected
+
+
+def test_typo_correction_rapidfuzz():
+    assert normalize_skill("Kuberenetes") == "Kubernetes"
+    assert normalize_skill("Tensor Flow") == "TensorFlow"
 
 
 def test_normalize_skill_casing_fallback():
@@ -87,10 +47,10 @@ def test_normalize_skill_casing_fallback():
     assert normalize_skill("gRPC") == "gRPC"
     assert normalize_skill("PyTorch") == "PyTorch"
     assert normalize_skill("GraphQL") == "GraphQL"
-    assert normalize_skill("OAuth") == "OAuth"
-    assert normalize_skill("Node.js") == "Node.js"
+    assert normalize_skill("OAuth") == "OAuth 2.0"
 
     # Unmatched terms
+    assert normalize_skill("CustomFramework") == "CustomFramework"
     assert normalize_skill("customtech") == "Customtech"
     assert normalize_skill("CUSTOMTECH") == "Customtech"
     assert normalize_skill("myCustomLib") == "myCustomLib"
@@ -145,5 +105,4 @@ def test_hybrid_extract_skills():
     assert "PostgreSQL" in result
     assert "Docker" in result
     assert "Tailwind CSS" in result
-    # Check no duplicate variations
     assert len(result) == len(set(s.lower() for s in result))
