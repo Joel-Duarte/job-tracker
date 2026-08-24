@@ -140,7 +140,7 @@ export const INITIAL_MOCK_DATA = {
       company_name: "Linear",
       company: { id: "comp_linear", name: "Linear", domain: "linear.app" },
       position: "Principal Backend Engineer - Real-time Sync",
-      status: "TECHNICAL_INTERVIEW",
+      status: "APPLIED",
       location: "Remote (US/EU)",
       work_model: "Remote",
       salary_min: 220000,
@@ -149,10 +149,10 @@ export const INITIAL_MOCK_DATA = {
       url: "https://linear.app/careers/principal-backend",
       job_url: "https://linear.app/careers/principal-backend",
       application_date: new Date(Date.now() - 86400000 * 18).toISOString(),
-      last_activity_at: new Date(Date.now() - 86400000 * 2).toISOString(),
-      scheduled_interview_at: new Date(Date.now() + 86400000 * 2).toISOString(),
-      nearest_due_date: new Date(Date.now() + 86400000 * 2).toISOString(),
-      has_action_required: true,
+      last_activity_at: new Date(Date.now() - 86400000 * 18).toISOString(),
+      scheduled_interview_at: null,
+      nearest_due_date: null,
+      has_action_required: false,
       match_score: 91,
       fit_score: 91,
       programmatic_match_score: 89,
@@ -206,33 +206,18 @@ export const INITIAL_MOCK_DATA = {
         {
           id: "evt_linear_1",
           application_id: "app_linear_002",
-          email_event_type: "INTERVIEW_SCHEDULED",
-          event_type: "INTERVIEW_SCHEDULED",
-          title: "System Architecture Deep Dive",
-          description: "Technical interview scheduled with Co-founder / CTO.",
-          email_summary: "Technical interview scheduled with Co-founder / CTO.",
+          email_event_type: "APPLICATION_CONFIRMATION",
+          event_type: "APPLICATION_CONFIRMATION",
+          title: "Application Received Confirmation",
+          description: "From: careers@linear.app\nSubject: Thank you for applying to Linear\nHi John, We have received your application for the Principal Backend Engineer position.",
+          email_summary: "Thank you for applying to Linear. We have received your application for Principal Backend Engineer.",
+          email_subject: "Thank you for applying to Linear",
           email_sender: "careers@linear.app",
           email_sender_name: "Linear Careers",
-          created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
-          raw_payload: {
-            scheduled_at: new Date(Date.now() + 86400000 * 2).toISOString()
-          }
-        },
-        {
-          id: "evt_linear_2",
-          application_id: "app_linear_002",
-          email_event_type: "EMAIL_RECEIVED",
-          event_type: "EMAIL_RECEIVED",
-          title: "Technical Screen Invitation",
-          description: "From: careers@linear.app\nSubject: Linear Architecture Interview Invitation\nHi Alex, We would love to move forward with the technical deep dive.",
-          email_summary: "Hi Alex, We would love to move forward with the technical deep dive.",
-          email_subject: "Linear Architecture Interview Invitation",
-          email_sender: "careers@linear.app",
-          email_sender_name: "Linear Careers",
-          created_at: new Date(Date.now() - 86400000 * 4).toISOString(),
+          created_at: new Date(Date.now() - 86400000 * 18).toISOString(),
           raw_payload: {
             sender: "careers@linear.app",
-            subject: "Linear Architecture Interview Invitation"
+            subject: "Thank you for applying to Linear"
           }
         }
       ]
@@ -256,6 +241,7 @@ export const INITIAL_MOCK_DATA = {
       scheduled_interview_at: null,
       nearest_due_date: null,
       has_action_required: false,
+      has_interview_guide: true,
       match_score: 88,
       fit_score: 88,
       programmatic_match_score: 87,
@@ -298,6 +284,10 @@ export const INITIAL_MOCK_DATA = {
         gaps: ["C++ desktop runtime memory alignment"],
         gap_closing_tips: ["Emphasize cross-compilation and native module profiling experience."]
       },
+      interview_guide_markdown: "## Figma Multiplayer Engine Technical Interview Guide\n\n### System Architecture Focus\n- **Multiplayer State Sync:** C++/Rust document servers and WASM rendering.\n- **Low Latency Messaging:** WebSocket connection fan-out and spatial memory management.",
+      interview_guide_html: "<h2>Figma Multiplayer Engine Technical Interview Guide</h2><h3>System Architecture Focus</h3><ul><li><strong>Multiplayer State Sync:</strong> C++/Rust document servers and WASM rendering.</li><li><strong>Low Latency Messaging:</strong> WebSocket connection fan-out and spatial memory management.</li></ul>",
+      interview_guide_language: "en",
+      interview_guide_generated_at: new Date(Date.now() - 86400000 * 4).toISOString(),
       events: [
         {
           id: "evt_figma_1",
@@ -320,7 +310,7 @@ export const INITIAL_MOCK_DATA = {
       company_name: "Datadog",
       company: { id: "comp_datacamp", name: "Datadog", domain: "datadoghq.com" },
       position: "Senior Lead Engineer - Telemetry Pipeline",
-      status: "ONLINE_ASSESSMENT",
+      status: "TECHNICAL_INTERVIEW",
       location: "New York, NY (Remote)",
       work_model: "Remote",
       salary_min: 210000,
@@ -330,9 +320,10 @@ export const INITIAL_MOCK_DATA = {
       job_url: "https://datadoghq.com/careers/lead-telemetry",
       application_date: new Date(Date.now() - 86400000 * 12).toISOString(),
       last_activity_at: new Date(Date.now() - 86400000 * 3).toISOString(),
-      scheduled_interview_at: null,
-      nearest_due_date: new Date(Date.now() + 86400000 * 1).toISOString(),
+      scheduled_interview_at: new Date(Date.now() + 86400000 * 2).toISOString(),
+      nearest_due_date: new Date(Date.now() + 86400000 * 2).toISOString(),
       has_action_required: true,
+      has_interview_guide: true,
       match_score: 85,
       fit_score: 85,
       programmatic_match_score: 84,
@@ -372,19 +363,25 @@ export const INITIAL_MOCK_DATA = {
         gaps: ["eBPF kernel tracing"],
         gap_closing_tips: ["Review Linux kernel eBPF packet filter primitives."]
       },
+      interview_guide_markdown: "## Datadog Telemetry Pipeline Technical Interview Guide\n\n### System Architecture & Telemetry Focus\n- **Petabyte-Scale Ingestion:** Kafka backpressure, zero-copy socket buffers, and Vector aggregator topology.\n- **eBPF Kernel Inspection:** High-throughput packet parsing and low-overhead trace collection.",
+      interview_guide_html: "<h2>Datadog Telemetry Pipeline Technical Interview Guide</h2><h3>System Architecture & Telemetry Focus</h3><ul><li><strong>Petabyte-Scale Ingestion:</strong> Kafka backpressure, zero-copy socket buffers, and Vector aggregator topology.</li><li><strong>eBPF Kernel Inspection:</strong> High-throughput packet parsing and low-overhead trace collection.</li></ul>",
+      interview_guide_language: "en",
+      interview_guide_generated_at: new Date(Date.now() - 86400000 * 2).toISOString(),
       events: [
         {
           id: "evt_dd_1",
           application_id: "app_datacamp_004",
-          email_event_type: "ASSESSMENT_RECEIVED",
-          event_type: "ASSESSMENT_RECEIVED",
-          title: "Online Coding & Systems Assessment Received",
-          description: "Received 90-minute telemetry challenge link via HackerRank.",
-          email_summary: "Received 90-minute telemetry challenge link via HackerRank.",
+          email_event_type: "INTERVIEW_SCHEDULED",
+          event_type: "INTERVIEW_SCHEDULED",
+          title: "Technical Systems Deep Dive Scheduled",
+          description: "Technical screen scheduled with Telemetry Lead Engineer.",
+          email_summary: "Technical screen scheduled with Telemetry Lead Engineer.",
           email_sender: "recruiting@datadoghq.com",
           email_sender_name: "Datadog Talent",
           created_at: new Date(Date.now() - 86400000 * 3).toISOString(),
-          raw_payload: {}
+          raw_payload: {
+            scheduled_at: new Date(Date.now() + 86400000 * 2).toISOString()
+          }
         }
       ]
     },

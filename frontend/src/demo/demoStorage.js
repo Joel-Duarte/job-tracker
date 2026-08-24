@@ -60,13 +60,11 @@ function adjustRelativeDates(db) {
         }
       } else if (app.id === 'app_linear_002') {
         app.application_date = new Date(now - MS_PER_DAY * 7).toISOString()
-        app.last_activity_at = new Date(now - MS_PER_DAY * 1).toISOString()
-        app.scheduled_interview_at = new Date(now + MS_PER_DAY * 2).toISOString()
-        app.nearest_due_date = new Date(now + MS_PER_DAY * 2).toISOString()
-        if (app.events) {
-          app.events[0].created_at = new Date(now - MS_PER_DAY * 1).toISOString()
-          app.events[0].raw_payload.scheduled_at = new Date(now + MS_PER_DAY * 2).toISOString()
-          if (app.events[1]) app.events[1].created_at = new Date(now - MS_PER_DAY * 4).toISOString()
+        app.last_activity_at = new Date(now - MS_PER_DAY * 7).toISOString()
+        app.scheduled_interview_at = null
+        app.nearest_due_date = null
+        if (app.events && app.events[0]) {
+          app.events[0].created_at = new Date(now - MS_PER_DAY * 7).toISOString()
         }
       } else if (app.id === 'app_figma_003') {
         app.application_date = new Date(now - MS_PER_DAY * 6).toISOString()
