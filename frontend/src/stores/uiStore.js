@@ -6,9 +6,16 @@ import { useApplicationsStore } from './applicationsStore'
 import { useAgentChatStore } from './agentChatStore'
 
 export const useUIStore = defineStore('ui', () => {
-  const theme = ref(localStorage.getItem('jt_theme') || 'midnight')
-  const viewMode = ref(localStorage.getItem('jt_view_mode') || 'kanban') // 'kanban' | 'table'
   const isDemoMode = ref(isDemoModeEnabled())
+  const initialTheme =
+    localStorage.getItem('jt_theme') || (isDemoMode.value ? 'daylight' : 'midnight')
+  const theme = ref(initialTheme)
+  const viewMode = ref(localStorage.getItem('jt_view_mode') || 'kanban') // 'kanban' | 'table'
+
+  // Apply initial theme class on document element
+  if (typeof document !== 'undefined') {
+    document.documentElement.className = theme.value
+  }
 
   const isIngestModalOpen = ref(false)
   const isJobIntakeModalOpen = ref(false)
@@ -187,6 +194,9 @@ export const useUIStore = defineStore('ui', () => {
       rootStyle.removeProperty('--border-subtle')
     }
   }
+
+  // Apply custom color overrides on load
+  applyCustomColors()
 
   function setTheme(newTheme) {
     theme.value = newTheme
