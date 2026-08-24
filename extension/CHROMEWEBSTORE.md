@@ -51,4 +51,4 @@
 4. Click **Load unpacked** in the top-left toolbar.
 5. Select the `extension/` folder located at the root of the Job Tracker repository.
 6. Click the extension icon in your browser toolbar to open the Job Tracker Companion popup.
-7. Ensure your Job Tracker backend server is running (`http://localhost:8000`) and test connection in the **Settings** tab.
+7. Ensure your Job Tracker backend server is running (`http://localhost:4173`) and test connection in the **Settings** tab.
