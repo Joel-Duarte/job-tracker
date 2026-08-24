@@ -2213,6 +2213,13 @@ onUnmounted(() => {
     <!-- TAB 3: EMAIL ACCOUNTS -->
     <div v-else-if="activeTab === 'email_accounts'" class="tab-content animate-fade-in">
       <div class="section-card">
+        <div v-if="uiStore.isDemoMode" class="email-disabled-banner mb-4">
+          <div class="banner-left">
+            <Info :size="16" class="text-primary" />
+            <span><strong>Email sync disabled in client demo mode.</strong> Mailbox background polling and IMAP fetches require a live backend.</span>
+          </div>
+        </div>
+
         <div class="section-header-row">
           <div class="section-header-text">
             <h3>Connected Mailboxes &amp; Sync Schedule</h3>
@@ -2326,6 +2333,45 @@ onUnmounted(() => {
         </div>
 
         <div class="preferences-grid">
+          <!-- 0. Client Demo Mode & Dataset Card -->
+          <div class="preference-card preference-card-wide border-primary">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <Sparkles :size="18" />
+              </div>
+              <div class="preference-header-text">
+                <div class="preference-header-between">
+                  <h4 class="preference-title">Client-First Demo Mode</h4>
+                  <label class="switch-toggle" title="Toggle Client Demo Mode">
+                    <input
+                      type="checkbox"
+                      :checked="uiStore.isDemoMode"
+                      @change="e => uiStore.toggleDemoMode(e.target.checked)"
+                    />
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+                <p class="preference-desc">Runs the frontend app standalone against browser <code>localStorage</code> and Pinia stores without requiring a live FastAPI backend server.</p>
+              </div>
+            </div>
+            <div class="preference-body">
+              <div class="flex items-center justify-between gap-4 flex-wrap">
+                <div class="flex flex-col gap-1">
+                  <span class="text-xs font-semibold text-main">Local Dataset Hydration</span>
+                  <span class="text-xs text-secondary">Instantly restore pristine candidate profile, 5 applications, action items, staging tasks, and telemetry logs.</span>
+                </div>
+                <button
+                  class="btn btn-secondary btn-sm text-secondary"
+                  @click="uiStore.resetDemoData"
+                  title="Reset localStorage demo keys and re-hydrate Pinia stores reactively"
+                >
+                  <RotateCcw :size="14" />
+                  <span>Reset Demo Data</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- 1. Default System Currency Card -->
           <div class="preference-card">
             <div class="preference-header">

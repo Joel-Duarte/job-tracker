@@ -1,0 +1,695 @@
+import { getDemoDb, saveDemoDb } from './demoStorage'
+
+function delay(ms = null) {
+  const actualMs = ms !== null ? ms : Math.floor(Math.random() * 500) + 500
+  return new Promise((resolve) => setTimeout(resolve, actualMs))
+}
+
+export async function handleDemoRequest(config) {
+  const method = (config.method || 'get').toLowerCase()
+  const rawUrl = config.url || ''
+  // Strip query parameters for endpoint matching
+  const urlPath = rawUrl.split('?')[0].replace(/\/$/, '')
+  const params = config.params || {}
+  const data = typeof config.data === 'string' ? JSON.parse(config.data || '{}') : (config.data || {})
+
+  const db = getDemoDb()
+
+  // Simulate artificial delay (500ms - 1000ms by default, 1500ms for job intake extraction)
+  let delayMs = 500
+  if (urlPath.includes('/intake/paste') || urlPath.includes('/intake/assess-job') || urlPath.includes('/intake/upload')) {
+    delayMs = 1500
+  }
+  await delay(delayMs)
+
+  // Response helper
+  const ok = (responseData, status = 200) => ({
+    data: responseData,
+    status,
+    statusText: 'OK',
+    headers: {},
+    config,
+  })
+
+  // 1. APPLICATIONS ENDPOINTS
+  if (urlPath === '/applications' && method === 'get') {
+    let items = [...(db.applications || [])]
+    if (params.q) {
+      const q = params.q.toLowerCase()
+      items = items.filter(
+        (a) =>
+          a.company_name?.toLowerCase().includes(q) ||
+          a.position?.toLowerCase().includes(q) ||
+          a.location?.toLowerCase().includes(q)
+      )
+    }
+    if (params.status) {
+      items = items.filter((a) => a.status === params.status)
+    }
+    return ok({ items, total: items.length })
+  }
+
+  if (urlPath === '/applications/by-status' && method === 'get') {
+    const counts = {}
+    ;(db.applications || []).forEach((a) => {
+      counts[a.status] = (counts[a.status] || 0) + 1
+    })
+    return ok(counts)
+  }
+
+  if (urlPath === '/applications/bulk-transition' && method === 'post') {
+    const { target_status, from_statuses, exclude_ids } = data
+    const updatedIds = []
+    const excludeSet = new Set(exclude_ids || [])
+    const fromSet = new Set(from_statuses || [])
+
+    db.applications = db.applications.map((app) => {
+      if (fromSet.has(app.status) && !excludeSet.has(app.id)) {
+        app.status = target_status
+        app.last_activity_at = new Date().toISOString()
+        updatedIds.push(app.id)
+      }
+      return app
+    })
+    saveDemoDb(db)
+    return ok({ updated_ids: updatedIds })
+  }
+
+  const appMatch = urlPath.match(/^\/applications\/([^/]+)$/)
+  if (appMatch) {
+    const appId = appMatch[1]
+    const appIndex = (db.applications || []).findIndex((a) => a.id === appId)
+
+    if (method === 'get') {
+      if (appIndex === -1) throw new Error('Application not found')
+      const app = db.applications[appIndex]
+      const events = app.events || []
+      const latest_event = events.length > 0 ? events[0] : null
+      return ok({ ...app, events, latest_event })
+    }
+
+    if (method === 'patch') {
+      if (appIndex === -1) throw new Error('Application not found')
+      db.applications[appIndex] = {
+        ...db.applications[appIndex],
+        ...data,
+        last_activity_at: new Date().toISOString(),
+      }
+      saveDemoDb(db)
+      return ok(db.applications[appIndex])
+    }
+
+    if (method === 'delete') {
+      if (appIndex !== -1) {
+        db.applications.splice(appIndex, 1)
+        saveDemoDb(db)
+      }
+      return ok({ message: 'Deleted successfully' })
+    }
+  }
+
+  const appTransitionMatch = urlPath.match(/^\/applications\/([^/]+)\/transition$/)
+  if (appTransitionMatch && method === 'post') {
+    const appId = appTransitionMatch[1]
+    const appIndex = (db.applications || []).findIndex((a) => a.id === appId)
+    if (appIndex === -1) throw new Error('Application not found')
+
+    const app = db.applications[appIndex]
+    const oldStatus = app.status
+    const newStatus = data.status || oldStatus
+
+    app.status = newStatus
+    if (data.rejection_reason) app.rejection_reason = data.rejection_reason
+    if (data.rejection_date) app.rejection_date = data.rejection_date
+    if (data.notes) app.notes = data.notes
+    app.last_activity_at = new Date().toISOString()
+
+    const newEvent = {
+      id: `evt_${Date.now()}`,
+      application_id: appId,
+      event_type: `STAGE_CHANGE_${newStatus}`,
+      title: `Transitioned to ${newStatus}`,
+      description: data.notes || `Moved application from ${oldStatus} to ${newStatus}`,
+      created_at: new Date().toISOString(),
+      raw_payload: data,
+    }
+
+    app.events = [newEvent, ...(app.events || [])]
+    saveDemoDb(db)
+    return ok(app)
+  }
+
+  const coverLetterGetMatch = urlPath.match(/^\/applications\/([^/]+)\/cover-letter$/)
+  if (coverLetterGetMatch) {
+    const appId = coverLetterGetMatch[1]
+    const app = (db.applications || []).find((a) => a.id === appId)
+    if (method === 'get') {
+      return ok({
+        cover_letter_text: app?.cover_letter_text || '',
+        cover_letter_status: app?.cover_letter_status || 'NOT_STARTED',
+        cover_letter_generated_at: app?.cover_letter_generated_at || null,
+      })
+    }
+    if (method === 'patch') {
+      if (app) {
+        app.cover_letter_text = data.cover_letter_text || data.text
+        saveDemoDb(db)
+      }
+      return ok({
+        cover_letter_text: app?.cover_letter_text || '',
+        cover_letter_status: 'COMPLETED',
+        cover_letter_generated_at: new Date().toISOString(),
+      })
+    }
+  }
+
+  const coverLetterGenMatch = urlPath.match(/^\/applications\/([^/]+)\/cover-letter\/(generate|regenerate)$/)
+  if (coverLetterGenMatch && method === 'post') {
+    const appId = coverLetterGenMatch[1]
+    const app = (db.applications || []).find((a) => a.id === appId)
+    const company = app?.company_name || 'Hiring Company'
+    const position = app?.position || 'Target Position'
+
+    const letterText = `Dear Hiring Manager at ${company},\n\nI am writing to express my strong interest in the ${position} role. With my background as a Staff Distributed Systems Engineer and extensive hands-on experience in Go, Rust, and microservices architecture, I am confident in my ability to make an immediate positive impact on your team.\n\nThroughout my career, I have designed and deployed high-performance distributed systems, optimized real-time data streaming pipelines, and led critical infrastructure initiatives. I look forward to discussing how my skills align with ${company}'s goals.\n\nSincerely,\nAlex Rivera`
+
+    if (app) {
+      app.cover_letter_text = letterText
+      app.cover_letter_status = 'COMPLETED'
+      app.cover_letter_generated_at = new Date().toISOString()
+      saveDemoDb(db)
+    }
+
+    return ok({
+      cover_letter_text: letterText,
+      cover_letter_status: 'COMPLETED',
+      cover_letter_generated_at: new Date().toISOString(),
+    })
+  }
+
+  // 2. INTAKE & QUEUE ENDPOINTS
+  if (urlPath === '/intake/paste' && method === 'post') {
+    const newApp = {
+      id: `app_demo_${Date.now()}`,
+      company_name: data.company_name || 'Extracted Tech Corp',
+      position: data.position || 'Senior Systems Engineer',
+      status: 'APPLIED',
+      location: 'Remote',
+      work_model: 'Remote',
+      salary_min: 180000,
+      salary_max: 230000,
+      currency: 'USD',
+      url: data.url || '',
+      application_date: new Date().toISOString(),
+      last_activity_at: new Date().toISOString(),
+      match_score: 89,
+      fit_score: 89,
+      programmatic_match_score: 88,
+      description: data.raw_text || 'Extracted job description text.',
+      match_analysis_payload: {
+        match_score: 89,
+        fit_score: 89,
+        key_strengths: ['Strong backend alignment', 'Distributed systems experience'],
+        gaps: ['None identified'],
+        gap_closing_tips: ['Highlight past infrastructure work.'],
+      },
+      events: [],
+    }
+    db.applications = [newApp, ...(db.applications || [])]
+    saveDemoDb(db)
+    return ok(newApp)
+  }
+
+  if (urlPath === '/intake/assess-job' && method === 'post') {
+    const newApp = {
+      id: `app_demo_${Date.now()}`,
+      company_name: data.company_name || 'Assessed Tech Co',
+      position: data.position || 'Software Architect',
+      status: 'ASSESSMENT',
+      location: 'San Francisco, CA',
+      work_model: 'Hybrid',
+      salary_min: 200000,
+      salary_max: 260000,
+      currency: 'USD',
+      url: data.url || '',
+      application_date: new Date().toISOString(),
+      last_activity_at: new Date().toISOString(),
+      match_score: 92,
+      fit_score: 92,
+      programmatic_match_score: 90,
+      description: data.raw_text || 'Job specification for assessment.',
+      match_analysis_payload: {
+        match_score: 92,
+        fit_score: 92,
+        key_strengths: ['Architecture leadership', 'High availability system design'],
+        gaps: ['Proprietary toolchain'],
+        gap_closing_tips: ['Focus on system design fundamentals.'],
+      },
+      events: [],
+    }
+    db.applications = [newApp, ...(db.applications || [])]
+    saveDemoDb(db)
+    return ok(newApp)
+  }
+
+  if (urlPath === '/intake/enqueue-assessment' && method === 'post') {
+    const newTask = {
+      id: `task_eval_${Date.now()}`,
+      url: data.url || '',
+      company_name: data.company_name || 'Enqueued Corp',
+      position: data.position || 'Software Engineer',
+      status: 'COMPLETED',
+      stage: 'COMPLETED',
+      progress: 100,
+      match_score: 87,
+      fit_score: 87,
+      raw_text: data.raw_text || '',
+      error_message: null,
+      created_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+    }
+    db.intake_evaluations = [newTask, ...(db.intake_evaluations || [])]
+    saveDemoDb(db)
+    return ok(newTask)
+  }
+
+  if (urlPath === '/intake/evaluations' && method === 'get') {
+    return ok(db.intake_evaluations || [])
+  }
+
+  const evalTaskMatch = urlPath.match(/^\/intake\/evaluations\/([^/]+)$/)
+  if (evalTaskMatch && method === 'delete') {
+    const taskId = evalTaskMatch[1]
+    db.intake_evaluations = (db.intake_evaluations || []).filter((t) => t.id !== taskId)
+    saveDemoDb(db)
+    return ok({ message: 'Evaluation deleted' })
+  }
+
+  const evalTaskActionMatch = urlPath.match(/^\/intake\/evaluations\/([^/]+)\/(cancel|retry|fix-jd)$/)
+  if (evalTaskActionMatch && method === 'post') {
+    const taskId = evalTaskActionMatch[1]
+    const action = evalTaskActionMatch[2]
+    const task = (db.intake_evaluations || []).find((t) => t.id === taskId)
+    if (task) {
+      if (action === 'cancel') {
+        task.status = 'FAILED'
+        task.stage = 'FAILED'
+        task.error_message = 'Task stopped by user'
+      } else if (action === 'retry' || action === 'fix-jd') {
+        task.status = 'COMPLETED'
+        task.stage = 'COMPLETED'
+        task.progress = 100
+        task.match_score = task.match_score || 88
+        task.fit_score = task.fit_score || 88
+        task.error_message = null
+        if (data.raw_text) task.raw_text = data.raw_text
+      }
+      saveDemoDb(db)
+    }
+    return ok(task || { id: taskId, status: 'COMPLETED' })
+  }
+
+  if (urlPath === '/intake/evaluations/bulk-retry' && method === 'post') {
+    const ids = new Set(data.task_ids || [])
+    db.intake_evaluations = (db.intake_evaluations || []).map((t) => {
+      if (ids.has(t.id)) {
+        t.status = 'COMPLETED'
+        t.stage = 'COMPLETED'
+        t.error_message = null
+      }
+      return t
+    })
+    saveDemoDb(db)
+    return ok({ message: 'Tasks retried' })
+  }
+
+  if (urlPath === '/intake/evaluations/bulk-delete' && method === 'post') {
+    const ids = new Set(data.task_ids || [])
+    db.intake_evaluations = (db.intake_evaluations || []).filter((t) => !ids.has(t.id))
+    saveDemoDb(db)
+    return ok({ message: 'Tasks deleted' })
+  }
+
+  if (urlPath === '/intake/evaluations/clear-completed' && method === 'post') {
+    db.intake_evaluations = (db.intake_evaluations || []).filter((t) => t.status !== 'COMPLETED')
+    saveDemoDb(db)
+    return ok({ message: 'Completed tasks cleared' })
+  }
+
+  if (urlPath === '/intake/extension-config' && method === 'get') {
+    return ok({ ai_ready: true })
+  }
+
+  if (urlPath === '/intake/sync-account' && method === 'post') {
+    return ok({ status: 'disabled', message: 'Email sync disabled in client demo mode' })
+  }
+
+  // 3. CANDIDATE PROFILE ENDPOINTS
+  if (urlPath === '/profile/cv' && method === 'get') {
+    return ok(db.candidate_profile || null)
+  }
+
+  if (urlPath === '/profile/cv' && method === 'post') {
+    db.candidate_profile = {
+      ...(db.candidate_profile || {}),
+      raw_text: data.raw_text,
+      parsed_at: new Date().toISOString(),
+    }
+    saveDemoDb(db)
+    return ok(db.candidate_profile)
+  }
+
+  if (urlPath === '/profile/cv/parse-file' && method === 'post') {
+    return ok(db.candidate_profile || {})
+  }
+
+  const cvPatchMatch = urlPath.match(/^\/profile\/cv\/([^/]+)$/)
+  if (cvPatchMatch) {
+    if (method === 'patch') {
+      db.candidate_profile = { ...(db.candidate_profile || {}), ...data }
+      saveDemoDb(db)
+      return ok(db.candidate_profile)
+    }
+    if (method === 'delete') {
+      db.candidate_profile = null
+      saveDemoDb(db)
+      return ok({ message: 'Profile deleted' })
+    }
+  }
+
+  // 4. ACTION ITEMS ENDPOINTS
+  if (urlPath === '/action-items' && method === 'get') {
+    return ok(db.action_items || [])
+  }
+
+  if (urlPath === '/action-items' && method === 'post') {
+    const newItem = {
+      id: `action_${Date.now()}`,
+      application_id: data.application_id || null,
+      company_name: data.company_name || 'General Task',
+      position: data.position || '',
+      title: data.title || 'New Action Item',
+      description: data.description || '',
+      due_date: data.due_date || new Date(Date.now() + 86400000 * 3).toISOString(),
+      urgency: data.urgency || 'MEDIUM',
+      manual_urgency: data.manual_urgency || 'MEDIUM',
+      status: 'PENDING',
+      created_at: new Date().toISOString(),
+    }
+    db.action_items = [newItem, ...(db.action_items || [])]
+    saveDemoDb(db)
+    return ok(newItem)
+  }
+
+  const actionItemMatch = urlPath.match(/^\/action-items\/([^/]+)$/)
+  if (actionItemMatch) {
+    const itemId = actionItemMatch[1]
+    const itemIndex = (db.action_items || []).findIndex((i) => i.id === itemId)
+
+    if (method === 'patch' || method === 'put') {
+      if (itemIndex !== -1) {
+        db.action_items[itemIndex] = { ...db.action_items[itemIndex], ...data }
+        saveDemoDb(db)
+      }
+      return ok(db.action_items[itemIndex] || {})
+    }
+    if (method === 'delete') {
+      if (itemIndex !== -1) {
+        db.action_items.splice(itemIndex, 1)
+        saveDemoDb(db)
+      }
+      return ok({ message: 'Action item deleted' })
+    }
+  }
+
+  const actionUrgencyMatch = urlPath.match(/^\/action-items\/([^/]+)\/urgency$/)
+  if (actionUrgencyMatch && (method === 'put' || method === 'patch')) {
+    const itemId = actionUrgencyMatch[1]
+    const item = (db.action_items || []).find((i) => i.id === itemId)
+    if (item) {
+      item.manual_urgency = data.manual_urgency
+      saveDemoDb(db)
+    }
+    return ok(item || {})
+  }
+
+  // 5. STAGING ENDPOINTS
+  if (urlPath === '/staging' && method === 'get') {
+    return ok(db.staging_items || [])
+  }
+
+  const stagingResolveMatch = urlPath.match(/^\/staging\/([^/]+)\/resolve$/)
+  if (stagingResolveMatch && method === 'post') {
+    const stageId = stagingResolveMatch[1]
+    const item = (db.staging_items || []).find((s) => s.id === stageId)
+    if (item) {
+      item.status = 'RESOLVED'
+      saveDemoDb(db)
+    }
+    return ok({ message: 'Staging item resolved' })
+  }
+
+  const stagingItemMatch = urlPath.match(/^\/staging\/([^/]+)$/)
+  if (stagingItemMatch && method === 'delete') {
+    const stageId = stagingItemMatch[1]
+    db.staging_items = (db.staging_items || []).filter((s) => s.id !== stageId)
+    saveDemoDb(db)
+    return ok({ message: 'Staging item deleted' })
+  }
+
+  if (urlPath === '/staging/resolved' && method === 'delete') {
+    db.staging_items = (db.staging_items || []).filter((s) => s.status !== 'RESOLVED')
+    saveDemoDb(db)
+    return ok({ message: 'Resolved staging items cleared' })
+  }
+
+  // 6. DIAGNOSTICS & TELEMETRY
+  if (urlPath === '/diagnostics/stats' && method === 'get') {
+    const traces = db.diagnostics_traces || []
+    return ok({
+      total_traces: traces.length,
+      success_count: traces.filter((t) => t.status === 'success').length,
+      error_count: traces.filter((t) => t.status === 'error').length,
+      avg_latency_ms: 850,
+    })
+  }
+
+  if (urlPath === '/diagnostics/traces' && method === 'get') {
+    let traces = db.diagnostics_traces || []
+    if (params.category) traces = traces.filter((t) => t.category === params.category)
+    return ok(traces)
+  }
+
+  if (urlPath === '/diagnostics/purge' && method === 'delete') {
+    db.diagnostics_traces = []
+    saveDemoDb(db)
+    return ok({ message: 'Traces purged' })
+  }
+
+  // 7. SYSTEM & AI CONFIG
+  if (urlPath === '/config/system' && method === 'get') {
+    return ok(db.system_settings || {})
+  }
+
+  if (urlPath === '/config/system' && method === 'patch') {
+    db.system_settings = { ...(db.system_settings || {}), ...data }
+    saveDemoDb(db)
+    return ok(db.system_settings)
+  }
+
+  if (urlPath === '/config/ai/health' && method === 'get') {
+    return ok({
+      status: 'healthy',
+      latency_ms: 14,
+      provider_name: 'Client Local Engine',
+      model_name: 'demo-local-llm',
+      error_message: null,
+    })
+  }
+
+  if (urlPath === '/ai/global-settings' && method === 'get') {
+    return ok({
+      HAS_COMPLETED_ONBOARDING: db.system_settings?.has_completed_onboarding ?? true,
+      ENABLE_EMAIL_INTAKE: false,
+      ENABLE_EMBEDDINGS: true,
+      ENABLE_AUTO_COVER_LETTER: true,
+      COVER_LETTER_MATCH_THRESHOLD: 70,
+      COVER_LETTER_LENGTH: 'standard',
+    })
+  }
+
+  if (urlPath === '/email_accounts' && method === 'get') {
+    return ok([])
+  }
+
+  // 8. INTERVIEW SIMULATOR ENDPOINTS
+  if (urlPath === '/interviews/sessions/start' && method === 'post') {
+    const newSession = {
+      id: `session_demo_${Date.now()}`,
+      application_id: data.application_id,
+      company_name: data.company_name || 'Target Company',
+      position: data.position || 'Target Position',
+      persona: data.persona || 'TECHNICAL_BAR_RAISER',
+      persona_label: data.persona_label || 'Technical Bar Raiser',
+      status: 'IN_PROGRESS',
+      turns_data: [
+        {
+          turn_number: 1,
+          question: "Let's dive right in. Can you describe a challenging architectural trade-off you made in your recent work?",
+          user_answer: null,
+          score: null,
+        },
+      ],
+      readiness_score: 85,
+      summary_feedback: null,
+      created_at: new Date().toISOString(),
+    }
+    db.interview_sessions = [newSession, ...(db.interview_sessions || [])]
+    saveDemoDb(db)
+    return ok(newSession)
+  }
+
+  const evalAnswerMatch = urlPath.match(/^\/interviews\/sessions\/([^/]+)\/evaluate-answer$/)
+  if (evalAnswerMatch && method === 'post') {
+    const sessionId = evalAnswerMatch[1]
+    const session = (db.interview_sessions || []).find((s) => s.id === sessionId)
+    if (session) {
+      const turnNumber = session.turns_data.length
+      const lastTurn = session.turns_data[turnNumber - 1]
+      lastTurn.user_answer = data.user_answer || data.answer
+      lastTurn.score = 90
+      lastTurn.star_breakdown = { situation: true, task: true, action: true, result: true }
+      lastTurn.feedback = 'Strong elaboration of technical design and operational metrics.'
+      lastTurn.exemplar_rewrite = 'I structured the message broker architecture using distributed log partitions to prevent consumer lag.'
+      session.readiness_score = Math.min(95, session.readiness_score + 2)
+      saveDemoDb(db)
+    }
+    return ok({
+      score: 90,
+      star_breakdown: { situation: true, task: true, action: true, result: true },
+      feedback: 'Strong elaboration of technical design and operational metrics.',
+      exemplar_rewrite: 'I structured the message broker architecture using distributed log partitions to prevent consumer lag.',
+      readiness_score: session?.readiness_score || 90,
+    })
+  }
+
+  const nextQuestionMatch = urlPath.match(/^\/interviews\/sessions\/([^/]+)\/next-question$/)
+  if (nextQuestionMatch && method === 'post') {
+    const sessionId = nextQuestionMatch[1]
+    const session = (db.interview_sessions || []).find((s) => s.id === sessionId)
+    let nextQ = 'How do you handle production incidents and perform post-mortem root cause analyses?'
+    if (session) {
+      const turnNum = session.turns_data.length + 1
+      if (turnNum === 2) {
+        nextQ = 'How do you handle production incidents and perform post-mortem root cause analyses?'
+      } else if (turnNum >= 3) {
+        nextQ = 'Tell me about a time you had a technical disagreement with a peer or stakeholder and how you resolved it.'
+      }
+      session.turns_data.push({
+        turn_number: turnNum,
+        question: nextQ,
+        user_answer: null,
+        score: null,
+      })
+      saveDemoDb(db)
+    }
+    return ok({ question: nextQ })
+  }
+
+  const finalizeSessionMatch = urlPath.match(/^\/interviews\/sessions\/([^/]+)\/finalize$/)
+  if (finalizeSessionMatch && method === 'post') {
+    const sessionId = finalizeSessionMatch[1]
+    const session = (db.interview_sessions || []).find((s) => s.id === sessionId)
+    if (session) {
+      session.status = 'COMPLETED'
+      session.summary_feedback = 'Excellent overall performance demonstrating deep technical engineering principles and structured STAR responses.'
+      saveDemoDb(db)
+    }
+    return ok(session || {})
+  }
+
+  const sessionDetailMatch = urlPath.match(/^\/interviews\/sessions\/([^/]+)$/)
+  if (sessionDetailMatch && method === 'get') {
+    const sessionId = sessionDetailMatch[1]
+    const session = (db.interview_sessions || []).find((s) => s.id === sessionId)
+    return ok(session || {})
+  }
+
+  if (urlPath === '/interviews/sessions' && method === 'get') {
+    return ok(db.interview_sessions || [])
+  }
+
+  // 9. AGENT CHAT ENDPOINTS
+  if (urlPath === '/agent/chats' && method === 'get') {
+    return ok(db.agent_chats || [])
+  }
+
+  if (urlPath === '/agent/chat' && method === 'post') {
+    const messages = data.messages || []
+    const lastUserMsg = messages[messages.length - 1]?.content || 'Hello'
+    let chatId = data.chat_id
+    let chat = (db.agent_chats || []).find((c) => c.id === chatId)
+
+    if (!chat) {
+      chatId = `chat_${Date.now()}`
+      chat = {
+        id: chatId,
+        title: lastUserMsg.slice(0, 30) + '...',
+        created_at: new Date().toISOString(),
+        messages: [],
+      }
+      db.agent_chats = [chat, ...(db.agent_chats || [])]
+    }
+
+    const assistantMsg = {
+      id: `msg_${Date.now()}`,
+      role: 'assistant',
+      content: `Here is advice regarding "${lastUserMsg}":\n\n1. Focus on core architectural principles.\n2. Quantify achievements with metrics.\n3. Prepare concrete STAR examples for your interview rounds.`,
+    }
+
+    chat.messages.push({ id: `msg_${Date.now() - 1}`, role: 'user', content: lastUserMsg })
+    chat.messages.push(assistantMsg)
+    saveDemoDb(db)
+
+    return ok({
+      message: assistantMsg,
+      chat_id: chatId,
+    })
+  }
+
+  // 10. SEARCH & ANALYTICS ENDPOINTS
+  if (urlPath === '/search/semantic' && method === 'get') {
+    const query = (params.query || '').toLowerCase()
+    const matches = (db.applications || []).filter(
+      (a) =>
+        a.company_name?.toLowerCase().includes(query) ||
+        a.position?.toLowerCase().includes(query) ||
+        a.description?.toLowerCase().includes(query)
+    )
+    return ok({ results: matches })
+  }
+
+  if (urlPath === '/analytics/overview' && method === 'get') {
+    const totalApps = (db.applications || []).length
+    const activeCount = (db.applications || []).filter((a) => ['APPLIED', 'TECHNICAL_INTERVIEW', 'OFFER'].includes(a.status)).length
+    return ok({
+      total_applications: totalApps,
+      active_applications: activeCount,
+      offers_received: 1,
+      response_rate: 75.0,
+    })
+  }
+
+  if (urlPath === '/analytics/funnel' && method === 'get') {
+    return ok({
+      funnel: [
+        { stage: 'Intakes', count: 8 },
+        { stage: 'Applied', count: 5 },
+        { stage: 'Interview', count: 2 },
+        { stage: 'Offer', count: 1 },
+      ],
+    })
+  }
+
+  // Fallback default response
+  return ok({ message: 'Client Demo Mode mock response' })
+}
