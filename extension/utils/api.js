@@ -10,7 +10,7 @@ import { getSettings } from './storage.js';
  * @returns {string}
  */
 export function normalizeAppUrl(rawUrl) {
-  if (!rawUrl) return 'http://localhost:5173';
+  if (!rawUrl) return 'http://localhost:4173';
   return rawUrl.trim().replace(/\/+$/, '');
 }
 
