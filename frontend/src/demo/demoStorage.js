@@ -8,7 +8,13 @@ export function isDemoModeEnabled() {
   if (localVal !== null) {
     return localVal === 'true'
   }
-  // Default to true in client demo mode
+  // Fallback to build-time environment variable (e.g. GitHub Pages standalone build)
+  if (
+    import.meta.env.VITE_DEMO_MODE === 'true' ||
+    import.meta.env.VITE_DEMO_MODE === true
+  ) {
+    return true
+  }
   return false
 }
 

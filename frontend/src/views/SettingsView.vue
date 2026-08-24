@@ -2334,7 +2334,7 @@ onUnmounted(() => {
 
         <div class="preferences-grid">
           <!-- 0. Client Demo Mode & Dataset Card -->
-          <div class="preference-card preference-card-wide border-primary">
+          <div v-if="uiStore.isDemoMode" class="preference-card preference-card-wide border-primary">
             <div class="preference-header">
               <div class="preference-icon text-primary">
                 <Sparkles :size="18" />
