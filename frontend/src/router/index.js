@@ -75,25 +75,12 @@ const router = createRouter({
 })
 
 import { isDemoModeEnabled } from '../demo/demoStorage'
+import { recordPageView } from '../utils/beacon'
 
-let isInitialRoute = true
-
-// Track client-side page navigation in GoatCounter (Demo Mode only)
+// Track client-side page navigation (Demo Mode only)
 router.afterEach((to) => {
-  if (isInitialRoute) {
-    isInitialRoute = false
-    return
-  }
-  if (
-    isDemoModeEnabled() &&
-    typeof window !== 'undefined' &&
-    window.goatcounter &&
-    typeof window.goatcounter.count === 'function'
-  ) {
-    window.goatcounter.count({
-      path: to.fullPath,
-      title: typeof document !== 'undefined' ? document.title : '',
-    })
+  if (isDemoModeEnabled()) {
+    recordPageView(to.fullPath)
   }
 })
 
