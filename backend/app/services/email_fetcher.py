@@ -5,6 +5,8 @@ import logging
 from datetime import UTC, datetime
 from email.header import decode_header
 
+import httpx
+
 from app.core.config_manager import load_settings
 from app.core.html_utils import clean_html_text
 from app.models.email_accounts import EmailAccountModel
@@ -30,94 +32,117 @@ def _clean_header(header_value: str) -> str:
 
 
 def _fetch_imap_emails_sync(
-    account: EmailAccountModel, since_date: datetime | None = None
+    imap_host: str | None,
+    imap_port: int | None,
+    username: str,
+    app_password: str | None,
+    folder: str = "INBOX",
+    account_id: int | None = None,
+    since_date: datetime | None = None,
 ) -> list[EmailPayload]:
-    """Synchronous worker that performs actual IMAP connection and retrieval."""
-    if not account.imap_host or not account.app_password:
-        logger.warning("IMAP host or password missing for account %s", account.id)
-        return []
+    """Synchronous worker that performs actual IMAP connection and retrieval using scalar params."""
+    if not imap_host or not app_password:
+        logger.warning(
+            "IMAP host or password missing for account %s (%s)", account_id, username
+        )
+        raise ValueError(
+            f"IMAP host or app password is not configured for account {username}."
+        )
 
-    mail = imaplib.IMAP4_SSL(account.imap_host, account.imap_port or 993)
-    mail.login(account.username, account.app_password)
-    mail.select(account.folder or "INBOX")
+    mail = None
+    try:
+        mail = imaplib.IMAP4_SSL(imap_host, imap_port or 993)
+        mail.login(username, app_password)
+        mail.select(folder or "INBOX")
 
-    # Build search query
-    if since_date:
-        date_str = since_date.strftime("%d-%b-%Y")
-        search_criterion = f'(SINCE "{date_str}")'
-    else:
-        search_criterion = "ALL"
+        # Build search query
+        if since_date:
+            date_str = since_date.strftime("%d-%b-%Y")
+            search_criterion = f'(SINCE "{date_str}")'
+        else:
+            search_criterion = "ALL"
 
-    status, messages = mail.search(None, search_criterion)
-    if status != "OK" or not messages[0]:
-        mail.logout()
-        return []
+        status, messages = mail.search(None, search_criterion)
+        if status != "OK" or not messages[0]:
+            return []
 
-    email_ids = messages[0].split()
-    results = []
-    batch_size = 50
+        email_ids = messages[0].split()
+        results = []
+        batch_size = 50
 
-    for i in range(0, len(email_ids), batch_size):
-        batch_ids = email_ids[i : i + batch_size]
-        fetch_ids = b",".join(batch_ids)
-        status, msg_data = mail.fetch(fetch_ids, "(RFC822)")
-        if status != "OK" or not msg_data:
-            continue
+        for i in range(0, len(email_ids), batch_size):
+            batch_ids = email_ids[i : i + batch_size]
+            fetch_ids = b",".join(batch_ids)
+            status, msg_data = mail.fetch(fetch_ids, "(RFC822)")
+            if status != "OK" or not msg_data:
+                continue
 
-        for response_part in msg_data:
-            if isinstance(response_part, tuple):
-                msg = email.message_from_bytes(response_part[1])
+            for response_part in msg_data:
+                if isinstance(response_part, tuple):
+                    msg = email.message_from_bytes(response_part[1])
 
-                seq_num = (
-                    response_part[0].split()[0].decode(errors="ignore")
-                    if isinstance(response_part[0], bytes)
-                    else "unknown"
-                )
-                subject = _clean_header(msg.get("Subject", "No Subject"))
-                conversation_id = msg.get("Message-ID", f"msg-{seq_num}")
-                date_header = msg.get("Date", datetime.now(UTC).isoformat())
+                    seq_num = (
+                        response_part[0].split()[0].decode(errors="ignore")
+                        if isinstance(response_part[0], bytes)
+                        else "unknown"
+                    )
+                    subject = _clean_header(msg.get("Subject", "No Subject"))
+                    conversation_id = msg.get("Message-ID", f"msg-{seq_num}")
+                    date_header = msg.get("Date", datetime.now(UTC).isoformat())
 
-                # Extract body (plain text preferred, fallback to HTML)
-                body: str = ""
-                html_body: str = ""
-                if msg.is_multipart():
-                    for part in msg.walk():
-                        ctype = part.get_content_type()
-                        payload = part.get_payload(decode=True)
+                    # Extract body (plain text preferred, fallback to HTML)
+                    body: str = ""
+                    html_body: str = ""
+                    if msg.is_multipart():
+                        for part in msg.walk():
+                            ctype = part.get_content_type()
+                            payload = part.get_payload(decode=True)
+                            p_str = (
+                                payload.decode(errors="ignore")
+                                if isinstance(payload, bytes)
+                                else str(payload or "")
+                            )
+                            if ctype == "text/plain" and not body:
+                                body = p_str
+                            elif ctype == "text/html" and not html_body:
+                                html_body = p_str
+                    else:
+                        payload = msg.get_payload(decode=True)
                         p_str = (
                             payload.decode(errors="ignore")
                             if isinstance(payload, bytes)
                             else str(payload or "")
                         )
-                        if ctype == "text/plain" and not body:
-                            body = p_str
-                        elif ctype == "text/html" and not html_body:
+                        if msg.get_content_type() == "text/html":
                             html_body = p_str
-                else:
-                    payload = msg.get_payload(decode=True)
-                    p_str = (
-                        payload.decode(errors="ignore")
-                        if isinstance(payload, bytes)
-                        else str(payload or "")
+                        else:
+                            body = p_str
+
+                    final_body = clean_html_text(body or html_body or "")
+
+                    results.append(
+                        EmailPayload(
+                            conversation_id=conversation_id,
+                            received_at=date_header,
+                            subject=subject,
+                            body=final_body,
+                        )
                     )
-                    if msg.get_content_type() == "text/html":
-                        html_body = p_str
-                    else:
-                        body = p_str
 
-                final_body = clean_html_text(body or html_body or "")
-
-                results.append(
-                    EmailPayload(
-                        conversation_id=conversation_id,
-                        received_at=date_header,
-                        subject=subject,
-                        body=final_body,
-                    )
-                )
-
-    mail.logout()
-    return results
+        return results
+    except Exception as err:
+        logger.error(
+            "IMAP connection/retrieval error for %s (%s): %s", username, imap_host, err
+        )
+        raise ValueError(
+            f"IMAP connection failed for {username}@{imap_host}: {err}"
+        ) from err
+    finally:
+        if mail:
+            try:
+                mail.logout()
+            except Exception:
+                pass
 
 
 async def fetch_emails_from_account(
@@ -151,7 +176,12 @@ async def fetch_emails_from_account(
 
         if auth_type == "GMAIL_OAUTH":
             token = account.access_token
-            # Try refreshing token if refresh token and credentials are present
+            query_str = f"label:{account.folder or 'INBOX'}"
+            if since_date:
+                date_fmt = since_date.strftime("%Y/%m/%d")
+                query_str += f" after:{date_fmt}"
+
+            # If no token, refresh first
             if (
                 not token
                 and account.refresh_token
@@ -167,28 +197,48 @@ async def fetch_emails_from_account(
                     logger.error("Failed refreshing Gmail access token: %s", err)
 
             if not token:
-                logger.warning(
-                    "No valid access token for Gmail OAuth account %s", account.id
+                raise ValueError(
+                    f"No valid access token or refresh credentials for Gmail account {account.id}"
                 )
-                ctx["error"] = (
-                    f"No valid access token for Gmail OAuth account {account.id}"
+
+            try:
+                raw_emails, new_cursor = await GmailOAuthAdapter.fetch_messages_delta(
+                    access_token=token,
+                    history_id=account.sync_cursor,
+                    query=query_str,
+                    since_date=since_date,
                 )
-                ctx["outputs"] = {"fetched_count": 0}
-                return [], None
-
-            query_str = f"label:{account.folder or 'INBOX'}"
-            if since_date:
-                date_fmt = since_date.strftime("%Y/%m/%d")
-                query_str += f" after:{date_fmt}"
-
-            raw_emails, new_cursor = await GmailOAuthAdapter.fetch_messages_delta(
-                access_token=token,
-                history_id=account.sync_cursor,
-                query=query_str,
-            )
+            except httpx.HTTPStatusError as http_err:
+                if (
+                    http_err.response.status_code in (401, 403)
+                    and account.refresh_token
+                    and account.client_id
+                    and account.client_secret
+                ):
+                    logger.info(
+                        "Gmail access token expired (%s). Refreshing token and retrying...",
+                        http_err.response.status_code,
+                    )
+                    token = await GmailOAuthAdapter.refresh_access_token(
+                        account.client_id, account.client_secret, account.refresh_token
+                    )
+                    account.access_token = token
+                    (
+                        raw_emails,
+                        new_cursor,
+                    ) = await GmailOAuthAdapter.fetch_messages_delta(
+                        access_token=token,
+                        history_id=account.sync_cursor,
+                        query=query_str,
+                        since_date=since_date,
+                    )
+                else:
+                    raise
 
         elif auth_type == "MS_GRAPH_OAUTH":
             token = account.access_token
+
+            # If no token, refresh first
             if (
                 not token
                 and account.refresh_token
@@ -204,26 +254,58 @@ async def fetch_emails_from_account(
                     logger.error("Failed refreshing MS Graph access token: %s", err)
 
             if not token:
-                logger.warning(
-                    "No valid access token for MS Graph OAuth account %s", account.id
+                raise ValueError(
+                    f"No valid access token or refresh credentials for Microsoft Graph account {account.id}"
                 )
-                ctx["error"] = (
-                    f"No valid access token for MS Graph OAuth account {account.id}"
-                )
-                ctx["outputs"] = {"fetched_count": 0}
-                return [], None
 
-            raw_emails, new_cursor = await MicrosoftGraphAdapter.fetch_messages_delta(
-                access_token=token,
-                delta_link=account.sync_cursor,
-                folder_id=account.folder or "Inbox",
-                since_date=since_date,
-            )
+            try:
+                (
+                    raw_emails,
+                    new_cursor,
+                ) = await MicrosoftGraphAdapter.fetch_messages_delta(
+                    access_token=token,
+                    delta_link=account.sync_cursor,
+                    folder_id=account.folder or "Inbox",
+                    since_date=since_date,
+                )
+            except httpx.HTTPStatusError as http_err:
+                if (
+                    http_err.response.status_code in (401, 403)
+                    and account.refresh_token
+                    and account.client_id
+                    and account.client_secret
+                ):
+                    logger.info(
+                        "MS Graph access token expired (%s). Refreshing token and retrying...",
+                        http_err.response.status_code,
+                    )
+                    token = await MicrosoftGraphAdapter.refresh_access_token(
+                        account.client_id, account.client_secret, account.refresh_token
+                    )
+                    account.access_token = token
+                    (
+                        raw_emails,
+                        new_cursor,
+                    ) = await MicrosoftGraphAdapter.fetch_messages_delta(
+                        access_token=token,
+                        delta_link=account.sync_cursor,
+                        folder_id=account.folder or "Inbox",
+                        since_date=since_date,
+                    )
+                else:
+                    raise
 
         else:
             # Standard IMAP
             raw_emails = await asyncio.to_thread(
-                _fetch_imap_emails_sync, account, since_date
+                _fetch_imap_emails_sync,
+                account.imap_host,
+                account.imap_port,
+                account.username,
+                account.app_password,
+                account.folder or "INBOX",
+                account.id,
+                since_date,
             )
             new_cursor = None
 

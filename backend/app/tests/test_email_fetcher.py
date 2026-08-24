@@ -59,7 +59,14 @@ def test_imap_batch_fetching():
     )
 
     with patch("imaplib.IMAP4_SSL", return_value=mock_mail):
-        emails = _fetch_imap_emails_sync(account)
+        emails = _fetch_imap_emails_sync(
+            account.imap_host,
+            account.imap_port,
+            account.username,
+            account.app_password,
+            account.folder,
+            account.id,
+        )
 
         assert len(emails) == 3
         assert emails[0].subject == "Test Subject 1"
@@ -76,7 +83,11 @@ async def test_fetch_emails_from_account_imap_threaded():
         id=20,
         name="Threaded IMAP Account",
         auth_type="IMAP",
+        imap_host="imap.example.com",
+        imap_port=993,
         username="user20@example.com",
+        app_password="secret-password",
+        folder="INBOX",
     )
 
     with patch(
@@ -85,4 +96,12 @@ async def test_fetch_emails_from_account_imap_threaded():
         emails, cursor = await fetch_emails_from_account(account)
         assert emails == []
         assert cursor is None
-        mock_sync.assert_called_once_with(account, None)
+        mock_sync.assert_called_once_with(
+            account.imap_host,
+            account.imap_port,
+            account.username,
+            account.app_password,
+            "INBOX",
+            account.id,
+            None,
+        )

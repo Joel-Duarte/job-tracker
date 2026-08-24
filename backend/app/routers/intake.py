@@ -665,9 +665,21 @@ async def sync_email_account(
         )
 
     # --- Step 1: Fetch from provider ---
-    raw_emails, next_cursor = await fetch_emails_from_account(
-        account, since_date=payload.since_date
-    )
+    try:
+        raw_emails, next_cursor = await fetch_emails_from_account(
+            account, since_date=payload.since_date
+        )
+    except Exception as fetch_err:
+        logger.error(
+            "sync_email_account: Failed fetching emails for account %s: %s",
+            payload.account_id,
+            fetch_err,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Email sync failed: {fetch_err}",
+        ) from fetch_err
+
     scanned_count = len(raw_emails)
     logger.info(
         "sync_email_account: account_id=%s fetched %d emails from provider",
@@ -675,8 +687,9 @@ async def sync_email_account(
         scanned_count,
     )
 
-    if next_cursor:
-        account.sync_cursor = next_cursor
+    if next_cursor or account.access_token:
+        if next_cursor:
+            account.sync_cursor = next_cursor
         account.last_synced_at = datetime.now(UTC)
         await db.commit()
 

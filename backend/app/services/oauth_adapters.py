@@ -62,6 +62,7 @@ class GmailOAuthAdapter:
         history_id: str | None = None,
         max_results: int = 50,
         query: str = "label:INBOX",
+        since_date: datetime | None = None,
     ) -> tuple[list[EmailPayload], str | None]:
         """
         Fetches new or changed messages incrementally using Gmail history ID or message list.
@@ -76,8 +77,8 @@ class GmailOAuthAdapter:
             message_ids: list[str] = []
             new_history_id = history_id
 
-            # 1. If history_id is provided, attempt incremental history sync
-            if history_id:
+            # 1. If history_id is provided AND no specific since_date window was selected, attempt history sync
+            if history_id and not since_date:
                 try:
                     hist_url = f"{cls.GMAIL_API_BASE}/history"
                     params = {
@@ -106,8 +107,8 @@ class GmailOAuthAdapter:
                     logger.warning("Gmail history query error: %s", err)
                     history_id = None
 
-            # 2. Initial sync or fallback: list messages matching query
-            if not history_id:
+            # 2. Window query or initial sync: list messages matching query
+            if not history_id or since_date:
                 list_url = f"{cls.GMAIL_API_BASE}/messages"
                 params = {"q": query, "maxResults": max_results}
                 resp = await client.get(list_url, headers=headers, params=params)
@@ -256,9 +257,16 @@ class MicrosoftGraphAdapter:
         }
 
         target = folder_id if folder_id else "Inbox"
-        request_url = (
-            delta_link or f"{cls.GRAPH_BASE}/me/mailFolders/{target}/messages/delta"
-        )
+        if since_date:
+            since_iso = since_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+            request_url = (
+                f"{cls.GRAPH_BASE}/me/mailFolders/{target}/messages"
+                f"?$filter=receivedDateTime ge {since_iso}&$top={max_results}&$orderby=receivedDateTime desc"
+            )
+        else:
+            request_url = (
+                delta_link or f"{cls.GRAPH_BASE}/me/mailFolders/{target}/messages/delta"
+            )
 
         async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.get(request_url, headers=headers)
