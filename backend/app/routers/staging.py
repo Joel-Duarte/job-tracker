@@ -1,8 +1,8 @@
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import String, cast, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Adjust imports based on your database session setup
@@ -33,7 +33,8 @@ router = APIRouter(prefix="/staging", tags=["staging"])
 @router.get("", response_model=StagingPaginationResponse)
 async def list_staging_items(
     status_filter: str | None = Query(default="PENDING", alias="status"),
-    limit: int = Query(default=20, ge=1, le=100),
+    search: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
@@ -43,6 +44,18 @@ async def list_staging_items(
     if status_filter:
         query = query.where(StagingItemModel.status == status_filter)
         count_query = count_query.where(StagingItemModel.status == status_filter)
+
+    if search and isinstance(search, str) and search.strip():
+        search_term = f"%{search.strip()}%"
+        search_filter = or_(
+            StagingItemModel.email_sender.ilike(search_term),
+            StagingItemModel.email_sender_name.ilike(search_term),
+            StagingItemModel.email_subject.ilike(search_term),
+            StagingItemModel.match_reason.ilike(search_term),
+            cast(StagingItemModel.extracted_data, String).ilike(search_term),
+        )
+        query = query.where(search_filter)
+        count_query = count_query.where(search_filter)
 
     total_res = await db.execute(count_query)
     total = total_res.scalar_one()
@@ -394,6 +407,28 @@ async def resolve_staging_item(
         "message": "Staged item resolved and committed to database.",
         "application_id": target_app_id,
         "event_id": target_event_id,
+    }
+
+
+@router.delete("/resolved", response_model=dict)
+async def clear_resolved_staging_items(
+    days_older_than: int | None = Query(default=None, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """Purges PROCESSED staging items, optionally older than a given number of days."""
+    stmt = delete(StagingItemModel).where(StagingItemModel.status == "PROCESSED")
+    if isinstance(days_older_than, int) and days_older_than > 0:
+        cutoff = datetime.now(UTC) - timedelta(days=days_older_than)
+        stmt = stmt.where(StagingItemModel.created_at <= cutoff)
+
+    result = await db.execute(stmt)
+    await db.commit()
+    deleted_count = result.rowcount
+
+    return {
+        "status": "success",
+        "message": f"Successfully deleted {deleted_count} resolved staging item(s).",
+        "deleted_count": deleted_count,
     }
 
 

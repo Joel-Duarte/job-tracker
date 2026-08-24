@@ -41,12 +41,22 @@ const appStore = useApplicationsStore()
 
 // State
 const stagingItems = ref([])
+const totalCount = ref(0)
 const loading = ref(false)
+const isLoadingMore = ref(false)
 const isSubmitting = ref(false)
 const selectedFilter = ref('PENDING') // 'PENDING' | 'PROCESSED'
 const pendingCount = ref(0)
 const searchFilterQuery = ref('')
 const sortOrder = ref('FIFO') // 'FIFO' (Oldest Email First) | 'LIFO' (Newest Email First)
+
+const hasMore = computed(() => stagingItems.value.length < totalCount.value)
+const itemsListRef = ref(null)
+
+// Clear Resolved Modal State
+const showClearResolvedModal = ref(false)
+const clearOlderThanDays = ref(30) // 7 | 30 | 90 | null (All)
+const isClearingResolved = ref(false)
 
 // Master-detail active selection
 const selectedItemId = ref(null)
@@ -323,9 +333,12 @@ async function fetchStagingItems(silent = false) {
   try {
     const res = await StagingAPI.list({
       status: selectedFilter.value,
+      search: searchFilterQuery.value.trim() || undefined,
       limit: 50,
+      offset: 0,
     })
     stagingItems.value = res.data.items || []
+    totalCount.value = res.data.total ?? stagingItems.value.length
 
     if (selectedFilter.value === 'PENDING') {
       pendingCount.value = res.data.total ?? stagingItems.value.length
@@ -344,6 +357,81 @@ async function fetchStagingItems(silent = false) {
     if (!silent) {
       loading.value = false
     }
+  }
+}
+
+// Load more items (incremental batch scroll)
+async function loadMoreItems() {
+  if (isLoadingMore.value || !hasMore.value) return
+  isLoadingMore.value = true
+  try {
+    const res = await StagingAPI.list({
+      status: selectedFilter.value,
+      search: searchFilterQuery.value.trim() || undefined,
+      limit: 50,
+      offset: stagingItems.value.length,
+    })
+    const newItems = res.data.items || []
+    stagingItems.value = [...stagingItems.value, ...newItems]
+    totalCount.value = res.data.total ?? totalCount.value
+  } catch (err) {
+    uiStore.showToast(err.message, 'error')
+  } finally {
+    isLoadingMore.value = false
+  }
+}
+
+// Load all remaining items in queue
+async function loadAllItems() {
+  if (isLoadingMore.value || !hasMore.value) return
+  isLoadingMore.value = true
+  try {
+    const remaining = totalCount.value - stagingItems.value.length
+    const res = await StagingAPI.list({
+      status: selectedFilter.value,
+      search: searchFilterQuery.value.trim() || undefined,
+      limit: Math.min(remaining, 500),
+      offset: stagingItems.value.length,
+    })
+    const newItems = res.data.items || []
+    stagingItems.value = [...stagingItems.value, ...newItems]
+    totalCount.value = res.data.total ?? totalCount.value
+  } catch (err) {
+    uiStore.showToast(err.message, 'error')
+  } finally {
+    isLoadingMore.value = false
+  }
+}
+
+function handleSidebarScroll() {
+  if (!itemsListRef.value || isLoadingMore.value || loading.value || !hasMore.value) return
+  const { scrollTop, scrollHeight, clientHeight } = itemsListRef.value
+  if (scrollTop + clientHeight >= scrollHeight - 60) {
+    loadMoreItems()
+  }
+}
+
+// Debounce server search
+let searchDebounceTimeout = null
+watch(searchFilterQuery, () => {
+  if (searchDebounceTimeout) clearTimeout(searchDebounceTimeout)
+  searchDebounceTimeout = setTimeout(() => {
+    fetchStagingItems(true)
+  }, 300)
+})
+
+// Clear Resolved Execution
+async function executeClearResolved() {
+  isClearingResolved.value = true
+  try {
+    const res = await StagingAPI.clearResolved(clearOlderThanDays.value)
+    uiStore.showToast(res.data.message || 'Resolved items cleared', 'success')
+    showClearResolvedModal.value = false
+    await fetchStagingItems()
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to clear resolved items', 'error')
+  } finally {
+    isClearingResolved.value = false
   }
 }
 
@@ -526,20 +614,31 @@ function formatRelativeTime(isoStr) {
         align="center"
       >
         <template #tabs>
-          <div class="filter-pills">
+          <div class="filter-pills-wrap">
+            <div class="filter-pills">
+              <button
+                class="pill-btn"
+                :class="{ active: selectedFilter === 'PENDING' }"
+                @click="selectedFilter = 'PENDING'; fetchStagingItems()"
+              >
+                Pending ({{ pendingCount }})
+              </button>
+              <button
+                class="pill-btn"
+                :class="{ active: selectedFilter === 'PROCESSED' }"
+                @click="selectedFilter = 'PROCESSED'; fetchStagingItems()"
+              >
+                Resolved
+              </button>
+            </div>
             <button
-              class="pill-btn"
-              :class="{ active: selectedFilter === 'PENDING' }"
-              @click="selectedFilter = 'PENDING'; fetchStagingItems()"
+              v-if="selectedFilter === 'PROCESSED'"
+              class="btn-clear-resolved-action"
+              title="Clear resolved staging history"
+              @click="showClearResolvedModal = true"
             >
-              Pending ({{ pendingCount }})
-            </button>
-            <button
-              class="pill-btn"
-              :class="{ active: selectedFilter === 'PROCESSED' }"
-              @click="selectedFilter = 'PROCESSED'; fetchStagingItems()"
-            >
-              Resolved
+              <Trash2 :size="12" />
+              <span>Clear History</span>
             </button>
           </div>
         </template>
@@ -572,7 +671,7 @@ function formatRelativeTime(isoStr) {
           <!-- FIFO Sort Toggle Header -->
           <div class="sidebar-sort-bar">
             <span class="sort-count-label">
-              {{ filteredAndSortedItems.length }} item{{ filteredAndSortedItems.length === 1 ? '' : 's' }}
+              Showing {{ filteredAndSortedItems.length }} of {{ totalCount }}
             </span>
             <button
               class="btn-sort-toggle"
@@ -587,7 +686,7 @@ function formatRelativeTime(isoStr) {
         </div>
 
         <!-- Queue Item List -->
-        <div class="sidebar-items-list">
+        <div ref="itemsListRef" class="sidebar-items-list" @scroll="handleSidebarScroll">
           <div v-if="loading && stagingItems.length === 0" class="sidebar-loading">
             <Loader2 class="animate-spin text-primary" :size="20" />
             <span>Loading queue...</span>
@@ -628,6 +727,26 @@ function formatRelativeTime(isoStr) {
                 ⚡ Action
               </span>
             </div>
+          </div>
+
+          <!-- Infinite Scroll / Load More Footer -->
+          <div v-if="hasMore" class="sidebar-load-more-footer">
+            <button
+              class="btn-load-more"
+              :disabled="isLoadingMore"
+              @click="loadMoreItems"
+            >
+              <Loader2 v-if="isLoadingMore" class="animate-spin" :size="13" />
+              <span v-else>Load More ({{ totalCount - stagingItems.length }} left)</span>
+            </button>
+            <button
+              class="btn-load-all"
+              :disabled="isLoadingMore"
+              @click="loadAllItems"
+              title="Load all remaining items into the sidebar"
+            >
+              Load All
+            </button>
           </div>
         </div>
       </aside>
@@ -993,6 +1112,77 @@ function formatRelativeTime(isoStr) {
           </div>
         </div>
       </main>
+    </div>
+
+    <!-- CLEAR RESOLVED MODAL -->
+    <div v-if="showClearResolvedModal" class="modal-backdrop" @click.self="showClearResolvedModal = false">
+      <div class="modal-dialog clear-resolved-dialog">
+        <div class="modal-header">
+          <div class="modal-title-wrap">
+            <div class="icon-circle-danger">
+              <Trash2 :size="18" />
+            </div>
+            <div>
+              <h3 class="modal-title">Clear Resolved History</h3>
+              <p class="modal-subtitle">Prune processed staging triage receipts to keep your database lean.</p>
+            </div>
+          </div>
+          <button class="btn-close-modal" @click="showClearResolvedModal = false">
+            <X :size="16" />
+          </button>
+        </div>
+
+        <div class="modal-body">
+          <div class="info-alert-box">
+            <AlertCircle :size="15" class="text-primary flex-shrink-0" />
+            <span>Application events, notes, timeline entries, and email viewer modals are preserved independently and will not be affected.</span>
+          </div>
+
+          <label class="input-label mb-2">Select Retention Window:</label>
+          <div class="clear-options-grid">
+            <label class="retention-radio-card" :class="{ selected: clearOlderThanDays === 7 }">
+              <input type="radio" :value="7" v-model="clearOlderThanDays" />
+              <div class="radio-content">
+                <span class="radio-title">Older than 7 days</span>
+                <span class="radio-desc">Keep resolved items from the past week</span>
+              </div>
+            </label>
+
+            <label class="retention-radio-card" :class="{ selected: clearOlderThanDays === 30 }">
+              <input type="radio" :value="30" v-model="clearOlderThanDays" />
+              <div class="radio-content">
+                <span class="radio-title">Older than 30 days (Recommended)</span>
+                <span class="radio-desc">Keep resolved items from the past month</span>
+              </div>
+            </label>
+
+            <label class="retention-radio-card" :class="{ selected: clearOlderThanDays === 90 }">
+              <input type="radio" :value="90" v-model="clearOlderThanDays" />
+              <div class="radio-content">
+                <span class="radio-title">Older than 90 days</span>
+                <span class="radio-desc">Keep resolved items from the past quarter</span>
+              </div>
+            </label>
+
+            <label class="retention-radio-card" :class="{ selected: clearOlderThanDays === null }">
+              <input type="radio" :value="null" v-model="clearOlderThanDays" />
+              <div class="radio-content">
+                <span class="radio-title">All Resolved Items</span>
+                <span class="radio-desc">Clear entire resolved staging triage history</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-secondary" @click="showClearResolvedModal = false">Cancel</button>
+          <button class="btn btn-danger" :disabled="isClearingResolved" @click="executeClearResolved">
+            <Loader2 v-if="isClearingResolved" class="animate-spin mr-1" :size="14" />
+            <Trash2 v-else class="mr-1" :size="14" />
+            <span>Clear Resolved Records</span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -1837,6 +2027,152 @@ function formatRelativeTime(isoStr) {
 
 .btn-advance-icon {
   margin-left: 4px;
+}
+
+/* FILTER PILLS & CLEAR HISTORY BUTTON */
+.filter-pills-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-clear-resolved-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger, #ef4444);
+  background-color: var(--danger-subtle, rgba(239, 68, 68, 0.1));
+  border: 1px solid var(--danger, #ef4444);
+  border-radius: var(--radius-full, 9999px);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-clear-resolved-action:hover {
+  background-color: var(--danger, #ef4444);
+  color: #fff;
+}
+
+/* SIDEBAR LOAD MORE FOOTER */
+.sidebar-load-more-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-top: 6px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.btn-load-more {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-load-more:hover:not(:disabled) {
+  background-color: var(--bg-card-hover);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.btn-load-more:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-load-all {
+  padding: 7px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background-color: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.btn-load-all:hover:not(:disabled) {
+  background-color: var(--bg-card);
+  color: var(--text-main);
+  border-color: var(--border-color-focus);
+}
+
+/* CLEAR RESOLVED MODAL */
+.clear-resolved-dialog {
+  max-width: 520px;
+  width: 90vw;
+}
+
+.icon-circle-danger {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background-color: var(--danger-subtle, rgba(239, 68, 68, 0.12));
+  color: var(--danger, #ef4444);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.clear-options-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.retention-radio-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-card);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.retention-radio-card:hover {
+  background-color: var(--bg-card-hover);
+  border-color: var(--border-color-focus);
+}
+
+.retention-radio-card.selected {
+  border-color: var(--primary);
+  background-color: var(--primary-subtle);
+}
+
+.radio-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.radio-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.radio-desc {
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 @media (max-width: 1024px) {
