@@ -41,7 +41,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
 
 ### Infrastructure & Development Startup
 - **Local Development:** Run `./dev.sh` (or `./dev.sh --reset` to wipe and restart). This spins up `db` (PostgreSQL), `scraper` (Camofox), `backend` (FastAPI), and `frontend` (Vite dev server) using `docker-compose.dev.yml`.
-- **Automatic Mock Dataset Seeding:** When `./dev.sh` or a clean database boots in development mode (`ENVIRONMENT=development` or `SEED_DEV_DATA=true`), the backend automatically populates a comprehensive, domain-tailored mock dataset:
+- **Automatic Mock Dataset Seeding:** WhVITE_DEMO_MODE=true npm run dev en `./dev.sh` or a clean database boots in development mode (`ENVIRONMENT=development` or `SEED_DEV_DATA=true`), the backend automatically populates a comprehensive, domain-tailored mock dataset:
   - 1 Active Candidate CV profile (Staff Distributed Systems Engineer)
   - 5 Applications across statuses (`APPLIED`, `TECHNICAL_INTERVIEW`, `OFFER`, `ONLINE_ASSESSMENT`, `REJECTED`) with full candidate dossiers and match analysis payloads (`Stripe`, `Linear`, `Figma`, `Datadog`, `Airbnb`)
   - 5 Job Postings with salaries, ATS skills, and markdown descriptions
@@ -237,7 +237,7 @@ Before committing or completing tasks, agents and developers must execute and pa
 #### Frontend Checks (Run in `frontend/`)
 1. **Build Check:** `npm run build` (Ensures TypeScript types, templates, and bundling compile without errors)
 2. **Lint Check:** `npm run lint --if-present`
-
+3. **Front end visual checks:** `VITE_DEMO_MODE=true npm run dev` (Use this always when having to test changes or additions to frontend)
 ---
 
 ## Workflow Execution (For Automated Agents)
