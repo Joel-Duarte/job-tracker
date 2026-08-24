@@ -64,6 +64,7 @@ function toggleSidebar() {
 }
 
 const starterPrompts = [
+  '🛠️ What tools can you use?',
   'Which applications currently require urgent action from me?',
   'Find roles involving Python, Distributed Systems, or Staff engineering',
   'What is the current status of my Stripe application?',

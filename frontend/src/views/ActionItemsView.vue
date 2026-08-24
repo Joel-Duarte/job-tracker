@@ -245,8 +245,12 @@ async function setManualUrgency(item, level) {
 const displayedTasks = computed(() => {
   let tasks = actionItems.value
 
-  if (filterTab.value === 'URGENCY') {
-    tasks = tasks.filter(t => t.urgency === 'HIGH' || isOverdue(t.due_date, t.status))
+  if (filterTab.value === 'PENDING') {
+    tasks = tasks.filter(t => (t.status || 'PENDING') === 'PENDING')
+  } else if (filterTab.value === 'COMPLETED') {
+    tasks = tasks.filter(t => t.status === 'COMPLETED')
+  } else if (filterTab.value === 'URGENCY') {
+    tasks = tasks.filter(t => (t.status || 'PENDING') === 'PENDING' && (t.urgency === 'HIGH' || isOverdue(t.due_date, t.status)))
   }
 
   // Urgency chip filter

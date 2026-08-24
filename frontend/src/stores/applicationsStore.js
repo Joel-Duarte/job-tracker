@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ApplicationsAPI } from '../api/endpoints'
 import { useUIStore } from './uiStore'
+import { getDemoDb } from '../demo/demoStorage'
 
 export const useApplicationsStore = defineStore('applications', () => {
   const uiStore = useUIStore()
@@ -63,6 +64,18 @@ export const useApplicationsStore = defineStore('applications', () => {
     { key: 'OFFER', label: 'Offer', color: 'offer' },
   ]
 
+  function appNeedsAction(app) {
+    if (app.has_action_required) return true
+    try {
+      const db = getDemoDb()
+      return (db.action_items || []).some(
+        (item) => String(item.application_id) === String(app.id) && item.status === 'PENDING'
+      )
+    } catch {
+      return false
+    }
+  }
+
   const TERMINAL_STATUSES = ['HIRED', 'ARCHIVED', 'WITHDRAWN', 'REJECTED']
   const PENDING_ASSESSMENT_STATUSES = [
     'ASSESSMENT',
@@ -82,6 +95,9 @@ export const useApplicationsStore = defineStore('applications', () => {
       const status = (a.status || '').toUpperCase()
       if (!status || TERMINAL_STATUSES.includes(status) || PENDING_ASSESSMENT_STATUSES.includes(status)) {
         return false
+      }
+      if (actionRequiredOnly.value) {
+        if (!appNeedsAction(a)) return false
       }
       return matchesWorkModel(a) && matchesSearch(a)
     })
@@ -115,6 +131,9 @@ export const useApplicationsStore = defineStore('applications', () => {
       // Filter by work model if active
       if (!matchesWorkModel(app)) return
 
+      // Filter by action required if active
+      if (actionRequiredOnly.value && !appNeedsAction(app)) return
+
       // Filter by min match score if active
       if (minMatchScore.value !== null && minMatchScore.value !== undefined && minMatchScore.value !== '') {
         const targetMin = Number(minMatchScore.value)
@@ -126,13 +145,18 @@ export const useApplicationsStore = defineStore('applications', () => {
         }
       }
 
-      let statusKey = app.status ? app.status.toUpperCase() : ''
-      if (statusKey === 'ONLINE_ASSESSMENT' || statusKey === 'INTERVIEW') {
+      const rawStatus = (app.status || '').toUpperCase()
+      let statusKey = ''
+      if (rawStatus === 'APPLIED') {
+        statusKey = 'APPLIED'
+      } else if (['ONLINE_ASSESSMENT', 'TECHNICAL_INTERVIEW', 'INTERVIEW'].includes(rawStatus)) {
         statusKey = 'TECHNICAL_INTERVIEW'
+      } else if (rawStatus === 'OFFER') {
+        statusKey = 'OFFER'
       }
 
       // Strictly include only active pipeline stages (APPLIED, TECHNICAL_INTERVIEW, OFFER)
-      if (columns[statusKey]) {
+      if (statusKey && columns[statusKey]) {
         columns[statusKey].push(app)
       }
     })

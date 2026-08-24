@@ -124,11 +124,15 @@ export async function handleDemoRequest(config) {
     if (data.notes) app.notes = data.notes
     app.last_activity_at = new Date().toISOString()
 
+    const isSameStatus = oldStatus === newStatus
+    const eventType = isSameStatus ? (data.event_type || 'CUSTOM_NOTE') : `STAGE_CHANGE_${newStatus}`
+    const eventTitle = isSameStatus ? (data.notes ? 'Activity / Note Logged' : 'Timeline Event Recorded') : `Transitioned to ${newStatus}`
+
     const newEvent = {
       id: `evt_${Date.now()}`,
       application_id: appId,
-      event_type: `STAGE_CHANGE_${newStatus}`,
-      title: `Transitioned to ${newStatus}`,
+      event_type: eventType,
+      title: eventTitle,
       description: data.notes || `Moved application from ${oldStatus} to ${newStatus}`,
       created_at: new Date().toISOString(),
       raw_payload: data,
@@ -879,9 +883,10 @@ export async function handleDemoRequest(config) {
       lowerMsg.includes('can you do') ||
       lowerMsg.includes('what can you') ||
       lowerMsg.includes('available tools') ||
-      lowerMsg.includes('capabilities')
+      lowerMsg.includes('capabilities') ||
+      lowerMsg.includes('engine')
     ) {
-      replyText = `I have access to the following tools to help you manage your job search:\n\n1. analyze_pipeline_metrics: Analyzes cohort funnel performance metrics, stage conversion counts, and period-over-period trend deltas (weekly or monthly).\n2. detect_stalled_applications: Queries active applications that have had no recruiter activity exceeding an inactivity threshold (e.g., 14 days) and suggests follow-up actions.\n3. query_market_benchmarks: Aggregates market salary benchmarks, top in-demand skills, and remote/hybrid work distributions across job postings.\n4. evaluate_ai_fit_score: Retrieves both programmatic match score and qualitative AI evaluation details (matching skills, missing skills, pros, cons, recommendations) for an application.\n5. manage_intake_queue: Manages background job intake evaluation tasks (list, retry, cancel, or fix failed job descriptions).\n6. manage_action_items: Lists, completes, dismisses, or creates candidate action items, deadlines, and tasks.\n7. semantic_vector_search: Searches the vector database for relevant job applications, recruiter emails, and timeline updates using semantic cosine similarity.\n8. update_application_pipeline: Updates an application status in the pipeline (e.g., APPLIED, TECHNICAL_INTERVIEW, OFFER, REJECTED, ASSESSMENT, HIRED), logs a timeline event, and updates vector embeddings.\n9. list_applications: Lists job applications directly from the database with optional status or action required filtering.\n10. get_application_details: Retrieves chronological timeline events, recruiter emails, and action items for a company or application ID.\n11. start_mock_interview: Launches an interactive live mock interview simulation for a target application or general software engineering practice.`
+      replyText = `I have access to the following backend tools and subsystem engines to power your job search:\n\n1. Recruitment Mailbox Synchronization Engine: Automatic IMAP/OAuth email fetcher and deduplicating intake scanner.\n2. Camofox Stealth Scraper: Multi-engine web scraper for extracting job postings, role specs, and requirements.\n3. LangGraph Intake Pipeline: Stateful multi-step graph workflow for job lead qualification and candidate match scoring.\n4. pgvector/pgtrgm Search: High-performance hybrid semantic vector cosine similarity and trigram database search engine.\n5. AI Task Studio: Task-bound prompt engineering and customizable system prompt template configuration environment.\n6. Interactive Mock Interview Simulator: Real-time multi-turn behavioral & technical interview practice engine with STAR scoring and debrief scorecards.\n7. Staleness Archiver Worker: Automated inactivity tracking and stalled application follow-up detector.`
     }
 
     const assistantMsg = {
