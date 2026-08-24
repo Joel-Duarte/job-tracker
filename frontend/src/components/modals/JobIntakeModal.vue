@@ -56,10 +56,7 @@ function handleBulkPromptDecision(skipLinkedIn) {
 }
 
 async function executeEnqueue(urls, textVal) {
-  if (uiStore.aiStatus === 'offline' && !uiStore.aiFallbackProviderName) {
-    uiStore.openRetryModal()
-    return
-  }
+  if (!(await uiStore.ensureAIReady())) return
 
   isEnqueuing.value = true
   let successCount = 0

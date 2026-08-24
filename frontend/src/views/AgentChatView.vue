@@ -167,6 +167,7 @@ function handleSelectApp(id) {
 async function handleSendMessage(customPrompt = null) {
   const text = (customPrompt || inputMessage.value).trim()
   if (!text || chatStore.isSending) return
+  if (!(await uiStore.ensureAIReady())) return
 
   inputMessage.value = ''
   try {
@@ -354,6 +355,7 @@ async function handleDeleteInterviewSession(id) {
     uiStore.showToast("Failed to delete interview session", "error")
   }
 }async function handleStartInterviewSession() {
+  if (!(await uiStore.ensureAIReady())) return
   try {
     await interviewStore.startSession(mockAppId.value, 'TECHNICAL_BAR_RAISER', mockQuestionMode.value)
     candidateAnswer.value = ''
@@ -366,6 +368,7 @@ async function handleDeleteInterviewSession(id) {
 }
 
 async function handleRestartSameSimulation() {
+  if (!(await uiStore.ensureAIReady())) return
   try {
     const appId = interviewStore.selectedApplicationId
     const qMode = interviewStore.activeQuestionMode || 'TEXT_CONVERSATIONAL'
@@ -380,6 +383,7 @@ async function handleRestartSameSimulation() {
 }
 
 async function handleStartAnotherSimulation(questionMode) {
+  if (!(await uiStore.ensureAIReady())) return
   try {
     const appId = interviewStore.selectedApplicationId
     await interviewStore.startSession(appId, 'TECHNICAL_BAR_RAISER', questionMode)
@@ -439,6 +443,7 @@ async function handleEvaluateAnswer() {
   }
   if (!isMC && !candidateAnswer.value.trim()) return
   if (interviewStore.isEvaluating) return
+  if (!(await uiStore.ensureAIReady())) return
 
   const currentTurnIdx = interviewStore.currentTurnIndex
   const text = candidateAnswer.value.trim()
@@ -456,6 +461,7 @@ async function handleEvaluateAnswer() {
 }
 
 async function handleNextQuestion() {
+  if (!(await uiStore.ensureAIReady())) return
   try {
     isRefining.value = false
     selectedOptionKey.value = null
@@ -469,6 +475,7 @@ async function handleNextQuestion() {
 }
 
 async function handleDrillDown() {
+  if (!(await uiStore.ensureAIReady())) return
   try {
     isRefining.value = false
     selectedOptionKey.value = null

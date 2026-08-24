@@ -861,7 +861,7 @@ async function confirmDelete() {
       </div>
 
       <!-- 1b. HIRED / PAST WINS VIEW -->
-      <div v-if="appStore.pipelineViewMode === 'hired'" class="hired-view-container animate-fade-in">
+      <div v-else-if="appStore.pipelineViewMode === 'hired'" class="hired-view-container animate-fade-in">
         <div v-if="appStore.hiredApplications.length === 0" class="empty-state-box">
           <span class="empty-state-trophy">&#x1F3C6;</span>
           <h3 class="empty-state-title">No hired applications yet</h3>
@@ -895,8 +895,10 @@ async function confirmDelete() {
         </div>
       </div>
 
-      <!-- 2. ACTIVE KANBAN VIEW (WITH DRAG & DROP) -->
-      <div v-else-if="uiStore.viewMode === 'kanban'" class="kanban-board">
+      <!-- 2. ACTIVE VIEW (KANBAN OR DATA TABLE) -->
+      <template v-else-if="appStore.pipelineViewMode === 'active'">
+        <!-- ACTIVE KANBAN VIEW (WITH DRAG & DROP) -->
+        <div v-if="uiStore.viewMode === 'kanban'" class="kanban-board">
         <div
           v-for="col in appStore.ACTIVE_STATUSES"
           :key="col.key"
@@ -1092,168 +1094,169 @@ async function confirmDelete() {
         </div>
       </div>
 
-      <!-- 3. ACTIVE TABLE VIEW -->
-      <div v-else class="table-view-container">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Company</th>
-              <th>Position</th>
-              <th>Status & Phase</th>
-              <th>Activity Date</th>
-              <th>Action Required</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="app in appStore.activeApplications"
-              :key="app.id"
-              class="table-row"
-              @click="uiStore.openDetail(app.id)"
-            >
-              <td class="cell-company">
-                <div class="company-cell-wrapper">
-                  <CompanyLogo :name="app.company?.name" :domain="app.company?.domain" :size="18" />
-                  <span class="company-name-bold">{{ app.company?.name || 'Company' }}</span>
-                </div>
-              </td>
+        <!-- ACTIVE TABLE VIEW -->
+        <div v-else class="table-view-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Position</th>
+                <th>Status & Phase</th>
+                <th>Activity Date</th>
+                <th>Action Required</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="app in appStore.activeApplications"
+                :key="app.id"
+                class="table-row"
+                @click="uiStore.openDetail(app.id)"
+              >
+                <td class="cell-company">
+                  <div class="company-cell-wrapper">
+                    <CompanyLogo :name="app.company?.name" :domain="app.company?.domain" :size="18" />
+                    <span class="company-name-bold">{{ app.company?.name || 'Company' }}</span>
+                  </div>
+                </td>
 
-              <td class="cell-position">
-                <div class="position-cell-wrapper">
-                  <div class="position-title-row">
-                    <span class="position-title">{{ app.position || '—' }}</span>
-                    <div
-                      class="dual-match-pills table-match-pills"
-                      :title="`Algo Overlap: ${getAppFitScores(app).computedText} | AI Fit: ${getAppFitScores(app).aiText}`"
-                      @click="openMatchAnalysisModal(app.id)"
-                    >
-                      <span class="match-score-pill algo-pill">
-                        Algo: {{ getAppFitScores(app).computedText }}
-                      </span>
-                      <span
-                        class="match-score-pill ai-pill"
-                        :class="getMatchScoreTierClass(getAppFitScores(app).aiScore)"
+                <td class="cell-position">
+                  <div class="position-cell-wrapper">
+                    <div class="position-title-row">
+                      <span class="position-title">{{ app.position || '—' }}</span>
+                      <div
+                        class="dual-match-pills table-match-pills"
+                        :title="`Algo Overlap: ${getAppFitScores(app).computedText} | AI Fit: ${getAppFitScores(app).aiText}`"
+                        @click="openMatchAnalysisModal(app.id)"
                       >
-                        <Sparkles :size="10" class="match-pill-icon" />
-                        <span>AI: {{ getAppFitScores(app).aiText }}</span>
-                      </span>
+                        <span class="match-score-pill algo-pill">
+                          Algo: {{ getAppFitScores(app).computedText }}
+                        </span>
+                        <span
+                          class="match-score-pill ai-pill"
+                          :class="getMatchScoreTierClass(getAppFitScores(app).aiScore)"
+                        >
+                          <Sparkles :size="10" class="match-pill-icon" />
+                          <span>AI: {{ getAppFitScores(app).aiText }}</span>
+                        </span>
+                      </div>
+                    </div>
+                    <div
+                      v-if="getAppMetadataLine(app)"
+                      class="table-meta-line"
+                    >
+                      {{ getAppMetadataLine(app) }}
                     </div>
                   </div>
-                  <div
-                    v-if="getAppMetadataLine(app)"
-                    class="table-meta-line"
-                  >
-                    {{ getAppMetadataLine(app) }}
-                  </div>
-                </div>
-              </td>
+                </td>
 
-              <td class="cell-status" @click.stop>
-                <div class="table-phase-row">
-                  <button
-                    class="phase-detail-btn"
-                    :class="`phase-${(app.status || 'applied').toLowerCase()}`"
-                    @click="openTransitionModal(app, app.status)"
-                    :title="`Click to edit stage: ${getAppSubPhaseLabel(app)}`"
+                <td class="cell-status" @click.stop>
+                  <div class="table-phase-row">
+                    <button
+                      class="phase-detail-btn"
+                      :class="`phase-${(app.status || 'applied').toLowerCase()}`"
+                      @click="openTransitionModal(app, app.status)"
+                      :title="`Click to edit stage: ${getAppSubPhaseLabel(app)}`"
+                    >
+                      <span class="phase-detail-text">{{ getAppSubPhaseLabel(app) }}</span>
+                      <SlidersHorizontal :size="11" class="phase-icon" />
+                    </button>
+
+                    <div
+                      v-if="getScheduledInterviewDate(app)"
+                      class="interview-scheduled-badge"
+                      :class="getScheduleUrgencyClass(app)"
+                      title="Scheduled Interview Date & Time"
+                    >
+                      <Calendar :size="11" />
+                      <span>{{ formatScheduledDateFriendly(app) }}</span>
+                    </div>
+
+                    <div
+                      v-else-if="app.status === 'TECHNICAL_INTERVIEW' && getAppSubPhaseLabel(app) === 'Task Completed / Awaiting Response'"
+                      class="awaiting-response-tag"
+                      title="Action item completed - Awaiting company response"
+                    >
+                      <CheckCircle2 :size="11" />
+                      <span>Awaiting Reply</span>
+                    </div>
+
+                    <button
+                      v-else-if="app.status === 'TECHNICAL_INTERVIEW'"
+                      class="scheduling-needed-tag"
+                      @click="openTransitionModal(app, 'TECHNICAL_INTERVIEW')"
+                      title="No interview date scheduled yet - Click to schedule"
+                    >
+                      <Clock :size="11" />
+                      <span>⚡ Schedule</span>
+                    </button>
+
+                    <div
+                      v-if="getDueDateStr(app)"
+                      class="due-date-tag"
+                      :class="{ overdue: isOverdue(app) }"
+                      :title="`Task Deadline: ${getDueDate(app)}`"
+                    >
+                      <Clock :size="11" />
+                      <span>Due {{ formatDueDateFriendly(app) }}</span>
+                    </div>
+                  </div>
+                </td>
+
+                <td class="cell-date">
+                  {{ formatDate(app.last_activity_at || app.application_date) }}
+                </td>
+
+                <td>
+                  <span
+                    v-if="app.has_action_required"
+                    class="table-action-pill"
                   >
-                    <span class="phase-detail-text">{{ getAppSubPhaseLabel(app) }}</span>
-                    <SlidersHorizontal :size="11" class="phase-icon" />
+                    <AlertCircle :size="12" />
+                    <span>Required</span>
+                  </span>
+                  <span v-else class="text-muted text-xs">—</span>
+                </td>
+
+                <td class="text-right cell-actions" @click.stop>
+                  <button
+                    v-if="['TECHNICAL_INTERVIEW', 'ONLINE_ASSESSMENT'].includes(app.status)"
+                    class="btn btn-secondary btn-sm"
+                    :class="{ 'btn-primary-subtle': app.has_interview_guide }"
+                    title="Open AI Interview Preparation Guide"
+                    @click="openInterviewGuide(app.id)"
+                  >
+                    <BookOpen :size="13" />
+                    <span>Prep</span>
+                  </button>
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    title="Reject / Archive"
+                    @click="openTransitionModal(app, 'REJECTED')"
+                  >
+                    <Archive :size="13" />
+                    <span>Reject</span>
+                  </button>
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    @click="uiStore.openDetail(app.id)"
+                  >
+                    Details
                   </button>
 
-                  <div
-                    v-if="getScheduledInterviewDate(app)"
-                    class="interview-scheduled-badge"
-                    :class="getScheduleUrgencyClass(app)"
-                    title="Scheduled Interview Date & Time"
-                  >
-                    <Calendar :size="11" />
-                    <span>{{ formatScheduledDateFriendly(app) }}</span>
-                  </div>
+                </td>
+              </tr>
 
-                  <div
-                    v-else-if="app.status === 'TECHNICAL_INTERVIEW' && getAppSubPhaseLabel(app) === 'Task Completed / Awaiting Response'"
-                    class="awaiting-response-tag"
-                    title="Action item completed - Awaiting company response"
-                  >
-                    <CheckCircle2 :size="11" />
-                    <span>Awaiting Reply</span>
-                  </div>
-
-                  <button
-                    v-else-if="app.status === 'TECHNICAL_INTERVIEW'"
-                    class="scheduling-needed-tag"
-                    @click="openTransitionModal(app, 'TECHNICAL_INTERVIEW')"
-                    title="No interview date scheduled yet - Click to schedule"
-                  >
-                    <Clock :size="11" />
-                    <span>⚡ Schedule</span>
-                  </button>
-
-                  <div
-                    v-if="getDueDateStr(app)"
-                    class="due-date-tag"
-                    :class="{ overdue: isOverdue(app) }"
-                    :title="`Task Deadline: ${getDueDate(app)}`"
-                  >
-                    <Clock :size="11" />
-                    <span>Due {{ formatDueDateFriendly(app) }}</span>
-                  </div>
-                </div>
-              </td>
-
-              <td class="cell-date">
-                {{ formatDate(app.last_activity_at || app.application_date) }}
-              </td>
-
-              <td>
-                <span
-                  v-if="app.has_action_required"
-                  class="table-action-pill"
-                >
-                  <AlertCircle :size="12" />
-                  <span>Required</span>
-                </span>
-                <span v-else class="text-muted text-xs">—</span>
-              </td>
-
-              <td class="text-right cell-actions" @click.stop>
-                <button
-                  v-if="['TECHNICAL_INTERVIEW', 'ONLINE_ASSESSMENT'].includes(app.status)"
-                  class="btn btn-secondary btn-sm"
-                  :class="{ 'btn-primary-subtle': app.has_interview_guide }"
-                  title="Open AI Interview Preparation Guide"
-                  @click="openInterviewGuide(app.id)"
-                >
-                  <BookOpen :size="13" />
-                  <span>Prep</span>
-                </button>
-                <button
-                  class="btn btn-secondary btn-sm"
-                  title="Reject / Archive"
-                  @click="openTransitionModal(app, 'REJECTED')"
-                >
-                  <Archive :size="13" />
-                  <span>Reject</span>
-                </button>
-                <button
-                  class="btn btn-secondary btn-sm"
-                  @click="uiStore.openDetail(app.id)"
-                >
-                  Details
-                </button>
-
-              </td>
-            </tr>
-
-            <tr v-if="appStore.activeApplications.length === 0">
-              <td colspan="6" class="table-empty">
-                No active job applications found.
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+              <tr v-if="appStore.activeApplications.length === 0">
+                <td colspan="6" class="table-empty">
+                  No active job applications found.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
     </div>
 
     <!-- DRAG-AND-DROP TRANSITION MODAL -->

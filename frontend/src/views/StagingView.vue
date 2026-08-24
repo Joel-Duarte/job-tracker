@@ -53,9 +53,8 @@ const sortOrder = ref('FIFO') // 'FIFO' (Oldest Email First) | 'LIFO' (Newest Em
 const hasMore = computed(() => stagingItems.value.length < totalCount.value)
 const itemsListRef = ref(null)
 
-// Clear Resolved Modal State
-const showClearResolvedModal = ref(false)
-const clearOlderThanDays = ref(30) // 7 | 30 | 90 | null (All)
+// Resolved Cleanup State
+const clearOlderThanDays = ref(90) // 90 | 30 | 7 | null (All)
 const isClearingResolved = ref(false)
 
 // Master-detail active selection
@@ -219,6 +218,52 @@ const selectedItem = computed(() => {
   if (!selectedItemId.value) return null
   return stagingItems.value.find((i) => i.id === selectedItemId.value) || null
 })
+
+// Smart suggestion existing/concluded application
+const smartSuggestionApp = computed(() => {
+  if (!selectedItem.value || selectedItem.value.status !== 'PENDING') return null
+  const companyName = getItemCompany(selectedItem.value).toLowerCase().trim()
+  if (!companyName || companyName === 'unknown company') return null
+
+  const companyApps = (appStore.applications || []).filter(
+    (a) => (a.company?.name || '').toLowerCase().trim() === companyName
+  )
+  if (!companyApps.length) return null
+
+  if (selectedItem.value.match_reason === 'REAPPLICATION_PREVIOUSLY_CONCLUDED') {
+    const terminalApps = companyApps.filter((a) =>
+      ['REJECTED', 'ARCHIVED', 'WITHDRAWN', 'HIRED'].includes(a.status)
+    )
+    if (!terminalApps.length) return companyApps[0]
+    return [...terminalApps].sort(
+      (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
+    )[0]
+  } else {
+    const activeApps = companyApps.filter(
+      (a) => !['REJECTED', 'ARCHIVED', 'WITHDRAWN', 'HIRED'].includes(a.status)
+    )
+    return activeApps.length ? activeApps[0] : companyApps[0]
+  }
+})
+
+function applySmartLink() {
+  if (!smartSuggestionApp.value) return
+  const isTerminal = ['REJECTED', 'ARCHIVED', 'WITHDRAWN', 'HIRED'].includes(
+    smartSuggestionApp.value.status
+  )
+  if (isTerminal) {
+    includeArchivedApps.value = true
+  }
+  resolutionMode.value = 'link'
+  selectedExistingAppId.value = smartSuggestionApp.value.id
+
+  const el =
+    document.querySelector('.resolution-footer-bar') ||
+    document.querySelector('.triage-form-stack')
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+}
 
 const selectedItemIndex = computed(() => {
   if (!selectedItemId.value) return -1
@@ -426,12 +471,35 @@ async function executeClearResolved() {
   try {
     const res = await StagingAPI.clearResolved(clearOlderThanDays.value)
     uiStore.showToast(res.data.message || 'Resolved items cleared', 'success')
-    showClearResolvedModal.value = false
     await fetchStagingItems()
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to clear resolved items', 'error')
   } finally {
     isClearingResolved.value = false
+  }
+}
+
+async function quickDismissItem(item) {
+  if (!item) return
+  const isSelected = selectedItemId.value === item.id
+  const currentIndex = filteredAndSortedItems.value.findIndex((i) => i.id === item.id)
+
+  try {
+    await StagingAPI.delete(item.id)
+    uiStore.showToast('Item dismissed', 'info')
+    await fetchStagingItems(true)
+
+    if (isSelected) {
+      const remainingItems = filteredAndSortedItems.value
+      if (remainingItems.length > 0) {
+        const nextIndex = currentIndex < remainingItems.length ? currentIndex : remainingItems.length - 1
+        selectItem(remainingItems[nextIndex])
+      } else {
+        selectedItemId.value = null
+      }
+    }
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to dismiss item', 'error')
   }
 }
 
@@ -554,23 +622,7 @@ async function submitResolution() {
 
 async function dismissCurrentItem() {
   if (!selectedItem.value) return
-  const currentIndex = selectedItemIndex.value
-  try {
-    await StagingAPI.delete(selectedItem.value.id)
-    uiStore.showToast('Staged communication dismissed', 'info')
-    await fetchStagingItems(true)
-
-    const remainingItems = filteredAndSortedItems.value
-    if (remainingItems.length > 0) {
-      const nextItem =
-        currentIndex < remainingItems.length ? remainingItems[currentIndex] : remainingItems[remainingItems.length - 1]
-      selectItem(nextItem)
-    } else {
-      selectedItemId.value = null
-    }
-  } catch (err) {
-    uiStore.showToast(err.message, 'error')
-  }
+  await quickDismissItem(selectedItem.value)
 }
 
 function formatDate(isoStr) {
@@ -631,15 +683,6 @@ function formatRelativeTime(isoStr) {
                 Resolved
               </button>
             </div>
-            <button
-              v-if="selectedFilter === 'PROCESSED'"
-              class="btn-clear-resolved-action"
-              title="Clear resolved staging history"
-              @click="showClearResolvedModal = true"
-            >
-              <Trash2 :size="12" />
-              <span>Clear History</span>
-            </button>
           </div>
         </template>
       </PageHeader>
@@ -675,13 +718,38 @@ function formatRelativeTime(isoStr) {
             </span>
             <button
               class="btn-sort-toggle"
-              :title="sortOrder === 'FIFO' ? 'Switch to Newest Email First' : 'Switch to Oldest Email First (FIFO)'"
+              :title="sortOrder === 'FIFO' ? 'Switch to Newest Email First' : 'Switch to Oldest Email First'"
               @click="sortOrder = sortOrder === 'FIFO' ? 'LIFO' : 'FIFO'"
             >
               <Clock :size="12" />
-              <span>{{ sortOrder === 'FIFO' ? 'Oldest Email (FIFO)' : 'Newest Email' }}</span>
+              <span>{{ sortOrder === 'FIFO' ? 'Oldest Email' : 'Newest Email' }}</span>
               <ArrowUpDown :size="11" />
             </button>
+          </div>
+
+          <!-- Inline Resolved Cleanup Bar -->
+          <div v-if="selectedFilter === 'PROCESSED'" class="sidebar-cleanup-bar">
+            <div class="cleanup-controls-row">
+              <select v-model="clearOlderThanDays" class="cleanup-select">
+                <option :value="90">Older than 90 days (Default)</option>
+                <option :value="30">Older than 30 days</option>
+                <option :value="7">Older than 7 days</option>
+                <option :value="null">All Resolved Items</option>
+              </select>
+              <button
+                class="btn-clean-now"
+                :disabled="isClearingResolved"
+                title="Clean resolved staging items"
+                @click="executeClearResolved"
+              >
+                <Loader2 v-if="isClearingResolved" class="animate-spin" :size="12" />
+                <Trash2 v-else :size="12" />
+                <span>Clean Now</span>
+              </button>
+            </div>
+            <p class="cleanup-safety-hint">
+              Safe to delete: Created applications, timeline events, and notes are preserved independently.
+            </p>
           </div>
         </div>
 
@@ -713,7 +781,17 @@ function formatRelativeTime(isoStr) {
                 <Building2 :size="14" class="text-primary" />
                 <span class="item-company-name">{{ getItemCompany(item) }}</span>
               </div>
-              <span class="item-time-tag">{{ formatRelativeTime(item.email_received_at || item.created_at) }}</span>
+              <div class="item-header-right">
+                <span class="item-time-tag">{{ formatRelativeTime(item.email_received_at || item.created_at) }}</span>
+                <button
+                  v-if="item.status === 'PENDING'"
+                  class="btn-quick-dismiss"
+                  title="Dismiss item"
+                  @click.stop="quickDismissItem(item)"
+                >
+                  <Trash2 :size="12" />
+                </button>
+              </div>
             </div>
 
             <div class="item-role-title">{{ getItemPosition(item) }}</div>
@@ -913,6 +991,54 @@ function formatRelativeTime(isoStr) {
                 </div>
               </div>
 
+              <!-- Smart Link Suggestion Banner -->
+              <div
+                v-if="smartSuggestionApp"
+                class="smart-link-banner"
+                :class="{
+                  'is-reapplication':
+                    selectedItem.match_reason === 'REAPPLICATION_PREVIOUSLY_CONCLUDED',
+                }"
+              >
+                <div class="banner-content">
+                  <div class="banner-text">
+                    <template
+                      v-if="
+                        selectedItem.match_reason ===
+                        'REAPPLICATION_PREVIOUSLY_CONCLUDED'
+                      "
+                    >
+                      Previous concluded application found:
+                      <strong>
+                        {{ smartSuggestionApp.company?.name }} —
+                        {{ smartSuggestionApp.position }}
+                      </strong>
+                      ({{ smartSuggestionApp.status?.replace('_', ' ') }}). Choose 'Create
+                      as New Application' to start a new cycle or 'Link' to attach to
+                      archive history.
+                    </template>
+                    <template v-else>
+                      Existing application found:
+                      <strong>
+                        {{ smartSuggestionApp.company?.name }} —
+                        {{ smartSuggestionApp.position }}
+                      </strong>
+                      <span
+                        class="badge-mini"
+                        :class="`badge-${(
+                          smartSuggestionApp.status || 'applied'
+                        ).toLowerCase()}`"
+                      >
+                        {{ smartSuggestionApp.status?.replace('_', ' ') }}
+                      </span>
+                    </template>
+                  </div>
+                  <button class="btn-smart-link" @click="applySmartLink">
+                    ⚡ Link to this Application
+                  </button>
+                </div>
+              </div>
+
               <!-- Resolution Mode Tabs -->
               <div class="mode-tab-selector">
                 <button
@@ -988,6 +1114,9 @@ function formatRelativeTime(isoStr) {
                     class="form-input"
                     placeholder="https://..."
                   />
+                  <p class="form-helper-text text-muted">
+                    ✨ Providing a job URL will automatically trigger an AI fit & match analysis against your profile in the background.
+                  </p>
                 </div>
 
                 <div class="form-group">
@@ -1114,76 +1243,6 @@ function formatRelativeTime(isoStr) {
       </main>
     </div>
 
-    <!-- CLEAR RESOLVED MODAL -->
-    <div v-if="showClearResolvedModal" class="modal-backdrop" @click.self="showClearResolvedModal = false">
-      <div class="modal-dialog clear-resolved-dialog">
-        <div class="modal-header">
-          <div class="modal-title-wrap">
-            <div class="icon-circle-danger">
-              <Trash2 :size="18" />
-            </div>
-            <div>
-              <h3 class="modal-title">Clear Resolved History</h3>
-              <p class="modal-subtitle">Prune processed staging triage receipts to keep your database lean.</p>
-            </div>
-          </div>
-          <button class="btn-close-modal" @click="showClearResolvedModal = false">
-            <X :size="16" />
-          </button>
-        </div>
-
-        <div class="modal-body">
-          <div class="info-alert-box">
-            <AlertCircle :size="15" class="text-primary flex-shrink-0" />
-            <span>Application events, notes, timeline entries, and email viewer modals are preserved independently and will not be affected.</span>
-          </div>
-
-          <label class="input-label mb-2">Select Retention Window:</label>
-          <div class="clear-options-grid">
-            <label class="retention-radio-card" :class="{ selected: clearOlderThanDays === 7 }">
-              <input type="radio" :value="7" v-model="clearOlderThanDays" />
-              <div class="radio-content">
-                <span class="radio-title">Older than 7 days</span>
-                <span class="radio-desc">Keep resolved items from the past week</span>
-              </div>
-            </label>
-
-            <label class="retention-radio-card" :class="{ selected: clearOlderThanDays === 30 }">
-              <input type="radio" :value="30" v-model="clearOlderThanDays" />
-              <div class="radio-content">
-                <span class="radio-title">Older than 30 days (Recommended)</span>
-                <span class="radio-desc">Keep resolved items from the past month</span>
-              </div>
-            </label>
-
-            <label class="retention-radio-card" :class="{ selected: clearOlderThanDays === 90 }">
-              <input type="radio" :value="90" v-model="clearOlderThanDays" />
-              <div class="radio-content">
-                <span class="radio-title">Older than 90 days</span>
-                <span class="radio-desc">Keep resolved items from the past quarter</span>
-              </div>
-            </label>
-
-            <label class="retention-radio-card" :class="{ selected: clearOlderThanDays === null }">
-              <input type="radio" :value="null" v-model="clearOlderThanDays" />
-              <div class="radio-content">
-                <span class="radio-title">All Resolved Items</span>
-                <span class="radio-desc">Clear entire resolved staging triage history</span>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        <div class="modal-footer">
-          <button class="btn btn-secondary" @click="showClearResolvedModal = false">Cancel</button>
-          <button class="btn btn-danger" :disabled="isClearingResolved" @click="executeClearResolved">
-            <Loader2 v-if="isClearingResolved" class="animate-spin mr-1" :size="14" />
-            <Trash2 v-else class="mr-1" :size="14" />
-            <span>Clear Resolved Records</span>
-          </button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -1368,6 +1427,7 @@ function formatRelativeTime(isoStr) {
 
 /* QUEUE ITEM CARD */
 .queue-item-card {
+  position: relative;
   background-color: var(--bg-card);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-sm);
@@ -1377,6 +1437,42 @@ function formatRelativeTime(isoStr) {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.item-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-quick-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: all var(--transition-fast);
+}
+
+.queue-item-card:hover .btn-quick-dismiss,
+.btn-quick-dismiss:focus {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .btn-quick-dismiss {
+    opacity: 1;
+  }
+}
+
+.btn-quick-dismiss:hover {
+  color: var(--danger, #ef4444);
+  background-color: var(--danger-subtle, rgba(239, 68, 68, 0.1));
 }
 
 .queue-item-card:hover {
@@ -1833,6 +1929,51 @@ function formatRelativeTime(isoStr) {
   border-radius: var(--radius-xs);
 }
 
+.smart-link-banner {
+  background-color: var(--primary-subtle, rgba(99, 102, 241, 0.1));
+  border: 1px solid var(--primary, #6366f1);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+}
+
+.smart-link-banner.is-reapplication {
+  background-color: var(--warning-subtle, rgba(245, 158, 11, 0.1));
+  border-color: var(--warning, #f59e0b);
+}
+
+.banner-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.banner-text {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-main);
+}
+
+.btn-smart-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffffff;
+  background-color: var(--primary);
+  border: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity var(--transition-fast);
+}
+
+.btn-smart-link:hover {
+  opacity: 0.9;
+}
+
 .mode-tab-selector {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1883,6 +2024,12 @@ function formatRelativeTime(isoStr) {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
+}
+
+.form-helper-text {
+  font-size: 11px;
+  line-height: 1.4;
+  margin-top: 2px;
 }
 
 .form-input,
@@ -2029,31 +2176,68 @@ function formatRelativeTime(isoStr) {
   margin-left: 4px;
 }
 
-/* FILTER PILLS & CLEAR HISTORY BUTTON */
-.filter-pills-wrap {
+/* SIDEBAR CLEANUP BAR */
+.sidebar-cleanup-bar {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-color);
 }
 
-.btn-clear-resolved-action {
+.cleanup-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cleanup-select {
+  flex: 1;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-main);
+  outline: none;
+}
+
+.cleanup-select:focus {
+  border-color: var(--primary);
+}
+
+.btn-clean-now {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  font-size: 12px;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--danger, #ef4444);
   background-color: var(--danger-subtle, rgba(239, 68, 68, 0.1));
-  border: 1px solid var(--danger, #ef4444);
-  border-radius: var(--radius-full, 9999px);
+  border: 1px solid var(--danger-subtle, rgba(239, 68, 68, 0.2));
+  border-radius: var(--radius-xs);
   cursor: pointer;
   transition: all var(--transition-fast);
+  white-space: nowrap;
 }
 
-.btn-clear-resolved-action:hover {
+.btn-clean-now:hover:not(:disabled) {
   background-color: var(--danger, #ef4444);
-  color: #fff;
+  color: #ffffff;
+}
+
+.btn-clean-now:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cleanup-safety-hint {
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--text-muted);
+  margin: 0;
 }
 
 /* SIDEBAR LOAD MORE FOOTER */

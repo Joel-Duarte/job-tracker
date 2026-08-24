@@ -337,9 +337,9 @@ function handleStep2Skip() {
 
 // Step 3: Feature Toggles & Currency State
 const selectedCurrency = ref(uiStore.defaultCurrency || 'USD')
-const featureEmailIntake = ref(false)
-const featureEmbeddings = ref(true)
-const featureAutoCoverLetter = ref(false)
+const featureEmailIntake = ref(true)
+const featureAutoCoverLetter = ref(true)
+const featureEmbeddings = ref(false)
 const featureCoverLetterThreshold = ref(70)
 const isSavingFeatures = ref(false)
 
@@ -863,9 +863,9 @@ async function loadExistingState() {
     // 1. Fetch system settings
     const sysRes = await SystemSettingsAPI.get()
     if (sysRes.data) {
-      featureEmailIntake.value = sysRes.data.enable_email_intake ?? false
-      featureEmbeddings.value = sysRes.data.enable_embeddings ?? true
-      featureAutoCoverLetter.value = sysRes.data.enable_auto_cover_letter ?? false
+      featureEmailIntake.value = sysRes.data.enable_email_intake ?? true
+      featureEmbeddings.value = sysRes.data.enable_embeddings ?? false
+      featureAutoCoverLetter.value = sysRes.data.enable_auto_cover_letter ?? true
       featureCoverLetterThreshold.value = sysRes.data.cover_letter_match_threshold ?? 70
     }
 
@@ -1434,7 +1434,7 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
               </div>
 
               <div class="feature-toggles-list">
-                <!-- Email Auto-Sync Selection Card -->
+                <!-- 1. Email Auto-Sync Selection Card -->
                 <div
                   class="selection-card"
                   :class="{ 'card-active': featureEmailIntake }"
@@ -1457,30 +1457,7 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
                   </div>
                 </div>
 
-                <!-- Vector Knowledge & Embeddings Selection Card -->
-                <div
-                  class="selection-card"
-                  :class="{ 'card-active': featureEmbeddings }"
-                  @click="featureEmbeddings = !featureEmbeddings"
-                  role="button"
-                  tabindex="0"
-                  @keydown.space.prevent="featureEmbeddings = !featureEmbeddings"
-                  @keydown.enter.prevent="featureEmbeddings = !featureEmbeddings"
-                >
-                  <div class="card-icon-wrapper">
-                    <CheckCircle2 v-if="featureEmbeddings" class="icon-active" :size="20" />
-                    <Circle v-else class="icon-inactive" :size="20" />
-                  </div>
-                  <div class="option-content">
-                    <div class="option-title-row">
-                      <Cpu :size="16" class="text-primary flex-shrink-0" />
-                      <span class="option-label">Vector Knowledge &amp; Embeddings (pgvector)</span>
-                    </div>
-                    <span class="option-description">Generate dense vector representations for semantic search across applications.</span>
-                  </div>
-                </div>
-
-                <!-- Automated Cover Letters Selection Card -->
+                <!-- 2. Automated Cover Letters Selection Card -->
                 <div
                   class="selection-card"
                   :class="{ 'card-active': featureAutoCoverLetter }"
@@ -1521,6 +1498,29 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
                         class="form-range w-full"
                       />
                     </div>
+                  </div>
+                </div>
+
+                <!-- 3. Vector Knowledge & Embeddings Selection Card -->
+                <div
+                  class="selection-card"
+                  :class="{ 'card-active': featureEmbeddings }"
+                  @click="featureEmbeddings = !featureEmbeddings"
+                  role="button"
+                  tabindex="0"
+                  @keydown.space.prevent="featureEmbeddings = !featureEmbeddings"
+                  @keydown.enter.prevent="featureEmbeddings = !featureEmbeddings"
+                >
+                  <div class="card-icon-wrapper">
+                    <CheckCircle2 v-if="featureEmbeddings" class="icon-active" :size="20" />
+                    <Circle v-else class="icon-inactive" :size="20" />
+                  </div>
+                  <div class="option-content">
+                    <div class="option-title-row">
+                      <Cpu :size="16" class="text-primary flex-shrink-0" />
+                      <span class="option-label">Vector Knowledge &amp; Embeddings (pgvector)</span>
+                    </div>
+                    <span class="option-description">Generate dense vector representations for semantic search across applications.</span>
                   </div>
                 </div>
               </div>

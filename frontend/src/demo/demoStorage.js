@@ -9,7 +9,7 @@ export function isDemoModeEnabled() {
     return localVal === 'true'
   }
   // Default to true in client demo mode
-  return true
+  return false
 }
 
 export function setDemoModeEnabled(enabled) {
