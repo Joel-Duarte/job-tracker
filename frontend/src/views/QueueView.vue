@@ -29,6 +29,8 @@ import {
   RotateCcw,
   Edit3,
   Mail,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -2026,9 +2028,109 @@ onMounted(() => {
   100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.8); }
 }
 
-@media (max-width: 768px) {
-  .pipeline-stepper {
+@media (max-width: 1023px) {
+  .queue-page-layout {
+    padding: 16px 12px 60px;
+  }
+
+  .header-controls-centered {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .tab-bar,
+  .type-filter-group {
+    width: 100%;
     overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    padding: 4px;
+    justify-content: flex-start;
+  }
+
+  .tab-pill,
+  .type-pill {
+    flex-shrink: 0;
+    white-space: nowrap;
+    min-height: var(--min-touch-target, 44px);
+    padding: 8px 12px;
+  }
+
+  .header-actions-row {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .search-input-box {
+    flex: 1;
+  }
+
+  .search-input {
+    width: 100%;
+
+  }
+
+  .search-input:focus {
+    width: 100%;
+  }
+}
+
+@media (max-width: 767px) {
+  .queue-content-scroll {
+    padding: 12px 0;
+  }
+
+  .task-card-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .task-header-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .task-pipeline-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+  }
+
+  .pipeline-stepper {
+    min-width: 520px;
+    padding: 4px 0;
+  }
+
+  .task-error-box {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .error-actions-right {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .btn-retry-task,
+  .btn-retry-error,
+  .btn-fix-jd,
+  .btn-icon-dismiss,
+  .btn-clear {
+    min-height: 44px;
+    padding: 8px 12px;
+  }
+
+  .modal-card {
+    width: 100vw;
+    height: 100vh;
+    max-height: 100dvh;
+    border-radius: 0;
+    margin: 0;
+    justify-content: space-between;
   }
 }
 </style>

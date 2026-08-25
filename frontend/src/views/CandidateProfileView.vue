@@ -1837,4 +1837,147 @@ onMounted(async () => {
   border-top: 1px solid var(--border-color);
   background-color: var(--bg-surface);
 }
+
+@media (max-width: 767px) {
+  .page-container {
+    padding: 16px 12px 60px;
+  }
+
+  .profile-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .header-actions {
+    width: 100%;
+    display: flex;
+    gap: 8px;
+  }
+
+  .header-actions .btn {
+    flex: 1;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .hero-overview-card {
+    padding: 16px;
+    gap: 16px;
+  }
+
+  .hero-top-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .hero-top-row .btn {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .card-header-clean {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .experience-counter-box {
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    background-color: var(--bg-main);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+  }
+
+  .domains-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .add-domain-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .add-domain-bar .form-input,
+  .add-domain-bar .btn {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .domain-years-input-group {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .skills-competencies-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .add-chip-row .form-input {
+    min-height: 44px;
+  }
+
+  .add-chip-row .btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .modal-backdrop {
+    padding: 0;
+  }
+
+  .modal-card,
+  .modal-card.modal-lg {
+    max-width: 100vw;
+    width: 100vw;
+    height: 100vh;
+    max-height: 100dvh;
+    border-radius: 0;
+    margin: 0;
+  }
+
+  .modal-header {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+
+  .modal-header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .modal-header-actions .btn {
+    flex: 1;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .modal-body {
+    padding: 14px;
+    flex: 1;
+  }
+
+  .modal-footer {
+    padding: 12px 14px;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: stretch;
+  }
+
+  .modal-footer .btn {
+    flex: 1;
+    min-height: 44px;
+    justify-content: center;
+  }
+}
 </style>

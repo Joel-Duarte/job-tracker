@@ -432,6 +432,8 @@ onUnmounted(() => {
   position: relative;
   width: 50px;
   height: 50px;
+  min-width: 48px;
+  min-height: 48px;
   border-radius: var(--radius-full);
   background-color: var(--primary);
   color: var(--primary-contrast, #0a0d14);
@@ -803,7 +805,8 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 8px;
+  padding: 6px 10px;
+  min-height: 36px;
   border-radius: var(--radius-sm);
   background-color: var(--primary);
   color: #ffffff;
@@ -822,7 +825,8 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 8px;
+  padding: 6px 10px;
+  min-height: 36px;
   border-radius: var(--radius-sm);
   background-color: var(--bg-surface);
   color: var(--text-main);
@@ -995,5 +999,12 @@ onUnmounted(() => {
 .popover-fade-leave-to {
   opacity: 0;
   transform: translateY(8px) scale(0.97);
+}
+
+/* Mobile Responsive Adjustments for Floating Queue Widget */
+@media (max-width: 767px) {
+  .floating-queue-widget {
+    display: none !important;
+  }
 }
 </style>

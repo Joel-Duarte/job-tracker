@@ -23,6 +23,8 @@ import {
   Activity,
   RefreshCw,
   AlertTriangle,
+  Menu,
+  X,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -37,6 +39,15 @@ const readyAssessmentsCount = computed(() => queueStore.readyAssessmentsCount)
 
 const isHealthPopoverOpen = ref(false)
 const popoverContainerRef = ref(null)
+const isMobileMenuOpen = ref(false)
+
+function toggleMobileMenu() {
+  isMobileMenuOpen.value = !isMobileMenuOpen.value
+}
+
+function closeMobileMenu() {
+  isMobileMenuOpen.value = false
+}
 
 const pillLabel = computed(() => {
   switch (uiStore.aiStatus) {
@@ -153,6 +164,7 @@ function handleSettingsClick() {
 watch(
   () => route.path,
   (newPath, oldPath) => {
+    isMobileMenuOpen.value = false
     if (oldPath && oldPath.startsWith('/settings') && !newPath.startsWith('/settings')) {
       uiStore.clearLastNonSettingsRoute()
     }
@@ -174,6 +186,16 @@ onUnmounted(() => {
 <template>
   <header class="navbar">
     <div class="nav-left">
+      <!-- Mobile Hamburger Menu Trigger (Far Left on Mobile) -->
+      <button
+        class="btn-icon mobile-menu-trigger"
+        @click="toggleMobileMenu"
+        title="Toggle navigation menu"
+      >
+        <Menu v-if="!isMobileMenuOpen" :size="20" />
+        <X v-else :size="20" />
+      </button>
+
       <router-link to="/" class="nav-brand" @click="uiStore.clearLastNonSettingsRoute()">
         <div class="brand-icon">
           <Sparkles :size="18" class="text-primary" />
@@ -380,6 +402,140 @@ onUnmounted(() => {
 
       <ThemePalettePopover />
     </div>
+
+    <!-- Mobile Slide-out Navigation Drawer -->
+    <Teleport to="body">
+      <Transition name="drawer-fade">
+        <div v-if="isMobileMenuOpen" class="mobile-drawer-backdrop" @click="closeMobileMenu" />
+      </Transition>
+      <Transition name="drawer-slide-left">
+        <div v-if="isMobileMenuOpen" class="mobile-drawer">
+          <div class="mobile-drawer-header">
+            <router-link to="/" class="nav-brand" @click="closeMobileMenu(); uiStore.clearLastNonSettingsRoute()">
+              <div class="brand-icon">
+                <Sparkles :size="18" class="text-primary" />
+              </div>
+              <span class="brand-title">JobTracker</span>
+            </router-link>
+            <button class="btn-icon" @click="closeMobileMenu" title="Close menu">
+              <X :size="20" />
+            </button>
+          </div>
+
+          <nav class="mobile-drawer-nav">
+            <router-link
+              to="/"
+              class="mobile-nav-link"
+              :class="{ active: route.path === '/' }"
+              @click="closeMobileMenu(); uiStore.clearLastNonSettingsRoute()"
+            >
+              <Briefcase :size="18" />
+              <span>Applications</span>
+            </router-link>
+
+            <router-link
+              to="/assessments"
+              class="mobile-nav-link"
+              :class="{ active: ['/assessments', '/intake'].includes(route.path) }"
+              @click="closeMobileMenu(); uiStore.clearLastNonSettingsRoute()"
+            >
+              <Sparkles :size="18" />
+              <span>Assessments</span>
+              <span v-if="readyAssessmentsCount > 0" class="nav-badge">
+                {{ readyAssessmentsCount }}
+              </span>
+            </router-link>
+
+            <router-link
+              to="/tasks"
+              class="mobile-nav-link"
+              :class="{ active: route.path === '/tasks' }"
+              @click="closeMobileMenu(); uiStore.clearLastNonSettingsRoute()"
+            >
+              <CheckSquare :size="18" />
+              <span>Tasks</span>
+              <span v-if="pendingTasksCount > 0" class="nav-badge">
+                {{ pendingTasksCount }}
+              </span>
+            </router-link>
+
+            <router-link
+              to="/queue"
+              class="mobile-nav-link"
+              :class="{ active: route.path === '/queue' }"
+              @click="closeMobileMenu(); uiStore.clearLastNonSettingsRoute()"
+            >
+              <Cpu :size="18" />
+              <span>Evaluation Queue</span>
+              <span v-if="queueStore.notificationCount > 0" class="nav-badge">
+                {{ queueStore.notificationCount }}
+              </span>
+            </router-link>
+
+            <router-link
+              v-if="uiStore.enableEmailIntake"
+              to="/staging"
+              class="mobile-nav-link"
+              :class="{ active: route.path === '/staging' }"
+              @click="closeMobileMenu(); uiStore.clearLastNonSettingsRoute()"
+            >
+              <Inbox :size="18" />
+              <span>Staging</span>
+              <span v-if="pendingStagingCount > 0" class="nav-badge">
+                {{ pendingStagingCount }}
+              </span>
+            </router-link>
+
+            <router-link
+              to="/analytics"
+              class="mobile-nav-link"
+              :class="{ active: route.path === '/analytics' }"
+              @click="closeMobileMenu(); uiStore.clearLastNonSettingsRoute()"
+            >
+              <BarChart3 :size="18" />
+              <span>Analytics</span>
+            </router-link>
+
+            <router-link
+              to="/chat"
+              class="mobile-nav-link"
+              :class="{ active: route.path === '/chat' }"
+              @click="closeMobileMenu(); uiStore.clearLastNonSettingsRoute()"
+            >
+              <Bot :size="18" />
+              <span>Agent</span>
+            </router-link>
+
+            <button
+              class="mobile-nav-link btn-settings-mobile"
+              :class="{ active: route.path.startsWith('/settings') }"
+              @click="closeMobileMenu(); handleSettingsClick()"
+            >
+              <Settings :size="18" />
+              <span>Settings</span>
+            </button>
+          </nav>
+
+          <div class="mobile-drawer-footer">
+            <button
+              class="btn btn-primary w-full"
+              @click="closeMobileMenu(); uiStore.openJobIntakeModal()"
+            >
+              <Sparkles :size="16" />
+              <span>Job Intake</span>
+            </button>
+            <button
+              v-if="uiStore.enableEmailIntake"
+              class="btn btn-secondary w-full"
+              @click="closeMobileMenu(); uiStore.openIngestModal()"
+            >
+              <Mail :size="16" />
+              <span>Email Intake</span>
+            </button>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </header>
 </template>
 
@@ -733,5 +889,168 @@ onUnmounted(() => {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+.mobile-menu-trigger {
+  display: none;
+}
+
+/* Mobile Drawer Responsive Styles */
+@media (max-width: 767px) {
+  .nav-links {
+    display: none;
+  }
+
+  .nav-brand {
+    display: none;
+  }
+
+  .mobile-menu-trigger {
+    display: flex;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .btn-ingest span {
+    display: none;
+  }
+
+  .btn-ingest {
+    padding: 8px 10px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .btn-icon {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .health-pill {
+    min-height: 36px;
+  }
+
+  .health-pill .pill-text {
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .navbar {
+    padding: 0 12px;
+  }
+
+  .nav-left {
+    gap: 12px;
+  }
+
+  .nav-right {
+    gap: 6px;
+  }
+}
+
+.mobile-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: var(--bg-backdrop, rgba(0, 0, 0, 0.6));
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 999;
+}
+
+.mobile-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 280px;
+  max-width: 85vw;
+  height: 100vh;
+  height: 100dvh;
+  background-color: var(--bg-sidebar);
+  border-right: 1px solid var(--border-color);
+  box-shadow: var(--shadow-xl);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.mobile-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 16px;
+}
+
+.mobile-drawer-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.mobile-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  min-height: 48px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.mobile-nav-link:hover,
+.mobile-nav-link.active {
+  color: var(--text-main);
+  background-color: var(--bg-surface-hover);
+}
+
+.mobile-nav-link.active {
+  color: var(--primary);
+  font-weight: 600;
+  background-color: var(--primary-subtle);
+}
+
+.mobile-drawer-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: auto;
+}
+
+.w-full {
+  width: 100%;
+}
+
+.drawer-fade-enter-active,
+.drawer-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.drawer-fade-enter-from,
+.drawer-fade-leave-to {
+  opacity: 0;
+}
+
+.drawer-slide-left-enter-active,
+.drawer-slide-left-leave-active {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.drawer-slide-left-enter-from,
+.drawer-slide-left-leave-to {
+  transform: translateX(-100%);
 }
 </style>

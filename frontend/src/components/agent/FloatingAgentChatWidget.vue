@@ -360,8 +360,10 @@ function formatActionLabel(act) {
 }
 
 .btn-icon-sm {
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
   border-radius: 4px;
   background: transparent;
   border: 1px solid transparent;
@@ -530,8 +532,10 @@ function formatActionLabel(act) {
 }
 
 .btn-send-mini {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: var(--radius-sm);
   background-color: var(--primary);
   color: var(--primary-contrast, #0a0d14);
@@ -565,5 +569,12 @@ function formatActionLabel(act) {
 .chat-pop-leave-to {
   opacity: 0;
   transform: scale(0.85) translateY(16px);
+}
+
+/* Mobile Responsive Adjustments for Floating Agent Chat Widget */
+@media (max-width: 767px) {
+  .floating-agent-wrapper {
+    display: none !important;
+  }
 }
 </style>

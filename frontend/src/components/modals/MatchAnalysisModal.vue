@@ -400,6 +400,66 @@ function getFitLabel(score) {
   background-color: var(--bg-app);
 }
 
+@media (max-width: 767px) {
+  .modal-backdrop {
+    padding: 0;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .analysis-modal-container {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    max-width: 100vw;
+    border-radius: 0;
+    border: none;
+  }
+
+  .modal-header {
+    padding: 14px 16px;
+  }
+
+  .btn-close {
+    min-width: 48px;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .modal-body-scroll {
+    padding: 16px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+
+  .eval-hero-card {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 16px;
+  }
+
+  .eval-fit-container {
+    width: 100%;
+    margin-top: 8px;
+  }
+
+  .scores-side-by-side {
+    width: 100%;
+  }
+
+  .score-badge-card {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .pros-cons-grid,
+  .skills-matrix {
+    grid-template-columns: 1fr;
+  }
+}
+
 .state-container {
   display: flex;
   flex-direction: column;
