@@ -3503,6 +3503,12 @@ async function confirmDelete() {
   border-color: rgba(251, 146, 60, 0.4);
 }
 
+.filters-collapsible-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 /* Mobile Filter Trigger Button & Collapsible Container */
 .mobile-filter-trigger-btn {
   display: none;
