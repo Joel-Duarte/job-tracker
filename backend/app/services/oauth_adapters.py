@@ -169,7 +169,10 @@ class GmailOAuthAdapter:
 class MicrosoftGraphAdapter:
     """OAuth2 adapter for Microsoft Graph (Outlook / Microsoft 365)."""
 
-    TOKEN_ENDPOINT = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+    TOKEN_ENDPOINT = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
+    FALLBACK_TOKEN_ENDPOINT = (
+        "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+    )
     GRAPH_BASE = "https://graph.microsoft.com/v1.0"
     SCOPES = ["Mail.Read", "offline_access", "User.Read"]
 
@@ -186,7 +189,7 @@ class MicrosoftGraphAdapter:
             "state": state,
             "prompt": "select_account",
         }
-        return f"https://login.microsoftonline.com/common/oauth2/v2.0/authorize?{urlencode(params)}"
+        return f"https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?{urlencode(params)}"
 
     @classmethod
     async def exchange_code_for_tokens(
@@ -199,17 +202,30 @@ class MicrosoftGraphAdapter:
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
         }
+        endpoints = [cls.TOKEN_ENDPOINT, cls.FALLBACK_TOKEN_ENDPOINT]
+        last_error = ""
+
         async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                cls.TOKEN_ENDPOINT,
-                data=data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
-            if resp.status_code != 200:
+            for endpoint in endpoints:
+                resp = await client.post(
+                    endpoint,
+                    data=data,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+                if resp.status_code == 200:
+                    return resp.json()
+
                 err_msg = resp.text
-                logger.error("Microsoft code exchange failed: %s", err_msg)
-                raise ValueError(f"Microsoft OAuth failed: {err_msg}")
-            return resp.json()
+                last_error = err_msg
+                if (
+                    "consumers" not in err_msg
+                    and "AADSTS9002331" not in err_msg
+                    and "AADSTS" not in err_msg
+                ):
+                    break
+
+            logger.error("Microsoft code exchange failed: %s", last_error)
+            raise ValueError(f"Microsoft OAuth failed: {last_error}")
 
     @classmethod
     async def refresh_access_token(
@@ -222,19 +238,31 @@ class MicrosoftGraphAdapter:
             "grant_type": "refresh_token",
             "scope": " ".join(cls.SCOPES),
         }
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                cls.TOKEN_ENDPOINT,
-                data=data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
-            if resp.status_code != 200:
-                err_msg = resp.text
-                logger.error("Microsoft token refresh failed: %s", err_msg)
-                raise ValueError(f"Microsoft token refresh failed: {err_msg}")
+        endpoints = [cls.TOKEN_ENDPOINT, cls.FALLBACK_TOKEN_ENDPOINT]
+        last_error = ""
 
-            data = resp.json()
-            return data["access_token"]
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for endpoint in endpoints:
+                resp = await client.post(
+                    endpoint,
+                    data=data,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data["access_token"]
+
+                err_msg = resp.text
+                last_error = err_msg
+                if (
+                    "consumers" not in err_msg
+                    and "AADSTS9002331" not in err_msg
+                    and "AADSTS" not in err_msg
+                ):
+                    break
+
+            logger.error("Microsoft token refresh failed: %s", last_error)
+            raise ValueError(f"Microsoft token refresh failed: {last_error}")
 
     @classmethod
     async def fetch_messages_delta(

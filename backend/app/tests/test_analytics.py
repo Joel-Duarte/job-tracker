@@ -68,7 +68,9 @@ async def test_get_role_alignment_filtered_track(db_session):
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
-        response = await client.get("/api/v1/analytics/role-alignment?role_track=backend")
+        response = await client.get(
+            "/api/v1/analytics/role-alignment?role_track=backend"
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["selected_track"] == "backend"

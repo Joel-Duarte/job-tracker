@@ -632,19 +632,52 @@ def classify_position_to_track(position: str | None) -> str:
     if not position:
         return "other"
     pos = position.lower()
-    if any(k in pos for k in ["ai", "ml", "machine learning", "data", "analytics", "mlops", "llm", "vector"]):
+    if any(
+        k in pos
+        for k in [
+            "ai",
+            "ml",
+            "machine learning",
+            "data",
+            "analytics",
+            "mlops",
+            "llm",
+            "vector",
+        ]
+    ):
         return "data_ai"
-    if any(k in pos for k in ["devops", "cloud", "sre", "reliability", "kubernetes", "network"]):
+    if any(
+        k in pos
+        for k in ["devops", "cloud", "sre", "reliability", "kubernetes", "network"]
+    ):
         return "devops"
     if any(k in pos for k in ["mobile", "ios", "android", "flutter", "react native"]):
         return "mobile"
     if any(k in pos for k in ["security", "secops", "appsec", "cyber"]):
         return "security"
-    if any(k in pos for k in ["frontend", "front-end", "ui", "ux", "web client", "react", "vue"]):
+    if any(
+        k in pos
+        for k in ["frontend", "front-end", "ui", "ux", "web client", "react", "vue"]
+    ):
         return "frontend"
     if any(k in pos for k in ["full-stack", "fullstack", "full stack"]):
         return "fullstack"
-    if any(k in pos for k in ["backend", "back-end", "server", "distributed", "microservice", "api", "systems", "platform", "infrastructure", "database", "postgres"]):
+    if any(
+        k in pos
+        for k in [
+            "backend",
+            "back-end",
+            "server",
+            "distributed",
+            "microservice",
+            "api",
+            "systems",
+            "platform",
+            "infrastructure",
+            "database",
+            "postgres",
+        ]
+    ):
         return "backend"
     return "fullstack" if "engineer" in pos or "developer" in pos else "other"
 
@@ -658,18 +691,10 @@ async def get_role_alignment(
     Aggregates vocabulary translations, ATS keyword shifts, bullet-point reframings,
     and missing prerequisites across evaluated job dossiers grouped by role track.
     """
-    candidate_skills = set()
-    try:
-        cv_query = select(CandidateCVModel).where(CandidateCVModel.is_active).limit(1)
-        cv_res = await db.execute(cv_query)
-        cv = cv_res.scalar_one_or_none()
-        if cv and cv.extracted_skills:
-            candidate_skills = set(normalize_skills_list(cv.extracted_skills))
-    except Exception as exc:
-        logger.warning(f"Error fetching candidate CV for role alignment: {exc}")
-
     # Query applications with match_analysis_payload
-    query = select(ApplicationModel).where(ApplicationModel.match_analysis_payload.isnot(None))
+    query = select(ApplicationModel).where(
+        ApplicationModel.match_analysis_payload.isnot(None)
+    )
 
     if days is not None:
         cutoff = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=days)
@@ -692,7 +717,9 @@ async def get_role_alignment(
         c_cnt = track_counts[t_def["key"]]
         if c_cnt > 0 or total_all_jobs > 0:
             detected_tracks.append(
-                RoleTrackCluster(key=t_def["key"], label=t_def["label"], job_count=c_cnt)
+                RoleTrackCluster(
+                    key=t_def["key"], label=t_def["label"], job_count=c_cnt
+                )
             )
 
     selected_track_norm = (role_track or "all").strip().lower()
@@ -705,12 +732,16 @@ async def get_role_alignment(
         filtered_apps = all_apps
     elif selected_track_norm in known_keys:
         filtered_apps = [
-            app for app in all_apps if classify_position_to_track(app.position) == selected_track_norm
+            app
+            for app in all_apps
+            if classify_position_to_track(app.position) == selected_track_norm
         ]
     else:
         # Custom search query against position title
         filtered_apps = [
-            app for app in all_apps if app.position and selected_track_norm in app.position.lower()
+            app
+            for app in all_apps
+            if app.position and selected_track_norm in app.position.lower()
         ]
 
     total_analyzed = len(filtered_apps)
@@ -750,7 +781,9 @@ async def get_role_alignment(
                 continue
             cv_term = str(item.get("cv_term") or "").strip()
             jd_term = str(item.get("jd_term") or "").strip()
-            rationale = str(item.get("rationale") or item.get("replacement_guidance") or "").strip()
+            rationale = str(
+                item.get("rationale") or item.get("replacement_guidance") or ""
+            ).strip()
             if cv_term and jd_term:
                 vocab_groups[cv_term]["count"] += 1
                 vocab_groups[cv_term]["jd_terms"].append(jd_term)
@@ -762,7 +795,9 @@ async def get_role_alignment(
         for item in bullet_list:
             if not isinstance(item, dict):
                 continue
-            orig = str(item.get("original_bullet") or item.get("bullet_point") or "").strip()
+            orig = str(
+                item.get("original_bullet") or item.get("bullet_point") or ""
+            ).strip()
             sugg = str(item.get("suggested_rewrite") or "").strip()
             reason = str(item.get("reason") or "").strip()
             if orig and sugg:
@@ -772,12 +807,22 @@ async def get_role_alignment(
                     bullet_groups[orig]["reasons"].append(reason)
 
     # Format Vocabulary Shifts (Top 10 highest-impact consensus items)
-    sorted_vocab = sorted(vocab_groups.items(), key=lambda x: x[1]["count"], reverse=True)[:10]
+    sorted_vocab = sorted(
+        vocab_groups.items(), key=lambda x: x[1]["count"], reverse=True
+    )[:10]
     vocab_items = []
     for cv_t, data in sorted_vocab:
-        pct = round((data["count"] / total_analyzed * 100.0), 1) if total_analyzed > 0 else 0.0
+        pct = (
+            round((data["count"] / total_analyzed * 100.0), 1)
+            if total_analyzed > 0
+            else 0.0
+        )
         consensus_jd = compute_consensus_text(data["jd_terms"])
-        consensus_rationale = compute_consensus_text(data["rationales"]) if data["rationales"] else f"Aligns candidate experience with employer ATS standard for {consensus_jd}."
+        consensus_rationale = (
+            compute_consensus_text(data["rationales"])
+            if data["rationales"]
+            else f"Aligns candidate experience with employer ATS standard for {consensus_jd}."
+        )
         vocab_items.append(
             VocabularyShiftItem(
                 cv_term=cv_t,
@@ -789,11 +834,17 @@ async def get_role_alignment(
         )
 
     # Format Bullet Reframes (Top 10 highest-impact consensus items)
-    sorted_bullets = sorted(bullet_groups.items(), key=lambda x: x[1]["count"], reverse=True)[:10]
+    sorted_bullets = sorted(
+        bullet_groups.items(), key=lambda x: x[1]["count"], reverse=True
+    )[:10]
     bullet_items = []
     for orig_b, data in sorted_bullets:
         consensus_rewrite = compute_consensus_text(data["rewrites"])
-        consensus_reason = compute_consensus_text(data["reasons"]) if data["reasons"] else "Quantifies impact and aligns with role requirements."
+        consensus_reason = (
+            compute_consensus_text(data["reasons"])
+            if data["reasons"]
+            else "Quantifies impact and aligns with role requirements."
+        )
         bullet_items.append(
             BulletReframeItem(
                 original_bullet=orig_b,

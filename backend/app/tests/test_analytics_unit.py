@@ -106,21 +106,19 @@ async def test_get_role_alignment_unit():
                 {
                     "cv_term": "SQL database",
                     "jd_term": "PostgreSQL",
-                    "replacement_guidance": "Explicitly mention PostgreSQL."
+                    "replacement_guidance": "Explicitly mention PostgreSQL.",
                 }
             ],
             "impact_reframing": [
                 {
                     "bullet_point": "Engineered scalable services.",
                     "suggested_rewrite": "Architected microservices handling 20k req/sec.",
-                    "reason": "Quantifies throughput."
+                    "reason": "Quantifies throughput.",
                 }
-            ]
+            ],
         },
         "missing_skills": ["ISO 20022"],
-        "optimization_gaps": {
-            "missing_completely": ["eBPF"]
-        }
+        "optimization_gaps": {"missing_completely": ["eBPF"]},
     }
 
     app = ApplicationModel(
@@ -129,7 +127,7 @@ async def test_get_role_alignment_unit():
         position="Senior Backend Engineer",
         status="APPLIED",
         application_date=datetime.now(UTC),
-        match_analysis_payload=payload
+        match_analysis_payload=payload,
     )
 
     mock_app_res = MagicMock()

@@ -50,7 +50,8 @@ async def get_funnel_metrics(
 @router.get("/role-alignment", response_model=RoleAlignmentResponse)
 async def get_role_alignment_endpoint(
     role_track: str | None = Query(
-        "all", description="Role track key or search query (e.g., 'backend', 'fullstack')"
+        "all",
+        description="Role track key or search query (e.g., 'backend', 'fullstack')",
     ),
     days: int | None = Query(None, description="Timeframe filter in days"),
     db: AsyncSession = Depends(get_db),
