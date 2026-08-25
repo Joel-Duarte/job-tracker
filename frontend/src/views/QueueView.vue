@@ -29,6 +29,8 @@ import {
   RotateCcw,
   Edit3,
   Mail,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-vue-next'
 
 const router = useRouter()

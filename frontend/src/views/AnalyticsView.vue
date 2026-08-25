@@ -532,8 +532,8 @@ const maxCohortVolume = computed(() => {
                 </div>
               </div>
 
-              <!-- Native SVG Sankey Flow Diagram -->
-              <div v-if="sankeyData" class="sankey-container">
+              <!-- Native SVG Sankey Flow Diagram (Desktop >=768px) -->
+              <div v-if="sankeyData" class="sankey-container desktop-sankey">
                 <svg class="sankey-svg" viewBox="0 0 522 128">
                   <defs>
                     <linearGradient
@@ -620,6 +620,38 @@ const maxCohortVolume = computed(() => {
                     </g>
                   </g>
                 </svg>
+              </div>
+
+              <!-- Compact Vertical Mobile Funnel Flow (<768px) -->
+              <div v-if="sankeyData" class="mobile-funnel-stepper">
+                <div
+                  v-for="(node, idx) in sankeyData.nodes"
+                  :key="'mob-node-' + node.key"
+                  class="mobile-funnel-step"
+                >
+                  <div class="mobile-step-card" :style="{ borderLeftColor: node.color }">
+                    <div class="mobile-step-header">
+                      <span class="mobile-step-title">{{ node.label }}</span>
+                      <span class="mobile-step-count" :style="{ color: node.color }">
+                        {{ node.count }} {{ node.count === 1 ? 'app' : 'apps' }} ({{ node.rate }}%)
+                      </span>
+                    </div>
+
+                    <div class="mobile-step-bar">
+                      <div
+                        class="mobile-step-fill"
+                        :style="{ width: `${node.rate}%`, backgroundColor: node.color }"
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div v-if="idx < sankeyData.nodes.length - 1" class="mobile-step-arrow">
+                    <span class="arrow-down-icon">↓</span>
+                    <span v-if="sankeyData.dropoffs[idx]" class="drop-text text-danger">
+                      -{{ sankeyData.dropoffs[idx].count }} dropped
+                    </span>
+                  </div>
+                </div>
               </div>
 
               <!-- Work Model Distribution Widget -->
@@ -2169,6 +2201,75 @@ const maxCohortVolume = computed(() => {
   color: #f59e0b;
 }
 
+/* Mobile Funnel Stepper (<768px) */
+.mobile-funnel-stepper {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+}
+
+.mobile-step-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--primary);
+  border-radius: var(--radius-xs);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mobile-step-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mobile-step-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.mobile-step-count {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: monospace;
+}
+
+.mobile-step-bar {
+  height: 6px;
+  border-radius: 4px;
+  background-color: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.mobile-step-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width var(--transition-normal);
+}
+
+.mobile-step-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 2px 0;
+}
+
+.drop-text {
+  font-size: 10px;
+  font-weight: 700;
+}
+
 /* Responsive Breakpoints */
 @media (max-width: 1100px) {
   .kpi-banner-4 {
@@ -2181,6 +2282,73 @@ const maxCohortVolume = computed(() => {
 }
 
 @media (max-width: 767px) {
+  .desktop-sankey {
+    display: none !important;
+  }
+
+  .mobile-funnel-stepper {
+    display: flex;
+  }
+
+  .skill-row-compact {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .skill-name-col {
+    width: 100%;
+    max-width: 100%;
+    justify-content: space-between;
+  }
+
+  .skill-track-col {
+    width: 100%;
+  }
+
+  .skill-meta-col {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .salary-row-compact {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .salary-skill-text {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .salary-spectrum-container {
+    width: 100%;
+  }
+
+  .salary-range-label {
+    width: 100%;
+    text-align: left;
+    font-size: 12px;
+  }
+
+  .gap-row-compact {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .gap-left-col {
+    width: 100%;
+  }
+
+  .gap-right-col {
+    justify-content: space-between;
+    width: 100%;
+  }
   .page-container {
     padding: 16px 12px 80px;
   }

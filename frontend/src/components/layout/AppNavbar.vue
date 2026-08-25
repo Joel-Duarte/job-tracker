@@ -186,6 +186,16 @@ onUnmounted(() => {
 <template>
   <header class="navbar">
     <div class="nav-left">
+      <!-- Mobile Hamburger Menu Trigger (Far Left on Mobile) -->
+      <button
+        class="btn-icon mobile-menu-trigger"
+        @click="toggleMobileMenu"
+        title="Toggle navigation menu"
+      >
+        <Menu v-if="!isMobileMenuOpen" :size="20" />
+        <X v-else :size="20" />
+      </button>
+
       <router-link to="/" class="nav-brand" @click="uiStore.clearLastNonSettingsRoute()">
         <div class="brand-icon">
           <Sparkles :size="18" class="text-primary" />
@@ -390,16 +400,6 @@ onUnmounted(() => {
         <Settings :size="17" />
       </button>
 
-      <!-- Mobile Hamburger Menu Trigger -->
-      <button
-        class="btn-icon mobile-menu-trigger"
-        @click="toggleMobileMenu"
-        title="Toggle navigation menu"
-      >
-        <Menu v-if="!isMobileMenuOpen" :size="20" />
-        <X v-else :size="20" />
-      </button>
-
       <ThemePalettePopover />
     </div>
 
@@ -456,6 +456,19 @@ onUnmounted(() => {
               <span>Tasks</span>
               <span v-if="pendingTasksCount > 0" class="nav-badge">
                 {{ pendingTasksCount }}
+              </span>
+            </router-link>
+
+            <router-link
+              to="/queue"
+              class="mobile-nav-link"
+              :class="{ active: route.path === '/queue' }"
+              @click="closeMobileMenu(); uiStore.clearLastNonSettingsRoute()"
+            >
+              <Cpu :size="18" />
+              <span>Evaluation Queue</span>
+              <span v-if="queueStore.notificationCount > 0" class="nav-badge">
+                {{ queueStore.notificationCount }}
               </span>
             </router-link>
 
@@ -885,6 +898,10 @@ onUnmounted(() => {
 /* Mobile Drawer Responsive Styles */
 @media (max-width: 767px) {
   .nav-links {
+    display: none;
+  }
+
+  .nav-brand {
     display: none;
   }
 
