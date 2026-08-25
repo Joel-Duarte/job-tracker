@@ -418,6 +418,7 @@ Or paste multiple URLs separated by newlines to bulk add!"
 .modal-card {
   width: 100%;
   max-width: 640px;
+  max-height: 90vh;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -515,6 +516,8 @@ Or paste multiple URLs separated by newlines to bulk add!"
 
 .tab-content {
   padding: 20px 24px;
+  flex: 1;
+  overflow-y: auto;
 }
 
 .input-with-icon {
@@ -663,6 +666,90 @@ Or paste multiple URLs separated by newlines to bulk add!"
   padding: 16px 24px;
   border-top: 1px solid var(--border-color);
   background-color: var(--bg-surface);
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+}
+
+@media (max-width: 767px) {
+  .modal-backdrop {
+    padding: 0;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .modal-card {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    max-width: 100vw;
+    border-radius: 0;
+    border: none;
+  }
+
+  .modal-header {
+    padding: 14px 16px;
+  }
+
+  .btn-close {
+    min-width: 48px;
+    min-height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .modal-tabs {
+    overflow-x: auto;
+    white-space: nowrap;
+    padding: 0 8px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .modal-tab {
+    min-height: 48px;
+    padding: 12px 14px;
+    flex-shrink: 0;
+  }
+
+  .tab-content {
+    padding: 16px;
+  }
+
+  .form-textarea,
+  .form-textarea-top {
+    font-size: 16px;
+  }
+
+  .modal-footer {
+    padding: 12px 16px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+
+  .modal-footer .btn {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
+  }
+
+  .advisory-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .advisory-actions .btn {
+    min-height: 48px;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .endpoint-val .btn {
+    min-height: 44px;
+    padding: 8px 12px;
+  }
 }
 
 .input-with-icon-top {
