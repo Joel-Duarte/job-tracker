@@ -1027,6 +1027,55 @@ export async function handleDemoRequest(config) {
           frequency_count: 9,
           frequency_pct: 50.0,
           rationale: "Emphasizes production microservice API frameworks."
+        },
+        {
+          cv_term: "In-memory Cache",
+          jd_term: "Redis Cluster / Valkey",
+          frequency_count: 8,
+          frequency_pct: 44.4,
+          rationale: "Demonstrates distributed caching and session state scaling."
+        },
+        {
+          cv_term: "Container Deployment",
+          jd_term: "Docker / Kubernetes (k8s)",
+          frequency_count: 7,
+          frequency_pct: 38.9,
+          rationale: "Matches enterprise cloud container orchestration standards."
+        },
+        {
+          cv_term: "CI/CD Pipeline",
+          jd_term: "GitHub Actions / ArgoCD",
+          frequency_count: 6,
+          frequency_pct: 33.3,
+          rationale: "Reflects automated deployment and GitOps practices."
+        },
+        {
+          cv_term: "System Metrics",
+          jd_term: "Prometheus & Grafana",
+          frequency_count: 5,
+          frequency_pct: 27.8,
+          rationale: "Quantifies production telemetry and observability."
+        },
+        {
+          cv_term: "REST API",
+          jd_term: "gRPC & OpenAPI 3.0",
+          frequency_count: 4,
+          frequency_pct: 22.2,
+          rationale: "Highlights high-performance binary protocol experience."
+        },
+        {
+          cv_term: "NoSQL storage",
+          jd_term: "DynamoDB / Cassandra",
+          frequency_count: 4,
+          frequency_pct: 22.2,
+          rationale: "Demonstrates wide-column distributed key-value store expertise."
+        },
+        {
+          cv_term: "Tracing",
+          jd_term: "OpenTelemetry / Jaeger",
+          frequency_count: 3,
+          frequency_pct: 16.7,
+          rationale: "Presents distributed request tracing capabilities."
         }
       ],
       bullet_reframes: [
@@ -1041,12 +1090,25 @@ export async function handleDemoRequest(config) {
           suggested_rewrite: "Optimized PostgreSQL query execution plans and index partitioning, reducing p99 latency by 45%.",
           reason: "Highlights concrete performance optimization and database tuning outcome.",
           frequency_count: 8
+        },
+        {
+          original_bullet: "Built API endpoints for client applications.",
+          suggested_rewrite: "Designed asynchronous FastAPI and gRPC services handling over 5M daily API calls.",
+          reason: "Emphasizes async execution and modern protocol adoption.",
+          frequency_count: 7
+        },
+        {
+          original_bullet: "Set up CI/CD automation for releases.",
+          suggested_rewrite: "Streamlined deployment pipelines with GitHub Actions & ArgoCD, reducing release lead time from 3 days to 15 mins.",
+          reason: "Showcases measurable DevOps efficiency and GitOps automation.",
+          frequency_count: 6
+        },
+        {
+          original_bullet: "Handled system bugs and outages.",
+          suggested_rewrite: "Established Prometheus alert rules and OpenTelemetry tracing, reducing MTTR by 60% during critical incidents.",
+          reason: "Demonstrates proactive observability and incident management.",
+          frequency_count: 5
         }
-      ],
-      missing_prerequisites: [
-        { skill: "ISO 20022", job_count: 4, frequency_pct: 22.2 },
-        { skill: "eBPF", job_count: 3, frequency_pct: 16.7 },
-        { skill: "CRDTs", job_count: 2, frequency_pct: 11.1 }
       ]
     })
   }

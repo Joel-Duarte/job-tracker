@@ -148,4 +148,3 @@ async def test_get_role_alignment_unit():
     assert res.vocabulary_shifts[0].jd_term == "PostgreSQL"
     assert len(res.bullet_reframes) == 1
     assert res.bullet_reframes[0].original_bullet == "Engineered scalable services."
-    assert len(res.missing_prerequisites) == 2

@@ -125,14 +125,6 @@ class BulletReframeItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class MissingPrerequisiteItem(BaseModel):
-    skill: str
-    job_count: int
-    frequency_pct: float
-
-    model_config = ConfigDict(from_attributes=True)
-
-
 class RoleTrackCluster(BaseModel):
     key: str
     label: str
@@ -147,6 +139,5 @@ class RoleAlignmentResponse(BaseModel):
     total_analyzed_jobs: int
     vocabulary_shifts: list[VocabularyShiftItem]
     bullet_reframes: list[BulletReframeItem]
-    missing_prerequisites: list[MissingPrerequisiteItem]
 
     model_config = ConfigDict(from_attributes=True)

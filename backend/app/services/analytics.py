@@ -21,7 +21,6 @@ from app.schemas.analytics import (
     FunnelKpiCard,
     FunnelMetricsResponse,
     FunnelStageItem,
-    MissingPrerequisiteItem,
     RoleAlignmentResponse,
     RoleTrackCluster,
     SalaryInsightItem,
@@ -718,7 +717,6 @@ async def get_role_alignment(
     # Aggregations
     vocab_dict = defaultdict(lambda: {"count": 0, "rationale": ""})
     bullet_dict = defaultdict(lambda: {"count": 0, "reason": ""})
-    missing_prereqs_dict = defaultdict(set)  # skill -> set(app_id)
 
     for app in filtered_apps:
         payload = app.match_analysis_payload or {}
@@ -752,19 +750,6 @@ async def get_role_alignment(
                 if reason:
                     bullet_dict[key]["reason"] = reason
 
-        # 3. Missing Prerequisites
-        raw_missing = []
-        if isinstance(payload.get("missing_skills"), list):
-            raw_missing.extend(payload["missing_skills"])
-        opt_gaps = payload.get("optimization_gaps") or {}
-        if isinstance(opt_gaps.get("missing_completely"), list):
-            raw_missing.extend(opt_gaps["missing_completely"])
-
-        for skill in raw_missing:
-            norm_s = normalize_skill(str(skill))
-            if norm_s and norm_s not in candidate_skills:
-                missing_prereqs_dict[norm_s].add(app.id)
-
     # Format Vocabulary Shifts
     vocab_items = []
     for (cv_t, jd_t), data in sorted(vocab_dict.items(), key=lambda x: x[1]["count"], reverse=True):
@@ -791,24 +776,10 @@ async def get_role_alignment(
             )
         )
 
-    # Format Missing Prerequisites
-    missing_items = []
-    for skill, app_ids in sorted(missing_prereqs_dict.items(), key=lambda x: len(x[1]), reverse=True):
-        cnt = len(app_ids)
-        pct = round((cnt / total_analyzed * 100.0), 1) if total_analyzed > 0 else 0.0
-        missing_items.append(
-            MissingPrerequisiteItem(
-                skill=skill,
-                job_count=cnt,
-                frequency_pct=pct,
-            )
-        )
-
     return RoleAlignmentResponse(
         detected_tracks=detected_tracks,
         selected_track=selected_track_norm,
         total_analyzed_jobs=total_analyzed,
         vocabulary_shifts=vocab_items,
         bullet_reframes=bullet_items,
-        missing_prerequisites=missing_items,
     )

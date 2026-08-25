@@ -43,6 +43,7 @@ const activeTab = ref('market')
 // Role Alignment State & Filters
 const loadingAlignment = ref(true)
 const alignmentData = ref(null)
+const alignmentSubTab = ref('vocab') // 'vocab' | 'bullet'
 const selectedTrackKey = ref('all')
 const customSearchQuery = ref('')
 const copiedItemKey = ref(null)
@@ -1135,7 +1136,7 @@ const maxCohortVolume = computed(() => {
         <div class="tab-sub-header">
           <div class="sub-header-left">
             <h2 class="sub-header-title">Role Alignment &amp; Vocabulary Tuning Studio</h2>
-            <p class="sub-header-desc">Aggregate ATS terminology shifts, high-impact bullet reframings, and role-track skill density from evaluated job dossiers.</p>
+            <p class="sub-header-desc">Aggregate ATS terminology shifts and high-impact bullet reframings from evaluated job dossiers.</p>
           </div>
           <div class="sub-header-right">
             <div class="search-input-wrapper">
@@ -1172,26 +1173,45 @@ const maxCohortVolume = computed(() => {
         </div>
 
         <div v-else-if="alignmentData" class="dashboard-layout">
-          <!-- Bento Grid Layout for Role Alignment -->
-          <div class="bento-grid alignment-bento-grid">
-            <!-- Bento 1: High-Impact Vocabulary Shifts Table -->
-            <div class="bento-card full-width-bento">
-              <div class="card-header">
-                <div class="header-left">
-                  <div class="card-title-row">
-                    <h3 class="card-title">🔄 High-Impact Vocabulary Shifts</h3>
-                    <span class="badge-count">{{ alignmentData.vocabulary_shifts.length }} shifts</span>
-                  </div>
-                  <p class="card-desc">Translate your candidate CV terminology to employer ATS standards</p>
+          <!-- Combined Single Full-Width Bento Card -->
+          <div class="bento-card full-width-bento">
+            <!-- Studio Tab Switcher Header (Left & Right aligned) -->
+            <div class="alignment-studio-header">
+              <button
+                type="button"
+                class="studio-tab-btn studio-tab-left"
+                :class="{ active: alignmentSubTab === 'vocab' }"
+                @click="alignmentSubTab = 'vocab'"
+              >
+                <div class="studio-tab-title-row">
+                  <span class="studio-tab-title">🔄 High-Impact Vocabulary Shifts</span>
+                  <span class="badge-count">{{ alignmentData.vocabulary_shifts.length }} shifts</span>
                 </div>
-              </div>
+                <span class="studio-tab-sub">Translate CV terminology to employer ATS standards</span>
+              </button>
 
+              <button
+                type="button"
+                class="studio-tab-btn studio-tab-right"
+                :class="{ active: alignmentSubTab === 'bullet' }"
+                @click="alignmentSubTab = 'bullet'"
+              >
+                <div class="studio-tab-title-row">
+                  <span class="studio-tab-title">⚡ Bullet-Point Reframing Studio</span>
+                  <span class="badge-count">{{ alignmentData.bullet_reframes.length }} reframes</span>
+                </div>
+                <span class="studio-tab-sub">Upgrade CV impact bullets with metric anchors</span>
+              </button>
+            </div>
+
+            <!-- TAB CONTENT 1: High-Impact Vocabulary Shifts -->
+            <div v-if="alignmentSubTab === 'vocab'" class="studio-content-pane">
               <div v-if="alignmentData.vocabulary_shifts.length === 0" class="empty-state">
                 <FileEdit :size="24" class="text-muted" />
                 <span>No vocabulary translation shifts detected for this role track.</span>
               </div>
 
-              <div v-else class="table-responsive">
+              <div v-else class="scrollable-studio-container">
                 <table class="data-table vocab-table">
                   <thead>
                     <tr>
@@ -1241,24 +1261,14 @@ const maxCohortVolume = computed(() => {
               </div>
             </div>
 
-            <!-- Bento 2: Bullet-Point Reframing Studio -->
-            <div class="bento-card">
-              <div class="card-header">
-                <div class="header-left">
-                  <div class="card-title-row">
-                    <h3 class="card-title">⚡ Bullet-Point Reframing Studio</h3>
-                    <span class="badge-count">{{ alignmentData.bullet_reframes.length }} reframes</span>
-                  </div>
-                  <p class="card-desc">Upgrade CV impact bullets with metric anchors &amp; ATS keywords</p>
-                </div>
-              </div>
-
+            <!-- TAB CONTENT 2: Bullet-Point Reframing Studio -->
+            <div v-else-if="alignmentSubTab === 'bullet'" class="studio-content-pane">
               <div v-if="alignmentData.bullet_reframes.length === 0" class="empty-state">
                 <Zap :size="24" class="text-muted" />
                 <span>No bullet reframes available for this role track.</span>
               </div>
 
-              <div v-else class="bullet-deck-container">
+              <div v-else class="scrollable-studio-container bullet-deck-container">
                 <div
                   v-for="(bullet, idx) in alignmentData.bullet_reframes"
                   :key="'bullet-' + idx"
@@ -1293,44 +1303,6 @@ const maxCohortVolume = computed(() => {
                       <component :is="copiedItemKey === 'bullet-' + idx ? Check : Copy" :size="13" />
                       <span>{{ copiedItemKey === 'bullet-' + idx ? 'Copied Tuned Bullet' : 'Copy Tuned Bullet' }}</span>
                     </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Bento 3: Role Track Skill Density & Missing Prerequisites -->
-            <div class="bento-card">
-              <div class="card-header">
-                <div class="header-left">
-                  <div class="card-title-row">
-                    <h3 class="card-title">📋 Missing Prerequisites Checklist</h3>
-                    <span class="badge-count">{{ alignmentData.missing_prerequisites.length }} missing</span>
-                  </div>
-                  <p class="card-desc">High-frequency requirements in this track missing from your active CV</p>
-                </div>
-              </div>
-
-              <div v-if="alignmentData.missing_prerequisites.length === 0" class="empty-state">
-                <CheckCircle2 :size="24" class="text-primary" />
-                <span>No missing skill prerequisites detected for this role track!</span>
-              </div>
-
-              <div v-else class="compact-list-container">
-                <div
-                  v-for="(item, idx) in alignmentData.missing_prerequisites"
-                  :key="'missing-' + idx"
-                  class="prereq-row-compact"
-                >
-                  <div class="prereq-left">
-                    <ShieldAlert :size="14" class="text-amber" />
-                    <span class="prereq-skill-name">{{ item.skill }}</span>
-                  </div>
-
-                  <div class="prereq-right">
-                    <div class="prereq-bar-wrap">
-                      <div class="prereq-bar-fill" :style="{ width: `${item.frequency_pct}%` }"></div>
-                    </div>
-                    <span class="prereq-pct-badge">{{ item.job_count }} jobs ({{ item.frequency_pct }}%)</span>
                   </div>
                 </div>
               </div>
@@ -2450,6 +2422,83 @@ const maxCohortVolume = computed(() => {
 
 .text-amber {
   color: #f59e0b;
+}
+
+/* Role Alignment Studio Toggle Header */
+.alignment-studio-header {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+}
+
+.studio-tab-btn {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  padding: 10px 14px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: all var(--transition-fast);
+}
+
+.studio-tab-left {
+  align-items: flex-start;
+}
+
+.studio-tab-right {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.studio-tab-btn:hover {
+  border-color: var(--border-focus);
+}
+
+.studio-tab-btn.active {
+  background-color: var(--primary-subtle, rgba(45, 212, 191, 0.12));
+  border-color: var(--primary);
+}
+
+.studio-tab-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.studio-tab-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.studio-tab-btn.active .studio-tab-title {
+  color: var(--primary);
+}
+
+.studio-tab-sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.scrollable-studio-container {
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.scrollable-studio-container::-webkit-scrollbar {
+  width: 5px;
+}
+
+.scrollable-studio-container::-webkit-scrollbar-thumb {
+  background-color: var(--border-color);
+  border-radius: 4px;
 }
 
 /* Role Alignment & CV Tuning Tab Styles */
