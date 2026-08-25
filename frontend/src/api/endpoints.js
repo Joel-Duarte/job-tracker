@@ -138,6 +138,7 @@ export const AnalyticsAPI = {
   getOverview: (params = {}) => apiClient.get('/analytics/overview', { params }),
   getWorkModelBreakdown: () => apiClient.get('/analytics/work-model-breakdown'),
   getFunnelMetrics: (params = {}) => apiClient.get('/analytics/funnel', { params }),
+  getRoleAlignment: (params = {}) => apiClient.get('/analytics/role-alignment', { params }),
 }
 
 export const InterviewSimulatorAPI = {

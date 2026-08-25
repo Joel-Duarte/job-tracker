@@ -993,6 +993,64 @@ export async function handleDemoRequest(config) {
     })
   }
 
+  if (urlPath === '/analytics/role-alignment' && method === 'get') {
+    const selectedTrack = params.role_track || 'all'
+    const totalJobs = (db.applications || []).length || 25
+    return ok({
+      detected_tracks: [
+        { key: "all", label: "All Tracks", job_count: totalJobs },
+        { key: "backend", label: "Backend Engineering", job_count: 18 },
+        { key: "fullstack", label: "Full-Stack Engineering", job_count: 12 },
+        { key: "data_ai", label: "AI & Data Engineering", job_count: 6 },
+        { key: "devops", label: "DevOps & Cloud SRE", job_count: 4 },
+      ],
+      selected_track: selectedTrack,
+      total_analyzed_jobs: selectedTrack === 'backend' ? 18 : totalJobs,
+      vocabulary_shifts: [
+        {
+          cv_term: "SQL database",
+          jd_term: "PostgreSQL",
+          frequency_count: 14,
+          frequency_pct: 77.8,
+          rationale: "Aligns candidate relational database experience with employer ATS standard."
+        },
+        {
+          cv_term: "Message Queue",
+          jd_term: "Apache Kafka",
+          frequency_count: 11,
+          frequency_pct: 61.1,
+          rationale: "Explicitly highlights event-driven streaming architecture competencies."
+        },
+        {
+          cv_term: "Python scripts",
+          jd_term: "FastAPI Async Services",
+          frequency_count: 9,
+          frequency_pct: 50.0,
+          rationale: "Emphasizes production microservice API frameworks."
+        }
+      ],
+      bullet_reframes: [
+        {
+          original_bullet: "Engineered scalable services for CloudTech.",
+          suggested_rewrite: "Architected high-throughput microservices for CloudTech handling 20,000 req/sec with 99.99% reliability.",
+          reason: "Quantifies throughput metrics and aligns with senior backend requirements.",
+          frequency_count: 12
+        },
+        {
+          original_bullet: "Managed database queries and performance.",
+          suggested_rewrite: "Optimized PostgreSQL query execution plans and index partitioning, reducing p99 latency by 45%.",
+          reason: "Highlights concrete performance optimization and database tuning outcome.",
+          frequency_count: 8
+        }
+      ],
+      missing_prerequisites: [
+        { skill: "ISO 20022", job_count: 4, frequency_pct: 22.2 },
+        { skill: "eBPF", job_count: 3, frequency_pct: 16.7 },
+        { skill: "CRDTs", job_count: 2, frequency_pct: 11.1 }
+      ]
+    })
+  }
+
   if (urlPath === '/analytics/funnel' && method === 'get') {
     const period = params.period || 'weekly'
     return ok({

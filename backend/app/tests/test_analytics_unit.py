@@ -89,3 +89,63 @@ async def test_get_funnel_performance_metrics_unit():
     assert len(result.table_data) == 4
     assert "intakes" in result.summary_kpis
     assert result.summary_kpis["intakes"].value == 0
+
+
+@pytest.mark.asyncio
+async def test_get_role_alignment_unit():
+    mock_db = AsyncMock()
+
+    # CV query
+    mock_cv_res = MagicMock()
+    mock_cv_res.scalar_one_or_none.return_value = None
+
+    # Application with match_analysis_payload
+    payload = {
+        "tailoring_strategy": {
+            "vocabulary_translation": [
+                {
+                    "cv_term": "SQL database",
+                    "jd_term": "PostgreSQL",
+                    "replacement_guidance": "Explicitly mention PostgreSQL."
+                }
+            ],
+            "impact_reframing": [
+                {
+                    "bullet_point": "Engineered scalable services.",
+                    "suggested_rewrite": "Architected microservices handling 20k req/sec.",
+                    "reason": "Quantifies throughput."
+                }
+            ]
+        },
+        "missing_skills": ["ISO 20022"],
+        "optimization_gaps": {
+            "missing_completely": ["eBPF"]
+        }
+    }
+
+    app = ApplicationModel(
+        id=1,
+        company_id=1,
+        position="Senior Backend Engineer",
+        status="APPLIED",
+        application_date=datetime.now(UTC),
+        match_analysis_payload=payload
+    )
+
+    mock_app_res = MagicMock()
+    mock_app_res.scalars.return_value.all.return_value = [app]
+
+    mock_db.execute.side_effect = [mock_cv_res, mock_app_res]
+
+    from app.services.analytics import get_role_alignment
+
+    res = await get_role_alignment(mock_db, role_track="backend")
+
+    assert res.selected_track == "backend"
+    assert res.total_analyzed_jobs == 1
+    assert len(res.vocabulary_shifts) == 1
+    assert res.vocabulary_shifts[0].cv_term == "SQL database"
+    assert res.vocabulary_shifts[0].jd_term == "PostgreSQL"
+    assert len(res.bullet_reframes) == 1
+    assert res.bullet_reframes[0].original_bullet == "Engineered scalable services."
+    assert len(res.missing_prerequisites) == 2

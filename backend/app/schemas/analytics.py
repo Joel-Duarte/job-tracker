@@ -104,3 +104,49 @@ class FunnelMetricsResponse(BaseModel):
     table_data: list[FunnelCohortPeriod]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class VocabularyShiftItem(BaseModel):
+    cv_term: str
+    jd_term: str
+    frequency_count: int
+    frequency_pct: float
+    rationale: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BulletReframeItem(BaseModel):
+    original_bullet: str
+    suggested_rewrite: str
+    reason: str
+    frequency_count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MissingPrerequisiteItem(BaseModel):
+    skill: str
+    job_count: int
+    frequency_pct: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RoleTrackCluster(BaseModel):
+    key: str
+    label: str
+    job_count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RoleAlignmentResponse(BaseModel):
+    detected_tracks: list[RoleTrackCluster]
+    selected_track: str
+    total_analyzed_jobs: int
+    vocabulary_shifts: list[VocabularyShiftItem]
+    bullet_reframes: list[BulletReframeItem]
+    missing_prerequisites: list[MissingPrerequisiteItem]
+
+    model_config = ConfigDict(from_attributes=True)
