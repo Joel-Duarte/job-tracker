@@ -5276,4 +5276,123 @@ input:checked + .slider:before {
   color: var(--text-secondary);
   line-height: 1.4;
 }
+
+/* RESPONSIVE ADAPTATIONS */
+@media (max-width: 767px) {
+  .page-container {
+    padding: 16px 12px 60px;
+  }
+
+  .tab-bar {
+    overflow-x: auto;
+    white-space: nowrap;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    width: 100%;
+    max-width: 100vw;
+    padding: 4px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .tab-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab-pill {
+    flex-shrink: 0;
+    min-height: 40px;
+    padding: 8px 12px;
+  }
+
+  .global-hero-card {
+    padding: 16px 12px;
+  }
+
+  .global-hero-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .studio-task-header {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 14px 12px;
+    gap: 12px;
+  }
+
+  .form-grid-2, .form-grid-3 {
+    grid-template-columns: 1fr;
+  }
+
+  .reasoning-pills {
+    overflow-x: auto;
+    white-space: nowrap;
+    justify-content: flex-start;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding: 2px;
+  }
+
+  .reasoning-pills::-webkit-scrollbar {
+    display: none;
+  }
+
+  .reasoning-pill {
+    flex-shrink: 0;
+    min-width: 68px;
+    padding: 0 8px;
+  }
+
+  .providers-grid, .accounts-grid, .preferences-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .section-header-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .section-header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .modal-card, .modal-card.modal-lg {
+    max-width: 95vw;
+    width: 95vw;
+    max-height: 90dvh;
+    overflow-y: auto;
+  }
+
+  .stepper-track {
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .stepper-item {
+    flex-shrink: 0;
+  }
+
+  .switch-toggle {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .form-input, select.form-input {
+    font-size: 16px; /* Prevents auto-zoom on iOS */
+    min-height: 44px;
+  }
+
+  .btn {
+    min-height: 44px;
+  }
+
+  .btn-sm, .btn-xs {
+    min-height: 38px;
+  }
+}
 </style>
