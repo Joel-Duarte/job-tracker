@@ -866,6 +866,105 @@ onUnmounted(() => {
   padding: 12px 20px;
   background-color: var(--bg-sidebar);
   border-top: 1px solid var(--border-color);
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+}
+
+@media (max-width: 767px) {
+  .cover-letter-modal-backdrop {
+    padding: 0;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .cover-letter-modal-box {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    max-width: 100vw;
+    border-radius: 0;
+    border: none;
+  }
+
+  .modal-header {
+    padding: 14px 16px;
+  }
+
+  .btn-close {
+    min-width: 48px;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .options-header-btn {
+    min-height: 48px;
+    padding: 12px 14px;
+  }
+
+  .options-header-left {
+    flex-wrap: wrap;
+  }
+
+  .form-select,
+  .form-input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .btn-generate-new {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
+  }
+
+  .editor-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .mode-toggle-group {
+    width: 100%;
+  }
+
+  .mode-btn {
+    flex: 1;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .toolbar-actions {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  .toolbar-actions .btn {
+    min-height: 44px;
+    padding: 8px 12px;
+    flex: 1;
+    justify-content: center;
+  }
+
+  .cl-textarea {
+    font-size: 16px;
+  }
+
+  .modal-footer {
+    padding: 12px 16px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .modal-footer .btn {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
+  }
 }
 
 .fade-enter-active,

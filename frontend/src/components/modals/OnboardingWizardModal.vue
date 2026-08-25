@@ -2559,6 +2559,12 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
   align-items: center;
   justify-content: space-between;
   margin-top: 20px;
+  position: sticky;
+  bottom: 0;
+  background-color: var(--bg-surface);
+  padding-top: 12px;
+  padding-bottom: 4px;
+  z-index: 10;
 }
 
 .ready-footer-actions {
@@ -2566,6 +2572,119 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
   align-items: center;
   justify-content: flex-end;
   margin-top: 24px;
+  position: sticky;
+  bottom: 0;
+  background-color: var(--bg-surface);
+  padding-top: 12px;
+  padding-bottom: 4px;
+  z-index: 10;
+}
+
+@media (max-width: 767px) {
+  .modal-backdrop {
+    padding: 0;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .wizard-modal-card {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    max-width: 100vw;
+    border-radius: 0;
+    border: none;
+  }
+
+  .wizard-header {
+    padding: 14px 16px;
+  }
+
+  .btn-close {
+    min-width: 48px;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .wizard-stepper-bar {
+    overflow-x: auto;
+    padding: 10px 14px;
+    gap: 4px;
+  }
+
+  .step-item {
+    min-height: 44px;
+    flex-shrink: 0;
+  }
+
+  .step-label {
+    display: none;
+  }
+
+  .step-item.active .step-label {
+    display: inline;
+    font-size: 11px;
+  }
+
+  .step-connector {
+    margin: 0 4px;
+  }
+
+  .wizard-body {
+    padding: 16px;
+    max-height: none;
+    flex: 1;
+  }
+
+  .form-input,
+  .form-textarea,
+  .form-select,
+  select.form-input {
+    font-size: 16px;
+    min-height: 44px;
+  }
+
+  .btn {
+    min-height: 48px;
+  }
+
+  .preset-card,
+  .selection-card,
+  .email-provider-card,
+  .auth-toggle-btn {
+    min-height: 48px;
+  }
+
+  .wizard-footer-actions {
+    flex-direction: column-reverse;
+    gap: 10px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .wizard-footer-actions .btn,
+  .wizard-footer-actions .flex {
+    width: 100%;
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+
+  .wizard-footer-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .ready-footer-actions {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .ready-footer-actions .btn {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
+  }
 }
 
 .cv-toolbar {
