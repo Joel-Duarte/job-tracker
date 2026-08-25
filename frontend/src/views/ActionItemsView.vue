@@ -1270,4 +1270,121 @@ onUnmounted(() => {
 .fade-enter-from, .fade-leave-to {
   opacity: 0;
 }
+
+/* RESPONSIVE DESIGN (< 768px Mobile & Tablet) */
+@media (max-width: 1023px) {
+  .tasks-page {
+    padding: 16px 12px 60px;
+  }
+
+  .metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .tasks-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .search-box {
+    width: 100%;
+  }
+
+  .urgency-chips {
+    width: 100%;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+  }
+
+  .urgency-filter-pill {
+    min-height: var(--min-touch-target, 44px);
+    padding: 8px 14px;
+    flex-shrink: 0;
+  }
+
+  .sort-wrapper {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .sort-select {
+    flex: 1;
+    height: 44px;
+  }
+}
+
+@media (max-width: 767px) {
+  .metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .metric-card {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .task-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .checkbox-btn {
+    min-width: var(--min-touch-target, 44px);
+    min-height: var(--min-touch-target, 44px);
+
+  }
+
+  .task-main {
+    width: 100%;
+  }
+
+  .task-title-line {
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+
+  .task-actions {
+    width: 100%;
+    justify-content: flex-end;
+    border-top: 1px dashed var(--border-color);
+    padding-top: 8px;
+  }
+
+  .btn-icon {
+    min-width: var(--min-touch-target, 44px);
+    min-height: var(--min-touch-target, 44px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .modal-card {
+    width: 100vw;
+    height: 100vh;
+    max-height: 100dvh;
+    border-radius: 0;
+    margin: 0;
+  }
+
+  .modal-body {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .modal-footer {
+    position: sticky;
+    bottom: 0;
+  }
+
+  .form-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
