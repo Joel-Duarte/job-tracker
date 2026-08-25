@@ -48,8 +48,8 @@ class ApplicationListItem(BaseModel):
     scheduled_interview_at: datetime | None = None
     location: str | None = None
     work_model: str | None = None
-    salary_min: int | None = None
-    salary_max: int | None = None
+    salary_min: float | None = None
+    salary_max: float | None = None
     currency: str | None = "USD"
 
     model_config = ConfigDict(from_attributes=True)
@@ -61,8 +61,8 @@ class JobPostingDetail(BaseModel):
     description_markdown: str | None = None
     location: str | None = None
     work_model: str | None = None
-    salary_min: int | None = None
-    salary_max: int | None = None
+    salary_min: float | None = None
+    salary_max: float | None = None
     currency: str | None = "USD"
     required_skills: list[str] | None = []
     source_url: str | None = None

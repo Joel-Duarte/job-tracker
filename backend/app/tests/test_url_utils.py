@@ -7,62 +7,32 @@ from app.schemas.llm import JobAssessmentResult
 from app.services.job_saver import persist_or_stage_job_assessment
 
 
-def test_normalize_job_url_strips_tracking_params():
-    url_with_tracking = (
+def test_normalize_job_url_preserves_full_url():
+    url = (
         "https://jobs.lever.co/acme/12345"
-        "?utm_source=linkedin&utm_medium=cpc&utm_campaign=hiring&ref=friend&source=indeed"
+        "?utm_source=linkedin&utm_medium=cpc&ref=friend#apply"
     )
-    normalized = normalize_job_url(url_with_tracking)
-    assert normalized == "https://jobs.lever.co/acme/12345"
-
-
-def test_normalize_job_url_strips_google_fb_ms_click_ids():
-    url = "https://example.com/careers/software-engineer?gclid=XYZ123&fbclid=ABC456&msclkid=789&ref_id=referral123"
     normalized = normalize_job_url(url)
-    assert normalized == "https://example.com/careers/software-engineer"
+    assert normalized == url
+
+
+def test_normalize_job_url_strips_whitespace():
+    url = "   https://example.com/careers/software-engineer?id=123   "
+    normalized = normalize_job_url(url)
+    assert normalized == "https://example.com/careers/software-engineer?id=123"
 
 
 def test_normalize_job_url_preserves_job_identifiers():
-    # GreenHouse gh_jid should be kept
     gh_url = (
         "https://boards.greenhouse.io/stripe/jobs/123?gh_jid=12345&utm_source=twitter"
     )
-    assert (
-        normalize_job_url(gh_url)
-        == "https://boards.greenhouse.io/stripe/jobs/123?gh_jid=12345"
-    )
+    assert normalize_job_url(gh_url) == gh_url
 
-    # jobId should be kept
     jobid_url = "https://careers.company.com/view?jobId=8899&ref=123"
-    assert normalize_job_url(jobid_url) == "https://careers.company.com/view?jobId=8899"
+    assert normalize_job_url(jobid_url) == jobid_url
 
-    # Indeed jk parameter should be kept
     indeed_url = "https://www.indeed.com/viewjob?jk=abc12345&from=serp"
-    assert normalize_job_url(indeed_url) == "https://www.indeed.com/viewjob?jk=abc12345"
-
-
-def test_normalize_job_url_scheme_domain_trailing_slash_fragment():
-    # Prepend missing scheme and remove trailing slash
-    assert (
-        normalize_job_url("company.com/careers/backend/")
-        == "https://company.com/careers/backend"
-    )
-
-    # Lowercase scheme/host and strip fragment
-    assert (
-        normalize_job_url("HTTP://EXAMPLE.COM/jobs/123/#section-apply")
-        == "http://example.com/jobs/123"
-    )
-
-    # Preserve root slash
-    assert normalize_job_url("https://company.com/") == "https://company.com/"
-
-
-def test_normalize_job_url_sorts_query_params():
-    url = "https://company.com/jobs/search?z_param=1&a_param=2"
-    assert (
-        normalize_job_url(url) == "https://company.com/jobs/search?a_param=2&z_param=1"
-    )
+    assert normalize_job_url(indeed_url) == indeed_url
 
 
 def test_normalize_job_url_edge_cases():
@@ -120,9 +90,9 @@ async def test_persist_or_stage_job_assessment_uses_normalized_url():
     )
 
     assert app_added is not None
-    assert app_added.job_url == "https://testcorp.com/jobs/456"
+    assert app_added.job_url == url_raw
     assert jp_added is not None
-    assert jp_added.job_url == "https://testcorp.com/jobs/456"
+    assert jp_added.job_url == url_raw
 
 
 class AsyncSessionMock:

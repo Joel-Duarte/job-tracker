@@ -82,7 +82,7 @@ async def list_applications(
         "last_activity_at", pattern="^(last_activity_at|application_date|created_at)$"
     ),
     order: str = Query("desc", pattern="^(asc|desc)$"),
-    limit: int = Query(50, ge=1, le=500),
+    limit: int = Query(500, ge=1, le=2000),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
