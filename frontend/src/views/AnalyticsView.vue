@@ -23,6 +23,13 @@ import {
   Filter,
   PieChart,
   Banknote,
+  FileEdit,
+  Copy,
+  Check,
+  Search,
+  ArrowRight,
+  ShieldAlert,
+  Zap,
 } from 'lucide-vue-next'
 import { useUIStore } from '../stores/uiStore'
 import { getCurrencySymbol } from '../utils/formatters'
@@ -30,8 +37,16 @@ import PageHeader from '../components/common/PageHeader.vue'
 
 const uiStore = useUIStore()
 
-// Active Tab: 'market' | 'funnel'
+// Active Tab: 'market' | 'funnel' | 'alignment'
 const activeTab = ref('market')
+
+// Role Alignment State & Filters
+const loadingAlignment = ref(true)
+const alignmentData = ref(null)
+const alignmentSubTab = ref('vocab') // 'vocab' | 'bullet'
+const selectedTrackKey = ref('all')
+const customSearchQuery = ref('')
+const copiedItemKey = ref(null)
 
 // Market Intelligence State & Filters
 const loadingMarket = ref(true)
@@ -130,12 +145,70 @@ async function fetchFunnelMetrics() {
   }
 }
 
+async function fetchRoleAlignment() {
+  loadingAlignment.value = true
+  try {
+    const trackParam = customSearchQuery.value.trim() || selectedTrackKey.value
+    const params = { role_track: trackParam }
+    if (filters.value.days) params.days = filters.value.days
+
+    const res = await AnalyticsAPI.getRoleAlignment(params)
+    alignmentData.value = res.data
+  } catch (err) {
+    uiStore.showToast('Failed to load role alignment analytics', 'error')
+    console.error(err)
+    if (!alignmentData.value) {
+      alignmentData.value = {
+        detected_tracks: [
+          { key: 'all', label: 'All Tracks', job_count: 0 },
+          { key: 'backend', label: 'Backend Engineering', job_count: 0 },
+        ],
+        selected_track: selectedTrackKey.value,
+        total_analyzed_jobs: 0,
+        vocabulary_shifts: [],
+        bullet_reframes: [],
+        missing_prerequisites: [],
+      }
+    }
+  } finally {
+    loadingAlignment.value = false
+  }
+}
+
+function selectTrack(trackKey) {
+  selectedTrackKey.value = trackKey
+  customSearchQuery.value = ''
+  fetchRoleAlignment()
+}
+
+function handleSearchInput() {
+  if (customSearchQuery.value.trim()) {
+    selectedTrackKey.value = ''
+  } else if (!selectedTrackKey.value) {
+    selectedTrackKey.value = 'all'
+  }
+  fetchRoleAlignment()
+}
+
+function copyToClipboard(text, key) {
+  navigator.clipboard.writeText(text)
+  copiedItemKey.value = key
+  uiStore.showToast('Copied to clipboard!', 'success')
+  setTimeout(() => {
+    if (copiedItemKey.value === key) {
+      copiedItemKey.value = null
+    }
+  }, 2000)
+}
+
 function switchTab(tab) {
   activeTab.value = tab
   if (tab === 'market' && !analyticsData.value) {
     fetchAnalytics()
   } else if (tab === 'funnel' && !funnelData.value) {
     fetchFunnelMetrics()
+  } else if (tab === 'alignment' && !alignmentData.value) {
+    fetchRoleAlignment()
   }
 }
 
@@ -377,6 +450,15 @@ const maxCohortVolume = computed(() => {
           >
             <TrendingUp :size="15" />
             <span>Pipeline Funnel Performance</span>
+          </button>
+          <button
+            type="button"
+            class="tab-btn"
+            :class="{ active: activeTab === 'alignment' }"
+            @click="switchTab('alignment')"
+          >
+            <FileEdit :size="15" />
+            <span>Role Alignment &amp; CV Tuning</span>
           </button>
         </div>
       </template>
@@ -1075,6 +1157,187 @@ const maxCohortVolume = computed(() => {
                   </tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: ROLE ALIGNMENT & CV TUNING -->
+      <div v-else-if="activeTab === 'alignment'">
+        <!-- Sub-Header Area -->
+        <div class="tab-sub-header">
+          <div class="sub-header-left">
+            <h2 class="sub-header-title">Role Alignment &amp; Vocabulary Tuning Studio</h2>
+            <p class="sub-header-desc">Aggregate ATS terminology shifts and high-impact bullet reframings from evaluated job dossiers.</p>
+          </div>
+          <div class="sub-header-right">
+            <div class="search-input-wrapper">
+              <Search :size="14" class="search-icon" />
+              <input
+                type="text"
+                v-model="customSearchQuery"
+                placeholder="Filter position title..."
+                class="track-search-input"
+                @input="handleSearchInput"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Interactive Track Selector Bar -->
+        <div v-if="alignmentData && alignmentData.detected_tracks.length > 0" class="track-selector-bar">
+          <button
+            v-for="track in alignmentData.detected_tracks"
+            :key="track.key"
+            type="button"
+            class="track-pill"
+            :class="{ active: selectedTrackKey === track.key && !customSearchQuery.trim() }"
+            @click="selectTrack(track.key)"
+          >
+            <span class="track-label">{{ track.label }}</span>
+            <span class="track-count-badge">{{ track.job_count }}</span>
+          </button>
+        </div>
+
+        <div v-if="loadingAlignment && !alignmentData" class="loading-state">
+          <RefreshCw class="spin text-primary" :size="32" />
+          <p>Analyzing role alignment and vocabulary shifts...</p>
+        </div>
+
+        <div v-else-if="alignmentData" class="dashboard-layout">
+          <!-- Combined Single Full-Width Bento Card -->
+          <div class="bento-card full-width-bento">
+            <!-- Studio Tab Switcher Header (Left & Right aligned) -->
+            <div class="alignment-studio-header">
+              <button
+                type="button"
+                class="studio-tab-btn studio-tab-left"
+                :class="{ active: alignmentSubTab === 'vocab' }"
+                @click="alignmentSubTab = 'vocab'"
+              >
+                <div class="studio-tab-title-row">
+                  <span class="studio-tab-title">🔄 High-Impact Vocabulary Shifts</span>
+                  <span class="badge-count">{{ alignmentData.vocabulary_shifts.length }} shifts</span>
+                </div>
+                <span class="studio-tab-sub">Translate CV terminology to employer ATS standards</span>
+              </button>
+
+              <button
+                type="button"
+                class="studio-tab-btn studio-tab-right"
+                :class="{ active: alignmentSubTab === 'bullet' }"
+                @click="alignmentSubTab = 'bullet'"
+              >
+                <div class="studio-tab-title-row">
+                  <span class="studio-tab-title">⚡ Bullet-Point Reframing Studio</span>
+                  <span class="badge-count">{{ alignmentData.bullet_reframes.length }} reframes</span>
+                </div>
+                <span class="studio-tab-sub">Upgrade CV impact bullets with metric anchors</span>
+              </button>
+            </div>
+
+            <!-- TAB CONTENT 1: High-Impact Vocabulary Shifts -->
+            <div v-if="alignmentSubTab === 'vocab'" class="studio-content-pane">
+              <div v-if="alignmentData.vocabulary_shifts.length === 0" class="empty-state">
+                <FileEdit :size="24" class="text-muted" />
+                <span>No vocabulary translation shifts detected for this role track.</span>
+              </div>
+
+              <div v-else class="scrollable-studio-container">
+                <table class="data-table vocab-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 20%;">Your CV Term</th>
+                      <th style="width: 25%;">Market Standard Term (ATS)</th>
+                      <th style="width: 20%;">Target Job Demand</th>
+                      <th style="width: 25%;">Employer Rationale</th>
+                      <th style="width: 10%;" class="text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(vocab, idx) in alignmentData.vocabulary_shifts" :key="'vocab-' + idx">
+                      <td>
+                        <span class="cv-term-badge">{{ vocab.cv_term }}</span>
+                      </td>
+                      <td>
+                        <div class="jd-term-row">
+                          <ArrowRight :size="13" class="text-muted" />
+                          <span class="jd-term-text">{{ vocab.jd_term }}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div class="demand-col">
+                          <div class="demand-bar-wrap">
+                            <div class="demand-bar-fill" :style="{ width: `${vocab.frequency_pct}%` }"></div>
+                          </div>
+                          <span class="demand-text">{{ vocab.frequency_count }} jobs ({{ vocab.frequency_pct }}%)</span>
+                        </div>
+                      </td>
+                      <td class="text-secondary text-xs">
+                        {{ vocab.rationale }}
+                      </td>
+                      <td class="text-right">
+                        <button
+                          type="button"
+                          class="action-copy-btn"
+                          :title="`Copy '${vocab.jd_term}' to candidate profile`"
+                          @click="copyToClipboard(vocab.jd_term, 'vocab-' + idx); uiStore.showToast(`Applied '${vocab.jd_term}' to candidate profile!`, 'success')"
+                        >
+                          <component :is="copiedItemKey === 'vocab-' + idx ? Check : Copy" :size="13" />
+                          <span>{{ copiedItemKey === 'vocab-' + idx ? 'Applied' : 'Copy & Apply' }}</span>
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- TAB CONTENT 2: Bullet-Point Reframing Studio -->
+            <div v-else-if="alignmentSubTab === 'bullet'" class="studio-content-pane">
+              <div v-if="alignmentData.bullet_reframes.length === 0" class="empty-state">
+                <Zap :size="24" class="text-muted" />
+                <span>No bullet reframes available for this role track.</span>
+              </div>
+
+              <div v-else class="scrollable-studio-container bullet-deck-container">
+                <div
+                  v-for="(bullet, idx) in alignmentData.bullet_reframes"
+                  :key="'bullet-' + idx"
+                  class="bullet-card-item"
+                >
+                  <div class="bullet-comparison-grid">
+                    <div class="bullet-box original-box">
+                      <div class="box-label">Current CV Bullet</div>
+                      <p class="bullet-text">{{ bullet.original_bullet }}</p>
+                    </div>
+
+                    <div class="bullet-box upgraded-box">
+                      <div class="box-label label-upgrade">
+                        <Sparkles :size="12" />
+                        <span>Market-Tuned Upgrade</span>
+                      </div>
+                      <p class="bullet-text font-medium">{{ bullet.suggested_rewrite }}</p>
+                    </div>
+                  </div>
+
+                  <div class="bullet-card-footer">
+                    <div class="bullet-rationale">
+                      <span class="rationale-tag">ATS Alignment:</span>
+                      <span class="rationale-desc">{{ bullet.reason }}</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      class="copy-bullet-btn"
+                      @click="copyToClipboard(bullet.suggested_rewrite, 'bullet-' + idx); uiStore.showToast('Copied consensus bullet rewrite to profile!', 'success')"
+                    >
+                      <component :is="copiedItemKey === 'bullet-' + idx ? Check : Copy" :size="13" />
+                      <span>{{ copiedItemKey === 'bullet-' + idx ? 'Applied to Profile' : 'Copy Consensus Bullet' }}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -2230,6 +2493,54 @@ const maxCohortVolume = computed(() => {
 }
 
 .mobile-step-title {
+/* Role Alignment Studio Toggle Header */
+.alignment-studio-header {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+}
+
+.studio-tab-btn {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  padding: 10px 14px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: all var(--transition-fast);
+}
+
+.studio-tab-left {
+  align-items: flex-start;
+}
+
+.studio-tab-right {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.studio-tab-btn:hover {
+  border-color: var(--border-focus);
+}
+
+.studio-tab-btn.active {
+  background-color: var(--primary-subtle, rgba(45, 212, 191, 0.12));
+  border-color: var(--primary);
+}
+
+.studio-tab-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.studio-tab-title {
   font-size: 13px;
   font-weight: 700;
   color: var(--text-main);
@@ -2268,6 +2579,362 @@ const maxCohortVolume = computed(() => {
 .drop-text {
   font-size: 10px;
   font-weight: 700;
+.studio-tab-btn.active .studio-tab-title {
+  color: var(--primary);
+}
+
+.studio-tab-sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.scrollable-studio-container {
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.scrollable-studio-container::-webkit-scrollbar {
+  width: 5px;
+}
+
+.scrollable-studio-container::-webkit-scrollbar-thumb {
+  background-color: var(--border-color);
+  border-radius: 4px;
+}
+
+/* Role Alignment & CV Tuning Tab Styles */
+.search-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.track-search-input {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  border-radius: var(--radius-full);
+  padding: 5px 12px 5px 30px;
+  font-size: 12px;
+  font-weight: 500;
+  outline: none;
+  width: 200px;
+  transition: border-color var(--transition-fast), width var(--transition-fast);
+}
+
+.track-search-input:focus {
+  border-color: var(--border-focus);
+  width: 240px;
+}
+
+.track-selector-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  margin-bottom: 16px;
+}
+
+.track-selector-bar::-webkit-scrollbar {
+  height: 4px;
+}
+
+.track-selector-bar::-webkit-scrollbar-thumb {
+  background-color: var(--border-color);
+  border-radius: 4px;
+}
+
+.track-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+}
+
+.track-pill:hover {
+  border-color: var(--border-focus);
+  color: var(--text-main);
+}
+
+.track-pill.active {
+  background-color: var(--primary-subtle, rgba(45, 212, 191, 0.14));
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.track-count-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--bg-elevated);
+  color: var(--text-main);
+}
+
+.track-pill.active .track-count-badge {
+  background-color: var(--primary);
+  color: var(--primary-contrast, #0a0d14);
+}
+
+.alignment-bento-grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.full-width-bento {
+  grid-column: 1 / -1;
+}
+
+/* Vocabulary Shifts Table */
+.vocab-table td {
+  vertical-align: middle;
+}
+
+.cv-term-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.jd-term-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jd-term-text {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.demand-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.demand-bar-wrap {
+  height: 5px;
+  border-radius: 4px;
+  background-color: var(--bg-elevated);
+  overflow: hidden;
+  width: 100%;
+}
+
+.demand-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  background-color: var(--primary);
+  transition: width var(--transition-normal);
+}
+
+.demand-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.action-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: var(--radius-xs);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.action-copy-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background-color: var(--primary-subtle, rgba(45, 212, 191, 0.1));
+}
+
+/* Bullet Reframing Studio */
+.bullet-deck-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 440px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.bullet-card-item {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bullet-comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.bullet-box {
+  padding: 10px 12px;
+  border-radius: var(--radius-xs);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.original-box {
+  background-color: rgba(148, 163, 184, 0.08);
+  border: 1px solid var(--border-subtle, var(--border-color));
+}
+
+.upgraded-box {
+  background-color: var(--primary-subtle, rgba(45, 212, 191, 0.08));
+  border: 1px solid rgba(45, 212, 191, 0.25);
+}
+
+.box-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.label-upgrade {
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bullet-text {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.bullet-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.bullet-rationale {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.rationale-tag {
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+.copy-bullet-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: var(--radius-xs);
+  background-color: var(--primary);
+  color: var(--primary-contrast, #0a0d14);
+  font-size: 11px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+.copy-bullet-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+/* Missing Prerequisites Checklist */
+.prereq-row-compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: var(--radius-xs);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle, var(--border-color));
+  gap: 12px;
+}
+
+.prereq-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.prereq-skill-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.prereq-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.prereq-bar-wrap {
+  width: 60px;
+  height: 5px;
+  border-radius: 4px;
+  background-color: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.prereq-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  background-color: #f59e0b;
+}
+
+.prereq-pct-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  background-color: var(--bg-elevated);
+  color: var(--text-secondary);
 }
 
 /* Responsive Breakpoints */
@@ -2277,6 +2944,10 @@ const maxCohortVolume = computed(() => {
   }
 
   .bento-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bullet-comparison-grid {
     grid-template-columns: 1fr;
   }
 }

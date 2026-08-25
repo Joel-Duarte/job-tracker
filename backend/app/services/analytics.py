@@ -1,6 +1,7 @@
 import datetime
 import logging
 from collections import defaultdict
+from difflib import SequenceMatcher
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,14 +16,18 @@ from app.models.candidate_profile import CandidateCVModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.schemas.analytics import (
     AnalyticsOverviewResponse,
+    BulletReframeItem,
     FunnelChartStage,
     FunnelCohortPeriod,
     FunnelKpiCard,
     FunnelMetricsResponse,
     FunnelStageItem,
+    RoleAlignmentResponse,
+    RoleTrackCluster,
     SalaryInsightItem,
     SkillDemandItem,
     SkillGapItem,
+    VocabularyShiftItem,
     WorkModelBreakdown,
 )
 from app.services.skill_normalizer import normalize_skill, normalize_skills_list
@@ -608,4 +613,200 @@ async def get_funnel_performance_metrics(
         summary_kpis=summary_kpis,
         chart_data=chart_data,
         table_data=cohort_data,
+    )
+
+
+TRACK_DEFINITIONS = [
+    {"key": "backend", "label": "Backend Engineering"},
+    {"key": "fullstack", "label": "Full-Stack Engineering"},
+    {"key": "frontend", "label": "Frontend Engineering"},
+    {"key": "data_ai", "label": "AI & Data Engineering"},
+    {"key": "devops", "label": "DevOps & Cloud SRE"},
+    {"key": "mobile", "label": "Mobile Engineering"},
+    {"key": "security", "label": "Security Engineering"},
+    {"key": "other", "label": "Other Roles"},
+]
+
+
+def classify_position_to_track(position: str | None) -> str:
+    if not position:
+        return "other"
+    pos = position.lower()
+    if any(k in pos for k in ["ai", "ml", "machine learning", "data", "analytics", "mlops", "llm", "vector"]):
+        return "data_ai"
+    if any(k in pos for k in ["devops", "cloud", "sre", "reliability", "kubernetes", "network"]):
+        return "devops"
+    if any(k in pos for k in ["mobile", "ios", "android", "flutter", "react native"]):
+        return "mobile"
+    if any(k in pos for k in ["security", "secops", "appsec", "cyber"]):
+        return "security"
+    if any(k in pos for k in ["frontend", "front-end", "ui", "ux", "web client", "react", "vue"]):
+        return "frontend"
+    if any(k in pos for k in ["full-stack", "fullstack", "full stack"]):
+        return "fullstack"
+    if any(k in pos for k in ["backend", "back-end", "server", "distributed", "microservice", "api", "systems", "platform", "infrastructure", "database", "postgres"]):
+        return "backend"
+    return "fullstack" if "engineer" in pos or "developer" in pos else "other"
+
+
+async def get_role_alignment(
+    db: AsyncSession,
+    role_track: str | None = "all",
+    days: int | None = None,
+) -> RoleAlignmentResponse:
+    """
+    Aggregates vocabulary translations, ATS keyword shifts, bullet-point reframings,
+    and missing prerequisites across evaluated job dossiers grouped by role track.
+    """
+    candidate_skills = set()
+    try:
+        cv_query = select(CandidateCVModel).where(CandidateCVModel.is_active).limit(1)
+        cv_res = await db.execute(cv_query)
+        cv = cv_res.scalar_one_or_none()
+        if cv and cv.extracted_skills:
+            candidate_skills = set(normalize_skills_list(cv.extracted_skills))
+    except Exception as exc:
+        logger.warning(f"Error fetching candidate CV for role alignment: {exc}")
+
+    # Query applications with match_analysis_payload
+    query = select(ApplicationModel).where(ApplicationModel.match_analysis_payload.isnot(None))
+
+    if days is not None:
+        cutoff = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=days)
+        query = query.where(ApplicationModel.application_date >= cutoff)
+
+    result = await db.execute(query)
+    all_apps = result.scalars().all()
+
+    # Cluster all applications by track
+    track_counts = defaultdict(int)
+    for app in all_apps:
+        t_key = classify_position_to_track(app.position)
+        track_counts[t_key] += 1
+
+    total_all_jobs = len(all_apps)
+    detected_tracks = [
+        RoleTrackCluster(key="all", label="All Tracks", job_count=total_all_jobs)
+    ]
+    for t_def in TRACK_DEFINITIONS:
+        c_cnt = track_counts[t_def["key"]]
+        if c_cnt > 0 or total_all_jobs > 0:
+            detected_tracks.append(
+                RoleTrackCluster(key=t_def["key"], label=t_def["label"], job_count=c_cnt)
+            )
+
+    selected_track_norm = (role_track or "all").strip().lower()
+
+    # Filter applications for selected track / query
+    filtered_apps = []
+    known_keys = {t["key"] for t in TRACK_DEFINITIONS} | {"all"}
+
+    if selected_track_norm == "all":
+        filtered_apps = all_apps
+    elif selected_track_norm in known_keys:
+        filtered_apps = [
+            app for app in all_apps if classify_position_to_track(app.position) == selected_track_norm
+        ]
+    else:
+        # Custom search query against position title
+        filtered_apps = [
+            app for app in all_apps if app.position and selected_track_norm in app.position.lower()
+        ]
+
+    total_analyzed = len(filtered_apps)
+
+    # Helper: Text similarity consensus string calculation
+    def compute_consensus_text(variants: list[str]) -> str:
+        if not variants:
+            return ""
+        if len(variants) == 1:
+            return variants[0]
+        # Choose string with highest average similarity to all other variants
+        best_candidate = variants[0]
+        best_avg_score = -1.0
+        for cand in variants:
+            total_sim = 0.0
+            for other in variants:
+                sim = SequenceMatcher(None, cand.lower(), other.lower()).ratio()
+                total_sim += sim
+            avg_score = total_sim / len(variants)
+            if avg_score > best_avg_score:
+                best_avg_score = avg_score
+                best_candidate = cand
+        return best_candidate
+
+    # Global aggregation across role track by Target CV Term / Original Bullet
+    vocab_groups = defaultdict(lambda: {"count": 0, "jd_terms": [], "rationales": []})
+    bullet_groups = defaultdict(lambda: {"count": 0, "rewrites": [], "reasons": []})
+
+    for app in filtered_apps:
+        payload = app.match_analysis_payload or {}
+        tailoring = payload.get("tailoring_strategy") or {}
+
+        # 1. Vocabulary Translations (Grouped by cv_term)
+        vocab_list = tailoring.get("vocabulary_translation") or []
+        for item in vocab_list:
+            if not isinstance(item, dict):
+                continue
+            cv_term = str(item.get("cv_term") or "").strip()
+            jd_term = str(item.get("jd_term") or "").strip()
+            rationale = str(item.get("rationale") or item.get("replacement_guidance") or "").strip()
+            if cv_term and jd_term:
+                vocab_groups[cv_term]["count"] += 1
+                vocab_groups[cv_term]["jd_terms"].append(jd_term)
+                if rationale:
+                    vocab_groups[cv_term]["rationales"].append(rationale)
+
+        # 2. Impact / Bullet Reframing (Grouped by original_bullet)
+        bullet_list = tailoring.get("impact_reframing") or []
+        for item in bullet_list:
+            if not isinstance(item, dict):
+                continue
+            orig = str(item.get("original_bullet") or item.get("bullet_point") or "").strip()
+            sugg = str(item.get("suggested_rewrite") or "").strip()
+            reason = str(item.get("reason") or "").strip()
+            if orig and sugg:
+                bullet_groups[orig]["count"] += 1
+                bullet_groups[orig]["rewrites"].append(sugg)
+                if reason:
+                    bullet_groups[orig]["reasons"].append(reason)
+
+    # Format Vocabulary Shifts (Top 10 highest-impact consensus items)
+    sorted_vocab = sorted(vocab_groups.items(), key=lambda x: x[1]["count"], reverse=True)[:10]
+    vocab_items = []
+    for cv_t, data in sorted_vocab:
+        pct = round((data["count"] / total_analyzed * 100.0), 1) if total_analyzed > 0 else 0.0
+        consensus_jd = compute_consensus_text(data["jd_terms"])
+        consensus_rationale = compute_consensus_text(data["rationales"]) if data["rationales"] else f"Aligns candidate experience with employer ATS standard for {consensus_jd}."
+        vocab_items.append(
+            VocabularyShiftItem(
+                cv_term=cv_t,
+                jd_term=consensus_jd,
+                frequency_count=data["count"],
+                frequency_pct=pct,
+                rationale=consensus_rationale,
+            )
+        )
+
+    # Format Bullet Reframes (Top 10 highest-impact consensus items)
+    sorted_bullets = sorted(bullet_groups.items(), key=lambda x: x[1]["count"], reverse=True)[:10]
+    bullet_items = []
+    for orig_b, data in sorted_bullets:
+        consensus_rewrite = compute_consensus_text(data["rewrites"])
+        consensus_reason = compute_consensus_text(data["reasons"]) if data["reasons"] else "Quantifies impact and aligns with role requirements."
+        bullet_items.append(
+            BulletReframeItem(
+                original_bullet=orig_b,
+                suggested_rewrite=consensus_rewrite,
+                reason=consensus_reason,
+                frequency_count=data["count"],
+            )
+        )
+
+    return RoleAlignmentResponse(
+        detected_tracks=detected_tracks,
+        selected_track=selected_track_norm,
+        total_analyzed_jobs=total_analyzed,
+        vocabulary_shifts=vocab_items,
+        bullet_reframes=bullet_items,
     )

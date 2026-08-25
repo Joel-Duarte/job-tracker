@@ -993,6 +993,126 @@ export async function handleDemoRequest(config) {
     })
   }
 
+  if (urlPath === '/analytics/role-alignment' && method === 'get') {
+    const selectedTrack = params.role_track || 'all'
+    const totalJobs = (db.applications || []).length || 25
+    return ok({
+      detected_tracks: [
+        { key: "all", label: "All Tracks", job_count: totalJobs },
+        { key: "backend", label: "Backend Engineering", job_count: 18 },
+        { key: "fullstack", label: "Full-Stack Engineering", job_count: 12 },
+        { key: "data_ai", label: "AI & Data Engineering", job_count: 6 },
+        { key: "devops", label: "DevOps & Cloud SRE", job_count: 4 },
+      ],
+      selected_track: selectedTrack,
+      total_analyzed_jobs: selectedTrack === 'backend' ? 18 : totalJobs,
+      vocabulary_shifts: [
+        {
+          cv_term: "SQL database",
+          jd_term: "PostgreSQL",
+          frequency_count: 14,
+          frequency_pct: 77.8,
+          rationale: "Aligns candidate relational database experience with employer ATS standard."
+        },
+        {
+          cv_term: "Message Queue",
+          jd_term: "Apache Kafka",
+          frequency_count: 11,
+          frequency_pct: 61.1,
+          rationale: "Explicitly highlights event-driven streaming architecture competencies."
+        },
+        {
+          cv_term: "Python scripts",
+          jd_term: "FastAPI Async Services",
+          frequency_count: 9,
+          frequency_pct: 50.0,
+          rationale: "Emphasizes production microservice API frameworks."
+        },
+        {
+          cv_term: "In-memory Cache",
+          jd_term: "Redis Cluster / Valkey",
+          frequency_count: 8,
+          frequency_pct: 44.4,
+          rationale: "Demonstrates distributed caching and session state scaling."
+        },
+        {
+          cv_term: "Container Deployment",
+          jd_term: "Docker / Kubernetes (k8s)",
+          frequency_count: 7,
+          frequency_pct: 38.9,
+          rationale: "Matches enterprise cloud container orchestration standards."
+        },
+        {
+          cv_term: "CI/CD Pipeline",
+          jd_term: "GitHub Actions / ArgoCD",
+          frequency_count: 6,
+          frequency_pct: 33.3,
+          rationale: "Reflects automated deployment and GitOps practices."
+        },
+        {
+          cv_term: "System Metrics",
+          jd_term: "Prometheus & Grafana",
+          frequency_count: 5,
+          frequency_pct: 27.8,
+          rationale: "Quantifies production telemetry and observability."
+        },
+        {
+          cv_term: "REST API",
+          jd_term: "gRPC & OpenAPI 3.0",
+          frequency_count: 4,
+          frequency_pct: 22.2,
+          rationale: "Highlights high-performance binary protocol experience."
+        },
+        {
+          cv_term: "NoSQL storage",
+          jd_term: "DynamoDB / Cassandra",
+          frequency_count: 4,
+          frequency_pct: 22.2,
+          rationale: "Demonstrates wide-column distributed key-value store expertise."
+        },
+        {
+          cv_term: "Tracing",
+          jd_term: "OpenTelemetry / Jaeger",
+          frequency_count: 3,
+          frequency_pct: 16.7,
+          rationale: "Presents distributed request tracing capabilities."
+        }
+      ],
+      bullet_reframes: [
+        {
+          original_bullet: "Engineered scalable services for CloudTech.",
+          suggested_rewrite: "Architected high-throughput microservices for CloudTech handling 20,000 req/sec with 99.99% reliability.",
+          reason: "Quantifies throughput metrics and aligns with senior backend requirements.",
+          frequency_count: 12
+        },
+        {
+          original_bullet: "Managed database queries and performance.",
+          suggested_rewrite: "Optimized PostgreSQL query execution plans and index partitioning, reducing p99 latency by 45%.",
+          reason: "Highlights concrete performance optimization and database tuning outcome.",
+          frequency_count: 8
+        },
+        {
+          original_bullet: "Built API endpoints for client applications.",
+          suggested_rewrite: "Designed asynchronous FastAPI and gRPC services handling over 5M daily API calls.",
+          reason: "Emphasizes async execution and modern protocol adoption.",
+          frequency_count: 7
+        },
+        {
+          original_bullet: "Set up CI/CD automation for releases.",
+          suggested_rewrite: "Streamlined deployment pipelines with GitHub Actions & ArgoCD, reducing release lead time from 3 days to 15 mins.",
+          reason: "Showcases measurable DevOps efficiency and GitOps automation.",
+          frequency_count: 6
+        },
+        {
+          original_bullet: "Handled system bugs and outages.",
+          suggested_rewrite: "Established Prometheus alert rules and OpenTelemetry tracing, reducing MTTR by 60% during critical incidents.",
+          reason: "Demonstrates proactive observability and incident management.",
+          frequency_count: 5
+        }
+      ]
+    })
+  }
+
   if (urlPath === '/analytics/funnel' && method === 'get') {
     const period = params.period || 'weekly'
     return ok({
