@@ -2136,6 +2136,16 @@ async function confirmDelete() {
   min-height: 0;
 }
 
+.kanban-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
 /* KANBAN BOARD (Full-Height Responsive Grid) */
 .kanban-board {
   display: grid;
@@ -2146,6 +2156,8 @@ async function confirmDelete() {
   min-height: 0;
   align-items: stretch;
   width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .kanban-column {
@@ -2156,6 +2168,7 @@ async function confirmDelete() {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  max-height: 100%;
   overflow: hidden;
 }
 
@@ -2208,8 +2221,29 @@ async function confirmDelete() {
   flex-direction: column;
   gap: 10px;
   overflow-y: auto;
+  overflow-x: hidden;
   flex: 1;
   min-height: 0;
+  max-height: 100%;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+}
+
+.column-cards::-webkit-scrollbar {
+  width: 6px;
+}
+
+.column-cards::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.column-cards::-webkit-scrollbar-thumb {
+  background-color: var(--border-color);
+  border-radius: 4px;
+}
+
+.column-cards::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-muted);
 }
 
 .application-card {
