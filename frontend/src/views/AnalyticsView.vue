@@ -1547,10 +1547,14 @@ const maxCohortVolume = computed(() => {
   padding: 10px 10px 4px;
   display: flex;
   flex-direction: column;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
 }
 
 .sankey-svg {
   width: 100%;
+  min-width: 480px;
   height: auto;
   display: block;
 }
@@ -2025,6 +2029,9 @@ const maxCohortVolume = computed(() => {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   gap: 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
 }
 
 .funnel-cohort-column {
@@ -2033,6 +2040,7 @@ const maxCohortVolume = computed(() => {
   align-items: center;
   height: 100%;
   flex: 1;
+  min-width: 50px;
   gap: 8px;
 }
 
@@ -2172,22 +2180,136 @@ const maxCohortVolume = computed(() => {
   }
 }
 
-@media (max-width: 640px) {
-  .kpi-banner-4 {
-    grid-template-columns: 1fr;
+@media (max-width: 767px) {
+  .page-container {
+    padding: 16px 12px 80px;
   }
 
-  .page-header {
-    padding: 14px 16px;
+  .nav-tabs-container {
+    display: flex;
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    border-radius: var(--radius-md);
   }
 
-  .wm-pills-row {
-    grid-template-columns: 1fr;
+  .nav-tabs-container::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab-btn {
+    flex: 1;
+    min-height: 44px;
+    justify-content: center;
+    font-size: 12px;
+    padding: 8px 12px;
+    white-space: nowrap;
   }
 
   .tab-sub-header {
     flex-direction: column;
     align-items: flex-start;
+    gap: 12px;
+  }
+
+  .sub-header-right {
+    width: 100%;
+  }
+
+  .filter-pill {
+    width: 100%;
+    min-height: 44px;
+    justify-content: space-between;
+    padding: 6px 14px;
+  }
+
+  .select-wrapper {
+    width: 100%;
+  }
+
+  .filter-pill select {
+    width: 100%;
+    height: 44px;
+  }
+
+  .toggle-pill-group {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .toggle-btn {
+    flex: 1;
+    min-height: 44px;
+    text-align: center;
+    justify-content: center;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .kpi-banner-4 {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .kpi-card {
+    padding: 12px 14px;
+    min-height: 48px;
+  }
+
+  .card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .chart-legend {
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+
+  .skill-row-compact {
+    padding: 8px 10px;
+  }
+
+  .skill-name-col {
+    width: auto;
+    max-width: 120px;
+  }
+
+  .salary-row-compact {
+    padding: 8px 10px;
+  }
+
+  .salary-skill-text {
+    width: auto;
+    max-width: 110px;
+  }
+
+  .salary-range-label {
+    width: auto;
+  }
+
+  .gap-row-compact {
+    padding: 8px 10px;
+  }
+
+  .gap-left-col {
+    width: auto;
+    flex: 1;
+  }
+
+  .wm-pills-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .wm-pill {
+    min-height: 44px;
+    padding: 8px 12px;
+  }
+
+  .data-table {
+    min-width: 580px;
   }
 }
 </style>
