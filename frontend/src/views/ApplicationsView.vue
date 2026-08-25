@@ -249,31 +249,20 @@ onUnmounted(() => {
   window.removeEventListener('resize', handleScrollOrResize)
 })
 
-let searchDebounceTimer = null
-
 function handleSearch(e) {
-  const query = e.target.value
-  appStore.searchQuery = query
-  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
-  searchDebounceTimer = setTimeout(() => {
-    appStore.fetchApplications()
-  }, 250)
+  appStore.searchQuery = e.target.value
 }
 
 function clearSearch() {
-  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
   appStore.searchQuery = ''
-  appStore.fetchApplications()
 }
 
 function handleStatusFilter(e) {
   appStore.selectedStatus = e.target.value
-  appStore.fetchApplications()
 }
 
 function toggleActionRequired() {
   appStore.actionRequiredOnly = !appStore.actionRequiredOnly
-  appStore.fetchApplications()
 }
 
 function formatDate(isoStr) {

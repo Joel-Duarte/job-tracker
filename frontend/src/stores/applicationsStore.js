@@ -35,6 +35,7 @@ export const useApplicationsStore = defineStore('applications', () => {
       app.application_date ||
       app.applied_at ||
       app.created_at ||
+      app.updated_at ||
       null
     )
   }
@@ -43,10 +44,10 @@ export const useApplicationsStore = defineStore('applications', () => {
     if (!selectedDateRange.value || selectedDateRange.value === 'all') return true
 
     const appDateRaw = getAppActivityDate(app)
-    if (!appDateRaw) return false
+    if (!appDateRaw) return true
 
     const appTime = new Date(appDateRaw).getTime()
-    if (isNaN(appTime)) return false
+    if (isNaN(appTime)) return true
 
     const now = Date.now()
     if (selectedDateRange.value === '7d') {
@@ -210,9 +211,18 @@ export const useApplicationsStore = defineStore('applications', () => {
 
       const rawStatus = (app.status || '').toUpperCase()
       let statusKey = ''
-      if (rawStatus === 'APPLIED') {
+      if (['APPLIED', 'RECRUITER_CONTACT', 'IN_PROGRESS', 'PENDING'].includes(rawStatus)) {
         statusKey = 'APPLIED'
-      } else if (['ONLINE_ASSESSMENT', 'TECHNICAL_INTERVIEW', 'INTERVIEW'].includes(rawStatus)) {
+      } else if ([
+        'PHONE_SCREEN',
+        'ONLINE_ASSESSMENT',
+        'TECHNICAL_INTERVIEW',
+        'BEHAVIORAL_INTERVIEW',
+        'ONSITE_INTERVIEW',
+        'FINAL_INTERVIEW',
+        'INTERVIEW',
+        'SCREENING',
+      ].includes(rawStatus)) {
         statusKey = 'TECHNICAL_INTERVIEW'
       } else if (rawStatus === 'OFFER') {
         statusKey = 'OFFER'
@@ -257,10 +267,10 @@ export const useApplicationsStore = defineStore('applications', () => {
       return isNaN(ts) ? 0 : ts
     }
 
-    // Sort APPLIED: newest activity first
+    // Sort APPLIED by last activity (most recent first)
     columns.APPLIED.sort((a, b) => getAppActivityTimestamp(b) - getAppActivityTimestamp(a))
 
-    // Sort TECHNICAL_INTERVIEW: upcoming interviews first (ascending), then past, then unscheduled
+    // Sort TECHNICAL_INTERVIEW chronologically by upcoming interview date
     columns.TECHNICAL_INTERVIEW.sort((a, b) => {
       const tsA = getAppInterviewTimestamp(a)
       const tsB = getAppInterviewTimestamp(b)
@@ -281,7 +291,7 @@ export const useApplicationsStore = defineStore('applications', () => {
       return getAppActivityTimestamp(b) - getAppActivityTimestamp(a)
     })
 
-    // Sort OFFER: soonest decision deadline first (ascending), then past, then received date
+    // Sort OFFER by nearest decision deadline
     columns.OFFER.sort((a, b) => {
       const tsA = getAppOfferDeadlineTimestamp(a)
       const tsB = getAppOfferDeadlineTimestamp(b)
@@ -310,16 +320,12 @@ export const useApplicationsStore = defineStore('applications', () => {
     error.value = null
     try {
       const params = {
-        limit: 200,
+        limit: 1000,
         offset: 0,
       }
-      if (searchQuery.value) params.q = searchQuery.value
-      if (selectedStatus.value) params.status = selectedStatus.value
-      if (actionRequiredOnly.value) params.action_required = true
-
       const res = await ApplicationsAPI.list(params)
       applications.value = res.data.items || []
-      total.value = res.data.total || 0
+      total.value = res.data.total || (res.data.items || []).length
     } catch (err) {
       error.value = err.message
     } finally {

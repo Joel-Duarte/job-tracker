@@ -37,14 +37,20 @@ const fixJDJobUrl = ref('')
 const isSubmittingFixJD = ref(false)
 
 function isManualDescriptionEligible(task) {
-  if (!task || !task.error_message) return false
+  if (!task) return false
   if (['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER'].includes(task.task_type)) return false
-  const msg = task.error_message.toUpperCase()
+  if (!['FAILED', 'CANCELLED', 'ERROR'].includes(task.status)) return false
+  const msg = (task.error_message || '').toUpperCase()
   return (
+    msg.startsWith('NO_JOB_FOUND:') ||
     msg.startsWith('SCRAPE_FAILED:') ||
     msg.startsWith('INVALID_JOB_CONTENT:') ||
     task.stage === 'FETCHING' ||
-    task.stage === 'SCRAPING'
+    task.stage === 'SCRAPING' ||
+    task.stage === 'EXTRACTING' ||
+    !task.raw_text ||
+    task.raw_text.trim().length === 0 ||
+    Boolean(task.error_message)
   )
 }
 
