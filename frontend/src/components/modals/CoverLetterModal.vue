@@ -13,12 +13,14 @@ import {
   Check,
   Loader2,
   Copy,
+  Download,
   Edit3,
   Eye,
   Sliders,
   ChevronDown,
   ChevronUp,
 } from 'lucide-vue-next'
+import { downloadCoverLetterPdf } from '../../utils/pdfGenerator'
 
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
@@ -231,6 +233,18 @@ function copyToClipboard() {
   uiStore.showToast('Cover letter copied to clipboard!', 'success')
 }
 
+function handleDownloadPdf() {
+  if (!editableText.value) return
+  const compName = application.value?.company?.name || application.value?.company_name || application.value?.company || 'Company'
+  const posTitle = application.value?.position || 'Position'
+  downloadCoverLetterPdf({
+    text: editableText.value,
+    companyName: compName,
+    positionTitle: posTitle,
+  })
+  uiStore.showToast('Cover letter PDF downloaded!', 'success')
+}
+
 function close() {
   if (autoSaveTimer) {
     clearTimeout(autoSaveTimer)
@@ -404,6 +418,16 @@ onUnmounted(() => {
                   >
                     <Copy :size="13" />
                     <span>Copy</span>
+                  </button>
+
+                  <button
+                    class="btn btn-secondary btn-xs"
+                    title="Download as PDF"
+                    :disabled="!editableText"
+                    @click="handleDownloadPdf"
+                  >
+                    <Download :size="13" />
+                    <span>Download PDF</span>
                   </button>
                 </div>
               </div>
