@@ -574,58 +574,7 @@ function formatActionLabel(act) {
 /* Mobile Responsive Adjustments for Floating Agent Chat Widget */
 @media (max-width: 767px) {
   .floating-agent-wrapper {
-    bottom: 16px;
-    right: 16px;
-  }
-
-  .floating-chat-bubble {
-    width: 52px;
-    height: 52px;
-    min-width: 48px;
-    min-height: 48px;
-  }
-
-  .agent-chat-popover {
-    position: fixed;
-    inset: 0;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    width: 100vw;
-    height: 100vh;
-    height: 100dvh;
-    max-width: 100vw;
-    max-height: 100dvh;
-    border-radius: 0;
-    border: none;
-    z-index: 1000;
-  }
-
-  .btn-icon-sm {
-    width: 44px;
-    height: 44px;
-    min-width: 44px;
-    min-height: 44px;
-  }
-
-  .popover-header {
-    padding: 12px 16px;
-  }
-
-  .popover-footer {
-    padding: 12px 16px;
-    padding-bottom: max(12px, env(safe-area-inset-bottom));
-  }
-
-  .popover-input {
-    min-height: 44px;
-    font-size: 14px;
-  }
-
-  .starter-btn {
-    min-height: 44px;
-    padding: 10px 12px;
+    display: none !important;
   }
 }
 </style>

@@ -1004,34 +1004,7 @@ onUnmounted(() => {
 /* Mobile Responsive Adjustments for Floating Queue Widget */
 @media (max-width: 767px) {
   .floating-queue-widget {
-    bottom: 80px;
-    right: 16px;
-  }
-
-  .floating-queue-widget.queue-on-chat {
-    right: 16px;
-  }
-
-  .queue-popover-menu {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    width: 100vw;
-    max-width: 100vw;
-    max-height: 70vh;
-    max-height: 70dvh;
-    border-radius: 16px 16px 0 0;
-    border-bottom: none;
-  }
-
-  .popover-body {
-    max-height: calc(70vh - 120px);
-  }
-
-  .btn-inline-dismiss {
-    min-width: 36px;
-    min-height: 36px;
+    display: none !important;
   }
 }
 </style>
