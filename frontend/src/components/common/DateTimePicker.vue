@@ -60,20 +60,24 @@ const TIME_PRESETS_24H = [
 function updatePosition() {
   if (!containerRef.value || !isOpen.value) return
   const rect = containerRef.value.getBoundingClientRect()
-  const popoverWidth = props.type === 'datetime' ? 440 : 280
+  const isMobileScreen = window.innerWidth < 500
+  const popoverWidth = isMobileScreen ? Math.min(340, window.innerWidth - 24) : (props.type === 'datetime' ? 440 : 280)
 
   let top = rect.bottom + 4
   let left = rect.left
 
-  // Ensure menu doesn't overflow right edge of viewport
+  // Clamp positioning so menu doesn't overflow right or left edge of viewport
   if (left + popoverWidth > window.innerWidth - 12) {
     left = Math.max(12, window.innerWidth - popoverWidth - 12)
   }
+  if (left < 12) {
+    left = 12
+  }
 
   // Flip vertically if not enough space below but enough space above
-  const popoverEstimatedHeight = 360
+  const popoverEstimatedHeight = props.type === 'datetime' && isMobileScreen ? 480 : 360
   if (top + popoverEstimatedHeight > window.innerHeight && rect.top - popoverEstimatedHeight - 4 > 0) {
-    top = rect.top - popoverEstimatedHeight - 4
+    top = Math.max(8, rect.top - popoverEstimatedHeight - 4)
   }
 
   popoverStyle.value = {
@@ -81,6 +85,7 @@ function updatePosition() {
     top: `${top}px`,
     left: `${left}px`,
     zIndex: 99999,
+    maxWidth: 'calc(100vw - 24px)',
   }
 }
 
@@ -90,10 +95,12 @@ watch(isOpen, (newVal) => {
       updatePosition()
       window.addEventListener('scroll', updatePosition, true)
       window.addEventListener('resize', updatePosition)
+      window.addEventListener('orientationchange', updatePosition)
     })
   } else {
     window.removeEventListener('scroll', updatePosition, true)
     window.removeEventListener('resize', updatePosition)
+    window.removeEventListener('orientationchange', updatePosition)
   }
 })
 
@@ -291,6 +298,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside)
   window.removeEventListener('scroll', updatePosition, true)
   window.removeEventListener('resize', updatePosition)
+  window.removeEventListener('orientationchange', updatePosition)
 })
 </script>
 
@@ -780,5 +788,67 @@ onBeforeUnmount(() => {
 .btn-footer-confirm:hover {
   background-color: var(--primary-hover);
   transform: translateY(-1px);
+}
+
+/* RESPONSIVE & MOBILE ADAPTATIONS */
+@media (max-width: 499px) {
+  .datepicker-input-wrapper {
+    min-height: 44px;
+    height: 44px;
+  }
+
+  .datepicker-popover {
+    width: calc(100vw - 24px);
+    max-width: 340px;
+    padding: 12px;
+  }
+
+  .datepicker-popover.has-time-panel {
+    width: calc(100vw - 24px);
+    max-width: 340px;
+  }
+
+  .popover-main-content {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .time-panel {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+    padding-left: 0;
+    padding-top: 10px;
+  }
+
+  .calendar-day-btn {
+    height: 36px;
+    font-size: 13px;
+  }
+
+  .time-select-24 {
+    min-height: 38px;
+    padding: 6px 10px;
+    font-size: 14px;
+  }
+
+  .preset-time-chip {
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .btn-footer-confirm {
+    min-height: 44px;
+    padding: 8px 20px;
+    font-size: 13px;
+  }
+
+  .btn-footer-clear {
+    min-height: 44px;
+    padding: 8px 12px;
+    font-size: 13px;
+  }
 }
 </style>

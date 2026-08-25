@@ -63,6 +63,12 @@ function toggleSidebar() {
   localStorage.setItem('agentChatSidebarCollapsed', isSidebarCollapsed.value ? 'true' : 'false')
 }
 
+function closeSidebarOnMobile() {
+  if (window.innerWidth < 768) {
+    isSidebarCollapsed.value = true
+  }
+}
+
 const starterPrompts = [
   '🛠️ What tools can you use?',
   'Which applications currently require urgent action from me?',
@@ -186,6 +192,7 @@ function handleKeyDown(e) {
 }
 
 async function handleLoadChat(id) {
+  closeSidebarOnMobile()
   if (!id) return
   if (chatStore.chatId === id || String(id).startsWith('temp-')) {
     scrollToBottom()
@@ -202,6 +209,7 @@ async function handleLoadChat(id) {
 function handleResetChat() {
   chatStore.resetChat()
   inputMessage.value = ''
+  closeSidebarOnMobile()
 }
 
 async function handleDeleteChat(id) {
@@ -226,6 +234,9 @@ async function handleRetentionChange() {
 }
 
 onMounted(async () => {
+  if (window.innerWidth < 768) {
+    isSidebarCollapsed.value = true
+  }
   await appStore.fetchApplications()
   await chatStore.fetchChats()
   await interviewStore.fetchSessions()
@@ -329,9 +340,11 @@ function handleNewSimulation() {
   interviewStore.resetSession()
   candidateAnswer.value = ''
   selectedOptionKey.value = null
+  closeSidebarOnMobile()
 }
 
 async function handleLoadInterviewSession(id) {
+  closeSidebarOnMobile()
   if (!id) return
   if (interviewStore.currentSession?.id === id || String(id).startsWith('temp-')) {
     scrollToBottom()
@@ -649,6 +662,13 @@ function getScoreBadgeClass(score) {
 
 <template>
   <div class="chat-page-container" :class="{ 'sidebar-collapsed': isSidebarCollapsed }">
+
+    <!-- Mobile Sidebar Backdrop -->
+    <div
+      v-if="!isSidebarCollapsed"
+      class="sidebar-backdrop"
+      @click="isSidebarCollapsed = true"
+    ></div>
 
     <!-- Unified Sidebar (For Both Assistant & Interview Simulation Modes) -->
     <div class="chat-sidebar" :class="{ 'collapsed': isSidebarCollapsed }">
@@ -2816,5 +2836,150 @@ function getScoreBadgeClass(score) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* RESPONSIVE ADAPTATIONS */
+@media (max-width: 767px) {
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    top: var(--navbar-height, 65px);
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 940;
+  }
+
+  .chat-sidebar {
+    position: fixed;
+    top: var(--navbar-height, 65px);
+    left: 0;
+    bottom: 0;
+    z-index: 950;
+    width: 280px;
+    max-width: 85vw;
+    box-shadow: var(--shadow-xl);
+    transform: translateX(0);
+    transition: transform var(--transition-smooth, 0.25s ease), opacity var(--transition-smooth, 0.25s ease);
+  }
+
+  .chat-sidebar.collapsed {
+    transform: translateX(-100%);
+    width: 280px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .chat-header {
+    padding: 0 12px;
+    height: 56px;
+  }
+
+  .mode-switcher-pill {
+    padding: 2px;
+    gap: 2px;
+  }
+
+  .mode-btn {
+    padding: 5px 10px;
+    font-size: 11.5px;
+    gap: 4px;
+    min-height: 36px;
+  }
+
+  .mode-btn span {
+    font-size: 11px;
+  }
+
+  .chat-messages {
+    padding: 16px 12px 12px;
+  }
+
+  .message-row, .msg-row {
+    max-width: 95%;
+  }
+
+  .message-bubble, .msg-bubble {
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+
+  .markdown-body pre,
+  .markdown-body :deep(pre) {
+    overflow-x: auto;
+    max-width: 100%;
+  }
+
+  .markdown-body table,
+  .markdown-body :deep(table) {
+    display: block;
+    overflow-x: auto;
+    max-width: 100%;
+  }
+
+  .chat-bottom-dock {
+    padding: 0 12px 12px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .chat-input {
+    font-size: 16px; /* Prevents auto-zoom on iOS safari */
+    min-height: 44px;
+  }
+
+  .btn-send {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+  }
+
+  .interview-setup-screen {
+    padding: 16px 12px 32px;
+  }
+
+  .setup-card {
+    padding: 20px 16px;
+  }
+
+  .question-mode-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .persona-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .app-selectable-card {
+    padding: 10px 12px;
+    min-height: 48px;
+  }
+
+  .floor-thread {
+    padding: 16px 12px;
+  }
+
+  .debrief-scorecard-screen {
+    padding: 16px 12px 32px;
+  }
+
+  .scorecard-card {
+    padding: 20px 16px;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .scorecard-continuation-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .continuation-modes-btn-group {
+    width: 100%;
+  }
+
+  .continuation-modes-btn-group .btn {
+    flex: 1;
+    min-height: 44px;
+  }
 }
 </style>

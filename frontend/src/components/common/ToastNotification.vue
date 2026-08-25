@@ -70,8 +70,15 @@ const uiStore = useUIStore()
   color: var(--text-muted);
   display: flex;
   align-items: center;
-  padding: 2px;
+  justify-content: center;
+  padding: 8px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 4px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  margin: -8px -8px -8px 0;
 }
 .toast-close:hover {
   color: var(--text-main);
@@ -86,6 +93,24 @@ const uiStore = useUIStore()
 .toast-slide-enter-from,
 .toast-slide-leave-to {
   opacity: 0;
-  transform: translateX(-32px) scale(0.95);
+  transform: translateY(16px) scale(0.95);
+}
+
+/* MOBILE RESPONSIVE ADAPTATION */
+@media (max-width: 767px) {
+  .toast-container {
+    left: 50%;
+    bottom: max(16px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    width: calc(100vw - 32px);
+    max-width: 400px;
+    box-sizing: border-box;
+  }
+
+  .toast-slide-enter-from,
+  .toast-slide-leave-to {
+    opacity: 0;
+    transform: translate(-50%, 20px) scale(0.95);
+  }
 }
 </style>
