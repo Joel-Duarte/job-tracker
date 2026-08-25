@@ -1,6 +1,7 @@
 import datetime
 import logging
 from collections import defaultdict
+from difflib import SequenceMatcher
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -714,15 +715,35 @@ async def get_role_alignment(
 
     total_analyzed = len(filtered_apps)
 
-    # Aggregations
-    vocab_dict = defaultdict(lambda: {"count": 0, "rationale": ""})
-    bullet_dict = defaultdict(lambda: {"count": 0, "reason": ""})
+    # Helper: Text similarity consensus string calculation
+    def compute_consensus_text(variants: list[str]) -> str:
+        if not variants:
+            return ""
+        if len(variants) == 1:
+            return variants[0]
+        # Choose string with highest average similarity to all other variants
+        best_candidate = variants[0]
+        best_avg_score = -1.0
+        for cand in variants:
+            total_sim = 0.0
+            for other in variants:
+                sim = SequenceMatcher(None, cand.lower(), other.lower()).ratio()
+                total_sim += sim
+            avg_score = total_sim / len(variants)
+            if avg_score > best_avg_score:
+                best_avg_score = avg_score
+                best_candidate = cand
+        return best_candidate
+
+    # Global aggregation across role track by Target CV Term / Original Bullet
+    vocab_groups = defaultdict(lambda: {"count": 0, "jd_terms": [], "rationales": []})
+    bullet_groups = defaultdict(lambda: {"count": 0, "rewrites": [], "reasons": []})
 
     for app in filtered_apps:
         payload = app.match_analysis_payload or {}
         tailoring = payload.get("tailoring_strategy") or {}
 
-        # 1. Vocabulary Translations
+        # 1. Vocabulary Translations (Grouped by cv_term)
         vocab_list = tailoring.get("vocabulary_translation") or []
         for item in vocab_list:
             if not isinstance(item, dict):
@@ -731,12 +752,12 @@ async def get_role_alignment(
             jd_term = str(item.get("jd_term") or "").strip()
             rationale = str(item.get("rationale") or item.get("replacement_guidance") or "").strip()
             if cv_term and jd_term:
-                key = (cv_term, jd_term)
-                vocab_dict[key]["count"] += 1
+                vocab_groups[cv_term]["count"] += 1
+                vocab_groups[cv_term]["jd_terms"].append(jd_term)
                 if rationale:
-                    vocab_dict[key]["rationale"] = rationale
+                    vocab_groups[cv_term]["rationales"].append(rationale)
 
-        # 2. Impact / Bullet Reframing
+        # 2. Impact / Bullet Reframing (Grouped by original_bullet)
         bullet_list = tailoring.get("impact_reframing") or []
         for item in bullet_list:
             if not isinstance(item, dict):
@@ -745,33 +766,39 @@ async def get_role_alignment(
             sugg = str(item.get("suggested_rewrite") or "").strip()
             reason = str(item.get("reason") or "").strip()
             if orig and sugg:
-                key = (orig, sugg)
-                bullet_dict[key]["count"] += 1
+                bullet_groups[orig]["count"] += 1
+                bullet_groups[orig]["rewrites"].append(sugg)
                 if reason:
-                    bullet_dict[key]["reason"] = reason
+                    bullet_groups[orig]["reasons"].append(reason)
 
-    # Format Vocabulary Shifts
+    # Format Vocabulary Shifts (Top 10 highest-impact consensus items)
+    sorted_vocab = sorted(vocab_groups.items(), key=lambda x: x[1]["count"], reverse=True)[:10]
     vocab_items = []
-    for (cv_t, jd_t), data in sorted(vocab_dict.items(), key=lambda x: x[1]["count"], reverse=True):
+    for cv_t, data in sorted_vocab:
         pct = round((data["count"] / total_analyzed * 100.0), 1) if total_analyzed > 0 else 0.0
+        consensus_jd = compute_consensus_text(data["jd_terms"])
+        consensus_rationale = compute_consensus_text(data["rationales"]) if data["rationales"] else f"Aligns candidate experience with employer ATS standard for {consensus_jd}."
         vocab_items.append(
             VocabularyShiftItem(
                 cv_term=cv_t,
-                jd_term=jd_t,
+                jd_term=consensus_jd,
                 frequency_count=data["count"],
                 frequency_pct=pct,
-                rationale=data["rationale"] or f"Aligns candidate experience with employer ATS standard for {jd_t}.",
+                rationale=consensus_rationale,
             )
         )
 
-    # Format Bullet Reframes
+    # Format Bullet Reframes (Top 10 highest-impact consensus items)
+    sorted_bullets = sorted(bullet_groups.items(), key=lambda x: x[1]["count"], reverse=True)[:10]
     bullet_items = []
-    for (orig_b, sugg_r), data in sorted(bullet_dict.items(), key=lambda x: x[1]["count"], reverse=True):
+    for orig_b, data in sorted_bullets:
+        consensus_rewrite = compute_consensus_text(data["rewrites"])
+        consensus_reason = compute_consensus_text(data["reasons"]) if data["reasons"] else "Quantifies impact and aligns with role requirements."
         bullet_items.append(
             BulletReframeItem(
                 original_bullet=orig_b,
-                suggested_rewrite=sugg_r,
-                reason=data["reason"] or "Quantifies impact and aligns with role requirements.",
+                suggested_rewrite=consensus_rewrite,
+                reason=consensus_reason,
                 frequency_count=data["count"],
             )
         )

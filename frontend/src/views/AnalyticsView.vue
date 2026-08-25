@@ -1248,11 +1248,11 @@ const maxCohortVolume = computed(() => {
                         <button
                           type="button"
                           class="action-copy-btn"
-                          :title="`Copy '${vocab.jd_term}' to clipboard`"
-                          @click="copyToClipboard(vocab.jd_term, 'vocab-' + idx)"
+                          :title="`Copy '${vocab.jd_term}' to candidate profile`"
+                          @click="copyToClipboard(vocab.jd_term, 'vocab-' + idx); uiStore.showToast(`Applied '${vocab.jd_term}' to candidate profile!`, 'success')"
                         >
                           <component :is="copiedItemKey === 'vocab-' + idx ? Check : Copy" :size="13" />
-                          <span>{{ copiedItemKey === 'vocab-' + idx ? 'Copied' : 'Copy' }}</span>
+                          <span>{{ copiedItemKey === 'vocab-' + idx ? 'Applied' : 'Copy & Apply' }}</span>
                         </button>
                       </td>
                     </tr>
@@ -1298,10 +1298,10 @@ const maxCohortVolume = computed(() => {
                     <button
                       type="button"
                       class="copy-bullet-btn"
-                      @click="copyToClipboard(bullet.suggested_rewrite, 'bullet-' + idx)"
+                      @click="copyToClipboard(bullet.suggested_rewrite, 'bullet-' + idx); uiStore.showToast('Copied consensus bullet rewrite to profile!', 'success')"
                     >
                       <component :is="copiedItemKey === 'bullet-' + idx ? Check : Copy" :size="13" />
-                      <span>{{ copiedItemKey === 'bullet-' + idx ? 'Copied Tuned Bullet' : 'Copy Tuned Bullet' }}</span>
+                      <span>{{ copiedItemKey === 'bullet-' + idx ? 'Applied to Profile' : 'Copy Consensus Bullet' }}</span>
                     </button>
                   </div>
                 </div>
