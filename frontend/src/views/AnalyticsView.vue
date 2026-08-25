@@ -2492,7 +2492,6 @@ const maxCohortVolume = computed(() => {
   justify-content: space-between;
 }
 
-.mobile-step-title {
 /* Role Alignment Studio Toggle Header */
 .alignment-studio-header {
   display: grid;
@@ -2579,6 +2578,8 @@ const maxCohortVolume = computed(() => {
 .drop-text {
   font-size: 10px;
   font-weight: 700;
+}
+
 .studio-tab-btn.active .studio-tab-title {
   color: var(--primary);
 }
