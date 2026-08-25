@@ -87,9 +87,14 @@ function toggleSelectItem(id) {
 const clearOlderThanDays = ref(90) // 90 | 30 | 7 | null (All)
 const isClearingResolved = ref(false)
 
-// Master-detail active selection
+// Master-detail active selection & mobile view toggle
 const selectedItemId = ref(null)
 const emailViewMode = ref('formatted') // 'formatted' | 'raw'
+const showMobileDetail = ref(false)
+
+function backToQueueMobile() {
+  showMobileDetail.value = false
+}
 
 // Resolution Form State
 const resolutionMode = ref('create') // 'create' | 'link'
@@ -338,7 +343,7 @@ const filteredExistingApps = computed(() => {
 })
 
 // Populate resolveForm whenever selected item changes
-function selectItem(item) {
+function selectItem(item, fromUserClick = false) {
   if (!item) return
   selectedItemId.value = item.id
   resolutionMode.value = 'create'
@@ -347,6 +352,10 @@ function selectItem(item) {
   appSearchQuery.value = getItemCompany(item) || ''
   showRawJobDesc.value = false
   emailViewMode.value = 'formatted'
+
+  if (fromUserClick && window.innerWidth < 768) {
+    showMobileDetail.value = true
+  }
 
   const extracted = item.extracted_data || {}
   const autoStatus = getAutoDetectedStatus(item)
@@ -789,7 +798,7 @@ function formatRelativeTime(isoStr) {
     </div>
 
     <!-- Workspace Master-Detail Split Pane -->
-    <div class="staging-split-workspace">
+    <div class="staging-split-workspace" :class="{ 'mobile-show-detail': showMobileDetail }">
       <!-- LEFT PANE: Filterable Staging Queue Sidebar -->
       <aside class="staging-sidebar">
         <!-- Sidebar Controls -->
@@ -915,7 +924,7 @@ function formatRelativeTime(isoStr) {
               resolved: item.status !== 'PENDING',
               'is-selected': selectedIds.includes(item.id)
             }"
-            @click="selectItem(item)"
+            @click="selectItem(item, true)"
           >
             <div class="item-header-row">
               <div class="item-header-left">
@@ -993,6 +1002,12 @@ function formatRelativeTime(isoStr) {
 
         <!-- Active Item Triage Area -->
         <div v-else class="workspace-content-grid">
+          <!-- Mobile Back to Queue Trigger Button -->
+          <button class="mobile-back-queue-btn" @click="backToQueueMobile">
+            <ChevronLeft :size="16" />
+            <span>Back to Staging Queue</span>
+          </button>
+
           <!-- Top Triage Action Navigation Bar -->
           <div class="triage-nav-header">
             <div class="nav-counter">
@@ -2617,6 +2632,10 @@ function formatRelativeTime(isoStr) {
   color: var(--text-muted);
 }
 
+.mobile-back-queue-btn {
+  display: none;
+}
+
 @media (max-width: 1024px) {
   .staging-split-workspace {
     grid-template-columns: 300px 1fr;
@@ -2628,6 +2647,67 @@ function formatRelativeTime(isoStr) {
   .email-inspector-panel {
     border-right: none;
     border-bottom: 1px solid var(--border-color);
+  }
+}
+
+@media (max-width: 767px) {
+  .staging-workspace-container {
+    height: auto;
+    min-height: calc(100vh - var(--navbar-height, 60px));
+  }
+
+  .staging-split-workspace {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .staging-sidebar {
+    width: 100%;
+    display: flex;
+  }
+
+  .staging-main-detail {
+    display: none;
+    width: 100%;
+  }
+
+  .staging-split-workspace.mobile-show-detail .staging-sidebar {
+    display: none;
+  }
+
+  .staging-split-workspace.mobile-show-detail .staging-main-detail {
+    display: flex;
+    min-height: calc(100vh - 120px);
+  }
+
+  .mobile-back-queue-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 16px;
+    background-color: var(--bg-card);
+    border: none;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--primary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 48px;
+  }
+
+  .btn-submit-resolve,
+  .btn-smart-link,
+  .mode-tab-btn,
+  .btn-nav-chevron,
+  .btn-dismiss-action {
+    min-height: 44px;
+  }
+
+  .form-row-2col,
+  .mode-tab-selector,
+  .ai-tags-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

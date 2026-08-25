@@ -123,6 +123,29 @@ function handlePostHireClose() {
   lastHiredAppId.value = null
 }
 
+// Mobile Responsive & Carousel State
+const showMobileFilters = ref(false)
+const activeColumnIndex = ref(0)
+const kanbanBoardRef = ref(null)
+
+function handleKanbanScroll(e) {
+  if (!e.target || window.innerWidth >= 768) return
+  const scrollLeft = e.target.scrollLeft
+  const colWidth = e.target.clientWidth * 0.85
+  const index = Math.round(scrollLeft / colWidth)
+  activeColumnIndex.value = Math.max(0, Math.min(index, appStore.ACTIVE_STATUSES.length - 1))
+}
+
+function scrollToColumn(index) {
+  activeColumnIndex.value = index
+  if (kanbanBoardRef.value) {
+    const columns = kanbanBoardRef.value.querySelectorAll('.kanban-column')
+    if (columns[index]) {
+      columns[index].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+    }
+  }
+}
+
 const activeGuideAppId = ref(null)
 
 function openInterviewGuide(appId) {
@@ -660,82 +683,96 @@ async function confirmDelete() {
           </button>
         </div>
 
-        <!-- Status Filter shown in Table view where columns don't separate statuses -->
-        <select
-          v-if="uiStore.viewMode === 'table' && appStore.pipelineViewMode === 'active'"
-          :value="appStore.selectedStatus"
-          class="filter-select"
-          @change="handleStatusFilter"
+        <!-- Mobile Filters Toggle Trigger Button -->
+        <button
+          class="mobile-filter-trigger-btn"
+          :class="{ active: showMobileFilters }"
+          @click="showMobileFilters = !showMobileFilters"
         >
-          <option value="">All Active Statuses</option>
-          <option v-for="s in appStore.ACTIVE_STATUSES" :key="s.key" :value="s.key">
-            {{ s.label }}
-          </option>
-        </select>
+          <Filter :size="14" />
+          <span>Filters</span>
+          <ChevronDown :size="12" class="trigger-chevron" :class="{ open: showMobileFilters }" />
+        </button>
 
-        <!-- Work Model Filter (All / Remote / Hybrid / On-site) -->
-        <select
-          v-model="appStore.selectedWorkModel"
-          class="filter-select work-model-select"
-          title="Filter by workplace arrangement"
-        >
-          <option value="">All Workplaces</option>
-          <option value="Remote">🌐 Remote</option>
-          <option value="Hybrid">🏢 Hybrid</option>
-          <option value="On-site">📍 On-site</option>
-        </select>
-
-        <!-- Date Range Filter (All Time / 7d / 30d / 90d / Custom) -->
-        <div class="date-filter-group">
+        <!-- Dropdown & Date Filters Container -->
+        <div class="filters-collapsible-group" :class="{ 'mobile-open': showMobileFilters }">
+          <!-- Status Filter shown in Table view where columns don't separate statuses -->
           <select
-            v-model="appStore.selectedDateRange"
-            class="filter-select date-range-select"
-            title="Filter by application/activity date"
+            v-if="uiStore.viewMode === 'table' && appStore.pipelineViewMode === 'active'"
+            :value="appStore.selectedStatus"
+            class="filter-select"
+            @change="handleStatusFilter"
           >
-            <option value="all">📅 All Time</option>
-            <option value="7d">📅 Last 7 Days</option>
-            <option value="30d">📅 Last 30 Days</option>
-            <option value="90d">📅 Last 90 Days</option>
-            <option value="custom">📅 Custom Range...</option>
+            <option value="">All Active Statuses</option>
+            <option v-for="s in appStore.ACTIVE_STATUSES" :key="s.key" :value="s.key">
+              {{ s.label }}
+            </option>
           </select>
 
-          <!-- Custom Range Pickers -->
-          <div v-if="appStore.selectedDateRange === 'custom'" class="custom-date-inputs animate-fade-in">
-            <input
-              v-model="appStore.customDateStart"
-              type="date"
-              class="date-input"
-              title="Start Date"
-            />
-            <span class="date-sep">to</span>
-            <input
-              v-model="appStore.customDateEnd"
-              type="date"
-              class="date-input"
-              title="End Date"
-            />
+          <!-- Work Model Filter (All / Remote / Hybrid / On-site) -->
+          <select
+            v-model="appStore.selectedWorkModel"
+            class="filter-select work-model-select"
+            title="Filter by workplace arrangement"
+          >
+            <option value="">All Workplaces</option>
+            <option value="Remote">🌐 Remote</option>
+            <option value="Hybrid">🏢 Hybrid</option>
+            <option value="On-site">📍 On-site</option>
+          </select>
+
+          <!-- Date Range Filter (All Time / 7d / 30d / 90d / Custom) -->
+          <div class="date-filter-group">
+            <select
+              v-model="appStore.selectedDateRange"
+              class="filter-select date-range-select"
+              title="Filter by application/activity date"
+            >
+              <option value="all">📅 All Time</option>
+              <option value="7d">📅 Last 7 Days</option>
+              <option value="30d">📅 Last 30 Days</option>
+              <option value="90d">📅 Last 90 Days</option>
+              <option value="custom">📅 Custom Range...</option>
+            </select>
+
+            <!-- Custom Range Pickers -->
+            <div v-if="appStore.selectedDateRange === 'custom'" class="custom-date-inputs animate-fade-in">
+              <input
+                v-model="appStore.customDateStart"
+                type="date"
+                class="date-input"
+                title="Start Date"
+              />
+              <span class="date-sep">to</span>
+              <input
+                v-model="appStore.customDateEnd"
+                type="date"
+                class="date-input"
+                title="End Date"
+              />
+            </div>
+
+            <button
+              v-if="appStore.selectedDateRange !== 'all'"
+              class="btn-clear-date-filter"
+              title="Reset Date Filter"
+              @click="appStore.selectedDateRange = 'all'; appStore.customDateStart = ''; appStore.customDateEnd = ''"
+            >
+              <X :size="12" />
+            </button>
           </div>
 
           <button
-            v-if="appStore.selectedDateRange !== 'all'"
-            class="btn-clear-date-filter"
-            title="Reset Date Filter"
-            @click="appStore.selectedDateRange = 'all'; appStore.customDateStart = ''; appStore.customDateEnd = ''"
+            v-if="appStore.pipelineViewMode === 'active'"
+            class="btn btn-secondary filter-toggle-btn"
+            :class="{ active: appStore.actionRequiredOnly }"
+            @click="toggleActionRequired"
+            title="Filter applications with pending tasks, unscheduled interviews, or deadlines"
           >
-            <X :size="12" />
+            <AlertCircle :size="14" />
+            <span>Needs Action</span>
           </button>
         </div>
-
-        <button
-          v-if="appStore.pipelineViewMode === 'active'"
-          class="btn btn-secondary filter-toggle-btn"
-          :class="{ active: appStore.actionRequiredOnly }"
-          @click="toggleActionRequired"
-          title="Filter applications with pending tasks, unscheduled interviews, or deadlines"
-        >
-          <AlertCircle :size="14" />
-          <span>Needs Action</span>
-        </button>
 
         <!-- Match Fit % Filter with Quick Preset Chips 
         <div class="match-filter-container">
@@ -947,16 +984,21 @@ async function confirmDelete() {
       <!-- 2. ACTIVE VIEW (KANBAN OR DATA TABLE) -->
       <template v-else-if="appStore.pipelineViewMode === 'active'">
         <!-- ACTIVE KANBAN VIEW (WITH DRAG & DROP) -->
-        <div v-if="uiStore.viewMode === 'kanban'" class="kanban-board">
-        <div
-          v-for="col in appStore.ACTIVE_STATUSES"
-          :key="col.key"
-          class="kanban-column"
-          :class="{ 'drag-over': dragOverCol === col.key }"
-          @dragover="onDragOver(col.key, $event)"
-          @dragleave="onDragLeave(col.key)"
-          @drop="onDrop(col.key, $event)"
-        >
+        <div v-if="uiStore.viewMode === 'kanban'" class="kanban-container">
+          <div
+            ref="kanbanBoardRef"
+            class="kanban-board"
+            @scroll="handleKanbanScroll"
+          >
+            <div
+              v-for="col in appStore.ACTIVE_STATUSES"
+              :key="col.key"
+              class="kanban-column"
+              :class="{ 'drag-over': dragOverCol === col.key }"
+              @dragover="onDragOver(col.key, $event)"
+              @dragleave="onDragLeave(col.key)"
+              @drop="onDrop(col.key, $event)"
+            >
           <div class="column-header">
             <div class="column-title-group">
               <span class="column-dot" :class="`dot-${col.color}`"></span>
@@ -1142,6 +1184,18 @@ async function confirmDelete() {
           </div>
         </div>
       </div>
+      <!-- Mobile Swipe Carousel Pagination Dots -->
+      <div class="mobile-kanban-dots">
+        <button
+          v-for="(col, index) in appStore.ACTIVE_STATUSES"
+          :key="col.key"
+          class="kanban-dot"
+          :class="{ active: activeColumnIndex === index }"
+          :title="`Go to ${col.label}`"
+          @click="scrollToColumn(index)"
+        ></button>
+      </div>
+    </div>
 
         <!-- ACTIVE TABLE VIEW -->
         <div v-else class="table-view-container">
@@ -3447,6 +3501,209 @@ async function confirmDelete() {
 .btn-withdrawn:hover {
   background-color: rgba(251, 146, 60, 0.2);
   border-color: rgba(251, 146, 60, 0.4);
+}
+
+/* Mobile Filter Trigger Button & Collapsible Container */
+.mobile-filter-trigger-btn {
+  display: none;
+}
+
+.mobile-kanban-dots {
+  display: none;
+}
+
+/* RESPONSIVE DESIGN (< 768px Mobile & 768px-1023px Tablet) */
+@media (max-width: 1023px) {
+  .controls-bar {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 12px 16px;
+    gap: 10px;
+  }
+
+  .search-filter-group {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .pipeline-mode-toggle {
+    width: 100%;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    padding: 4px;
+  }
+
+  .pipeline-mode-btn {
+    flex: 1;
+    min-width: 120px;
+    justify-content: center;
+    padding: 8px 10px;
+    min-height: var(--min-touch-target, 44px);
+  }
+
+  .search-input-wrapper {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .search-input {
+    height: 44px;
+    font-size: 14px;
+  }
+
+  .mobile-filter-trigger-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: 44px;
+    padding: 0 14px;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .mobile-filter-trigger-btn.active {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  .trigger-chevron {
+    transition: transform 0.2s ease;
+  }
+
+  .trigger-chevron.open {
+    transform: rotate(180deg);
+  }
+
+  .filters-collapsible-group {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 12px;
+  }
+
+  .filters-collapsible-group.mobile-open {
+    display: flex;
+  }
+
+  .filter-select {
+    width: 100%;
+    height: 44px;
+  }
+
+  .date-filter-group {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .view-switch-group {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 767px) {
+  .content-wrapper {
+    padding: 12px;
+  }
+
+  .kanban-container {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .kanban-board {
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    gap: 12px;
+    padding: 4px 2px 12px;
+    width: 100%;
+  }
+
+  .kanban-column {
+    min-width: calc(100vw - 48px);
+    width: calc(100vw - 48px);
+    scroll-snap-align: center;
+    flex-shrink: 0;
+  }
+
+  .mobile-kanban-dots {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 0;
+  }
+
+  .kanban-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--border-color);
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .kanban-dot.active {
+    background-color: var(--primary);
+    transform: scale(1.3);
+  }
+
+  .card-menu-trigger,
+  .phase-detail-btn,
+  .btn-sm,
+  .card-hover-icon-btn {
+    min-height: 40px;
+    min-width: 40px;
+  }
+
+  .table-view-container,
+  .archive-table-card {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .inner-modal-box {
+    width: 100vw;
+    height: 100vh;
+    max-height: 100dvh;
+    border-radius: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .inner-modal-body {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .inner-modal-footer {
+    position: sticky;
+    bottom: 0;
+    width: 100%;
+  }
 }
 
 </style>
