@@ -326,6 +326,76 @@ function formatLanguageName(code) {
   line-height: 1.55;
 }
 
-/* Print Overrides */
+.guide-article :deep(pre),
+.guide-article :deep(code),
+.guide-article :deep(table) {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  word-break: break-word;
+}
+
+@media (max-width: 767px) {
+  .interview-guide-page {
+    padding: 16px 12px 60px;
+  }
+
+  .guide-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+
+  .header-main-info {
+    width: 100%;
+  }
+
+  .header-title-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .page-title {
+    font-size: clamp(20px, 5vw, 28px);
+  }
+
+  .header-actions {
+    width: 100%;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .header-actions .btn {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
+    font-size: 14px;
+  }
+
+  .guide-paper {
+    padding: 20px 16px;
+    border-radius: var(--radius-sm);
+  }
+
+  .guide-article :deep(h1) {
+    font-size: clamp(18px, 4vw, 24px);
+  }
+
+  .guide-article :deep(h2) {
+    font-size: clamp(16px, 3.5vw, 20px);
+  }
+
+  .guide-article :deep(p),
+  .guide-article :deep(li) {
+    font-size: 14px;
+    word-break: break-word;
+  }
+
+  .guide-article :deep(blockquote) {
+    padding: 12px 14px;
+    margin: 14px 0;
+  }
+}
 
 </style>

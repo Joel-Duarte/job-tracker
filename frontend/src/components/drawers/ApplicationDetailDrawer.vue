@@ -2184,6 +2184,10 @@ function formatDate(isoStr) {
   background-color: var(--bg-sidebar);
   border-bottom: 1px solid var(--border-color);
   gap: 8px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
 }
 
 .tab-item {
@@ -2196,6 +2200,9 @@ function formatDate(isoStr) {
   color: var(--text-secondary);
   border-bottom: 2px solid transparent;
   transition: all var(--transition-fast);
+  scroll-snap-align: start;
+  flex-shrink: 0;
+  min-height: 48px;
 }
 
 .tab-item:hover {
@@ -3597,7 +3604,9 @@ function formatDate(isoStr) {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  padding: 4px;
+  padding: 8px;
+  min-width: 44px;
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3760,5 +3769,59 @@ function formatDate(isoStr) {
 
 .prop-chip-val {
   color: var(--text-main);
+}
+
+/* Mobile Responsive Adjustments for Application Detail Drawer */
+@media (max-width: 767px) {
+  .drawer-panel {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    border-left: none;
+    border-radius: 0;
+  }
+
+  .drawer-header {
+    padding: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: var(--bg-surface);
+  }
+
+  .drawer-tabs {
+    padding: 0 16px;
+    position: sticky;
+    top: 73px;
+    z-index: 9;
+  }
+
+  .status-bar {
+    padding: 12px 16px;
+  }
+
+  .drawer-body {
+    padding: 16px;
+  }
+
+  .form-row-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .btn-icon-danger, .btn-icon-action, .btn-close {
+    min-width: 48px;
+    min-height: 48px;
+  }
+
+  .tab-item {
+    min-height: 48px;
+    padding: 12px 14px;
+  }
+
+  .inner-modal-box {
+    max-width: 100vw;
+    margin: 0 8px;
+  }
 }
 </style>
