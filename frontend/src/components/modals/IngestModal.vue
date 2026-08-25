@@ -791,6 +791,89 @@ const syncButtonLabel = computed => {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 8px;
+  position: sticky;
+  bottom: 0;
+  background-color: var(--bg-card);
+  padding-top: 10px;
+  padding-bottom: 4px;
+  z-index: 10;
+}
+
+@media (max-width: 767px) {
+  .modal-backdrop {
+    padding: 0;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .modal-card {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    max-width: 100vw;
+    border-radius: 0;
+    border: none;
+  }
+
+  .modal-header {
+    padding: 14px 16px;
+  }
+
+  .btn-close {
+    min-width: 48px;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .tab-bar {
+    overflow-x: auto;
+    white-space: nowrap;
+    padding: 6px 12px;
+  }
+
+  .tab-btn {
+    min-height: 48px;
+    padding: 8px 14px;
+    flex-shrink: 0;
+  }
+
+  .modal-body {
+    padding: 16px;
+  }
+
+  .form-input,
+  .form-textarea,
+  .form-select {
+    font-size: 16px;
+    min-height: 44px;
+  }
+
+  .time-chip {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 14px;
+  }
+
+  .modal-actions {
+    flex-direction: column-reverse;
+    gap: 8px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .modal-actions .btn {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
+  }
+
+  .dropzone {
+    min-height: 140px;
+    padding: 20px 16px;
+  }
 }
 
 /* ── Result box ────────────────────────────────── */

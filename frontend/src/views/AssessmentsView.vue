@@ -2148,4 +2148,155 @@ onUnmounted(() => {
   opacity: 0;
 }
 
+@media (max-width: 767px) {
+  .assessments-page {
+    padding: 16px 12px 80px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .stat-card {
+    padding: 10px 12px;
+  }
+
+  .sub-nav-tabs {
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+
+  .sub-nav-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .sub-nav-tab {
+    flex: 1;
+    justify-content: center;
+    min-height: 44px;
+    padding: 8px 12px;
+    white-space: nowrap;
+  }
+
+  .eval-filter-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .search-box {
+    max-width: 100%;
+    width: 100%;
+    height: 44px;
+  }
+
+  .fit-chips-group, .max-fit-group {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    margin-left: 0;
+  }
+
+  .fit-chip {
+    min-height: 36px;
+    padding: 6px 12px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .sort-select-wrapper {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .sort-select {
+    height: 40px;
+    flex: 1;
+  }
+
+  .eval-card {
+    padding: 14px 12px;
+  }
+
+  .eval-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .eval-title-group {
+    width: 100%;
+  }
+
+  .eval-fit-container {
+    width: 100%;
+  }
+
+  .scores-side-by-side {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .pros-cons-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .eval-card-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .expand-toggle-btn {
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 8px;
+    background-color: var(--bg-card);
+  }
+
+  .action-buttons-group {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: stretch;
+    gap: 8px;
+  }
+
+  .action-buttons-group .btn {
+    flex: 1;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .batch-actions-bar {
+    width: calc(100vw - 24px);
+    max-width: 480px;
+    bottom: max(16px, env(safe-area-inset-bottom));
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 16px;
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+    border-radius: var(--radius-md);
+  }
+
+  .batch-info, .batch-buttons {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .batch-buttons .btn {
+    flex: 1;
+    min-height: 44px;
+    justify-content: center;
+  }
+}
+
 </style>
