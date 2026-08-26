@@ -29,44 +29,27 @@ export function recordPageView(path) {
       // fallback
     }
 
-    // 1. Image Pixel Ping (100% CORS-exempt, works universally across all browsers)
-    try {
-      const img = new Image()
-      const query = new URLSearchParams({
-        path: currentPath,
-        r: referrer,
-        ref: refTag,
-        t: title,
-        w: String(screenWidth),
-        _t: String(Date.now()),
-      })
-      img.src = `${endpoint}?${query.toString()}`
-    } catch {
-      // Ignore image pixel error
-    }
+    const payload = JSON.stringify({
+      path: currentPath,
+      referrer,
+      ref: refTag,
+      title,
+      width: screenWidth,
+      timestamp: new Date().toISOString(),
+    })
 
-    // 2. Fetch with mode 'no-cors' to prevent CORS policy blocks on POST
-    try {
-      const payload = JSON.stringify({
-        path: currentPath,
-        referrer,
-        ref: refTag,
-        title,
-        width: screenWidth,
-      })
-      fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: payload,
-        mode: 'no-cors',
-        keepalive: true,
-      }).catch(() => {})
-    } catch {
-      // Ignore fetch error
-    }
+    // Dispatch POST request (works with 200 OK across all desktop & mobile browsers)
+    fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body: payload,
+      mode: 'no-cors',
+      keepalive: true,
+    }).catch(() => {})
   } catch {
     // Silent error containment
   }
 }
+
 
 
