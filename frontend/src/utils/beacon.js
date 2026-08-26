@@ -16,23 +16,37 @@ export function recordPageView(path) {
     const title = document.title || ''
     const screenWidth = window.screen?.width || 0
 
-    // Extract ?ref=, ?utm_source=, or ?source= from URL search params
+    // Extract ?ref=, ?utm_source=, or ?source= from URL search params (or persisted session)
     let refTag = ''
     try {
       const urlParams = new URLSearchParams(window.location.search)
-      refTag =
+      const queryRef =
         urlParams.get('ref') ||
         urlParams.get('utm_source') ||
-        urlParams.get('source') ||
-        ''
+        urlParams.get('source')
+
+      if (queryRef) {
+        refTag = queryRef
+        try {
+          sessionStorage.setItem('jt_campaign_ref', queryRef)
+        } catch {
+          // ignore storage error
+        }
+      } else {
+        refTag = sessionStorage.getItem('jt_campaign_ref') || ''
+      }
     } catch {
       // fallback
     }
 
+    // Set effective referrer (giving priority to explicit ?ref= / campaign tag)
+    const effectiveReferrer = refTag || referrer || ''
+
     const payload = JSON.stringify({
       path: currentPath,
-      referrer,
-      ref: refTag,
+      referrer: effectiveReferrer,
+      ref: effectiveReferrer,
+      campaign: refTag,
       title,
       width: screenWidth,
       timestamp: new Date().toISOString(),
