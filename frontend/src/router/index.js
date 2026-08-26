@@ -77,11 +77,16 @@ const router = createRouter({
 import { isDemoModeEnabled } from '../demo/demoStorage'
 import { recordPageView } from '../utils/beacon'
 
-// Track client-side page navigation (Demo Mode only)
+// Track page visits for GitHub Pages demo mode
 router.afterEach((to) => {
-  if (isDemoModeEnabled()) {
+  if (
+    isDemoModeEnabled() ||
+    (typeof window !== 'undefined' && window.location.hostname.includes('github.io'))
+  ) {
     recordPageView(to.fullPath)
   }
 })
 
 export default router
+
+
