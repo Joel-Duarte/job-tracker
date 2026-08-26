@@ -16,12 +16,26 @@ export function recordPageView(path) {
     const title = document.title || ''
     const screenWidth = window.screen?.width || 0
 
+    // Extract ?ref=, ?utm_source=, or ?source= from URL search params
+    let refTag = ''
+    try {
+      const urlParams = new URLSearchParams(window.location.search)
+      refTag =
+        urlParams.get('ref') ||
+        urlParams.get('utm_source') ||
+        urlParams.get('source') ||
+        ''
+    } catch {
+      // fallback
+    }
+
     // 1. Image Pixel Ping (100% CORS-exempt, works universally across all browsers)
     try {
       const img = new Image()
       const query = new URLSearchParams({
         path: currentPath,
         r: referrer,
+        ref: refTag,
         t: title,
         w: String(screenWidth),
         _t: String(Date.now()),
@@ -36,6 +50,7 @@ export function recordPageView(path) {
       const payload = JSON.stringify({
         path: currentPath,
         referrer,
+        ref: refTag,
         title,
         width: screenWidth,
       })
