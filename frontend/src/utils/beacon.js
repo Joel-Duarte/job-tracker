@@ -17,14 +17,15 @@ export function recordPageView(path) {
     })
 
     if (navigator.sendBeacon) {
-      const blob = new Blob([payload], { type: 'application/json' })
+      // Use text/plain to avoid CORS preflights in Firefox and strict privacy browsers
+      const blob = new Blob([payload], { type: 'text/plain;charset=UTF-8' })
       navigator.sendBeacon(endpoint, blob)
     } else {
       fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain' },
         body: payload,
-        mode: 'cors',
+        mode: 'no-cors',
         keepalive: true,
       }).catch(() => {})
     }
