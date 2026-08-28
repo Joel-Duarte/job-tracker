@@ -1,8 +1,10 @@
 import hashlib
 import logging
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import (
     APIRouter,
@@ -961,13 +963,26 @@ async def enqueue_job_assessment(
         )
 
     # Derive title hint from payload
-    if payload.title_hint:
-        title_hint = payload.title_hint.strip()
+    if payload.title_hint and payload.title_hint.strip():
+        title_hint = payload.title_hint.strip()[:80]
     elif url_clean:
-        title_hint = f"Lead: {url_clean.split('/')[-1] or url_clean[:50]}"
+        try:
+            parsed = urlparse(url_clean)
+            host = parsed.netloc.lower().replace("www.", "")
+            path_parts = [p for p in parsed.path.strip("/").split("/") if p]
+            slug = path_parts[-1] if path_parts else ""
+            slug = re.sub(r"\.(html?|php|jsp)$", "", slug, flags=re.IGNORECASE)
+            if host and slug:
+                title_hint = f"{host} / {slug}"[:60]
+            elif host:
+                title_hint = f"Lead: {host}"[:60]
+            else:
+                title_hint = f"Lead: {url_clean[:50]}"
+        except Exception:
+            title_hint = f"Lead: {url_clean[:50]}"
     else:
         first_line = text_clean.splitlines()[0] if text_clean else "Job Lead"
-        title_hint = first_line[:50]
+        title_hint = first_line[:60]
 
     task_record = IntakeEvaluationTaskModel(
         job_url=url_clean,

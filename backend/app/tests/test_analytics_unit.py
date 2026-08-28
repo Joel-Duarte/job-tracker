@@ -133,7 +133,7 @@ async def test_get_role_alignment_unit():
     mock_app_res = MagicMock()
     mock_app_res.scalars.return_value.all.return_value = [app]
 
-    mock_db.execute.side_effect = [mock_cv_res, mock_app_res]
+    mock_db.execute.return_value = mock_app_res
 
     from app.services.analytics import get_role_alignment
 

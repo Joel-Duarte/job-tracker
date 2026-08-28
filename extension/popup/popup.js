@@ -455,12 +455,17 @@ async function handleCaptureSubmit() {
       targetUrl: `${appUrl}/assessments`
     });
 
+    const titleHint = (company && position)
+      ? `${company} - ${position}`
+      : (extractedData?.title || 'Job Lead');
+
     chrome.runtime.sendMessage(
       {
         type: 'ENQUEUE_JOB',
         payload: {
           text: rawText,
-          url: jobUrl
+          url: jobUrl,
+          title_hint: titleHint.slice(0, 80)
         }
       },
       (res) => {

@@ -145,9 +145,20 @@ async function enqueueLead() {
   }
 
   // Derive title hint optimistically
-  const titleHint = urlVal
-    ? `Lead: ${urlVal.split('/').pop() || urlVal.slice(0, 50)}`
-    : (textVal.split('\n')[0] || 'Job Lead').slice(0, 50)
+  let titleHint = 'Job Lead'
+  if (urlVal) {
+    try {
+      const parsed = new URL(urlVal)
+      const host = parsed.hostname.replace(/^www\./, '')
+      const parts = parsed.pathname.split('/').filter(Boolean)
+      const slug = parts.length > 0 ? parts[parts.length - 1].replace(/\.(html?|php|jsp)$/i, '') : ''
+      titleHint = slug ? `${host} / ${slug}`.slice(0, 60) : `Lead: ${host}`.slice(0, 60)
+    } catch {
+      titleHint = `Lead: ${urlVal.slice(0, 50)}`
+    }
+  } else if (textVal) {
+    titleHint = (textVal.split('\n')[0] || 'Job Lead').slice(0, 60)
+  }
 
   // Optimistic task item
   const tempId = Date.now()

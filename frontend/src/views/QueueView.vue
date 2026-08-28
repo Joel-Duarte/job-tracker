@@ -98,6 +98,14 @@ const filteredTasks = computed(() => {
   })
 })
 
+function getTaskDisplayTitle(task) {
+  if (!task) return 'Task'
+  if (task.result_json?.company && task.result_json?.position) {
+    return `${task.result_json.company} - ${task.result_json.position}`
+  }
+  return task.title_hint || task.job_url || `Task #${task.id}`
+}
+
 const runningCount = computed(() => queueStore.runningCount)
 const pendingCount = computed(() => queueStore.pendingCount)
 const activeCount = computed(() => queueStore.activeCount)
@@ -666,8 +674,8 @@ onMounted(() => {
                 <component :is="task.task_type === 'CV_EXTRACTION' ? UserCheck : (task.task_type === 'EMBEDDING' ? Layers : (task.task_type === 'COVER_LETTER' ? FileText : (task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE' ? Mail : Briefcase)))" :size="12" />
                 <span>{{ task.task_type === 'CV_EXTRACTION' ? 'CV Profile Extraction' : (task.task_type === 'EMBEDDING' ? 'Vector Embedding' : (task.task_type === 'COVER_LETTER' ? 'Cover Letter Generation' : (task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE' ? 'Email Sync' : 'Job Assessment'))) }}</span>
               </span>
-              <span class="task-title-text" :title="task.title_hint || task.job_url">
-                {{ task.title_hint || task.job_url || `Task #${task.id}` }}
+              <span class="task-title-text" :title="getTaskDisplayTitle(task)">
+                {{ getTaskDisplayTitle(task) }}
               </span>
             </div>
 
@@ -1507,7 +1515,9 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
+  flex: 1;
 }
 
 .task-id-tag {
@@ -1740,6 +1750,11 @@ onMounted(() => {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
 }
 
 .task-header-right {

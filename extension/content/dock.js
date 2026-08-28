@@ -712,12 +712,17 @@
           statusMsg.textContent = '✅ Queued for AI Assessment!';
           statusMsg.classList.remove('hidden');
 
+          const titleHint = (company && position && company !== 'Job Posting')
+            ? `${company} - ${position}`
+            : (document.title?.trim() || position || 'Job Lead');
+
           chrome.runtime.sendMessage(
             {
               type: 'ENQUEUE_JOB',
               payload: {
                 text: currentJobData.description_text,
-                url: currentJobData.url
+                url: currentJobData.url,
+                title_hint: titleHint.slice(0, 80)
               }
             },
             (res) => {

@@ -105,6 +105,14 @@ const widgetState = computed(() => {
   return 'hidden'
 })
 
+function getTaskDisplayTitle(task) {
+  if (!task) return 'Task'
+  if (task.result_json?.company && task.result_json?.position) {
+    return `${task.result_json.company} - ${task.result_json.position}`
+  }
+  return task.title_hint || task.job_url || `Task #${task.id}`
+}
+
 async function pollQueueStatus(silent = true) {
   await queueStore.fetchTasks(silent)
 }
@@ -274,8 +282,8 @@ onUnmounted(() => {
               </div>
 
               <!-- Task Title -->
-              <div class="task-item-title font-medium" :title="task.title_hint || task.job_url">
-                {{ task.title_hint || task.job_url || `Task #${task.id}` }}
+              <div class="task-item-title font-medium" :title="getTaskDisplayTitle(task)">
+                {{ getTaskDisplayTitle(task) }}
               </div>
 
               <!-- Stage indicator for running task -->
