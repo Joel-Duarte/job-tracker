@@ -3,6 +3,7 @@ import { ref, watch, computed, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
+import { useQueueStore } from '../../stores/queueStore'
 import { ApplicationsAPI } from '../../api/endpoints'
 import DOMPurify from 'dompurify'
 import {
@@ -19,17 +20,23 @@ import {
   Sliders,
   ChevronDown,
   ChevronUp,
+  Clock,
+  AlertCircle,
 } from 'lucide-vue-next'
 import { downloadCoverLetterPdf } from '../../utils/pdfGenerator'
 
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
+const queueStore = useQueueStore()
 
 const { isCoverLetterModalOpen, coverLetterAppId } = storeToRefs(uiStore)
 
 const application = ref(null)
 const isLoadingApp = ref(false)
 const isGenerating = ref(false)
+const generationError = ref(null)
+
+let pollTimer = null
 
 // Editor state
 const editableText = ref('')
@@ -73,6 +80,116 @@ const currentLengthLabel = computed(() => {
   return found ? found.label : 'Standard (~300 words)'
 })
 
+const activeCoverLetterTask = computed(() => {
+  if (!coverLetterAppId.value) return null
+  return (
+    queueStore.tasks.find(
+      (t) =>
+        t.task_type === 'COVER_LETTER' &&
+        (t.result_json?.application_id === coverLetterAppId.value || t.raw_text === String(coverLetterAppId.value)) &&
+        ['QUEUED', 'PROCESSING'].includes(t.status)
+    ) || null
+  )
+})
+
+const failedCoverLetterTask = computed(() => {
+  if (!coverLetterAppId.value) return null
+  return (
+    queueStore.tasks.find(
+      (t) =>
+        t.task_type === 'COVER_LETTER' &&
+        (t.result_json?.application_id === coverLetterAppId.value || t.raw_text === String(coverLetterAppId.value)) &&
+        ['FAILED', 'CANCELLED'].includes(t.status)
+    ) || null
+  )
+})
+
+const queuePositionInfo = computed(() => {
+  if (!activeCoverLetterTask.value) {
+    if (isGenerating.value) {
+      return {
+        statusText: 'AI Generating...',
+        stageText: 'Synthesizing tailored experiences & role alignment',
+        isProcessing: true,
+        position: null,
+      }
+    }
+    return null
+  }
+  const task = activeCoverLetterTask.value
+  if (task.status === 'PROCESSING') {
+    return {
+      statusText: 'Drafting with AI...',
+      stageText: task.stage === 'DRAFTING' ? 'Synthesizing tailored experiences & role alignment' : 'Processing in AI Engine',
+      isProcessing: true,
+      position: null,
+    }
+  }
+  const activeQueued = queueStore.activeTasks.filter((t) => t.status === 'QUEUED')
+  const pos = activeQueued.findIndex((t) => t.id === task.id)
+  const positionNumber = pos >= 0 ? pos + 1 : 1
+  return {
+    statusText: `Position #${positionNumber} in AI Queue`,
+    stageText: `Waiting in queue (${positionNumber} of ${queueStore.pendingCount || activeQueued.length})`,
+    isProcessing: false,
+    position: positionNumber,
+  }
+})
+
+const isCurrentlyGenerating = computed(() => isGenerating.value || !!activeCoverLetterTask.value)
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+function startPolling() {
+  stopPolling()
+  pollTimer = setInterval(async () => {
+    await pollStatus()
+  }, 1500)
+}
+
+async function pollStatus() {
+  if (!coverLetterAppId.value || !isCoverLetterModalOpen.value) {
+    stopPolling()
+    return
+  }
+
+  await queueStore.fetchTasks(true)
+
+  if (!activeCoverLetterTask.value) {
+    try {
+      const res = await ApplicationsAPI.getCoverLetter(coverLetterAppId.value)
+      if (res.data) {
+        application.value = res.data
+        if (res.data.cover_letter_text && res.data.cover_letter_text.trim()) {
+          editableText.value = res.data.cover_letter_text
+          isGenerating.value = false
+          generationError.value = null
+          isOptionsExpanded.value = false
+          isPreviewMode.value = false
+          autoSaveStatus.value = 'saved'
+          stopPolling()
+          appStore.fetchApplications()
+          uiStore.showToast('Cover letter generated and ready to edit!', 'success')
+          return
+        }
+      }
+    } catch {
+      // Continue polling
+    }
+
+    if (failedCoverLetterTask.value && !editableText.value) {
+      generationError.value = failedCoverLetterTask.value.error_message || 'Failed to generate cover letter.'
+      isGenerating.value = false
+      stopPolling()
+    }
+  }
+}
+
 const renderedMarkdown = computed(() => {
   if (!editableText.value) return ''
   let html = editableText.value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -110,8 +227,12 @@ watch(
   async ([isOpen, appId]) => {
     if (isOpen && appId) {
       isLoadingApp.value = true
+      generationError.value = null
       autoSaveStatus.value = 'saved'
       length.value = uiStore.coverLetterLength || 'standard'
+
+      await queueStore.fetchTasks(true)
+
       try {
         const res = await ApplicationsAPI.getCoverLetter(appId)
         application.value = res.data
@@ -127,10 +248,15 @@ watch(
         }
       } finally {
         isLoadingApp.value = false
-        // Collapsed if letter exists, expanded if empty draft
         isOptionsExpanded.value = !editableText.value && !application.value?.cover_letter_text
       }
+
+      if (activeCoverLetterTask.value) {
+        isGenerating.value = true
+        startPolling()
+      }
     } else {
+      stopPolling()
       application.value = null
       editableText.value = ''
       customInstructions.value = ''
@@ -138,6 +264,8 @@ watch(
       length.value = uiStore.coverLetterLength || 'standard'
       isPreviewMode.value = false
       isOptionsExpanded.value = false
+      isGenerating.value = false
+      generationError.value = null
     }
   },
   { immediate: true }
@@ -182,6 +310,7 @@ async function saveCoverLetterChanges() {
 async function handleGenerateCoverLetter() {
   if (!coverLetterAppId.value) return
   isGenerating.value = true
+  generationError.value = null
   try {
     const res = await ApplicationsAPI.generateCoverLetter(coverLetterAppId.value, {
       tone: tone.value,
@@ -193,12 +322,12 @@ async function handleGenerateCoverLetter() {
       application.value.cover_letter_status = res.data.cover_letter_status || 'QUEUED'
       application.value.cover_letter_generated_at = res.data.cover_letter_generated_at
     }
-    editableText.value = res.data.cover_letter_text || ''
-    autoSaveStatus.value = 'saved'
     uiStore.showToast('Cover letter queued for background generation!', 'success')
+    await queueStore.fetchTasks(true)
+    startPolling()
   } catch (err) {
-    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to generate cover letter', 'error')
-  } finally {
+    generationError.value = err.response?.data?.detail || err.message || 'Failed to generate cover letter'
+    uiStore.showToast(generationError.value, 'error')
     isGenerating.value = false
   }
 }
@@ -206,6 +335,7 @@ async function handleGenerateCoverLetter() {
 async function handleRegenerateCoverLetter() {
   if (!coverLetterAppId.value) return
   isGenerating.value = true
+  generationError.value = null
   try {
     const res = await ApplicationsAPI.regenerateCoverLetter(coverLetterAppId.value, {
       tone: tone.value,
@@ -217,12 +347,12 @@ async function handleRegenerateCoverLetter() {
       application.value.cover_letter_status = res.data.cover_letter_status || 'QUEUED'
       application.value.cover_letter_generated_at = res.data.cover_letter_generated_at
     }
-    editableText.value = res.data.cover_letter_text || ''
-    autoSaveStatus.value = 'saved'
     uiStore.showToast('Cover letter regeneration queued!', 'success')
+    await queueStore.fetchTasks(true)
+    startPolling()
   } catch (err) {
-    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to regenerate cover letter', 'error')
-  } finally {
+    generationError.value = err.response?.data?.detail || err.message || 'Failed to regenerate cover letter'
+    uiStore.showToast(generationError.value, 'error')
     isGenerating.value = false
   }
 }
@@ -246,6 +376,7 @@ function handleDownloadPdf() {
 }
 
 function close() {
+  stopPolling()
   if (autoSaveTimer) {
     clearTimeout(autoSaveTimer)
     saveCoverLetterChanges()
@@ -254,6 +385,7 @@ function close() {
 }
 
 onUnmounted(() => {
+  stopPolling()
   if (autoSaveTimer) clearTimeout(autoSaveTimer)
 })
 </script>
@@ -293,14 +425,32 @@ onUnmounted(() => {
             <span>Loading cover letter document...</span>
           </div>
 
-          <div v-else-if="isGenerating" class="loading-state">
+          <div v-else-if="isCurrentlyGenerating" class="loading-state generation-queue-state">
             <div class="pulse-ring">
               <Sparkles :size="32" class="text-primary animate-pulse" />
             </div>
             <h4>Generating Tailored Cover Letter</h4>
+            <div class="queue-status-badge" :class="{ 'is-processing': queuePositionInfo?.isProcessing }">
+              <Loader2 v-if="queuePositionInfo?.isProcessing" class="animate-spin" :size="13" />
+              <Clock v-else :size="13" />
+              <span>{{ queuePositionInfo?.statusText || 'Processing in AI Queue...' }}</span>
+            </div>
             <p class="text-muted text-xs">
-              AI is mapping candidate profile experiences to job requirements...
+              {{ queuePositionInfo?.stageText || 'AI is mapping candidate profile experiences to job requirements...' }}
             </p>
+          </div>
+
+          <div v-else-if="generationError && !editableText" class="loading-state error-state">
+            <AlertCircle :size="32" class="text-danger" />
+            <h4>Cover Letter Generation Failed</h4>
+            <p class="text-muted text-xs">{{ generationError }}</p>
+            <button
+              class="btn btn-primary btn-sm mt-2"
+              @click="handleRegenerateCoverLetter"
+            >
+              <RotateCcw :size="14" />
+              <span>Retry Generation</span>
+            </button>
           </div>
 
           <div v-else class="modal-content-layout">
@@ -552,6 +702,29 @@ onUnmounted(() => {
   padding: 60px 20px;
   gap: 12px;
   text-align: center;
+}
+
+.queue-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.queue-status-badge.is-processing {
+  background-color: var(--primary-subtle);
+  border-color: var(--primary-glow);
+  color: var(--primary);
+}
+
+.error-state {
+  color: var(--text-main);
 }
 
 .pulse-ring {
