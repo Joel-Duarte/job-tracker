@@ -163,7 +163,16 @@ async def persist_or_stage_job_assessment(
                 "Updated existing Application %d with AI job evaluation & spec",
                 app_record.id,
             )
-            return {"application_id": app_record.id, "event_id": event.id}
+            comp_rec = (
+                await db.get(CompanyModel, app_record.company_id)
+                if app_record.company_id
+                else None
+            )
+            return {
+                "application_id": app_record.id,
+                "event_id": event.id,
+                "company_domain": comp_rec.domain if comp_rec else None,
+            }
 
     # 2. Find or Create Company
     resolved_domain = await resolve_company_domain(
@@ -256,6 +265,7 @@ async def persist_or_stage_job_assessment(
         "is_duplicate": False,
         "application_id": app_record.id,
         "company": company.name,
+        "company_domain": company.domain,
         "position": app_record.position,
         "event_id": event.id,
         "message": f"Job lead saved to pipeline under status '{app_record.status}'.",

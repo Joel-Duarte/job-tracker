@@ -211,14 +211,19 @@ export function getCompanyDomain(companyName, existingDomain = null) {
       .trim()
       .toLowerCase()
       .replace(/^https?:\/\//, '')
+      .replace(/[?#].*$/, '')
       .replace(/\/.*$/, '')
       .replace(/^www\./, '')
 
     const isATS = Array.from(KNOWN_ATS_DOMAINS).some(
       (ats) => clean === ats || clean.endsWith(`.${ats}`)
     )
-    if (!isATS && clean.length > 3) {
-      return clean
+    if (!isATS) {
+      // Strip common recruitment / career subdomains so brand favicons resolve
+      clean = clean.replace(/^(careers|jobs|apply|talent|work|join|recruiting|corp)\./, '')
+      if (clean.length > 3 && clean.includes('.')) {
+        return clean
+      }
     }
   }
   if (!companyName) return null

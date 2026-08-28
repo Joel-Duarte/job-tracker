@@ -856,6 +856,9 @@ async def _execute_evaluation_steps(
             else:
                 result_payload = {}
             result_payload["application_id"] = save_result.get("application_id")
+            result_payload["company_domain"] = save_result.get(
+                "company_domain"
+            ) or getattr(assessment, "company_url", None)
             result_payload["staging_item_id"] = save_result.get("staging_item_id")
             result_payload["is_duplicate"] = False
             result_payload["save_status"] = save_result.get("status")

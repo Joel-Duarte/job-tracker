@@ -654,7 +654,7 @@ onUnmounted(() => {
               <input type="checkbox" class="form-checkbox" :checked="selectedTaskIds.has(task.id)" @change="toggleTaskSelection(task.id)" />
               <CompanyLogo
                 :name="task.result_json?.company || task.title_hint"
-                :domain="task.result_json?.company_url || task.result_json?.company_domain"
+                :domain="task.result_json?.company_domain || task.result_json?.company_url || task.job_url"
                 :size="44"
               />
               <div>
@@ -995,7 +995,7 @@ onUnmounted(() => {
               />
               <CompanyLogo
                 :name="task.result_json?.company || task.title_hint"
-                :domain="task.result_json?.company_url || task.result_json?.company_domain"
+                :domain="task.result_json?.company_domain || task.result_json?.company_url || task.job_url"
                 :size="44"
               />
               <div>
