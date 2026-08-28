@@ -459,7 +459,7 @@ onUnmounted(() => {
           :key="item.id"
           class="task-row"
           :class="[
-            { 'is-completed': item.status === 'COMPLETED' },
+            { 'is-completed': item.status === 'COMPLETED', 'has-active-dropdown': activeUrgencyDropdown === item.id },
             `urgency-border-${item.urgency?.toLowerCase() || 'medium'}`
           ]"
         >
@@ -879,7 +879,7 @@ onUnmounted(() => {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .loading-state, .empty-tasks {
@@ -906,6 +906,22 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border-color);
   border-left: 4px solid transparent;
   transition: background-color var(--transition-fast);
+  position: relative;
+}
+
+.task-row:first-child {
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
+}
+
+.task-row:last-child {
+  border-bottom: none;
+  border-bottom-left-radius: var(--radius-md);
+  border-bottom-right-radius: var(--radius-md);
+}
+
+.task-row.has-active-dropdown {
+  z-index: 50;
 }
 
 .urgency-border-high {
@@ -918,10 +934,6 @@ onUnmounted(() => {
 
 .urgency-border-low {
   border-left-color: var(--status-applied-border);
-}
-
-.task-row:last-child {
-  border-bottom: none;
 }
 
 .task-row:hover {
@@ -996,6 +1008,7 @@ onUnmounted(() => {
 
 .urgency-dropdown-wrapper {
   position: relative;
+  z-index: 60;
 }
 
 .dropdown-trigger {
@@ -1017,7 +1030,8 @@ onUnmounted(() => {
   top: calc(100% + 6px);
   left: 0;
   min-width: 160px;
-  z-index: 50;
+  z-index: 100;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
 }
 
 .urgency-dot {
