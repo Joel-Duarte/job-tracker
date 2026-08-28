@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { AnalyticsAPI } from '../api/endpoints'
 import {
   BarChart3,
@@ -174,6 +174,60 @@ async function fetchRoleAlignment() {
     loadingAlignment.value = false
   }
 }
+
+const trackSelectorBarRef = ref(null)
+const isDraggingTrackBar = ref(false)
+let startX = 0
+let scrollLeftStart = 0
+let hasMovedSignificantly = false
+
+function onTrackMouseDown(e) {
+  if (!trackSelectorBarRef.value) return
+  isDraggingTrackBar.value = true
+  hasMovedSignificantly = false
+  startX = e.pageX - trackSelectorBarRef.value.offsetLeft
+  scrollLeftStart = trackSelectorBarRef.value.scrollLeft
+  window.addEventListener('mousemove', onTrackMouseMove)
+  window.addEventListener('mouseup', onTrackMouseUp)
+}
+
+function onTrackMouseMove(e) {
+  if (!isDraggingTrackBar.value || !trackSelectorBarRef.value) return
+  const x = e.pageX - trackSelectorBarRef.value.offsetLeft
+  const walk = (x - startX) * 1.2
+  if (Math.abs(walk) > 4) {
+    hasMovedSignificantly = true
+  }
+  trackSelectorBarRef.value.scrollLeft = scrollLeftStart - walk
+}
+
+function onTrackMouseUp() {
+  if (!isDraggingTrackBar.value) return
+  isDraggingTrackBar.value = false
+  window.removeEventListener('mousemove', onTrackMouseMove)
+  window.removeEventListener('mouseup', onTrackMouseUp)
+}
+
+function onTrackPillClick(trackKey) {
+  if (hasMovedSignificantly) {
+    hasMovedSignificantly = false
+    return
+  }
+  selectTrack(trackKey)
+}
+
+function onTrackWheel(e) {
+  if (!trackSelectorBarRef.value) return
+  if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && e.deltaY !== 0) {
+    e.preventDefault()
+    trackSelectorBarRef.value.scrollLeft += e.deltaY * 0.8
+  }
+}
+
+onUnmounted(() => {
+  window.removeEventListener('mousemove', onTrackMouseMove)
+  window.removeEventListener('mouseup', onTrackMouseUp)
+})
 
 function selectTrack(trackKey) {
   selectedTrackKey.value = trackKey
@@ -1185,14 +1239,22 @@ const maxCohortVolume = computed(() => {
         </div>
 
         <!-- Interactive Track Selector Bar -->
-        <div v-if="alignmentData && alignmentData.detected_tracks.length > 0" class="track-selector-bar">
+        <div
+          v-if="alignmentData && alignmentData.detected_tracks.length > 0"
+          ref="trackSelectorBarRef"
+          class="track-selector-bar"
+          :class="{ 'is-dragging': isDraggingTrackBar }"
+          @mousedown="onTrackMouseDown"
+          @wheel.passive="false"
+          @wheel="onTrackWheel"
+        >
           <button
             v-for="track in alignmentData.detected_tracks"
             :key="track.key"
             type="button"
             class="track-pill"
             :class="{ active: selectedTrackKey === track.key && !customSearchQuery.trim() }"
-            @click="selectTrack(track.key)"
+            @click="onTrackPillClick(track.key)"
           >
             <span class="track-label">{{ track.label }}</span>
             <span class="track-count-badge">{{ track.job_count }}</span>
@@ -2641,17 +2703,36 @@ const maxCohortVolume = computed(() => {
   align-items: center;
   gap: 8px;
   overflow-x: auto;
-  padding-bottom: 8px;
+  padding-bottom: 10px;
   margin-bottom: 16px;
+  cursor: grab;
+  user-select: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) var(--bg-surface);
+}
+
+.track-selector-bar.is-dragging {
+  cursor: grabbing;
+  scroll-behavior: auto;
 }
 
 .track-selector-bar::-webkit-scrollbar {
-  height: 4px;
+  height: 8px;
+}
+
+.track-selector-bar::-webkit-scrollbar-track {
+  background: var(--bg-surface);
+  border-radius: 6px;
 }
 
 .track-selector-bar::-webkit-scrollbar-thumb {
   background-color: var(--border-color);
-  border-radius: 4px;
+  border-radius: 6px;
+  transition: background-color var(--transition-fast);
+}
+
+.track-selector-bar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-muted);
 }
 
 .track-pill {
