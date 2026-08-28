@@ -414,7 +414,7 @@ export const useApplicationsStore = defineStore('applications', () => {
   async function quickReject(applicationId, rejectionReason = 'Quick rejection') {
     return transitionApplication(applicationId, {
       status: 'REJECTED',
-      rejection_date: new Date().toISOString(),
+      rejection_date: new Date().toISOString().substring(0, 10),
       rejection_reason: rejectionReason,
       notes: 'Moved to archive via quick reject',
     })

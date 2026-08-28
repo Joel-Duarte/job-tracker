@@ -480,7 +480,7 @@ function onDrop(colKey, event) {
   const app = draggedApp.value
 
   if (colKey === 'BUCKET_REJECT') {
-    quickRejectApp(app)
+    openTransitionModal(app, 'REJECTED')
     draggedApp.value = null
     return
   }
@@ -564,8 +564,8 @@ async function executeTransition(appId, payload) {
     } else {
       uiStore.showToast(`Application moved to ${payload.status}`, 'success')
     }
-  } catch (err) {
-    uiStore.showToast(err.message, 'error')
+  } catch {
+    // Error toast already displayed in appStore.transitionApplication
   }
 }
 
@@ -602,8 +602,8 @@ async function submitTransitionModal() {
       uiStore.showToast(`Application moved to ${targetStatus.value}`, 'success')
       showTransitionModal.value = false
     }
-  } catch (err) {
-    uiStore.showToast(err.message, 'error')
+  } catch {
+    // Error toast already displayed in appStore.transitionApplication
   } finally {
     isSubmittingTransition.value = false
   }
@@ -619,11 +619,10 @@ async function confirmDelete() {
   isDeleting.value = true
   try {
     await appStore.deleteApplication(appToDelete.value.id)
-    uiStore.showToast('Application deleted', 'info')
     showDeleteModal.value = false
     appToDelete.value = null
-  } catch (err) {
-    uiStore.showToast(err.message, 'error')
+  } catch {
+    // Error toast already displayed in appStore.deleteApplication
   } finally {
     isDeleting.value = false
   }

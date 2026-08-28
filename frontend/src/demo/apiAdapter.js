@@ -78,7 +78,7 @@ export async function handleDemoRequest(config) {
   const appMatch = urlPath.match(/^\/applications\/([^/]+)$/)
   if (appMatch) {
     const appId = appMatch[1]
-    const appIndex = (db.applications || []).findIndex((a) => a.id === appId)
+    const appIndex = (db.applications || []).findIndex((a) => String(a.id) === String(appId))
 
     if (method === 'get') {
       if (appIndex === -1) throw new Error('Application not found')
@@ -111,7 +111,7 @@ export async function handleDemoRequest(config) {
   const appTransitionMatch = urlPath.match(/^\/applications\/([^/]+)\/transition$/)
   if (appTransitionMatch && method === 'post') {
     const appId = appTransitionMatch[1]
-    const appIndex = (db.applications || []).findIndex((a) => a.id === appId)
+    const appIndex = (db.applications || []).findIndex((a) => String(a.id) === String(appId))
     if (appIndex === -1) throw new Error('Application not found')
 
     const app = db.applications[appIndex]
@@ -146,7 +146,7 @@ export async function handleDemoRequest(config) {
   const coverLetterGetMatch = urlPath.match(/^\/applications\/([^/]+)\/cover-letter$/)
   if (coverLetterGetMatch) {
     const appId = coverLetterGetMatch[1]
-    const app = (db.applications || []).find((a) => a.id === appId)
+    const app = (db.applications || []).find((a) => String(a.id) === String(appId))
     if (method === 'get') {
       return ok({
         cover_letter_text: app?.cover_letter_text || '',
@@ -170,7 +170,7 @@ export async function handleDemoRequest(config) {
   const coverLetterGenMatch = urlPath.match(/^\/applications\/([^/]+)\/cover-letter\/(generate|regenerate)$/)
   if (coverLetterGenMatch && method === 'post') {
     const appId = coverLetterGenMatch[1]
-    const app = (db.applications || []).find((a) => a.id === appId)
+    const app = (db.applications || []).find((a) => String(a.id) === String(appId))
     const company = app?.company_name || 'Hiring Company'
     const position = app?.position || 'Target Position'
 

@@ -6,6 +6,7 @@ from app.core.config import Settings
 from app.core.security import _get_fernet
 from app.schemas.applications import (
     AllowedApplicationStatus,
+    ApplicationTransitionRequest,
     BulkTransitionRequest,
     BulkTransitionResult,
 )
@@ -86,3 +87,24 @@ def test_security_fernet_secret_key_validation():
             ValueError, match="SECRET_KEY must be explicitly configured"
         ):
             _get_fernet()
+
+
+def test_application_transition_request_date_coercion():
+    from datetime import date
+
+    # Full ISO timestamp string should be coerced to date
+    req = ApplicationTransitionRequest(
+        status=AllowedApplicationStatus.REJECTED,
+        rejection_date="2026-08-29T12:34:56.789Z",
+        rejection_reason="Quick rejection",
+    )
+    assert req.rejection_date == date(2026, 8, 29)
+
+    # Standard YYYY-MM-DD string
+    req2 = ApplicationTransitionRequest(
+        status=AllowedApplicationStatus.OFFER,
+        offer_received_date="2026-08-28",
+        decision_deadline="2026-09-15T00:00:00",
+    )
+    assert req2.offer_received_date == date(2026, 8, 28)
+    assert req2.decision_deadline == date(2026, 9, 15)

@@ -2,7 +2,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # --- Nested Response Schemas ---
 
@@ -218,6 +218,26 @@ class ApplicationTransitionRequest(BaseModel):
     notes: str | None = Field(
         None, description="Additional notes or context for transition"
     )
+
+    @field_validator(
+        "offer_received_date", "decision_deadline", "rejection_date", mode="before"
+    )
+    @classmethod
+    def coerce_date(cls, v: Any) -> date | None:
+        if v is None or v == "":
+            return None
+        if isinstance(v, datetime):
+            return v.date()
+        if isinstance(v, date):
+            return v
+        if isinstance(v, str):
+            if "T" in v:
+                v = v.split("T")[0]
+            try:
+                return date.fromisoformat(v)
+            except ValueError:
+                pass
+        return v
 
 
 class ApplicationUpdate(BaseModel):
