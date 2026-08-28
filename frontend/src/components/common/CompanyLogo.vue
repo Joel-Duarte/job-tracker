@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { Building2 } from 'lucide-vue-next'
-import { getCompanyFaviconUrl } from '../../utils/formatters'
+import { getCompanyDomain } from '../../utils/formatters'
 
 const props = defineProps({
   name: {
@@ -24,10 +24,26 @@ const props = defineProps({
 
 const hasError = ref(false)
 const isLoaded = ref(false)
+const attemptIndex = ref(0)
+
+const candidateDomains = computed(() => {
+  const list = []
+  const clean = getCompanyDomain(props.name, props.domain)
+  if (clean) {
+    list.push(clean)
+    if (!clean.startsWith('www.')) {
+      list.push(`www.${clean}`)
+    } else {
+      list.push(clean.replace(/^www\./, ''))
+    }
+  }
+  return Array.from(new Set(list))
+})
 
 const faviconUrl = computed(() => {
-  if (!props.name && !props.domain) return null
-  return getCompanyFaviconUrl(props.name, props.domain, 64)
+  if (attemptIndex.value >= candidateDomains.value.length) return null
+  const domain = candidateDomains.value[attemptIndex.value]
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`
 })
 
 watch(
@@ -35,11 +51,17 @@ watch(
   () => {
     hasError.value = false
     isLoaded.value = false
+    attemptIndex.value = 0
   }
 )
 
 function handleError() {
-  hasError.value = true
+  if (attemptIndex.value + 1 < candidateDomains.value.length) {
+    attemptIndex.value += 1
+    isLoaded.value = false
+  } else {
+    hasError.value = true
+  }
 }
 
 function handleLoad() {
