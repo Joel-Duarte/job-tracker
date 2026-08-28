@@ -36,11 +36,18 @@ const isDragging = ref(false)
 const emailAccounts = ref([])
 const loadingAccounts = ref(false)
 const syncAccountId = ref(null)
-const syncWindow = ref(null)          // 'today' | '3d' | '7d' | '30d' | 'custom'
+const syncWindow = ref('today')        // 'today' | '3d' | '7d' | '30d' | 'custom'
 const syncMaxResults = ref(500)
 const syncCustomDate = ref('')
 const syncKeywords = ref('')
 const syncResult = ref(null)
+
+function selectTimeWindow(key) {
+  syncWindow.value = key
+  if (key === 'custom' && !syncCustomDate.value) {
+    syncCustomDate.value = new Date().toISOString().split('T')[0]
+  }
+}
 
 // ── shared ───────────────────────────────────────────────────
 const isSubmitting = ref(false)
@@ -118,7 +125,7 @@ function close() {
     selectedFiles.value = []
     ingestResult.value = null
     syncResult.value = null
-    syncWindow.value = null
+    syncWindow.value = 'today'
     syncCustomDate.value = ''
     syncKeywords.value = ''
   }, 200)
@@ -209,12 +216,6 @@ async function handleEmailSync() {
   } finally {
     isSubmitting.value = false
   }
-}
-
-const syncButtonLabel = computed => {
-  if (!syncWindow.value || syncWindow.value === 'custom') return 'Sync Emails'
-  const map = { today: 'Sync Today\'s Emails', '3d': 'Sync Last 3 Days', '7d': 'Sync Last 7 Days', '30d': 'Sync Last 30 Days' }
-  return map[syncWindow.value] || 'Sync Emails'
 }
 </script>
 
@@ -375,7 +376,7 @@ const syncButtonLabel = computed => {
                 type="button"
                 class="time-chip"
                 :class="{ active: syncWindow === w.key }"
-                @click="syncWindow = w.key"
+                @click="selectTimeWindow(w.key)"
               >
                 {{ w.label }}
               </button>
