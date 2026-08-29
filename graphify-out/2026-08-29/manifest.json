@@ -1032,9 +1032,9 @@
     "semantic_hash": "64b19ecdc271246b1d3f09f004dc94ed"
   },
   "frontend/src/demo/mockData.js": {
-    "mtime": 1788005959.9795454,
-    "seen": 1788006608.4635878,
-    "ast_hash": "cf60ea2ea8bfb5459bdadbd17a8019f5",
+    "mtime": 1788008461.0807018,
+    "seen": 1788008476.4865124,
+    "ast_hash": "b45989552c2bf42656eaf7645b8f3b74",
     "semantic_hash": ""
   },
   "frontend/src/main.js": {
@@ -1146,9 +1146,9 @@
     "semantic_hash": ""
   },
   "frontend/src/views/AssessmentsView.vue": {
-    "mtime": 1787961017.664375,
-    "seen": 1787961140.3903613,
-    "ast_hash": "064c6eb0bcd00f2ce6e794d708746a49",
+    "mtime": 1788008089.9376965,
+    "seen": 1788008106.317181,
+    "ast_hash": "6172713166f5de8613baf39560ca61c8",
     "semantic_hash": ""
   },
   "frontend/src/views/CandidateProfileView.vue": {

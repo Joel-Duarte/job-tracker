@@ -1,7 +1,7 @@
 # Graph Report - job-tracker  (2026-08-29)
 
 ## Corpus Check
-- 222 files · ~265,684 words
+- 222 files · ~266,121 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `19be5474`
+- Built from commit: `86f000a5`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -629,7 +629,7 @@ Cohesion: 0.60
 Nodes (5): asyncio, AsyncSession, test_extension_clip_job_direct(), test_extension_clip_url_pipeline(), test_extension_intake_url_and_jd_routes()
 
 ## Knowledge Gaps
-- **689 isolated node(s):** `props`, `emit`, `uiStore`, `isLoading`, `application` (+684 more)
+- **689 isolated node(s):** `router`, `uiStore`, `appStore`, `queueStore`, `activeTab` (+684 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **66 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -637,11 +637,11 @@ Nodes (5): asyncio, AsyncSession, test_extension_clip_job_direct(), test_extensi
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `useUIStore` connect `endpoints.js` to `SettingsView.vue`, `ApplicationDetailDrawer.vue`, `OnboardingWizardModal.vue`, `ApplicationsView.vue`, `AgentChatView.vue`, `QueueView.vue`, `StagingView.vue`, `AssessmentsView.vue`, `AnalyticsView.vue`, `CandidateProfileView.vue`, `JobIntakeView.vue`, `EmailAccountsSettings.vue`, `FloatingQueueWidget.vue`, `ActionItemsView.vue`, `CoverLetterModal.vue`, `AppNavbar.vue`, `IngestModal.vue`, `MatchAnalysisModal.vue`, `JobIntakeModal.vue`, `LogActivityModal.vue`, `IntakeQueueDrawer.vue`, `SearchView.vue`, `InterviewReaderModal.vue`, `index.js`?**
-  _High betweenness centrality (0.045) - this node is a cross-community bridge._
+  _High betweenness centrality (0.042) - this node is a cross-community bridge._
 - **Why does `ApplicationModel` connect `ApplicationModel` to `process_email_batch_sequential`, `seed_development_dataset`, `PostgresTracer`, `services/agent_tools.py`, `GenerateInterviewGuideRequest`, `ExtractedEmailInfo`, `main.py`, `ApplicationEventModel`, `normalize_job_url`, `Any`, `load_settings`, `EmailPayload`, `persist_or_stage_job_assessment`, `test_extension.py`, `routers/action_items.py`, `IntakeEvaluationTaskModel`?**
-  _High betweenness centrality (0.027) - this node is a cross-community bridge._
+  _High betweenness centrality (0.025) - this node is a cross-community bridge._
 - **Why does `CompanyModel` connect `ApplicationModel` to `process_email_batch_sequential`, `seed_development_dataset`, `PostgresTracer`, `services/agent_tools.py`, `ExtractedEmailInfo`, `BaseModel`, `main.py`, `ApplicationEventModel`, `normalize_job_url`, `Any`, `load_settings`, `EmailPayload`, `persist_or_stage_job_assessment`, `test_extension.py`, `IntakeEvaluationTaskModel`?**
-  _High betweenness centrality (0.016) - this node is a cross-community bridge._
+  _High betweenness centrality (0.017) - this node is a cross-community bridge._
 - **Are the 73 inferred relationships involving `ApplicationModel` (e.g. with `create_action_item()` and `list_action_items()`) actually correct?**
   _`ApplicationModel` has 73 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 59 inferred relationships involving `CompanyModel` (e.g. with `update_application()` and `clip_job_pre_extracted()`) actually correct?**
