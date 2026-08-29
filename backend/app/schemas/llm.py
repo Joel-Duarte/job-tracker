@@ -31,6 +31,48 @@ class ApplicationSummaryResult(BaseModel):
     next_action: str | None = Field(default=None, description="Next action item if any")
 
 
+class SpokenLanguageRequirement(BaseModel):
+    language: str = Field(
+        ...,
+        description="Spoken/natural language name e.g. 'English', 'German', 'French', 'Portuguese'",
+    )
+    requirement: str = Field(
+        default="mandatory",
+        description="Requirement strictness: 'mandatory' (must-have/required/implicit from JD text language) or 'preferred' (nice-to-have/plus)",
+    )
+    proficiency: str | None = Field(
+        default=None,
+        description="Proficiency level if specified e.g. 'Fluent / C1', 'Native', 'Working Proficiency / B2'",
+    )
+
+
+class LanguageMatchResult(BaseModel):
+    is_matched: bool = Field(
+        default=True,
+        description="True if all mandatory spoken language requirements are satisfied by candidate profile",
+    )
+    detected_jd_language: str = Field(
+        default="English",
+        description="Primary written language of the job description",
+    )
+    required_languages: list[SpokenLanguageRequirement] = Field(
+        default_factory=list,
+        description="List of all required and preferred spoken languages for this role",
+    )
+    missing_mandatory: list[str] = Field(
+        default_factory=list,
+        description="List of mandatory spoken languages missing from candidate profile",
+    )
+    missing_preferred: list[str] = Field(
+        default_factory=list,
+        description="List of preferred/nice-to-have spoken languages missing from candidate profile",
+    )
+    warning: str | None = Field(
+        default=None,
+        description="Detailed, human-readable warning banner text if a language mismatch is detected",
+    )
+
+
 class ExtractedJobSpec(BaseModel):
     """Structured job details extracted from raw webpage or pasted job description text."""
 
@@ -47,6 +89,14 @@ class ExtractedJobSpec(BaseModel):
     )
     position: str = Field(
         default="Not Specified", description="Job title or role position"
+    )
+    detected_language: str = Field(
+        default="English",
+        description="Primary natural language in which the job description text is written (e.g. English, German, French, Portuguese, Spanish, etc.)",
+    )
+    required_spoken_languages: list[SpokenLanguageRequirement] = Field(
+        default_factory=list,
+        description="Spoken/natural language requirements. If no explicit requirements are stated, the detected written language of the JD must be included as a mandatory requirement.",
     )
     why_hiring: str | None = Field(
         default=None,
@@ -198,6 +248,10 @@ class JobAssessmentResult(BaseModel):
     recommendation: str = Field(
         default="APPLY",
         description="Recommendation: APPLY_STRONGLY, APPLY, CAUTION, SKIP",
+    )
+    language_match: LanguageMatchResult | None = Field(
+        default=None,
+        description="Spoken language match audit and mismatch warnings",
     )
     summary: str = Field(default="", description="Brief summary of the evaluation")
 

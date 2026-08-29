@@ -9,6 +9,10 @@ export const INITIAL_MOCK_DATA = {
     summary: "High-impact systems architect specializing in high-throughput distributed state management, low-latency microservices, and cloud-native infrastructure in Go, Rust, and Python.",
     raw_text: "John Souls\nStaff Distributed Systems Engineer\njohn.souls.demo@example.com | (555) 234-5678\nSan Francisco, CA / Remote\n\nSummary:\nHigh-impact systems architect specializing in high-throughput distributed state management, low-latency microservices, and cloud-native infrastructure in Go, Rust, and Python. Proven track record leading infrastructure architecture and real-time state synchronization engines at scale.\n\nSkills:\n- Core Languages & Frameworks: Go, Rust, Python, TypeScript, gRPC, SQL\n- Infrastructure & Cloud: Kubernetes, Docker, Terraform, AWS, GCP, Distributed Tracing\n- Streaming & Storage: Apache Kafka, PostgreSQL, Redis, Elasticsearch, Raft Consensus\n\nExperience:\n- Senior Infrastructure Engineer @ ScaleGrid (2021 - Present)\n  * Architected sub-15ms real-time event streaming pipeline processing 10B+ daily events in Rust and Kafka.\n  * Reduced cloud infrastructure compute expenditure by 38% via eBPF kernel packet inspection.\n- Systems Engineer @ CloudCore (2017 - 2021)\n  * Built fault-tolerant gRPC microservices and automated multi-region PostgreSQL failover orchestration.",
     extracted_skills: ["Go", "Rust", "Kubernetes", "Distributed Systems", "Apache Kafka", "PostgreSQL", "gRPC", "AWS", "Terraform", "Distributed Tracing"],
+    spoken_languages: [
+      { language: "English", proficiency: "Native" },
+      { language: "Spanish", proficiency: "Working Proficiency (B2)" }
+    ],
     parsed_at: new Date(Date.now() - 86400000 * 5).toISOString(),
     created_at: new Date(Date.now() - 86400000 * 30).toISOString(),
   },
@@ -438,6 +442,17 @@ export const INITIAL_MOCK_DATA = {
       match_analysis_payload: {
         match_score: 79,
         fit_score: 79,
+        language_match: {
+          is_matched: false,
+          detected_jd_language: "German",
+          required_languages: [
+            { language: "German", requirement: "mandatory", proficiency: "Fluent / C1" },
+            { language: "English", requirement: "mandatory", proficiency: "Fluent" }
+          ],
+          missing_mandatory: ["German"],
+          missing_preferred: [],
+          warning: "Role requires Fluent / C1 German (job posting written in German), which is not listed on your candidate profile."
+        },
         key_strengths: ["Database query processing concepts"],
         gaps: ["On-site location preference mismatch"],
         gap_closing_tips: ["N/A"]

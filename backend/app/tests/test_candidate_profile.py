@@ -68,6 +68,10 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
             DomainExperienceItem(domain="Fintech", years=3.5, is_active=True),
         ],
         core_competencies=["Distributed Billing Pipelines", "High-Throughput APIs"],
+        spoken_languages=[
+            {"language": "English", "proficiency": "Native"},
+            {"language": "Spanish", "proficiency": "B2"},
+        ],
         summary="Experienced Staff Engineer with fintech and distributed systems expertise.",
     )
 
@@ -116,14 +120,21 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
                 "Distributed Billing Pipelines",
                 "High-Throughput APIs",
             ]
+            assert len(active_data["spoken_languages"]) == 2
+            assert active_data["spoken_languages"][0]["language"] == "English"
+            assert active_data["spoken_languages"][0]["proficiency"] == "Native"
 
-            # 4. Patch CV (years_of_experience & domain_experience active/mute)
+            # 4. Patch CV (years_of_experience, domain_experience, spoken_languages)
             patch_resp = await client.patch(
                 f"/api/v1/profile/cv/{active_data['id']}",
                 json={
                     "years_of_experience": 7.0,
                     "anonymized_text": "Updated Custom Sanitized CV",
                     "core_competencies": ["Distributed Systems", "Cloud Architecture"],
+                    "spoken_languages": [
+                        {"language": "English", "proficiency": "Native"},
+                        {"language": "German", "proficiency": "C1"},
+                    ],
                     "domain_experience": [
                         {
                             "domain": "Distributed Systems",
@@ -141,6 +152,9 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
             assert len(patched_data["domain_experience"]) == 3
             assert patched_data["domain_experience"][1]["is_active"] is False
             assert "Cloud & DevOps" in patched_data["domain_expertise"]
+            assert len(patched_data["spoken_languages"]) == 2
+            assert patched_data["spoken_languages"][1]["language"] == "German"
+            assert patched_data["spoken_languages"][1]["proficiency"] == "C1"
 
             # 5. Delete CV
             del_resp = await client.delete(f"/api/v1/profile/cv/{active_data['id']}")
@@ -204,3 +218,51 @@ async def test_parse_cv_document_file_endpoint():
         )
         assert resp_empty.status_code == 400
         assert "Uploaded file is empty" in resp_empty.json()["detail"]
+
+
+def test_spoken_language_match_models_and_schemas():
+    from app.schemas.llm import (
+        ExtractedJobSpec,
+        JobAssessmentResult,
+        LanguageMatchResult,
+        SpokenLanguageRequirement,
+    )
+
+    spec = ExtractedJobSpec(
+        position="Senior Backend Engineer",
+        company="Tech Corp",
+        detected_language="German",
+        required_spoken_languages=[
+            SpokenLanguageRequirement(
+                language="German", requirement="mandatory", proficiency="Fluent / C1"
+            )
+        ],
+    )
+    assert spec.detected_language == "German"
+    assert len(spec.required_spoken_languages) == 1
+    assert spec.required_spoken_languages[0].requirement == "mandatory"
+
+    assessment = JobAssessmentResult(
+        position="Senior Backend Engineer",
+        company="Tech Corp",
+        fit_score=92,
+        language_match=LanguageMatchResult(
+            is_matched=False,
+            detected_jd_language="German",
+            required_languages=[
+                SpokenLanguageRequirement(
+                    language="German",
+                    requirement="mandatory",
+                    proficiency="Fluent / C1",
+                )
+            ],
+            missing_mandatory=["German"],
+            missing_preferred=[],
+            warning="Role requires Fluent / C1 German (job posting written in German), which is not listed in your profile.",
+        ),
+    )
+    assert assessment.fit_score == 92
+    assert assessment.language_match is not None
+    assert assessment.language_match.is_matched is False
+    assert "German" in assessment.language_match.missing_mandatory
+    assert "German" in assessment.language_match.warning

@@ -163,6 +163,29 @@ const workModelText = computed(() => {
   return application.value?.work_model || analysisData.value?.work_model || null
 })
 
+const languageMatch = computed(() => {
+  return analysisData.value?.language_match || null
+})
+
+const hasLanguageWarning = computed(() => {
+  if (!languageMatch.value) return false
+  if (languageMatch.value.is_matched === false) return true
+  if (Array.isArray(languageMatch.value.missing_mandatory) && languageMatch.value.missing_mandatory.length > 0) return true
+  if (languageMatch.value.warning) return true
+  return false
+})
+
+const languageWarningText = computed(() => {
+  if (!languageMatch.value) return ''
+  if (languageMatch.value.warning) return languageMatch.value.warning
+  if (languageMatch.value.missing_mandatory?.length) {
+    const langs = languageMatch.value.missing_mandatory.join(', ')
+    const jdLang = languageMatch.value.detected_jd_language || 'target language'
+    return `Role requires mandatory spoken language: ${langs} (Posting written in ${jdLang}), which is not listed on your profile.`
+  }
+  return ''
+})
+
 function getFitBadgeClass(score) {
   const num = Number(score)
   if (num >= 80) return 'fit-elite'
@@ -206,6 +229,27 @@ function getFitLabel(score) {
         </div>
 
         <div v-else-if="analysisData" class="analysis-content">
+          <!-- Language Mismatch Warning Banner -->
+          <div v-if="hasLanguageWarning" class="language-warning-banner animate-fade-in">
+            <div class="lang-banner-icon">
+              <AlertTriangle :size="20" class="text-warning" />
+            </div>
+            <div class="lang-banner-content">
+              <div class="lang-banner-title">
+                <span>Spoken Language Requirement Mismatch</span>
+                <span class="lang-badge" v-if="languageMatch?.detected_jd_language">
+                  JD Language: {{ languageMatch.detected_jd_language }}
+                </span>
+              </div>
+              <p class="lang-banner-desc">
+                {{ languageWarningText }}
+              </p>
+              <p class="lang-banner-sub">
+                * Note: The fit score below reflects pure technical &amp; domain qualification. Verify you meet language requirements before applying.
+              </p>
+            </div>
+          </div>
+
           <!-- Hero Header Card -->
           <div class="eval-hero-card">
             <div class="hero-main-info">
@@ -475,6 +519,62 @@ function getFitLabel(score) {
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+
+/* Language Warning Banner */
+.language-warning-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 18px;
+  background-color: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: var(--radius-md);
+}
+
+.lang-banner-icon {
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.lang-banner-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.lang-banner-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-warning);
+}
+
+.lang-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  background-color: var(--bg-surface);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 4px;
+  color: var(--text-main);
+}
+
+.lang-banner-desc {
+  font-size: 13px;
+  color: var(--text-main);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.lang-banner-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0;
+  font-style: italic;
 }
 
 /* Hero Card */

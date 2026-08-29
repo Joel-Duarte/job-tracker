@@ -263,6 +263,14 @@ async def _execute_cv_extraction_steps(
             llm_skills=extracted_data.get("extracted_skills"),
         )
 
+        extracted_spoken_langs = extracted_data.get("spoken_languages") or []
+        raw_spoken_languages = [
+            item.model_dump() if hasattr(item, "model_dump") else item
+            for item in extracted_spoken_langs
+        ]
+        if not raw_spoken_languages:
+            raw_spoken_languages = [{"language": "English", "proficiency": "Native"}]
+
         cv_record = CandidateCVModel(
             raw_text=raw_text,
             anonymized_text=extracted_data.get("anonymized_resume"),
@@ -271,6 +279,7 @@ async def _execute_cv_extraction_steps(
             domain_expertise=domain_expertise,
             domain_experience=raw_breakdown,
             core_competencies=extracted_data.get("core_competencies") or [],
+            spoken_languages=raw_spoken_languages,
             summary=extracted_data.get("summary"),
             is_active=True,
         )
@@ -734,10 +743,30 @@ async def _execute_evaluation_steps(
                     else None
                 )
 
+                candidate_spoken_langs_list = []
+                if active_cv and active_cv.spoken_languages:
+                    for sl in active_cv.spoken_languages:
+                        if isinstance(sl, dict):
+                            l_name = sl.get("language")
+                            l_prof = sl.get("proficiency")
+                            if l_name:
+                                candidate_spoken_langs_list.append(
+                                    f"{l_name} ({l_prof})" if l_prof else l_name
+                                )
+                        elif isinstance(sl, str):
+                            candidate_spoken_langs_list.append(sl)
+
+                candidate_spoken_langs_str = (
+                    ", ".join(candidate_spoken_langs_list)
+                    if candidate_spoken_langs_list
+                    else "English (Native / Fluent)"
+                )
+
                 checkpoint["match_info"] = match_info
                 checkpoint["candidate_skills"] = candidate_skills
                 checkpoint["active_domains_str"] = active_domains_str
                 checkpoint["candidate_cv_text"] = candidate_cv_text
+                checkpoint["candidate_spoken_langs_str"] = candidate_spoken_langs_str
                 current_json["_checkpoint"] = checkpoint
                 task.result_json = dict(current_json)
                 flag_modified(task, "result_json")
@@ -753,6 +782,7 @@ async def _execute_evaluation_steps(
                 candidate_skills=candidate_skills,
                 candidate_cv=candidate_cv_text,
                 candidate_domain_breakdown=active_domains_str,
+                candidate_spoken_languages=checkpoint.get("candidate_spoken_langs_str"),
                 programmatic_baseline=match_info.get("programmatic_score", 0),
             )
 

@@ -1,7 +1,16 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_db
 from app.main import app
+
+
+@pytest.fixture(autouse=True)
+def override_db(db_session: AsyncSession):
+    app.dependency_overrides[get_db] = lambda: db_session
+    yield
+    app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.mark.asyncio
@@ -60,7 +69,7 @@ async def test_get_role_alignment(db_session):
         assert data["selected_track"] == "all"
         assert "vocabulary_shifts" in data
         assert "bullet_reframes" in data
-        assert "missing_prerequisites" in data
+        assert "total_analyzed_jobs" in data
 
 
 @pytest.mark.asyncio
@@ -76,4 +85,4 @@ async def test_get_role_alignment_filtered_track(db_session):
         assert data["selected_track"] == "backend"
         assert isinstance(data["vocabulary_shifts"], list)
         assert isinstance(data["bullet_reframes"], list)
-        assert isinstance(data["missing_prerequisites"], list)
+        assert isinstance(data["detected_tracks"], list)

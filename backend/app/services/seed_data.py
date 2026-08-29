@@ -37,6 +37,7 @@ def build_dossier(
     location: str,
     work_model: str,
     recommendation: str,
+    language_match: dict | None = None,
 ) -> dict:
     return {
         "company": company,
@@ -79,6 +80,21 @@ def build_dossier(
             "structural_adjustments": [
                 "Elevate core distributed systems competencies to the summary section.",
             ],
+        },
+        "language_match": language_match
+        or {
+            "is_matched": True,
+            "detected_jd_language": "English",
+            "required_languages": [
+                {
+                    "language": "English",
+                    "requirement": "mandatory",
+                    "proficiency": "Fluent",
+                }
+            ],
+            "missing_mandatory": [],
+            "missing_preferred": [],
+            "warning": None,
         },
         "matching_skills": matching_skills,
         "missing_skills": missing_skills,
@@ -214,6 +230,10 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "Relational Database Performance Optimization",
             "Fault-Tolerant Distributed Consensus",
             "Full-Stack Web App Development (Vue 3 + FastAPI)",
+        ],
+        spoken_languages=[
+            {"language": "English", "proficiency": "Native"},
+            {"language": "Spanish", "proficiency": "Working Proficiency (B2)"},
         ],
         summary="Senior / Staff Distributed Systems Engineer specializing in Python, FastAPI, and real-time backend architectures.",
         is_active=True,
@@ -463,6 +483,25 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "skills": ["Python", "Rust", "Linux Containers", "CUDA"],
             "missing": ["CUDA Driver Kernels", "Low-level Memory Isolation"],
             "has_action": False,
+            "language_match": {
+                "is_matched": False,
+                "detected_jd_language": "German",
+                "required_languages": [
+                    {
+                        "language": "German",
+                        "requirement": "mandatory",
+                        "proficiency": "Fluent / C1",
+                    },
+                    {
+                        "language": "English",
+                        "requirement": "mandatory",
+                        "proficiency": "Fluent",
+                    },
+                ],
+                "missing_mandatory": ["German"],
+                "missing_preferred": [],
+                "warning": "Role requires Fluent / C1 German (job posting written in German), which is not listed in your profile spoken languages.",
+            },
         },
         {
             "name": "Sentry",
@@ -695,6 +734,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             recommendation="APPLY_STRONGLY"
             if spec["fit_score"] >= 85
             else ("APPLY" if spec["fit_score"] >= 65 else "CAUTION"),
+            language_match=spec.get("language_match"),
         )
 
         # 2b. Application Model

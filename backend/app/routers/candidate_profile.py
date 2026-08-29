@@ -212,6 +212,11 @@ async def update_cv_profile(
         profile.domain_expertise = payload.domain_expertise
     if payload.core_competencies is not None:
         profile.core_competencies = payload.core_competencies
+    if payload.spoken_languages is not None:
+        profile.spoken_languages = [
+            item.model_dump() if hasattr(item, "model_dump") else item
+            for item in payload.spoken_languages
+        ]
     if payload.summary is not None:
         profile.summary = payload.summary
 

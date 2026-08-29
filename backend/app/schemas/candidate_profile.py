@@ -21,6 +21,17 @@ class DomainExperienceItem(BaseModel):
     )
 
 
+class SpokenLanguageItem(BaseModel):
+    language: str = Field(
+        ...,
+        description="Natural/spoken language name e.g. 'English', 'German', 'French', 'Portuguese'",
+    )
+    proficiency: str = Field(
+        default="Fluent",
+        description="Proficiency level e.g. 'Native', 'Fluent', 'Intermediate', 'Basic', 'C1', 'B2'",
+    )
+
+
 class CVAnonymizationResult(BaseModel):
     anonymized_resume: str = Field(
         description="De-identified resume text with names, addresses, emails, and specific company names scrubbed, and dates converted to duration windows."
@@ -45,6 +56,10 @@ class CVAnonymizationResult(BaseModel):
         default_factory=list,
         description="Top 4-6 standout professional strengths and core competencies.",
     )
+    spoken_languages: list[SpokenLanguageItem] = Field(
+        default_factory=list,
+        description="Natural/spoken languages and proficiencies extracted from the CV (e.g. English - Native, German - B2).",
+    )
     summary: str = Field(
         default="", description="High-level candidate executive overview."
     )
@@ -68,6 +83,7 @@ class CandidateCVUpdateRequest(BaseModel):
     domain_expertise: list[str] | None = None
     domain_experience: list[DomainExperienceItem] | None = None
     core_competencies: list[str] | None = None
+    spoken_languages: list[SpokenLanguageItem] | None = None
     summary: str | None = None
 
 
@@ -80,6 +96,7 @@ class CandidateCVResponse(BaseModel):
     domain_expertise: list[str] = Field(default_factory=list)
     domain_experience: list[DomainExperienceItem] = Field(default_factory=list)
     core_competencies: list[str] = Field(default_factory=list)
+    spoken_languages: list[SpokenLanguageItem] = Field(default_factory=list)
     summary: str | None = None
     is_active: bool
     created_at: datetime

@@ -452,6 +452,20 @@ async def assess_job_lead(
     elif active_cv and active_cv.domain_expertise:
         active_domains_str = ", ".join(active_cv.domain_expertise)
 
+    candidate_spoken_langs_str = None
+    if active_cv and active_cv.spoken_languages:
+        langs_list = []
+        for sl in active_cv.spoken_languages:
+            if isinstance(sl, dict):
+                l_name = sl.get("language")
+                l_prof = sl.get("proficiency")
+                if l_name:
+                    langs_list.append(f"{l_name} ({l_prof})" if l_prof else l_name)
+            elif isinstance(sl, str):
+                langs_list.append(sl)
+        if langs_list:
+            candidate_spoken_langs_str = ", ".join(langs_list)
+
     from app.services.llm import extract_job_spec
 
     spec_dict = None
@@ -469,6 +483,7 @@ async def assess_job_lead(
         if active_cv
         else None,
         candidate_domain_breakdown=active_domains_str,
+        candidate_spoken_languages=candidate_spoken_langs_str,
         programmatic_baseline=match_info.get("programmatic_score", 0),
     )
 

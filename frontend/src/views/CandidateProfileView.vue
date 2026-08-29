@@ -31,6 +31,8 @@ import {
   Upload,
   AlertTriangle,
   Square,
+  Languages,
+  Globe,
 } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -487,6 +489,41 @@ function removeCompetency(comp) {
   }
 }
 
+// Spoken languages management
+const newLanguageInput = ref('')
+const newLanguageProficiency = ref('Fluent')
+
+function addLanguage() {
+  const langName = newLanguageInput.value.trim()
+  if (!langName || !profile.value) return
+  if (!profile.value.spoken_languages) profile.value.spoken_languages = []
+
+  const existingIdx = profile.value.spoken_languages.findIndex(
+    (l) => (typeof l === 'object' ? l.language : l).toLowerCase() === langName.toLowerCase()
+  )
+  if (existingIdx === -1) {
+    profile.value.spoken_languages.push({
+      language: langName,
+      proficiency: newLanguageProficiency.value || 'Fluent',
+    })
+    newLanguageInput.value = ''
+    saveProfileField({ spoken_languages: profile.value.spoken_languages })
+    uiStore.showToast(`Added language '${langName}'`, 'success')
+  } else {
+    uiStore.showToast(`'${langName}' is already listed on your profile`, 'info')
+  }
+}
+
+function removeLanguage(langItem) {
+  if (!profile.value?.spoken_languages) return
+  const targetName = typeof langItem === 'object' ? langItem.language : langItem
+  profile.value.spoken_languages = profile.value.spoken_languages.filter(
+    (l) => (typeof l === 'object' ? l.language : l) !== targetName
+  )
+  saveProfileField({ spoken_languages: profile.value.spoken_languages })
+  uiStore.showToast(`Removed language '${targetName}'`, 'info')
+}
+
 // In-place text editors
 function startEditingSummary() {
   editedSummaryText.value = profile.value?.summary || ''
@@ -868,6 +905,52 @@ onMounted(async () => {
               @keyup.enter="addSkill"
             />
             <button class="btn btn-ghost btn-xs" :disabled="!newSkillInput.trim()" @click="addSkill">
+              <Plus :size="12" />
+            </button>
+          </div>
+        </div>
+
+        <!-- Spoken / Natural Languages Card -->
+        <div class="content-card">
+          <div class="card-header-clean">
+            <div>
+              <h3 class="card-title">Spoken Languages ({{ (profile.spoken_languages || []).length }})</h3>
+              <p class="card-sub">Natural languages and proficiencies for job requirement matching.</p>
+            </div>
+          </div>
+
+          <div class="chip-cloud">
+            <span
+              v-for="langItem in (profile.spoken_languages || [])"
+              :key="typeof langItem === 'object' ? langItem.language : langItem"
+              class="tag-chip lang-chip"
+            >
+              <Globe :size="12" class="text-primary" />
+              <span class="font-medium">{{ typeof langItem === 'object' ? langItem.language : langItem }}</span>
+              <span class="lang-prof-badge" v-if="typeof langItem === 'object' && langItem.proficiency">
+                {{ langItem.proficiency }}
+              </span>
+              <button class="chip-remove-btn" @click="removeLanguage(langItem)" title="Remove Language">
+                <X :size="11" />
+              </button>
+            </span>
+          </div>
+
+          <div class="add-chip-row add-lang-row">
+            <input
+              v-model="newLanguageInput"
+              type="text"
+              placeholder="+ Add language (e.g. German, French)..."
+              class="form-input text-xs flex-1"
+              @keyup.enter="addLanguage"
+            />
+            <select v-model="newLanguageProficiency" class="form-input text-xs lang-select">
+              <option value="Native">Native</option>
+              <option value="Fluent">Fluent</option>
+              <option value="Intermediate">Intermediate</option>
+              <option value="Basic">Basic</option>
+            </select>
+            <button class="btn btn-ghost btn-xs" :disabled="!newLanguageInput.trim()" @click="addLanguage">
               <Plus :size="12" />
             </button>
           </div>
@@ -1688,6 +1771,22 @@ onMounted(async () => {
   color: var(--text-main);
 }
 
+.lang-chip {
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+}
+
+.lang-prof-badge {
+  font-size: 10px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
 .chip-remove-btn {
   border: none;
   background: transparent;
@@ -1706,6 +1805,16 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.add-lang-row {
+  flex-wrap: wrap;
+}
+
+.lang-select {
+  width: auto;
+  min-width: 120px;
+  background-color: var(--bg-surface);
 }
 
 /* Document View */

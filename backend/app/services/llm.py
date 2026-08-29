@@ -195,11 +195,12 @@ async def assess_job_posting(
     candidate_skills: list[str] | None = None,
     candidate_cv: str | None = None,
     candidate_domain_breakdown: str | None = None,
+    candidate_spoken_languages: str | None = None,
     programmatic_baseline: int = 0,
 ) -> JobAssessmentResult:
     """
     Evaluates a job posting / JD against candidate CV for pre-application qualification,
-    strict terminology gap mapping, and granular resume tailoring strategy.
+    strict terminology gap mapping, spoken language compatibility audit, and granular resume tailoring strategy.
     """
     llm = await get_task_chat_model(db, task_type="ASSESSMENT", temperature=0.2)
     structured_llm = llm.with_structured_output(
@@ -221,6 +222,8 @@ async def assess_job_posting(
         or "General / Full-Stack Experience (No active domain constraints)"
     )
 
+    spoken_langs_text = candidate_spoken_languages or "English (Native / Fluent)"
+
     prompt = ChatPromptTemplate.from_messages(
         [
             (
@@ -228,7 +231,7 @@ async def assess_job_posting(
                 (
                     "You are an expert technical resume writer and career coach. "
                     "Perform a granular, data-driven audit of the candidate's resume against the job description. "
-                    "Never suggest skills not in the CV. Translate exact vocabulary synonyms, quantify match rate, and reframe bullet points."
+                    "Never suggest skills not in the CV. Translate exact vocabulary synonyms, quantify match rate, audit spoken language requirements, and reframe bullet points."
                 ),
             ),
             ("human", template_str),
@@ -241,6 +244,7 @@ async def assess_job_posting(
             "job_description": job_description,
             "candidate_cv": cv_text,
             "candidate_domain_breakdown": domain_text,
+            "candidate_spoken_languages": spoken_langs_text,
             "programmatic_baseline": str(programmatic_baseline),
         },
         config={"callbacks": [PostgresTracer()]},
