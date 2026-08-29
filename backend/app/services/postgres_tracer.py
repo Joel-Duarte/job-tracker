@@ -22,6 +22,16 @@ class PostgresTracer(AsyncBaseTracer):
             run_id = str(run.id)
             event_type = run.run_type
 
+            # Calculate duration_ms if timestamps are present
+            if run.start_time and run.end_time:
+                duration_ms = (run.end_time - run.start_time).total_seconds() * 1000
+                run_dict["duration_ms"] = round(duration_ms, 2)
+
+            from app.services.pricing_service import extract_usage_from_payload
+
+            usage_info = extract_usage_from_payload(run_dict)
+            run_dict.update(usage_info)
+
             async with db_module.AsyncSessionLocal() as session:
                 event = TraceEventModel(
                     run_id=run_id,

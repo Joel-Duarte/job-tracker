@@ -80,6 +80,107 @@ const providerForm = ref({
   is_active: true,
 })
 
+// Token Usage & Cloud Savings Overview
+const usageOverview = ref({
+  monthly_tokens: 0,
+  monthly_spend_usd: 0,
+  monthly_savings_usd: 0,
+  all_time_tokens: 0,
+  all_time_spend_usd: 0,
+  all_time_savings_usd: 0,
+  local_inference_percentage: 100,
+  total_llm_calls: 0,
+  avg_cost_per_assessment: 0,
+  task_breakdown: {},
+})
+const loadingUsage = ref(false)
+
+// Model Pricing Rates Management
+const pricingRates = ref([])
+const loadingPricing = ref(false)
+const isSavingPricing = ref(false)
+const isPricingModalOpen = ref(false)
+const pricingSearchQuery = ref('')
+
+async function loadUsageOverview() {
+  loadingUsage.value = true
+  try {
+    const res = await AIConfigAPI.getUsageOverview()
+    if (res.data) {
+      usageOverview.value = res.data
+    }
+  } catch (err) {
+    console.error('Failed to load usage overview:', err)
+  } finally {
+    loadingUsage.value = false
+  }
+}
+
+async function loadPricingRates() {
+  loadingPricing.value = true
+  try {
+    const res = await AIConfigAPI.getPricingRates()
+    pricingRates.value = (res.data || []).map((r) => ({ ...r }))
+  } catch (err) {
+    console.error('Failed to load pricing rates:', err)
+  } finally {
+    loadingPricing.value = false
+  }
+}
+
+async function savePricingRates() {
+  isSavingPricing.value = true
+  try {
+    const payload = pricingRates.value.map((r) => ({
+      key: r.key,
+      input_cost_per_million: parseFloat(r.input_cost_per_million) || 0,
+      output_cost_per_million: parseFloat(r.output_cost_per_million) || 0,
+    }))
+    const res = await AIConfigAPI.updatePricingRates(payload)
+    pricingRates.value = (res.data || []).map((r) => ({ ...r }))
+    uiStore.showToast('API token pricing rates updated', 'success')
+    await loadUsageOverview()
+    isPricingModalOpen.value = false
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to update pricing rates', 'error')
+  } finally {
+    isSavingPricing.value = false
+  }
+}
+
+async function resetPricingRatesToDefaults() {
+  if (!confirm('Reset all model pricing rates back to system standard defaults?')) return
+  loadingPricing.value = true
+  try {
+    const res = await AIConfigAPI.resetPricingRates()
+    pricingRates.value = (res.data || []).map((r) => ({ ...r }))
+    uiStore.showToast('Pricing rates reset to defaults', 'success')
+    await loadUsageOverview()
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to reset pricing rates', 'error')
+  } finally {
+    loadingPricing.value = false
+  }
+}
+
+function formatTokens(val) {
+  if (!val) return '0'
+  if (val >= 1_000_000) return (val / 1_000_000).toFixed(1) + 'M'
+  if (val >= 1_000) return (val / 1_000).toFixed(1) + 'k'
+  return String(val)
+}
+
+const filteredPricingRates = computed(() => {
+  if (!pricingSearchQuery.value.trim()) return pricingRates.value
+  const q = pricingSearchQuery.value.toLowerCase().trim()
+  return pricingRates.value.filter(
+    (r) =>
+      r.key.toLowerCase().includes(q) ||
+      (r.display_name && r.display_name.toLowerCase().includes(q)) ||
+      (r.provider && r.provider.toLowerCase().includes(q))
+  )
+})
+
 // Unified Task Studio State
 const bindings = ref([])
 const promptsList = ref([])
@@ -1583,6 +1684,8 @@ onMounted(async () => {
     loadEmailAccounts(),
     loadOAuthConfig(),
     loadGlobalSettings(),
+    loadUsageOverview(),
+    loadPricingRates(),
   ])
   syncGlobalForm()
   syncStudioForm()
@@ -2132,6 +2235,129 @@ onUnmounted(() => {
 
     <!-- TAB 2: AI PROVIDERS -->
     <div v-else-if="activeTab === 'providers'" class="tab-content animate-fade-in">
+      <!-- USAGE & COST / CLOUD SAVINGS OVERVIEW CARD -->
+      <div class="section-card usage-overview-card mb-6">
+        <div class="section-header-row">
+          <div class="section-header-text">
+            <div class="usage-title-badge-row">
+              <h3>Token Usage &amp; Cost Overview</h3>
+              <span
+                v-if="usageOverview.local_inference_percentage >= 100"
+                class="badge badge-success font-mono flex items-center gap-1"
+              >
+                <span class="pulse-dot-green"></span> 100% Local Inference
+              </span>
+              <span
+                v-else-if="usageOverview.local_inference_percentage <= 0"
+                class="badge badge-applied font-mono flex items-center gap-1"
+              >
+                <Sparkles :size="12" /> Cloud API Spend
+              </span>
+              <span
+                v-else
+                class="badge badge-purple font-mono flex items-center gap-1"
+              >
+                <Zap :size="12" /> {{ usageOverview.local_inference_percentage }}% Local • Hybrid
+              </span>
+            </div>
+            <p>Financial transparency and tracking for both Cloud API keys and local on-device LLMs.</p>
+          </div>
+          <div class="section-header-actions">
+            <button class="btn btn-secondary btn-sm" @click="isPricingModalOpen = true">
+              <SlidersHorizontal :size="14" />
+              <span>Configure Token Rates ($/1M)</span>
+            </button>
+            <button
+              class="btn btn-secondary btn-sm"
+              :disabled="loadingUsage"
+              @click="loadUsageOverview"
+              title="Refresh usage statistics"
+            >
+              <RefreshCw :size="14" :class="{ 'animate-spin': loadingUsage }" />
+            </button>
+          </div>
+        </div>
+
+        <!-- Usage Metrics Grid -->
+        <div class="usage-metrics-grid">
+          <!-- Metric 1: Monthly Usage & Spend / Savings -->
+          <div class="usage-metric-box">
+            <span class="usage-metric-label">
+              <Clock :size="14" class="text-muted" />
+              This Month's Tokens
+            </span>
+            <div class="usage-metric-val font-mono">
+              {{ formatTokens(usageOverview.monthly_tokens) }}
+              <span class="usage-sub-tokens text-muted font-mono">({{ usageOverview.monthly_tokens.toLocaleString() }})</span>
+            </div>
+            <div class="usage-metric-footer">
+              <template v-if="usageOverview.local_inference_percentage >= 100">
+                <span class="text-success font-medium">Estimated Cloud Savings: ~${{ usageOverview.monthly_savings_usd.toFixed(2) }}</span>
+              </template>
+              <template v-else-if="usageOverview.local_inference_percentage <= 0">
+                <span class="text-primary font-medium">Estimated Spend: ${{ usageOverview.monthly_spend_usd.toFixed(2) }}</span>
+              </template>
+              <template v-else>
+                <span class="text-primary font-medium">Spend: ${{ usageOverview.monthly_spend_usd.toFixed(2) }}</span>
+                <span class="text-muted">•</span>
+                <span class="text-success font-medium">Saved: ~${{ usageOverview.monthly_savings_usd.toFixed(2) }}</span>
+              </template>
+            </div>
+          </div>
+
+          <!-- Metric 2: All-Time Financial Overview -->
+          <div class="usage-metric-box">
+            <span class="usage-metric-label">
+              <DollarSign :size="14" class="text-muted" />
+              All-Time Value
+            </span>
+            <div class="usage-metric-val font-mono">
+              <template v-if="usageOverview.local_inference_percentage >= 100">
+                <span class="text-success font-semibold">~${{ usageOverview.all_time_savings_usd.toFixed(2) }}</span>
+                <span class="usage-sub-tokens text-muted">saved</span>
+              </template>
+              <template v-else-if="usageOverview.local_inference_percentage <= 0">
+                <span class="text-primary font-semibold">${{ usageOverview.all_time_spend_usd.toFixed(2) }}</span>
+                <span class="usage-sub-tokens text-muted">spent</span>
+              </template>
+              <template v-else>
+                <span class="text-primary font-semibold">${{ usageOverview.all_time_spend_usd.toFixed(2) }}</span>
+                <span class="usage-sub-tokens text-success font-medium">(~${{ usageOverview.all_time_savings_usd.toFixed(2) }} saved)</span>
+              </template>
+            </div>
+            <div class="usage-metric-footer text-muted font-mono">
+              All-time tokens: {{ formatTokens(usageOverview.all_time_tokens) }} • {{ usageOverview.total_llm_calls }} LLM calls
+            </div>
+          </div>
+
+          <!-- Metric 3: Cost Efficiency / Avg per Action -->
+          <div class="usage-metric-box">
+            <span class="usage-metric-label">
+              <Activity :size="14" class="text-muted" />
+              Cost Efficiency &amp; Average
+            </span>
+            <div class="usage-metric-val font-mono">
+              <template v-if="usageOverview.local_inference_percentage >= 100">
+                <span class="text-success font-semibold">$0.0000</span>
+                <span class="usage-sub-tokens text-muted">/ assessment</span>
+              </template>
+              <template v-else>
+                <span class="text-primary font-semibold">${{ usageOverview.avg_cost_per_assessment.toFixed(4) }}</span>
+                <span class="usage-sub-tokens text-muted">/ assessment</span>
+              </template>
+            </div>
+            <div class="usage-metric-footer text-muted">
+              <template v-if="usageOverview.local_inference_percentage >= 100">
+                🟢 100% on-device private inference
+              </template>
+              <template v-else>
+                Benchmark local rate: $0.15/1M in, $0.60/1M out
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="section-card">
         <div class="section-header-row">
           <div class="section-header-text">
@@ -2629,6 +2855,105 @@ onUnmounted(() => {
     <div v-else-if="activeTab === 'profile'" class="tab-content animate-fade-in">
       <CandidateProfileView :is-embedded="true" />
     </div>
+      </div>
+    </div>
+
+    <!-- MODEL PRICING & TOKEN RATES MODAL -->
+    <div v-if="isPricingModalOpen" class="modal-backdrop" @click.self="isPricingModalOpen = false">
+      <div class="modal-card modal-lg animate-fade-in">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <h3 class="modal-title">Model Pricing &amp; Token Rates ($ / 1M Tokens)</h3>
+            <p class="text-xs text-muted">Configure input and output rates per 1M tokens to calculate exact cloud spend and local hardware savings.</p>
+          </div>
+          <button class="btn-close" @click="isPricingModalOpen = false">×</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="pricing-modal-toolbar mb-4">
+            <input
+              v-model="pricingSearchQuery"
+              type="text"
+              placeholder="Search model or provider (e.g. gpt-4o, claude, gemini, local)..."
+              class="form-input search-input"
+            />
+            <button
+              class="btn btn-secondary btn-sm"
+              @click="resetPricingRatesToDefaults"
+              :disabled="loadingPricing"
+              title="Reset all rates to standard published defaults"
+            >
+              <RotateCcw :size="14" />
+              <span>Reset Defaults</span>
+            </button>
+          </div>
+
+          <div class="pricing-table-container">
+            <table class="pricing-table">
+              <thead>
+                <tr>
+                  <th>Model / Key</th>
+                  <th>Provider</th>
+                  <th>Input Cost ($/1M)</th>
+                  <th>Output Cost ($/1M)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="rate in filteredPricingRates" :key="rate.key">
+                  <td class="rate-model-cell">
+                    <div class="rate-name">{{ rate.display_name || rate.key }}</div>
+                    <div class="rate-key font-mono text-xs text-muted">{{ rate.key }}</div>
+                  </td>
+                  <td>
+                    <span class="badge badge-applied font-mono text-xs">{{ rate.provider }}</span>
+                  </td>
+                  <td>
+                    <div class="rate-input-wrap">
+                      <span class="rate-prefix">$</span>
+                      <input
+                        v-model.number="rate.input_cost_per_million"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        class="form-input rate-input font-mono"
+                      />
+                    </div>
+                  </td>
+                  <td>
+                    <div class="rate-input-wrap">
+                      <span class="rate-prefix">$</span>
+                      <input
+                        v-model.number="rate.output_cost_per_million"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        class="form-input rate-input font-mono"
+                      />
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="filteredPricingRates.length === 0">
+                  <td colspan="4" class="text-center py-4 text-muted">
+                    No models match your search query.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="modal-actions mt-4">
+            <button class="btn btn-secondary" @click="isPricingModalOpen = false">Cancel</button>
+            <button
+              class="btn btn-primary"
+              :disabled="isSavingPricing"
+              @click="savePricingRates"
+            >
+              <Loader2 v-if="isSavingPricing" class="animate-spin" :size="14" />
+              <Save v-else :size="14" />
+              <span>Save Pricing Rates</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -5394,5 +5719,141 @@ input:checked + .slider:before {
   .btn-sm, .btn-xs {
     min-height: 38px;
   }
+}
+
+/* Token Usage & Cost Overview Styles */
+.usage-overview-card {
+  background: var(--bg-card, #1e293b);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+}
+
+.usage-title-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.pulse-dot-green {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #10b981;
+  display: inline-block;
+  box-shadow: 0 0 8px #10b981;
+}
+
+.usage-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.usage-metric-box {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.06));
+  border-radius: var(--radius-md, 8px);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.usage-metric-label {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-muted, #94a3b8);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.usage-metric-val {
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: var(--text-main, #f8fafc);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.usage-sub-tokens {
+  font-size: 0.85rem;
+  font-weight: normal;
+}
+
+.usage-metric-footer {
+  font-size: 0.78rem;
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Pricing Table Styles */
+.pricing-modal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pricing-table-container {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-md, 8px);
+}
+
+.pricing-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.pricing-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-surface, #0f172a);
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-muted, #94a3b8);
+  border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  z-index: 1;
+}
+
+.pricing-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.rate-model-cell .rate-name {
+  font-weight: 600;
+  color: var(--text-main, #f8fafc);
+}
+
+.rate-input-wrap {
+  display: flex;
+  align-items: center;
+  position: relative;
+  width: 120px;
+}
+
+.rate-prefix {
+  position: absolute;
+  left: 8px;
+  color: var(--text-muted, #94a3b8);
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.rate-input {
+  padding-left: 20px !important;
+  font-size: 0.85rem;
+  height: 32px;
+  width: 100%;
 }
 </style>

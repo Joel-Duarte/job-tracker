@@ -904,17 +904,54 @@ export async function handleDemoRequest(config) {
   // 6. DIAGNOSTICS & TELEMETRY
   if (urlPath === '/diagnostics/stats' && method === 'get') {
     const traces = db.diagnostics_traces || []
+    let totalTokens = 0
+    let totalSpend = 0
+    let totalSavings = 0
+    const taskBreakdown = {}
+
+    traces.forEach((t) => {
+      const p = t.payload || {}
+      const tokens = p.total_tokens || 0
+      const cost = p.estimated_cost || 0
+      const savings = p.estimated_savings || 0
+      const taskName = p.task_type || p.name || t.name || 'General'
+
+      totalTokens += tokens
+      totalSpend += cost
+      totalSavings += savings
+
+      if (!taskBreakdown[taskName]) {
+        taskBreakdown[taskName] = { calls: 0, tokens: 0, cost_usd: 0, savings_usd: 0 }
+      }
+      taskBreakdown[taskName].calls += 1
+      taskBreakdown[taskName].tokens += tokens
+      taskBreakdown[taskName].cost_usd += cost
+      taskBreakdown[taskName].savings_usd += savings
+    })
+
     return ok({
+      total_runs: traces.length,
       total_traces: traces.length,
       success_count: traces.filter((t) => t.status === 'success').length,
       error_count: traces.filter((t) => t.status === 'error').length,
+      success_rate: traces.length > 0 ? Math.round((traces.filter((t) => t.status === 'success').length / traces.length) * 100) : 100,
+      total_tokens: totalTokens || 142800,
+      total_spend_usd: totalSpend,
+      total_savings_usd: totalSavings || 14.28,
+      task_token_breakdown: Object.keys(taskBreakdown).length > 0 ? taskBreakdown : {
+        "JOB_ASSESSMENT": { calls: 24, tokens: 98400, cost_usd: 0.0, savings_usd: 9.84 },
+        "COVER_LETTER": { calls: 8, tokens: 26400, cost_usd: 0.0, savings_usd: 2.64 },
+        "INTERVIEW_SIMULATION": { calls: 6, tokens: 18000, cost_usd: 0.0, savings_usd: 1.80 }
+      },
       avg_latency_ms: 850,
     })
   }
 
   if (urlPath === '/diagnostics/traces' && method === 'get') {
     let traces = db.diagnostics_traces || []
-    if (params.category) traces = traces.filter((t) => t.category === params.category)
+    if (params.category && params.category !== 'all') {
+      traces = traces.filter((t) => t.category === params.category)
+    }
     return ok(traces)
   }
 
@@ -943,6 +980,99 @@ export async function handleDemoRequest(config) {
       model_name: 'demo-local-llm',
       error_message: null,
     })
+  }
+
+  if (urlPath === '/ai/usage-overview' && method === 'get') {
+    return ok(db.usage_overview || {
+      monthly_tokens: 142800,
+      monthly_spend_usd: 0.0,
+      monthly_savings_usd: 14.28,
+      all_time_tokens: 485200,
+      all_time_spend_usd: 0.0,
+      all_time_savings_usd: 48.52,
+      local_inference_percentage: 100.0,
+      total_llm_calls: 38,
+      avg_cost_per_assessment: 0.0000,
+      task_breakdown: {
+        "JOB_ASSESSMENT": { calls: 24, tokens: 98400, cost_usd: 0.0, savings_usd: 9.84 },
+        "COVER_LETTER": { calls: 8, tokens: 26400, cost_usd: 0.0, savings_usd: 2.64 },
+        "INTERVIEW_SIMULATION": { calls: 6, tokens: 18000, cost_usd: 0.0, savings_usd: 1.80 }
+      }
+    })
+  }
+
+  if (urlPath === '/ai/pricing-rates' && method === 'get') {
+    return ok(db.pricing_rates || [])
+  }
+
+  if (urlPath === '/ai/pricing-rates' && (method === 'put' || method === 'post')) {
+    if (data.rates && Array.isArray(data.rates)) {
+      const existing = [...(db.pricing_rates || [])]
+      data.rates.forEach((updated) => {
+        const idx = existing.findIndex((r) => r.key === updated.key)
+        if (idx !== -1) {
+          existing[idx] = { ...existing[idx], ...updated }
+        }
+      })
+      db.pricing_rates = existing
+      saveDemoDb(db)
+    }
+    return ok(db.pricing_rates || [])
+  }
+
+  if (urlPath === '/ai/pricing-rates/reset' && method === 'post') {
+    db.pricing_rates = [
+      {
+        key: "local_baseline",
+        display_name: "Local LLM Benchmark (Savings Baseline)",
+        provider: "local",
+        input_cost_per_million: 0.15,
+        output_cost_per_million: 0.60,
+        description: "Standard baseline rate (GPT-4o-mini equivalent) to estimate cloud savings for local models.",
+      },
+      {
+        key: "gpt-4o",
+        display_name: "OpenAI GPT-4o",
+        provider: "openai",
+        input_cost_per_million: 2.50,
+        output_cost_per_million: 10.00,
+        description: "Flagship multimodal model for complex reasoning and tasks.",
+      },
+      {
+        key: "gpt-4o-mini",
+        display_name: "OpenAI GPT-4o Mini",
+        provider: "openai",
+        input_cost_per_million: 0.15,
+        output_cost_per_million: 0.60,
+        description: "Fast, cost-efficient model for intake and structured extractions.",
+      },
+      {
+        key: "claude-3-5-sonnet",
+        display_name: "Anthropic Claude 3.5 Sonnet",
+        provider: "anthropic",
+        input_cost_per_million: 3.00,
+        output_cost_per_million: 15.00,
+        description: "State-of-the-art coding, analysis, and nuances.",
+      },
+      {
+        key: "gemini-2.0-flash",
+        display_name: "Google Gemini 2.0 Flash",
+        provider: "gemini",
+        input_cost_per_million: 0.10,
+        output_cost_per_million: 0.40,
+        description: "Next-gen multimodal workhorse with sub-second speeds.",
+      },
+      {
+        key: "deepseek-chat",
+        display_name: "DeepSeek V3 (Chat)",
+        provider: "deepseek",
+        input_cost_per_million: 0.14,
+        output_cost_per_million: 0.28,
+        description: "High-efficiency general and coding model.",
+      }
+    ]
+    saveDemoDb(db)
+    return ok(db.pricing_rates)
   }
 
   if (urlPath === '/ai/bindings' && method === 'get') {

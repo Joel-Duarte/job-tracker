@@ -1,5 +1,6 @@
 import logging
 import time
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -33,6 +34,9 @@ from app.schemas.ai_config import (
     DiscoveredModel,
     ModelProbeRequest,
     ModelProbeResponse,
+    PricingRateBatchUpdate,
+    PricingRateRead,
+    UsageOverviewRead,
     mask_secret,
 )
 from app.schemas.global_settings import GlobalSettingsRead, GlobalSettingsUpdate
@@ -1042,3 +1046,147 @@ async def test_ai_task_binding(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Task binding test failed for '{task_type_norm}' ({provider.provider_type} / {binding.model_name}): {err!s}",
         )
+
+
+@router.get("/pricing-rates", response_model=list[PricingRateRead])
+async def get_pricing_rates_endpoint() -> list[PricingRateRead]:
+    from app.services.pricing_service import get_all_pricing_rates
+
+    return [PricingRateRead(**item) for item in get_all_pricing_rates()]
+
+
+@router.put("/pricing-rates", response_model=list[PricingRateRead])
+async def update_pricing_rates_endpoint(
+    payload: PricingRateBatchUpdate,
+) -> list[PricingRateRead]:
+    from app.services.pricing_service import (
+        get_all_pricing_rates,
+        update_pricing_rate_override,
+    )
+
+    for item in payload.rates:
+        update_pricing_rate_override(
+            key=item.key,
+            input_cost=item.input_cost_per_million,
+            output_cost=item.output_cost_per_million,
+        )
+    return [PricingRateRead(**r) for r in get_all_pricing_rates()]
+
+
+@router.post("/pricing-rates/reset", response_model=list[PricingRateRead])
+async def reset_pricing_rates_endpoint() -> list[PricingRateRead]:
+    from app.services.pricing_service import reset_pricing_rates
+
+    return [PricingRateRead(**item) for item in reset_pricing_rates()]
+
+
+@router.get("/usage-overview", response_model=UsageOverviewRead)
+async def get_usage_overview_endpoint(
+    db: AsyncSession = Depends(get_db),
+) -> UsageOverviewRead:
+    from datetime import UTC, datetime
+
+    from app.models.diagnostics import TraceEventModel
+    from app.services.pricing_service import extract_usage_from_payload
+
+    now = datetime.now(UTC)
+    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    stmt = select(TraceEventModel).where(TraceEventModel.event_type != "health_check")
+    result = await db.execute(stmt)
+    records = result.scalars().all()
+
+    monthly_tokens = 0
+    monthly_spend = 0.0
+    monthly_savings = 0.0
+
+    all_time_tokens = 0
+    all_time_spend = 0.0
+    all_time_savings = 0.0
+
+    local_calls = 0
+    total_calls = 0
+    assessment_cost_total = 0.0
+    assessment_calls = 0
+
+    task_breakdown: dict[str, dict[str, Any]] = {}
+
+    for r in records:
+        payload = r.payload or {}
+        usage = extract_usage_from_payload(payload)
+        t_tokens = usage["total_tokens"]
+        cost = usage["estimated_cost"]
+        savings = usage["estimated_savings"]
+        is_local = usage["is_local"]
+
+        if t_tokens > 0 or r.category == "llm":
+            total_calls += 1
+            if is_local:
+                local_calls += 1
+
+            all_time_tokens += t_tokens
+            all_time_spend += cost
+            all_time_savings += savings
+
+            # Timestamp check for current month
+            t_time = r.timestamp
+            if t_time and t_time.tzinfo is None:
+                t_time = t_time.replace(tzinfo=UTC)
+
+            if t_time and t_time >= start_of_month:
+                monthly_tokens += t_tokens
+                monthly_spend += cost
+                monthly_savings += savings
+
+            # Group by task name / event type
+            task_name = (
+                payload.get("task_type")
+                or payload.get("name")
+                or r.event_type
+                or "General LLM"
+            )
+            if task_name not in task_breakdown:
+                task_breakdown[task_name] = {
+                    "calls": 0,
+                    "tokens": 0,
+                    "cost_usd": 0.0,
+                    "savings_usd": 0.0,
+                }
+            task_breakdown[task_name]["calls"] += 1
+            task_breakdown[task_name]["tokens"] += t_tokens
+            task_breakdown[task_name]["cost_usd"] = round(
+                task_breakdown[task_name]["cost_usd"] + cost, 4
+            )
+            task_breakdown[task_name]["savings_usd"] = round(
+                task_breakdown[task_name]["savings_usd"] + savings, 4
+            )
+
+            if (
+                "assessment" in task_name.lower()
+                or "eval" in task_name.lower()
+                or "fit" in task_name.lower()
+            ):
+                assessment_calls += 1
+                assessment_cost_total += cost
+
+    local_pct = (
+        round((local_calls / total_calls * 100.0), 1) if total_calls > 0 else 0.0
+    )
+    avg_assessment_cost = (
+        round(assessment_cost_total / assessment_calls, 4)
+        if assessment_calls > 0
+        else (round(all_time_spend / total_calls, 4) if total_calls > 0 else 0.0)
+    )
+
+    return UsageOverviewRead(
+        monthly_tokens=monthly_tokens,
+        monthly_spend_usd=round(monthly_spend, 4),
+        monthly_savings_usd=round(monthly_savings, 4),
+        all_time_tokens=all_time_tokens,
+        all_time_spend_usd=round(all_time_spend, 4),
+        all_time_savings_usd=round(all_time_savings, 4),
+        local_inference_percentage=local_pct,
+        total_llm_calls=total_calls,
+        avg_cost_per_assessment=avg_assessment_cost,
+        task_breakdown=task_breakdown,
+    )

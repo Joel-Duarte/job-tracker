@@ -181,3 +181,35 @@ class AIHealthStatusRead(BaseModel):
     error_message: str | None = None
     fallback_provider_id: int | None = None
     fallback_provider_name: str | None = None
+
+
+class PricingRateRead(BaseModel):
+    key: str
+    display_name: str
+    provider: str
+    input_cost_per_million: float
+    output_cost_per_million: float
+    description: str | None = None
+
+
+class PricingRateUpdate(BaseModel):
+    key: str
+    input_cost_per_million: float = Field(..., ge=0.0)
+    output_cost_per_million: float = Field(..., ge=0.0)
+
+
+class PricingRateBatchUpdate(BaseModel):
+    rates: list[PricingRateUpdate]
+
+
+class UsageOverviewRead(BaseModel):
+    monthly_tokens: int = 0
+    monthly_spend_usd: float = 0.0
+    monthly_savings_usd: float = 0.0
+    all_time_tokens: int = 0
+    all_time_spend_usd: float = 0.0
+    all_time_savings_usd: float = 0.0
+    local_inference_percentage: float = 0.0
+    total_llm_calls: int = 0
+    avg_cost_per_assessment: float = 0.0
+    task_breakdown: dict[str, dict[str, Any]] = Field(default_factory=dict)

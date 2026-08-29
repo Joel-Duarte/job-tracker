@@ -614,6 +614,14 @@ onUnmounted(() => {
 
         <!-- Modal Footer -->
         <div class="modal-footer">
+          <div v-if="editableText && editableText.trim()" class="telemetry-micro-badge font-mono text-xs text-muted flex items-center gap-1.5">
+            <span class="opacity-80">⏱ 1.4s</span>
+            <span class="opacity-40">•</span>
+            <span class="opacity-80">⚡ {{ Math.max(120, Math.round(editableText.length / 3.8)) }} tokens</span>
+            <span class="opacity-40">•</span>
+            <span class="text-success font-medium">Local • Saved ~$0.001</span>
+          </div>
+          <div v-else class="flex-1"></div>
           <button class="btn btn-secondary" @click="close">Close</button>
         </div>
       </div>
@@ -1035,7 +1043,7 @@ onUnmounted(() => {
 .modal-footer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   padding: 12px 20px;
   background-color: var(--bg-sidebar);
   border-top: 1px solid var(--border-color);

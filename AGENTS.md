@@ -38,6 +38,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - `email_fetcher.py`: Connects to IMAP or OAuth to pull recruitment emails, deduplicating via `message_id`.
   - `evaluation_worker.py`: Background worker for processing async evaluations in a 4-stage pipeline.
   - `staleness_archiver`: Background lifecycle job that sweeps across all 4 active application stages (`APPLIED`, `ONLINE_ASSESSMENT`, `TECHNICAL_INTERVIEW`, `OFFER`) and transitions inactive applications to `ARCHIVED` (rather than `REJECTED`), leaving all terminal statuses untouched.
+  - `pricing_service.py`: Computes token consumption, dollar costs, and local LLM cloud savings using configurable model rates and extraction from diagnostic telemetry traces.
 
 ### Infrastructure & Development Startup
 - **Local Development:** Run `./dev.sh` (or `./dev.sh --reset` to wipe and restart). This spins up `db` (PostgreSQL), `scraper` (Camofox), `backend` (FastAPI), and `frontend` (Vite dev server) using `docker-compose.dev.yml`.

@@ -351,3 +351,55 @@ async def test_task_binding_custom_extra_body(db_session: AsyncSession):
         }
 
     app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_pricing_rates_endpoints(db_session: AsyncSession):
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # 1. Get initial rates
+        get_res = await ac.get("/api/v1/ai/pricing-rates")
+        assert get_res.status_code == 200
+        rates = get_res.json()
+        assert len(rates) > 5
+
+        # 2. Update rates
+        put_res = await ac.put(
+            "/api/v1/ai/pricing-rates",
+            json={
+                "rates": [
+                    {
+                        "key": "gpt-4o-mini",
+                        "input_cost_per_million": 0.20,
+                        "output_cost_per_million": 0.80,
+                    }
+                ]
+            },
+        )
+        assert put_res.status_code == 200
+        updated = put_res.json()
+        mini = next(r for r in updated if r["key"] == "gpt-4o-mini")
+        assert mini["input_cost_per_million"] == 0.20
+        assert mini["output_cost_per_million"] == 0.80
+
+        # 3. Reset rates
+        reset_res = await ac.post("/api/v1/ai/pricing-rates/reset")
+        assert reset_res.status_code == 200
+        reset_rates = reset_res.json()
+        mini_reset = next(r for r in reset_rates if r["key"] == "gpt-4o-mini")
+        assert mini_reset["input_cost_per_million"] == 0.15
+
+        # 4. Usage overview
+        usage_res = await ac.get("/api/v1/ai/usage-overview")
+        assert usage_res.status_code == 200
+        usage = usage_res.json()
+        assert "monthly_tokens" in usage
+        assert "monthly_spend_usd" in usage
+        assert "monthly_savings_usd" in usage
+        assert "all_time_tokens" in usage
+        assert "local_inference_percentage" in usage
+        assert "task_breakdown" in usage
+
+    app.dependency_overrides.clear()

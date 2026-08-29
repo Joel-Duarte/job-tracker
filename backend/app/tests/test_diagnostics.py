@@ -109,6 +109,10 @@ async def test_diagnostics_api_endpoints(db_session: AsyncSession):
         assert stats["total_runs"] >= 4
         assert stats["error_count"] >= 1
         assert "category_counts" in stats
+        assert "total_tokens" in stats
+        assert "total_spend_usd" in stats
+        assert "total_savings_usd" in stats
+        assert "task_token_breakdown" in stats
         assert stats["category_counts"].get("llm", 0) >= 1
         assert stats["category_counts"].get("email_sync", 0) >= 1
         assert stats["category_counts"].get("worker", 0) >= 1

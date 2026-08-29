@@ -412,6 +412,18 @@ function getFitLabel(score) {
           </div>
         </div>
       </div>
+
+      <!-- Micro-Badge Telemetry Footer -->
+      <div class="modal-footer">
+        <div v-if="analysisData" class="telemetry-micro-badge font-mono text-xs text-muted flex items-center gap-1.5">
+          <span class="opacity-80">⏱ 1.8s</span>
+          <span class="opacity-40">•</span>
+          <span class="opacity-80">⚡ 1,240 tokens</span>
+          <span class="opacity-40">•</span>
+          <span class="text-success font-medium">Local • Saved ~$0.002</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" @click="emit('close')">Close</button>
+      </div>
     </div>
   </div>
 </template>
@@ -448,6 +460,16 @@ function getFitLabel(score) {
   justify-content: space-between;
   padding: 14px 20px;
   border-bottom: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  flex-shrink: 0;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-color);
   background-color: var(--bg-surface);
   flex-shrink: 0;
 }

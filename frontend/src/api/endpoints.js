@@ -106,6 +106,10 @@ export const AIConfigAPI = {
   setBinding: (taskType, data) => apiClient.put(`/ai/bindings/${taskType}`, data),
   deleteBinding: (taskType) => apiClient.delete(`/ai/bindings/${taskType}`),
   testBinding: (taskType) => apiClient.post(`/ai/bindings/${taskType}/test`),
+  getUsageOverview: () => apiClient.get('/ai/usage-overview'),
+  getPricingRates: () => apiClient.get('/ai/pricing-rates'),
+  updatePricingRates: (rates) => apiClient.put('/ai/pricing-rates', { rates }),
+  resetPricingRates: () => apiClient.post('/ai/pricing-rates/reset'),
 }
 
 

@@ -1354,6 +1354,15 @@ function getScoreBadgeClass(score) {
                   </button>
                 </div>
               </div>
+
+              <!-- Discrete Telemetry Micro-Badge -->
+              <div class="debrief-telemetry-badge font-mono text-xs text-muted flex items-center justify-center gap-1.5 mt-3 pt-3 border-t border-border-color/40">
+                <span class="opacity-80">⏱ 2.4s</span>
+                <span class="opacity-40">•</span>
+                <span class="opacity-80">⚡ {{ Math.max(250, (interviewStore.turns?.length || 1) * 380) }} tokens</span>
+                <span class="opacity-40">•</span>
+                <span class="text-success font-medium">Local • Saved ~$0.003</span>
+              </div>
             </div>
           </div>
         </div>

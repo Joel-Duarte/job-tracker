@@ -3,6 +3,7 @@ import zipfile
 from collections import defaultdict
 from datetime import datetime
 from io import BytesIO
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -68,6 +69,8 @@ async def export_diagnostics(db: AsyncSession = Depends(get_db)):
 
 @router.get("/stats")
 async def get_diagnostics_stats(db: AsyncSession = Depends(get_db)):
+    from app.services.pricing_service import extract_usage_from_payload
+
     stmt = select(TraceEventModel.category, TraceEventModel.payload).where(
         TraceEventModel.event_type != "health_check"
     )
@@ -81,11 +84,37 @@ async def get_diagnostics_stats(db: AsyncSession = Depends(get_db)):
     category_counts: dict[str, int] = defaultdict(int)
     category_error_counts: dict[str, int] = defaultdict(int)
 
+    total_tokens = 0
+    total_spend_usd = 0.0
+    total_savings_usd = 0.0
+    task_token_breakdown: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {"calls": 0, "tokens": 0, "cost_usd": 0.0, "savings_usd": 0.0}
+    )
+
     for cat, payload in records:
         cat_key = cat or "llm"
         category_counts[cat_key] += 1
         if payload.get("error"):
             category_error_counts[cat_key] += 1
+
+        usage = extract_usage_from_payload(payload)
+        t_tokens = usage["total_tokens"]
+        cost = usage["estimated_cost"]
+        savings = usage["estimated_savings"]
+
+        total_tokens += t_tokens
+        total_spend_usd += cost
+        total_savings_usd += savings
+
+        task_name = _extract_tracer_task_name(payload, default_name=cat_key)
+        task_token_breakdown[task_name]["calls"] += 1
+        task_token_breakdown[task_name]["tokens"] += t_tokens
+        task_token_breakdown[task_name]["cost_usd"] = round(
+            task_token_breakdown[task_name]["cost_usd"] + cost, 4
+        )
+        task_token_breakdown[task_name]["savings_usd"] = round(
+            task_token_breakdown[task_name]["savings_usd"] + savings, 4
+        )
 
     return {
         "total_runs": total_runs,
@@ -96,6 +125,10 @@ async def get_diagnostics_stats(db: AsyncSession = Depends(get_db)):
         else 0,
         "category_counts": dict(category_counts),
         "category_error_counts": dict(category_error_counts),
+        "total_tokens": total_tokens,
+        "total_spend_usd": round(total_spend_usd, 4),
+        "total_savings_usd": round(total_savings_usd, 4),
+        "task_token_breakdown": dict(task_token_breakdown),
     }
 
 

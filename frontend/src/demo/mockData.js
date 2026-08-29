@@ -960,12 +960,24 @@ export const INITIAL_MOCK_DATA = {
       id: "tr_001",
       run_id: "run_llm_eval_881",
       category: "llm",
-      name: "evaluate_candidate_match",
+      name: "JOB_ASSESSMENT",
       status: "success",
       latency_ms: 1240,
       start_time: new Date(Date.now() - 3600000 * 3).toISOString(),
       end_time: new Date(Date.now() - 3600000 * 3 + 1240).toISOString(),
-      metadata: { provider: "OpenAI", model: "gpt-4o", tokens_used: 1420 }
+      metadata: { provider: "Local LM Studio", model: "qwen/qwen3.5-9b", tokens_used: 1420 },
+      payload: {
+        task_type: "JOB_ASSESSMENT",
+        name: "JOB_ASSESSMENT",
+        prompt_tokens: 940,
+        completion_tokens: 480,
+        total_tokens: 1420,
+        model_name: "qwen/qwen3.5-9b",
+        is_local: true,
+        estimated_cost: 0.0,
+        estimated_savings: 0.00043,
+        duration_ms: 1240,
+      }
     },
     {
       id: "tr_002",
@@ -976,18 +988,34 @@ export const INITIAL_MOCK_DATA = {
       latency_ms: 680,
       start_time: new Date(Date.now() - 3600000 * 5).toISOString(),
       end_time: new Date(Date.now() - 3600000 * 5 + 680).toISOString(),
-      metadata: { url: "https://linear.app/careers/principal-backend" }
+      metadata: { url: "https://linear.app/careers/principal-backend" },
+      payload: {
+        name: "scrape_job_posting_url",
+        duration_ms: 680,
+      }
     },
     {
       id: "tr_003",
       run_id: "run_worker_663",
-      category: "worker",
-      name: "generate_cover_letter_background",
+      category: "llm",
+      name: "COVER_LETTER",
       status: "success",
-      latency_ms: 2150,
+      latency_ms: 1450,
       start_time: new Date(Date.now() - 3600000 * 12).toISOString(),
-      end_time: new Date(Date.now() - 3600000 * 12 + 2150).toISOString(),
-      metadata: { target_application: "app_stripe_001" }
+      end_time: new Date(Date.now() - 3600000 * 12 + 1450).toISOString(),
+      metadata: { target_application: "app_stripe_001" },
+      payload: {
+        task_type: "COVER_LETTER",
+        name: "COVER_LETTER",
+        prompt_tokens: 450,
+        completion_tokens: 310,
+        total_tokens: 760,
+        model_name: "qwen/qwen3.5-9b",
+        is_local: true,
+        estimated_cost: 0.0,
+        estimated_savings: 0.00025,
+        duration_ms: 1450,
+      }
     },
     {
       id: "tr_004",
@@ -998,7 +1026,11 @@ export const INITIAL_MOCK_DATA = {
       latency_ms: 310,
       start_time: new Date(Date.now() - 3600000 * 24).toISOString(),
       end_time: new Date(Date.now() - 3600000 * 24 + 310).toISOString(),
-      metadata: { mode: "demo", status: "simulated_sync" }
+      metadata: { mode: "demo", status: "simulated_sync" },
+      payload: {
+        name: "fetch_imap_unread_emails",
+        duration_ms: 310,
+      }
     },
     {
       id: "tr_005",
@@ -1009,9 +1041,81 @@ export const INITIAL_MOCK_DATA = {
       latency_ms: 420,
       start_time: new Date(Date.now() - 3600000 * 30).toISOString(),
       end_time: new Date(Date.now() - 3600000 * 30 + 420).toISOString(),
-      metadata: { dimensions: 1536 }
+      metadata: { dimensions: 1536 },
+      payload: {
+        name: "vectorize_job_spec",
+        duration_ms: 420,
+      }
     }
   ],
+
+  pricing_rates: [
+    {
+      key: "local_baseline",
+      display_name: "Local LLM Benchmark (Savings Baseline)",
+      provider: "local",
+      input_cost_per_million: 0.15,
+      output_cost_per_million: 0.60,
+      description: "Standard baseline rate (GPT-4o-mini equivalent) to estimate cloud savings for local models.",
+    },
+    {
+      key: "gpt-4o",
+      display_name: "OpenAI GPT-4o",
+      provider: "openai",
+      input_cost_per_million: 2.50,
+      output_cost_per_million: 10.00,
+      description: "Flagship multimodal model for complex reasoning and tasks.",
+    },
+    {
+      key: "gpt-4o-mini",
+      display_name: "OpenAI GPT-4o Mini",
+      provider: "openai",
+      input_cost_per_million: 0.15,
+      output_cost_per_million: 0.60,
+      description: "Fast, cost-efficient model for intake and structured extractions.",
+    },
+    {
+      key: "claude-3-5-sonnet",
+      display_name: "Anthropic Claude 3.5 Sonnet",
+      provider: "anthropic",
+      input_cost_per_million: 3.00,
+      output_cost_per_million: 15.00,
+      description: "State-of-the-art coding, analysis, and nuances.",
+    },
+    {
+      key: "gemini-2.0-flash",
+      display_name: "Google Gemini 2.0 Flash",
+      provider: "gemini",
+      input_cost_per_million: 0.10,
+      output_cost_per_million: 0.40,
+      description: "Next-gen multimodal workhorse with sub-second speeds.",
+    },
+    {
+      key: "deepseek-chat",
+      display_name: "DeepSeek V3 (Chat)",
+      provider: "deepseek",
+      input_cost_per_million: 0.14,
+      output_cost_per_million: 0.28,
+      description: "High-efficiency general and coding model.",
+    }
+  ],
+
+  usage_overview: {
+    monthly_tokens: 142800,
+    monthly_spend_usd: 0.0,
+    monthly_savings_usd: 14.28,
+    all_time_tokens: 485200,
+    all_time_spend_usd: 0.0,
+    all_time_savings_usd: 48.52,
+    local_inference_percentage: 100.0,
+    total_llm_calls: 38,
+    avg_cost_per_assessment: 0.0000,
+    task_breakdown: {
+      "JOB_ASSESSMENT": { calls: 24, tokens: 98400, cost_usd: 0.0, savings_usd: 9.84 },
+      "COVER_LETTER": { calls: 8, tokens: 26400, cost_usd: 0.0, savings_usd: 2.64 },
+      "INTERVIEW_SIMULATION": { calls: 6, tokens: 18000, cost_usd: 0.0, savings_usd: 1.80 }
+    }
+  },
 
   system_settings: {
     has_completed_onboarding: true,

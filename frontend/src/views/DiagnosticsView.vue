@@ -18,8 +18,18 @@ import {
   Code,
   Layers,
   Copy,
-  Check
+  Check,
+  DollarSign,
+  Zap,
+  TrendingUp,
 } from 'lucide-vue-next'
+
+function formatTokens(val) {
+  if (!val) return '0'
+  if (val >= 1_000_000) return (val / 1_000_000).toFixed(1) + 'M'
+  if (val >= 1_000) return (val / 1_000).toFixed(1) + 'k'
+  return String(val)
+}
 
 const stats = ref(null)
 const traces = ref([])
@@ -207,31 +217,74 @@ onMounted(() => {
               <Activity :size="20" />
             </div>
             <div class="kpi-info">
-              <div class="kpi-label">Total Traces Recorded</div>
+              <div class="kpi-label">Total Telemetry Traces</div>
               <div class="kpi-value">{{ stats?.total_runs || 0 }}</div>
-              <div class="kpi-subtext">Across all background services</div>
+              <div class="kpi-subtext">Success Rate: {{ stats?.success_rate || 0 }}% ({{ stats?.error_count || 0 }} errors)</div>
+            </div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-icon info">
+              <Zap :size="20" class="text-primary" />
+            </div>
+            <div class="kpi-info">
+              <div class="kpi-label">Total LLM Tokens</div>
+              <div class="kpi-value font-mono">{{ formatTokens(stats?.total_tokens || 0) }}</div>
+              <div class="kpi-subtext font-mono">{{ (stats?.total_tokens || 0).toLocaleString() }} tokens tracked</div>
+            </div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-icon primary">
+              <DollarSign :size="20" class="text-primary" />
+            </div>
+            <div class="kpi-info">
+              <div class="kpi-label">Estimated Cloud API Spend</div>
+              <div class="kpi-value text-primary font-mono">${{ (stats?.total_spend_usd || 0).toFixed(4) }}</div>
+              <div class="kpi-subtext">Paid cloud API tokens</div>
             </div>
           </div>
 
           <div class="kpi-card">
             <div class="kpi-icon success">
-              <CheckCircle :size="20" />
+              <CheckCircle :size="20" class="text-success" />
             </div>
             <div class="kpi-info">
-              <div class="kpi-label">Successful Executions</div>
-              <div class="kpi-value text-success">{{ stats?.success_count || 0 }}</div>
-              <div class="kpi-subtext">Success Rate: {{ stats?.success_rate || 0 }}%</div>
+              <div class="kpi-label">Estimated Local Savings</div>
+              <div class="kpi-value text-success font-mono">~${{ (stats?.total_savings_usd || 0).toFixed(4) }}</div>
+              <div class="kpi-subtext">Ollama / LM Studio inference</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Task Token & Cost Distribution Card -->
+        <div v-if="stats?.task_token_breakdown && Object.keys(stats.task_token_breakdown).length > 0" class="section-card mb-6">
+          <div class="section-header-row mb-3">
+            <div class="section-header-text">
+              <h3 class="flex items-center gap-2">
+                <Sparkles :size="16" class="text-primary" />
+                <span>Token &amp; Cost Distribution by Task</span>
+              </h3>
+              <p class="text-xs text-muted">Telemetry breakdown across specialized AI pipelines and scrapers.</p>
             </div>
           </div>
 
-          <div class="kpi-card">
-            <div class="kpi-icon danger">
-              <AlertCircle :size="20" />
-            </div>
-            <div class="kpi-info">
-              <div class="kpi-label">Failed Invocations</div>
-              <div class="kpi-value text-danger">{{ stats?.error_count || 0 }}</div>
-              <div class="kpi-subtext">{{ stats?.error_count ? 'Requires triage' : 'All systems normal' }}</div>
+          <div class="task-breakdown-grid">
+            <div
+              v-for="(taskData, taskKey) in stats.task_token_breakdown"
+              :key="taskKey"
+              class="task-breakdown-pill"
+            >
+              <div class="task-pill-header">
+                <span class="task-pill-name font-medium">{{ taskKey }}</span>
+                <span class="badge badge-applied font-mono text-xs">{{ taskData.calls }} runs</span>
+              </div>
+              <div class="task-pill-body font-mono text-xs text-muted flex justify-between mt-1">
+                <span>⚡ {{ formatTokens(taskData.tokens) }} tokens</span>
+                <span v-if="taskData.cost_usd > 0" class="text-primary">${{ taskData.cost_usd.toFixed(4) }}</span>
+                <span v-else-if="taskData.savings_usd > 0" class="text-success">Saved ~${{ taskData.savings_usd.toFixed(4) }}</span>
+                <span v-else class="text-muted">$0.0000</span>
+              </div>
             </div>
           </div>
         </div>
@@ -536,7 +589,7 @@ onMounted(() => {
 /* KPI Cards */
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 16px;
   flex-shrink: 0;
 }
@@ -569,15 +622,49 @@ onMounted(() => {
 }
 
 .kpi-icon.default { background: rgba(99, 102, 241, 0.12); color: #6366f1; }
+.kpi-icon.primary { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
+.kpi-icon.info { background: rgba(168, 85, 247, 0.12); color: #a855f7; }
 .kpi-icon.success { background: rgba(34, 197, 94, 0.12); color: #22c55e; }
 .kpi-icon.danger { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
 
 .kpi-info { flex: 1; }
 .kpi-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
-.kpi-value { font-size: 26px; font-weight: 700; color: var(--text-main); line-height: 1.2; }
+.kpi-value { font-size: 24px; font-weight: 700; color: var(--text-main); line-height: 1.2; }
 .kpi-subtext { font-size: 12px; color: var(--text-tertiary); margin-top: 4px; }
 .text-success { color: var(--status-success-text); }
 .text-danger { color: var(--status-danger-text); }
+
+/* Task Breakdown Styles */
+.task-breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  padding: 0 16px 16px 16px;
+}
+
+.task-breakdown-pill {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.06));
+  border-radius: var(--radius-md, 8px);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+}
+
+.task-pill-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.task-pill-name {
+  font-size: 0.8rem;
+  color: var(--text-main, #f8fafc);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* Section Card */
 .section-card {
