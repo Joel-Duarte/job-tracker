@@ -983,22 +983,85 @@ export async function handleDemoRequest(config) {
   }
 
   if (urlPath === '/ai/usage-overview' && method === 'get') {
-    return ok(db.usage_overview || {
-      monthly_tokens: 142800,
-      monthly_spend_usd: 0.0,
-      monthly_savings_usd: 14.28,
-      all_time_tokens: 485200,
-      all_time_spend_usd: 0.0,
-      all_time_savings_usd: 48.52,
-      local_inference_percentage: 100.0,
-      total_llm_calls: 38,
-      avg_cost_per_assessment: 0.0000,
-      task_breakdown: {
+    const monthlyTokens = db.usage_overview?.monthly_tokens || 142800
+    const estInTokens = Math.round(monthlyTokens * 0.7)
+    const estOutTokens = Math.round(monthlyTokens * 0.3)
+
+    // Find active provider
+    const activeProvider = (db.providers || []).find((p) => p.is_active) || {
+      input_cost_per_million: 0.0,
+      output_cost_per_million: 0.0,
+    }
+    const inRate = activeProvider.input_cost_per_million || 0.0
+    const outRate = activeProvider.output_cost_per_million || 0.0
+    const isLocal = inRate === 0 && outRate === 0
+
+    let monthlySpend = 0.0
+    let monthlySavings = 0.0
+    let localInferencePct = 100.0
+
+    if (isLocal) {
+      monthlySpend = 0.0
+      monthlySavings = (estInTokens / 1e6) * 0.15 + (estOutTokens / 1e6) * 0.60
+      localInferencePct = 100.0
+    } else {
+      monthlySpend = (estInTokens / 1e6) * inRate + (estOutTokens / 1e6) * outRate
+      monthlySavings = 0.0
+      localInferencePct = 0.0
+    }
+
+    const rates = db.pricing_rates || [
+      { key: 'local_baseline', display_name: 'Local LLM (Ollama / LM Studio)', provider: 'local', input_cost_per_million: 0.0, output_cost_per_million: 0.0, is_local: true },
+      { key: 'gemini-2.0-flash', display_name: 'Google Gemini 2.0 Flash', provider: 'google_genai', input_cost_per_million: 0.10, output_cost_per_million: 0.40 },
+      { key: 'deepseek-chat', display_name: 'DeepSeek V3', provider: 'deepseek', input_cost_per_million: 0.14, output_cost_per_million: 0.28 },
+      { key: 'gpt-4o-mini', display_name: 'OpenAI GPT-4o Mini', provider: 'openai', input_cost_per_million: 0.15, output_cost_per_million: 0.60 },
+      { key: 'claude-3-5-haiku', display_name: 'Anthropic Claude 3.5 Haiku', provider: 'anthropic', input_cost_per_million: 0.80, output_cost_per_million: 4.00 },
+      { key: 'gpt-4o', display_name: 'OpenAI GPT-4o', provider: 'openai', input_cost_per_million: 2.50, output_cost_per_million: 10.00 },
+      { key: 'claude-3-5-sonnet', display_name: 'Anthropic Claude 3.5 Sonnet', provider: 'anthropic', input_cost_per_million: 3.00, output_cost_per_million: 15.00 },
+    ]
+
+    const comparativeCosts = rates.map((r) => {
+      const isRLocal = r.key === 'local_baseline' || r.provider === 'local' || (r.input_cost_per_million === 0 && r.output_cost_per_million === 0)
+      const simulatedCost = isRLocal ? 0.0 : (estInTokens / 1e6) * r.input_cost_per_million + (estOutTokens / 1e6) * r.output_cost_per_million
+      const diffUsd = simulatedCost - monthlySpend
+      let diffPct = 0.0
+      if (monthlySpend > 0) {
+        diffPct = Math.round(((simulatedCost - monthlySpend) / monthlySpend) * 1000) / 10
+      } else {
+        diffPct = simulatedCost > 0 ? 100.0 : 0.0
+      }
+      const status = diffUsd < -0.0001 ? 'cheaper' : diffUsd > 0.0001 ? 'more_expensive' : 'identical'
+
+      return {
+        provider_name: r.provider === 'openai' ? 'OpenAI' : r.provider === 'anthropic' ? 'Anthropic' : r.provider === 'gemini' ? 'Google Gemini' : r.provider === 'deepseek' ? 'DeepSeek' : 'Local LLM (Ollama / LM Studio)',
+        model_name: r.display_name || r.key,
+        provider_type: r.provider,
+        input_cost_per_million: r.input_cost_per_million,
+        output_cost_per_million: r.output_cost_per_million,
+        simulated_cost_usd: Math.round(simulatedCost * 1000) / 1000,
+        diff_usd: Math.round(diffUsd * 1000) / 1000,
+        diff_percentage: diffPct,
+        status,
+        is_local: isRLocal,
+      }
+    })
+
+    return ok({
+      monthly_tokens: monthlyTokens,
+      monthly_spend_usd: Math.round(monthlySpend * 100) / 100,
+      monthly_savings_usd: Math.round(monthlySavings * 100) / 100,
+      all_time_tokens: db.usage_overview?.all_time_tokens || 485200,
+      all_time_spend_usd: isLocal ? 0.0 : Math.round(monthlySpend * 3.4 * 100) / 100,
+      all_time_savings_usd: isLocal ? 48.52 : 0.0,
+      local_inference_percentage: localInferencePct,
+      total_llm_calls: db.usage_overview?.total_llm_calls || 38,
+      avg_cost_per_assessment: isLocal ? 0.0 : Math.round((monthlySpend / 24) * 10000) / 10000,
+      task_breakdown: db.usage_overview?.task_breakdown || {
         "JOB_ASSESSMENT": { calls: 24, tokens: 98400, cost_usd: 0.0, savings_usd: 9.84 },
         "COVER_LETTER": { calls: 8, tokens: 26400, cost_usd: 0.0, savings_usd: 2.64 },
         "INTERVIEW_SIMULATION": { calls: 6, tokens: 18000, cost_usd: 0.0, savings_usd: 1.80 }
       },
-      comparative_costs: []
+      comparative_costs: comparativeCosts
     })
   }
 

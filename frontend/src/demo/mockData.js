@@ -1183,6 +1183,65 @@ export const INITIAL_MOCK_DATA = {
     ]
   },
 
+  pricing_rates: [
+    {
+      key: "local_baseline",
+      display_name: "Local LLM Benchmark (Savings Baseline)",
+      provider: "local",
+      input_cost_per_million: 0.15,
+      output_cost_per_million: 0.60,
+      description: "Standard baseline rate (GPT-4o-mini equivalent) to estimate cloud savings for local models."
+    },
+    {
+      key: "gpt-4o",
+      display_name: "OpenAI GPT-4o",
+      provider: "openai",
+      input_cost_per_million: 2.50,
+      output_cost_per_million: 10.00,
+      description: "Flagship multimodal model for complex reasoning and tasks."
+    },
+    {
+      key: "gpt-4o-mini",
+      display_name: "OpenAI GPT-4o Mini",
+      provider: "openai",
+      input_cost_per_million: 0.15,
+      output_cost_per_million: 0.60,
+      description: "Fast, cost-efficient model for intake and structured extractions."
+    },
+    {
+      key: "claude-3-5-sonnet",
+      display_name: "Anthropic Claude 3.5 Sonnet",
+      provider: "anthropic",
+      input_cost_per_million: 3.00,
+      output_cost_per_million: 15.00,
+      description: "State-of-the-art coding, analysis, and nuances."
+    },
+    {
+      key: "claude-3-5-haiku",
+      display_name: "Anthropic Claude 3.5 Haiku",
+      provider: "anthropic",
+      input_cost_per_million: 0.80,
+      output_cost_per_million: 4.00,
+      description: "Fast and responsive lightweight model."
+    },
+    {
+      key: "gemini-2.0-flash",
+      display_name: "Google Gemini 2.0 Flash",
+      provider: "gemini",
+      input_cost_per_million: 0.10,
+      output_cost_per_million: 0.40,
+      description: "Next-gen multimodal workhorse with sub-second speeds."
+    },
+    {
+      key: "deepseek-chat",
+      display_name: "DeepSeek V3",
+      provider: "deepseek",
+      input_cost_per_million: 0.14,
+      output_cost_per_million: 0.28,
+      description: "High-performance low-cost general intelligence model."
+    }
+  ],
+
   system_settings: {
     has_completed_onboarding: true,
     enable_email_intake: true,
