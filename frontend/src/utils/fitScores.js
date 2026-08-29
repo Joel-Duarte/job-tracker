@@ -38,9 +38,43 @@ export function getFitScores(obj) {
     aiVal = Number(payload.overall_fit_score)
   }
 
+  // 3. Matched and Total Skills Counts
+  let matchedCount = null
+  let totalCount = null
+
+  if (obj.matched_skills_count !== undefined && obj.matched_skills_count !== null) {
+    matchedCount = Number(obj.matched_skills_count)
+  } else if (payload.matched_skills_count !== undefined && payload.matched_skills_count !== null) {
+    matchedCount = Number(payload.matched_skills_count)
+  } else if (Array.isArray(payload.matching_skills)) {
+    matchedCount = payload.matching_skills.length
+  }
+
+  if (obj.total_required_skills_count !== undefined && obj.total_required_skills_count !== null) {
+    totalCount = Number(obj.total_required_skills_count)
+  } else if (payload.total_required_skills_count !== undefined && payload.total_required_skills_count !== null) {
+    totalCount = Number(payload.total_required_skills_count)
+  } else if (Array.isArray(payload.matching_skills) || Array.isArray(payload.missing_skills)) {
+    const matchingLen = Array.isArray(payload.matching_skills) ? payload.matching_skills.length : 0
+    const missingLen = Array.isArray(payload.missing_skills) ? payload.missing_skills.length : 0
+    if (matchingLen + missingLen > 0) {
+      totalCount = matchingLen + missingLen
+    }
+  }
+
+  let ratioText = ''
+  if (matchedCount !== null && totalCount !== null && totalCount > 0) {
+    ratioText = `${matchedCount}/${totalCount} skills`
+  } else if (totalCount === 0) {
+    ratioText = '0 skills required'
+  }
+
   return {
     computedScore: computedVal,
     aiScore: aiVal,
+    matchedCount,
+    totalCount,
+    computedRatioText: ratioText,
     computedText: computedVal !== null ? `${computedVal}%` : '--%',
     aiText: aiVal !== null ? `${aiVal}%` : '--%',
   }

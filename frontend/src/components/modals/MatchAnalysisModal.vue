@@ -143,6 +143,10 @@ const computedScoreText = computed(() => {
   return scores.value.computedText
 })
 
+const computedRatioText = computed(() => {
+  return scores.value.computedRatioText || ''
+})
+
 const compensationText = computed(() => {
   const min = application.value?.salary_min ?? analysisData.value?.salary_min
   const max = application.value?.salary_max ?? analysisData.value?.salary_max
@@ -282,6 +286,7 @@ function getFitLabel(score) {
                 <div class="score-badge-card algo-card">
                   <span class="score-badge-val font-mono">{{ computedScoreText }}</span>
                   <span class="score-badge-lbl">Algo Overlap</span>
+                  <span v-if="computedRatioText" class="score-badge-sub">{{ computedRatioText }}</span>
                 </div>
                 <div class="score-badge-card ai-card" :class="getFitBadgeClass(matchScore)">
                   <span class="score-badge-val font-mono">{{ matchScore }}%</span>
@@ -682,6 +687,14 @@ function getFitLabel(score) {
 .algo-card {
   background-color: var(--bg-surface);
   border-color: var(--border-color);
+}
+
+.score-badge-sub {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
 }
 
 .ai-card.fit-elite {

@@ -723,7 +723,10 @@ async def _execute_evaluation_steps(
                 active_cv = cv_res.scalars().first()
                 candidate_skills = active_cv.extracted_skills if active_cv else []
 
-                match_info = compute_programmatic_skill_match(candidate_skills, content)
+                jd_req_skills = spec_dict.get("extracted_skills") if spec_dict else None
+                match_info = compute_programmatic_skill_match(
+                    candidate_skills, content, jd_required_skills=jd_req_skills
+                )
 
                 active_domains_str = None
                 if active_cv and active_cv.domain_experience:
@@ -783,7 +786,9 @@ async def _execute_evaluation_steps(
                 candidate_cv=candidate_cv_text,
                 candidate_domain_breakdown=active_domains_str,
                 candidate_spoken_languages=checkpoint.get("candidate_spoken_langs_str"),
-                programmatic_baseline=match_info.get("programmatic_score", 0),
+                programmatic_baseline=match_info.get("programmatic_score"),
+                matched_skills_count=match_info.get("matched_count"),
+                total_required_skills_count=match_info.get("total_required_count"),
             )
 
             task.stage = "SAVING"

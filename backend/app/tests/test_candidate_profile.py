@@ -27,13 +27,77 @@ def test_programmatic_skill_matcher_aliases_and_ratios():
 
     result = compute_programmatic_skill_match(candidate_skills, jd_text)
     assert result["candidate_total_skills"] == 6
-    assert result["programmatic_score"] >= 80
+    assert result["programmatic_score"] == 100
     assert "Python" in result["matching_skills"]
     assert "PostgreSQL" in result["matching_skills"]
     assert "Kubernetes" in result["matching_skills"]
     assert "Docker" in result["matching_skills"]
     assert "FastAPI" in result["matching_skills"]
     assert "Kafka" in result["matching_skills"]
+
+
+def test_programmatic_skill_matcher_coverage_ratio_50_percent():
+    # User has 10 skills, JD requires 20 skills. User matches 10 of them -> score is exactly 50%
+    candidate_skills = [
+        "Python",
+        "FastAPI",
+        "PostgreSQL",
+        "Docker",
+        "Kubernetes",
+        "Redis",
+        "AWS",
+        "Git",
+        "CI/CD",
+        "TypeScript",
+    ]
+    jd_required_skills = [
+        # 10 matching
+        "Python",
+        "FastAPI",
+        "PostgreSQL",
+        "Docker",
+        "Kubernetes",
+        "Redis",
+        "AWS",
+        "Git",
+        "CI/CD",
+        "TypeScript",
+        # 10 missing
+        "Rust",
+        "Go",
+        "GraphQL",
+        "Apache Spark",
+        "Terraform",
+        "Solidity",
+        "React",
+        "Next.js",
+        "TailwindCSS",
+        "C++",
+    ]
+    result = compute_programmatic_skill_match(
+        candidate_skills=candidate_skills,
+        jd_text="Engineering role requirements...",
+        jd_required_skills=jd_required_skills,
+    )
+    assert result["matched_count"] == 10
+    assert result["total_required_count"] == 20
+    assert result["programmatic_score"] == 50
+    assert len(result["matching_skills"]) == 10
+    assert len(result["missing_skills"]) == 10
+    assert "Rust" in result["missing_skills"]
+    assert "Python" in result["matching_skills"]
+
+
+def test_programmatic_skill_matcher_zero_skills_edge_case():
+    candidate_skills = ["Python", "FastAPI"]
+    result = compute_programmatic_skill_match(
+        candidate_skills=candidate_skills,
+        jd_text="General role without specific technical tools mentioned.",
+        jd_required_skills=[],
+    )
+    assert result["programmatic_score"] is None
+    assert result["matched_count"] == 0
+    assert result["total_required_count"] == 0
 
 
 @pytest.mark.asyncio

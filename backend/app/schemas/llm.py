@@ -203,8 +203,16 @@ class JobAssessmentResult(BaseModel):
     )
     position: str = Field(description="Position or job title")
     fit_score: int = Field(description="Calculated AI match/fit score from 0 to 100")
-    programmatic_match_score: int = Field(
-        default=0, description="Programmatic keyword overlap score (0 to 100)"
+    programmatic_match_score: int | None = Field(
+        default=None, description="Programmatic keyword overlap score (0 to 100)"
+    )
+    matched_skills_count: int | None = Field(
+        default=None,
+        description="Count of matched JD skills possessed by candidate",
+    )
+    total_required_skills_count: int | None = Field(
+        default=None,
+        description="Total count of required/target JD skills",
     )
     match_summary: str = Field(
         default="",

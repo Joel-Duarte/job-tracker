@@ -196,7 +196,9 @@ async def assess_job_posting(
     candidate_cv: str | None = None,
     candidate_domain_breakdown: str | None = None,
     candidate_spoken_languages: str | None = None,
-    programmatic_baseline: int = 0,
+    programmatic_baseline: int | None = None,
+    matched_skills_count: int | None = None,
+    total_required_skills_count: int | None = None,
 ) -> JobAssessmentResult:
     """
     Evaluates a job posting / JD against candidate CV for pre-application qualification,
@@ -245,7 +247,9 @@ async def assess_job_posting(
             "candidate_cv": cv_text,
             "candidate_domain_breakdown": domain_text,
             "candidate_spoken_languages": spoken_langs_text,
-            "programmatic_baseline": str(programmatic_baseline),
+            "programmatic_baseline": str(
+                programmatic_baseline if programmatic_baseline is not None else 0
+            ),
         },
         config={"callbacks": [PostgresTracer()]},
     )
@@ -254,6 +258,17 @@ async def assess_job_posting(
         result = JobAssessmentResult.model_validate(result)
 
     result.programmatic_match_score = programmatic_baseline
+    if matched_skills_count is not None:
+        result.matched_skills_count = matched_skills_count
+    elif result.matching_skills:
+        result.matched_skills_count = len(result.matching_skills)
+
+    if total_required_skills_count is not None:
+        result.total_required_skills_count = total_required_skills_count
+    elif result.matching_skills or result.missing_skills:
+        result.total_required_skills_count = len(result.matching_skills) + len(
+            result.missing_skills
+        )
 
     # Synthesize fallback markdown_report if model omitted it
     if not result.markdown_report:
