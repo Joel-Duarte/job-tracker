@@ -12,6 +12,7 @@ import {
   FileText,
   CheckCircle2,
   AlertTriangle,
+  AlertOctagon,
   Building2,
   DollarSign,
   MapPin,
@@ -720,6 +721,43 @@ onUnmounted(() => {
 
           <!-- Expandable Deep-Dive Dossier -->
           <div v-if="expandedTaskIds.has(task.id)" class="eval-deep-dive animate-fade-in">
+            <!-- Critical Hiring Risks & Recruiter Hesitations Warning / Confirmation Card -->
+            <div
+              v-if="task.result_json?.critical_risks?.length || task.result_json?.seniority_fit"
+              class="critical-risks-card"
+              :class="{ 'zero-risks': !task.result_json?.critical_risks?.length }"
+            >
+              <div class="critical-risks-header">
+                <div class="risk-header-left" v-if="task.result_json?.critical_risks?.length">
+                  <AlertOctagon :size="15" class="risk-icon" />
+                  <span class="risk-title">Critical Risks &amp; Recruiter Hesitations</span>
+                </div>
+                <div class="risk-header-left" v-else>
+                  <CheckCircle2 :size="15" class="risk-icon-clean" />
+                  <span class="risk-title-clean">No Critical Red Flags Identified</span>
+                </div>
+                <span
+                  class="seniority-tag"
+                  v-if="task.result_json?.seniority_fit"
+                  :class="task.result_json.seniority_fit.toLowerCase()"
+                >
+                  Seniority: {{ task.result_json.seniority_fit }}
+                </span>
+              </div>
+              <p class="risk-subtitle" v-if="task.result_json?.critical_risks?.length">
+                Skeptical hiring screener audit identified potential deal-breakers or friction points:
+              </p>
+              <p class="risk-subtitle-clean" v-else>
+                Skeptical hiring screener audit verified candidate meets prerequisites without major deal-breakers.
+              </p>
+              <ul class="risk-list" v-if="task.result_json?.critical_risks?.length">
+                <li v-for="(risk, idx) in task.result_json.critical_risks" :key="idx">
+                  <span class="risk-bullet"></span>
+                  <span>{{ risk }}</span>
+                </li>
+              </ul>
+            </div>
+
             <!-- Pros & Cons Grid -->
             <div v-if="task.result_json?.pros?.length || task.result_json?.cons?.length" class="pros-cons-grid">
               <div class="pro-column">
@@ -1061,6 +1099,43 @@ onUnmounted(() => {
 
           <!-- Expandable Deep-Dive Dossier -->
           <div v-if="expandedTaskIds.has(task.id)" class="eval-deep-dive animate-fade-in">
+            <!-- Critical Hiring Risks & Recruiter Hesitations Warning / Confirmation Card -->
+            <div
+              v-if="task.result_json?.critical_risks?.length || task.result_json?.seniority_fit"
+              class="critical-risks-card"
+              :class="{ 'zero-risks': !task.result_json?.critical_risks?.length }"
+            >
+              <div class="critical-risks-header">
+                <div class="risk-header-left" v-if="task.result_json?.critical_risks?.length">
+                  <AlertOctagon :size="15" class="risk-icon" />
+                  <span class="risk-title">Critical Risks &amp; Recruiter Hesitations</span>
+                </div>
+                <div class="risk-header-left" v-else>
+                  <CheckCircle2 :size="15" class="risk-icon-clean" />
+                  <span class="risk-title-clean">No Critical Red Flags Identified</span>
+                </div>
+                <span
+                  class="seniority-tag"
+                  v-if="task.result_json?.seniority_fit"
+                  :class="task.result_json.seniority_fit.toLowerCase()"
+                >
+                  Seniority: {{ task.result_json.seniority_fit }}
+                </span>
+              </div>
+              <p class="risk-subtitle" v-if="task.result_json?.critical_risks?.length">
+                Skeptical hiring screener audit identified potential deal-breakers or friction points:
+              </p>
+              <p class="risk-subtitle-clean" v-else>
+                Skeptical hiring screener audit verified candidate meets prerequisites without major deal-breakers.
+              </p>
+              <ul class="risk-list" v-if="task.result_json?.critical_risks?.length">
+                <li v-for="(risk, idx) in task.result_json.critical_risks" :key="idx">
+                  <span class="risk-bullet"></span>
+                  <span>{{ risk }}</span>
+                </li>
+              </ul>
+            </div>
+
             <!-- Pros & Cons Grid -->
             <div v-if="task.result_json?.pros?.length || task.result_json?.cons?.length" class="pros-cons-grid">
               <div class="pro-column">
@@ -1638,6 +1713,112 @@ onUnmounted(() => {
   gap: 14px;
   padding-top: 10px;
   border-top: 1px solid var(--border-color);
+}
+
+/* Critical Risks Warning / Clean Confirmation Card */
+.critical-risks-card {
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.critical-risks-card.zero-risks {
+  background: rgba(16, 185, 129, 0.06);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.critical-risks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.risk-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.risk-icon {
+  color: #ef4444;
+  flex-shrink: 0;
+}
+
+.risk-icon-clean {
+  color: #10b981;
+  flex-shrink: 0;
+}
+
+.risk-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ef4444;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.risk-title-clean {
+  font-size: 12px;
+  font-weight: 700;
+  color: #10b981;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.seniority-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.seniority-tag.matches {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.seniority-tag.overqualified {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.risk-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.risk-subtitle-clean {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.risk-list {
+  margin: 2px 0 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-main);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .pros-cons-grid {
