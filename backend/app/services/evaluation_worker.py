@@ -756,11 +756,22 @@ async def _execute_evaluation_steps(
                     else "English (Native / Fluent)"
                 )
 
+                candidate_years_of_experience = (
+                    active_cv.years_of_experience if active_cv else None
+                )
+                candidate_core_competencies = (
+                    active_cv.core_competencies if active_cv else None
+                )
+
                 checkpoint["match_info"] = match_info
                 checkpoint["candidate_skills"] = candidate_skills
                 checkpoint["active_domains_str"] = active_domains_str
                 checkpoint["candidate_cv_text"] = candidate_cv_text
                 checkpoint["candidate_spoken_langs_str"] = candidate_spoken_langs_str
+                checkpoint["candidate_years_of_experience"] = (
+                    candidate_years_of_experience
+                )
+                checkpoint["candidate_core_competencies"] = candidate_core_competencies
                 current_json["_checkpoint"] = checkpoint
                 task.result_json = dict(current_json)
                 flag_modified(task, "result_json")
@@ -777,6 +788,12 @@ async def _execute_evaluation_steps(
                 candidate_cv=candidate_cv_text,
                 candidate_domain_breakdown=active_domains_str,
                 candidate_spoken_languages=checkpoint.get("candidate_spoken_langs_str"),
+                candidate_years_of_experience=checkpoint.get(
+                    "candidate_years_of_experience"
+                ),
+                candidate_core_competencies=checkpoint.get(
+                    "candidate_core_competencies"
+                ),
                 programmatic_baseline=match_info.get("programmatic_score"),
                 matched_skills_count=match_info.get("matched_count"),
                 total_required_skills_count=match_info.get("total_required_count"),

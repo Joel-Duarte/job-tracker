@@ -196,6 +196,8 @@ async def assess_job_posting(
     candidate_cv: str | None = None,
     candidate_domain_breakdown: str | None = None,
     candidate_spoken_languages: str | None = None,
+    candidate_years_of_experience: float | None = None,
+    candidate_core_competencies: list[str] | None = None,
     programmatic_baseline: int | None = None,
     matched_skills_count: int | None = None,
     total_required_skills_count: int | None = None,
@@ -226,6 +228,22 @@ async def assess_job_posting(
 
     spoken_langs_text = candidate_spoken_languages or "English (Native / Fluent)"
 
+    years_exp_text = (
+        f"{candidate_years_of_experience:.1f} years"
+        if candidate_years_of_experience is not None
+        else "Not explicitly specified"
+    )
+    skills_text = (
+        ", ".join(candidate_skills)
+        if candidate_skills
+        else "Not specified / Refer to CV"
+    )
+    competencies_text = (
+        ", ".join(candidate_core_competencies)
+        if candidate_core_competencies
+        else "None specified"
+    )
+
     prompt = ChatPromptTemplate.from_messages(
         [
             (
@@ -247,6 +265,9 @@ async def assess_job_posting(
             "candidate_cv": cv_text,
             "candidate_domain_breakdown": domain_text,
             "candidate_spoken_languages": spoken_langs_text,
+            "candidate_years_of_experience": years_exp_text,
+            "candidate_skills": skills_text,
+            "candidate_core_competencies": competencies_text,
             "programmatic_baseline": str(
                 programmatic_baseline if programmatic_baseline is not None else 0
             ),

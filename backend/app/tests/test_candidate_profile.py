@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -330,3 +330,55 @@ def test_spoken_language_match_models_and_schemas():
     assert assessment.language_match.is_matched is False
     assert "German" in assessment.language_match.missing_mandatory
     assert "German" in assessment.language_match.warning
+
+
+@pytest.mark.asyncio
+async def test_assess_job_posting_forwards_authoritative_candidate_profile(
+    db_session: AsyncSession,
+):
+    from langchain_core.runnables import RunnableLambda
+
+    from app.schemas.llm import JobAssessmentResult
+    from app.services.llm import assess_job_posting
+
+    mock_assessment = JobAssessmentResult(
+        position="Principal Distributed Systems Architect",
+        company="HighScale",
+        fit_score=95,
+        programmatic_match_score=90,
+        matching_skills=["Python", "Go", "Distributed Systems"],
+        missing_skills=[],
+        summary="Outstanding match with verified 4.0 years focused experience.",
+    )
+
+    captured_inputs = {}
+
+    async def mock_chain_run(inputs):
+        nonlocal captured_inputs
+        captured_inputs = inputs
+        return mock_assessment
+
+    with patch("app.services.llm.get_task_chat_model") as mock_get_chat:
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = RunnableLambda(mock_chain_run)
+        mock_get_chat.return_value = mock_llm
+
+        res = await assess_job_posting(
+            db_session,
+            job_description="HighScale is hiring a Principal Distributed Systems Architect...",
+            candidate_skills=["Python", "Go", "Distributed Systems"],
+            candidate_cv="Alex Morgan - 8 years casual tenure / maintenance",
+            candidate_domain_breakdown="Distributed Systems (4.0 yrs)",
+            candidate_spoken_languages="English (Native)",
+            candidate_years_of_experience=4.0,
+            candidate_core_competencies=["Fault-Tolerant Consensus", "Async Messaging"],
+            programmatic_baseline=90,
+        )
+
+        assert res.fit_score == 95
+        prompt_text = captured_inputs.to_string()
+        assert "Total Verified Professional Experience: 4.0 years" in prompt_text
+        assert "Fault-Tolerant Consensus" in prompt_text
+        assert "Python, Go, Distributed Systems" in prompt_text
+        assert "Distributed Systems (4.0 yrs)" in prompt_text
+        assert "Authoritative Candidate Profile Priority" in prompt_text
