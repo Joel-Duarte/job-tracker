@@ -438,10 +438,12 @@ async function fetchStagingItems(silent = false, resetSelection = false) {
 
     if (selectedFilter.value === 'PENDING') {
       pendingCount.value = res.data.total ?? stagingItems.value.length
+      uiStore.setPendingStagingCount(pendingCount.value)
     } else {
       StagingAPI.list({ status: 'PENDING', limit: 1 })
         .then((pRes) => {
           pendingCount.value = pRes.data.total ?? 0
+          uiStore.setPendingStagingCount(pendingCount.value)
         })
         .catch(() => {})
     }

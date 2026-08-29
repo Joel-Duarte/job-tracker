@@ -138,6 +138,7 @@ async function handleMoveEventToStaging(event) {
   try {
     await EventsAPI.moveToStaging(event.id)
     uiStore.showToast('Email event unlinked and moved to Staging Queue', 'info')
+    await uiStore.fetchPendingStagingCount()
     if (appStore.selectedApplication?.id) {
       await appStore.fetchApplicationDetail(appStore.selectedApplication.id)
       await appStore.fetchApplications()

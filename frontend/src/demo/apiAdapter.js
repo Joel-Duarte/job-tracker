@@ -357,17 +357,32 @@ export async function handleDemoRequest(config) {
 
   const evalTaskMatch = urlPath.match(/^\/intake\/evaluations\/([^/]+)$/)
   if (evalTaskMatch && method === 'delete') {
-    const taskId = evalTaskMatch[1]
-    db.intake_evaluations = (db.intake_evaluations || []).filter((t) => t.id !== taskId)
+    const taskId = String(evalTaskMatch[1])
+    const taskToDelete = (db.intake_evaluations || []).find((t) => String(t.id) === taskId)
+    db.intake_evaluations = (db.intake_evaluations || []).filter((t) => String(t.id) !== taskId)
+
+    // Also remove any linked staging item if one was created
+    if (taskToDelete) {
+      const stagedId = taskToDelete.result_json?.staging_item_id
+      const jobUrl = taskToDelete.job_url
+      if (stagedId || jobUrl) {
+        db.staging_items = (db.staging_items || []).filter((s) => {
+          if (stagedId && String(s.id) === String(stagedId)) return false
+          if (jobUrl && s.extracted_data?.job_url === jobUrl) return false
+          return true
+        })
+      }
+    }
+
     saveDemoDb(db)
     return ok({ message: 'Evaluation deleted' })
   }
 
   const evalTaskActionMatch = urlPath.match(/^\/intake\/evaluations\/([^/]+)\/(cancel|retry|fix-jd)$/)
   if (evalTaskActionMatch && method === 'post') {
-    const taskId = evalTaskActionMatch[1]
+    const taskId = String(evalTaskActionMatch[1])
     const action = evalTaskActionMatch[2]
-    const task = (db.intake_evaluations || []).find((t) => t.id === taskId)
+    const task = (db.intake_evaluations || []).find((t) => String(t.id) === taskId)
     if (task) {
       if (action === 'cancel') {
         task.status = 'FAILED'
@@ -388,9 +403,9 @@ export async function handleDemoRequest(config) {
   }
 
   if (urlPath === '/intake/evaluations/bulk-retry' && method === 'post') {
-    const ids = new Set(data.task_ids || [])
+    const ids = new Set((data.task_ids || []).map(String))
     db.intake_evaluations = (db.intake_evaluations || []).map((t) => {
-      if (ids.has(t.id)) {
+      if (ids.has(String(t.id))) {
         t.status = 'COMPLETED'
         t.stage = 'COMPLETED'
         t.error_message = null
@@ -402,10 +417,20 @@ export async function handleDemoRequest(config) {
   }
 
   if (urlPath === '/intake/evaluations/bulk-delete' && method === 'post') {
-    const ids = new Set(data.task_ids || [])
-    db.intake_evaluations = (db.intake_evaluations || []).filter((t) => !ids.has(t.id))
+    const ids = new Set((data.task_ids || []).map(String))
+    const tasksToDelete = (db.intake_evaluations || []).filter((t) => ids.has(String(t.id)))
+    db.intake_evaluations = (db.intake_evaluations || []).filter((t) => !ids.has(String(t.id)))
+
+    // Clean up corresponding staging items
+    const stagedIdsToDelete = new Set(
+      tasksToDelete.map((t) => t.result_json?.staging_item_id).filter(Boolean).map(String)
+    )
+    if (stagedIdsToDelete.size > 0) {
+      db.staging_items = (db.staging_items || []).filter((s) => !stagedIdsToDelete.has(String(s.id)))
+    }
+
     saveDemoDb(db)
-    return ok({ message: 'Tasks deleted' })
+    return ok({ message: 'Tasks deleted', deleted_count: tasksToDelete.length, skipped_count: 0 })
   }
 
   if (urlPath === '/intake/evaluations/clear-completed' && method === 'post') {

@@ -32,7 +32,7 @@ const route = useRoute()
 const uiStore = useUIStore()
 const queueStore = useQueueStore()
 
-const pendingStagingCount = ref(0)
+const pendingStagingCount = computed(() => uiStore.pendingStagingCount)
 const pendingTasksCount = ref(0)
 
 const readyAssessmentsCount = computed(() => queueStore.readyAssessmentsCount)
@@ -88,8 +88,7 @@ function handleClickOutside(event) {
 
 async function fetchBadgeCounts() {
   try {
-    const res = await StagingAPI.list({ status: 'PENDING', limit: 1 })
-    pendingStagingCount.value = res.data.total || 0
+    await uiStore.fetchPendingStagingCount()
   } catch (err) {
     // ignore
   }

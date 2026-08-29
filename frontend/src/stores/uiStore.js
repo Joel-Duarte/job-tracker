@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { SystemSettingsAPI, AIConfigAPI } from '../api/endpoints'
+import { SystemSettingsAPI, AIConfigAPI, StagingAPI } from '../api/endpoints'
 import { isDemoModeEnabled, setDemoModeEnabled, resetDemoDb } from '../demo/demoStorage'
 import { useApplicationsStore } from './applicationsStore'
 import { useAgentChatStore } from './agentChatStore'
@@ -25,6 +25,23 @@ export const useUIStore = defineStore('ui', () => {
   const coverLetterAppId = ref(null)
   const activeDetailId = ref(null)
   const detailActiveTab = ref('timeline')
+
+  // Staging queue pending count state
+  const pendingStagingCount = ref(0)
+
+  function setPendingStagingCount(count) {
+    pendingStagingCount.value = Math.max(0, Number(count) || 0)
+  }
+
+  async function fetchPendingStagingCount() {
+    try {
+      const res = await StagingAPI.list({ status: 'PENDING', limit: 1 })
+      pendingStagingCount.value = res.data?.total ?? 0
+      return pendingStagingCount.value
+    } catch {
+      return pendingStagingCount.value
+    }
+  }
 
   // Notification Toast
   const toast = ref({
@@ -644,5 +661,8 @@ export const useUIStore = defineStore('ui', () => {
     resetAIHealthTimer,
     ensureAIReady,
     initAIHealthMonitor,
+    pendingStagingCount,
+    setPendingStagingCount,
+    fetchPendingStagingCount,
   }
 })

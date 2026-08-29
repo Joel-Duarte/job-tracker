@@ -1037,6 +1037,20 @@ async def delete_evaluation_task(
             detail=f"Evaluation task {task_id} not found.",
         )
 
+    # Check if a linked staging item exists and delete it
+    staged_item_id = None
+    if isinstance(task.result_json, dict):
+        staged_item_id = task.result_json.get("staging_item_id")
+
+    if staged_item_id:
+        from app.models.staging import StagingItemModel
+
+        st_stmt = select(StagingItemModel).where(StagingItemModel.id == staged_item_id)
+        st_res = await db.execute(st_stmt)
+        staged_item = st_res.scalars().first()
+        if staged_item:
+            await db.delete(staged_item)
+
     await db.delete(task)
     await db.commit()
     return {"status": "success", "message": f"Evaluation task {task_id} deleted."}
