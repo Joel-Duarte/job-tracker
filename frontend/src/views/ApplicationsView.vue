@@ -35,6 +35,8 @@ import {
   Sparkles,
   Layers,
   ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
   Trash2,
   X,
   Send,
@@ -367,6 +369,96 @@ function getAppMetadataLine(app) {
 
   return parts.join(' · ')
 }
+
+// Table Sorting State (Archive View)
+const archiveSortKey = ref('archived_date') // 'company' | 'position' | 'reason' | 'archived_date' | 'match'
+const archiveSortOrder = ref('desc') // 'asc' | 'desc'
+
+function toggleArchiveSort(key) {
+  if (archiveSortKey.value === key) {
+    archiveSortOrder.value = archiveSortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    archiveSortKey.value = key
+    archiveSortOrder.value = (key === 'archived_date' || key === 'match') ? 'desc' : 'asc'
+  }
+}
+
+const sortedArchivedApplications = computed(() => {
+  const apps = [...appStore.archivedApplications]
+  const order = archiveSortOrder.value === 'asc' ? 1 : -1
+
+  return apps.sort((a, b) => {
+    if (archiveSortKey.value === 'company') {
+      const nameA = (a.company?.name || '').toLowerCase()
+      const nameB = (b.company?.name || '').toLowerCase()
+      return nameA.localeCompare(nameB) * order
+    }
+    if (archiveSortKey.value === 'position') {
+      const posA = (a.position || '').toLowerCase()
+      const posB = (b.position || '').toLowerCase()
+      return posA.localeCompare(posB) * order
+    }
+    if (archiveSortKey.value === 'reason') {
+      const reasonA = ((a.status || '') + ' ' + (a.latest_event?.raw_payload?.archive_reason || a.latest_event?.raw_payload?.rejection_reason || a.rejection_reason || '')).toLowerCase()
+      const reasonB = ((b.status || '') + ' ' + (b.latest_event?.raw_payload?.archive_reason || b.latest_event?.raw_payload?.rejection_reason || b.rejection_reason || '')).toLowerCase()
+      return reasonA.localeCompare(reasonB) * order
+    }
+    if (archiveSortKey.value === 'match') {
+      const scoreA = Number(getAppFitScores(a).aiScore ?? getAppFitScores(a).computedScore ?? -1)
+      const scoreB = Number(getAppFitScores(b).aiScore ?? getAppFitScores(b).computedScore ?? -1)
+      return (scoreA - scoreB) * order
+    }
+    // Default: archived_date
+    const dateA = new Date(a.rejection_date || appStore.getAppActivityDate(a) || 0).getTime()
+    const dateB = new Date(b.rejection_date || appStore.getAppActivityDate(b) || 0).getTime()
+    return (dateA - dateB) * order
+  })
+})
+
+// Table Sorting State (Active Table View)
+const tableSortKey = ref('activity_date') // 'company' | 'position' | 'status' | 'activity_date' | 'action_required'
+const tableSortOrder = ref('desc') // 'asc' | 'desc'
+
+function toggleTableSort(key) {
+  if (tableSortKey.value === key) {
+    tableSortOrder.value = tableSortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    tableSortKey.value = key
+    tableSortOrder.value = (key === 'activity_date' || key === 'action_required') ? 'desc' : 'asc'
+  }
+}
+
+const sortedActiveApplications = computed(() => {
+  const apps = [...appStore.activeApplications]
+  const order = tableSortOrder.value === 'asc' ? 1 : -1
+
+  return apps.sort((a, b) => {
+    if (tableSortKey.value === 'company') {
+      const nameA = (a.company?.name || '').toLowerCase()
+      const nameB = (b.company?.name || '').toLowerCase()
+      return nameA.localeCompare(nameB) * order
+    }
+    if (tableSortKey.value === 'position') {
+      const posA = (a.position || '').toLowerCase()
+      const posB = (b.position || '').toLowerCase()
+      return posA.localeCompare(posB) * order
+    }
+    if (tableSortKey.value === 'status') {
+      const statusA = (a.status || '').toLowerCase()
+      const statusB = (b.status || '').toLowerCase()
+      return statusA.localeCompare(statusB) * order
+    }
+    if (tableSortKey.value === 'action_required') {
+      const actA = a.has_action_required ? 1 : 0
+      const actB = b.has_action_required ? 1 : 0
+      return (actA - actB) * order
+    }
+    // Default: activity_date
+    const dateA = new Date(appStore.getAppActivityDate(a) || 0).getTime()
+    const dateB = new Date(appStore.getAppActivityDate(b) || 0).getTime()
+    return (dateA - dateB) * order
+  })
+})
 
 function formatScheduledDateFriendly(app) {
   const dateStr = getScheduledInterviewDate(app)
@@ -859,17 +951,52 @@ async function confirmDelete() {
           <table class="data-table">
             <thead>
               <tr>
-                <th>Company</th>
-                <th>Position</th>
-                <th>Reason / Status</th>
-                <th>Archived Date</th>
-                <th>Match Fit</th>
+                <th class="sortable-th" :class="{ 'is-sorted': archiveSortKey === 'company' }" @click="toggleArchiveSort('company')">
+                  <div class="th-content">
+                    <span>Company</span>
+                    <ArrowUp v-if="archiveSortKey === 'company' && archiveSortOrder === 'asc'" :size="12" class="sort-icon active" />
+                    <ArrowDown v-else-if="archiveSortKey === 'company' && archiveSortOrder === 'desc'" :size="12" class="sort-icon active" />
+                    <ArrowUpDown v-else :size="12" class="sort-icon neutral" />
+                  </div>
+                </th>
+                <th class="sortable-th" :class="{ 'is-sorted': archiveSortKey === 'position' }" @click="toggleArchiveSort('position')">
+                  <div class="th-content">
+                    <span>Position</span>
+                    <ArrowUp v-if="archiveSortKey === 'position' && archiveSortOrder === 'asc'" :size="12" class="sort-icon active" />
+                    <ArrowDown v-else-if="archiveSortKey === 'position' && archiveSortOrder === 'desc'" :size="12" class="sort-icon active" />
+                    <ArrowUpDown v-else :size="12" class="sort-icon neutral" />
+                  </div>
+                </th>
+                <th class="sortable-th" :class="{ 'is-sorted': archiveSortKey === 'reason' }" @click="toggleArchiveSort('reason')">
+                  <div class="th-content">
+                    <span>Reason / Status</span>
+                    <ArrowUp v-if="archiveSortKey === 'reason' && archiveSortOrder === 'asc'" :size="12" class="sort-icon active" />
+                    <ArrowDown v-else-if="archiveSortKey === 'reason' && archiveSortOrder === 'desc'" :size="12" class="sort-icon active" />
+                    <ArrowUpDown v-else :size="12" class="sort-icon neutral" />
+                  </div>
+                </th>
+                <th class="sortable-th" :class="{ 'is-sorted': archiveSortKey === 'archived_date' }" @click="toggleArchiveSort('archived_date')">
+                  <div class="th-content">
+                    <span>Archived Date</span>
+                    <ArrowUp v-if="archiveSortKey === 'archived_date' && archiveSortOrder === 'asc'" :size="12" class="sort-icon active" />
+                    <ArrowDown v-else-if="archiveSortKey === 'archived_date' && archiveSortOrder === 'desc'" :size="12" class="sort-icon active" />
+                    <ArrowUpDown v-else :size="12" class="sort-icon neutral" />
+                  </div>
+                </th>
+                <th class="sortable-th" :class="{ 'is-sorted': archiveSortKey === 'match' }" @click="toggleArchiveSort('match')">
+                  <div class="th-content">
+                    <span>Match Fit</span>
+                    <ArrowUp v-if="archiveSortKey === 'match' && archiveSortOrder === 'asc'" :size="12" class="sort-icon active" />
+                    <ArrowDown v-else-if="archiveSortKey === 'match' && archiveSortOrder === 'desc'" :size="12" class="sort-icon active" />
+                    <ArrowUpDown v-else :size="12" class="sort-icon neutral" />
+                  </div>
+                </th>
                 <th class="text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               <tr
-                v-for="app in appStore.archivedApplications"
+                v-for="app in sortedArchivedApplications"
                 :key="app.id"
                 class="table-row"
                 @click="uiStore.openDetail(app.id)"
@@ -1201,17 +1328,52 @@ async function confirmDelete() {
           <table class="data-table">
             <thead>
               <tr>
-                <th>Company</th>
-                <th>Position</th>
-                <th>Status & Phase</th>
-                <th>Activity Date</th>
-                <th>Action Required</th>
+                <th class="sortable-th" :class="{ 'is-sorted': tableSortKey === 'company' }" @click="toggleTableSort('company')">
+                  <div class="th-content">
+                    <span>Company</span>
+                    <ArrowUp v-if="tableSortKey === 'company' && tableSortOrder === 'asc'" :size="12" class="sort-icon active" />
+                    <ArrowDown v-else-if="tableSortKey === 'company' && tableSortOrder === 'desc'" :size="12" class="sort-icon active" />
+                    <ArrowUpDown v-else :size="12" class="sort-icon neutral" />
+                  </div>
+                </th>
+                <th class="sortable-th" :class="{ 'is-sorted': tableSortKey === 'position' }" @click="toggleTableSort('position')">
+                  <div class="th-content">
+                    <span>Position</span>
+                    <ArrowUp v-if="tableSortKey === 'position' && tableSortOrder === 'asc'" :size="12" class="sort-icon active" />
+                    <ArrowDown v-else-if="tableSortKey === 'position' && tableSortOrder === 'desc'" :size="12" class="sort-icon active" />
+                    <ArrowUpDown v-else :size="12" class="sort-icon neutral" />
+                  </div>
+                </th>
+                <th class="sortable-th" :class="{ 'is-sorted': tableSortKey === 'status' }" @click="toggleTableSort('status')">
+                  <div class="th-content">
+                    <span>Status & Phase</span>
+                    <ArrowUp v-if="tableSortKey === 'status' && tableSortOrder === 'asc'" :size="12" class="sort-icon active" />
+                    <ArrowDown v-else-if="tableSortKey === 'status' && tableSortOrder === 'desc'" :size="12" class="sort-icon active" />
+                    <ArrowUpDown v-else :size="12" class="sort-icon neutral" />
+                  </div>
+                </th>
+                <th class="sortable-th" :class="{ 'is-sorted': tableSortKey === 'activity_date' }" @click="toggleTableSort('activity_date')">
+                  <div class="th-content">
+                    <span>Activity Date</span>
+                    <ArrowUp v-if="tableSortKey === 'activity_date' && tableSortOrder === 'asc'" :size="12" class="sort-icon active" />
+                    <ArrowDown v-else-if="tableSortKey === 'activity_date' && tableSortOrder === 'desc'" :size="12" class="sort-icon active" />
+                    <ArrowUpDown v-else :size="12" class="sort-icon neutral" />
+                  </div>
+                </th>
+                <th class="sortable-th" :class="{ 'is-sorted': tableSortKey === 'action_required' }" @click="toggleTableSort('action_required')">
+                  <div class="th-content">
+                    <span>Action Required</span>
+                    <ArrowUp v-if="tableSortKey === 'action_required' && tableSortOrder === 'asc'" :size="12" class="sort-icon active" />
+                    <ArrowDown v-else-if="tableSortKey === 'action_required' && tableSortOrder === 'desc'" :size="12" class="sort-icon active" />
+                    <ArrowUpDown v-else :size="12" class="sort-icon neutral" />
+                  </div>
+                </th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               <tr
-                v-for="app in appStore.activeApplications"
+                v-for="app in sortedActiveApplications"
                 :key="app.id"
                 class="table-row"
                 @click="uiStore.openDetail(app.id)"
@@ -2536,6 +2698,44 @@ async function confirmDelete() {
   font-weight: 600;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border-color);
+}
+
+.data-table th.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.data-table th.sortable-th:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-main);
+}
+
+.data-table th.sortable-th.is-sorted {
+  color: var(--primary);
+}
+
+.th-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sort-icon {
+  transition: opacity var(--transition-fast), color var(--transition-fast);
+}
+
+.sort-icon.neutral {
+  opacity: 0.3;
+}
+
+.data-table th.sortable-th:hover .sort-icon.neutral {
+  opacity: 0.8;
+}
+
+.sort-icon.active {
+  opacity: 1;
+  color: var(--primary);
 }
 
 .data-table td {
