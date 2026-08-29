@@ -21,6 +21,7 @@ import {
   AlertCircle,
   FileText,
   DollarSign,
+  Banknote,
   Award,
   XCircle,
   Tag,
@@ -47,6 +48,7 @@ import {
   ArchiveRestore,
 } from 'lucide-vue-next'
 import { renderEmailBody } from '../../utils/emailRenderer'
+import { getCurrencySymbol } from '../../utils/formatters'
 
 const uiStore = useUIStore()
 const router = useRouter()
@@ -191,6 +193,134 @@ async function saveEditHeader() {
     uiStore.showToast(err.message || 'Failed to update application details', 'error')
   } finally {
     isSavingHeader.value = false
+  }
+}
+
+// Job Spec formatting and inline editing handlers
+function formatJobSpecCompensation(app) {
+  const jp = app?.job_posting
+  const spec = structuredSpec.value
+  if (!jp && !spec?.compensation_text) return 'Not Specified'
+
+  const min = jp?.salary_min
+  const max = jp?.salary_max
+  const curr = jp?.currency || uiStore.defaultCurrency || 'USD'
+  const sym = getCurrencySymbol(curr)
+
+  if (min !== null && min !== undefined && max !== null && max !== undefined) {
+    return `${sym}${Number(min).toLocaleString()} – ${sym}${Number(max).toLocaleString()}`
+  }
+  if (min !== null && min !== undefined) {
+    return `From ${sym}${Number(min).toLocaleString()}`
+  }
+  if (max !== null && max !== undefined) {
+    return `Up to ${sym}${Number(max).toLocaleString()}`
+  }
+  if (spec?.compensation_text) {
+    return spec.compensation_text
+  }
+  return 'Not Specified'
+}
+
+function formatJobSpecLocation(app) {
+  const jp = app?.job_posting
+  const spec = structuredSpec.value
+  const loc = jp?.location || spec?.location_text || ''
+  const model = jp?.work_model || spec?.workplace_type || ''
+
+  if (loc && model) {
+    return `${loc} (${model})`
+  }
+  if (loc) return loc
+  if (model) return `(${model})`
+  return 'Not Specified'
+}
+
+// Compensation Inline Editing
+const isEditingComp = ref(false)
+const isSavingComp = ref(false)
+const compEditForm = ref({
+  salary_min: null,
+  salary_max: null,
+  currency: 'USD',
+})
+
+function startEditComp() {
+  const jp = appStore.selectedApplication?.job_posting
+  compEditForm.value = {
+    salary_min: jp?.salary_min ?? null,
+    salary_max: jp?.salary_max ?? null,
+    currency: jp?.currency || uiStore.defaultCurrency || 'USD',
+  }
+  isEditingComp.value = true
+}
+
+function cancelEditComp() {
+  isEditingComp.value = false
+}
+
+async function saveEditComp() {
+  if (!appStore.selectedApplication) return
+  isSavingComp.value = true
+  try {
+    const payload = {
+      salary_min: compEditForm.value.salary_min !== null && compEditForm.value.salary_min !== ''
+        ? Number(compEditForm.value.salary_min)
+        : null,
+      salary_max: compEditForm.value.salary_max !== null && compEditForm.value.salary_max !== ''
+        ? Number(compEditForm.value.salary_max)
+        : null,
+      currency: compEditForm.value.currency || uiStore.defaultCurrency || 'USD',
+    }
+    await appStore.updateApplication(appStore.selectedApplication.id, payload)
+    uiStore.showToast('Compensation details updated', 'success')
+    isEditingComp.value = false
+    await appStore.fetchApplications()
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to update compensation', 'error')
+  } finally {
+    isSavingComp.value = false
+  }
+}
+
+// Location & Workplace Inline Editing
+const isEditingLocation = ref(false)
+const isSavingLocation = ref(false)
+const locationEditForm = ref({
+  location: '',
+  work_model: '',
+})
+
+function startEditLocation() {
+  const jp = appStore.selectedApplication?.job_posting
+  const spec = structuredSpec.value
+  locationEditForm.value = {
+    location: jp?.location || spec?.location_text || '',
+    work_model: jp?.work_model || spec?.workplace_type || '',
+  }
+  isEditingLocation.value = true
+}
+
+function cancelEditLocation() {
+  isEditingLocation.value = false
+}
+
+async function saveEditLocation() {
+  if (!appStore.selectedApplication) return
+  isSavingLocation.value = true
+  try {
+    const payload = {
+      location: locationEditForm.value.location.trim() || null,
+      work_model: locationEditForm.value.work_model || null,
+    }
+    await appStore.updateApplication(appStore.selectedApplication.id, payload)
+    uiStore.showToast('Location & workplace updated', 'success')
+    isEditingLocation.value = false
+    await appStore.fetchApplications()
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to update location & workplace', 'error')
+  } finally {
+    isSavingLocation.value = false
   }
 }
 
@@ -1029,44 +1159,149 @@ function formatDate(isoStr) {
               <div v-if="hasJobSpecData" class="spec-container">
                 <!-- Overview Metadata Cards -->
                 <div class="spec-grid">
-                  <div class="spec-card">
-                    <DollarSign :size="16" class="spec-icon" />
-                    <div>
-                      <div class="spec-label">Compensation</div>
-                      <div class="spec-val">
-                        <template v-if="structuredSpec?.compensation_text">
-                          {{ structuredSpec.compensation_text }}
-                        </template>
-                        <template v-else-if="appStore.selectedApplication.job_posting.salary_min || appStore.selectedApplication.job_posting.salary_max">
-                          ${{ appStore.selectedApplication.job_posting.salary_min?.toLocaleString() }} -
-                          ${{ appStore.selectedApplication.job_posting.salary_max?.toLocaleString() }}
-                          {{ appStore.selectedApplication.job_posting.currency || 'USD' }}
-                        </template>
-                        <template v-else>
-                          Not Specified
-                        </template>
+                  <!-- Compensation Card -->
+                  <div class="spec-card" :class="{ 'is-editing': isEditingComp }">
+                    <Banknote :size="16" class="spec-icon" />
+                    <div class="spec-card-body">
+                      <div class="spec-card-header">
+                        <div class="spec-label">Compensation</div>
+                        <button
+                          v-if="!isEditingComp"
+                          class="btn-card-edit"
+                          title="Edit Compensation"
+                          @click="startEditComp"
+                        >
+                          <Edit2 :size="12" />
+                        </button>
+                      </div>
+
+                      <div v-if="!isEditingComp" class="spec-val">
+                        {{ formatJobSpecCompensation(appStore.selectedApplication) }}
+                      </div>
+
+                      <div v-else class="spec-inline-edit-form">
+                        <div class="salary-edit-inputs">
+                          <input
+                            v-model.number="compEditForm.salary_min"
+                            type="number"
+                            placeholder="Min"
+                            class="edit-input-field spec-edit-input"
+                            :disabled="isSavingComp"
+                            @keyup.enter="saveEditComp"
+                            @keyup.esc="cancelEditComp"
+                          />
+                          <span class="salary-dash">–</span>
+                          <input
+                            v-model.number="compEditForm.salary_max"
+                            type="number"
+                            placeholder="Max"
+                            class="edit-input-field spec-edit-input"
+                            :disabled="isSavingComp"
+                            @keyup.enter="saveEditComp"
+                            @keyup.esc="cancelEditComp"
+                          />
+                          <select
+                            v-model="compEditForm.currency"
+                            class="edit-input-field spec-edit-select"
+                            :disabled="isSavingComp"
+                          >
+                            <option
+                              v-for="c in uiStore.SUPPORTED_CURRENCIES"
+                              :key="c.code"
+                              :value="c.code"
+                            >
+                              {{ c.code }} ({{ c.symbol }})
+                            </option>
+                          </select>
+                        </div>
+                        <div class="spec-edit-actions">
+                          <button
+                            class="btn btn-primary btn-xs"
+                            :disabled="isSavingComp"
+                            title="Save"
+                            @click="saveEditComp"
+                          >
+                            <Loader2 v-if="isSavingComp" class="animate-spin" :size="11" />
+                            <Check v-else :size="11" />
+                            <span>Save</span>
+                          </button>
+                          <button
+                            class="btn btn-secondary btn-xs"
+                            :disabled="isSavingComp"
+                            title="Cancel"
+                            @click="cancelEditComp"
+                          >
+                            <X :size="11" />
+                            <span>Cancel</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  <div class="spec-card">
+                  <!-- Location & Workplace Card -->
+                  <div class="spec-card" :class="{ 'is-editing': isEditingLocation }">
                     <MapPin :size="16" class="spec-icon" />
-                    <div>
-                      <div class="spec-label">Location &amp; Workplace</div>
-                      <div class="spec-val">
-                        <template v-if="structuredSpec?.location_text || structuredSpec?.workplace_type">
-                          {{ structuredSpec.location_text || appStore.selectedApplication.job_posting.location || 'Location Unspecified' }}
-                          <span v-if="structuredSpec.workplace_type">({{ structuredSpec.workplace_type }})</span>
-                        </template>
-                        <template v-else-if="appStore.selectedApplication.job_posting.location">
-                          {{ appStore.selectedApplication.job_posting.location }}
-                          <span v-if="appStore.selectedApplication.job_posting.work_model">
-                            ({{ appStore.selectedApplication.job_posting.work_model }})
-                          </span>
-                        </template>
-                        <template v-else>
-                          Not Specified
-                        </template>
+                    <div class="spec-card-body">
+                      <div class="spec-card-header">
+                        <div class="spec-label">Location &amp; Workplace</div>
+                        <button
+                          v-if="!isEditingLocation"
+                          class="btn-card-edit"
+                          title="Edit Location & Workplace"
+                          @click="startEditLocation"
+                        >
+                          <Edit2 :size="12" />
+                        </button>
+                      </div>
+
+                      <div v-if="!isEditingLocation" class="spec-val">
+                        {{ formatJobSpecLocation(appStore.selectedApplication) }}
+                      </div>
+
+                      <div v-else class="spec-inline-edit-form">
+                        <div class="location-edit-inputs">
+                          <input
+                            v-model="locationEditForm.location"
+                            type="text"
+                            placeholder="Location (e.g. Lisbon, Remote)"
+                            class="edit-input-field spec-edit-input"
+                            :disabled="isSavingLocation"
+                            @keyup.enter="saveEditLocation"
+                            @keyup.esc="cancelEditLocation"
+                          />
+                          <select
+                            v-model="locationEditForm.work_model"
+                            class="edit-input-field spec-edit-select"
+                            :disabled="isSavingLocation"
+                          >
+                            <option value="">Select Work Model...</option>
+                            <option value="Remote">Remote</option>
+                            <option value="Hybrid">Hybrid</option>
+                            <option value="On-site">On-site</option>
+                          </select>
+                        </div>
+                        <div class="spec-edit-actions">
+                          <button
+                            class="btn btn-primary btn-xs"
+                            :disabled="isSavingLocation"
+                            title="Save"
+                            @click="saveEditLocation"
+                          >
+                            <Loader2 v-if="isSavingLocation" class="animate-spin" :size="11" />
+                            <Check v-else :size="11" />
+                            <span>Save</span>
+                          </button>
+                          <button
+                            class="btn btn-secondary btn-xs"
+                            :disabled="isSavingLocation"
+                            title="Cancel"
+                            @click="cancelEditLocation"
+                          >
+                            <X :size="11" />
+                            <span>Cancel</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -2391,11 +2626,108 @@ function formatDate(isoStr) {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.spec-card.is-editing {
+  border-color: var(--primary);
+  background-color: var(--bg-elevated);
 }
 
 .spec-icon {
   color: var(--primary);
   margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.spec-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.spec-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+.btn-card-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: all var(--transition-fast);
+}
+
+.spec-card:hover .btn-card-edit {
+  opacity: 1;
+  color: var(--primary);
+  background: var(--bg-hover);
+}
+
+.btn-card-edit:hover {
+  color: var(--primary-hover);
+  background: var(--bg-hover);
+}
+
+.spec-inline-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.salary-edit-inputs,
+.location-edit-inputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.salary-dash {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.spec-edit-input {
+  flex: 1;
+  min-width: 80px;
+  padding: 4px 8px;
+  font-size: 12px;
+  height: 28px;
+  background: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+}
+
+.spec-edit-select {
+  padding: 4px 6px;
+  font-size: 12px;
+  height: 28px;
+  background: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  min-width: 100px;
+}
+
+.spec-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .spec-label {
@@ -2409,6 +2741,7 @@ function formatDate(isoStr) {
   font-size: 13px;
   font-weight: 500;
   color: var(--text-main);
+  word-break: break-word;
 }
 
 .skills-box {

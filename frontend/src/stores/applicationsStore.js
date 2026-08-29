@@ -501,7 +501,7 @@ export const useApplicationsStore = defineStore('applications', () => {
     try {
       const res = await ApplicationsAPI.update(applicationId, payload)
       selectedApplication.value = res.data
-      const idx = applications.value.findIndex((a) => a.id === applicationId)
+      const idx = applications.value.findIndex((a) => String(a.id) === String(applicationId))
       if (idx !== -1) {
         applications.value[idx] = {
           ...applications.value[idx],

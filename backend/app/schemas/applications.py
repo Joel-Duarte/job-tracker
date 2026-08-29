@@ -260,7 +260,13 @@ class ApplicationUpdate(BaseModel):
     interview_stage: str | None = Field(None, description="Interview sub-stage")
     scheduled_at: datetime | None = Field(None, description="Scheduled interview time")
     offered_salary: float | None = Field(None, description="Offered compensation")
-    currency: str | None = Field("USD", description="Currency code")
+    salary_min: float | None = Field(None, description="Minimum compensation/salary")
+    salary_max: float | None = Field(None, description="Maximum compensation/salary")
+    currency: str | None = Field(None, description="Currency code")
+    location: str | None = Field(None, description="Job location (city/country/remote)")
+    work_model: str | None = Field(
+        None, description="Work model (e.g. Remote, Hybrid, On-site)"
+    )
     offer_received_date: date | None = Field(None, description="Date offer received")
     decision_deadline: date | None = Field(None, description="Decision deadline")
     rejection_date: date | None = Field(None, description="Rejection date")

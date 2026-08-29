@@ -90,9 +90,29 @@ export async function handleDemoRequest(config) {
 
     if (method === 'patch') {
       if (appIndex === -1) throw new Error('Application not found')
+      const targetApp = db.applications[appIndex]
+      const existingJp = targetApp.job_posting || {}
+      const updatedJp = {
+        ...existingJp,
+        ...(data.salary_min !== undefined ? { salary_min: data.salary_min } : {}),
+        ...(data.salary_max !== undefined ? { salary_max: data.salary_max } : {}),
+        ...(data.currency !== undefined ? { currency: data.currency } : {}),
+        ...(data.location !== undefined ? { location: data.location } : {}),
+        ...(data.work_model !== undefined ? { work_model: data.work_model } : {}),
+      }
+
+      const existingSpec = updatedJp.structured_spec || targetApp.structured_spec || {}
+      const updatedSpec = {
+        ...existingSpec,
+        ...(data.location !== undefined ? { location_text: data.location } : {}),
+        ...(data.work_model !== undefined ? { workplace_type: data.work_model } : {}),
+      }
+      updatedJp.structured_spec = updatedSpec
+
       db.applications[appIndex] = {
-        ...db.applications[appIndex],
+        ...targetApp,
         ...data,
+        job_posting: updatedJp,
         last_activity_at: new Date().toISOString(),
       }
       saveDemoDb(db)

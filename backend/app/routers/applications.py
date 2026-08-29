@@ -684,10 +684,48 @@ async def update_application(
             await db.flush()
             app.company_id = comp.id
 
+    if any(
+        k in update_data
+        for k in ("salary_min", "salary_max", "currency", "location", "work_model")
+    ):
+        if not app.job_posting:
+            app.job_posting = JobPostingModel(
+                application_id=app.id,
+                job_url=app.job_url or f"app-{app.id}",
+                currency=payload.currency or "USD",
+            )
+            db.add(app.job_posting)
+
+        if "salary_min" in update_data:
+            app.job_posting.salary_min = update_data["salary_min"]
+        if "salary_max" in update_data:
+            app.job_posting.salary_max = update_data["salary_max"]
+        if "currency" in update_data and update_data["currency"] is not None:
+            app.job_posting.currency = update_data["currency"]
+        if "location" in update_data:
+            app.job_posting.location = update_data["location"]
+        if "work_model" in update_data:
+            app.job_posting.work_model = update_data["work_model"]
+
+        # Keep structured_spec in sync
+        spec = dict(app.job_posting.structured_spec or {})
+        if "location" in update_data and update_data["location"] is not None:
+            spec["location_text"] = update_data["location"]
+        if "work_model" in update_data and update_data["work_model"] is not None:
+            spec["workplace_type"] = update_data["work_model"]
+        app.job_posting.structured_spec = spec
+
     for key, value in update_data.items():
-        if key not in {"position", "company_name", "company_domain"} and hasattr(
-            app, key
-        ):
+        if key not in {
+            "position",
+            "company_name",
+            "company_domain",
+            "salary_min",
+            "salary_max",
+            "currency",
+            "location",
+            "work_model",
+        } and hasattr(app, key):
             setattr(app, key, value)
 
     await db.commit()

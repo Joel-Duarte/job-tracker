@@ -7,6 +7,7 @@ from app.core.security import _get_fernet
 from app.schemas.applications import (
     AllowedApplicationStatus,
     ApplicationTransitionRequest,
+    ApplicationUpdate,
     BulkTransitionRequest,
     BulkTransitionResult,
 )
@@ -108,3 +109,19 @@ def test_application_transition_request_date_coercion():
     )
     assert req2.offer_received_date == date(2026, 8, 28)
     assert req2.decision_deadline == date(2026, 9, 15)
+
+
+def test_application_update_job_spec_fields():
+    update = ApplicationUpdate(
+        salary_min=120000.0,
+        salary_max=150000.0,
+        currency="EUR",
+        location="Lisbon, Portugal",
+        work_model="Hybrid",
+    )
+    dumped = update.model_dump(exclude_unset=True)
+    assert dumped["salary_min"] == 120000.0
+    assert dumped["salary_max"] == 150000.0
+    assert dumped["currency"] == "EUR"
+    assert dumped["location"] == "Lisbon, Portugal"
+    assert dumped["work_model"] == "Hybrid"
