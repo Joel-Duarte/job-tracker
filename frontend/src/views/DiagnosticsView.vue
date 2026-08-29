@@ -39,13 +39,18 @@ const traces = ref([])
 const loading = ref(true)
 const loadingTraces = ref(false)
 const showErrorsOnly = ref(false)
-const isTaskBreakdownCollapsed = ref(false)
+const currentView = ref('telemetry') // 'telemetry' | 'costs'
 const activeCategory = ref('all')
 const selectedStatus = ref('all') // 'all' | 'success' | 'error'
 const selectedTrace = ref(null)
 const loadingDetail = ref(false)
 const modalTab = ref('overview') // 'overview' or 'raw'
 const copied = ref(false)
+
+function onTelemetryClick() {
+  currentView.value = 'telemetry'
+  loadData()
+}
 
 const categories = [
   { id: 'all', label: 'All Telemetry', icon: Layers },
@@ -199,10 +204,26 @@ onMounted(() => {
       </div>
       <div class="header-actions">
         <button class="btn btn-outline" @click="purgeAllTraces" title="Purge telemetry records">
-          <Trash2 :size="15" /> Purge Logs
+          <Trash2 :size="15" />
+          <span>Purge Logs</span>
         </button>
-        <button class="btn btn-primary" @click="loadData">
-          <Activity :size="16" /> Refresh Telemetry
+        <button
+          class="btn"
+          :class="currentView === 'telemetry' ? 'btn-primary' : 'btn-outline'"
+          @click="onTelemetryClick"
+          title="Switch to and refresh live telemetry traces"
+        >
+          <Activity :size="15" />
+          <span>Telemetry</span>
+        </button>
+        <button
+          class="btn"
+          :class="currentView === 'costs' ? 'btn-primary' : 'btn-outline'"
+          @click="currentView = 'costs'"
+          title="View detailed token usage and cost distribution by task"
+        >
+          <BarChart3 :size="15" />
+          <span>Detailed Costs</span>
         </button>
       </div>
     </div>
@@ -261,30 +282,22 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- Task Token & Cost Distribution Card -->
-        <div v-if="stats?.task_token_breakdown && Object.keys(stats.task_token_breakdown).length > 0" class="section-card mb-6">
-          <div class="section-header-row mb-3 flex items-center justify-between">
-            <div class="section-header-text">
-              <h3 class="flex items-center gap-2">
-                <BarChart3 :size="16" class="text-primary flex-shrink-0" />
-                <span>Token &amp; Cost Distribution by Task</span>
-              </h3>
-              <p class="text-xs text-muted">Telemetry breakdown across specialized AI pipelines and scrapers.</p>
+        <!-- VIEW 2: DETAILED COSTS BREAKDOWN -->
+        <div v-if="currentView === 'costs'" class="section-card task-distribution-card animate-fade-in">
+          <div class="task-distribution-header">
+            <div class="task-distribution-title">
+              <BarChart3 :size="16" class="text-primary flex-shrink-0" />
+              <span class="task-header-heading">Token &amp; Cost Distribution by Task</span>
             </div>
-            <button
-              class="btn btn-secondary btn-xs flex items-center gap-1.5"
-              @click="isTaskBreakdownCollapsed = !isTaskBreakdownCollapsed"
-            >
-              <span>{{ isTaskBreakdownCollapsed ? 'Show Breakdown' : 'Hide Breakdown' }}</span>
-              <ChevronDown v-if="isTaskBreakdownCollapsed" :size="13" />
-              <ChevronUp v-else :size="13" />
-            </button>
+            <span class="text-xs text-muted font-mono">
+              {{ Object.keys(stats?.task_token_breakdown || {}).length }} Tasks Tracked
+            </span>
           </div>
 
-          <transition name="accordion-fade">
-            <div v-show="!isTaskBreakdownCollapsed" class="task-breakdown-grid animate-fade-in">
+          <div class="task-breakdown-body">
+            <div class="task-breakdown-grid">
               <div
-                v-for="(taskData, taskKey) in stats.task_token_breakdown"
+                v-for="(taskData, taskKey) in stats?.task_token_breakdown || {}"
                 :key="taskKey"
                 class="task-breakdown-pill"
               >
@@ -292,7 +305,7 @@ onMounted(() => {
                   <span class="task-pill-name font-medium" :title="taskKey">{{ taskKey }}</span>
                   <span class="badge badge-applied font-mono text-xs flex-shrink-0">{{ taskData.calls }} runs</span>
                 </div>
-                <div class="task-pill-body font-mono text-xs text-muted flex justify-between items-center mt-2">
+                <div class="task-pill-body font-mono text-xs text-muted flex justify-between items-center mt-3">
                   <span class="token-count text-secondary font-medium">{{ formatTokens(taskData.tokens) }} tokens</span>
                   <span v-if="taskData.cost_usd > 0" class="text-primary font-semibold">${{ taskData.cost_usd.toFixed(4) }}</span>
                   <span v-else-if="taskData.savings_usd > 0" class="text-success font-semibold">Saved ~${{ taskData.savings_usd.toFixed(4) }}</span>
@@ -300,11 +313,11 @@ onMounted(() => {
                 </div>
               </div>
             </div>
-          </transition>
+          </div>
         </div>
 
-        <!-- Tracing Data Section -->
-        <div class="section-card">
+        <!-- VIEW 1: TRACING DATA SECTION -->
+        <div v-else class="section-card animate-fade-in">
           <!-- Category Tabs Bar -->
           <div class="category-tabs-container">
             <div class="category-tabs">
@@ -649,11 +662,45 @@ onMounted(() => {
 .text-danger { color: var(--status-danger-text); }
 
 /* Task Breakdown Styles */
+.task-distribution-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-sidebar);
+  gap: 12px;
+  flex-shrink: 0;
+  transition: border-color 0.2s ease;
+}
+
+.task-distribution-header.is-collapsed {
+  border-bottom: none;
+}
+
+.task-distribution-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.task-header-heading {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+  letter-spacing: -0.01em;
+}
+
+.task-breakdown-body {
+  padding: 16px 18px;
+  background: var(--bg-surface);
+}
+
 .task-breakdown-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
   gap: 12px;
-  padding: 0 20px 20px 20px;
+  padding: 0;
 }
 
 .task-breakdown-pill {
