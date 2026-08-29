@@ -540,9 +540,9 @@
     "semantic_hash": "89adba7e4b3008bfc41e66b274a212c8"
   },
   "backend/app/services/seed_data.py": {
-    "mtime": 1788003672.0169687,
-    "seen": 1788003882.9321814,
-    "ast_hash": "43cd554cef936bef046ed6c61a22e33b",
+    "mtime": 1788005969.085276,
+    "seen": 1788006608.463515,
+    "ast_hash": "d2f04f344d1b9622bce800b1f2dac4ee",
     "semantic_hash": ""
   },
   "backend/app/services/skill_normalizer.py": {
@@ -1020,9 +1020,9 @@
     "semantic_hash": "f5e58c049815d3048a3e22a8a01679b4"
   },
   "frontend/src/demo/apiAdapter.js": {
-    "mtime": 1787962711.0040407,
-    "seen": 1787962795.745989,
-    "ast_hash": "dab8e893ec6df1bde7216889970dcec3",
+    "mtime": 1788005975.8350763,
+    "seen": 1788006608.463586,
+    "ast_hash": "c138136d60e005ce156789cb072293b0",
     "semantic_hash": ""
   },
   "frontend/src/demo/demoStorage.js": {
@@ -1032,9 +1032,9 @@
     "semantic_hash": "64b19ecdc271246b1d3f09f004dc94ed"
   },
   "frontend/src/demo/mockData.js": {
-    "mtime": 1787964312.4464386,
-    "seen": 1787964613.8056977,
-    "ast_hash": "4d00a14b4bb0078cec8e7671f874828a",
+    "mtime": 1788005959.9795454,
+    "seen": 1788006608.4635878,
+    "ast_hash": "cf60ea2ea8bfb5459bdadbd17a8019f5",
     "semantic_hash": ""
   },
   "frontend/src/main.js": {
