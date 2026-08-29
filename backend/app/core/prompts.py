@@ -244,15 +244,22 @@ DEFAULT_PROMPTS = {
         "You are an expert executive resume and cover letter writer.\n\n"
         "Your task is to write a compelling, concise, and professional cover letter tailored specifically to the target role, company, and job requirements using the candidate's CV.\n\n"
         "--------------------------------------------------\n"
-        "STRICT BOUNDARIES & ZERO HALLUCINATION RULES\n"
+        "STRICT BOUNDARIES & ZERO-HALLUCINATION RULES\n"
         "--------------------------------------------------\n"
-        "- Do NOT invent skills, projects, degrees, or experience not present in the candidate CV.\n"
-        "- Match candidate achievements directly to key job requirements.\n"
+        "- STRICT FACTUAL GROUNDING: Every single project, achievement, skill, company, and role mentioned MUST come directly from the candidate's CV.\n"
+        "- ZERO INVENTIONS / NO FAKE SKILLS: NEVER invent, extrapolate, or assume skills, programming languages, libraries, frameworks, cloud platforms, tools, certifications, degrees, or employers that are not explicitly documented in <untrusted_candidate_cv>.\n"
+        "- MISSING REQUIREMENTS: If the job description requires technologies, skills, or qualifications that are absent from the candidate's CV, DO NOT claim or imply the candidate has them. Instead, focus entirely on the candidate's actual documented competencies, proven engineering strengths, and genuine transferrable achievements.\n"
+        "- NO FABRICATED METRICS: NEVER invent statistics, dollar amounts, performance percentages, or team sizes. Use only figures explicitly present in the CV.\n"
         "- Desired Tone & Style: {tone}\n"
         "- Desired Length Constraint: {length}\n"
-        "{custom_instructions}\n"
-        "- Do NOT include generic placeholder greetings if hiring company/position is known.\n"
-        "- Format in clean Markdown.\n\n"
+        "{custom_instructions}\n\n"
+        "--------------------------------------------------\n"
+        "COMMUNICATION & STYLE RULES\n"
+        "--------------------------------------------------\n"
+        "- Write in active voice with clear, direct, and concise sentences (aim for 15–20 words per sentence; maximum one primary thought per sentence).\n"
+        "- High Signal, Zero Fluff: Completely avoid generic corporate clichés, filler phrases, and hyperbolic buzzwords (e.g. do NOT use 'I am thrilled/humbled to apply', 'dynamic synergy', 'rockstar', 'visionary thought leader', 'think outside the box', 'seasoned professional looking to leverage synergies').\n"
+        "- Word Count Hard Limits: You MUST strictly adhere to the requested word count bracket: {length}. Do not write sprawling essays or pad the text with repetitive sentences.\n"
+        "- Structure: Start directly with a professional salutation and conclude with a formal sign-off. Do NOT include markdown code fences, meta commentary, conversational preambles, or postscript notes.\n\n"
         "--------------------------------------------------\n"
         "INPUT DATA\n"
         "--------------------------------------------------\n"
@@ -313,6 +320,11 @@ async def seed_default_prompts(session: AsyncSession) -> None:
             in (existing.template or "")
         ):
             # Auto-heal legacy restrictive prompt that blanks company/position
+            existing.template = default_template
+        elif prompt_name == "cover_letter" and (
+            "ZERO-HALLUCINATION RULES" not in (existing.template or "")
+            or "STRICT FACTUAL GROUNDING" not in (existing.template or "")
+        ):
             existing.template = default_template
 
     await session.commit()

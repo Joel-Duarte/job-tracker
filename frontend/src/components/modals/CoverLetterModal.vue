@@ -59,9 +59,9 @@ const COVER_LETTER_TONES = [
 ]
 
 const COVER_LETTER_LENGTHS = [
-  { code: 'concise', label: 'Concise (~150 words)' },
-  { code: 'standard', label: 'Standard (~300 words)' },
-  { code: 'detailed', label: 'Detailed (~450 words)' },
+  { code: 'concise', label: 'Concise (120–180 words)' },
+  { code: 'standard', label: 'Standard (250–320 words)' },
+  { code: 'detailed', label: 'Detailed (380–450 words)' },
 ]
 
 const charCount = computed(() => editableText.value.length)
@@ -77,7 +77,7 @@ const currentToneLabel = computed(() => {
 
 const currentLengthLabel = computed(() => {
   const found = COVER_LETTER_LENGTHS.find((l) => l.code === length.value)
-  return found ? found.label : 'Standard (~300 words)'
+  return found ? found.label : 'Standard (250–320 words)'
 })
 
 const activeCoverLetterTask = computed(() => {

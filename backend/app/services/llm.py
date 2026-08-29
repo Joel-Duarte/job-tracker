@@ -340,11 +340,14 @@ async def generate_cover_letter(
     length_code = str(length or "standard").strip().lower()
 
     length_map = {
-        "concise": "Concise (~150 words)",
-        "standard": "Standard (~300 words)",
-        "detailed": "Detailed (~450 words)",
+        "concise": "Concise (STRICT LIMIT: 120 to 180 words total)",
+        "standard": "Standard (STRICT LIMIT: 250 to 320 words total)",
+        "detailed": "Detailed (STRICT LIMIT: 380 to 450 words total)",
     }
-    length_formatted = length_map.get(length_code, f"{length_code.capitalize()} length")
+    length_formatted = length_map.get(
+        length_code,
+        f"{length_code.capitalize()} length (STRICT LIMIT: 250 to 320 words total)",
+    )
 
     instructions_str = (
         f"\nCustom User Instructions: {custom_instructions.strip()}"
@@ -374,8 +377,8 @@ async def generate_cover_letter(
                     "system",
                     (
                         "You are an expert executive resume and cover letter writer. "
-                        "Write a compelling, professional cover letter tailored to the target role and company using the candidate's CV. "
-                        "Never hallucinate experience or skills not present in the CV."
+                        "Write a compelling, concise, and professional cover letter tailored to the target role and company using the candidate's CV. "
+                        "Strictly adhere to the candidate's actual CV facts without inventing skills, metrics, histories, or tools."
                     ),
                 ),
                 ("human", template_str),
