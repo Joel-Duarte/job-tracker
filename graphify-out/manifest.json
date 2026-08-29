@@ -1014,9 +1014,9 @@
     "semantic_hash": "f5e58c049815d3048a3e22a8a01679b4"
   },
   "frontend/src/demo/apiAdapter.js": {
-    "mtime": 1788026624.4711392,
-    "seen": 1788027099.0011907,
-    "ast_hash": "7da731473ae625867993c47313ce5414",
+    "mtime": 1788027420.7021878,
+    "seen": 1788027438.525643,
+    "ast_hash": "616bff7d3b864b8bb9543ae2763faafd",
     "semantic_hash": ""
   },
   "frontend/src/demo/demoStorage.js": {
@@ -1026,9 +1026,9 @@
     "semantic_hash": "64b19ecdc271246b1d3f09f004dc94ed"
   },
   "frontend/src/demo/mockData.js": {
-    "mtime": 1788025585.102861,
-    "seen": 1788027099.0011928,
-    "ast_hash": "b9a7898c835bb88a7d4ca96a0c7a493c",
+    "mtime": 1788027410.017496,
+    "seen": 1788027438.5256448,
+    "ast_hash": "61d04c41b64904b501741eda36a1c38d",
     "semantic_hash": ""
   },
   "frontend/src/main.js": {
@@ -1152,9 +1152,9 @@
     "semantic_hash": ""
   },
   "frontend/src/views/DiagnosticsView.vue": {
-    "mtime": 1788024535.8167589,
-    "seen": 1788024815.5513399,
-    "ast_hash": "ada8f6a744f572e801cb13f64c1e22b7",
+    "mtime": 1788027716.3136582,
+    "seen": 1788027761.8755486,
+    "ast_hash": "8a4805940d8bac2d5bcb8a7e246c122c",
     "semantic_hash": ""
   },
   "frontend/src/views/InterviewGuideView.vue": {
@@ -1182,9 +1182,9 @@
     "semantic_hash": "f4a5bffa611e7443745494a098733dad"
   },
   "frontend/src/views/SettingsView.vue": {
-    "mtime": 1788027280.3742359,
-    "seen": 1788027334.3607013,
-    "ast_hash": "ea82afa0218765913403f6107512f3bc",
+    "mtime": 1788027750.4376736,
+    "seen": 1788027761.8755531,
+    "ast_hash": "99c02ae9e2058440176309612288a41c",
     "semantic_hash": ""
   },
   "frontend/src/views/StagingView.vue": {
