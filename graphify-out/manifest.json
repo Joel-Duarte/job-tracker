@@ -1152,9 +1152,9 @@
     "semantic_hash": ""
   },
   "frontend/src/views/DiagnosticsView.vue": {
-    "mtime": 1788027716.3136582,
-    "seen": 1788027761.8755486,
-    "ast_hash": "8a4805940d8bac2d5bcb8a7e246c122c",
+    "mtime": 1788028372.6857145,
+    "seen": 1788028387.8720255,
+    "ast_hash": "d541d5ab465e8aee19f10bd58957dc67",
     "semantic_hash": ""
   },
   "frontend/src/views/InterviewGuideView.vue": {
