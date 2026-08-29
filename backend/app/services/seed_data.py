@@ -98,6 +98,12 @@ def build_dossier(
         },
         "matching_skills": matching_skills,
         "missing_skills": missing_skills,
+        "critical_risks": [
+            f"Missing hands-on production specialization in {missing_skills[0]}"
+        ]
+        if (missing_skills and fit_score < 75)
+        else [],
+        "seniority_fit": "MATCHES" if fit_score >= 70 else "UNDERQUALIFIED",
         "pros": [
             f"Competitive compensation range (${int(sal_min):,}-${int(sal_max):,})",
             "Strong technical engineering culture and autonomy",

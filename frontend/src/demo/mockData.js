@@ -74,17 +74,21 @@ export const INITIAL_MOCK_DATA = {
       match_analysis_payload: {
         match_score: 94,
         fit_score: 94,
-        key_strengths: [
+        programmatic_match_score: 92,
+        recommendation: "APPLY_STRONGLY",
+        seniority_fit: "MATCHES",
+        critical_risks: [],
+        pros: [
           "Extensive 10+ years background in Go and Rust distributed systems",
           "Deep hands-on experience with high-throughput event streaming",
           "Strong architecture alignment for financial platform reliability"
         ],
-        gaps: [
+        cons: [
           "Minor gap in proprietary internal Stripe financial ledger tooling"
         ],
-        gap_closing_tips: [
-          "Highlight past experience designing idempotency frameworks and distributed transaction boundaries."
-        ]
+        matching_skills: ["Go", "Rust", "Distributed Systems", "PostgreSQL", "Raft"],
+        missing_skills: [],
+        summary: "Outstanding technical alignment with verified 8.5 years in distributed systems."
       },
       interview_guide_markdown: "## Stripe Technical Interview Preparation Guide\n\n### Company Architecture Focus\nStripe's core ledger operates on idempotent, ACID-compliant distributed databases. Expect questions around consensus protocols (Raft/Paxos), multi-region replication, and rate-limiting gateway proxies.\n\n### Strategic STAR Story Scenarios\n1. **High-Throughput Idempotency:** Detail how you handled duplicate financial event delivery at scale.\n2. **Database Migration Under Load:** Describe zero-downtime database schema migrations.",
       cover_letter_text: "Dear Hiring Team at Stripe,\n\nI am thrilled to express my enthusiasm for the Staff Infrastructure Engineer position. With over a decade of hands-on experience designing high-throughput distributed systems in Go and Rust, I have consistently delivered fault-tolerant platform services that scale to millions of requests per minute.\n\nSincerely,\nJohn Souls",
@@ -194,16 +198,20 @@ export const INITIAL_MOCK_DATA = {
       match_analysis_payload: {
         match_score: 91,
         fit_score: 91,
-        key_strengths: [
+        programmatic_match_score: 88,
+        recommendation: "APPLY_STRONGLY",
+        seniority_fit: "MATCHES",
+        critical_risks: [],
+        pros: [
           "Proven expertise in real-time distributed state sync",
           "Strong Rust / WebAssembly performance optimization background"
         ],
-        gaps: [
+        cons: [
           "Limited exposure to Linear's specific GraphQL schema mesh"
         ],
-        gap_closing_tips: [
-          "Prepare examples of conflict-free replicated data types (CRDTs) used in past projects."
-        ]
+        matching_skills: ["Rust", "WebSocket", "TypeScript"],
+        missing_skills: ["CRDT"],
+        summary: "Excellent candidate fit for real-time multiplayer systems sync."
       },
       interview_guide_markdown: "## Linear System Architecture Interview Guide\n\n### Key Focus Areas\n- **CRDT Sync Protocols:** Local-first optimistic updates & conflict-free state resolution.\n- **WebSocket Backpressure:** Managing multi-tenant connection pools in Rust.",
       events: [
@@ -281,12 +289,20 @@ export const INITIAL_MOCK_DATA = {
       match_analysis_payload: {
         match_score: 88,
         fit_score: 88,
-        key_strengths: [
-          "Deep systems programming skill set",
+        programmatic_match_score: 85,
+        recommendation: "APPLY_STRONGLY",
+        seniority_fit: "MATCHES",
+        critical_risks: [],
+        pros: [
+          "Deep systems programming skill set in C++ and Rust",
           "Experience with micro-second latency optimizations"
         ],
-        gaps: ["C++ desktop runtime memory alignment"],
-        gap_closing_tips: ["Emphasize cross-compilation and native module profiling experience."]
+        cons: [
+          "C++ desktop runtime memory alignment"
+        ],
+        matching_skills: ["Rust", "WebAssembly"],
+        missing_skills: ["C++"],
+        summary: "Strong systems architecture match for high-performance canvas engine."
       },
       interview_guide_markdown: "## Figma Multiplayer Engine Technical Interview Guide\n\n### System Architecture Focus\n- **Multiplayer State Sync:** C++/Rust document servers and WASM rendering.\n- **Low Latency Messaging:** WebSocket connection fan-out and spatial memory management.",
       interview_guide_html: "<h2>Figma Multiplayer Engine Technical Interview Guide</h2><h3>System Architecture Focus</h3><ul><li><strong>Multiplayer State Sync:</strong> C++/Rust document servers and WASM rendering.</li><li><strong>Low Latency Messaging:</strong> WebSocket connection fan-out and spatial memory management.</li></ul>",
@@ -328,9 +344,9 @@ export const INITIAL_MOCK_DATA = {
       nearest_due_date: new Date(Date.now() + 86400000 * 2).toISOString(),
       has_action_required: true,
       has_interview_guide: true,
-      match_score: 85,
-      fit_score: 85,
-      programmatic_match_score: 84,
+      match_score: 65,
+      fit_score: 65,
+      programmatic_match_score: 55,
       description: "### Role Summary\nLead engineer responsible for processing petabyte-scale metric, trace, and log telemetry ingestion. You will optimize Vector/FluentBit aggregators and Kafka cluster backpressure.",
       job_posting: {
         id: "jp_dd_004",
@@ -361,11 +377,25 @@ export const INITIAL_MOCK_DATA = {
         }
       },
       match_analysis_payload: {
-        match_score: 85,
-        fit_score: 85,
-        key_strengths: ["Kafka stream processing mastery", "Observability background"],
-        gaps: ["eBPF kernel tracing"],
-        gap_closing_tips: ["Review Linux kernel eBPF packet filter primitives."]
+        match_score: 65,
+        fit_score: 65,
+        programmatic_match_score: 55,
+        recommendation: "STRETCH_ROLE",
+        seniority_fit: "MATCHES",
+        critical_risks: [
+          "Missing hands-on production experience with eBPF Linux kernel tracing",
+          "Heavy telemetry aggregation SLA expectations"
+        ],
+        pros: [
+          "Kafka stream processing mastery",
+          "Strong observability & distributed tracing background"
+        ],
+        cons: [
+          "eBPF kernel probe development required on day 1"
+        ],
+        matching_skills: ["Go", "Apache Kafka", "Telemetry"],
+        missing_skills: ["eBPF", "Linux Kernel Probing"],
+        summary: "Solid backend and Kafka background, but lacks specialized kernel eBPF tracing depth."
       },
       interview_guide_markdown: "## Datadog Telemetry Pipeline Technical Interview Guide\n\n### System Architecture & Telemetry Focus\n- **Petabyte-Scale Ingestion:** Kafka backpressure, zero-copy socket buffers, and Vector aggregator topology.\n- **eBPF Kernel Inspection:** High-throughput packet parsing and low-overhead trace collection.",
       interview_guide_html: "<h2>Datadog Telemetry Pipeline Technical Interview Guide</h2><h3>System Architecture & Telemetry Focus</h3><ul><li><strong>Petabyte-Scale Ingestion:</strong> Kafka backpressure, zero-copy socket buffers, and Vector aggregator topology.</li><li><strong>eBPF Kernel Inspection:</strong> High-throughput packet parsing and low-overhead trace collection.</li></ul>",
@@ -408,9 +438,9 @@ export const INITIAL_MOCK_DATA = {
       scheduled_interview_at: null,
       nearest_due_date: null,
       has_action_required: false,
-      match_score: 79,
-      fit_score: 79,
-      programmatic_match_score: 78,
+      match_score: 45,
+      fit_score: 45,
+      programmatic_match_score: 40,
       description: "### Description\nFocus on query engine execution optimization and cloud storage caching layers.",
       job_posting: {
         id: "jp_sf_005",
@@ -440,8 +470,16 @@ export const INITIAL_MOCK_DATA = {
         }
       },
       match_analysis_payload: {
-        match_score: 79,
-        fit_score: 79,
+        match_score: 45,
+        fit_score: 45,
+        programmatic_match_score: 40,
+        recommendation: "DO_NOT_APPLY",
+        seniority_fit: "UNDERQUALIFIED",
+        critical_risks: [
+          "Missing 10+ years dedicated C++ database kernel engineering experience",
+          "Language barrier: Role requires Fluent German (C1) not listed on candidate profile",
+          "On-site requirement mismatch"
+        ],
         language_match: {
           is_matched: false,
           detected_jd_language: "German",
@@ -453,9 +491,16 @@ export const INITIAL_MOCK_DATA = {
           missing_preferred: [],
           warning: "Role requires Fluent / C1 German (job posting written in German), which is not listed on your candidate profile."
         },
-        key_strengths: ["Database query processing concepts"],
-        gaps: ["On-site location preference mismatch"],
-        gap_closing_tips: ["N/A"]
+        pros: [
+          "Database query processing concepts and distributed systems background"
+        ],
+        cons: [
+          "Requires low-level C++ database kernel internals",
+          "Strict on-site presence in San Mateo, CA"
+        ],
+        matching_skills: ["Distributed Databases"],
+        missing_skills: ["C++ Kernel Engine", "SIMD Operators"],
+        summary: "Underqualified for Principal Database Kernel role due to language and kernel specialization gaps."
       },
       events: [
         {
