@@ -681,6 +681,9 @@ export const INITIAL_MOCK_DATA = {
         match_score: 94,
         fit_score: 94,
         programmatic_match_score: 92,
+        recommendation: "APPLY_STRONGLY",
+        seniority_fit: "MATCHES",
+        critical_risks: [],
         salary_min: 240000,
         salary_max: 290000,
         currency: "USD",
@@ -738,6 +741,9 @@ export const INITIAL_MOCK_DATA = {
         match_score: 91,
         fit_score: 91,
         programmatic_match_score: 89,
+        recommendation: "APPLY_STRONGLY",
+        seniority_fit: "MATCHES",
+        critical_risks: [],
         salary_min: 220000,
         salary_max: 270000,
         currency: "USD",
@@ -767,6 +773,101 @@ export const INITIAL_MOCK_DATA = {
             { cv_term: "Realtime Messaging", jd_term: "Local-First Sync Engine", replacement_guidance: "Align with Linear local-first paradigms." }
           ]
         }
+      }
+    },
+    {
+      id: "task_eval_104",
+      task_type: "JOB_ASSESSMENT",
+      job_url: "https://datadoghq.com/careers/lead-telemetry",
+      company_name: "Datadog",
+      position: "Senior Lead Engineer - Telemetry Pipeline",
+      title_hint: "Datadog - Senior Lead Telemetry Engineer",
+      status: "COMPLETED",
+      stage: "COMPLETED",
+      progress: 100,
+      match_score: 65,
+      fit_score: 65,
+      raw_text: "Datadog telemetry ingestion job description...",
+      error_message: null,
+      created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
+      completed_at: new Date(Date.now() - 86400000 * 10).toISOString(),
+      result_json: {
+        application_id: "app_datacamp_004",
+        company: "Datadog",
+        company_domain: "datadoghq.com",
+        position: "Senior Lead Engineer - Telemetry Pipeline",
+        summary: "Solid backend and Kafka streaming foundation, but candidate lacks required kernel-level eBPF tracing depth and low-overhead socket probing experience.",
+        match_score: 65,
+        fit_score: 65,
+        programmatic_match_score: 55,
+        recommendation: "STRETCH_ROLE",
+        seniority_fit: "MATCHES",
+        critical_risks: [
+          "Missing hands-on production experience with eBPF Linux kernel tracing",
+          "High throughput telemetry aggregation SLA expectations"
+        ],
+        salary_min: 210000,
+        salary_max: 250000,
+        currency: "USD",
+        location: "New York, NY (Remote)",
+        work_model: "Remote",
+        matching_skills: ["Go", "Apache Kafka", "Telemetry", "Distributed Systems"],
+        missing_skills: ["eBPF", "Linux Kernel Probing", "Vector Pipeline Aggregation"],
+        pros: [
+          "Kafka stream processing mastery",
+          "Strong observability & distributed tracing background"
+        ],
+        cons: [
+          "eBPF kernel probe development required on day 1"
+        ]
+      }
+    },
+    {
+      id: "task_eval_105",
+      task_type: "JOB_ASSESSMENT",
+      job_url: "https://snowflake.com/careers/db-principal",
+      company_name: "Snowflake",
+      position: "Principal Distributed Database Engineer",
+      title_hint: "Snowflake - Principal Database Engineer",
+      status: "COMPLETED",
+      stage: "COMPLETED",
+      progress: 100,
+      match_score: 45,
+      fit_score: 45,
+      raw_text: "Snowflake database kernel query optimization description...",
+      error_message: null,
+      created_at: new Date(Date.now() - 86400000 * 12).toISOString(),
+      completed_at: new Date(Date.now() - 86400000 * 12).toISOString(),
+      result_json: {
+        application_id: "app_snowflake_005",
+        company: "Snowflake",
+        company_domain: "snowflake.com",
+        position: "Principal Distributed Database Engineer",
+        summary: "Significant experience and technical gaps for Principal Database Kernel level. Mandatory C1 German required and missing 10+ years dedicated C++ kernel execution engine experience.",
+        match_score: 45,
+        fit_score: 45,
+        programmatic_match_score: 40,
+        recommendation: "DO_NOT_APPLY",
+        seniority_fit: "UNDERQUALIFIED",
+        critical_risks: [
+          "Missing 10+ years dedicated C++ database kernel engineering experience",
+          "Language barrier: Role requires Fluent German (C1) not listed on candidate profile",
+          "On-site presence required in San Mateo, CA"
+        ],
+        salary_min: 250000,
+        salary_max: 310000,
+        currency: "USD",
+        location: "San Mateo, CA (On-site)",
+        work_model: "On-site",
+        matching_skills: ["Distributed Databases", "SQL Engine Concepts"],
+        missing_skills: ["C++ Kernel Engine", "SIMD Operators", "Micro-partition Caching"],
+        pros: [
+          "Database query processing concepts and distributed systems background"
+        ],
+        cons: [
+          "Requires low-level C++ database kernel internals",
+          "Strict on-site presence in San Mateo, CA"
+        ]
       }
     },
     {
