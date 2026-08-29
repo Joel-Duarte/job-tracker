@@ -318,21 +318,28 @@ function getFitLabel(score) {
             <p class="section-text">{{ summaryText }}</p>
           </div>
 
-          <!-- Critical Hiring Risks & Recruiter Hesitations Warning Card -->
-          <div class="critical-risks-card" v-if="criticalRisks.length">
+          <!-- Critical Hiring Risks & Recruiter Hesitations Warning / Confirmation Card -->
+          <div class="critical-risks-card" v-if="criticalRisks.length || seniorityFit" :class="{ 'zero-risks': !criticalRisks.length }">
             <div class="critical-risks-header">
-              <div class="risk-header-left">
+              <div class="risk-header-left" v-if="criticalRisks.length">
                 <AlertOctagon :size="16" class="risk-icon" />
                 <span class="risk-title">Critical Risks &amp; Recruiter Hesitations</span>
+              </div>
+              <div class="risk-header-left" v-else>
+                <CheckCircle2 :size="16" class="risk-icon-clean" />
+                <span class="risk-title-clean">No Critical Red Flags Identified</span>
               </div>
               <span class="seniority-tag" v-if="seniorityFit" :class="seniorityFit.toLowerCase()">
                 Seniority: {{ seniorityFit }}
               </span>
             </div>
-            <p class="risk-subtitle">
+            <p class="risk-subtitle" v-if="criticalRisks.length">
               Skeptical hiring screener audit identified potential deal-breakers or friction points:
             </p>
-            <ul class="risk-list">
+            <p class="risk-subtitle-clean" v-else>
+              Skeptical hiring screener audit verified candidate meets prerequisites without major deal-breakers.
+            </p>
+            <ul class="risk-list" v-if="criticalRisks.length">
               <li v-for="(risk, idx) in criticalRisks" :key="idx">
                 <span class="risk-bullet"></span>
                 <span>{{ risk }}</span>
@@ -936,7 +943,7 @@ function getFitLabel(score) {
   border-color: var(--status-interview-border);
 }
 
-/* Critical Risks Warning Card */
+/* Critical Risks Warning / Clean Confirmation Card */
 .critical-risks-card {
   padding: 14px 16px;
   border-radius: var(--radius-md);
@@ -945,6 +952,11 @@ function getFitLabel(score) {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.critical-risks-card.zero-risks {
+  background: rgba(16, 185, 129, 0.06);
+  border: 1px solid rgba(16, 185, 129, 0.25);
 }
 
 .critical-risks-header {
@@ -966,12 +978,32 @@ function getFitLabel(score) {
   flex-shrink: 0;
 }
 
+.risk-icon-clean {
+  color: #10b981;
+  flex-shrink: 0;
+}
+
 .risk-title {
   font-size: 13px;
   font-weight: 700;
   color: #ef4444;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.risk-title-clean {
+  font-size: 13px;
+  font-weight: 700;
+  color: #10b981;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.risk-subtitle-clean {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.4;
 }
 
 .seniority-tag {

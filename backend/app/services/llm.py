@@ -296,27 +296,59 @@ async def assess_job_posting(
     if not isinstance(result, JobAssessmentResult):
         result = JobAssessmentResult.model_validate(result)
 
+    # 1. Synchronize curated skills counts and calculate exact algorithmic coverage
+    curated_matched = len(result.matching_skills) if result.matching_skills else 0
+    curated_missing = len(result.missing_skills) if result.missing_skills else 0
+    curated_total = curated_matched + curated_missing
+
+    if curated_total > 0:
+        result.matched_skills_count = curated_matched
+        result.total_required_skills_count = curated_total
+        effective_baseline = int(round((curated_matched / curated_total) * 100))
+        result.programmatic_match_score = effective_baseline
+    else:
+        result.programmatic_match_score = programmatic_baseline
+        result.matched_skills_count = matched_skills_count
+        result.total_required_skills_count = total_required_skills_count
+        effective_baseline = programmatic_baseline
+
+    # 2. Auto-guard critical risks for underqualification or significant missing skills
+    if result.critical_risks is None:
+        result.critical_risks = []
+    if (
+        result.seniority_fit
+        and result.seniority_fit.upper() == "UNDERQUALIFIED"
+        and not any(
+            "seniority" in r.lower() or "experience" in r.lower()
+            for r in result.critical_risks
+        )
+    ):
+        exp_str = (
+            f" ({candidate_years_of_experience:.1f} yrs)"
+            if candidate_years_of_experience is not None
+            else ""
+        )
+        result.critical_risks.append(
+            f"Seniority deficit: Candidate verified experience{exp_str} is below role requirements."
+        )
+    if (
+        result.missing_skills
+        and result.fit_score < 75
+        and len(result.critical_risks) == 0
+    ):
+        result.critical_risks.append(
+            f"Missing core technical prerequisites: {', '.join(result.missing_skills[:3])}."
+        )
+
+    # 3. Mathematically calibrate score and recommendation against effective baseline
     calibrated_score, calibrated_rec = calibrate_assessment_score_and_recommendation(
         raw_fit_score=result.fit_score,
-        programmatic_baseline=programmatic_baseline,
+        programmatic_baseline=effective_baseline,
         critical_risks=result.critical_risks,
         seniority_fit=result.seniority_fit,
     )
     result.fit_score = calibrated_score
     result.recommendation = calibrated_rec
-
-    result.programmatic_match_score = programmatic_baseline
-    if matched_skills_count is not None:
-        result.matched_skills_count = matched_skills_count
-    elif result.matching_skills:
-        result.matched_skills_count = len(result.matching_skills)
-
-    if total_required_skills_count is not None:
-        result.total_required_skills_count = total_required_skills_count
-    elif result.matching_skills or result.missing_skills:
-        result.total_required_skills_count = len(result.matching_skills) + len(
-            result.missing_skills
-        )
 
     # Synthesize fallback markdown_report if model omitted it
     if not result.markdown_report:
