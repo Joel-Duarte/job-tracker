@@ -163,8 +163,8 @@ DEFAULT_PROMPTS = {
         "Email Content:\n<untrusted_email_content>\n{email_content}\n</untrusted_email_content>"
     ),
     "assessment": (
-        "You are an expert technical resume writer and career coach.\n\n"
-        "Your task is to perform a granular, data-driven audit of a candidate's resume and verified profile against a provided job description.\n\n"
+        "You are a skeptical, highly analytical Technical Bar Raiser and Senior Hiring Screener.\n\n"
+        "Your task is to perform an objective, strictly grounded audit of a candidate's resume and verified profile against a provided job description, rejecting grade inflation and identifying genuine hiring risks.\n\n"
         "--------------------------------------------------\n"
         "STRICT BOUNDARIES - ZERO HALLUCINATION RULES\n"
         "--------------------------------------------------\n"
@@ -177,12 +177,18 @@ DEFAULT_PROMPTS = {
         "ANALYSIS METHODOLOGY & GROUND TRUTH RULES\n"
         "--------------------------------------------------\n"
         "1. Authoritative Candidate Profile Priority: Treat the structured candidate profile (Verified Total Experience, Verified Technical Skills, Active Domain Experience & Years, Core Competencies, and Spoken Languages) as the user's verified, authoritative ground truth. If dates, time spans, or scope in the raw CV differ (e.g. side project maintenance, overlapping tenures, or unstated skill depth), strictly prioritize the candidate's verified total years of experience, domain years, and verified skills over raw resume date calculations.\n"
-        "2. Hard Keyword Mapping: Extract top mandatory technical requirements from the JD and verify presence against the candidate's verified skills and CV. Extract an array of individual, atomic technical skills, libraries, frameworks, tools, and competencies (e.g. return 'CI/CD', 'AWS', 'Docker', 'PostgreSQL' rather than compound or descriptive phrases like 'CI/CD pipelines for automated deployments' or 'AWS (EC2, S3)'). Do not include parenthetical explanations, seniority descriptors, or filler words.\n"
-        "3. Experience & Seniority Verification: Compare JD seniority and required years against the candidate's verified total years of professional experience and active domain specializations.\n"
-        "4. Match Scoring: Calculate qualitative fit score (0-100) taking into account programmatic keyword baseline: {programmatic_baseline}%. Note: Keep the fit score based purely on technical capabilities and domain skills without penalizing for spoken language mismatches.\n"
-        "5. Spoken Language Audit (language_match): Check required spoken languages (including the language the JD is written in) against the candidate's spoken languages. If any mandatory language is missing from candidate's profile, set is_matched=False, populate missing_mandatory, and provide a clear warning string detailing the mismatch.\n"
-        "6. Terminology Gap Analysis: Identify specific phrasing in the CV that can be translated to match ATS keywords from the JD without exaggerating experience.\n"
-        "7. Tailoring Strategy: Provide actionable bullet-point reframing, vocabulary translations, and structural improvements.\n\n"
+        "2. Critical Risks & Deal-Breakers (critical_risks): Identify up to 3 concrete reasons a hiring manager or recruiter would hesitate or reject this candidate (e.g. missing primary language, years of experience deficit, lack of high-scale production background, domain mismatch). If the profile is an exceptional fit with no red flags, return an empty array.\n"
+        "3. Seniority Assessment (seniority_fit): Classify candidate seniority against role requirements strictly as 'MATCHES', 'UNDERQUALIFIED', or 'OVERQUALIFIED'. If the JD requires 8+ years and candidate has 4 years, classify as 'UNDERQUALIFIED'.\n"
+        "4. Hard Keyword Mapping: Extract top mandatory technical requirements from the JD and verify presence against the candidate's verified skills and CV. Extract an array of individual, atomic technical skills, libraries, frameworks, tools, and competencies (e.g. return 'CI/CD', 'AWS', 'Docker', 'PostgreSQL' rather than compound or descriptive phrases like 'CI/CD pipelines for automated deployments' or 'AWS (EC2, S3)'). Do not include parenthetical explanations, seniority descriptors, or filler words.\n"
+        "5. Rigorous Fit Scoring (fit_score) - No Grade Inflation:\n"
+        "   - 90–100% (Exact Fit): Matches >=90% of core skills + verified seniority meets or exceeds requirement + direct domain experience + 0 critical risks.\n"
+        "   - 75–89% (Competitive Fit): Primary tech stack & seniority matches; missing only 1-2 minor secondary tools.\n"
+        "   - 50–74% (Stretch / Partial Fit): Missing 1 core stack requirement OR candidate seniority is 2+ years below requirement.\n"
+        "   - < 50% (Underqualified / Poor Fit): Missing fundamental primary stack or severe domain mismatch.\n"
+        "   Anchor your score around the programmatic keyword coverage baseline: {programmatic_baseline}%. Do NOT give an 85%+ score if the candidate is missing primary prerequisites.\n"
+        "6. Spoken Language Audit (language_match): Check required spoken languages (including the language the JD is written in) against the candidate's spoken languages. If any mandatory language is missing from candidate's profile, set is_matched=False, populate missing_mandatory, and provide a clear warning string detailing the mismatch.\n"
+        "7. Terminology Gap Analysis: Identify specific phrasing in the CV that can be translated to match ATS keywords from the JD without exaggerating experience.\n"
+        "8. Tailoring Strategy: Provide actionable bullet-point reframing, vocabulary translations, and structural improvements.\n\n"
         "--------------------------------------------------\n"
         "INPUT DATA\n"
         "--------------------------------------------------\n"
@@ -194,7 +200,7 @@ DEFAULT_PROMPTS = {
         "- Core Competencies: {candidate_core_competencies}\n"
         "- Spoken Languages: {candidate_spoken_languages}\n\n"
         "[CANDIDATE CV / RESUME CONTEXT]:\n<untrusted_candidate_cv>\n{candidate_cv}\n</untrusted_candidate_cv>\n\n"
-        "Generate a complete structured evaluation with match_summary, hard_matches, optimization_gaps, tailoring_strategy, language_match, and markdown_report."
+        "Generate a complete structured evaluation with match_summary, critical_risks, seniority_fit, hard_matches, optimization_gaps, tailoring_strategy, language_match, and markdown_report."
     ),
     "cv_anonymization": (
         "You are an expert resume privacy officer and talent analyst.\n\n"
@@ -344,7 +350,8 @@ async def seed_default_prompts(session: AsyncSession) -> None:
             existing.template = default_template
         elif prompt_name == "assessment" and (
             "AUTHORITATIVE CANDIDATE PROFILE" not in (existing.template or "")
-            or "candidate_years_of_experience" not in (existing.template or "")
+            or "critical_risks" not in (existing.template or "")
+            or "Bar Raiser" not in (existing.template or "")
         ):
             existing.template = default_template
 
@@ -377,7 +384,8 @@ async def get_prompt_template(
             )
         elif prompt_name == "assessment" and (
             "AUTHORITATIVE CANDIDATE PROFILE" not in template
-            or "candidate_years_of_experience" not in template
+            or "critical_risks" not in template
+            or "Bar Raiser" not in template
         ):
             res_template = DEFAULT_PROMPTS["assessment"]
         else:

@@ -189,6 +189,53 @@ Email Body:
     return res_obj
 
 
+def calibrate_assessment_score_and_recommendation(
+    raw_fit_score: int,
+    programmatic_baseline: int | None,
+    critical_risks: list[str] | None = None,
+    seniority_fit: str | None = None,
+) -> tuple[int, str]:
+    """
+    Applies mathematical bounding and recommendation synchronization to eliminate
+    AI grade inflation:
+    1. If programmatic_baseline is present: Clamps AI fit score to [max(10, baseline - 25), min(100, baseline + 25)].
+    2. If programmatic_baseline is None (0 JD skills extractable): Caps score at max 70.
+    3. If seniority_fit is UNDERQUALIFIED: Caps score at max 65.
+    4. Synchronizes recommendation:
+       - APPLY_STRONGLY: fit_score >= 85 and 0 critical risks and seniority_fit != 'UNDERQUALIFIED'
+       - APPLY_MODERATELY: fit_score >= 70 and len(critical_risks) <= 1 and seniority_fit != 'UNDERQUALIFIED'
+       - STRETCH_ROLE: fit_score >= 50 (or has critical risks / seniority deficit)
+       - DO_NOT_APPLY: fit_score < 50
+    """
+    # 1. Mathematical clamp
+    if programmatic_baseline is not None:
+        min_bound = max(10, programmatic_baseline - 25)
+        max_bound = min(100, programmatic_baseline + 25)
+        clamped_score = max(min_bound, min(max_bound, raw_fit_score))
+    else:
+        clamped_score = min(70, max(10, raw_fit_score))
+
+    # 2. Hard penalty for seniority gap
+    if seniority_fit and seniority_fit.upper() == "UNDERQUALIFIED":
+        clamped_score = min(65, clamped_score)
+
+    # 3. Synchronize recommendation tier
+    num_risks = len(critical_risks or [])
+    is_underqualified = bool(
+        seniority_fit and seniority_fit.upper() == "UNDERQUALIFIED"
+    )
+    if clamped_score >= 85 and num_risks == 0 and not is_underqualified:
+        rec = "APPLY_STRONGLY"
+    elif clamped_score >= 70 and num_risks <= 1 and not is_underqualified:
+        rec = "APPLY_MODERATELY"
+    elif clamped_score >= 50:
+        rec = "STRETCH_ROLE"
+    else:
+        rec = "DO_NOT_APPLY"
+
+    return clamped_score, rec
+
+
 async def assess_job_posting(
     db: AsyncSession,
     job_description: str,
@@ -208,55 +255,29 @@ async def assess_job_posting(
     """
     llm = await get_task_chat_model(db, task_type="ASSESSMENT", temperature=0.2)
     structured_llm = llm.with_structured_output(
-        JobAssessmentResult, method="json_schema"
+        JobAssessmentResult,
+        method="json_mode"
+        if "anthropic" in type(llm).__name__.lower()
+        else "function_calling",
     )
+
     template_str = await get_prompt_template(db, "assessment")
+    prompt = ChatPromptTemplate.from_template(template_str)
 
-    cv_text = candidate_cv
-    if not cv_text:
-        skills_str = (
-            ", ".join(candidate_skills)
-            if candidate_skills
-            else "General Full-Stack / Software Engineering Profile"
-        )
-        cv_text = f"Candidate Technical Skills:\n{skills_str}"
-
-    domain_text = (
-        candidate_domain_breakdown
-        or "General / Full-Stack Experience (No active domain constraints)"
-    )
-
-    spoken_langs_text = candidate_spoken_languages or "English (Native / Fluent)"
-
+    skills_text = ", ".join(candidate_skills) if candidate_skills else "None provided"
+    domain_text = candidate_domain_breakdown or "None provided"
+    spoken_langs_text = candidate_spoken_languages or "English (Fluent)"
     years_exp_text = (
         f"{candidate_years_of_experience:.1f} years"
         if candidate_years_of_experience is not None
-        else "Not explicitly specified"
-    )
-    skills_text = (
-        ", ".join(candidate_skills)
-        if candidate_skills
-        else "Not specified / Refer to CV"
+        else "Not explicitly verified"
     )
     competencies_text = (
         ", ".join(candidate_core_competencies)
         if candidate_core_competencies
-        else "None specified"
+        else "None provided"
     )
-
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                (
-                    "You are an expert technical resume writer and career coach. "
-                    "Perform a granular, data-driven audit of the candidate's resume against the job description. "
-                    "Never suggest skills not in the CV. Translate exact vocabulary synonyms, quantify match rate, audit spoken language requirements, and reframe bullet points."
-                ),
-            ),
-            ("human", template_str),
-        ]
-    )
+    cv_text = candidate_cv or "No CV provided"
 
     chain = prompt | structured_llm
     result = await chain.ainvoke(
@@ -277,6 +298,15 @@ async def assess_job_posting(
 
     if not isinstance(result, JobAssessmentResult):
         result = JobAssessmentResult.model_validate(result)
+
+    calibrated_score, calibrated_rec = calibrate_assessment_score_and_recommendation(
+        raw_fit_score=result.fit_score,
+        programmatic_baseline=programmatic_baseline,
+        critical_risks=result.critical_risks,
+        seniority_fit=result.seniority_fit,
+    )
+    result.fit_score = calibrated_score
+    result.recommendation = calibrated_rec
 
     result.programmatic_match_score = programmatic_baseline
     if matched_skills_count is not None:
@@ -300,13 +330,27 @@ async def assess_job_posting(
             result.match_summary
             or result.summary
             or "Evaluation completed against candidate profile.",
-            "",
-            "## ✅ Hard Matches (Your Strengths)",
-            f"* **Keyword Match Rate:** {result.hard_matches.keyword_match_rate if result.hard_matches else f'{len(result.matching_skills)} core skills found'}",
-            f"* **Top Alignment:** {', '.join(result.hard_matches.top_alignment) if result.hard_matches and result.hard_matches.top_alignment else ', '.join(result.matching_skills[:3]) if result.matching_skills else 'Strong core profile alignment'}",
-            "",
-            "## ❌ Optimization Gaps (Strict Terminology Mismatches)",
         ]
+        if result.critical_risks:
+            report_lines.extend(
+                [
+                    "",
+                    "## ⚠️ Critical Hiring Risks & Recruiter Hesitations",
+                ]
+            )
+            for risk in result.critical_risks:
+                report_lines.append(f"* **Risk:** {risk}")
+
+        report_lines.extend(
+            [
+                "",
+                "## ✅ Hard Matches (Your Strengths)",
+                f"* **Keyword Match Rate:** {result.hard_matches.keyword_match_rate if result.hard_matches else f'{len(result.matching_skills)} core skills found'}",
+                f"* **Top Alignment:** {', '.join(result.hard_matches.top_alignment) if result.hard_matches and result.hard_matches.top_alignment else ', '.join(result.matching_skills[:3]) if result.matching_skills else 'Strong core profile alignment'}",
+                "",
+                "## ❌ Optimization Gaps (Strict Terminology Mismatches)",
+            ]
+        )
         if result.optimization_gaps:
             if result.optimization_gaps.missing_completely:
                 report_lines.append(

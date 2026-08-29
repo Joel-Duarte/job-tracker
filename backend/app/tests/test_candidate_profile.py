@@ -382,3 +382,65 @@ async def test_assess_job_posting_forwards_authoritative_candidate_profile(
         assert "Python, Go, Distributed Systems" in prompt_text
         assert "Distributed Systems (4.0 yrs)" in prompt_text
         assert "Authoritative Candidate Profile Priority" in prompt_text
+        assert "Technical Bar Raiser" in prompt_text
+        assert "Critical Risks" in prompt_text
+
+
+def test_calibrate_assessment_score_and_recommendation_bounds():
+    from app.services.llm import calibrate_assessment_score_and_recommendation
+
+    # 1. Baseline 40%, raw AI 95% -> Clamped to max 40 + 25 = 65% (STRETCH_ROLE)
+    score, rec = calibrate_assessment_score_and_recommendation(
+        raw_fit_score=95, programmatic_baseline=40, critical_risks=[]
+    )
+    assert score == 65
+    assert rec == "STRETCH_ROLE"
+
+    # 2. Baseline 80%, raw AI 95%, 0 risks -> 95% (APPLY_STRONGLY)
+    score, rec = calibrate_assessment_score_and_recommendation(
+        raw_fit_score=95, programmatic_baseline=80, critical_risks=[]
+    )
+    assert score == 95
+    assert rec == "APPLY_STRONGLY"
+
+    # 3. Baseline 80%, raw AI 95%, 2 critical risks -> 95%, but downgraded to STRETCH_ROLE
+    score, rec = calibrate_assessment_score_and_recommendation(
+        raw_fit_score=95,
+        programmatic_baseline=80,
+        critical_risks=["Missing Kubernetes in production", "Seniority gap"],
+    )
+    assert score == 95
+    assert rec == "STRETCH_ROLE"
+
+    # 4. Baseline 80%, raw AI 30% -> Clamped to min 80 - 25 = 55% (STRETCH_ROLE)
+    score, rec = calibrate_assessment_score_and_recommendation(
+        raw_fit_score=30, programmatic_baseline=80, critical_risks=[]
+    )
+    assert score == 55
+    assert rec == "STRETCH_ROLE"
+
+    # 5. Baseline None (0 JD skills), raw AI 90% -> Capped at 70% (APPLY_MODERATELY)
+    score, rec = calibrate_assessment_score_and_recommendation(
+        raw_fit_score=90, programmatic_baseline=None, critical_risks=[]
+    )
+    assert score == 70
+    assert rec == "APPLY_MODERATELY"
+
+    # 6. Baseline 90%, raw AI 95%, but UNDERQUALIFIED seniority -> Capped at 65% (STRETCH_ROLE)
+    score, rec = calibrate_assessment_score_and_recommendation(
+        raw_fit_score=95,
+        programmatic_baseline=90,
+        critical_risks=[],
+        seniority_fit="UNDERQUALIFIED",
+    )
+    assert score == 65
+    assert rec == "STRETCH_ROLE"
+
+    # 7. Low score < 50% -> DO_NOT_APPLY
+    score, rec = calibrate_assessment_score_and_recommendation(
+        raw_fit_score=35,
+        programmatic_baseline=30,
+        critical_risks=["Missing core stack"],
+    )
+    assert score == 35
+    assert rec == "DO_NOT_APPLY"

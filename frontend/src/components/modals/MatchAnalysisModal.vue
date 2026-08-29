@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   Check,
   AlertTriangle,
+  AlertOctagon,
   FileText
 } from 'lucide-vue-next'
 
@@ -106,6 +107,18 @@ const strategicCons = computed(() => {
     return analysisData.value.cons
   }
   return []
+})
+
+const criticalRisks = computed(() => {
+  if (!analysisData.value) return []
+  if (Array.isArray(analysisData.value.critical_risks) && analysisData.value.critical_risks.length) {
+    return analysisData.value.critical_risks
+  }
+  return []
+})
+
+const seniorityFit = computed(() => {
+  return analysisData.value?.seniority_fit || null
 })
 
 const matchingSkills = computed(() => {
@@ -303,6 +316,28 @@ function getFitLabel(score) {
               <span>Executive Summary</span>
             </h3>
             <p class="section-text">{{ summaryText }}</p>
+          </div>
+
+          <!-- Critical Hiring Risks & Recruiter Hesitations Warning Card -->
+          <div class="critical-risks-card" v-if="criticalRisks.length">
+            <div class="critical-risks-header">
+              <div class="risk-header-left">
+                <AlertOctagon :size="16" class="risk-icon" />
+                <span class="risk-title">Critical Risks &amp; Recruiter Hesitations</span>
+              </div>
+              <span class="seniority-tag" v-if="seniorityFit" :class="seniorityFit.toLowerCase()">
+                Seniority: {{ seniorityFit }}
+              </span>
+            </div>
+            <p class="risk-subtitle">
+              Skeptical hiring screener audit identified potential deal-breakers or friction points:
+            </p>
+            <ul class="risk-list">
+              <li v-for="(risk, idx) in criticalRisks" :key="idx">
+                <span class="risk-bullet"></span>
+                <span>{{ risk }}</span>
+              </li>
+            </ul>
           </div>
 
           <!-- Strategic Match Pros & Gaps Grid -->
@@ -899,5 +934,101 @@ function getFitLabel(score) {
 .gap-card {
   background-color: var(--status-interview-bg);
   border-color: var(--status-interview-border);
+}
+
+/* Critical Risks Warning Card */
+.critical-risks-card {
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.critical-risks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.risk-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.risk-icon {
+  color: #ef4444;
+  flex-shrink: 0;
+}
+
+.risk-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ef4444;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.seniority-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.seniority-tag.matches {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.seniority-tag.overqualified {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.risk-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.risk-list {
+  margin: 4px 0 0 0;
+  padding-left: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.risk-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-main);
+}
+
+.risk-bullet {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+  margin-top: 6px;
+  flex-shrink: 0;
 }
 </style>

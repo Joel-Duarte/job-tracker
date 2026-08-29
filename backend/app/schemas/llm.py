@@ -242,6 +242,14 @@ class JobAssessmentResult(BaseModel):
     cons: list[str] = Field(
         default_factory=list, description="Potential caveats or drawbacks"
     )
+    critical_risks: list[str] = Field(
+        default_factory=list,
+        description="Critical deal-breakers, major missing prerequisites, seniority deficits, or top recruiter hesitations",
+    )
+    seniority_fit: str | None = Field(
+        default=None,
+        description="Seniority alignment: MATCHES | UNDERQUALIFIED | OVERQUALIFIED",
+    )
     salary_min: float | None = Field(
         default=None, description="Minimum compensation if mentioned"
     )
