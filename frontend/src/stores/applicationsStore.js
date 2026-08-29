@@ -542,6 +542,7 @@ export const useApplicationsStore = defineStore('applications', () => {
     getAppActivityDate,
     fetchApplications,
     fetchApplicationDetail,
+    fetchApplication: fetchApplicationDetail,
     updateStatus,
     updateApplication,
     transitionApplication,

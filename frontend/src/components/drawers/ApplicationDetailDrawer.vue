@@ -121,7 +121,8 @@ async function handleDeleteEvent(event) {
     await EventsAPI.delete(event.id)
     uiStore.showToast('Event deleted successfully', 'info')
     if (appStore.selectedApplication?.id) {
-      await appStore.fetchApplication(appStore.selectedApplication.id)
+      await appStore.fetchApplicationDetail(appStore.selectedApplication.id)
+      await appStore.fetchApplications()
     }
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to delete event', 'error')
@@ -160,7 +161,7 @@ function openLogActivity() {
 
 async function onActivityLogged() {
   if (appStore.selectedApplication?.id) {
-    await appStore.fetchApplication(appStore.selectedApplication.id)
+    await appStore.fetchApplicationDetail(appStore.selectedApplication.id)
     await appStore.fetchApplications()
   }
 }
