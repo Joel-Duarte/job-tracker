@@ -2344,7 +2344,7 @@ onUnmounted(() => {
     <!-- TAB 2: AI PROVIDERS -->
     <div v-else-if="activeTab === 'providers'" class="tab-content animate-fade-in">
       <!-- USAGE & COST / CLOUD SAVINGS OVERVIEW CARD -->
-      <div class="section-card usage-overview-card mb-6">
+      <div class="section-card usage-overview-card">
         <div class="section-header-row">
           <div class="section-header-text">
             <div class="usage-title-badge-row">
@@ -3976,7 +3976,7 @@ onUnmounted(() => {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
 }
 
 /* Studio Layout */
@@ -6015,7 +6015,6 @@ input:checked + .slider:before {
 .usage-overview-card {
   background: var(--bg-card, #1e293b);
   border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
-  margin-bottom: 28px !important;
 }
 
 .usage-title-badge-row {
