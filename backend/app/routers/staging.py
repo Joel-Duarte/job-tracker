@@ -547,3 +547,27 @@ async def reject_staging_item(
         "status": "success",
         "message": f"Staging item {item_id} marked as REJECTED.",
     }
+
+
+@router.post("/{item_id}/reopen", response_model=StagingItemRead)
+async def reopen_staging_item(
+    item_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Reopens a PROCESSED or REJECTED staging item back to PENDING for re-triaging."""
+    stmt = select(StagingItemModel).where(StagingItemModel.id == item_id)
+    res = await db.execute(stmt)
+    staged_item = res.scalar_one_or_none()
+
+    if not staged_item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Staging item with ID {item_id} not found.",
+        )
+
+    staged_item.status = "PENDING"
+    staged_item.match_reason = "REOPENED_FOR_TRIAGE"
+    await db.commit()
+    await db.refresh(staged_item)
+
+    return StagingItemRead.model_validate(staged_item)

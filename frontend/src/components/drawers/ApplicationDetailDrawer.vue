@@ -44,6 +44,7 @@ import {
   ChevronDown,
   ChevronUp,
   Mail,
+  Inbox,
   Archive,
   ArchiveRestore,
 } from 'lucide-vue-next'
@@ -126,6 +127,25 @@ async function handleDeleteEvent(event) {
     uiStore.showToast(err.message || 'Failed to delete event', 'error')
   } finally {
     deletingEventId.value = null
+  }
+}
+
+const isMovingEventId = ref(null)
+
+async function handleMoveEventToStaging(event) {
+  if (!event || !event.id) return
+  isMovingEventId.value = event.id
+  try {
+    await EventsAPI.moveToStaging(event.id)
+    uiStore.showToast('Email event unlinked and moved to Staging Queue', 'info')
+    if (appStore.selectedApplication?.id) {
+      await appStore.fetchApplicationDetail(appStore.selectedApplication.id)
+      await appStore.fetchApplications()
+    }
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to move event to staging', 'error')
+  } finally {
+    isMovingEventId.value = null
   }
 }
 
@@ -1093,10 +1113,20 @@ function formatDate(isoStr) {
                       <div class="event-header-right">
                         <span class="event-date">{{ formatDate(event.email_received_at || event.created_at) }}</span>
                         <button
+                          v-if="event.id && isEmailEvent(event)"
+                          class="btn-staging-event"
+                          title="Unlink and move to Staging Queue"
+                          :disabled="isMovingEventId === event.id || deletingEventId === event.id"
+                          @click.stop="handleMoveEventToStaging(event)"
+                        >
+                          <Loader2 v-if="isMovingEventId === event.id" class="animate-spin" :size="12" />
+                          <Inbox v-else :size="12" />
+                        </button>
+                        <button
                           v-if="event.id"
                           class="btn-delete-event"
                           title="Delete this event"
-                          :disabled="deletingEventId === event.id"
+                          :disabled="deletingEventId === event.id || isMovingEventId === event.id"
                           @click.stop="handleDeleteEvent(event)"
                         >
                           <Loader2 v-if="deletingEventId === event.id" class="animate-spin" :size="12" />
@@ -1127,7 +1157,7 @@ function formatDate(isoStr) {
                       <span>Action Required: {{ event.email_action || 'Pending response' }}</span>
                     </div>
 
-                    <!-- View Email Action Button -->
+                    <!-- View Email & Staging Actions -->
                     <div
                       v-if="isEmailEvent(event)"
                       class="event-email-action-row"
@@ -1140,6 +1170,16 @@ function formatDate(isoStr) {
                         <Mail :size="12" />
                         <span>View Email</span>
                         <ExternalLink :size="11" class="btn-ext-icon" />
+                      </button>
+                      <button
+                        class="btn-timeline-staging"
+                        title="Unlink this email from this application and move back to Staging Queue for re-triaging"
+                        :disabled="isMovingEventId === event.id"
+                        @click.stop="handleMoveEventToStaging(event)"
+                      >
+                        <Loader2 v-if="isMovingEventId === event.id" class="animate-spin" :size="12" />
+                        <Inbox v-else :size="12" />
+                        <span>Move to Staging</span>
                       </button>
                     </div>
                   </div>
@@ -2555,6 +2595,30 @@ function formatDate(isoStr) {
   gap: 6px;
 }
 
+.btn-staging-event {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--radius-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+  opacity: 0.5;
+}
+
+.timeline-card:hover .btn-staging-event,
+.btn-staging-event:hover {
+  opacity: 1;
+}
+
+.btn-staging-event:hover {
+  color: var(--primary);
+  background-color: var(--primary-subtle);
+}
+
 .btn-delete-event {
   background: transparent;
   border: none;
@@ -3786,6 +3850,8 @@ function formatDate(isoStr) {
   border-top: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
   justify-content: flex-start;
 }
 
@@ -3808,6 +3874,27 @@ function formatDate(isoStr) {
   background-color: var(--primary);
   color: #ffffff;
   border-color: var(--primary);
+}
+
+.btn-timeline-staging {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-timeline-staging:hover {
+  background-color: var(--bg-hover);
+  color: var(--primary);
+  border-color: var(--primary-subtle);
 }
 
 .btn-ext-icon {

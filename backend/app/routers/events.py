@@ -1,14 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.models.applications import (
+    ActionItemModel,
     ApplicationEventModel,
     ApplicationModel,
     CompanyModel,
     OtherEventModel,
 )
+from app.models.staging import StagingItemModel
 from app.schemas.applications import ApplicationEventDetail
 from app.schemas.events import ActionItemSummary, OtherEventDetail, ResolveActionRequest
 
@@ -180,3 +183,100 @@ async def delete_event(
 
     await db.commit()
     return {"status": "success", "event_id": event_id}
+
+
+@router.post(
+    "/{event_id}/move-to-staging",
+    summary="Unlink an application email event and move it to the Staging Queue",
+)
+async def move_event_to_staging(
+    event_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Unlinks an email event from its application, removes associated action items,
+    and moves/restores it into the Staging queue with status PENDING for re-triaging.
+    """
+    stmt = (
+        select(ApplicationEventModel)
+        .where(ApplicationEventModel.id == event_id)
+        .options(
+            selectinload(ApplicationEventModel.application).selectinload(
+                ApplicationModel.company
+            )
+        )
+    )
+    result = await db.execute(stmt)
+    event = result.scalars().first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Application event not found")
+
+    app_id = event.email_application_id
+    app = event.application
+
+    # Check if a staging item already exists for this email
+    staged_item = None
+    if event.email_message_id:
+        st_stmt = select(StagingItemModel).where(
+            StagingItemModel.email_message_id == event.email_message_id
+        )
+        st_res = await db.execute(st_stmt)
+        staged_item = st_res.scalars().first()
+
+    if staged_item:
+        staged_item.status = "PENDING"
+        staged_item.match_reason = "UNLINKED_MANUALLY"
+    else:
+        extracted = event.raw_payload or {}
+        if app and app.company:
+            extracted.setdefault("company", app.company.name)
+        if app and app.position:
+            extracted.setdefault("position", app.position)
+        if event.email_summary:
+            extracted.setdefault("summary", event.email_summary)
+
+        staged_item = StagingItemModel(
+            email_message_id=event.email_message_id,
+            email_internet_message_id=event.email_internet_message_id,
+            email_conversation_id=event.email_conversation_id,
+            email_sender=event.email_sender,
+            email_sender_name=event.email_sender_name,
+            email_subject=event.email_subject,
+            email_received_at=event.email_received_at,
+            email_raw_body=event.email_raw_body,
+            extracted_data=extracted,
+            match_reason="UNLINKED_MANUALLY",
+            status="PENDING",
+        )
+        db.add(staged_item)
+
+    # Delete any pending action items associated with this event
+    act_stmt = select(ActionItemModel).where(ActionItemModel.event_id == event.id)
+    act_res = await db.execute(act_stmt)
+    for act in act_res.scalars().all():
+        await db.delete(act)
+
+    # Delete the event from application
+    await db.delete(event)
+    await db.flush()
+
+    # Recalculate application last_activity_at
+    if app:
+        rem_stmt = (
+            select(ApplicationEventModel.email_received_at)
+            .where(ApplicationEventModel.email_application_id == app_id)
+            .order_by(ApplicationEventModel.email_received_at.desc())
+        )
+        rem_res = await db.execute(rem_stmt)
+        latest_date = rem_res.scalars().first()
+        app.last_activity_at = latest_date or app.created_at
+
+    await db.commit()
+    await db.refresh(staged_item)
+
+    return {
+        "status": "success",
+        "message": "Event unlinked and moved to Staging Queue.",
+        "staging_item_id": staged_item.id,
+        "application_id": app_id,
+    }

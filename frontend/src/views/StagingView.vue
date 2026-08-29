@@ -549,6 +549,24 @@ async function executeDismissAllPending() {
   }
 }
 
+const isReopening = ref(false)
+
+async function handleReopenStagingItem(item) {
+  if (!item || !item.id) return
+  isReopening.value = true
+  try {
+    const res = await StagingAPI.reopen(item.id)
+    uiStore.showToast('Item reopened and moved to Pending Staging Queue', 'success')
+    selectedFilter.value = 'PENDING'
+    await fetchStagingItems(false, false)
+    selectedItemId.value = res.data?.id || item.id
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to reopen item', 'error')
+  } finally {
+    isReopening.value = false
+  }
+}
+
 watch(sortOrder, () => {
   fetchStagingItems(false, true)
 })
@@ -1065,13 +1083,25 @@ function formatRelativeTime(isoStr) {
                   <CheckCircle2 :size="15" class="text-success" />
                   <span><strong>Resolved Lead:</strong> This communication has been processed and saved to your pipeline.</span>
                 </div>
-                <div class="resolved-context-badges">
-                  <span class="badge-mini" :class="getEventTypeBadgeClass(getDetectedEventType(selectedItem))">
-                    {{ formatEventTypeLabel(getDetectedEventType(selectedItem)) }}
-                  </span>
-                  <span class="badge-mini badge-resolved-target">
-                    {{ getItemCompany(selectedItem) }} — {{ getItemPosition(selectedItem) }}
-                  </span>
+                <div class="resolved-context-actions">
+                  <div class="resolved-context-badges">
+                    <span class="badge-mini" :class="getEventTypeBadgeClass(getDetectedEventType(selectedItem))">
+                      {{ formatEventTypeLabel(getDetectedEventType(selectedItem)) }}
+                    </span>
+                    <span class="badge-mini badge-resolved-target">
+                      {{ getItemCompany(selectedItem) }} — {{ getItemPosition(selectedItem) }}
+                    </span>
+                  </div>
+                  <button
+                    class="btn-reopen-staging"
+                    title="Move back to Pending Queue to re-triage or link to another application"
+                    :disabled="isReopening"
+                    @click="handleReopenStagingItem(selectedItem)"
+                  >
+                    <Loader2 v-if="isReopening" class="animate-spin" :size="12" />
+                    <RotateCcw v-else :size="12" />
+                    <span>Reopen &amp; Re-triage</span>
+                  </button>
                 </div>
               </div>
 
@@ -2030,6 +2060,34 @@ function formatRelativeTime(isoStr) {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.resolved-context-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btn-reopen-staging {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-reopen-staging:hover {
+  background-color: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
 }
 
 .badge-resolved-target {

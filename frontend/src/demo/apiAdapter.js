@@ -689,15 +689,97 @@ export async function handleDemoRequest(config) {
   const stagingItemMatch = urlPath.match(/^\/staging\/([^/]+)$/)
   if (stagingItemMatch && method === 'delete') {
     const stageId = stagingItemMatch[1]
-    db.staging_items = (db.staging_items || []).filter((s) => s.id !== stageId)
+    db.staging_items = (db.staging_items || []).filter((s) => String(s.id) !== String(stageId))
     saveDemoDb(db)
     return ok({ message: 'Staging item deleted' })
   }
 
+  const stagingReopenMatch = urlPath.match(/^\/staging\/([^/]+)\/reopen$/)
+  if (stagingReopenMatch && method === 'post') {
+    const stageId = stagingReopenMatch[1]
+    const item = (db.staging_items || []).find((s) => String(s.id) === String(stageId))
+    if (!item) throw new Error('Staging item not found')
+    item.status = 'PENDING'
+    item.match_reason = 'REOPENED_FOR_TRIAGE'
+    saveDemoDb(db)
+    return ok(item)
+  }
+
   if (urlPath === '/staging/resolved' && method === 'delete') {
-    db.staging_items = (db.staging_items || []).filter((s) => s.status !== 'RESOLVED')
+    db.staging_items = (db.staging_items || []).filter((s) => s.status !== 'PROCESSED' && s.status !== 'RESOLVED')
     saveDemoDb(db)
     return ok({ message: 'Resolved staging items cleared' })
+  }
+
+  // Events endpoints
+  const eventMoveToStagingMatch = urlPath.match(/^\/events\/([^/]+)\/move-to-staging$/)
+  if (eventMoveToStagingMatch && method === 'post') {
+    const eventId = eventMoveToStagingMatch[1]
+    let foundEvent = null
+    let parentApp = null
+
+    for (const app of db.applications || []) {
+      const evIdx = (app.events || []).findIndex((e) => String(e.id) === String(eventId))
+      if (evIdx !== -1) {
+        foundEvent = app.events[evIdx]
+        parentApp = app
+        app.events.splice(evIdx, 1)
+        break
+      }
+    }
+
+    if (!foundEvent) {
+      throw new Error('Event not found')
+    }
+
+    // Remove associated action items
+    db.action_items = (db.action_items || []).filter((a) => String(a.event_id) !== String(eventId))
+
+    // Create or restore staging item
+    if (!db.staging_items) db.staging_items = []
+    let staged = db.staging_items.find((s) => s.email_message_id && s.email_message_id === foundEvent.email_message_id)
+    if (staged) {
+      staged.status = 'PENDING'
+      staged.match_reason = 'UNLINKED_MANUALLY'
+    } else {
+      staged = {
+        id: `stg_${Date.now()}`,
+        email_message_id: foundEvent.email_message_id || `msg_${Date.now()}`,
+        email_sender: foundEvent.email_sender || 'recruiter@company.com',
+        email_sender_name: foundEvent.email_sender_name || parentApp?.company?.name || 'Recruiter',
+        email_subject: foundEvent.email_subject || foundEvent.title || 'Recruitment Communication',
+        email_received_at: foundEvent.email_received_at || foundEvent.created_at || new Date().toISOString(),
+        email_raw_body: foundEvent.email_raw_body || foundEvent.description || '',
+        extracted_data: foundEvent.raw_payload || {
+          company: parentApp?.company?.name || '',
+          position: parentApp?.position || '',
+          summary: foundEvent.email_summary || foundEvent.description || '',
+        },
+        match_reason: 'UNLINKED_MANUALLY',
+        status: 'PENDING',
+        created_at: new Date().toISOString(),
+      }
+      db.staging_items.unshift(staged)
+    }
+
+    saveDemoDb(db)
+    return ok({
+      status: 'success',
+      message: 'Event unlinked and moved to Staging Queue.',
+      staging_item_id: staged.id,
+      application_id: parentApp?.id,
+    })
+  }
+
+  const eventDeleteMatch = urlPath.match(/^\/events\/([^/]+)$/)
+  if (eventDeleteMatch && method === 'delete') {
+    const eventId = eventDeleteMatch[1]
+    for (const app of db.applications || []) {
+      app.events = (app.events || []).filter((e) => String(e.id) !== String(eventId))
+    }
+    db.action_items = (db.action_items || []).filter((a) => String(a.event_id) !== String(eventId))
+    saveDemoDb(db)
+    return ok({ status: 'success', event_id: eventId })
   }
 
   // 6. DIAGNOSTICS & TELEMETRY

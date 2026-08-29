@@ -68,6 +68,7 @@ export const PromptsAPI = {
 export const StagingAPI = {
   list: (params = {}) => apiClient.get('/staging', { params }),
   resolve: (id, data) => apiClient.post(`/staging/${id}/resolve`, data),
+  reopen: (id) => apiClient.post(`/staging/${id}/reopen`),
   delete: (id) => apiClient.delete(`/staging/${id}`),
   bulkDismiss: (data) => apiClient.post('/staging/bulk-dismiss', data),
   clearResolved: (daysOlderThan = null) =>
@@ -155,5 +156,6 @@ export const InterviewSimulatorAPI = {
 
 export const EventsAPI = {
   delete: (id, source = 'application') => apiClient.delete(`/events/${id}`, { params: { source } }),
+  moveToStaging: (id) => apiClient.post(`/events/${id}/move-to-staging`),
 }
 
