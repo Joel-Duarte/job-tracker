@@ -22,6 +22,9 @@ import {
   DollarSign,
   Zap,
   TrendingUp,
+  ChevronDown,
+  ChevronUp,
+  BarChart3,
 } from 'lucide-vue-next'
 
 function formatTokens(val) {
@@ -36,6 +39,7 @@ const traces = ref([])
 const loading = ref(true)
 const loadingTraces = ref(false)
 const showErrorsOnly = ref(false)
+const isTaskBreakdownCollapsed = ref(false)
 const activeCategory = ref('all')
 const selectedStatus = ref('all') // 'all' | 'success' | 'error'
 const selectedTrace = ref(null)
@@ -259,34 +263,44 @@ onMounted(() => {
 
         <!-- Task Token & Cost Distribution Card -->
         <div v-if="stats?.task_token_breakdown && Object.keys(stats.task_token_breakdown).length > 0" class="section-card mb-6">
-          <div class="section-header-row mb-3">
+          <div class="section-header-row mb-3 flex items-center justify-between">
             <div class="section-header-text">
               <h3 class="flex items-center gap-2">
-                <Sparkles :size="16" class="text-primary" />
+                <BarChart3 :size="16" class="text-primary flex-shrink-0" />
                 <span>Token &amp; Cost Distribution by Task</span>
               </h3>
               <p class="text-xs text-muted">Telemetry breakdown across specialized AI pipelines and scrapers.</p>
             </div>
+            <button
+              class="btn btn-secondary btn-xs flex items-center gap-1.5"
+              @click="isTaskBreakdownCollapsed = !isTaskBreakdownCollapsed"
+            >
+              <span>{{ isTaskBreakdownCollapsed ? 'Show Breakdown' : 'Hide Breakdown' }}</span>
+              <ChevronDown v-if="isTaskBreakdownCollapsed" :size="13" />
+              <ChevronUp v-else :size="13" />
+            </button>
           </div>
 
-          <div class="task-breakdown-grid">
-            <div
-              v-for="(taskData, taskKey) in stats.task_token_breakdown"
-              :key="taskKey"
-              class="task-breakdown-pill"
-            >
-              <div class="task-pill-header">
-                <span class="task-pill-name font-medium">{{ taskKey }}</span>
-                <span class="badge badge-applied font-mono text-xs">{{ taskData.calls }} runs</span>
-              </div>
-              <div class="task-pill-body font-mono text-xs text-muted flex justify-between mt-1">
-                <span>⚡ {{ formatTokens(taskData.tokens) }} tokens</span>
-                <span v-if="taskData.cost_usd > 0" class="text-primary">${{ taskData.cost_usd.toFixed(4) }}</span>
-                <span v-else-if="taskData.savings_usd > 0" class="text-success">Saved ~${{ taskData.savings_usd.toFixed(4) }}</span>
-                <span v-else class="text-muted">$0.0000</span>
+          <transition name="accordion-fade">
+            <div v-show="!isTaskBreakdownCollapsed" class="task-breakdown-grid animate-fade-in">
+              <div
+                v-for="(taskData, taskKey) in stats.task_token_breakdown"
+                :key="taskKey"
+                class="task-breakdown-pill"
+              >
+                <div class="task-pill-header">
+                  <span class="task-pill-name font-medium" :title="taskKey">{{ taskKey }}</span>
+                  <span class="badge badge-applied font-mono text-xs flex-shrink-0">{{ taskData.calls }} runs</span>
+                </div>
+                <div class="task-pill-body font-mono text-xs text-muted flex justify-between items-center mt-2">
+                  <span class="token-count text-secondary font-medium">{{ formatTokens(taskData.tokens) }} tokens</span>
+                  <span v-if="taskData.cost_usd > 0" class="text-primary font-semibold">${{ taskData.cost_usd.toFixed(4) }}</span>
+                  <span v-else-if="taskData.savings_usd > 0" class="text-success font-semibold">Saved ~${{ taskData.savings_usd.toFixed(4) }}</span>
+                  <span v-else class="text-muted font-medium">$0.0000</span>
+                </div>
               </div>
             </div>
-          </div>
+          </transition>
         </div>
 
         <!-- Tracing Data Section -->
@@ -637,33 +651,48 @@ onMounted(() => {
 /* Task Breakdown Styles */
 .task-breakdown-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
   gap: 12px;
-  padding: 0 16px 16px 16px;
+  padding: 0 20px 20px 20px;
 }
 
 .task-breakdown-pill {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.06));
+  background: var(--bg-card, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
   border-radius: var(--radius-md, 8px);
-  padding: 10px 12px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
+  transition: all 0.2s ease;
+}
+
+.task-breakdown-pill:hover {
+  border-color: var(--primary);
+  background: rgba(59, 130, 246, 0.04);
 }
 
 .task-pill-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
+  min-width: 0;
 }
 
 .task-pill-name {
-  font-size: 0.8rem;
+  font-size: 0.82rem;
+  font-weight: 600;
   color: var(--text-main, #f8fafc);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+}
+
+.token-count {
+  font-size: 0.78rem;
+  letter-spacing: -0.01em;
 }
 
 /* Section Card */

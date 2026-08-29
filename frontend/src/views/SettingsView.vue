@@ -56,6 +56,7 @@ import {
   ArrowDown,
   ArrowUp,
   BarChart3,
+  Search,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -3205,32 +3206,35 @@ onUnmounted(() => {
     <!-- MODEL PRICING & BENCHMARK RATES MODAL -->
     <div v-if="isPricingModalOpen" class="modal-backdrop" @click.self="isPricingModalOpen = false">
       <div class="modal-card modal-lg animate-fade-in">
-        <div class="modal-header">
-          <div class="modal-title-group">
-            <h3 class="modal-title flex items-center gap-2">
-              <SlidersHorizontal :size="18" class="text-primary" />
-              <span>Model Pricing &amp; Benchmark Rates ($ / 1M Tokens)</span>
-            </h3>
-            <p class="text-xs text-muted mt-1">Configure standard comparison rates used for What-If provider simulations and cloud savings calculations.</p>
+        <div class="modal-header pricing-modal-header">
+          <div class="pricing-modal-title-wrap">
+            <div class="pricing-modal-title-row">
+              <SlidersHorizontal :size="18" class="text-primary flex-shrink-0" />
+              <h3 class="modal-title">Model Pricing &amp; Benchmark Rates ($ / 1M Tokens)</h3>
+            </div>
+            <p class="pricing-modal-subtitle">Configure standard comparison rates used for What-If provider simulations and cloud savings calculations.</p>
           </div>
           <button class="btn-close" @click="isPricingModalOpen = false">×</button>
         </div>
 
         <div class="modal-body">
-          <div class="pricing-modal-toolbar mb-3 flex items-center justify-between gap-3">
-            <input
-              v-model="pricingSearchQuery"
-              type="text"
-              placeholder="Search model or provider (e.g. gpt-4o, claude, gemini, local)..."
-              class="form-input search-input"
-            />
+          <div class="pricing-modal-toolbar mb-3">
+            <div class="pricing-search-wrap">
+              <Search :size="14" class="pricing-search-icon" />
+              <input
+                v-model="pricingSearchQuery"
+                type="text"
+                placeholder="Search model or provider..."
+                class="form-input pricing-search-input"
+              />
+            </div>
             <button
-              class="btn btn-secondary btn-sm flex-shrink-0"
+              class="btn btn-secondary btn-sm flex-shrink-0 flex items-center gap-1.5"
               @click="resetPricingRatesToDefaults"
               :disabled="loadingPricing"
               title="Reset all benchmark rates to standard published defaults"
             >
-              <RotateCcw :size="14" />
+              <RotateCcw :size="13" />
               <span>Reset Defaults</span>
             </button>
           </div>
@@ -6270,5 +6274,69 @@ input:checked + .slider:before {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.pricing-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px;
+}
+
+.pricing-modal-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.pricing-modal-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pricing-modal-title-row .modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.pricing-modal-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary, #94a3b8);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.pricing-modal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.pricing-search-wrap {
+  position: relative;
+  width: 50%;
+  min-width: 220px;
+  max-width: 320px;
+}
+
+.pricing-search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted, #94a3b8);
+  pointer-events: none;
+}
+
+.pricing-search-input {
+  width: 100%;
+  padding-left: 32px !important;
+  font-size: 0.84rem;
 }
 </style>
