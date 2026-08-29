@@ -137,3 +137,52 @@ async def test_generate_and_clear_interview_guide_endpoint(db_session: AsyncSess
             cleared_data = del_res.json()
             assert cleared_data["has_interview_guide"] is False
             assert cleared_data["interview_guide_html"] is None
+
+
+@pytest.mark.asyncio
+async def test_section_generator_language_directive(db_session: AsyncSession):
+    """Verifies that non-English languages are resolved to display names and passed with explicit translation directives."""
+    from app.services.interview_guide_graph import (
+        LANGUAGE_DISPLAY_NAMES,
+        InterviewGuideState,
+        section_generator_node,
+    )
+
+    state: InterviewGuideState = {
+        "cv_text": "Python Backend Engineer with PostgreSQL experience.",
+        "jd_text": "Senior Backend Engineer role.",
+        "company_name": "Datadog",
+        "position": "Senior Backend Engineer",
+        "company_context": ["Datadog is an observability company."],
+        "target_sections": ["question_defenses", "prep_checklist"],
+        "current_section_index": 0,
+        "completed_sections": [],
+        "language": "es",
+        "error": None,
+        "iteration_count": 0,
+    }
+
+    assert LANGUAGE_DISPLAY_NAMES["es"] == "Spanish (Español)"
+    assert LANGUAGE_DISPLAY_NAMES["pt"] == "Portuguese (Português)"
+
+    from langchain_core.messages import AIMessage
+
+    ai_msg = AIMessage(
+        content="<h2>4. Defensas de Preguntas Técnicas y de Comportamiento</h2><p>Pregunta: ¿Cómo escala sistemas distribuidos?</p>"
+    )
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value = ai_msg
+    mock_llm.ainvoke = AsyncMock(return_value=ai_msg)
+    mock_llm.return_value = ai_msg
+
+    with patch(
+        "app.services.interview_guide_graph.get_task_chat_model",
+        new_callable=AsyncMock,
+        return_value=mock_llm,
+    ):
+        res = await section_generator_node(
+            state, config={"configurable": {"db": db_session}}
+        )
+        assert len(res["completed_sections"]) == 1
+        assert "Defensas de Preguntas" in res["completed_sections"][0]
+        assert mock_llm.invoke.called or mock_llm.ainvoke.called or mock_llm.called

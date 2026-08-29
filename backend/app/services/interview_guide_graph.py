@@ -30,17 +30,27 @@ SECTION_DESCRIPTIONS = {
     ),
     "question_defenses": (
         "4. 🧠 Behavioral & Technical Question Defenses\n"
-        "- 4-6 high-probability technical & behavioral questions likely to be asked in the interview.\n"
+        "- 4-6 high-probability technical & behavioral questions likely to be asked in the interview (formulate both the questions and suggested answers/defense talking points in the target language).\n"
         "- Specific talking points, architectural concepts, or gap-mitigation strategies addressing any missing keywords or weaker areas."
     ),
     "interviewer_questions": (
         "5. 💬 High-Leverage Questions to Ask Interviewer\n"
-        "- 6-8 smart, insightful questions for recruiter screening and technical/hiring manager rounds that demonstrate high domain expertise."
+        "- 6-8 smart, insightful questions for recruiter screening and technical/hiring manager rounds written in the target language that demonstrate high domain expertise."
     ),
     "prep_checklist": (
         "6. ✅ Final Pre-Interview Checklist\n"
-        "- A concise, high-priority bullet list of critical items, metrics, and talking points to review 15 minutes before the interview."
+        "- A concise, high-priority bullet list of critical items, metrics, and talking points to review 15 minutes before the interview (written in the target language)."
     ),
+}
+
+LANGUAGE_DISPLAY_NAMES = {
+    "en": "English",
+    "pt": "Portuguese (Português)",
+    "es": "Spanish (Español)",
+    "de": "German (Deutsch)",
+    "fr": "French (Français)",
+    "it": "Italian (Italiano)",
+    "nl": "Dutch (Nederlands)",
 }
 
 
@@ -137,7 +147,8 @@ async def section_generator_node(
 
     section_key = target_sections[idx]
     section_desc = SECTION_DESCRIPTIONS.get(section_key, f"Section: {section_key}")
-    language = state.get("language", "en")
+    language_code = (state.get("language") or "en").strip()
+    language_name = LANGUAGE_DISPLAY_NAMES.get(language_code.lower(), language_code)
     company_name = state.get("company_name", "Target Company")
     position = state.get("position", "Target Role")
     company_context = "\n".join(state.get("company_context", []))
@@ -163,9 +174,11 @@ async def section_generator_node(
                     (
                         "human",
                         (
-                            f"Generate the following section in {language}:\n\n"
+                            f"Generate the following section entirely in {language_name}:\n\n"
                             f"{section_desc}\n\n"
-                            "Remember to output ONLY valid, clean HTML tags (e.g. <h2>, <p>, <strong>, <ul>, <li>, <blockquote>) with zero markdown code blocks or wrapper backticks."
+                            f"CRITICAL LANGUAGE DIRECTIVE: Every single heading, interview question, response, talking point, and checklist item MUST be written in {language_name}. "
+                            f"Do NOT leave questions or checklist items in English unless {language_name} is English. "
+                            "Output ONLY valid, clean HTML tags (e.g. <h2>, <h3>, <p>, <strong>, <ul>, <li>, <blockquote>) with zero markdown code blocks or wrapper backticks."
                         ),
                     ),
                 ]
@@ -174,7 +187,7 @@ async def section_generator_node(
             chain = prompt | llm
             res = await chain.ainvoke(
                 {
-                    "language": language,
+                    "language": language_name,
                     "company_name": company_name,
                     "position": position,
                     "company_context": company_context,
