@@ -327,3 +327,10 @@ class GenerateCoverLetterRequest(BaseModel):
     custom_instructions: str | None = Field(
         None, description="Optional custom instructions to guide cover letter drafting"
     )
+
+
+class ApplicationAnalyzeSpecRequest(BaseModel):
+    job_url: str | None = Field(None, description="URL to the job posting")
+    raw_description: str | None = Field(
+        None, description="Raw pasted job description text or specification markdown"
+    )

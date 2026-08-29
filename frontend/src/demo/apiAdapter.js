@@ -210,6 +210,85 @@ export async function handleDemoRequest(config) {
     })
   }
 
+  const analyzeSpecMatch = urlPath.match(/^\/applications\/([^/]+)\/analyze-spec$/)
+  if (analyzeSpecMatch && method === 'post') {
+    const appId = analyzeSpecMatch[1]
+    const app = (db.applications || []).find((a) => String(a.id) === String(appId))
+    const company = app?.company?.name || app?.company_name || 'Target Company'
+    const position = app?.position || 'Software Engineer'
+
+    if (app) {
+      if (data.job_url) app.job_url = data.job_url
+      app.match_score = 92
+      app.fit_score = 92
+      app.match_analysis_payload = {
+        match_score: 92,
+        fit_score: 92,
+        programmatic_match_score: 90,
+        recommendation: 'APPLY_STRONGLY',
+        seniority_fit: 'MATCHES',
+        critical_risks: [],
+        matching_skills: ['Distributed Systems', 'Python', 'FastAPI', 'PostgreSQL', 'Cloud Infrastructure'],
+        missing_skills: ['GraphQL'],
+        pros: ['Direct stack overlap', 'High performance systems track record'],
+        cons: ['GraphQL not prominently mentioned in CV'],
+        summary: `Strong technical match for ${position} at ${company} with core backend alignment.`,
+      }
+      app.job_posting = {
+        id: `jp_${Date.now()}`,
+        title: position,
+        description_markdown: data.raw_description || 'Extracted job specification description.',
+        salary_min: 170000,
+        salary_max: 220000,
+        currency: 'USD',
+        location: 'Remote',
+        work_model: 'Remote',
+        required_skills: ['Distributed Systems', 'Python', 'FastAPI', 'PostgreSQL', 'Cloud Infrastructure'],
+        source_url: data.job_url || app.job_url || '',
+        structured_spec: {
+          why_hiring: `Expanding backend platform infrastructure to support high scale microservices across ${company}.`,
+          what_you_will_build: 'Architect resilient data pipelines and distributed storage abstractions.',
+          responsibilities: [
+            'Design and implement high throughput distributed systems.',
+            'Collaborate with cross-functional product and infrastructure teams.',
+            'Maintain 99.99% availability and optimize low-latency query paths.',
+          ],
+          requirements: [
+            '5+ years building backend systems in Python, Go, or Rust.',
+            'Deep understanding of relational databases and distributed consensus.',
+            'Strong background in cloud architecture (AWS/GCP).',
+          ],
+          extracted_skills: ['Distributed Systems', 'Python', 'FastAPI', 'PostgreSQL', 'Cloud Infrastructure'],
+          compensation_text: '$170,000 – $220,000',
+          location_text: 'Remote',
+        },
+      }
+      saveDemoDb(db)
+    }
+
+    const newTask = {
+      id: `task_eval_${Date.now()}`,
+      task_type: 'APPLICATION_ASSESSMENT',
+      job_url: data.job_url || app?.job_url || '',
+      title_hint: `${company} - ${position}`,
+      status: 'COMPLETED',
+      stage: 'COMPLETE',
+      raw_text: data.raw_description || '',
+      error_message: null,
+      created_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+      result_json: {
+        target_application_id: appId,
+        is_direct_application: true,
+        company,
+        position,
+        match_score: 92,
+        fit_score: 92,
+      },
+    }
+    return ok(newTask)
+  }
+
   // 2. INTAKE & QUEUE ENDPOINTS
   if (urlPath === '/intake/paste' && method === 'post') {
     const newApp = {

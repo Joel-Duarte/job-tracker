@@ -23,6 +23,7 @@ from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.schemas.applications import (
     ActionItemDetail,
     AllowedApplicationStatus,
+    ApplicationAnalyzeSpecRequest,
     ApplicationByStatusResult,
     ApplicationDetailResponse,
     ApplicationEventDetail,
@@ -40,6 +41,7 @@ from app.schemas.applications import (
     GenerateInterviewGuideRequest,
     JobPostingDetail,
 )
+from app.schemas.intake import IntakeEvaluationTaskResponse
 from app.services.evaluation_worker import process_evaluation_task
 from app.services.interview_guide import (
     clear_interview_guide,
@@ -1262,3 +1264,80 @@ async def clear_app_interview_guide(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         )
+
+
+@router.post(
+    "/{application_id}/analyze-spec",
+    response_model=IntakeEvaluationTaskResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Trigger Job Spec extraction & match assessment for an existing application",
+)
+async def analyze_app_job_spec(
+    application_id: int,
+    payload: ApplicationAnalyzeSpecRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = (
+        select(ApplicationModel)
+        .where(ApplicationModel.id == application_id)
+        .options(
+            joinedload(ApplicationModel.company),
+            selectinload(ApplicationModel.job_posting),
+        )
+    )
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+
+    if not app:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
+        )
+
+    job_url_val = (
+        payload.job_url.strip() if payload.job_url and payload.job_url.strip() else None
+    ) or app.job_url
+    raw_desc_val = (
+        payload.raw_description.strip()
+        if payload.raw_description and payload.raw_description.strip()
+        else None
+    )
+
+    if not job_url_val and not raw_desc_val:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please provide a valid Job URL or Job Description text.",
+        )
+
+    if (
+        payload.job_url
+        and payload.job_url.strip()
+        and app.job_url != payload.job_url.strip()
+    ):
+        app.job_url = payload.job_url.strip()
+        await db.commit()
+
+    comp_name = app.company.name if app.company else "Company"
+    pos_name = app.position or "Position"
+
+    task_record = IntakeEvaluationTaskModel(
+        task_type="APPLICATION_ASSESSMENT",
+        job_url=job_url_val,
+        raw_text=raw_desc_val,
+        title_hint=f"{comp_name} - {pos_name}",
+        status="QUEUED",
+        stage="QUEUED",
+        result_json={
+            "target_application_id": app.id,
+            "is_direct_application": True,
+            "company": comp_name,
+            "position": pos_name,
+        },
+    )
+    db.add(task_record)
+    await db.commit()
+    await db.refresh(task_record)
+
+    background_tasks.add_task(process_evaluation_task, task_id=task_record.id)
+
+    return task_record

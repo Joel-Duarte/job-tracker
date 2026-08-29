@@ -1,14 +1,15 @@
 <script setup>
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
-import { ActionItemsAPI, ApplicationsAPI, EventsAPI } from '../../api/endpoints'
+import { ActionItemsAPI, ApplicationsAPI, EventsAPI, IntakeAPI } from '../../api/endpoints'
 import DateTimePicker from '../common/DateTimePicker.vue'
 import InterviewReaderModal from '../modals/InterviewReaderModal.vue'
 import LogActivityModal from '../modals/LogActivityModal.vue'
 import PostHireModal from '../modals/PostHireModal.vue'
+import MatchAnalysisModal from '../modals/MatchAnalysisModal.vue'
 import CompanyLogo from '../common/CompanyLogo.vue'
 
 import {
@@ -50,6 +51,7 @@ import {
 } from 'lucide-vue-next'
 import { renderEmailBody } from '../../utils/emailRenderer'
 import { getCurrencySymbol } from '../../utils/formatters'
+import { getFitScores } from '../../utils/fitScores'
 
 const uiStore = useUIStore()
 const router = useRouter()
@@ -389,6 +391,114 @@ watch(
     }
   }
 )
+
+// Match Analysis Modal State
+const isMatchModalOpen = ref(false)
+
+// Job Spec Intake / Analysis State
+const isAnalyzingSpec = ref(false)
+const specAnalysisStage = ref('FETCHING')
+const showReanalyzeForm = ref(false)
+const specForm = ref({
+  job_url: '',
+  raw_description: '',
+})
+let specPollTimer = null
+
+function stopSpecPolling() {
+  if (specPollTimer) {
+    clearInterval(specPollTimer)
+    specPollTimer = null
+  }
+}
+
+onUnmounted(() => {
+  stopSpecPolling()
+})
+
+watch(
+  () => appStore.selectedApplication?.id,
+  () => {
+    stopSpecPolling()
+    isAnalyzingSpec.value = false
+    showReanalyzeForm.value = false
+    if (appStore.selectedApplication) {
+      specForm.value.job_url = appStore.selectedApplication.job_url || ''
+      specForm.value.raw_description = ''
+    }
+  },
+  { immediate: true }
+)
+
+async function handleAnalyzeSpec() {
+  if (!appStore.selectedApplication) return
+  if (!(await uiStore.ensureAIReady())) return
+
+  const jobUrl = specForm.value.job_url.trim()
+  const rawDesc = specForm.value.raw_description.trim()
+
+  if (!jobUrl && !rawDesc) {
+    uiStore.showToast('Please provide a job URL or paste a job description', 'warning')
+    return
+  }
+
+  isAnalyzingSpec.value = true
+  specAnalysisStage.value = 'FETCHING'
+  stopSpecPolling()
+
+  try {
+    const res = await ApplicationsAPI.analyzeSpec(appStore.selectedApplication.id, {
+      job_url: jobUrl || undefined,
+      raw_description: rawDesc || undefined,
+    })
+
+    const task = res.data
+    if (task.status === 'COMPLETED') {
+      await appStore.fetchApplicationDetail(appStore.selectedApplication.id)
+      await appStore.fetchApplications()
+      isAnalyzingSpec.value = false
+      showReanalyzeForm.value = false
+      uiStore.showToast('Job spec & assessment generated successfully!', 'success')
+      return
+    }
+
+    if (task.status === 'FAILED') {
+      isAnalyzingSpec.value = false
+      uiStore.showToast(task.error_message || 'Job spec analysis failed', 'error')
+      return
+    }
+
+    // Start Polling Task
+    specAnalysisStage.value = task.stage || 'FETCHING'
+    specPollTimer = setInterval(async () => {
+      try {
+        const pollRes = await IntakeAPI.getEvaluation(task.id)
+        const updatedTask = pollRes.data
+        if (updatedTask.stage) {
+          specAnalysisStage.value = updatedTask.stage
+        }
+        if (updatedTask.status === 'COMPLETED') {
+          stopSpecPolling()
+          await appStore.fetchApplicationDetail(appStore.selectedApplication.id)
+          await appStore.fetchApplications()
+          isAnalyzingSpec.value = false
+          showReanalyzeForm.value = false
+          uiStore.showToast('Job spec & assessment generated successfully!', 'success')
+        } else if (updatedTask.status === 'FAILED' || updatedTask.status === 'CANCELLED') {
+          stopSpecPolling()
+          isAnalyzingSpec.value = false
+          uiStore.showToast(updatedTask.error_message || 'Job spec analysis failed', 'error')
+        }
+      } catch (pollErr) {
+        console.error('Error polling spec task:', pollErr)
+      }
+    }, 1500)
+  } catch (err) {
+    isAnalyzingSpec.value = false
+    stopSpecPolling()
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to start job spec analysis', 'error')
+  }
+}
 
 
 // Interview Guide state
@@ -1013,6 +1123,16 @@ function formatDate(isoStr) {
               <span>Applied {{ formatDate(appStore.selectedApplication.application_date || appStore.selectedApplication.created_at) }}</span>
             </div>
 
+            <div
+              v-if="appStore.selectedApplication.match_score !== null || appStore.selectedApplication.match_analysis_payload"
+              class="meta-item match-pill-btn"
+              title="View Match Assessment Report"
+              @click="isMatchModalOpen = true"
+            >
+              <Sparkles :size="13" class="text-primary" />
+              <span>Match: {{ getFitScores(appStore.selectedApplication).aiScore !== null ? Math.round(getFitScores(appStore.selectedApplication).aiScore) + '%' : (appStore.selectedApplication.match_score + '%') }}</span>
+            </div>
+
             <a
               v-if="appStore.selectedApplication.job_url"
               :href="appStore.selectedApplication.job_url"
@@ -1037,7 +1157,6 @@ function formatDate(isoStr) {
             </button>
 
             <button
-              v-if="appStore.selectedApplication.job_posting"
               class="tab-item"
               :class="{ active: activeTab === 'job_spec' }"
               @click="activeTab = 'job_spec'"
@@ -1198,7 +1317,72 @@ function formatDate(isoStr) {
 
             <!-- 2. JOB SPEC (Pure Structured Job Details) -->
             <div v-else-if="activeTab === 'job_spec'" class="job-spec-panel">
-              <div v-if="hasJobSpecData" class="spec-container">
+              <!-- 2a. Generation In-Progress State -->
+              <div v-if="isAnalyzingSpec" class="state-container generating-state animate-fade-in">
+                <div class="pulse-glow-ring">
+                  <Sparkles :size="36" class="text-primary animate-pulse" />
+                </div>
+                <h3 class="generating-title">Analyzing Job Specification &amp; Fit</h3>
+                <p class="generating-desc">
+                  AI agent is extracting requirements, skills, compensation signals, and evaluating candidate match...
+                </p>
+                <div class="generating-steps">
+                  <div
+                    class="gen-step"
+                    :class="{
+                      complete: ['EXTRACTING', 'ASSESSING', 'SAVING', 'COMPLETE'].includes(specAnalysisStage),
+                      active: specAnalysisStage === 'FETCHING' || specAnalysisStage === 'QUEUED',
+                    }"
+                  >
+                    <Check v-if="['EXTRACTING', 'ASSESSING', 'SAVING', 'COMPLETE'].includes(specAnalysisStage)" :size="14" />
+                    <Loader2 v-else-if="specAnalysisStage === 'FETCHING' || specAnalysisStage === 'QUEUED'" :size="14" class="animate-spin" />
+                    <Globe v-else :size="14" />
+                    <span>Fetching job posting content</span>
+                  </div>
+                  <div
+                    class="gen-step"
+                    :class="{
+                      complete: ['ASSESSING', 'SAVING', 'COMPLETE'].includes(specAnalysisStage),
+                      active: specAnalysisStage === 'EXTRACTING',
+                      pending: ['FETCHING', 'QUEUED'].includes(specAnalysisStage),
+                    }"
+                  >
+                    <Check v-if="['ASSESSING', 'SAVING', 'COMPLETE'].includes(specAnalysisStage)" :size="14" />
+                    <Loader2 v-else-if="specAnalysisStage === 'EXTRACTING'" :size="14" class="animate-spin" />
+                    <Layers v-else :size="14" />
+                    <span>Extracting structured spec, role signals &amp; skills</span>
+                  </div>
+                  <div
+                    class="gen-step"
+                    :class="{
+                      complete: ['SAVING', 'COMPLETE'].includes(specAnalysisStage),
+                      active: specAnalysisStage === 'ASSESSING',
+                      pending: ['FETCHING', 'EXTRACTING', 'QUEUED'].includes(specAnalysisStage),
+                    }"
+                  >
+                    <Check v-if="['SAVING', 'COMPLETE'].includes(specAnalysisStage)" :size="14" />
+                    <Loader2 v-else-if="specAnalysisStage === 'ASSESSING'" :size="14" class="animate-spin" />
+                    <Sparkles v-else :size="14" />
+                    <span>Evaluating candidate fit &amp; match report</span>
+                  </div>
+                  <div
+                    class="gen-step"
+                    :class="{
+                      complete: specAnalysisStage === 'COMPLETE',
+                      active: specAnalysisStage === 'SAVING',
+                      pending: ['FETCHING', 'EXTRACTING', 'ASSESSING', 'QUEUED'].includes(specAnalysisStage),
+                    }"
+                  >
+                    <Check v-if="specAnalysisStage === 'COMPLETE'" :size="14" />
+                    <Loader2 v-else-if="specAnalysisStage === 'SAVING'" :size="14" class="animate-spin" />
+                    <CheckCircle2 v-else :size="14" />
+                    <span>Finalizing application records</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 2b. Has Job Spec Data -->
+              <div v-else-if="hasJobSpecData" class="spec-container">
                 <!-- Overview Metadata Cards -->
                 <div class="spec-grid">
                   <!-- Compensation Card -->
@@ -1419,9 +1603,131 @@ function formatDate(isoStr) {
                     <div class="job-spec-body" v-html="renderMarkdownText(sec.content)"></div>
                   </div>
                 </div>
+
+                <!-- Re-analyze / Update Spec Section at Bottom -->
+                <div class="spec-reanalyze-section">
+                  <button
+                    v-if="!showReanalyzeForm"
+                    class="btn btn-ghost btn-sm text-secondary reanalyze-trigger-btn"
+                    @click="showReanalyzeForm = true"
+                  >
+                    <RotateCcw :size="13" />
+                    <span>Re-analyze / Update Job Spec</span>
+                  </button>
+
+                  <div v-else class="reanalyze-form-card animate-fade-in">
+                    <div class="reanalyze-header">
+                      <div class="reanalyze-title">
+                        <RotateCcw :size="14" class="text-primary" />
+                        <span>Update Job Spec &amp; Re-analyze</span>
+                      </div>
+                      <button class="btn-icon btn-sm" @click="showReanalyzeForm = false" title="Cancel">
+                        <X :size="14" />
+                      </button>
+                    </div>
+
+                    <div class="form-group">
+                      <label class="input-label">
+                        <Globe :size="12" />
+                        <span>Job Posting URL</span>
+                      </label>
+                      <input
+                        v-model="specForm.job_url"
+                        type="url"
+                        placeholder="https://jobs.example.com/..."
+                        class="form-input form-input-sm"
+                        :disabled="isAnalyzingSpec"
+                      />
+                    </div>
+
+                    <div class="form-group">
+                      <label class="input-label">
+                        <FileText :size="12" />
+                        <span>Job Description Text</span>
+                      </label>
+                      <textarea
+                        v-model="specForm.raw_description"
+                        rows="4"
+                        placeholder="Paste updated job description markdown or text..."
+                        class="form-textarea form-textarea-sm"
+                        :disabled="isAnalyzingSpec"
+                      ></textarea>
+                    </div>
+
+                    <div class="reanalyze-actions">
+                      <button
+                        class="btn btn-primary btn-sm"
+                        :disabled="isAnalyzingSpec || (!specForm.job_url.trim() && !specForm.raw_description.trim())"
+                        @click="handleAnalyzeSpec"
+                      >
+                        <Sparkles :size="13" />
+                        <span>Re-generate Spec &amp; Assessment</span>
+                      </button>
+                      <button
+                        class="btn btn-secondary btn-sm"
+                        @click="showReanalyzeForm = false"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div v-else class="empty-state">
-                No job specification details available for this application.
+
+              <!-- 2c. Empty State Intake Form -->
+              <div v-else class="spec-intake-card animate-fade-in">
+                <div class="spec-intake-header">
+                  <div class="spec-intake-icon-wrap">
+                    <Sparkles :size="24" class="text-primary" />
+                  </div>
+                  <div class="spec-intake-text">
+                    <h3 class="spec-intake-title">No Job Specification Available</h3>
+                    <p class="spec-intake-desc">
+                      Provide the job posting URL or paste the job description below to extract structured requirements, compensation, and generate your candidate fit assessment.
+                    </p>
+                  </div>
+                </div>
+
+                <div class="spec-form">
+                  <div class="form-group">
+                    <label class="input-label">
+                      <Globe :size="13" />
+                      <span>Job Posting URL</span>
+                    </label>
+                    <input
+                      v-model="specForm.job_url"
+                      type="url"
+                      placeholder="https://jobs.lever.co/company/..."
+                      class="form-input"
+                      :disabled="isAnalyzingSpec"
+                    />
+                  </div>
+
+                  <div class="form-group">
+                    <label class="input-label">
+                      <FileText :size="13" />
+                      <span>Job Description Text (Optional if URL provided)</span>
+                    </label>
+                    <textarea
+                      v-model="specForm.raw_description"
+                      rows="5"
+                      placeholder="Paste the full job posting description text here..."
+                      class="form-textarea"
+                      :disabled="isAnalyzingSpec"
+                    ></textarea>
+                  </div>
+
+                  <div class="spec-form-actions">
+                    <button
+                      class="btn btn-primary"
+                      :disabled="isAnalyzingSpec || (!specForm.job_url.trim() && !specForm.raw_description.trim())"
+                      @click="handleAnalyzeSpec"
+                    >
+                      <Sparkles :size="14" />
+                      <span>Generate Assessment &amp; Job Spec</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -2091,6 +2397,12 @@ function formatDate(isoStr) {
       </div>
     </div>
   </Transition>
+
+  <MatchAnalysisModal
+    :is-open="isMatchModalOpen"
+    :application-id="appStore.selectedApplication?.id"
+    @close="isMatchModalOpen = false"
+  />
 
 </template>
 
@@ -3843,6 +4155,158 @@ function formatDate(isoStr) {
 
 .job-spec-body :deep(.jd-list li) {
   list-style-type: disc;
+}
+
+/* MATCH PILL BUTTON IN STATUS BAR */
+.match-pill-btn {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  background-color: var(--primary-subtle);
+  border: 1px solid var(--primary-glow);
+  color: var(--primary);
+  font-weight: 600;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+.match-pill-btn:hover {
+  background-color: var(--primary);
+  color: #ffffff;
+}
+
+.match-pill-btn:hover .text-primary {
+  color: #ffffff !important;
+}
+
+/* JOB SPEC INTAKE CARD */
+.spec-intake-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.spec-intake-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.spec-intake-icon-wrap {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background-color: var(--primary-subtle);
+  border: 1px solid var(--primary-glow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.spec-intake-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.spec-intake-title {
+  font-family: var(--font-heading);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.spec-intake-desc {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.spec-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.spec-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+/* RE-ANALYZE SPEC SECTION */
+.spec-reanalyze-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reanalyze-trigger-btn {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface);
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.reanalyze-trigger-btn:hover {
+  background-color: var(--bg-card);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.reanalyze-form-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reanalyze-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 8px;
+}
+
+.reanalyze-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.reanalyze-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 /* TIMELINE EMAIL ACTION BUTTON */

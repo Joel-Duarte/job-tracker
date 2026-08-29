@@ -190,13 +190,20 @@ async function bulkArchive() {
   selectedTaskIds.value.clear()
 }
 
+function isDirectApplicationTask(task) {
+  if (!task) return false
+  if (task.task_type === 'APPLICATION_ASSESSMENT') return true
+  if (task.result_json?.target_application_id || task.result_json?.is_direct_application) return true
+  return false
+}
+
 const activeQueueTasks = computed(() =>
-  evaluationTasks.value.filter((t) => ['QUEUED', 'PROCESSING'].includes(t.status))
+  evaluationTasks.value.filter((t) => ['QUEUED', 'PROCESSING'].includes(t.status) && !isDirectApplicationTask(t))
 )
 
 const allCompletedTasks = computed(() =>
   evaluationTasks.value.filter(
-    (t) => (t.task_type === 'JOB_ASSESSMENT' || !t.task_type) && t.status === 'COMPLETED' && t.result_json
+    (t) => (t.task_type === 'JOB_ASSESSMENT' || !t.task_type) && !isDirectApplicationTask(t) && t.status === 'COMPLETED' && t.result_json
   )
 )
 

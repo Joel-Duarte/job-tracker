@@ -14,6 +14,7 @@ export const ApplicationsAPI = {
   generateCoverLetter: (id, data = {}) => apiClient.post(`/applications/${id}/cover-letter/generate`, data),
   updateCoverLetter: (id, data) => apiClient.patch(`/applications/${id}/cover-letter`, data),
   regenerateCoverLetter: (id, data = {}) => apiClient.post(`/applications/${id}/cover-letter/regenerate`, data),
+  analyzeSpec: (id, data = {}) => apiClient.post(`/applications/${id}/analyze-spec`, data),
 }
 
 export const IntakeAPI = {
@@ -25,6 +26,7 @@ export const IntakeAPI = {
   assessJob: (data) => apiClient.post('/intake/assess-job', data),
   enqueueAssessment: (data) => apiClient.post('/intake/enqueue-assessment', data),
   getEvaluations: (limit = 50) => apiClient.get('/intake/evaluations', { params: { limit } }),
+  getEvaluation: (taskId) => apiClient.get(`/intake/evaluations/${taskId}`),
   deleteEvaluation: (taskId) => apiClient.delete(`/intake/evaluations/${taskId}`),
   cancelEvaluation: (taskId) => apiClient.post(`/intake/evaluations/${taskId}/cancel`),
   retryEvaluation: (taskId) => apiClient.post(`/intake/evaluations/${taskId}/retry`),

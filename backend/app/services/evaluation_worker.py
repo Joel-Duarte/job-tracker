@@ -656,8 +656,11 @@ async def _execute_evaluation_steps(
                 ctx["outputs"] = {"status": task.status, "stage": task.stage}
                 return
 
-            # Lightweight Keyword Filtering Validation
-            if not validate_job_content(content, min_matches=2):
+            # Lightweight Keyword Filtering Validation (only for scraped pages, skipped if user explicitly provided the JD text)
+            is_user_provided_text = bool(task.raw_text and task.raw_text.strip())
+            if not is_user_provided_text and not validate_job_content(
+                content, min_matches=2
+            ):
                 task.status = "FAILED"
                 task.stage = "FAILED"
                 task.error_message = "INVALID_JOB_CONTENT: Scraped page does not appear to be a job description."
@@ -803,7 +806,9 @@ async def _execute_evaluation_steps(
             await db.commit()
 
             target_app_id = current_json.get("target_application_id")
-            skip_cover_letter = current_json.get("skip_cover_letter", False)
+            skip_cover_letter = current_json.get(
+                "skip_cover_letter", bool(target_app_id)
+            )
 
             # Persist to database
             save_result = await persist_or_stage_job_assessment(
@@ -911,6 +916,9 @@ async def _execute_evaluation_steps(
                     f"Cover letter generation skipped (auto_enabled={enable_auto}, "
                     f"score={score_pct:.1f}%, threshold={threshold}%)"
                 )
+            if target_app_id:
+                result_payload["target_application_id"] = target_app_id
+                result_payload["is_direct_application"] = True
             task.result_json = result_payload
             task.title_hint = f"{assessment.company} - {assessment.position}"
             task.completed_at = datetime.now(UTC)
@@ -981,11 +989,12 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
                 return
 
             task_type = task.task_type or "JOB_ASSESSMENT"
-            target_binding_type = (
-                "EMAIL_EXTRACTION"
-                if task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]
-                else task_type
-            )
+            if task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]:
+                target_binding_type = "EMAIL_EXTRACTION"
+            elif task_type in ["APPLICATION_ASSESSMENT"]:
+                target_binding_type = "JOB_ASSESSMENT"
+            else:
+                target_binding_type = task_type
 
             binding_stmt = (
                 select(AITaskBindingModel, AIProviderModel)
@@ -1047,11 +1056,12 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
                 return
 
             task_type = task.task_type or "JOB_ASSESSMENT"
-            target_binding_type = (
-                "EMAIL_EXTRACTION"
-                if task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]
-                else task_type
-            )
+            if task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]:
+                target_binding_type = "EMAIL_EXTRACTION"
+            elif task_type in ["APPLICATION_ASSESSMENT"]:
+                target_binding_type = "JOB_ASSESSMENT"
+            else:
+                target_binding_type = task_type
 
             # 1. Resolve Provider and Concurrency Limit for this task_type (or GLOBAL_DEFAULT)
             binding_stmt = (

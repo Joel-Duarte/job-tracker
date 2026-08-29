@@ -1050,6 +1050,25 @@ async def list_evaluation_tasks(
     return list(res.scalars().all())
 
 
+@router.get(
+    "/evaluations/{task_id}",
+    response_model=IntakeEvaluationTaskResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_evaluation_task(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> IntakeEvaluationTaskResponse:
+    """Retrieves single evaluation task by ID."""
+    task = await db.get(IntakeEvaluationTaskModel, task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Evaluation task {task_id} not found.",
+        )
+    return task
+
+
 @router.delete(
     "/evaluations/{task_id}",
     status_code=status.HTTP_200_OK,
