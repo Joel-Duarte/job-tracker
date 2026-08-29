@@ -255,10 +255,7 @@ async def assess_job_posting(
     """
     llm = await get_task_chat_model(db, task_type="ASSESSMENT", temperature=0.2)
     structured_llm = llm.with_structured_output(
-        JobAssessmentResult,
-        method="json_mode"
-        if "anthropic" in type(llm).__name__.lower()
-        else "function_calling",
+        JobAssessmentResult, method="json_schema"
     )
 
     template_str = await get_prompt_template(db, "assessment")
