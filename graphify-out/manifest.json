@@ -300,9 +300,9 @@
     "semantic_hash": "68d9757ac730daea27f756df22b7b594"
   },
   "backend/app/routers/staging.py": {
-    "mtime": 1787962308.1799908,
-    "seen": 1787962470.3664603,
-    "ast_hash": "c90793769341ce952d6be388eaced625",
+    "mtime": 1787965579.908334,
+    "seen": 1787965660.4314096,
+    "ast_hash": "1314fced114f9b184300adeab9fac436",
     "semantic_hash": ""
   },
   "backend/app/routers/system_settings.py": {
@@ -1194,9 +1194,9 @@
     "semantic_hash": "d19dc568727ff81421ec25c499483dc4"
   },
   "frontend/src/views/StagingView.vue": {
-    "mtime": 1787962735.1080644,
-    "seen": 1787962795.7460158,
-    "ast_hash": "f1bca7ad6265f7447f31f6770ae18974",
+    "mtime": 1787965578.087406,
+    "seen": 1787965660.4316947,
+    "ast_hash": "c71ecdd4c4e863b51406755cd51c4ee8",
     "semantic_hash": ""
   },
   "frontend/vite.config.js": {

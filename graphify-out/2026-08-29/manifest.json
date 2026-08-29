@@ -60,10 +60,10 @@
     "semantic_hash": "b1b9591f0bec7704e9c267871945e864"
   },
   "backend/app/core/database.py": {
-    "mtime": 1787613983.272494,
-    "seen": 1787875053.7691445,
-    "ast_hash": "abc4b360982ffe77bd24a04233321144",
-    "semantic_hash": "abc4b360982ffe77bd24a04233321144"
+    "mtime": 1787965159.2099493,
+    "seen": 1787965194.8518727,
+    "ast_hash": "dc0a5b60215cc9ba991fa09031cbfef4",
+    "semantic_hash": ""
   },
   "backend/app/core/embeddings.py": {
     "mtime": 1786897552.793857,
@@ -1152,9 +1152,9 @@
     "semantic_hash": ""
   },
   "frontend/src/views/CandidateProfileView.vue": {
-    "mtime": 1787964279.5247362,
-    "seen": 1787964613.8057346,
-    "ast_hash": "35f893f94e09712d054b7761e2d60e49",
+    "mtime": 1787965170.2925112,
+    "seen": 1787965194.8521845,
+    "ast_hash": "2ac84d2182524d221cd41a88c55eab90",
     "semantic_hash": ""
   },
   "frontend/src/views/DiagnosticsView.vue": {
