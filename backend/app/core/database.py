@@ -186,6 +186,12 @@ async def ensure_db_schema() -> None:
                             "ALTER TABLE candidate_cvs ADD COLUMN spoken_languages JSONB NOT NULL DEFAULT '[]'::jsonb;"
                         )
                     )
+                if "is_active" in cols:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE candidate_cvs DROP COLUMN IF EXISTS is_active;"
+                        )
+                    )
 
         await conn.run_sync(_sync_schema_columns)
 

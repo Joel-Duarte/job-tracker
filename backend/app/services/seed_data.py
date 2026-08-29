@@ -236,7 +236,6 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             {"language": "Spanish", "proficiency": "Working Proficiency (B2)"},
         ],
         summary="Senior / Staff Distributed Systems Engineer specializing in Python, FastAPI, and real-time backend architectures.",
-        is_active=True,
     )
     session.add(cv)
     stats["candidate_cvs"] = 1

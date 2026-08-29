@@ -98,7 +98,6 @@ class CandidateCVResponse(BaseModel):
     core_competencies: list[str] = Field(default_factory=list)
     spoken_languages: list[SpokenLanguageItem] = Field(default_factory=list)
     summary: str | None = None
-    is_active: bool
     created_at: datetime
     updated_at: datetime
 

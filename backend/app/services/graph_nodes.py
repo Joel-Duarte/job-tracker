@@ -752,18 +752,10 @@ async def cover_letter_node(
                 pass
 
     if enable_auto and score_pct >= threshold:
-        # Fetch active candidate CV
-        cv_stmt = (
-            select(CandidateCVModel)
-            .where(CandidateCVModel.is_active.is_(True))
-            .limit(1)
-        )
+        # Fetch candidate CV
+        cv_stmt = select(CandidateCVModel).limit(1)
         cv_res = await db.execute(cv_stmt)
         active_cv = cv_res.scalars().first()
-        if not active_cv:
-            cv_stmt_fallback = select(CandidateCVModel).limit(1)
-            cv_res_fallback = await db.execute(cv_stmt_fallback)
-            active_cv = cv_res_fallback.scalars().first()
 
         cv_text = (active_cv.anonymized_text or active_cv.raw_text) if active_cv else ""
 

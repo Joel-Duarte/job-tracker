@@ -176,7 +176,6 @@ async def test_cover_letter_node_generates_when_above_threshold(db_session):
     # Setup active CV
     cv = CandidateCVModel(
         raw_text="Experienced Software Engineer with Python and FastAPI experience.",
-        is_active=True,
     )
     db_session.add(cv)
 

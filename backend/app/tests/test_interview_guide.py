@@ -82,7 +82,6 @@ async def test_generate_and_clear_interview_guide_endpoint(db_session: AsyncSess
         raw_text="Staff Engineer with 8 years building distributed payment APIs.",
         anonymized_text="Staff Engineer with 8 years building distributed payment APIs.",
         extracted_skills=["Python", "PostgreSQL", "Distributed Systems", "FastAPI"],
-        is_active=True,
     )
     db_session.add(cv)
     await db_session.commit()

@@ -82,17 +82,9 @@ async def _execute_cover_letter_steps(
             return
 
         # Fetch Candidate CV
-        cv_stmt = (
-            select(CandidateCVModel)
-            .where(CandidateCVModel.is_active.is_(True))
-            .limit(1)
-        )
+        cv_stmt = select(CandidateCVModel).limit(1)
         cv_res = await db.execute(cv_stmt)
         active_cv = cv_res.scalars().first()
-        if not active_cv:
-            cv_stmt_fallback = select(CandidateCVModel).limit(1)
-            cv_res_fallback = await db.execute(cv_stmt_fallback)
-            active_cv = cv_res_fallback.scalars().first()
 
         cv_text = (active_cv.anonymized_text or active_cv.raw_text) if active_cv else ""
         company_name = app.company.name if app.company else ""
@@ -281,7 +273,6 @@ async def _execute_cv_extraction_steps(
             core_competencies=extracted_data.get("core_competencies") or [],
             spoken_languages=raw_spoken_languages,
             summary=extracted_data.get("summary"),
-            is_active=True,
         )
         db.add(cv_record)
         await db.commit()
@@ -833,17 +824,9 @@ async def _execute_evaluation_steps(
                     task.stage = "COVER_LETTER"
                     await db.commit()
                     try:
-                        cv_stmt = (
-                            select(CandidateCVModel)
-                            .where(CandidateCVModel.is_active.is_(True))
-                            .limit(1)
-                        )
+                        cv_stmt = select(CandidateCVModel).limit(1)
                         cv_res = await db.execute(cv_stmt)
                         active_cv = cv_res.scalars().first()
-                        if not active_cv:
-                            cv_stmt_fb = select(CandidateCVModel).limit(1)
-                            cv_res_fb = await db.execute(cv_stmt_fb)
-                            active_cv = cv_res_fb.scalars().first()
 
                         cv_text = (
                             (active_cv.anonymized_text or active_cv.raw_text)

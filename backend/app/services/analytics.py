@@ -45,8 +45,8 @@ async def get_analytics_overview(
     rows = []
 
     try:
-        # 1. Fetch the active candidate CV to get extracted_skills
-        cv_query = select(CandidateCVModel).where(CandidateCVModel.is_active).limit(1)
+        # 1. Fetch the candidate CV to get extracted_skills
+        cv_query = select(CandidateCVModel).limit(1)
         cv_result = await db.execute(cv_query)
         cv = cv_result.scalar_one_or_none()
         candidate_skills = set(
