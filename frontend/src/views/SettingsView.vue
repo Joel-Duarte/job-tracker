@@ -5497,7 +5497,7 @@ onUnmounted(() => {
   border: 1px solid var(--primary);
   border-radius: var(--radius-md);
   padding: 20px;
-  margin-bottom: 24px;
+  margin-bottom: 0;
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
   width: 100%;
 }
@@ -5568,7 +5568,7 @@ onUnmounted(() => {
 
 .advanced-overrides-section {
   margin-top: 0;
-  margin-bottom: 24px;
+  margin-bottom: 0;
 }
 
 .advanced-toggle-btn {
@@ -5679,7 +5679,7 @@ onUnmounted(() => {
 
 .advanced-overrides-section {
   margin-top: 0;
-  margin-bottom: 24px;
+  margin-bottom: 0;
   width: 100%;
 }
 
