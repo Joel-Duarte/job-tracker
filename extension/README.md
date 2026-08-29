@@ -85,8 +85,8 @@ Depending on how you run Job Tracker, configure the **Job Tracker App URL** in t
 
 | Deployment Mode | Recommended URL | Description |
 | :--- | :--- | :--- |
-| **Development (`./dev.sh`)** | `http://localhost:5173` | Proxies through Vite dev server with Hot Module Reloading |
-| **Production (`./prod.sh`)** | `http://localhost:4173` | Production Nginx web server reverse proxy |
+| **Development (`./jt dev`)** | `http://localhost:5173` | Proxies through Vite dev server with Hot Module Reloading |
+| **Production (`./jt start`)** | `http://localhost:4173` | Production Nginx web server reverse proxy |
 
 ---
 

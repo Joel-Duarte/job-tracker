@@ -162,7 +162,7 @@ docker compose pull
 echo 2. Rebuilding and starting containers...
 docker compose up -d --build %1 %2 %3 %4 %5 %6 %7 %8 %9
 echo 3. Applying database migrations (Alembic)...
-docker compose exec -T backend python -m alembic upgrade head 2>nul || docker compose exec -T backend uv run alembic upgrade head 2>nul || echo [WARN] Migration step finished.
+docker compose exec -T backend alembic upgrade head || docker compose exec -T backend python -m alembic upgrade head || echo [WARN] Migration step skipped or failed.
 echo.
 echo ================================================================================
 echo  Job Tracker successfully updated and database migrations applied!

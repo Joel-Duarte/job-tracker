@@ -889,6 +889,37 @@ export const INITIAL_MOCK_DATA = {
     }
   ],
 
+  providers: [
+    {
+      id: "prov_demo_1",
+      name: "Local LM Studio",
+      provider_type: "openai",
+      base_url: "http://192.168.1.187:1234/v1",
+      api_key_masked: "Not Required / Local",
+      max_concurrency: 1,
+      is_active: true,
+      is_fallback: false,
+      input_cost_per_million: 0.00,
+      output_cost_per_million: 0.00,
+      created_at: new Date(Date.now() - 86400000 * 30).toISOString(),
+      updated_at: new Date(Date.now() - 86400000 * 1).toISOString(),
+    },
+    {
+      id: "prov_demo_2",
+      name: "Anthropic Claude (Backup)",
+      provider_type: "anthropic",
+      base_url: null,
+      api_key_masked: "sk-ant-...9823",
+      max_concurrency: 5,
+      is_active: true,
+      is_fallback: true,
+      input_cost_per_million: 3.00,
+      output_cost_per_million: 15.00,
+      created_at: new Date(Date.now() - 86400000 * 20).toISOString(),
+      updated_at: new Date(Date.now() - 86400000 * 2).toISOString(),
+    }
+  ],
+
   bindings: [
     {
       task_type: "GLOBAL_DEFAULT",
@@ -1049,57 +1080,6 @@ export const INITIAL_MOCK_DATA = {
     }
   ],
 
-  pricing_rates: [
-    {
-      key: "local_baseline",
-      display_name: "Local LLM Benchmark (Savings Baseline)",
-      provider: "local",
-      input_cost_per_million: 0.15,
-      output_cost_per_million: 0.60,
-      description: "Standard baseline rate (GPT-4o-mini equivalent) to estimate cloud savings for local models.",
-    },
-    {
-      key: "gpt-4o",
-      display_name: "OpenAI GPT-4o",
-      provider: "openai",
-      input_cost_per_million: 2.50,
-      output_cost_per_million: 10.00,
-      description: "Flagship multimodal model for complex reasoning and tasks.",
-    },
-    {
-      key: "gpt-4o-mini",
-      display_name: "OpenAI GPT-4o Mini",
-      provider: "openai",
-      input_cost_per_million: 0.15,
-      output_cost_per_million: 0.60,
-      description: "Fast, cost-efficient model for intake and structured extractions.",
-    },
-    {
-      key: "claude-3-5-sonnet",
-      display_name: "Anthropic Claude 3.5 Sonnet",
-      provider: "anthropic",
-      input_cost_per_million: 3.00,
-      output_cost_per_million: 15.00,
-      description: "State-of-the-art coding, analysis, and nuances.",
-    },
-    {
-      key: "gemini-2.0-flash",
-      display_name: "Google Gemini 2.0 Flash",
-      provider: "gemini",
-      input_cost_per_million: 0.10,
-      output_cost_per_million: 0.40,
-      description: "Next-gen multimodal workhorse with sub-second speeds.",
-    },
-    {
-      key: "deepseek-chat",
-      display_name: "DeepSeek V3 (Chat)",
-      provider: "deepseek",
-      input_cost_per_million: 0.14,
-      output_cost_per_million: 0.28,
-      description: "High-efficiency general and coding model.",
-    }
-  ],
-
   usage_overview: {
     monthly_tokens: 142800,
     monthly_spend_usd: 0.0,
@@ -1114,7 +1094,93 @@ export const INITIAL_MOCK_DATA = {
       "JOB_ASSESSMENT": { calls: 24, tokens: 98400, cost_usd: 0.0, savings_usd: 9.84 },
       "COVER_LETTER": { calls: 8, tokens: 26400, cost_usd: 0.0, savings_usd: 2.64 },
       "INTERVIEW_SIMULATION": { calls: 6, tokens: 18000, cost_usd: 0.0, savings_usd: 1.80 }
-    }
+    },
+    comparative_costs: [
+      {
+        provider_name: "Local LLM (Ollama / LM Studio)",
+        model_name: "Local On-Device Models",
+        provider_type: "local",
+        input_cost_per_million: 0.0,
+        output_cost_per_million: 0.0,
+        simulated_cost_usd: 0.0,
+        diff_usd: 0.0,
+        diff_percentage: 0.0,
+        status: "identical",
+        is_local: true,
+      },
+      {
+        provider_name: "Google Gemini",
+        model_name: "Gemini 2.0 Flash",
+        provider_type: "google_genai",
+        input_cost_per_million: 0.10,
+        output_cost_per_million: 0.40,
+        simulated_cost_usd: 0.026,
+        diff_usd: 0.026,
+        diff_percentage: 100.0,
+        status: "more_expensive",
+        is_local: false,
+      },
+      {
+        provider_name: "DeepSeek",
+        model_name: "DeepSeek V3",
+        provider_type: "deepseek",
+        input_cost_per_million: 0.14,
+        output_cost_per_million: 0.28,
+        simulated_cost_usd: 0.027,
+        diff_usd: 0.027,
+        diff_percentage: 100.0,
+        status: "more_expensive",
+        is_local: false,
+      },
+      {
+        provider_name: "OpenAI",
+        model_name: "GPT-4o Mini",
+        provider_type: "openai",
+        input_cost_per_million: 0.15,
+        output_cost_per_million: 0.60,
+        simulated_cost_usd: 0.043,
+        diff_usd: 0.043,
+        diff_percentage: 100.0,
+        status: "more_expensive",
+        is_local: false,
+      },
+      {
+        provider_name: "Anthropic",
+        model_name: "Claude 3.5 Haiku",
+        provider_type: "anthropic",
+        input_cost_per_million: 0.80,
+        output_cost_per_million: 4.00,
+        simulated_cost_usd: 0.272,
+        diff_usd: 0.272,
+        diff_percentage: 100.0,
+        status: "more_expensive",
+        is_local: false,
+      },
+      {
+        provider_name: "OpenAI",
+        model_name: "GPT-4o",
+        provider_type: "openai",
+        input_cost_per_million: 2.50,
+        output_cost_per_million: 10.00,
+        simulated_cost_usd: 0.725,
+        diff_usd: 0.725,
+        diff_percentage: 100.0,
+        status: "more_expensive",
+        is_local: false,
+      },
+      {
+        provider_name: "Anthropic",
+        model_name: "Claude 3.5 Sonnet",
+        provider_type: "anthropic",
+        input_cost_per_million: 3.00,
+        output_cost_per_million: 15.00,
+        simulated_cost_usd: 1.035,
+        diff_usd: 1.035,
+        diff_percentage: 100.0,
+        status: "more_expensive",
+        is_local: false,
+      }
+    ]
   },
 
   system_settings: {

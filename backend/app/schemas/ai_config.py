@@ -32,6 +32,12 @@ class AIProviderCreate(BaseModel):
     is_fallback: bool = Field(
         default=False, description="Designated secondary auto-failover provider"
     )
+    input_cost_per_million: float | None = Field(
+        default=0.0, ge=0.0, description="Cost in USD per 1M input tokens"
+    )
+    output_cost_per_million: float | None = Field(
+        default=0.0, ge=0.0, description="Cost in USD per 1M output tokens"
+    )
 
 
 class AIProviderUpdate(BaseModel):
@@ -42,6 +48,8 @@ class AIProviderUpdate(BaseModel):
     max_concurrency: int | None = Field(default=None, ge=1, le=50)
     is_active: bool | None = None
     is_fallback: bool | None = None
+    input_cost_per_million: float | None = Field(default=None, ge=0.0)
+    output_cost_per_million: float | None = Field(default=None, ge=0.0)
 
 
 class AIProviderRead(BaseModel):
@@ -53,6 +61,8 @@ class AIProviderRead(BaseModel):
     max_concurrency: int = 1
     is_active: bool
     is_fallback: bool = False
+    input_cost_per_million: float | None = 0.0
+    output_cost_per_million: float | None = 0.0
     created_at: datetime
     updated_at: datetime
 
@@ -213,3 +223,4 @@ class UsageOverviewRead(BaseModel):
     total_llm_calls: int = 0
     avg_cost_per_assessment: float = 0.0
     task_breakdown: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    comparative_costs: list[dict[str, Any]] = Field(default_factory=list)

@@ -41,8 +41,9 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - `pricing_service.py`: Computes token consumption, dollar costs, and local LLM cloud savings using configurable model rates and extraction from diagnostic telemetry traces.
 
 ### Infrastructure & Development Startup
-- **Local Development:** Run `./dev.sh` (or `./dev.sh --reset` to wipe and restart). This spins up `db` (PostgreSQL), `scraper` (Camofox), `backend` (FastAPI), and `frontend` (Vite dev server) using `docker-compose.dev.yml`.
-- **Automatic Mock Dataset Seeding:** WhVITE_DEMO_MODE=true npm run dev en `./dev.sh` or a clean database boots in development mode (`ENVIRONMENT=development` or `SEED_DEV_DATA=true`), the backend automatically populates a comprehensive, domain-tailored mock dataset:
+- **Unified Daily-Driver CLI Launcher (`jt`):** Run `./jt` on Linux/macOS or `jt.cmd` / `jt` on Windows.
+- **Local Development:** Run `./jt dev` (or `./jt dev --reset` to wipe and restart). This spins up `db` (PostgreSQL), `scraper` (Camofox), `backend` (FastAPI), and `frontend` (Vite dev server) using `docker-compose.dev.yml`.
+- **Automatic Mock Dataset Seeding:** When `./jt dev` or a clean database boots in development mode (`ENVIRONMENT=development` or `SEED_DEV_DATA=true`), the backend automatically populates a comprehensive, domain-tailored mock dataset:
   - 1 Active Candidate CV profile (Staff Distributed Systems Engineer)
   - 5 Applications across statuses (`APPLIED`, `TECHNICAL_INTERVIEW`, `OFFER`, `ONLINE_ASSESSMENT`, `REJECTED`) with full candidate dossiers and match analysis payloads (`Stripe`, `Linear`, `Figma`, `Datadog`, `Airbnb`)
   - 5 Job Postings with salaries, ATS skills, and markdown descriptions
@@ -52,8 +53,8 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - 1 Active AI Provider: `Local LM studio` (`openai` provider type, `http://192.168.1.187:1234/v1`, max concurrency `1`, empty key)
   - 5 AI Task Bindings (`GLOBAL_DEFAULT`, `JOB_ASSESSMENT`, `EMAIL_EXTRACTION`, `INTERVIEW_GUIDE`, `JD_EXTRACTION`) bound to `Local LM studio`
   - 2 Connected Email Accounts
-- **Dynamic Local LLM Mock Data Generator:** Run `./dev.sh --generate-mocks` (or `uv run python -m app.services.mock_generator --seed-db`) to query your local LM Studio instance and synthesize fresh, domain-accurate tech job leads, dossiers, and timeline events for testing new fields.
-- **Production Mode:** Run `./prod.sh` (using `docker-compose.yml` with `ENVIRONMENT=production`). All services run permanently in the background with `restart: unless-stopped`, meaning they automatically auto-start on PC/system boot whenever the Docker daemon starts and only stop when explicitly taken down (`./prod.sh --down`). Seed data is strictly skipped in production.
+- **Dynamic Local LLM Mock Data Generator:** Run `./jt seed` (or `uv run python -m app.services.mock_generator --seed-db`) to query your local LM Studio instance and synthesize fresh, domain-accurate tech job leads, dossiers, and timeline events for testing new fields.
+- **Production Mode:** Run `./jt` or `./jt start` (using `docker-compose.yml` with `ENVIRONMENT=production`). All services run permanently in the background with `restart: unless-stopped`, meaning they automatically auto-start on PC/system boot whenever the Docker daemon starts and only stop when explicitly taken down (`./jt stop`). Seed data is strictly skipped in production.
 
 ## Core Domains & Data Models
 - **Applications:** `ApplicationModel` linked to `CompanyModel` (persisting canonical corporate `domain`). 
@@ -116,7 +117,7 @@ The PostgreSQL database is the cornerstone of the application—it holds `pgvect
 When creating or modifying Vue components, layouts, stores, or styling:
 
 1. **Live Development Stack & Mock Data:**
-   Run `./dev.sh` (or `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d`) to start the hot-reloading development environment.
+   Run `./jt dev` (or `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d`) to start the hot-reloading development environment.
    - Frontend UI: `http://localhost:5173`
    - Backend API: `http://localhost:5173/api`
    - Auto-seeded mock dataset provides realistic test data across all views (Kanban board, AI fit dossiers, timeline events, action items).
@@ -246,7 +247,7 @@ Before committing or completing tasks, agents and developers must execute and pa
 2. **Draft Plan:** Create an implementation plan artifact when making multi-step or architectural changes.
 3. **Database & UI Preparation:**
    - For backend tests: Ensure database access via Testcontainers (`uv run pytest`) or `docker compose up -d db`.
-   - For UI changes: Spin up `./dev.sh` to test visually against seeded mock data at `http://localhost:5173`.
+   - For UI changes: Spin up `./jt dev` to test visually against seeded mock data at `http://localhost:5173`.
 4. **TDD / Incremental Implementation:** Write or update tests before implementing logic; validate changes incrementally.
 5. **Run Pre-Commit Verification:** Run `./scripts/pre-commit.sh` (or individual Ruff, Pytest, and npm build checks).
 6. **Verify 0 Errors:** Ensure all tests pass and 0 lint/format/build errors remain before submitting.

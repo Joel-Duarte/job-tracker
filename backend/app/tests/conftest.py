@@ -73,7 +73,7 @@ def postgres_container():
         # 4. Gracefully skip with clear, actionable explanation
         pytest.skip(
             f"Docker daemon not accessible ({container_err}) and no PostgreSQL found on localhost:{local_port}. "
-            "To run tests, start Docker (or run 'docker compose up -d db'), run './dev.sh', "
+            "To run tests, start Docker (or run 'docker compose up -d db'), run './jt dev', "
             "or run pure unit tests with 'pytest -m \"not docker\"'."
         )
 

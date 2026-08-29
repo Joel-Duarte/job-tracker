@@ -13,8 +13,10 @@ ENV UV_LINK_MODE=copy
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-# Copy source code and install project
+# Copy source code, database migrations, and install project
 COPY app/ ./app/
+COPY alembic.ini ./alembic.ini
+COPY alembic/ ./alembic/
 RUN uv sync --frozen --no-dev
 
 # ==============================================================================

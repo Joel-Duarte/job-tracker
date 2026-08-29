@@ -19,17 +19,28 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _column_exists(table_name: str, column_name: str) -> bool:
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+    if not insp.has_table(table_name):
+        return False
+    columns = [c["name"] for c in insp.get_columns(table_name)]
+    return column_name in columns
+
+
 def upgrade() -> None:
-    op.drop_column("candidate_cvs", "is_active")
+    if _column_exists("candidate_cvs", "is_active"):
+        op.drop_column("candidate_cvs", "is_active")
 
 
 def downgrade() -> None:
-    op.add_column(
-        "candidate_cvs",
-        sa.Column(
-            "is_active",
-            sa.Boolean(),
-            server_default=sa.text("true"),
-            nullable=False,
-        ),
-    )
+    if not _column_exists("candidate_cvs", "is_active"):
+        op.add_column(
+            "candidate_cvs",
+            sa.Column(
+                "is_active",
+                sa.Boolean(),
+                server_default=sa.text("true"),
+                nullable=False,
+            ),
+        )

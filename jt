@@ -111,6 +111,8 @@ case "$COMMAND" in
   start|up)
     shift || true
     AUTO_OPEN=false
+    WIPE_FIRST=false
+    USE_EXTERNAL=false
     PASSTHROUGH_ARGS=()
 
     while [[ $# -gt 0 ]]; do
@@ -120,11 +122,11 @@ case "$COMMAND" in
           shift
           ;;
         --clean|--reset|-r)
-          PASSTHROUGH_ARGS+=("--reset")
+          WIPE_FIRST=true
           shift
           ;;
         --external)
-          PASSTHROUGH_ARGS+=("--external")
+          USE_EXTERNAL=true
           shift
           ;;
         *)
@@ -136,8 +138,34 @@ case "$COMMAND" in
 
     check_docker
     ensure_env
-    export CLI_CMD="jt"
-    ./prod.sh "${PASSTHROUGH_ARGS[@]}"
+
+    if [ "$WIPE_FIRST" = true ]; then
+      echo -e "${YELLOW}⚠️  Wiping production database volume for pristine start...${NC}"
+      docker compose down -v --remove-orphans >/dev/null 2>&1 || true
+      docker volume rm -f job_tracker_postgres_data >/dev/null 2>&1 || true
+      echo -e "${GREEN}🧹 Production database wiped clean.${NC}"
+    fi
+
+    echo -e "${CYAN}🚀 Starting Job Tracker in production background mode...${NC}"
+    COMPOSE_FILES=(-f docker-compose.yml)
+    if [ "$USE_EXTERNAL" = true ]; then
+      COMPOSE_FILES+=(-f docker-compose.external.yml)
+    fi
+
+    docker compose "${COMPOSE_FILES[@]}" up -d --build "${PASSTHROUGH_ARGS[@]}"
+
+    echo ""
+    echo -e "${GREEN}================================================================================${NC}"
+    echo -e "${GREEN} ✅ Job Tracker is running permanently in the background!${NC}"
+    echo -e "${GREEN}--------------------------------------------------------------------------------${NC}"
+    echo -e " 🌐 Web Application: ${BOLD}http://localhost:4173${NC}"
+    echo -e " 📚 API Documentation: ${BOLD}http://localhost:4173/api/docs${NC}"
+    echo ""
+    echo -e " 💡 Quick Management Commands:"
+    echo -e "    ${BOLD}jt status${NC}    # Check running services"
+    echo -e "    ${BOLD}jt logs${NC}      # View live logs"
+    echo -e "    ${BOLD}jt stop${NC}      # Stop containers"
+    echo -e "${GREEN}================================================================================${NC}"
 
     if [ "$AUTO_OPEN" = true ]; then
       sleep 1
@@ -149,29 +177,32 @@ case "$COMMAND" in
     shift || true
     check_docker
     ensure_env
-    ./dev.sh "$@"
+    echo -e "${CYAN}🧑‍💻 Starting Job Tracker in LIVE DEVELOPMENT mode (Hot Reloading)...${NC}"
+    echo -e "  - Frontend (Vite HMR):  ${BOLD}http://localhost:5173${NC}"
+    echo -e "  - Backend API (Proxy): ${BOLD}http://localhost:5173/api${NC}"
+    docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build "$@"
     ;;
 
   stop|down)
     shift || true
     check_docker
-    ./prod.sh --down "$@"
+    echo -e "${YELLOW}🛑 Stopping Job Tracker containers...${NC}"
+    docker compose down "$@"
+    echo -e "${GREEN}✅ Containers stopped.${NC}"
     ;;
 
   status|ps)
     shift || true
     check_docker
-    ./prod.sh --status "$@"
+    echo -e "${CYAN}📊 Job Tracker Container Status:${NC}"
+    docker compose ps "$@"
     ;;
 
   logs)
     shift || true
     check_docker
-    if [ $# -eq 0 ]; then
-      ./prod.sh --logs
-    else
-      docker compose logs -f "$@"
-    fi
+    echo -e "${CYAN}📋 Streaming Job Tracker container logs (Ctrl+C to exit)...${NC}"
+    docker compose logs -f "$@"
     ;;
 
   open)
@@ -195,9 +226,9 @@ case "$COMMAND" in
     echo ">> 3. Applying database migrations (Alembic)..."
     # Execute migration inside backend container if healthy/running
     if docker compose ps --services --filter "status=running" | grep -q "^backend$"; then
-      docker compose exec -T backend python -m alembic upgrade head 2>/dev/null || \
-      docker compose exec -T backend uv run alembic upgrade head 2>/dev/null || \
-      echo -e "${YELLOW}⚠️  Alembic migration command skipped or already at head.${NC}"
+      docker compose exec -T backend alembic upgrade head || \
+      docker compose exec -T backend python -m alembic upgrade head || \
+      echo -e "${YELLOW}⚠️  Alembic migration command skipped or failed.${NC}"
     fi
 
     echo ""
@@ -238,13 +269,17 @@ case "$COMMAND" in
     fi
 
     check_docker
-    ./prod.sh --reset "${PASSTHROUGH_ARGS[@]}"
+    echo -e "${YELLOW}🧹 Stopping containers and wiping database volumes...${NC}"
+    docker compose down -v --remove-orphans
+    docker volume rm -f job_tracker_postgres_data >/dev/null 2>&1 || true
+    echo -e "${GREEN}✅ Database volume wiped clean. Fresh database will be created on next start.${NC}"
     ;;
 
   seed)
     shift || true
     check_docker
-    ./dev.sh --generate-mocks "$@"
+    echo -e "${CYAN}🌱 Running dynamic mock data generator...${NC}"
+    docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm backend uv run python -m app.services.mock_generator --seed-db "$@"
     ;;
 
   help|--help|-h)

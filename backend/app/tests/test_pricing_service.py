@@ -104,3 +104,43 @@ def test_extract_usage_from_payload_langchain():
     assert extracted["completion_tokens"] == 150
     assert extracted["model_name"] == "gemini-2.0-flash"
     assert extracted["duration_seconds"] == 0.85
+
+
+def test_calculate_comparative_provider_costs():
+    from app.services.pricing_service import calculate_comparative_provider_costs
+
+    comparative = calculate_comparative_provider_costs(
+        monthly_input_tokens=100_000,
+        monthly_output_tokens=50_000,
+        current_spend_usd=0.0,
+        is_current_local=True,
+    )
+    assert len(comparative) >= 5
+    local_entry = next(c for c in comparative if c["is_local"])
+    assert local_entry["simulated_cost_usd"] == 0.0
+    assert local_entry["status"] == "identical"
+
+    gpt4o_entry = next(
+        c
+        for c in comparative
+        if "GPT-4o" in c["model_name"] and "Mini" not in c["model_name"]
+    )
+    # 100k * 2.50/1M + 50k * 10.00/1M = 0.25 + 0.50 = 0.75
+    assert gpt4o_entry["simulated_cost_usd"] == 0.75
+    assert gpt4o_entry["status"] == "more_expensive"
+    assert gpt4o_entry["diff_usd"] == 0.75
+
+
+def test_calculate_cost_custom_provider_rates():
+    # Custom endpoint with custom rates: $1.00/1M in, $2.00/1M out
+    cost, savings = calculate_cost_and_savings(
+        model_name="my-custom-model",
+        input_tokens=200_000,
+        output_tokens=100_000,
+        is_local=False,
+        custom_input_cost_per_million=1.00,
+        custom_output_cost_per_million=2.00,
+    )
+    # 200k * 1.00/1M + 100k * 2.00/1M = 0.20 + 0.20 = 0.40
+    assert cost == 0.40
+    assert savings == 0.0

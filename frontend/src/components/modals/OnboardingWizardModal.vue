@@ -65,6 +65,8 @@ const providerForm = ref({
   api_key: '',
   model_name: 'qwen/qwen3.5-9b',
   max_concurrency: 1,
+  input_cost_per_million: 0.0,
+  output_cost_per_million: 0.0,
 })
 const testingProvider = ref(false)
 const providerTestResult = ref(null) // { status: 'success'|'warning'|'error', message: '' }
@@ -72,6 +74,35 @@ const isSavingProvider = ref(false)
 const availableModels = ref([])
 const loadingModels = ref(false)
 const customModelMode = ref(false)
+
+const isRateGuideOpen = ref(false)
+const showAllRateGuideProviders = ref(false)
+
+const STANDARD_MODEL_RATES = [
+  { name: 'Local Models (Ollama / LM Studio)', provider: 'local', inCost: 0.0, outCost: 0.0 },
+  { name: 'OpenAI GPT-4o Mini', provider: 'openai', inCost: 0.15, outCost: 0.60 },
+  { name: 'OpenAI GPT-4o', provider: 'openai', inCost: 2.50, outCost: 10.00 },
+  { name: 'Anthropic Claude 3.5 Haiku', provider: 'anthropic', inCost: 0.80, outCost: 4.00 },
+  { name: 'Anthropic Claude 3.5 Sonnet', provider: 'anthropic', inCost: 3.00, outCost: 15.00 },
+  { name: 'Google Gemini 2.0 Flash', provider: 'google_genai', inCost: 0.10, outCost: 0.40 },
+  { name: 'DeepSeek V3', provider: 'deepseek', inCost: 0.14, outCost: 0.28 },
+]
+
+const filteredRateGuidePresets = computed(() => {
+  if (showAllRateGuideProviders.value) return STANDARD_MODEL_RATES
+  const currentType = providerForm.value.provider_type
+  if (!currentType || currentType === 'custom') return STANDARD_MODEL_RATES
+  const matched = STANDARD_MODEL_RATES.filter(
+    (p) => p.provider.toLowerCase() === currentType.toLowerCase()
+  )
+  return matched.length > 0 ? matched : STANDARD_MODEL_RATES
+})
+
+function applyRateGuidePreset(preset) {
+  providerForm.value.input_cost_per_million = preset.inCost
+  providerForm.value.output_cost_per_million = preset.outCost
+  uiStore.showToast(`Applied ${preset.name} rates ($${preset.inCost.toFixed(2)} / $${preset.outCost.toFixed(2)})`, 'info')
+}
 
 const PRESETS = [
   {
@@ -83,6 +114,8 @@ const PRESETS = [
     suggestedModels: ['qwen/qwen3.5-9b', 'qwen2.5-coder-7b-instruct', 'deepseek-r1-distill-qwen-7b', 'llama-3.2-3b-instruct'],
     isPrivate: true,
     badge: '100% Private / Offline',
+    defaultInputCost: 0.0,
+    defaultOutputCost: 0.0,
     desc: 'Run Qwen, Llama, or DeepSeek locally on your LAN. Zero telemetry or internet transmission.',
   },
   {
@@ -94,6 +127,8 @@ const PRESETS = [
     suggestedModels: ['qwen2.5', 'llama3.2', 'mistral', 'deepseek-r1:8b', 'phi4'],
     isPrivate: true,
     badge: '100% Private / Offline',
+    defaultInputCost: 0.0,
+    defaultOutputCost: 0.0,
     desc: 'Local Ollama instance running on localhost. Keeps all candidate CV data 100% on-premise.',
   },
   {
@@ -106,6 +141,8 @@ const PRESETS = [
     isPrivate: false,
     badge: 'Zero Data Retention',
     pricingLink: 'https://openai.com/api/pricing',
+    defaultInputCost: 0.15,
+    defaultOutputCost: 0.60,
     desc: 'Industry-standard cloud models (GPT-4o, o3-mini). Enterprise API guarantees zero model training on your data.',
   },
   {
@@ -118,6 +155,8 @@ const PRESETS = [
     isPrivate: false,
     badge: 'Zero Data Retention',
     pricingLink: 'https://www.anthropic.com/pricing',
+    defaultInputCost: 0.80,
+    defaultOutputCost: 4.00,
     desc: 'Claude 3.7 & 3.5 Sonnet / Haiku models with advanced reasoning and analysis capabilities.',
   },
   {
@@ -130,6 +169,8 @@ const PRESETS = [
     isPrivate: false,
     badge: 'Generous Free Tier',
     pricingLink: 'https://ai.google.dev/pricing',
+    defaultInputCost: 0.10,
+    defaultOutputCost: 0.40,
     desc: 'High-speed Google AI Studio API key with generous free tier rates.',
   },
   {
@@ -142,6 +183,8 @@ const PRESETS = [
     isPrivate: false,
     badge: 'Aggregator API',
     pricingLink: 'https://openrouter.ai/models',
+    defaultInputCost: 0.14,
+    defaultOutputCost: 0.28,
     desc: 'Unified gateway providing access to DeepSeek-R1, Llama 3.3 70B, and 100+ open-source models.',
   },
   {
@@ -153,6 +196,8 @@ const PRESETS = [
     suggestedModels: [],
     isPrivate: false,
     badge: 'OpenAI-Compatible',
+    defaultInputCost: 0.0,
+    defaultOutputCost: 0.0,
     desc: 'Connect to vLLM, Groq, Mistral, Together, or any custom OpenAI-compatible inference server.',
   },
 ]
@@ -163,6 +208,8 @@ function selectPreset(preset, autoAdvance = true) {
   providerForm.value.provider_type = preset.type
   providerForm.value.base_url = preset.baseUrl
   providerForm.value.model_name = preset.defaultModel
+  providerForm.value.input_cost_per_million = preset.defaultInputCost !== undefined ? preset.defaultInputCost : 0.0
+  providerForm.value.output_cost_per_million = preset.defaultOutputCost !== undefined ? preset.defaultOutputCost : 0.0
   availableModels.value = []
   customModelMode.value = false
   hasFetchedModels.value = false
@@ -241,6 +288,17 @@ async function testConnection() {
 async function handleStep1Next() {
   isSavingProvider.value = true
   try {
+    const rawIn = providerForm.value.input_cost_per_million
+    const rawOut = providerForm.value.output_cost_per_million
+    const parsedIn =
+      rawIn === '' || rawIn === null || rawIn === undefined || isNaN(Number(rawIn))
+        ? 0.0
+        : Math.max(0, Number(rawIn))
+    const parsedOut =
+      rawOut === '' || rawOut === null || rawOut === undefined || isNaN(Number(rawOut))
+        ? 0.0
+        : Math.max(0, Number(rawOut))
+
     // 1. Create or update provider in DB
     let activeProviderId = providerForm.value.id
     if (!activeProviderId) {
@@ -250,6 +308,8 @@ async function handleStep1Next() {
         base_url: providerForm.value.base_url,
         api_key: providerForm.value.api_key || undefined,
         max_concurrency: providerForm.value.max_concurrency || 1,
+        input_cost_per_million: parsedIn,
+        output_cost_per_million: parsedOut,
         is_active: true,
       })
       activeProviderId = res.data.id
@@ -261,6 +321,8 @@ async function handleStep1Next() {
         base_url: providerForm.value.base_url,
         api_key: providerForm.value.api_key || undefined,
         max_concurrency: providerForm.value.max_concurrency || 1,
+        input_cost_per_million: parsedIn,
+        output_cost_per_million: parsedOut,
         is_active: true,
       })
     }
@@ -1194,6 +1256,83 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
                   <div class="input-group">
                     <label class="input-label">API Key (Optional for local)</label>
                     <input v-model="providerForm.api_key" type="password" placeholder="sk-... (leave blank for local)" class="form-input font-mono" />
+                  </div>
+                </div>
+
+                <div class="form-grid-2">
+                  <div class="input-group">
+                    <label class="input-label">Input Cost ($ / 1M)</label>
+                    <div class="rate-input-wrap">
+                      <span class="rate-prefix">$</span>
+                      <input
+                        v-model.number="providerForm.input_cost_per_million"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        class="form-input rate-input font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="input-group">
+                    <label class="input-label">Output Cost ($ / 1M)</label>
+                    <div class="rate-input-wrap">
+                      <span class="rate-prefix">$</span>
+                      <input
+                        v-model.number="providerForm.output_cost_per_million"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        class="form-input rate-input font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Collapsible Standard Model Rates Guide -->
+                <div class="rate-guide-accordion mb-3">
+                  <button
+                    type="button"
+                    class="rate-guide-toggle-btn"
+                    @click="isRateGuideOpen = !isRateGuideOpen"
+                  >
+                    <div class="flex items-center gap-1.5 text-xs text-primary font-medium">
+                      <Sparkles :size="13" />
+                      <span>Standard Model Rates Reference Guide</span>
+                    </div>
+                    <ChevronUp v-if="isRateGuideOpen" :size="13" class="text-muted" />
+                    <ChevronDown v-else :size="13" class="text-muted" />
+                  </button>
+
+                  <div v-if="isRateGuideOpen" class="rate-guide-content animate-fade-in mt-2">
+                    <div class="rate-guide-filter-row mb-2 flex items-center justify-between">
+                      <span class="text-[11px] text-muted">Click any preset to apply $/1M rates:</span>
+                      <label class="show-all-toggle text-[11px] text-muted flex items-center gap-1 cursor-pointer">
+                        <input type="checkbox" v-model="showAllRateGuideProviders" />
+                        <span>Show all providers</span>
+                      </label>
+                    </div>
+
+                    <div class="rate-presets-list">
+                      <div
+                        v-for="(preset, pIdx) in filteredRateGuidePresets"
+                        :key="pIdx"
+                        class="rate-preset-card"
+                        @click="applyRateGuidePreset(preset)"
+                      >
+                        <div class="preset-top">
+                          <span class="preset-name font-semibold">{{ preset.name }}</span>
+                          <span class="badge badge-applied font-mono text-[10px]">{{ preset.provider }}</span>
+                        </div>
+                        <div class="preset-bottom font-mono text-xs">
+                          <span class="text-primary">${{ preset.inCost.toFixed(2) }} in</span>
+                          <span class="text-muted">/</span>
+                          <span class="text-primary">${{ preset.outCost.toFixed(2) }} out</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -3323,5 +3462,93 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
 
 .shadow-glow {
   box-shadow: 0 0 20px var(--primary-glow);
+}
+
+/* Rate Guide Accordion in Onboarding Modal */
+.rate-guide-accordion {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed var(--border-color, rgba(255, 255, 255, 0.12));
+  border-radius: var(--radius-md, 8px);
+  padding: 10px 12px;
+}
+
+.rate-guide-toggle-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.rate-presets-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.rate-preset-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-sm, 6px);
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rate-preset-card:hover {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.4);
+  transform: translateY(-1px);
+}
+
+.preset-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.preset-name {
+  font-size: 0.78rem;
+  color: var(--text-main, #f8fafc);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-bottom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+}
+
+.rate-input-wrap {
+  display: flex;
+  align-items: center;
+  position: relative;
+  width: 100%;
+}
+
+.rate-prefix {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted, #94a3b8);
+  font-family: monospace;
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.rate-input {
+  padding-left: 22px !important;
 }
 </style>

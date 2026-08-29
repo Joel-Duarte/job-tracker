@@ -29,15 +29,15 @@ Start Job Tracker in permanent production mode with a single command:
 ### Linux & macOS
 ```bash
 ./jt start
-# or alternatively:
-./prod.sh
+# or simply:
+./jt
 ```
 
 ### Windows (Command Prompt / PowerShell)
 ```cmd
 jt.cmd start
-REM or alternatively:
-docker compose up -d
+REM or simply:
+jt
 ```
 
 ### Accessing the Services & Architecture
@@ -50,7 +50,7 @@ Job Tracker operates on a **closed-by-default, single-port ingress architecture*
 
 > [!TIP]
 > **Production Boot Persistence:**
-> All production containers run with the Docker policy `restart: unless-stopped`. They will automatically start on PC or server boot whenever Docker starts. To stop them permanently, run `./jt stop` (or `./prod.sh --down`).
+> All production containers run with the Docker policy `restart: unless-stopped`. They will automatically start on PC or server boot whenever Docker starts. To stop them permanently, run `./jt stop`.
 
 ---
 
@@ -61,7 +61,6 @@ If you are developing features, modifying Vue components, or tweaking backend en
 ```bash
 # Linux / macOS
 ./jt dev
-# or: ./dev.sh
 
 # Windows
 jt.cmd dev
@@ -168,12 +167,6 @@ Job Tracker includes a unified CLI management script (`jt` for Unix, `jt.cmd` fo
 | `./jt update` | Pull & Rebuild | Pulls the latest container bases, recompiles frontend assets, and restarts containers. |
 | `./jt clean` / `reset` | Factory Reset | ⚠️ Wipes the PostgreSQL database volume and restarts with a clean slate (prompts for confirmation, or pass `-y`). |
 | `./jt seed` | Seed Dev Data | Populates the database with realistic sample candidates, applications, events, and action items. |
-
-> [!NOTE]
-> You can also run the underlying bash scripts directly:
-> - Production: `./prod.sh` (supports flags like `./prod.sh --logs`, `./prod.sh --status`, `./prod.sh --down`, `./prod.sh --reset`)
-> - Development: `./dev.sh` (supports flags like `./dev.sh --generate-mocks`, `./dev.sh --reset`, `./dev.sh --down`)
-
 ---
 
 ## ⚙️ Environment Configuration (`.env`)
@@ -235,8 +228,6 @@ LOG_LEVEL=INFO
 Run:
 ```bash
 ./jt reset
-# or
-./prod.sh --reset
 ```
 This safely stops containers, deletes the `job_tracker_postgres_data` volume, and boots a clean database instance.
 

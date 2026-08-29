@@ -31,6 +31,12 @@ class AIProviderModel(Base):
     is_fallback: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=text("false"), nullable=False
     )
+    input_cost_per_million: Mapped[float] = mapped_column(
+        Float, default=0.0, server_default=text("0.0"), nullable=True
+    )
+    output_cost_per_million: Mapped[float] = mapped_column(
+        Float, default=0.0, server_default=text("0.0"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

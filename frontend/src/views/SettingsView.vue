@@ -53,6 +53,9 @@ import {
   FileText,
   ArrowLeft,
   ArrowRight,
+  ArrowDown,
+  ArrowUp,
+  BarChart3,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -78,9 +81,11 @@ const providerForm = ref({
   api_key: '',
   max_concurrency: 1,
   is_active: true,
+  input_cost_per_million: 0.15,
+  output_cost_per_million: 0.60,
 })
 
-// Token Usage & Cloud Savings Overview
+// Token Usage & What-If Provider Cost Comparison
 const usageOverview = ref({
   monthly_tokens: 0,
   monthly_spend_usd: 0,
@@ -92,15 +97,151 @@ const usageOverview = ref({
   total_llm_calls: 0,
   avg_cost_per_assessment: 0,
   task_breakdown: {},
+  comparative_costs: [],
 })
 const loadingUsage = ref(false)
+const isComparisonOpen = ref(false)
 
-// Model Pricing Rates Management
+// Benchmark Rates Modal State
+const isPricingModalOpen = ref(false)
 const pricingRates = ref([])
 const loadingPricing = ref(false)
 const isSavingPricing = ref(false)
-const isPricingModalOpen = ref(false)
 const pricingSearchQuery = ref('')
+
+const filteredPricingRates = computed(() => {
+  if (!pricingSearchQuery.value.trim()) return pricingRates.value
+  const q = pricingSearchQuery.value.toLowerCase()
+  return pricingRates.value.filter(
+    (r) =>
+      r.key.toLowerCase().includes(q) ||
+      (r.display_name && r.display_name.toLowerCase().includes(q)) ||
+      (r.provider && r.provider.toLowerCase().includes(q))
+  )
+})
+
+async function loadPricingRates() {
+  loadingPricing.value = true
+  try {
+    const res = await AIConfigAPI.getPricingRates()
+    pricingRates.value = res.data || []
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to load benchmark rates', 'error')
+  } finally {
+    loadingPricing.value = false
+  }
+}
+
+async function openPricingModal() {
+  isPricingModalOpen.value = true
+  await loadPricingRates()
+}
+
+async function savePricingRates() {
+  isSavingPricing.value = true
+  try {
+    const payload = pricingRates.value.map((r) => ({
+      key: r.key,
+      input_cost_per_million: Number(r.input_cost_per_million) || 0.0,
+      output_cost_per_million: Number(r.output_cost_per_million) || 0.0,
+    }))
+    await AIConfigAPI.updatePricingRates(payload)
+    uiStore.showToast('Benchmark rates saved successfully', 'success')
+    isPricingModalOpen.value = false
+    await loadUsageOverview()
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to save benchmark rates', 'error')
+  } finally {
+    isSavingPricing.value = false
+  }
+}
+
+async function resetPricingRatesToDefaults() {
+  loadingPricing.value = true
+  try {
+    const res = await AIConfigAPI.resetPricingRates()
+    pricingRates.value = res.data || []
+    uiStore.showToast('Benchmark rates reset to published defaults', 'info')
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to reset benchmark rates', 'error')
+  } finally {
+    loadingPricing.value = false
+  }
+}
+
+// Rate Guide in Provider Modal
+const isRateGuideOpen = ref(false)
+const showAllRateGuideProviders = ref(false)
+
+const STANDARD_MODEL_RATES = [
+  { provider: 'openai', model: 'gpt-4o-mini', name: 'OpenAI GPT-4o Mini', inCost: 0.15, outCost: 0.60, note: 'Recommended default for intake & assessments' },
+  { provider: 'openai', model: 'gpt-4o', name: 'OpenAI GPT-4o', inCost: 2.50, outCost: 10.00, note: 'Flagship multimodal reasoning' },
+  { provider: 'openai', model: 'o3-mini', name: 'OpenAI o3-mini', inCost: 1.10, outCost: 4.40, note: 'Fast reasoning & STEM' },
+  { provider: 'anthropic', model: 'claude-3-5-sonnet', name: 'Claude 3.5 Sonnet', inCost: 3.00, outCost: 15.00, note: 'State-of-the-art coding & nuances' },
+  { provider: 'anthropic', model: 'claude-3-5-haiku', name: 'Claude 3.5 Haiku', inCost: 0.80, outCost: 4.00, note: 'Lightweight & ultra-fast' },
+  { provider: 'google_genai', model: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', inCost: 0.10, outCost: 0.40, note: 'High speed workhorse' },
+  { provider: 'google_genai', model: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', inCost: 1.25, outCost: 5.00, note: 'Long context multimodal' },
+  { provider: 'deepseek', model: 'deepseek-chat', name: 'DeepSeek V3', inCost: 0.14, outCost: 0.28, note: 'Ultra-low cost general intelligence' },
+  { provider: 'ollama', model: 'local-models', name: 'Local Ollama / LM Studio', inCost: 0.00, outCost: 0.00, note: '100% Free on-device inference' },
+]
+
+const filteredRateGuidePresets = computed(() => {
+  if (showAllRateGuideProviders.value) return STANDARD_MODEL_RATES
+  const currentType = (providerForm.value.provider_type || '').toLowerCase()
+  if (currentType === 'openai') {
+    return STANDARD_MODEL_RATES.filter(p => p.provider === 'openai')
+  }
+  if (currentType === 'anthropic') {
+    return STANDARD_MODEL_RATES.filter(p => p.provider === 'anthropic')
+  }
+  if (currentType === 'google_genai' || currentType === 'gemini') {
+    return STANDARD_MODEL_RATES.filter(p => p.provider === 'google_genai')
+  }
+  if (currentType === 'deepseek') {
+    return STANDARD_MODEL_RATES.filter(p => p.provider === 'deepseek')
+  }
+  if (currentType === 'ollama') {
+    return STANDARD_MODEL_RATES.filter(p => p.provider === 'ollama')
+  }
+  return STANDARD_MODEL_RATES
+})
+
+function applyRateGuidePreset(preset) {
+  providerForm.value.input_cost_per_million = preset.inCost
+  providerForm.value.output_cost_per_million = preset.outCost
+  uiStore.showToast(`Applied rates from ${preset.name}`, 'info')
+}
+
+function onProviderTypeChange() {
+  const type = providerForm.value.provider_type
+  if (type === 'openai') {
+    providerForm.value.input_cost_per_million = 0.15
+    providerForm.value.output_cost_per_million = 0.60
+    if (!providerForm.value.base_url || providerForm.value.base_url.includes('11434')) {
+      providerForm.value.base_url = 'http://192.168.1.187:1234/v1'
+    }
+  } else if (type === 'anthropic') {
+    providerForm.value.input_cost_per_million = 3.00
+    providerForm.value.output_cost_per_million = 15.00
+  } else if (type === 'google_genai' || type === 'gemini') {
+    providerForm.value.input_cost_per_million = 0.10
+    providerForm.value.output_cost_per_million = 0.40
+  } else if (type === 'deepseek') {
+    providerForm.value.input_cost_per_million = 0.14
+    providerForm.value.output_cost_per_million = 0.28
+  } else if (type === 'ollama') {
+    providerForm.value.input_cost_per_million = 0.00
+    providerForm.value.output_cost_per_million = 0.00
+    providerForm.value.base_url = 'http://localhost:11434'
+  } else if (type === 'openrouter') {
+    providerForm.value.input_cost_per_million = 0.15
+    providerForm.value.output_cost_per_million = 0.60
+    providerForm.value.base_url = 'https://openrouter.ai/api/v1'
+  } else {
+    providerForm.value.input_cost_per_million = 0.00
+    providerForm.value.output_cost_per_million = 0.00
+  }
+}
 
 async function loadUsageOverview() {
   loadingUsage.value = true
@@ -116,70 +257,12 @@ async function loadUsageOverview() {
   }
 }
 
-async function loadPricingRates() {
-  loadingPricing.value = true
-  try {
-    const res = await AIConfigAPI.getPricingRates()
-    pricingRates.value = (res.data || []).map((r) => ({ ...r }))
-  } catch (err) {
-    console.error('Failed to load pricing rates:', err)
-  } finally {
-    loadingPricing.value = false
-  }
-}
-
-async function savePricingRates() {
-  isSavingPricing.value = true
-  try {
-    const payload = pricingRates.value.map((r) => ({
-      key: r.key,
-      input_cost_per_million: parseFloat(r.input_cost_per_million) || 0,
-      output_cost_per_million: parseFloat(r.output_cost_per_million) || 0,
-    }))
-    const res = await AIConfigAPI.updatePricingRates(payload)
-    pricingRates.value = (res.data || []).map((r) => ({ ...r }))
-    uiStore.showToast('API token pricing rates updated', 'success')
-    await loadUsageOverview()
-    isPricingModalOpen.value = false
-  } catch (err) {
-    uiStore.showToast(err.message || 'Failed to update pricing rates', 'error')
-  } finally {
-    isSavingPricing.value = false
-  }
-}
-
-async function resetPricingRatesToDefaults() {
-  if (!confirm('Reset all model pricing rates back to system standard defaults?')) return
-  loadingPricing.value = true
-  try {
-    const res = await AIConfigAPI.resetPricingRates()
-    pricingRates.value = (res.data || []).map((r) => ({ ...r }))
-    uiStore.showToast('Pricing rates reset to defaults', 'success')
-    await loadUsageOverview()
-  } catch (err) {
-    uiStore.showToast(err.message || 'Failed to reset pricing rates', 'error')
-  } finally {
-    loadingPricing.value = false
-  }
-}
-
 function formatTokens(val) {
   if (!val) return '0'
   if (val >= 1_000_000) return (val / 1_000_000).toFixed(1) + 'M'
   if (val >= 1_000) return (val / 1_000).toFixed(1) + 'k'
   return String(val)
 }
-
-const filteredPricingRates = computed(() => {
-  if (!pricingSearchQuery.value.trim()) return pricingRates.value
-  const q = pricingSearchQuery.value.toLowerCase().trim()
-  return pricingRates.value.filter(
-    (r) =>
-      r.key.toLowerCase().includes(q) ||
-      (r.display_name && r.display_name.toLowerCase().includes(q)) ||
-      (r.provider && r.provider.toLowerCase().includes(q))
-  )
-})
 
 // Unified Task Studio State
 const bindings = ref([])
@@ -1039,6 +1122,7 @@ async function loadPrompts() {
 
 function openCreateProvider() {
   editingProvider.value = null
+  isRateGuideOpen.value = false
   providerForm.value = {
     name: '',
     provider_type: 'openai',
@@ -1046,12 +1130,15 @@ function openCreateProvider() {
     api_key: '',
     max_concurrency: 1,
     is_active: true,
+    input_cost_per_million: 0.15,
+    output_cost_per_million: 0.60,
   }
   isProviderModalOpen.value = true
 }
 
 function openEditProvider(p) {
   editingProvider.value = p
+  isRateGuideOpen.value = false
   providerForm.value = {
     name: p.name,
     provider_type: p.provider_type,
@@ -1059,24 +1146,46 @@ function openEditProvider(p) {
     api_key: '',
     max_concurrency: p.max_concurrency || 1,
     is_active: p.is_active,
+    input_cost_per_million: p.input_cost_per_million !== undefined && p.input_cost_per_million !== null ? p.input_cost_per_million : 0.0,
+    output_cost_per_million: p.output_cost_per_million !== undefined && p.output_cost_per_million !== null ? p.output_cost_per_million : 0.0,
   }
   isProviderModalOpen.value = true
 }
 
 async function saveProvider() {
   try {
+    const rawIn = providerForm.value.input_cost_per_million
+    const rawOut = providerForm.value.output_cost_per_million
+
+    const parsedIn =
+      rawIn === '' || rawIn === null || rawIn === undefined || isNaN(Number(rawIn))
+        ? 0.0
+        : Math.max(0, Number(rawIn))
+    const parsedOut =
+      rawOut === '' || rawOut === null || rawOut === undefined || isNaN(Number(rawOut))
+        ? 0.0
+        : Math.max(0, Number(rawOut))
+
+    const payload = {
+      ...providerForm.value,
+      input_cost_per_million: parsedIn,
+      output_cost_per_million: parsedOut,
+    }
+
     if (editingProvider.value) {
-      await AIConfigAPI.updateProvider(editingProvider.value.id, providerForm.value)
+      await AIConfigAPI.updateProvider(editingProvider.value.id, payload)
       uiStore.showToast('Provider updated successfully', 'success')
     } else {
-      await AIConfigAPI.createProvider(providerForm.value)
+      await AIConfigAPI.createProvider(payload)
       uiStore.showToast('Provider registered successfully', 'success')
     }
     isProviderModalOpen.value = false
     await loadProviders()
     syncStudioForm()
   } catch (err) {
-    uiStore.showToast(err.message, 'error')
+    const detail = err.response?.data?.detail
+    const msg = Array.isArray(detail) ? detail.map((d) => d.msg).join(', ') : detail || err.message
+    uiStore.showToast(msg, 'error')
   }
 }
 
@@ -1685,7 +1794,6 @@ onMounted(async () => {
     loadOAuthConfig(),
     loadGlobalSettings(),
     loadUsageOverview(),
-    loadPricingRates(),
   ])
   syncGlobalForm()
   syncStudioForm()
@@ -2263,9 +2371,23 @@ onUnmounted(() => {
             <p>Financial transparency and tracking for both Cloud API keys and local on-device LLMs.</p>
           </div>
           <div class="section-header-actions">
-            <button class="btn btn-secondary btn-sm" @click="isPricingModalOpen = true">
+            <button
+              class="btn btn-secondary btn-sm"
+              @click="openPricingModal"
+              title="Configure benchmark rates for comparative provider calculations"
+            >
               <SlidersHorizontal :size="14" />
-              <span>Configure Token Rates ($/1M)</span>
+              <span>Benchmark Rates</span>
+            </button>
+            <button
+              class="btn btn-secondary btn-sm"
+              :class="{ 'btn-active': isComparisonOpen }"
+              @click="isComparisonOpen = !isComparisonOpen"
+            >
+              <BarChart3 :size="14" />
+              <span>{{ isComparisonOpen ? 'Hide Cost Comparison' : 'Compare Provider Costs' }}</span>
+              <ChevronUp v-if="isComparisonOpen" :size="13" />
+              <ChevronDown v-else :size="13" />
             </button>
             <button
               class="btn btn-secondary btn-sm"
@@ -2356,6 +2478,81 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
+
+        <!-- Expandable What-If Provider Cost Comparison Drawer -->
+        <div v-if="isComparisonOpen" class="provider-comparison-drawer animate-fade-in">
+          <div class="comparison-drawer-header">
+            <div class="comparison-title-wrap">
+              <h4 class="comparison-heading">
+                <BarChart3 :size="15" class="text-primary" />
+                <span>What-If Provider Cost Comparison</span>
+              </h4>
+              <p class="comparison-sub">
+                Estimated cost for this month's token volume ({{ formatTokens(usageOverview.monthly_tokens) }} tokens) if run across alternative model APIs.
+              </p>
+            </div>
+          </div>
+
+          <div class="comparison-table-wrapper">
+            <table class="comparison-table">
+              <thead>
+                <tr>
+                  <th>Provider / Benchmark Model</th>
+                  <th>Rates ($/1M in / out)</th>
+                  <th>Simulated Monthly Cost</th>
+                  <th>vs Current Setup</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(item, idx) in usageOverview.comparative_costs || []"
+                  :key="idx"
+                  :class="{ 'highlight-active-row': item.is_local && usageOverview.local_inference_percentage >= 50 }"
+                >
+                  <td class="font-medium">
+                    <div class="provider-cell flex items-center gap-1.5">
+                      <span class="provider-brand font-semibold">{{ item.provider_name }}</span>
+                      <span class="model-sub text-muted">({{ item.model_name }})</span>
+                      <span
+                        v-if="item.is_local && usageOverview.local_inference_percentage >= 50"
+                        class="badge badge-success font-mono text-[10px] py-0 px-1"
+                      >
+                        Your Active Setup
+                      </span>
+                    </div>
+                  </td>
+                  <td class="font-mono text-muted">
+                    ${{ item.input_cost_per_million.toFixed(2) }} / ${{ item.output_cost_per_million.toFixed(2) }}
+                  </td>
+                  <td class="font-mono font-semibold">
+                    <span v-if="item.is_local" class="text-success">$0.00 (Free)</span>
+                    <span v-else class="text-main">${{ item.simulated_cost_usd.toFixed(4) }}</span>
+                  </td>
+                  <td>
+                    <span
+                      v-if="item.status === 'cheaper'"
+                      class="badge badge-success font-mono flex items-center gap-1 w-fit"
+                    >
+                      <ArrowDown :size="11" /> -${{ Math.abs(item.diff_usd).toFixed(4) }} ({{ item.diff_percentage }}%)
+                    </span>
+                    <span
+                      v-else-if="item.status === 'more_expensive'"
+                      class="badge badge-danger font-mono flex items-center gap-1 w-fit"
+                    >
+                      <ArrowUp :size="11" /> +${{ item.diff_usd.toFixed(4) }} (+{{ item.diff_percentage }}%)
+                    </span>
+                    <span
+                      v-else
+                      class="badge badge-applied font-mono text-muted w-fit"
+                    >
+                      Active Plan
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <div class="section-card">
@@ -2388,6 +2585,15 @@ onUnmounted(() => {
               <div class="meta-row">
                 <span class="meta-k">API Key:</span>
                 <span class="meta-v font-mono">{{ p.api_key_masked || 'Not Required / Local' }}</span>
+              </div>
+              <div class="meta-row">
+                <span class="meta-k">Token Rate ($/1M):</span>
+                <span v-if="(p.input_cost_per_million || 0) === 0 && (p.output_cost_per_million || 0) === 0" class="meta-v font-mono text-success font-semibold">
+                  Local / Free ($0.00)
+                </span>
+                <span v-else class="meta-v font-mono font-semibold">
+                  ${{ (p.input_cost_per_million || 0).toFixed(2) }} in / ${{ (p.output_cost_per_million || 0).toFixed(2) }} out
+                </span>
               </div>
               <div class="meta-row">
                 <span class="meta-k">Max Concurrency:</span>
@@ -2858,19 +3064,160 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- MODEL PRICING & TOKEN RATES MODAL -->
+    <!-- PROVIDER MODAL -->
+    <div v-if="isProviderModalOpen" class="modal-backdrop" @click.self="isProviderModalOpen = false">
+      <div class="modal-card animate-fade-in">
+        <div class="modal-header">
+          <h3 class="modal-title">{{ editingProvider ? 'Edit Provider: ' + editingProvider.name : 'Add AI Provider' }}</h3>
+          <button class="btn-close" @click="isProviderModalOpen = false">×</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="input-group">
+            <label class="input-label">Provider Name *</label>
+            <input v-model="providerForm.name" type="text" placeholder="e.g. Local LM Studio, Anthropic Work" class="form-input" required />
+          </div>
+
+          <div class="input-group">
+            <label class="input-label">Provider Type *</label>
+            <select v-model="providerForm.provider_type" class="form-input" @change="onProviderTypeChange">
+              <option value="openai">OpenAI / LM Studio / vLLM (OpenAI-compatible)</option>
+              <option value="anthropic">Anthropic (Claude)</option>
+              <option value="ollama">Ollama</option>
+              <option value="google_genai">Google Gemini (GenAI)</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="custom">Custom Endpoint</option>
+            </select>
+          </div>
+
+          <div class="input-group">
+            <label class="input-label">Base URL</label>
+            <input v-model="providerForm.base_url" type="text" placeholder="http://192.168.1.187:1234/v1" class="form-input" />
+          </div>
+
+          <div class="input-group">
+            <label class="input-label">{{ editingProvider ? 'New API Key (Leave blank to keep unchanged)' : 'API Key (Optional for local)' }}</label>
+            <input v-model="providerForm.api_key" type="password" placeholder="lm-studio / sk-..." class="form-input" />
+          </div>
+
+          <div class="input-row-2col">
+            <div class="input-group">
+              <label class="input-label">Input Cost ($ / 1M)</label>
+              <div class="rate-input-wrap">
+                <span class="rate-prefix">$</span>
+                <input
+                  v-model.number="providerForm.input_cost_per_million"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0.00"
+                  class="form-input rate-input font-mono"
+                />
+              </div>
+            </div>
+
+            <div class="input-group">
+              <label class="input-label">Output Cost ($ / 1M)</label>
+              <div class="rate-input-wrap">
+                <span class="rate-prefix">$</span>
+                <input
+                  v-model.number="providerForm.output_cost_per_million"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0.00"
+                  class="form-input rate-input font-mono"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Collapsible Standard Model Rates Guide -->
+          <div class="rate-guide-accordion mb-3">
+            <button
+              type="button"
+              class="rate-guide-toggle-btn"
+              @click="isRateGuideOpen = !isRateGuideOpen"
+            >
+              <div class="flex items-center gap-1.5 text-xs text-primary font-medium">
+                <Sparkles :size="13" />
+                <span>Standard Model Rates Reference Guide</span>
+              </div>
+              <ChevronUp v-if="isRateGuideOpen" :size="13" class="text-muted" />
+              <ChevronDown v-else :size="13" class="text-muted" />
+            </button>
+
+            <div v-if="isRateGuideOpen" class="rate-guide-content animate-fade-in mt-2">
+              <div class="rate-guide-filter-row mb-2 flex items-center justify-between">
+                <span class="text-[11px] text-muted">Click any preset to apply $/1M rates:</span>
+                <label class="show-all-toggle text-[11px] text-muted flex items-center gap-1 cursor-pointer">
+                  <input type="checkbox" v-model="showAllRateGuideProviders" />
+                  <span>Show all providers</span>
+                </label>
+              </div>
+
+              <div class="rate-presets-list">
+                <div
+                  v-for="(preset, pIdx) in filteredRateGuidePresets"
+                  :key="pIdx"
+                  class="rate-preset-card"
+                  @click="applyRateGuidePreset(preset)"
+                >
+                  <div class="preset-top">
+                    <span class="preset-name font-semibold">{{ preset.name }}</span>
+                    <span class="badge badge-applied font-mono text-[10px]">{{ preset.provider }}</span>
+                  </div>
+                  <div class="preset-bottom font-mono text-xs">
+                    <span class="text-primary">${{ preset.inCost.toFixed(2) }} in</span>
+                    <span class="text-muted">/</span>
+                    <span class="text-primary">${{ preset.outCost.toFixed(2) }} out</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="input-group">
+            <div class="label-with-hint">
+              <label class="input-label">Max Concurrency Limit</label>
+              <span class="text-xs text-muted">Local: 1 | Cloud: 5-10</span>
+            </div>
+            <input
+              v-model.number="providerForm.max_concurrency"
+              type="number"
+              min="1"
+              max="50"
+              placeholder="1"
+              class="form-input font-mono"
+              required
+            />
+          </div>
+
+          <div class="modal-actions">
+            <button class="btn btn-secondary" @click="isProviderModalOpen = false">Cancel</button>
+            <button class="btn btn-primary" @click="saveProvider">{{ editingProvider ? 'Update Provider' : 'Save Provider' }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODEL PRICING & BENCHMARK RATES MODAL -->
     <div v-if="isPricingModalOpen" class="modal-backdrop" @click.self="isPricingModalOpen = false">
       <div class="modal-card modal-lg animate-fade-in">
         <div class="modal-header">
           <div class="modal-title-group">
-            <h3 class="modal-title">Model Pricing &amp; Token Rates ($ / 1M Tokens)</h3>
-            <p class="text-xs text-muted">Configure input and output rates per 1M tokens to calculate exact cloud spend and local hardware savings.</p>
+            <h3 class="modal-title flex items-center gap-2">
+              <SlidersHorizontal :size="18" class="text-primary" />
+              <span>Model Pricing &amp; Benchmark Rates ($ / 1M Tokens)</span>
+            </h3>
+            <p class="text-xs text-muted mt-1">Configure standard comparison rates used for What-If provider simulations and cloud savings calculations.</p>
           </div>
           <button class="btn-close" @click="isPricingModalOpen = false">×</button>
         </div>
 
         <div class="modal-body">
-          <div class="pricing-modal-toolbar mb-4">
+          <div class="pricing-modal-toolbar mb-3 flex items-center justify-between gap-3">
             <input
               v-model="pricingSearchQuery"
               type="text"
@@ -2878,10 +3225,10 @@ onUnmounted(() => {
               class="form-input search-input"
             />
             <button
-              class="btn btn-secondary btn-sm"
+              class="btn btn-secondary btn-sm flex-shrink-0"
               @click="resetPricingRatesToDefaults"
               :disabled="loadingPricing"
-              title="Reset all rates to standard published defaults"
+              title="Reset all benchmark rates to standard published defaults"
             >
               <RotateCcw :size="14" />
               <span>Reset Defaults</span>
@@ -2901,7 +3248,7 @@ onUnmounted(() => {
               <tbody>
                 <tr v-for="rate in filteredPricingRates" :key="rate.key">
                   <td class="rate-model-cell">
-                    <div class="rate-name">{{ rate.display_name || rate.key }}</div>
+                    <div class="rate-name font-semibold text-main">{{ rate.display_name || rate.key }}</div>
                     <div class="rate-key font-mono text-xs text-muted">{{ rate.key }}</div>
                   </td>
                   <td>
@@ -2950,68 +3297,8 @@ onUnmounted(() => {
             >
               <Loader2 v-if="isSavingPricing" class="animate-spin" :size="14" />
               <Save v-else :size="14" />
-              <span>Save Pricing Rates</span>
+              <span>Save Benchmark Rates</span>
             </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- PROVIDER MODAL -->
-    <div v-if="isProviderModalOpen" class="modal-backdrop" @click.self="isProviderModalOpen = false">
-      <div class="modal-card animate-fade-in">
-        <div class="modal-header">
-          <h3 class="modal-title">{{ editingProvider ? 'Edit Provider: ' + editingProvider.name : 'Add AI Provider' }}</h3>
-          <button class="btn-close" @click="isProviderModalOpen = false">×</button>
-        </div>
-
-        <div class="modal-body">
-          <div class="input-group">
-            <label class="input-label">Provider Name *</label>
-            <input v-model="providerForm.name" type="text" placeholder="e.g. Local LM Studio, Anthropic Work" class="form-input" required />
-          </div>
-
-          <div class="input-group">
-            <label class="input-label">Provider Type *</label>
-            <select v-model="providerForm.provider_type" class="form-input">
-              <option value="openai">OpenAI / LM Studio / vLLM (OpenAI-compatible)</option>
-              <option value="anthropic">Anthropic (Claude)</option>
-              <option value="ollama">Ollama</option>
-              <option value="google_genai">Google Gemini (GenAI)</option>
-              <option value="openrouter">OpenRouter</option>
-              <option value="custom">Custom Endpoint</option>
-            </select>
-          </div>
-
-          <div class="input-group">
-            <label class="input-label">Base URL</label>
-            <input v-model="providerForm.base_url" type="text" placeholder="http://192.168.1.187:1234/v1" class="form-input" />
-          </div>
-
-          <div class="input-group">
-            <label class="input-label">{{ editingProvider ? 'New API Key (Leave blank to keep unchanged)' : 'API Key (Optional for local)' }}</label>
-            <input v-model="providerForm.api_key" type="password" placeholder="lm-studio / sk-..." class="form-input" />
-          </div>
-
-          <div class="input-group">
-            <div class="label-with-hint">
-              <label class="input-label">Max Concurrency Limit</label>
-              <span class="text-xs text-muted">Local: 1 | Cloud: 5-10</span>
-            </div>
-            <input
-              v-model.number="providerForm.max_concurrency"
-              type="number"
-              min="1"
-              max="50"
-              placeholder="1"
-              class="form-input font-mono"
-              required
-            />
-          </div>
-
-          <div class="modal-actions">
-            <button class="btn btn-secondary" @click="isProviderModalOpen = false">Cancel</button>
-            <button class="btn btn-primary" @click="saveProvider">{{ editingProvider ? 'Update Provider' : 'Save Provider' }}</button>
           </div>
         </div>
       </div>
@@ -3687,6 +3974,9 @@ onUnmounted(() => {
 
 .tab-content {
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
 
 /* Studio Layout */
@@ -5725,6 +6015,7 @@ input:checked + .slider:before {
 .usage-overview-card {
   background: var(--bg-card, #1e293b);
   border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  margin-bottom: 28px !important;
 }
 
 .usage-title-badge-row {
@@ -5792,14 +6083,156 @@ input:checked + .slider:before {
   gap: 6px;
 }
 
-/* Pricing Table Styles */
-.pricing-modal-toolbar {
+/* Provider Cost Comparison Drawer Styles */
+.provider-comparison-drawer {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+}
+
+.comparison-drawer-header {
+  margin-bottom: 12px;
+}
+
+.comparison-heading {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-main, #f8fafc);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.comparison-sub {
+  font-size: 0.8rem;
+  color: var(--text-muted, #94a3b8);
+  margin-top: 4px;
+}
+
+.comparison-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-md, 8px);
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.comparison-table th {
+  background: var(--bg-surface, #0f172a);
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-muted, #94a3b8);
+  border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+}
+
+.comparison-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.comparison-table tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.highlight-active-row {
+  background: rgba(16, 185, 129, 0.06) !important;
+}
+
+/* Rate Guide Accordion in Provider Modal */
+.rate-guide-accordion {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed var(--border-color, rgba(255, 255, 255, 0.12));
+  border-radius: var(--radius-md, 8px);
+  padding: 10px 12px;
+}
+
+.rate-guide-toggle-btn {
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
 }
 
+.rate-presets-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.rate-preset-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-sm, 6px);
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rate-preset-card:hover {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.4);
+  transform: translateY(-1px);
+}
+
+.preset-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.preset-name {
+  font-size: 0.78rem;
+  color: var(--text-main, #f8fafc);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-bottom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+}
+
+.rate-input-wrap {
+  display: flex;
+  align-items: center;
+  position: relative;
+  width: 100%;
+}
+
+.rate-prefix {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted, #94a3b8);
+  font-family: monospace;
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.rate-input {
+  padding-left: 22px !important;
+}
+
+/* Pricing & Benchmark Rates Modal Styles */
 .pricing-table-container {
   max-height: 400px;
   overflow-y: auto;
@@ -5810,18 +6243,18 @@ input:checked + .slider:before {
 .pricing-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.875rem;
+  font-size: 0.84rem;
 }
 
 .pricing-table th {
-  position: sticky;
-  top: 0;
   background: var(--bg-surface, #0f172a);
   padding: 10px 14px;
   text-align: left;
   font-weight: 600;
   color: var(--text-muted, #94a3b8);
   border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  position: sticky;
+  top: 0;
   z-index: 1;
 }
 
@@ -5830,30 +6263,13 @@ input:checked + .slider:before {
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
-.rate-model-cell .rate-name {
-  font-weight: 600;
-  color: var(--text-main, #f8fafc);
+.pricing-table tr:hover {
+  background: rgba(255, 255, 255, 0.02);
 }
 
-.rate-input-wrap {
+.rate-model-cell {
   display: flex;
-  align-items: center;
-  position: relative;
-  width: 120px;
-}
-
-.rate-prefix {
-  position: absolute;
-  left: 8px;
-  color: var(--text-muted, #94a3b8);
-  font-family: monospace;
-  font-size: 0.85rem;
-}
-
-.rate-input {
-  padding-left: 20px !important;
-  font-size: 0.85rem;
-  height: 32px;
-  width: 100%;
+  flex-direction: column;
+  gap: 2px;
 }
 </style>

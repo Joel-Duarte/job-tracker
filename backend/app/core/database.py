@@ -178,6 +178,18 @@ async def ensure_db_schema() -> None:
                             "ALTER TABLE ai_providers ADD COLUMN is_fallback BOOLEAN NOT NULL DEFAULT FALSE;"
                         )
                     )
+                if "input_cost_per_million" not in cols:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE ai_providers ADD COLUMN input_cost_per_million DOUBLE PRECISION DEFAULT 0.0;"
+                        )
+                    )
+                if "output_cost_per_million" not in cols:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE ai_providers ADD COLUMN output_cost_per_million DOUBLE PRECISION DEFAULT 0.0;"
+                        )
+                    )
             if "candidate_cvs" in table_names:
                 cols = [c["name"] for c in inspector.get_columns("candidate_cvs")]
                 if "spoken_languages" not in cols:

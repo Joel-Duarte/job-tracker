@@ -200,15 +200,165 @@ def reset_pricing_rates() -> list[dict[str, Any]]:
     return [dict(v) for v in DEFAULT_MODEL_PRICING.values()]
 
 
+COMPARATIVE_BENCHMARKS: list[dict[str, Any]] = [
+    {
+        "provider_name": "Local LLM (Ollama / LM Studio)",
+        "model_name": "Local On-Device Models",
+        "provider_type": "local",
+        "input_cost_per_million": 0.0,
+        "output_cost_per_million": 0.0,
+        "is_local": True,
+    },
+    {
+        "provider_name": "Google Gemini",
+        "model_name": "Gemini 2.0 Flash",
+        "provider_type": "google_genai",
+        "input_cost_per_million": 0.10,
+        "output_cost_per_million": 0.40,
+        "is_local": False,
+    },
+    {
+        "provider_name": "DeepSeek",
+        "model_name": "DeepSeek V3",
+        "provider_type": "deepseek",
+        "input_cost_per_million": 0.14,
+        "output_cost_per_million": 0.28,
+        "is_local": False,
+    },
+    {
+        "provider_name": "OpenAI",
+        "model_name": "GPT-4o Mini",
+        "provider_type": "openai",
+        "input_cost_per_million": 0.15,
+        "output_cost_per_million": 0.60,
+        "is_local": False,
+    },
+    {
+        "provider_name": "Anthropic",
+        "model_name": "Claude 3.5 Haiku",
+        "provider_type": "anthropic",
+        "input_cost_per_million": 0.80,
+        "output_cost_per_million": 4.00,
+        "is_local": False,
+    },
+    {
+        "provider_name": "OpenAI",
+        "model_name": "GPT-4o",
+        "provider_type": "openai",
+        "input_cost_per_million": 2.50,
+        "output_cost_per_million": 10.00,
+        "is_local": False,
+    },
+    {
+        "provider_name": "Anthropic",
+        "model_name": "Claude 3.5 Sonnet",
+        "provider_type": "anthropic",
+        "input_cost_per_million": 3.00,
+        "output_cost_per_million": 15.00,
+        "is_local": False,
+    },
+]
+
+
+def calculate_comparative_provider_costs(
+    monthly_input_tokens: int = 0,
+    monthly_output_tokens: int = 0,
+    current_spend_usd: float = 0.0,
+    is_current_local: bool = True,
+) -> list[dict[str, Any]]:
+    """Calculates simulated monthly cost across benchmark providers based on monthly token usage,
+    computing the dollar diff and percentage difference relative to current spend.
+    """
+    results = []
+    in_tok = (
+        monthly_input_tokens
+        if (monthly_input_tokens > 0 or monthly_output_tokens > 0)
+        else 100_000
+    )
+    out_tok = (
+        monthly_output_tokens
+        if (monthly_input_tokens > 0 or monthly_output_tokens > 0)
+        else 40_000
+    )
+
+    model_key_map = {
+        "Gemini 2.0 Flash": "gemini-2.0-flash",
+        "DeepSeek V3": "deepseek-chat",
+        "GPT-4o Mini": "gpt-4o-mini",
+        "Claude 3.5 Haiku": "claude-3-5-haiku",
+        "GPT-4o": "gpt-4o",
+        "Claude 3.5 Sonnet": "claude-3-5-sonnet",
+        "Local On-Device Models": "local_baseline",
+    }
+
+    for bench in COMPARATIVE_BENCHMARKS:
+        m_key = model_key_map.get(bench["model_name"])
+        in_cost_val = bench["input_cost_per_million"]
+        out_cost_val = bench["output_cost_per_million"]
+
+        if m_key and m_key in _custom_pricing_cache and not bench["is_local"]:
+            in_cost_val = _custom_pricing_cache[m_key].get(
+                "input_cost_per_million", in_cost_val
+            )
+            out_cost_val = _custom_pricing_cache[m_key].get(
+                "output_cost_per_million", out_cost_val
+            )
+
+        in_rate = in_cost_val / 1_000_000.0
+        out_rate = out_cost_val / 1_000_000.0
+        simulated_cost = round((in_tok * in_rate) + (out_tok * out_rate), 4)
+        diff_usd = round(simulated_cost - current_spend_usd, 4)
+
+        if simulated_cost < current_spend_usd - 0.0001:
+            status = "cheaper"
+            diff_pct = (
+                round(
+                    ((simulated_cost - current_spend_usd) / current_spend_usd) * 100.0,
+                    1,
+                )
+                if current_spend_usd > 0
+                else 0.0
+            )
+        elif simulated_cost > current_spend_usd + 0.0001:
+            status = "more_expensive"
+            diff_pct = (
+                round(
+                    ((simulated_cost - current_spend_usd) / current_spend_usd) * 100.0,
+                    1,
+                )
+                if current_spend_usd > 0
+                else 100.0
+            )
+        else:
+            status = "identical"
+            diff_pct = 0.0
+
+        results.append(
+            {
+                "provider_name": bench["provider_name"],
+                "model_name": bench["model_name"],
+                "provider_type": bench["provider_type"],
+                "input_cost_per_million": in_cost_val,
+                "output_cost_per_million": out_cost_val,
+                "simulated_cost_usd": simulated_cost,
+                "diff_usd": diff_usd,
+                "diff_percentage": diff_pct,
+                "status": status,
+                "is_local": bench["is_local"],
+            }
+        )
+    return results
+
+
 def calculate_cost_and_savings(
     model_name: str | None,
     input_tokens: int = 0,
     output_tokens: int = 0,
     is_local: bool = False,
+    custom_input_cost_per_million: float | None = None,
+    custom_output_cost_per_million: float | None = None,
 ) -> tuple[float, float]:
-    """
-    Calculates (estimated_actual_cost, estimated_cloud_savings) for a given LLM execution.
-    """
+    """Calculates (estimated_actual_cost, estimated_cloud_savings) for a given LLM execution."""
     baseline = dict(DEFAULT_MODEL_PRICING["local_baseline"])
     if "local_baseline" in _custom_pricing_cache:
         baseline.update(_custom_pricing_cache["local_baseline"])
@@ -221,6 +371,16 @@ def calculate_cost_and_savings(
             output_tokens * baseline_out_rate
         )
         return (0.0, round(savings, 6))
+
+    if (
+        custom_input_cost_per_million is not None
+        and custom_output_cost_per_million is not None
+        and (custom_input_cost_per_million > 0 or custom_output_cost_per_million > 0)
+    ):
+        in_rate = custom_input_cost_per_million / 1_000_000.0
+        out_rate = custom_output_cost_per_million / 1_000_000.0
+        actual_cost = (input_tokens * in_rate) + (output_tokens * out_rate)
+        return (round(actual_cost, 6), 0.0)
 
     matched_key = _match_pricing_key(model_name)
     rate_info = dict(DEFAULT_MODEL_PRICING.get(matched_key, baseline))

@@ -61,7 +61,7 @@ uv run uvicorn app.main:app --reload --port 8000
 From the repository root, start all microservices (PostgreSQL, Camofox Scraper, Backend, and Frontend):
 
 ```bash
-./dev.sh
+./jt dev
 ```
 
 ---

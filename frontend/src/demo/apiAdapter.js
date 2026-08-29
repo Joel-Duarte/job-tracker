@@ -997,82 +997,63 @@ export async function handleDemoRequest(config) {
         "JOB_ASSESSMENT": { calls: 24, tokens: 98400, cost_usd: 0.0, savings_usd: 9.84 },
         "COVER_LETTER": { calls: 8, tokens: 26400, cost_usd: 0.0, savings_usd: 2.64 },
         "INTERVIEW_SIMULATION": { calls: 6, tokens: 18000, cost_usd: 0.0, savings_usd: 1.80 }
-      }
+      },
+      comparative_costs: []
     })
   }
 
-  if (urlPath === '/ai/pricing-rates' && method === 'get') {
-    return ok(db.pricing_rates || [])
+  if (urlPath === '/ai/providers' && method === 'get') {
+    return ok(db.providers || [])
   }
 
-  if (urlPath === '/ai/pricing-rates' && (method === 'put' || method === 'post')) {
-    if (data.rates && Array.isArray(data.rates)) {
-      const existing = [...(db.pricing_rates || [])]
-      data.rates.forEach((updated) => {
-        const idx = existing.findIndex((r) => r.key === updated.key)
-        if (idx !== -1) {
-          existing[idx] = { ...existing[idx], ...updated }
-        }
-      })
-      db.pricing_rates = existing
-      saveDemoDb(db)
+  if (urlPath === '/ai/providers' && method === 'post') {
+    const newProvider = {
+      id: `prov_demo_${Date.now()}`,
+      name: data.name,
+      provider_type: data.provider_type || 'openai',
+      base_url: data.base_url || null,
+      api_key_masked: data.api_key ? 'sk-...masked' : 'Not Required / Local',
+      max_concurrency: data.max_concurrency || 1,
+      is_active: data.is_active !== undefined ? data.is_active : true,
+      is_fallback: data.is_fallback || false,
+      input_cost_per_million: parseFloat(data.input_cost_per_million) || 0.0,
+      output_cost_per_million: parseFloat(data.output_cost_per_million) || 0.0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     }
-    return ok(db.pricing_rates || [])
+    db.providers = [...(db.providers || []), newProvider]
+    saveDemoDb(db)
+    return ok(newProvider, 201)
   }
 
-  if (urlPath === '/ai/pricing-rates/reset' && method === 'post') {
-    db.pricing_rates = [
-      {
-        key: "local_baseline",
-        display_name: "Local LLM Benchmark (Savings Baseline)",
-        provider: "local",
-        input_cost_per_million: 0.15,
-        output_cost_per_million: 0.60,
-        description: "Standard baseline rate (GPT-4o-mini equivalent) to estimate cloud savings for local models.",
-      },
-      {
-        key: "gpt-4o",
-        display_name: "OpenAI GPT-4o",
-        provider: "openai",
-        input_cost_per_million: 2.50,
-        output_cost_per_million: 10.00,
-        description: "Flagship multimodal model for complex reasoning and tasks.",
-      },
-      {
-        key: "gpt-4o-mini",
-        display_name: "OpenAI GPT-4o Mini",
-        provider: "openai",
-        input_cost_per_million: 0.15,
-        output_cost_per_million: 0.60,
-        description: "Fast, cost-efficient model for intake and structured extractions.",
-      },
-      {
-        key: "claude-3-5-sonnet",
-        display_name: "Anthropic Claude 3.5 Sonnet",
-        provider: "anthropic",
-        input_cost_per_million: 3.00,
-        output_cost_per_million: 15.00,
-        description: "State-of-the-art coding, analysis, and nuances.",
-      },
-      {
-        key: "gemini-2.0-flash",
-        display_name: "Google Gemini 2.0 Flash",
-        provider: "gemini",
-        input_cost_per_million: 0.10,
-        output_cost_per_million: 0.40,
-        description: "Next-gen multimodal workhorse with sub-second speeds.",
-      },
-      {
-        key: "deepseek-chat",
-        display_name: "DeepSeek V3 (Chat)",
-        provider: "deepseek",
-        input_cost_per_million: 0.14,
-        output_cost_per_million: 0.28,
-        description: "High-efficiency general and coding model.",
+  const provMatch = urlPath.match(/^\/ai\/providers\/([^/]+)$/)
+  if (provMatch) {
+    const pId = provMatch[1]
+    const pIdx = (db.providers || []).findIndex((p) => String(p.id) === String(pId))
+
+    if (method === 'patch' || method === 'put') {
+      if (pIdx === -1) throw new Error('Provider not found')
+      db.providers[pIdx] = {
+        ...db.providers[pIdx],
+        ...data,
+        updated_at: new Date().toISOString(),
       }
-    ]
-    saveDemoDb(db)
-    return ok(db.pricing_rates)
+      saveDemoDb(db)
+      return ok(db.providers[pIdx])
+    }
+
+    if (method === 'delete') {
+      if (pIdx !== -1) {
+        db.providers.splice(pIdx, 1)
+        saveDemoDb(db)
+      }
+      return ok({ message: 'Provider deleted' })
+    }
+  }
+
+  const provTestMatch = urlPath.match(/^\/ai\/providers\/([^/]+)\/test$/)
+  if (provTestMatch && method === 'post') {
+    return ok({ status: 'success', message: 'Provider endpoint healthy and reachable (18ms)' })
   }
 
   if (urlPath === '/ai/bindings' && method === 'get') {
@@ -1091,6 +1072,39 @@ export async function handleDemoRequest(config) {
     }
     saveDemoDb(db)
     return ok(newBinding)
+  }
+
+  if (urlPath === '/ai/pricing-rates' && method === 'get') {
+    return ok(db.pricing_rates || [
+      { key: 'local_baseline', display_name: 'Local LLM Benchmark (Savings Baseline)', provider: 'local', input_cost_per_million: 0.15, output_cost_per_million: 0.60 },
+      { key: 'gpt-4o', display_name: 'OpenAI GPT-4o', provider: 'openai', input_cost_per_million: 2.50, output_cost_per_million: 10.00 },
+      { key: 'gpt-4o-mini', display_name: 'OpenAI GPT-4o Mini', provider: 'openai', input_cost_per_million: 0.15, output_cost_per_million: 0.60 },
+      { key: 'claude-3-5-sonnet', display_name: 'Anthropic Claude 3.5 Sonnet', provider: 'anthropic', input_cost_per_million: 3.00, output_cost_per_million: 15.00 },
+      { key: 'claude-3-5-haiku', display_name: 'Anthropic Claude 3.5 Haiku', provider: 'anthropic', input_cost_per_million: 0.80, output_cost_per_million: 4.00 },
+      { key: 'gemini-2.0-flash', display_name: 'Google Gemini 2.0 Flash', provider: 'gemini', input_cost_per_million: 0.10, output_cost_per_million: 0.40 },
+      { key: 'deepseek-chat', display_name: 'DeepSeek V3', provider: 'deepseek', input_cost_per_million: 0.14, output_cost_per_million: 0.28 },
+    ])
+  }
+
+  if (urlPath === '/ai/pricing-rates' && (method === 'put' || method === 'post')) {
+    const updatedRates = data.rates || data
+    db.pricing_rates = updatedRates
+    saveDemoDb(db)
+    return ok(db.pricing_rates)
+  }
+
+  if (urlPath === '/ai/pricing-rates/reset' && method === 'post') {
+    db.pricing_rates = [
+      { key: 'local_baseline', display_name: 'Local LLM Benchmark (Savings Baseline)', provider: 'local', input_cost_per_million: 0.15, output_cost_per_million: 0.60 },
+      { key: 'gpt-4o', display_name: 'OpenAI GPT-4o', provider: 'openai', input_cost_per_million: 2.50, output_cost_per_million: 10.00 },
+      { key: 'gpt-4o-mini', display_name: 'OpenAI GPT-4o Mini', provider: 'openai', input_cost_per_million: 0.15, output_cost_per_million: 0.60 },
+      { key: 'claude-3-5-sonnet', display_name: 'Anthropic Claude 3.5 Sonnet', provider: 'anthropic', input_cost_per_million: 3.00, output_cost_per_million: 15.00 },
+      { key: 'claude-3-5-haiku', display_name: 'Anthropic Claude 3.5 Haiku', provider: 'anthropic', input_cost_per_million: 0.80, output_cost_per_million: 4.00 },
+      { key: 'gemini-2.0-flash', display_name: 'Google Gemini 2.0 Flash', provider: 'gemini', input_cost_per_million: 0.10, output_cost_per_million: 0.40 },
+      { key: 'deepseek-chat', display_name: 'DeepSeek V3', provider: 'deepseek', input_cost_per_million: 0.14, output_cost_per_million: 0.28 },
+    ]
+    saveDemoDb(db)
+    return ok(db.pricing_rates)
   }
 
   if (urlPath === '/ai/global-settings' && method === 'get') {

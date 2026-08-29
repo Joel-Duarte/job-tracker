@@ -19,44 +19,65 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-def upgrade() -> None:
-    op.add_column(
-        "system_settings",
-        sa.Column(
-            "enable_auto_cover_letter",
-            sa.Boolean(),
-            nullable=False,
-            server_default="false",
-        ),
-    )
-    op.add_column(
-        "system_settings",
-        sa.Column(
-            "cover_letter_match_threshold",
-            sa.Integer(),
-            nullable=False,
-            server_default="70",
-        ),
-    )
+def _column_exists(table_name: str, column_name: str) -> bool:
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+    if not insp.has_table(table_name):
+        return False
+    columns = [c["name"] for c in insp.get_columns(table_name)]
+    return column_name in columns
 
-    op.add_column(
-        "email_applications", sa.Column("cover_letter_text", sa.Text(), nullable=True)
-    )
-    op.add_column(
-        "email_applications", sa.Column("cover_letter_status", sa.Text(), nullable=True)
-    )
-    op.add_column(
-        "email_applications",
-        sa.Column(
-            "cover_letter_generated_at", sa.DateTime(timezone=True), nullable=True
-        ),
-    )
+
+def upgrade() -> None:
+    if not _column_exists("system_settings", "enable_auto_cover_letter"):
+        op.add_column(
+            "system_settings",
+            sa.Column(
+                "enable_auto_cover_letter",
+                sa.Boolean(),
+                nullable=False,
+                server_default="false",
+            ),
+        )
+    if not _column_exists("system_settings", "cover_letter_match_threshold"):
+        op.add_column(
+            "system_settings",
+            sa.Column(
+                "cover_letter_match_threshold",
+                sa.Integer(),
+                nullable=False,
+                server_default="70",
+            ),
+        )
+
+    if not _column_exists("email_applications", "cover_letter_text"):
+        op.add_column(
+            "email_applications",
+            sa.Column("cover_letter_text", sa.Text(), nullable=True),
+        )
+    if not _column_exists("email_applications", "cover_letter_status"):
+        op.add_column(
+            "email_applications",
+            sa.Column("cover_letter_status", sa.Text(), nullable=True),
+        )
+    if not _column_exists("email_applications", "cover_letter_generated_at"):
+        op.add_column(
+            "email_applications",
+            sa.Column(
+                "cover_letter_generated_at", sa.DateTime(timezone=True), nullable=True
+            ),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("email_applications", "cover_letter_generated_at")
-    op.drop_column("email_applications", "cover_letter_status")
-    op.drop_column("email_applications", "cover_letter_text")
+    if _column_exists("email_applications", "cover_letter_generated_at"):
+        op.drop_column("email_applications", "cover_letter_generated_at")
+    if _column_exists("email_applications", "cover_letter_status"):
+        op.drop_column("email_applications", "cover_letter_status")
+    if _column_exists("email_applications", "cover_letter_text"):
+        op.drop_column("email_applications", "cover_letter_text")
 
-    op.drop_column("system_settings", "cover_letter_match_threshold")
-    op.drop_column("system_settings", "enable_auto_cover_letter")
+    if _column_exists("system_settings", "cover_letter_match_threshold"):
+        op.drop_column("system_settings", "cover_letter_match_threshold")
+    if _column_exists("system_settings", "enable_auto_cover_letter"):
+        op.drop_column("system_settings", "enable_auto_cover_letter")

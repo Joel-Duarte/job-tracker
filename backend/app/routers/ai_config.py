@@ -428,6 +428,8 @@ def _to_provider_read(p: AIProviderModel) -> AIProviderRead:
         max_concurrency=getattr(p, "max_concurrency", 1) or 1,
         is_active=p.is_active,
         is_fallback=getattr(p, "is_fallback", False) or False,
+        input_cost_per_million=getattr(p, "input_cost_per_million", 0.0) or 0.0,
+        output_cost_per_million=getattr(p, "output_cost_per_million", 0.0) or 0.0,
         created_at=p.created_at,
         updated_at=p.updated_at,
     )
@@ -493,6 +495,8 @@ async def create_ai_provider(
         else 1,
         is_active=payload.is_active,
         is_fallback=payload.is_fallback,
+        input_cost_per_million=payload.input_cost_per_million or 0.0,
+        output_cost_per_million=payload.output_cost_per_million or 0.0,
     )
     db.add(provider)
     await db.commit()
@@ -1087,7 +1091,10 @@ async def get_usage_overview_endpoint(
     from datetime import UTC, datetime
 
     from app.models.diagnostics import TraceEventModel
-    from app.services.pricing_service import extract_usage_from_payload
+    from app.services.pricing_service import (
+        calculate_comparative_provider_costs,
+        extract_usage_from_payload,
+    )
 
     now = datetime.now(UTC)
     start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -1097,6 +1104,8 @@ async def get_usage_overview_endpoint(
     records = result.scalars().all()
 
     monthly_tokens = 0
+    monthly_prompt_tokens = 0
+    monthly_completion_tokens = 0
     monthly_spend = 0.0
     monthly_savings = 0.0
 
@@ -1115,6 +1124,8 @@ async def get_usage_overview_endpoint(
         payload = r.payload or {}
         usage = extract_usage_from_payload(payload)
         t_tokens = usage["total_tokens"]
+        p_tokens = usage.get("prompt_tokens", 0)
+        c_tokens = usage.get("completion_tokens", 0)
         cost = usage["estimated_cost"]
         savings = usage["estimated_savings"]
         is_local = usage["is_local"]
@@ -1135,6 +1146,8 @@ async def get_usage_overview_endpoint(
 
             if t_time and t_time >= start_of_month:
                 monthly_tokens += t_tokens
+                monthly_prompt_tokens += p_tokens
+                monthly_completion_tokens += c_tokens
                 monthly_spend += cost
                 monthly_savings += savings
 
@@ -1178,6 +1191,58 @@ async def get_usage_overview_endpoint(
         else (round(all_time_spend / total_calls, 4) if total_calls > 0 else 0.0)
     )
 
+    # Check active providers to dynamically synchronize with latest configured rates
+    prov_stmt = select(AIProviderModel).where(AIProviderModel.is_active.is_(True))
+    providers_res = await db.execute(prov_stmt)
+    active_providers = providers_res.scalars().all()
+
+    primary_provider = next(
+        (p for p in active_providers if not p.is_fallback),
+        active_providers[0] if active_providers else None,
+    )
+
+    if primary_provider is not None:
+        p_in = (
+            primary_provider.input_cost_per_million
+            if primary_provider.input_cost_per_million is not None
+            else 0.0
+        )
+        p_out = (
+            primary_provider.output_cost_per_million
+            if primary_provider.output_cost_per_million is not None
+            else 0.0
+        )
+        is_prov_local = primary_provider.provider_type.lower() in (
+            "ollama",
+            "local",
+        ) or (p_in == 0.0 and p_out == 0.0)
+
+        if is_prov_local:
+            monthly_spend = 0.0
+            monthly_savings = round(
+                (monthly_prompt_tokens * 0.15 / 1_000_000.0)
+                + (monthly_completion_tokens * 0.60 / 1_000_000.0),
+                4,
+            )
+            if monthly_tokens > 0 and monthly_savings == 0.0:
+                monthly_savings = round(monthly_tokens * 0.0001, 4)
+            local_pct = 100.0
+        else:
+            monthly_spend = round(
+                (monthly_prompt_tokens * p_in / 1_000_000.0)
+                + (monthly_completion_tokens * p_out / 1_000_000.0),
+                4,
+            )
+            monthly_savings = 0.0
+            local_pct = 0.0
+
+    comparative = calculate_comparative_provider_costs(
+        monthly_input_tokens=monthly_prompt_tokens,
+        monthly_output_tokens=monthly_completion_tokens,
+        current_spend_usd=monthly_spend,
+        is_current_local=(local_pct >= 50.0),
+    )
+
     return UsageOverviewRead(
         monthly_tokens=monthly_tokens,
         monthly_spend_usd=round(monthly_spend, 4),
@@ -1189,4 +1254,5 @@ async def get_usage_overview_endpoint(
         total_llm_calls=total_calls,
         avg_cost_per_assessment=avg_assessment_cost,
         task_breakdown=task_breakdown,
+        comparative_costs=comparative,
     )

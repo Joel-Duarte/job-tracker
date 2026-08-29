@@ -34,15 +34,23 @@ _SECRET_COLUMNS = {
 def _encrypt_table_secrets(
     connection: sa.Connection, table_name: str, columns: tuple[str, ...]
 ) -> None:
+    insp = sa.inspect(connection)
+    if not insp.has_table(table_name):
+        return
+    existing_cols = {c["name"] for c in insp.get_columns(table_name)}
+    valid_cols = tuple(c for c in columns if c in existing_cols)
+    if not valid_cols:
+        return
+
     table = sa.table(
         table_name,
         sa.column("id", sa.BigInteger()),
-        *(sa.column(column, sa.Text()) for column in columns),
+        *(sa.column(column, sa.Text()) for column in valid_cols),
     )
     rows = connection.execute(sa.select(table)).mappings().all()
     for row in rows:
         values = {
-            column: encrypt_secret(row[column]) for column in columns if row[column]
+            column: encrypt_secret(row[column]) for column in valid_cols if row[column]
         }
         if values:
             connection.execute(

@@ -4,7 +4,7 @@ name: job-tracker
 # Docker Compose Development Overlay (Hot Reloading for Backend & Frontend)
 #
 # Usage:
-#   ./dev.sh
+#   ./jt dev
 #   OR
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 # ==============================================================================
