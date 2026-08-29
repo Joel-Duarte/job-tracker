@@ -169,12 +169,21 @@ async def ensure_db_schema() -> None:
 
         def _sync_schema_columns(connection):
             inspector = inspect(connection)
-            if "ai_providers" in inspector.get_table_names():
+            table_names = inspector.get_table_names()
+            if "ai_providers" in table_names:
                 cols = [c["name"] for c in inspector.get_columns("ai_providers")]
                 if "is_fallback" not in cols:
                     connection.execute(
                         text(
                             "ALTER TABLE ai_providers ADD COLUMN is_fallback BOOLEAN NOT NULL DEFAULT FALSE;"
+                        )
+                    )
+            if "candidate_cvs" in table_names:
+                cols = [c["name"] for c in inspector.get_columns("candidate_cvs")]
+                if "spoken_languages" not in cols:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE candidate_cvs ADD COLUMN spoken_languages JSONB NOT NULL DEFAULT '[]'::jsonb;"
                         )
                     )
 

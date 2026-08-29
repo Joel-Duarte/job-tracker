@@ -297,6 +297,9 @@ async function loadProfile() {
           is_active: true,
         }))
       }
+      if (!profile.value.spoken_languages) {
+        profile.value.spoken_languages = []
+      }
     } else {
       profile.value = null
     }
