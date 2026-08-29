@@ -261,6 +261,7 @@ const smartSuggestionApp = computed(() => {
   if (!companyName || companyName.toLowerCase() === 'unknown company') return null
 
   const scoredApps = (appStore.applications || [])
+    .filter((a) => a.status !== 'ASSESSMENT')
     .map((a) => ({
       app: a,
       score: scoreApplicationMatch(a, companyName),
@@ -330,7 +331,7 @@ function selectNextItem() {
 
 // Applications search for linking with fuzzy matching & relevance ranking
 const filteredExistingApps = computed(() => {
-  let apps = appStore.applications || []
+  let apps = (appStore.applications || []).filter((a) => a.status !== 'ASSESSMENT')
   if (!includeArchivedApps.value) {
     apps = apps.filter((a) => !['REJECTED', 'ARCHIVED', 'WITHDRAWN'].includes(a.status))
   }
@@ -392,7 +393,7 @@ function selectItem(item, fromUserClick = false) {
   // Pre-match existing application if high confidence
   const companyName = getItemCompany(item).toLowerCase().trim()
   const matchedApp = (appStore.applications || []).find(
-    (a) => (a.company?.name || '').toLowerCase().trim() === companyName
+    (a) => a.status !== 'ASSESSMENT' && (a.company?.name || '').toLowerCase().trim() === companyName
   )
   if (matchedApp) {
     selectedExistingAppId.value = matchedApp.id

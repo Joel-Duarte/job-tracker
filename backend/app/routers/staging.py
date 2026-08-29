@@ -251,7 +251,7 @@ async def resolve_staging_item(
                     position_normalized=position_norm,
                     external_job_id=payload.external_job_id,
                     job_url=clean_job_url,
-                    status=payload.status or "ASSESSMENT",
+                    status=payload.status or "APPLIED",
                     application_date=(
                         staged_item.email_received_at.date()
                         if staged_item.email_received_at
