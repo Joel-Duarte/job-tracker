@@ -4685,7 +4685,7 @@
       "file_type": "code",
       "norm_label": "anonymize_and_parse_cv()",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L493"
+      "source_location": "L525"
     },
     {
       "id": "backend_app_services_llm_assess_job_posting",
@@ -4721,7 +4721,7 @@
       "file_type": "code",
       "norm_label": "generate_cover_letter()",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L399"
+      "source_location": "L431"
     },
     {
       "id": "backend_app_services_llm_split_text_semantically",
@@ -6785,7 +6785,7 @@
       "file_type": "code",
       "norm_label": "async_enqueue_application_embedding()",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L724"
+      "source_location": "L756"
     },
     {
       "id": "backend_app_routers_email_accounts_clear_account_processed_emails",
@@ -8765,7 +8765,7 @@
       "file_type": "code",
       "norm_label": "generate_and_save_application_embedding()",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L615"
+      "source_location": "L647"
     },
     {
       "id": "backend_app_services_llm_generate_embedding",
@@ -8777,7 +8777,7 @@
       "file_type": "code",
       "norm_label": "generate_embedding()",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L571"
+      "source_location": "L603"
     },
     {
       "id": "backend_app_tests_test_agent_tools_test_agent_tools_unit_handlers",
@@ -11885,7 +11885,7 @@
       "file_type": "code",
       "norm_label": "summarize_application_status()",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L543"
+      "source_location": "L575"
     },
     {
       "id": "backend_app_tests_test_llm_factory_test_assess_job_posting_runnable",
@@ -19226,7 +19226,7 @@
       "source_location": "L36"
     },
     {
-      "id": "backend_app_services_llm_rationale_409",
+      "id": "backend_app_services_llm_rationale_441",
       "label": "Generates a tailored cover letter using the COVER_LETTER task type and\u2026",
       "_origin": "ast",
       "community": 146,
@@ -19234,18 +19234,7 @@
       "file_type": "rationale",
       "norm_label": "generates a tailored cover letter using the cover_letter task type and...",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L409"
-    },
-    {
-      "id": "backend_app_services_llm_rationale_496",
-      "label": "De-identifies candidate resume: - Runs local programmatic regex pre-scrubber on\u2026",
-      "_origin": "ast",
-      "community": 146,
-      "community_name": "_execute_evaluation_steps",
-      "file_type": "rationale",
-      "norm_label": "de-identifies candidate resume: - runs local programmatic regex pre-scrubber on...",
-      "source_file": "backend/app/services/llm.py",
-      "source_location": "L496"
+      "source_location": "L441"
     },
     {
       "id": "backend_app_services_llm_rationale_51",
@@ -19257,6 +19246,17 @@
       "norm_label": "cleans raw text (normalizes whitespace, strips noise) and semantically...",
       "source_file": "backend/app/services/llm.py",
       "source_location": "L51"
+    },
+    {
+      "id": "backend_app_services_llm_rationale_528",
+      "label": "De-identifies candidate resume: - Runs local programmatic regex pre-scrubber on\u2026",
+      "_origin": "ast",
+      "community": 146,
+      "community_name": "_execute_evaluation_steps",
+      "file_type": "rationale",
+      "norm_label": "de-identifies candidate resume: - runs local programmatic regex pre-scrubber on...",
+      "source_file": "backend/app/services/llm.py",
+      "source_location": "L528"
     },
     {
       "id": "backend_app_services_llm_rationale_79",
@@ -21217,7 +21217,7 @@
       "source_location": "L69"
     },
     {
-      "id": "backend_app_services_llm_rationale_728",
+      "id": "backend_app_services_llm_rationale_760",
       "label": "Non-blocking background worker task to generate and save application vector\u2026",
       "_origin": "ast",
       "community": 20,
@@ -21225,7 +21225,7 @@
       "file_type": "rationale",
       "norm_label": "non-blocking background worker task to generate and save application vector...",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L728"
+      "source_location": "L760"
     },
     {
       "id": "backend_app_routers_email_accounts",
@@ -23824,7 +23824,7 @@
       "source_location": "L760"
     },
     {
-      "id": "backend_app_services_llm_rationale_576",
+      "id": "backend_app_services_llm_rationale_608",
       "label": "Generates vector embedding for input text using configured LangChain EMBEDDING\u2026",
       "_origin": "ast",
       "community": 3,
@@ -23832,10 +23832,10 @@
       "file_type": "rationale",
       "norm_label": "generates vector embedding for input text using configured langchain embedding...",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L576"
+      "source_location": "L608"
     },
     {
-      "id": "backend_app_services_llm_rationale_620",
+      "id": "backend_app_services_llm_rationale_652",
       "label": "Creates or updates 768-dim vector embedding record for an application.\u2026",
       "_origin": "ast",
       "community": 3,
@@ -23843,7 +23843,7 @@
       "file_type": "rationale",
       "norm_label": "creates or updates 768-dim vector embedding record for an application....",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L620"
+      "source_location": "L652"
     },
     {
       "id": "backend_app_tests_test_agent_tools_rationale_28",
@@ -29291,7 +29291,7 @@
       "source_location": "L325"
     },
     {
-      "id": "backend_app_services_llm_rationale_546",
+      "id": "backend_app_services_llm_rationale_578",
       "label": "Synthesizes a narrative status snapshot from timeline events using LangChain\u2026",
       "_origin": "ast",
       "community": 54,
@@ -29299,7 +29299,7 @@
       "file_type": "rationale",
       "norm_label": "synthesizes a narrative status snapshot from timeline events using langchain...",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L546"
+      "source_location": "L578"
     },
     {
       "id": "backend_app_services_llm_rationale_71",
@@ -37052,7 +37052,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L299",
+      "source_location": "L344",
       "weight": 1.0
     },
     {
@@ -37064,7 +37064,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L795",
+      "source_location": "L827",
       "weight": 1.0
     },
     {
@@ -37088,7 +37088,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L697",
+      "source_location": "L729",
       "weight": 1.0
     },
     {
@@ -37100,7 +37100,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L708",
+      "source_location": "L740",
       "weight": 1.0
     },
     {
@@ -37112,7 +37112,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L415",
+      "source_location": "L447",
       "weight": 1.0
     },
     {
@@ -47924,7 +47924,7 @@
       "confidence_score": 1.0,
       "context": "generic_arg",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L543",
+      "source_location": "L575",
       "weight": 1.0
     },
     {
@@ -61760,7 +61760,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L493",
+      "source_location": "L525",
       "weight": 1.0
     },
     {
@@ -61808,7 +61808,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L615",
+      "source_location": "L647",
       "weight": 1.0
     },
     {
@@ -61820,7 +61820,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L399",
+      "source_location": "L431",
       "weight": 1.0
     },
     {
@@ -61832,7 +61832,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L571",
+      "source_location": "L603",
       "weight": 1.0
     },
     {
@@ -61844,7 +61844,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L571",
+      "source_location": "L603",
       "weight": 1.0
     },
     {
@@ -61868,7 +61868,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L543",
+      "source_location": "L575",
       "weight": 1.0
     },
     {
@@ -63428,7 +63428,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L493",
+      "source_location": "L525",
       "weight": 1.0
     },
     {
@@ -63476,7 +63476,7 @@
       "confidence_score": 1.0,
       "context": "return_type",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L543",
+      "source_location": "L575",
       "weight": 1.0
     },
     {
@@ -68689,18 +68689,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L399",
-      "weight": 1.0
-    },
-    {
-      "source": "backend_app_services_llm",
-      "target": "backend_app_services_llm_anonymize_and_parse_cv",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "backend/app/services/llm.py",
-      "source_location": "L493",
+      "source_location": "L431",
       "weight": 1.0
     },
     {
@@ -68716,13 +68705,24 @@
     },
     {
       "source": "backend_app_services_llm",
+      "target": "backend_app_services_llm_anonymize_and_parse_cv",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "backend/app/services/llm.py",
+      "source_location": "L525",
+      "weight": 1.0
+    },
+    {
+      "source": "backend_app_services_llm",
       "target": "backend_app_services_llm_summarize_application_status",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L543",
+      "source_location": "L575",
       "weight": 1.0
     },
     {
@@ -68733,7 +68733,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L571",
+      "source_location": "L603",
       "weight": 1.0
     },
     {
@@ -68744,7 +68744,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L615",
+      "source_location": "L647",
       "weight": 1.0
     },
     {
@@ -68760,17 +68760,6 @@
     },
     {
       "source": "backend_app_services_llm",
-      "target": "backend_app_services_llm_async_enqueue_application_embedding",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "backend/app/services/llm.py",
-      "source_location": "L724",
-      "weight": 1.0
-    },
-    {
-      "source": "backend_app_services_llm",
       "target": "backend_app_services_llm_extract_job_spec",
       "relation": "contains",
       "_origin": "ast",
@@ -68778,6 +68767,17 @@
       "confidence_score": 1.0,
       "source_file": "backend/app/services/llm.py",
       "source_location": "L75",
+      "weight": 1.0
+    },
+    {
+      "source": "backend_app_services_llm",
+      "target": "backend_app_services_llm_async_enqueue_application_embedding",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "backend/app/services/llm.py",
+      "source_location": "L756",
       "weight": 1.0
     },
     {
@@ -89571,25 +89571,14 @@
       "weight": 1.0
     },
     {
-      "source": "backend_app_services_llm_rationale_409",
+      "source": "backend_app_services_llm_rationale_441",
       "target": "backend_app_services_llm_generate_cover_letter",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L409",
-      "weight": 1.0
-    },
-    {
-      "source": "backend_app_services_llm_rationale_496",
-      "target": "backend_app_services_llm_anonymize_and_parse_cv",
-      "relation": "rationale_for",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "backend/app/services/llm.py",
-      "source_location": "L496",
+      "source_location": "L441",
       "weight": 1.0
     },
     {
@@ -89604,36 +89593,47 @@
       "weight": 1.0
     },
     {
-      "source": "backend_app_services_llm_rationale_546",
+      "source": "backend_app_services_llm_rationale_528",
+      "target": "backend_app_services_llm_anonymize_and_parse_cv",
+      "relation": "rationale_for",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "backend/app/services/llm.py",
+      "source_location": "L528",
+      "weight": 1.0
+    },
+    {
+      "source": "backend_app_services_llm_rationale_578",
       "target": "backend_app_services_llm_summarize_application_status",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L546",
+      "source_location": "L578",
       "weight": 1.0
     },
     {
-      "source": "backend_app_services_llm_rationale_576",
+      "source": "backend_app_services_llm_rationale_608",
       "target": "backend_app_services_llm_generate_embedding",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L576",
+      "source_location": "L608",
       "weight": 1.0
     },
     {
-      "source": "backend_app_services_llm_rationale_620",
+      "source": "backend_app_services_llm_rationale_652",
       "target": "backend_app_services_llm_generate_and_save_application_embedding",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L620",
+      "source_location": "L652",
       "weight": 1.0
     },
     {
@@ -89648,14 +89648,14 @@
       "weight": 1.0
     },
     {
-      "source": "backend_app_services_llm_rationale_728",
+      "source": "backend_app_services_llm_rationale_760",
       "target": "backend_app_services_llm_async_enqueue_application_embedding",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L728",
+      "source_location": "L760",
       "weight": 1.0
     },
     {
@@ -92418,7 +92418,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L504",
+      "source_location": "L536",
       "weight": 1.0
     },
     {
@@ -92430,7 +92430,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L513",
+      "source_location": "L545",
       "weight": 1.0
     },
     {
@@ -92442,7 +92442,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L517",
+      "source_location": "L549",
       "weight": 1.0
     },
     {
@@ -92454,7 +92454,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L536",
+      "source_location": "L568",
       "weight": 1.0
     },
     {
@@ -92502,7 +92502,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L734",
+      "source_location": "L766",
       "weight": 1.0
     },
     {
@@ -92514,7 +92514,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L772",
+      "source_location": "L804",
       "weight": 1.0
     },
     {
@@ -92622,7 +92622,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L694",
+      "source_location": "L726",
       "weight": 1.0
     },
     {
@@ -92634,7 +92634,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L420",
+      "source_location": "L452",
       "weight": 1.0
     },
     {
@@ -92646,7 +92646,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L439",
+      "source_location": "L471",
       "weight": 1.0
     },
     {
@@ -92658,7 +92658,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L452",
+      "source_location": "L484",
       "weight": 1.0
     },
     {
@@ -92670,7 +92670,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L453",
+      "source_location": "L485",
       "weight": 1.0
     },
     {
@@ -92682,7 +92682,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L480",
+      "source_location": "L512",
       "weight": 1.0
     },
     {
@@ -92694,7 +92694,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L587",
+      "source_location": "L619",
       "weight": 1.0
     },
     {
@@ -92706,7 +92706,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L592",
+      "source_location": "L624",
       "weight": 1.0
     },
     {
@@ -92730,7 +92730,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L547",
+      "source_location": "L579",
       "weight": 1.0
     },
     {
@@ -92742,7 +92742,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L552",
+      "source_location": "L584",
       "weight": 1.0
     },
     {
@@ -92754,7 +92754,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/llm.py",
-      "source_location": "L564",
+      "source_location": "L596",
       "weight": 1.0
     },
     {
@@ -99172,5 +99172,5 @@
       "source_file": "extension/README.md"
     }
   ],
-  "built_at_commit": "e062f491a678356a0ed46ff11543d9a071012b02"
+  "built_at_commit": "19be5474abc4ec8131c8a42a67f6daf86a937f10"
 }
