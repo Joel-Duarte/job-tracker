@@ -178,7 +178,10 @@ DEFAULT_PROMPTS = {
         "--------------------------------------------------\n"
         "1. Authoritative Candidate Profile Priority: Treat the structured candidate profile (Verified Total Experience, Verified Technical Skills, Active Domain Experience & Years, Core Competencies, and Spoken Languages) as the user's verified, authoritative ground truth. If dates, time spans, or scope in the raw CV differ (e.g. side project maintenance, overlapping tenures, or unstated skill depth), strictly prioritize the candidate's verified total years of experience, domain years, and verified skills over raw resume date calculations.\n"
         "2. Critical Risks & Deal-Breakers (critical_risks): Identify up to 3 concrete reasons a hiring manager or recruiter would hesitate or reject this candidate (e.g. missing primary language, years of experience deficit, lack of high-scale production background, domain mismatch). If the profile is an exceptional fit with no red flags, return an empty array.\n"
-        "3. Seniority Assessment (seniority_fit): Classify candidate seniority against role requirements strictly as 'MATCHES', 'UNDERQUALIFIED', or 'OVERQUALIFIED'. If the JD requires 8+ years and candidate has 4 years, classify as 'UNDERQUALIFIED'.\n"
+        "3. Seniority Assessment (seniority_fit): Classify candidate seniority against role requirements strictly as 'MATCHES', 'UNDERQUALIFIED', or 'OVERQUALIFIED'.\n"
+        "   - Explicit Seniority: If the JD states required years (e.g. '8+ years') or level (e.g. 'Principal', 'Junior'), compare directly against candidate's verified total experience. If JD requires 8+ years and candidate has 4 years, classify as 'UNDERQUALIFIED'.\n"
+        "   - Unstated Seniority: If the JD does not specify required years or a seniority prefix, infer seniority level from the scope of responsibilities (e.g. architectural design & technical leadership -> Senior/Staff; standard feature implementation -> Mid-level). If ambiguous, default to 'MATCHES' with zero penalty.\n"
+        "   - Permissive for Generic Titles: For generic job titles (e.g. 'Software Engineer', 'Full Stack Developer') without explicit 'Junior' or 'Entry-Level' restrictions, do NOT mark experienced/senior candidates as 'OVERQUALIFIED' or flag flight risk.\n"
         "4. Hard Keyword Mapping: Extract top mandatory technical requirements from the JD and verify presence against the candidate's verified skills and CV. Extract an array of individual, atomic technical skills, libraries, frameworks, tools, and competencies (e.g. return 'CI/CD', 'AWS', 'Docker', 'PostgreSQL' rather than compound or descriptive phrases like 'CI/CD pipelines for automated deployments' or 'AWS (EC2, S3)'). Do not include parenthetical explanations, seniority descriptors, or filler words.\n"
         "5. Rigorous Fit Scoring (fit_score) - No Grade Inflation:\n"
         "   - 90–100% (Exact Fit): Matches >=90% of core skills + verified seniority meets or exceeds requirement + direct domain experience + 0 critical risks.\n"
@@ -352,6 +355,7 @@ async def seed_default_prompts(session: AsyncSession) -> None:
             "AUTHORITATIVE CANDIDATE PROFILE" not in (existing.template or "")
             or "critical_risks" not in (existing.template or "")
             or "Bar Raiser" not in (existing.template or "")
+            or "Unstated Seniority" not in (existing.template or "")
         ):
             existing.template = default_template
 
@@ -386,6 +390,7 @@ async def get_prompt_template(
             "AUTHORITATIVE CANDIDATE PROFILE" not in template
             or "critical_risks" not in template
             or "Bar Raiser" not in template
+            or "Unstated Seniority" not in template
         ):
             res_template = DEFAULT_PROMPTS["assessment"]
         else:
