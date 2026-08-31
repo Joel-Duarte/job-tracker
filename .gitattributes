@@ -1,1 +1,132 @@
+# ==============================================================================
+# Job Tracker - Git Attributes Configuration
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Global & Cross-Platform Line Endings
+# ------------------------------------------------------------------------------
+# Default behavior: auto-detect text files and normalize line endings to LF
+* text=auto eol=lf
+
+# Explicit LF enforcement for Unix/POSIX scripts and executables
+jt text eol=lf
+*.sh text eol=lf
+*.bash text eol=lf
+*.zsh text eol=lf
+
+# Explicit CRLF enforcement for Windows batch and command scripts
+jt.cmd text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# ------------------------------------------------------------------------------
+# 2. Source Code & Diff Drivers
+# ------------------------------------------------------------------------------
+# Python
+*.py text eol=lf diff=python
+*.pyi text eol=lf diff=python
+
+# Frontend / JavaScript / TypeScript / Vue
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.jsx text eol=lf
+*.ts text eol=lf
+*.mts text eol=lf
+*.cts text eol=lf
+*.tsx text eol=lf
+*.vue text eol=lf
+
+# Styles & Web Markup
+*.html text eol=lf diff=html
+*.htm text eol=lf diff=html
+*.css text eol=lf diff=css
+*.scss text eol=lf diff=css
+*.sass text eol=lf diff=css
+*.less text eol=lf diff=css
+*.postcss text eol=lf diff=css
+
+# ------------------------------------------------------------------------------
+# 3. Documentation & Configurations
+# ------------------------------------------------------------------------------
+# Markdown & Plaintext
+*.md text eol=lf diff=markdown
+*.markdown text eol=lf diff=markdown
+*.txt text eol=lf
+LICENSE text eol=lf
+
+# Data & Config Formats
+*.json text eol=lf
+*.json5 text eol=lf
+*.jsonc text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+*.conf text eol=lf
+*.sql text eol=lf
+
+# Docker & Dotfiles
+Dockerfile* text eol=lf
+*.dockerignore text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.env* text eol=lf
+
+# ------------------------------------------------------------------------------
+# 4. Binary Assets & Media (Raw data - no line ending conversions or diffs)
+# ------------------------------------------------------------------------------
+# Vector graphics (SVG is text, XML-based)
+*.svg text eol=lf
+
+# Raster Images
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.avif binary
+*.bmp binary
+*.tiff binary
+
+# Fonts
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.otf binary
+
+# Documents & Archives
+*.pdf binary
+*.zip binary
+*.tar.gz binary
+*.tgz binary
+*.gz binary
+*.7z binary
+
+# Databases & Compiled Assets
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
+*.wasm binary
+
+# ------------------------------------------------------------------------------
+# 5. GitHub Linguist & Custom Merge Overrides
+# ------------------------------------------------------------------------------
+# Custom merge driver for graphify output
 graphify-out/graph.json merge=graphify
+
+# Suppress standalone HTML templates from dominating repo language statistics
+*.html linguist-detectable=false
+
+# Treat lockfiles as generated to keep diffs concise and stats accurate
+uv.lock linguist-generated=true
+package-lock.json linguist-generated=true
+pnpm-lock.yaml linguist-generated=true
+yarn.lock linguist-generated=true
+
+# Generated graph analysis outputs
+graphify-out/** linguist-generated=true
