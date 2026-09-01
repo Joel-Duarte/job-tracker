@@ -1420,10 +1420,9 @@ export async function handleDemoRequest(config) {
         { skill: "GraphQL Schema Mesh", priority_score: 6.2, missing_frequency: 1, sample_companies: ["Linear"] }
       ],
       pipeline_funnel: [
-        { stage: "Applied", count: totalApps, conversion_rate: 100, dropoff_rate: 0 },
-        { stage: "Assessment", count: Math.max(3, activeCount), conversion_rate: 60, dropoff_rate: 40 },
-        { stage: "Interview", count: interviewCount, conversion_rate: 40, dropoff_rate: 33.3 },
-        { stage: "Offer", count: offerCount, conversion_rate: 20, dropoff_rate: 50 }
+        { stage: "Applied", count: totalApps, conversion_rate: 100, dropoff_rate: 10, dropped_count: 1, active_count: 2 },
+        { stage: "Interview", count: interviewCount, conversion_rate: 40, dropoff_rate: 20, dropped_count: 1, active_count: 1 },
+        { stage: "Offer", count: offerCount, conversion_rate: 20, dropoff_rate: 0, dropped_count: 0, active_count: 1 }
       ],
       work_model_distribution: {
         remote_count: remoteCount,

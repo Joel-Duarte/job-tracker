@@ -72,6 +72,92 @@ async def test_get_analytics_overview_unit():
     # 500k outlier should be trimmed in calculations
     assert python_insight.avg_max < 300000
 
+    # 3-Stage Pipeline Funnel: Applied, Interview, Offer
+    assert len(overview.pipeline_funnel) == 3
+    stages = [f.stage for f in overview.pipeline_funnel]
+    assert stages == ["Applied", "Interview", "Offer"]
+    assert overview.pipeline_funnel[0].count == 5
+    assert overview.pipeline_funnel[0].active_count == 5
+    assert overview.pipeline_funnel[0].dropped_count == 0
+
+
+@pytest.mark.asyncio
+async def test_pipeline_funnel_active_and_dropped_unit():
+    mock_db = AsyncMock()
+
+    # CV query
+    mock_cv_res = MagicMock()
+    mock_cv_res.scalar_one_or_none.return_value = None
+
+    company = CompanyModel(id=1, name="TechCorp")
+
+    # 4 applications:
+    # App 1: In Applied (Active)
+    # App 2: In Technical Interview (Active)
+    # App 3: In Offer (Active)
+    # App 4: Rejected at Applied stage (Dropped)
+    app1 = ApplicationModel(
+        id=1, status="APPLIED", company_id=1, application_date=datetime.now(UTC)
+    )
+    app1.events = []
+    app2 = ApplicationModel(
+        id=2,
+        status="TECHNICAL_INTERVIEW",
+        company_id=1,
+        application_date=datetime.now(UTC),
+    )
+    app2.events = []
+    app3 = ApplicationModel(
+        id=3, status="OFFER", company_id=1, application_date=datetime.now(UTC)
+    )
+    app3.events = []
+    app4 = ApplicationModel(
+        id=4, status="REJECTED", company_id=1, application_date=datetime.now(UTC)
+    )
+    app4.events = []
+
+    rows = [
+        (app1, None, company),
+        (app2, None, company),
+        (app3, None, company),
+        (app4, None, company),
+    ]
+
+    mock_app_res = MagicMock()
+    mock_app_res.all.return_value = rows
+
+    mock_db.execute.side_effect = [mock_cv_res, mock_app_res]
+
+    overview = await get_analytics_overview(mock_db, use_cache=False)
+
+    assert overview.total_applications == 4
+    assert len(overview.pipeline_funnel) == 3
+
+    applied_stage = overview.pipeline_funnel[0]
+    interview_stage = overview.pipeline_funnel[1]
+    offer_stage = overview.pipeline_funnel[2]
+
+    # Applied: all 4 reached, 1 active (app1), 1 dropped (app4)
+    assert applied_stage.stage == "Applied"
+    assert applied_stage.count == 4
+    assert applied_stage.active_count == 1
+    assert applied_stage.dropped_count == 1
+    assert applied_stage.dropoff_rate == 25.0
+
+    # Interview: 2 reached (app2, app3), 1 active (app2), 0 dropped
+    assert interview_stage.stage == "Interview"
+    assert interview_stage.count == 2
+    assert interview_stage.active_count == 1
+    assert interview_stage.dropped_count == 0
+    assert interview_stage.dropoff_rate == 0.0
+
+    # Offer: 1 reached (app3), 1 active (app3), 0 dropped
+    assert offer_stage.stage == "Offer"
+    assert offer_stage.count == 1
+    assert offer_stage.active_count == 1
+    assert offer_stage.dropped_count == 0
+    assert offer_stage.dropoff_rate == 0.0
+
 
 @pytest.mark.asyncio
 async def test_get_funnel_performance_metrics_unit():

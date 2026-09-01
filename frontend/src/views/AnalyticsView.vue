@@ -387,13 +387,36 @@ const sankeyData = computed(() => {
 
   const isDark = uiStore.theme === 'midnight'
   const stages = [
-    { key: 'Applied', label: 'Applied', color: isDark ? '#38bdf8' : '#2563eb', x: 12, count: funnel[0]?.count || 0 },
-    { key: 'Assessment', label: 'Assessment', color: isDark ? '#fbbf24' : '#d97706', x: 152, count: funnel[1]?.count || 0 },
-    { key: 'Interview', label: 'Interview', color: isDark ? '#c084fc' : '#7c3aed', x: 292, count: funnel[2]?.count || 0 },
-    { key: 'Offer', label: 'Offer', color: isDark ? '#34d399' : '#059669', x: 432, count: funnel[3]?.count || 0 },
+    {
+      key: 'Applied',
+      label: 'Applied',
+      color: isDark ? '#38bdf8' : '#2563eb',
+      x: 18,
+      count: funnel[0]?.count || 0,
+      dropped: funnel[0]?.dropped_count || 0,
+      active: funnel[0]?.active_count || 0,
+    },
+    {
+      key: 'Interview',
+      label: 'Interview',
+      color: isDark ? '#c084fc' : '#7c3aed',
+      x: 213,
+      count: funnel[1]?.count || 0,
+      dropped: funnel[1]?.dropped_count || 0,
+      active: funnel[1]?.active_count || 0,
+    },
+    {
+      key: 'Offer',
+      label: 'Offer',
+      color: isDark ? '#34d399' : '#059669',
+      x: 408,
+      count: funnel[2]?.count || 0,
+      dropped: funnel[2]?.dropped_count || 0,
+      active: funnel[2]?.active_count || 0,
+    },
   ]
 
-  const nodeWidth = 78
+  const nodeWidth = 96
   const nodeHeight = 44
   const nodeY = 16
 
@@ -413,7 +436,7 @@ const sankeyData = computed(() => {
     const tgt = nodes[i + 1]
 
     const advancedCount = tgt.count
-    const droppedCount = Math.max(0, src.count - tgt.count)
+    const droppedCount = src.dropped || 0
 
     const maxH = 26
     const ribbonH = src.count > 0 ? Math.max(4, (advancedCount / src.count) * maxH) : 3
@@ -440,7 +463,7 @@ const sankeyData = computed(() => {
     })
 
     if (droppedCount > 0) {
-      const dropH = Math.max(3, (droppedCount / (src.count || 1)) * 12)
+      const dropH = Math.max(3, (droppedCount / (total || 1)) * 14)
       const dropX1 = x1
       const dropY1 = src.y + src.h / 2 + ribbonH / 2
       const dropX2 = src.x + src.w + 36
@@ -459,6 +482,29 @@ const sankeyData = computed(() => {
         labelY: dropY2 + 6,
       })
     }
+  }
+
+  // Also check if final stage (Offer) had drops (e.g. declined/rescinded)
+  const lastNode = nodes[nodes.length - 1]
+  if (lastNode && lastNode.dropped > 0) {
+    const dropH = Math.max(3, (lastNode.dropped / (total || 1)) * 14)
+    const dropX1 = lastNode.x + lastNode.w
+    const dropY1 = lastNode.y + lastNode.h / 2
+    const dropX2 = Math.min(500, lastNode.x + lastNode.w + 20)
+    const dropY2 = 104
+
+    const dropD = `M ${dropX1} ${dropY1}
+                   C ${dropX1 + 12} ${dropY1 + 10}, ${dropX2 - 8} ${dropY2 - 8}, ${dropX2} ${dropY2}
+                   L ${dropX2 + 4} ${dropY2 + dropH}
+                   C ${dropX2 - 6} ${dropY2 + dropH}, ${dropX1 + 10} ${dropY1 + dropH + 4}, ${dropX1} ${dropY1 + dropH} Z`
+
+    dropoffs.push({
+      from: lastNode.label,
+      count: lastNode.dropped,
+      pathD: dropD,
+      labelX: dropX2 + 6,
+      labelY: dropY2 + 6,
+    })
   }
 
   return { nodes, flows, dropoffs }
@@ -746,7 +792,7 @@ const maxCohortVolume = computed(() => {
                       >
                         {{ node.count }} ({{ node.rate }}%)
                       </text>
-                      <title>{{ node.label }}: {{ node.count }} applications ({{ node.rate }}% of total)</title>
+                      <title>{{ node.label }}: {{ node.count }} reached ({{ node.active }} active in progress, {{ node.dropped }} dropped)</title>
                     </g>
                   </g>
                 </svg>
@@ -773,12 +819,18 @@ const maxCohortVolume = computed(() => {
                         :style="{ width: `${node.rate}%`, backgroundColor: node.color }"
                       ></div>
                     </div>
+
+                    <div v-if="node.active > 0 || node.dropped > 0" class="mobile-step-subtext text-muted">
+                      <span v-if="node.active > 0">{{ node.active }} in progress</span>
+                      <span v-if="node.active > 0 && node.dropped > 0"> • </span>
+                      <span v-if="node.dropped > 0" class="text-danger">{{ node.dropped }} dropped</span>
+                    </div>
                   </div>
 
                   <div v-if="idx < sankeyData.nodes.length - 1" class="mobile-step-arrow">
                     <span class="arrow-down-icon">↓</span>
-                    <span v-if="sankeyData.dropoffs[idx]" class="drop-text text-danger">
-                      -{{ sankeyData.dropoffs[idx].count }} dropped
+                    <span v-if="node.dropped > 0" class="drop-text text-danger">
+                      -{{ node.dropped }} dropped
                     </span>
                   </div>
                 </div>

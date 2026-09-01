@@ -27,6 +27,8 @@ class FunnelStageItem(BaseModel):
     count: int
     conversion_rate: float
     dropoff_rate: float
+    dropped_count: int = 0
+    active_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 

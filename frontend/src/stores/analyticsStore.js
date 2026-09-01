@@ -15,10 +15,9 @@ const DEFAULT_OVERVIEW = {
   top_in_demand_skills: [],
   priority_skill_gaps: [],
   pipeline_funnel: [
-    { stage: 'Applied', count: 0, conversion_rate: 0, dropoff_rate: 0 },
-    { stage: 'Assessment', count: 0, conversion_rate: 0, dropoff_rate: 0 },
-    { stage: 'Interview', count: 0, conversion_rate: 0, dropoff_rate: 0 },
-    { stage: 'Offer', count: 0, conversion_rate: 0, dropoff_rate: 0 },
+    { stage: 'Applied', count: 0, conversion_rate: 0, dropoff_rate: 0, dropped_count: 0, active_count: 0 },
+    { stage: 'Interview', count: 0, conversion_rate: 0, dropoff_rate: 0, dropped_count: 0, active_count: 0 },
+    { stage: 'Offer', count: 0, conversion_rate: 0, dropoff_rate: 0, dropped_count: 0, active_count: 0 },
   ],
   work_model_distribution: { remote_count: 0, hybrid_count: 0, onsite_count: 0, unknown_count: 0 },
   salary_insights: [],

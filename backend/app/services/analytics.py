@@ -5,6 +5,7 @@ from difflib import SequenceMatcher
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.applications import (
     ApplicationEventModel,
@@ -153,6 +154,7 @@ async def get_analytics_overview(
 
         query = (
             select(ApplicationModel, JobPostingModel, CompanyModel)
+            .options(selectinload(ApplicationModel.events))
             .outerjoin(
                 JobPostingModel, ApplicationModel.id == JobPostingModel.application_id
             )
@@ -171,12 +173,27 @@ async def get_analytics_overview(
     total_applications = len(rows)
     active_pipeline_count = 0
 
-    # Funnel counts
-    funnel_counts = {
-        "Applied": 0,
-        "Assessment": 0,
-        "Interview": 0,
-        "Offer": 0,
+    # 3-Stage Pipeline: Applied -> Interview -> Offer
+    stage_counts = {"Applied": 0, "Interview": 0, "Offer": 0}
+    stage_active = {"Applied": 0, "Interview": 0, "Offer": 0}
+    stage_dropped = {"Applied": 0, "Interview": 0, "Offer": 0}
+
+    TERMINAL_DROP_STATUSES = {"REJECTED", "WITHDRAWN", "ARCHIVED"}
+    INTERVIEW_EVENT_TYPES = {
+        "INTERVIEW_SCHEDULED",
+        "TECHNICAL_INTERVIEW",
+        "ASSESSMENT_INVITATION",
+        "ONLINE_ASSESSMENT",
+        "INTERVIEW_ROUND",
+        "INTERVIEW_FEEDBACK",
+        "FIRST_ROUND",
+        "FINAL_ROUND",
+    }
+    OFFER_EVENT_TYPES = {
+        "OFFER_RECEIVED",
+        "OFFER_ACCEPTED",
+        "OFFER_DECLINED",
+        "OFFER_EXTENDED",
     }
 
     work_models = {"remote": 0, "hybrid": 0, "onsite": 0, "unknown": 0}
@@ -191,49 +208,59 @@ async def get_analytics_overview(
 
     fit_scores = []
 
-    # Map status to generic funnel stages
-    def get_funnel_stage(status: str) -> str | None:
-        status = status.upper()
-        if status in ["APPLIED", "IN_PROGRESS"]:
-            return "Applied"
-        elif status == "ONLINE_ASSESSMENT":
-            return "Assessment"
-        elif status == "TECHNICAL_INTERVIEW" or "INTERVIEW" in status:
-            return "Interview"
-        elif status == "OFFER":
-            return "Offer"
-        return None
-
-    def get_funnel_level(stage: str) -> int:
-        levels = {"Applied": 1, "Assessment": 2, "Interview": 3, "Offer": 4}
-        return levels.get(stage, 0)
-
-    def get_level(status: str) -> int:
-        status = status.upper() if status else ""
-        if status == "OFFER":
-            return 4
-        if status == "TECHNICAL_INTERVIEW" or "INTERVIEW" in status:
-            return 3
-        if status == "ONLINE_ASSESSMENT":
-            return 2
-        if status in ["APPLIED", "IN_PROGRESS", "REJECTED"]:
-            return 1
-        return 1
-
     for app, job, company in rows:
-        status = app.status.upper() if app.status else "PENDING"
-        if status not in ["REJECTED", "PENDING", "COMPLETED"]:
+        status = (app.status or "PENDING").upper()
+        if status not in TERMINAL_DROP_STATUSES and status not in [
+            "PENDING",
+            "COMPLETED",
+        ]:
             active_pipeline_count += 1
 
-        app_level = get_level(status)
-        if app_level >= 1:
-            funnel_counts["Applied"] += 1
-        if app_level >= 2:
-            funnel_counts["Assessment"] += 1
-        if app_level >= 3:
-            funnel_counts["Interview"] += 1
-        if app_level >= 4:
-            funnel_counts["Offer"] += 1
+        # Check events to determine maximum stage reached
+        event_types = set()
+        if hasattr(app, "events") and app.events:
+            for ev in app.events:
+                ev_t = (ev.email_event_type or "").upper()
+                if ev_t:
+                    event_types.add(ev_t)
+
+        has_offer_history = status in ["OFFER", "HIRED"] or bool(
+            event_types & OFFER_EVENT_TYPES
+        )
+        has_interview_history = (
+            has_offer_history
+            or status in ["ONLINE_ASSESSMENT", "TECHNICAL_INTERVIEW"]
+            or "INTERVIEW" in status
+            or bool(event_types & INTERVIEW_EVENT_TYPES)
+        )
+
+        # Determine highest stage reached
+        if has_offer_history:
+            max_stage = "Offer"
+            stage_counts["Applied"] += 1
+            stage_counts["Interview"] += 1
+            stage_counts["Offer"] += 1
+        elif has_interview_history:
+            max_stage = "Interview"
+            stage_counts["Applied"] += 1
+            stage_counts["Interview"] += 1
+        else:
+            max_stage = "Applied"
+            stage_counts["Applied"] += 1
+
+        # Attribute Active vs Dropped
+        if status in TERMINAL_DROP_STATUSES:
+            stage_dropped[max_stage] += 1
+        else:
+            if status in ["OFFER", "HIRED"]:
+                stage_active["Offer"] += 1
+            elif (
+                status in ["ONLINE_ASSESSMENT", "TECHNICAL_INTERVIEW"]
+                or "INTERVIEW" in status
+            ):
+                stage_active["Interview"] += 1
+            else:
+                stage_active["Applied"] += 1
 
         if app.match_analysis_payload:
             if "fit_score" in app.match_analysis_payload:
@@ -304,8 +331,8 @@ async def get_analytics_overview(
     interview_rate = 0.0
     offer_rate = 0.0
     if total_applications > 0:
-        interview_rate = (funnel_counts["Interview"] / total_applications) * 100.0
-        offer_rate = (funnel_counts["Offer"] / total_applications) * 100.0
+        interview_rate = (stage_counts["Interview"] / total_applications) * 100.0
+        offer_rate = (stage_counts["Offer"] / total_applications) * 100.0
 
     avg_fit_score = sum(fit_scores) / len(fit_scores) if fit_scores else None
 
@@ -399,20 +426,17 @@ async def get_analytics_overview(
             )
         )
 
-    # Funnel
+    # 3-Stage Pipeline Funnel: Applied -> Interview -> Offer
     pipeline_funnel = []
-    stages = ["Applied", "Assessment", "Interview", "Offer"]
-    for i, stage in enumerate(stages):
-        count = funnel_counts[stage]
-        conv_rate = (count / total_applications * 100) if total_applications > 0 else 0
-
-        dropoff_rate = 0.0
-        if i > 0:
-            prev_count = funnel_counts[stages[i - 1]]
-            if prev_count > 0:
-                dropoff_rate = ((prev_count - count) / prev_count) * 100
-            else:
-                dropoff_rate = 100.0 if count == 0 else 0.0
+    stages = ["Applied", "Interview", "Offer"]
+    for stage in stages:
+        count = stage_counts[stage]
+        conv_rate = (
+            (count / total_applications * 100) if total_applications > 0 else 0.0
+        )
+        dropped = stage_dropped[stage]
+        active = stage_active[stage]
+        dropoff_rate = (dropped / count * 100) if count > 0 else 0.0
 
         pipeline_funnel.append(
             FunnelStageItem(
@@ -420,6 +444,8 @@ async def get_analytics_overview(
                 count=count,
                 conversion_rate=conv_rate,
                 dropoff_rate=dropoff_rate,
+                dropped_count=dropped,
+                active_count=active,
             )
         )
 
