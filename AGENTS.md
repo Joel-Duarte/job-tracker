@@ -149,6 +149,12 @@ When creating or modifying Vue components, layouts, stores, or styling:
   - Apply migrations: `uv run alembic upgrade head`
   - Inspect history & current heads: `uv run alembic heads` and `uv run alembic history`
   - Generate a new migration revision: `uv run alembic revision -m "description_of_change"`
+- **Queue-First LLM Architecture (Mandatory Rule):** Any new or modified LLM feature that performs generation, synthesis, document drafting, or long-running AI extraction (e.g. Application Form Q&A generation, Cover Letters, Role Alignment Dossiers, Mock Interview debriefs, Job Spec extractions) **MUST be executed asynchronously via the central background evaluation queue** (`IntakeEvaluationTaskModel` / `evaluation_worker.py`). Direct blocking LLM calls on synchronous HTTP request handlers are strictly prohibited.
+- **Settings & AI Task Binding Registration:** Every new LLM feature/task type MUST be:
+  1. Registered in the `AITaskType` enum and task bindings registry (`backend/app/models/llm.py` and `backend/app/schemas/ai_config.py`).
+  2. Provided with an authoritative default prompt template in `DEFAULT_PROMPTS` (`backend/app/core/prompts.py`) containing strict anti-hallucination and CV-grounding directives (and escaping all JSON schema `{`/`}` as `{{`/`}}`).
+  3. Fully configurable within the **Settings UI** (`SettingsView.vue`), allowing users to bind distinct local/cloud AI providers, assign specific model tags, configure task parameters (temperature, max tokens, custom instructions), and customize prompt templates.
+  4. Equipped with a dedicated, domain-tailored pipeline stepper, status badges, expandable preview drawer, and 1-click action buttons in `QueueView.vue` and floating queue widgets.
 - **Modifying the UI:** When modifying frontend features, ensure the component's setup script (`<script setup>`) interacts with `pinia` stores (like `uiStore` or `applicationsStore`) correctly for state reactivity. Ensure Lucide icons used are imported from `lucide-vue-next`.
 - **Modifying the Database:** If adding a new field to a database model, update the corresponding Pydantic schemas in the `schemas/` directory to reflect the change for both request validation and response serialization, and generate an Alembic migration.
 

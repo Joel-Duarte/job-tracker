@@ -141,21 +141,22 @@ backend/
 - **Connection Pools:** Employs dual pooling:
   1. SQLAlchemy asynchronous connection pool for application REST transactions.
   2. `psycopg_pool.AsyncConnectionPool` for LangGraph `PostgresSaver` checkpointers.
-- **pgvector Vector Embeddings:** Semantic representation of job applications and candidate profiles are stored in the `email_application_embeddings` table (`Vector(768)`) and indexed with **HNSW** (`vector_cosine_ops`) for sub-millisecond similarity search.
-- **pg_trgm Fuzzy String Matching:** Fast, typo-tolerant company and job title matching via PostgreSQL GIN trigram indexes (`gin_trgm_ops`) on normalized entity columns (`email_companies.name_normalized`).
+- **pgvector Vector Embeddings:** Semantic representation of job applications and candidate profiles are stored in the `application_embeddings` table (`Vector(768)`) and indexed with **HNSW** (`vector_cosine_ops`) for sub-millisecond similarity search.
+- **pg_trgm Fuzzy String Matching:** Fast, typo-tolerant company and job title matching via PostgreSQL GIN trigram indexes (`gin_trgm_ops`) on normalized entity columns (`companies.name_normalized`).
 - **Alembic Async Migrations:** All schema alterations are version-controlled via Alembic migrations executed with the `async_engine`.
 
 ```mermaid
 erDiagram
-    email_companies ||--o{ email_applications : "has"
-    email_applications ||--o{ email_application_events : "contains"
-    email_applications ||--o{ action_items : "requires"
-    email_applications ||--o| job_postings : "specifies"
-    email_applications ||--o| email_application_embeddings : "embeds"
-    email_applications ||--o{ interview_sessions : "simulates"
-    email_application_events ||--o{ action_items : "triggers"
+    companies ||--o{ applications : "has"
+    applications ||--o{ application_events : "contains"
+    applications ||--o{ action_items : "requires"
+    applications ||--o| job_postings : "specifies"
+    applications ||--o| application_embeddings : "embeds"
+    applications ||--o{ interview_sessions : "simulates"
+    application_events ||--o{ action_items : "triggers"
+    candidate_cvs ||--o{ role_alignment_dossiers : "synthesizes"
 
-    email_companies {
+    companies {
         bigint id PK
         text name
         text name_normalized
@@ -163,7 +164,7 @@ erDiagram
         timestamp created_at
     }
 
-    email_applications {
+    applications {
         bigint id PK
         bigint company_id FK
         text position
@@ -172,6 +173,7 @@ erDiagram
         text job_url
         jsonb match_analysis_payload
         text cover_letter_text
+        jsonb application_questions
         text interview_guide_html
         timestamp application_date
         timestamp last_activity_at
@@ -188,22 +190,33 @@ erDiagram
         jsonb structured_spec
     }
 
-    email_application_embeddings {
-        bigint email_application_id PK,FK
+    application_embeddings {
+        bigint application_id PK,FK
         text content
         vector_768 embedding
         jsonb metadata
     }
 
+    role_alignment_dossiers {
+        bigint id PK
+        bigint candidate_cv_id FK
+        text role_track
+        text executive_positioning
+        jsonb bullet_rewrites
+        jsonb talking_points
+        jsonb skill_bridge_roadmap
+        timestamp created_at
+    }
+
     interview_sessions {
         bigint id PK
         bigint application_id FK
-        text persona
         text question_mode
-        text status
-        float overall_score
         jsonb turns_data
-        jsonb summary_feedback
+        float overall_score
+        text readiness_rating
+        text summary_feedback
+        timestamp created_at
     }
 
     trace_events {
@@ -289,7 +302,26 @@ The stealth scraper (`scraper.py`) interfaces with a dedicated headless browser 
 
 ---
 
-### 3.4 Multi-Provider Email Synchronization Engine
+### 3.4 Queue-First AI Task Pipeline & Dynamic Settings Bindings
+
+All LLM generation, synthesis, document drafting, and long-running extraction tasks follow a strict **Queue-First Asynchronous Architecture**:
+
+1. **Background Evaluation Queue (`evaluation_worker.py`):**
+   - Workloads (`JOB_ASSESSMENT`, `CV_EXTRACTION`, `COVER_LETTER`, `APPLICATION_QA`, `ROLE_ALIGNMENT_DOSSIER`, `EMBEDDING`) are dispatched asynchronously as `IntakeEvaluationTaskModel` records.
+   - Tasks undergo step-by-step state progression (`QUEUED` $\rightarrow$ `PROCESSING` $\rightarrow$ `COMPLETED` / `FAILED`), emitting fine-grained stage updates to the UI.
+   - Direct blocking LLM invocations on synchronous HTTP request threads are strictly disallowed.
+
+2. **Dynamic Task Bindings & Settings Integration:**
+   - Every AI task type is registered in `AITaskType` (`backend/app/models/llm.py`) and backed by `ai_task_bindings`.
+   - Users can bind distinct AI providers (e.g. Local LM Studio for extraction, Cloud GPT-4o for cover letters), override target model names, tune hyperparameters (temperature, max tokens, custom instructions), and customize prompt templates directly from the **Settings UI** (`SettingsView.vue`).
+   - Authoritative default templates in `backend/app/core/prompts.py` provide strict anti-hallucination guardrails and CV factual grounding.
+
+3. **Domain-Tailored Queue Cards:**
+   - Every task type in `QueueView.vue` and floating widgets renders with a dedicated pipeline stepper, contextual highlights, and 1-click action shortcuts (e.g. *Open Q&A Studio*, *View in Profile*, *Review Staging*).
+
+---
+
+### 3.5 Multi-Provider Email Synchronization Engine
 `email_fetcher.py` and `oauth_adapters.py` orchestrate background email ingestion across three major protocols:
 1. **IMAP4_SSL (`_fetch_imap_emails_sync`):** Connects securely via SSL, decodes RFC-2047 headers, searches emails by timestamp/criterion, and fetches bodies and attachments in configurable batches.
 2. **Google Gmail API (`GmailOAuthAdapter`):** Uses OAuth 2.0 user credentials, performs token auto-refresh, and parses MIME payloads.
@@ -299,7 +331,7 @@ All incoming emails are deduplicated via unique `message_id` hashes, converted i
 
 ---
 
-### 3.5 Telemetry & Diagnostics Engine
+### 3.6 Telemetry & Diagnostics Engine
 System observability is enforced across both AI and non-AI workloads:
 - **`trace_events` Table:** Structured schema storing run ID, category (`llm`, `scraper`, `email_sync`, `worker`, `embedding`), event type, timestamps, execution durations, inputs, and serialized outputs or error tracebacks.
 - **`PostgresTracer`:** An `AsyncBaseTracer` that hooks into LangChain and LangGraph callback systems, capturing full prompts, token counts, and completion responses in real time.
