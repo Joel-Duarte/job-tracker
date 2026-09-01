@@ -417,8 +417,8 @@ const sankeyData = computed(() => {
   ]
 
   const nodeWidth = 96
-  const nodeHeight = 44
-  const nodeY = 16
+  const nodeHeight = 50
+  const nodeY = 14
 
   const nodes = stages.map((s) => ({
     ...s,
@@ -778,7 +778,7 @@ const maxCohortVolume = computed(() => {
                       />
                       <text
                         :x="node.x + node.w / 2"
-                        :y="node.y + 16"
+                        :y="node.y + 14"
                         text-anchor="middle"
                         class="sankey-node-title"
                       >
@@ -786,11 +786,20 @@ const maxCohortVolume = computed(() => {
                       </text>
                       <text
                         :x="node.x + node.w / 2"
-                        :y="node.y + 32"
+                        :y="node.y + 27"
                         text-anchor="middle"
                         class="sankey-node-sub"
                       >
-                        {{ node.count }} ({{ node.rate }}%)
+                        {{ node.count }} total ({{ node.rate }}%)
+                      </text>
+                      <text
+                        :x="node.x + node.w / 2"
+                        :y="node.y + 40"
+                        text-anchor="middle"
+                        class="sankey-node-active"
+                        :style="{ fill: node.active > 0 ? node.color : 'var(--text-muted)' }"
+                      >
+                        {{ node.active > 0 ? `● ${node.active} active` : '0 active' }}
                       </text>
                       <title>{{ node.label }}: {{ node.count }} reached ({{ node.active }} active in progress, {{ node.dropped }} dropped)</title>
                     </g>
@@ -2271,8 +2280,14 @@ const maxCohortVolume = computed(() => {
 
 .sankey-node-sub {
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 500;
   fill: var(--text-secondary);
+  dominant-baseline: middle;
+}
+
+.sankey-node-active {
+  font-size: 9.5px;
+  font-weight: 600;
   dominant-baseline: middle;
 }
 
