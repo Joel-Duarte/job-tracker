@@ -1128,9 +1128,9 @@
     "semantic_hash": ""
   },
   "frontend/src/views/AnalyticsView.vue": {
-    "mtime": 1788302868.8131156,
-    "seen": 1788302949.0533202,
-    "ast_hash": "8540d16e63aa3b82f5d18d555eafce63",
+    "mtime": 1788303102.931788,
+    "seen": 1788303128.8843749,
+    "ast_hash": "db1704e3c7c56dbf4b5451dbca3173b1",
     "semantic_hash": ""
   },
   "frontend/src/views/ApplicationsView.vue": {
