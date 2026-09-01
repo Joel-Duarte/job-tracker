@@ -24,7 +24,7 @@ class InterviewSessionModel(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     application_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        ForeignKey("email_applications.id", ondelete="SET NULL"),
+        ForeignKey("applications.id", ondelete="SET NULL"),
         nullable=True,
     )
     persona: Mapped[str] = mapped_column(

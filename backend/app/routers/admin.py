@@ -47,10 +47,11 @@ async def reset_database(
     try:
         await db.execute(
             text(
-                "TRUNCATE TABLE email_companies, email_applications, "
-                "email_application_events, email_application_embeddings, "
-                "email_other_events, action_items, job_postings, "
-                "candidate_cvs, email_staging_items, intake_evaluation_tasks, trace_events "
+                "TRUNCATE TABLE companies, applications, "
+                "application_events, application_embeddings, "
+                "other_events, action_items, job_postings, "
+                "candidate_cvs, staging_items, intake_evaluation_tasks, trace_events, "
+                "role_alignment_dossiers, interview_sessions "
                 "RESTART IDENTITY CASCADE;"
             )
         )

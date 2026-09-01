@@ -14,6 +14,9 @@ export const ApplicationsAPI = {
   generateCoverLetter: (id, data = {}) => apiClient.post(`/applications/${id}/cover-letter/generate`, data),
   updateCoverLetter: (id, data) => apiClient.patch(`/applications/${id}/cover-letter`, data),
   regenerateCoverLetter: (id, data = {}) => apiClient.post(`/applications/${id}/cover-letter/regenerate`, data),
+  getApplicationQuestions: (id) => apiClient.get(`/applications/${id}/questions`),
+  generateApplicationQuestions: (id, data = {}) => apiClient.post(`/applications/${id}/questions/generate`, data),
+  updateApplicationQuestions: (id, data) => apiClient.patch(`/applications/${id}/questions`, data),
   analyzeSpec: (id, data = {}) => apiClient.post(`/applications/${id}/analyze-spec`, data),
 }
 

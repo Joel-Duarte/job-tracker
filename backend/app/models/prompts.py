@@ -7,7 +7,7 @@ from app.models.applications import Base
 
 
 class PromptModel(Base):
-    __tablename__ = "email_prompts"
+    __tablename__ = "system_prompts"
 
     name: Mapped[str] = mapped_column(
         String(50), primary_key=True

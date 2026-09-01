@@ -23,6 +23,8 @@ export const useUIStore = defineStore('ui', () => {
   const isCommandPaletteOpen = ref(false)
   const isCoverLetterModalOpen = ref(false)
   const coverLetterAppId = ref(null)
+  const isAppQuestionsModalOpen = ref(false)
+  const appQuestionsAppId = ref(null)
   const activeDetailId = ref(null)
   const detailActiveTab = ref('timeline')
 
@@ -119,6 +121,16 @@ export const useUIStore = defineStore('ui', () => {
   function closeCoverLetterModal() {
     isCoverLetterModalOpen.value = false
     coverLetterAppId.value = null
+  }
+
+  function openAppQuestionsModal(appId) {
+    appQuestionsAppId.value = appId
+    isAppQuestionsModalOpen.value = true
+  }
+
+  function closeAppQuestionsModal() {
+    isAppQuestionsModalOpen.value = false
+    appQuestionsAppId.value = null
   }
 
   const customDarkBg = ref(localStorage.getItem('jt_custom_dark_bg') || '')
@@ -601,6 +613,10 @@ export const useUIStore = defineStore('ui', () => {
     coverLetterAppId,
     openCoverLetterModal,
     closeCoverLetterModal,
+    isAppQuestionsModalOpen,
+    appQuestionsAppId,
+    openAppQuestionsModal,
+    closeAppQuestionsModal,
     activeDetailId,
     detailActiveTab,
     intakeQueue,

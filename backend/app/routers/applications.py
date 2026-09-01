@@ -29,6 +29,9 @@ from app.schemas.applications import (
     ApplicationEventDetail,
     ApplicationListItem,
     ApplicationListResponse,
+    ApplicationQuestionItem,
+    ApplicationQuestionsResponse,
+    ApplicationQuestionsUpdateRequest,
     ApplicationTransitionRequest,
     ApplicationUpdate,
     BulkTransitionRequest,
@@ -37,6 +40,7 @@ from app.schemas.applications import (
     CoverLetterResponse,
     CoverLetterUpdateRequest,
     EventSummary,
+    GenerateApplicationQuestionsRequest,
     GenerateCoverLetterRequest,
     GenerateInterviewGuideRequest,
     JobPostingDetail,
@@ -1341,3 +1345,192 @@ async def analyze_app_job_spec(
     background_tasks.add_task(process_evaluation_task, task_id=task_record.id)
 
     return task_record
+
+
+@router.get(
+    "/{application_id}/questions",
+    response_model=ApplicationQuestionsResponse,
+    summary="Retrieve application form questions & answers for an application",
+)
+async def get_application_questions(
+    application_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(ApplicationModel).where(ApplicationModel.id == application_id)
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+
+    if not app:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
+        )
+
+    raw_questions = app.application_questions or []
+    question_items = [
+        ApplicationQuestionItem(
+            id=q.get("id", f"q_{i}"),
+            question=q.get("question", ""),
+            word_limit=q.get("word_limit"),
+            answer=q.get("answer"),
+            status=q.get("status", "DRAFT"),
+            updated_at=datetime.fromisoformat(q["updated_at"])
+            if q.get("updated_at") and isinstance(q["updated_at"], str)
+            else q.get("updated_at"),
+        )
+        for i, q in enumerate(raw_questions)
+        if isinstance(q, dict)
+    ]
+
+    return ApplicationQuestionsResponse(
+        application_id=app.id,
+        questions=question_items,
+        status="COMPLETED" if any(q.answer for q in question_items) else "DRAFT",
+    )
+
+
+@router.post(
+    "/{application_id}/questions/generate",
+    response_model=ApplicationQuestionsResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue asynchronous generation of answers to application form questions",
+)
+async def generate_application_form_answers(
+    application_id: int,
+    payload: GenerateApplicationQuestionsRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = (
+        select(ApplicationModel)
+        .where(ApplicationModel.id == application_id)
+        .options(
+            joinedload(ApplicationModel.company),
+            selectinload(ApplicationModel.job_posting),
+        )
+    )
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+
+    if not app:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
+        )
+
+    if not payload.questions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please provide at least one question to answer.",
+        )
+
+    comp_name = app.company.name if app.company else "Company"
+    pos_name = app.position or "Position"
+    tone_val = payload.tone or "professional"
+    instructions_val = payload.custom_instructions
+
+    # Prepare queued questions representation
+    now_iso = datetime.now(UTC).isoformat()
+    queued_questions = [
+        {
+            "id": q.id,
+            "question": q.question,
+            "word_limit": q.word_limit,
+            "answer": q.answer,
+            "status": "QUEUED",
+            "updated_at": now_iso,
+        }
+        for q in payload.questions
+    ]
+
+    task_record = IntakeEvaluationTaskModel(
+        task_type="APPLICATION_QA",
+        job_url=app.job_url,
+        raw_text=str(app.id),
+        title_hint=f"Form Q&A ({len(payload.questions)} Qs): {comp_name} - {pos_name}",
+        status="QUEUED",
+        stage="QUEUED",
+        result_json={
+            "application_id": app.id,
+            "company": comp_name,
+            "position": pos_name,
+            "tone": tone_val,
+            "custom_instructions": instructions_val,
+            "questions": queued_questions,
+        },
+    )
+    db.add(task_record)
+    app.application_questions = queued_questions
+    await db.commit()
+    await db.refresh(task_record)
+
+    background_tasks.add_task(process_evaluation_task, task_id=task_record.id)
+
+    return ApplicationQuestionsResponse(
+        application_id=app.id,
+        questions=[
+            ApplicationQuestionItem(
+                id=q["id"],
+                question=q["question"],
+                word_limit=q["word_limit"],
+                answer=q["answer"],
+                status="QUEUED",
+                updated_at=datetime.fromisoformat(q["updated_at"]),
+            )
+            for q in queued_questions
+        ],
+        status="QUEUED",
+    )
+
+
+@router.patch(
+    "/{application_id}/questions",
+    response_model=ApplicationQuestionsResponse,
+    summary="Update application form questions and manual edits",
+)
+async def update_application_questions(
+    application_id: int,
+    payload: ApplicationQuestionsUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(ApplicationModel).where(ApplicationModel.id == application_id)
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+
+    if not app:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Application not found"
+        )
+
+    now_iso = datetime.now(UTC).isoformat()
+    updated_list = [
+        {
+            "id": q.id,
+            "question": q.question,
+            "word_limit": q.word_limit,
+            "answer": q.answer,
+            "status": q.status or ("GENERATED" if q.answer else "DRAFT"),
+            "updated_at": q.updated_at.isoformat() if q.updated_at else now_iso,
+        }
+        for q in payload.questions
+    ]
+
+    app.application_questions = updated_list
+    await db.commit()
+    await db.refresh(app)
+
+    return ApplicationQuestionsResponse(
+        application_id=app.id,
+        questions=[
+            ApplicationQuestionItem(
+                id=q["id"],
+                question=q["question"],
+                word_limit=q["word_limit"],
+                answer=q["answer"],
+                status=q["status"],
+                updated_at=datetime.fromisoformat(q["updated_at"])
+                if isinstance(q["updated_at"], str)
+                else q["updated_at"],
+            )
+            for q in updated_list
+        ],
+        status="COMPLETED" if any(q["answer"] for q in updated_list) else "DRAFT",
+    )

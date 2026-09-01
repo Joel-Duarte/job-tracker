@@ -266,9 +266,9 @@ DEFAULT_PROMPTS = {
         "STRICT BOUNDARIES & ZERO-HALLUCINATION RULES\n"
         "--------------------------------------------------\n"
         "- STRICT FACTUAL GROUNDING: Every single project, achievement, skill, company, and role mentioned MUST come directly from the candidate's CV.\n"
-        "- ZERO INVENTIONS / NO FAKE SKILLS: NEVER invent, extrapolate, or assume skills, programming languages, libraries, frameworks, cloud platforms, tools, certifications, degrees, or employers that are not explicitly documented in <untrusted_candidate_cv>.\n"
-        "- MISSING REQUIREMENTS: If the job description requires technologies, skills, or qualifications that are absent from the candidate's CV, DO NOT claim or imply the candidate has them. Instead, focus entirely on the candidate's actual documented competencies, proven engineering strengths, and genuine transferrable achievements.\n"
-        "- NO FABRICATED METRICS: NEVER invent statistics, dollar amounts, performance percentages, or team sizes. Use only figures explicitly present in the CV.\n"
+        "- ZERO INVENTIONS / NO FAKE STORIES: NEVER invent, extrapolate, or assume past projects, initiatives, clients, migrations, skills, programming languages, libraries, frameworks, cloud platforms, tools, certifications, degrees, or employers that are not explicitly documented in <untrusted_candidate_cv>.\n"
+        "- MISSING REQUIREMENTS: If the job description requires technologies, skills, or qualifications that are absent from the candidate's CV, DO NOT claim or imply the candidate has production experience with them. Instead, focus entirely on the candidate's actual documented competencies, proven engineering strengths, and genuine transferrable achievements.\n"
+        "- NO FABRICATED METRICS: NEVER invent statistics, dollar amounts, performance percentages, latency improvements, or team sizes. Use only figures explicitly present in the CV.\n"
         "- Desired Tone & Style: {tone}\n"
         "- Desired Length Constraint: {length}\n"
         "{custom_instructions}\n\n"
@@ -286,6 +286,41 @@ DEFAULT_PROMPTS = {
         "Position: {position}\n"
         "Job Description / Details:\n<untrusted_job_description>\n{job_description}\n</untrusted_job_description>\n\n"
         "Candidate CV / Profile:\n<untrusted_candidate_cv>\n{candidate_cv}\n</untrusted_candidate_cv>\n"
+    ),
+    "application_qa": (
+        "You are an expert executive career strategist and technical recruiter.\n\n"
+        "Your task is to write compelling, concise, and professional answers to specific application form questions for a candidate applying to {company_name} for the position '{position}'.\n\n"
+        "--------------------------------------------------\n"
+        "STRICT BOUNDARIES & ZERO-HALLUCINATION RULES\n"
+        "--------------------------------------------------\n"
+        "- STRICT FACTUAL GROUNDING: Every project, achievement, technology, metric, team size, and role mentioned MUST come directly from <untrusted_candidate_cv>.\n"
+        "- ZERO INVENTIONS: NEVER invent or extrapolate past projects, programming languages, libraries, tools, cloud platforms, companies, degrees, or certifications that are not explicitly present in the CV.\n"
+        "- HONEST SKILL GAP HANDLING: If a question asks about experience with a skill, language, or system that is absent from the candidate's CV, DO NOT fabricate experience. Instead, honestly state actual core competencies, highlight genuine adjacent/transferable engineering foundations, and explain how those enable rapid ramp-up.\n"
+        "- COMPANY MOTIVATION GROUNDING: For questions asking why the candidate wants to work at {company_name} or apply for this role, ground the response directly in the company's real mission, product, technical challenges, and culture described in <untrusted_job_description> mapped to the candidate's documented career trajectory.\n"
+        "- NO FABRICATED METRICS: NEVER invent statistics, dollar amounts, performance percentages, or user scale. Only cite numbers explicitly documented in the CV.\n"
+        "- WORD COUNT & CONSTRAINT ADHERENCE: If a question specifies a word or character limit (e.g. 'Max 150 words'), strictly adhere to the limit.\n"
+        "- Tone: {tone}\n"
+        "{custom_instructions}\n\n"
+        "--------------------------------------------------\n"
+        "OUTPUT FORMAT (STRICT JSON ONLY)\n"
+        "--------------------------------------------------\n"
+        "You MUST respond with a valid JSON array containing one object per input question, in the exact same order:\n"
+        "[\n"
+        "  {{\n"
+        '    "id": "<question_id>",\n'
+        '    "question": "<question_text>",\n'
+        '    "answer": "<grounded_answer_text>"\n'
+        "  }}\n"
+        "]\n"
+        "Do NOT wrap with markdown fences or conversational preambles.\n\n"
+        "--------------------------------------------------\n"
+        "INPUT DATA\n"
+        "--------------------------------------------------\n"
+        "Target Company: {company_name}\n"
+        "Position: {position}\n"
+        "Job Description / Details:\n<untrusted_job_description>\n{job_description}\n</untrusted_job_description>\n\n"
+        "Candidate CV / Profile:\n<untrusted_candidate_cv>\n{candidate_cv}\n</untrusted_candidate_cv>\n\n"
+        "Application Questions to Answer:\n{questions_json}\n"
     ),
     "interview_guide": (
         "You are an elite Interview Coach and Executive Technical Recruiter.\n\n"
@@ -345,6 +380,13 @@ async def seed_default_prompts(session: AsyncSession) -> None:
         elif prompt_name == "cover_letter" and (
             "ZERO-HALLUCINATION RULES" not in (existing.template or "")
             or "STRICT FACTUAL GROUNDING" not in (existing.template or "")
+            or "NO FAKE STORIES" not in (existing.template or "")
+        ):
+            existing.template = default_template
+        elif prompt_name == "application_qa" and (
+            "HONEST SKILL GAP HANDLING" not in (existing.template or "")
+            or "STRICT FACTUAL GROUNDING" not in (existing.template or "")
+            or "{{" not in (existing.template or "")
         ):
             existing.template = default_template
         elif prompt_name == "interview_guide" and (
@@ -386,6 +428,10 @@ async def get_prompt_template(
             res_template = DEFAULT_PROMPTS.get(
                 prompt_name, DEFAULT_PROMPTS["email_extraction"]
             )
+        elif prompt_name == "application_qa" and (
+            "{{" not in template or "HONEST SKILL GAP HANDLING" not in template
+        ):
+            res_template = DEFAULT_PROMPTS["application_qa"]
         elif prompt_name == "assessment" and (
             "AUTHORITATIVE CANDIDATE PROFILE" not in template
             or "critical_risks" not in template

@@ -7,6 +7,7 @@ import ApplicationDetailDrawer from './components/drawers/ApplicationDetailDrawe
 import IngestModal from './components/modals/IngestModal.vue'
 import JobIntakeModal from './components/modals/JobIntakeModal.vue'
 import CoverLetterModal from './components/modals/CoverLetterModal.vue'
+import ApplicationQuestionModal from './components/modals/ApplicationQuestionModal.vue'
 import OnboardingWizardModal from './components/modals/OnboardingWizardModal.vue'
 import QuickRetryModal from './components/modals/QuickRetryModal.vue'
 import IntakeQueueDrawer from './components/layout/IntakeQueueDrawer.vue'
@@ -45,6 +46,7 @@ onMounted(async () => {
     <IngestModal />
     <JobIntakeModal />
     <CoverLetterModal />
+    <ApplicationQuestionModal />
     <OnboardingWizardModal />
     <QuickRetryModal />
     <IntakeQueueDrawer />

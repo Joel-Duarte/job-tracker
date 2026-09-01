@@ -22,7 +22,7 @@ class Base(DeclarativeBase):
 
 
 class CompanyModel(Base):
-    __tablename__ = "email_companies"
+    __tablename__ = "companies"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -40,10 +40,10 @@ class CompanyModel(Base):
     )
 
     __table_args__ = (
-        Index("idx_email_companies_name_normalized", "name_normalized", unique=True),
-        Index("idx_email_companies_domain", "domain"),
+        Index("idx_companies_name_normalized", "name_normalized", unique=True),
+        Index("idx_companies_domain", "domain"),
         Index(
-            "idx_email_companies_name_trgm",
+            "idx_companies_name_trgm",
             "name_normalized",
             postgresql_using="gin",
             postgresql_ops={"name_normalized": "gin_trgm_ops"},
@@ -52,12 +52,12 @@ class CompanyModel(Base):
 
 
 class ApplicationModel(Base):
-    __tablename__ = "email_applications"
+    __tablename__ = "applications"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     company_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("email_companies.id", ondelete="RESTRICT"),
+        ForeignKey("companies.id", ondelete="RESTRICT"),
         nullable=False,
     )
     position: Mapped[str | None] = mapped_column(Text)
@@ -85,6 +85,9 @@ class ApplicationModel(Base):
     cover_letter_status: Mapped[str | None] = mapped_column(Text, nullable=True)
     cover_letter_generated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    application_questions: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONB, nullable=True, default=list
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -119,21 +122,21 @@ class ApplicationModel(Base):
     )
 
     __table_args__ = (
-        Index("idx_email_applications_company_id", "company_id"),
-        Index("idx_email_applications_position_normalized", "position_normalized"),
-        Index("idx_email_applications_external_job_id", "external_job_id"),
-        Index("idx_email_applications_application_key", "application_key"),
-        Index("idx_email_applications_status", "status"),
+        Index("idx_applications_company_id", "company_id"),
+        Index("idx_applications_position_normalized", "position_normalized"),
+        Index("idx_applications_external_job_id", "external_job_id"),
+        Index("idx_applications_application_key", "application_key"),
+        Index("idx_applications_status", "status"),
     )
 
 
 class ApplicationEventModel(Base):
-    __tablename__ = "email_application_events"
+    __tablename__ = "application_events"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     email_application_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("email_applications.id", ondelete="CASCADE"),
+        ForeignKey("applications.id", ondelete="CASCADE"),
         nullable=False,
     )
     email_message_id: Mapped[str | None] = mapped_column(Text, unique=True)
@@ -167,10 +170,10 @@ class ApplicationEventModel(Base):
     )
 
     __table_args__ = (
-        Index("idx_email_application_events_application_id", "email_application_id"),
-        Index("idx_email_application_events_conversation_id", "email_conversation_id"),
-        Index("idx_email_application_events_received_at", "email_received_at"),
-        Index("idx_email_application_events_type", "email_event_type"),
+        Index("idx_application_events_application_id", "email_application_id"),
+        Index("idx_application_events_conversation_id", "email_conversation_id"),
+        Index("idx_application_events_received_at", "email_received_at"),
+        Index("idx_application_events_type", "email_event_type"),
     )
 
 
@@ -180,7 +183,7 @@ class JobPostingModel(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     application_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        ForeignKey("email_applications.id", ondelete="CASCADE"),
+        ForeignKey("applications.id", ondelete="CASCADE"),
         nullable=True,
     )
     job_url: Mapped[str] = mapped_column(Text, nullable=False)
@@ -219,12 +222,12 @@ class ActionItemModel(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     application_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        ForeignKey("email_applications.id", ondelete="CASCADE"),
+        ForeignKey("applications.id", ondelete="CASCADE"),
         nullable=True,
     )
     event_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        ForeignKey("email_application_events.id", ondelete="SET NULL"),
+        ForeignKey("application_events.id", ondelete="SET NULL"),
         nullable=True,
     )
     title: Mapped[str] = mapped_column(Text, nullable=False)
@@ -261,11 +264,11 @@ class ActionItemModel(Base):
 
 
 class ApplicationEmbeddingModel(Base):
-    __tablename__ = "email_application_embeddings"
+    __tablename__ = "application_embeddings"
 
     email_application_id: Mapped[int] = mapped_column(
         BigInteger,
-        ForeignKey("email_applications.id", ondelete="CASCADE"),
+        ForeignKey("applications.id", ondelete="CASCADE"),
         primary_key=True,
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -285,7 +288,7 @@ class ApplicationEmbeddingModel(Base):
 
     __table_args__ = (
         Index(
-            "email_application_embeddings_idx",
+            "application_embeddings_idx",
             "embedding",
             postgresql_using="hnsw",
             postgresql_ops={"embedding": "vector_cosine_ops"},
@@ -294,7 +297,7 @@ class ApplicationEmbeddingModel(Base):
 
 
 class OtherEventModel(Base):
-    __tablename__ = "email_other_events"
+    __tablename__ = "other_events"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     email_message_id: Mapped[str | None] = mapped_column(Text, unique=True)
@@ -320,11 +323,11 @@ class OtherEventModel(Base):
     )
 
     __table_args__ = (
-        Index("idx_email_other_events_conversation_id", "email_conversation_id"),
-        Index("idx_email_other_events_received_at", "email_received_at"),
-        Index("idx_email_other_events_type", "email_type"),
+        Index("idx_other_events_conversation_id", "email_conversation_id"),
+        Index("idx_other_events_received_at", "email_received_at"),
+        Index("idx_other_events_type", "email_type"),
         Index(
-            "idx_email_other_events_action_required",
+            "idx_other_events_action_required",
             "action_required",
             postgresql_where=text("action_required = TRUE"),
         ),

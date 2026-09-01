@@ -275,6 +275,24 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             "cover_letter_text": (
                 "Dear Hiring Manager at Stripe,\n\nI am writing to express my strong enthusiasm for the Senior Backend Engineer position..."
             ),
+            "application_questions": [
+                {
+                    "id": "q_stripe_why",
+                    "question": "Why are you interested in joining Stripe's infrastructure team?",
+                    "word_limit": 150,
+                    "answer": "Having spent over 8 years designing and scaling distributed systems in Python, Go, and PostgreSQL—scaling settlement pipelines to 45,000 req/sec—I am energized by Stripe's uncompromising focus on developer-first reliability and global payment primitives.",
+                    "status": "GENERATED",
+                    "updated_at": (now - timedelta(days=2)).isoformat(),
+                },
+                {
+                    "id": "q_stripe_challenge",
+                    "question": "Describe a difficult distributed systems outage or bug you diagnosed and resolved.",
+                    "word_limit": 200,
+                    "answer": "At CloudTech, we experienced an edge-case deadlock under high concurrency in our Kafka partition consumption and PostgreSQL batch write pipeline. By implementing distributed tracing and optimizing PostgreSQL lock ordering with explicit async batching, we restored sub-10ms latencies and zero data loss.",
+                    "status": "GENERATED",
+                    "updated_at": (now - timedelta(days=2)).isoformat(),
+                },
+            ],
         },
         {
             "name": "Datadog",
@@ -768,6 +786,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             cover_letter_generated_at=app_date + timedelta(hours=2)
             if spec.get("has_cover_letter")
             else None,
+            application_questions=spec.get("application_questions") or [],
             match_analysis_payload=dossier,
         )
         session.add(app)

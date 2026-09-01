@@ -452,7 +452,12 @@ TASK_RECOMMENDED_DEFAULTS = {
         "max_tokens": None,
     },
     "COVER_LETTER": {
-        "temperature": 0.3,
+        "temperature": 0.15,
+        "reasoning_effort": "none",
+        "max_tokens": None,
+    },
+    "APPLICATION_QA": {
+        "temperature": 0.15,
         "reasoning_effort": "none",
         "max_tokens": None,
     },

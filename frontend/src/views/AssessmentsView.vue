@@ -42,6 +42,7 @@ import {
   Archive,
   RotateCcw,
   CheckSquare,
+  HelpCircle,
 } from 'lucide-vue-next'
 import PageHeader from '../components/common/PageHeader.vue'
 import CompanyLogo from '../components/common/CompanyLogo.vue'
@@ -100,6 +101,16 @@ async function openCoverLetterModalForTask(task) {
   const appId = task.result_json?.application_id
   if (appId) {
     uiStore.openCoverLetterModal(appId)
+  } else {
+    uiStore.showToast('Application ID missing. Confirm application first.', 'warning')
+  }
+}
+
+async function openAppQuestionsModalForTask(task) {
+  if (!(await uiStore.ensureAIReady())) return
+  const appId = task.result_json?.application_id
+  if (appId) {
+    uiStore.openAppQuestionsModal(appId)
   } else {
     uiStore.showToast('Application ID missing. Confirm application first.', 'warning')
   }
@@ -963,6 +974,15 @@ onUnmounted(() => {
               >
                 <Sparkles :size="14" />
                 <span>Draft Cover Letter</span>
+              </button>
+
+              <button
+                class="btn btn-secondary btn-sm"
+                @click="openAppQuestionsModalForTask(task)"
+                title="Input and answer application form questions using your CV"
+              >
+                <HelpCircle :size="14" class="text-primary" />
+                <span>Answer Questions</span>
               </button>
 
               <button

@@ -54,6 +54,7 @@ import {
   MoreHorizontal,
   MoreVertical,
   Trophy,
+  HelpCircle,
 } from 'lucide-vue-next'
 
 const pipelineCount = computed(() => {
@@ -1790,6 +1791,14 @@ async function confirmDelete() {
         >
           <Sparkles :size="13" />
           <span>Draft Cover Letter</span>
+        </button>
+
+        <button
+          class="menu-item"
+          @click="uiStore.openAppQuestionsModal(activeMenuApp.id); closeCardMenu()"
+        >
+          <HelpCircle :size="13" class="text-primary" />
+          <span>Application Q&amp;A</span>
         </button>
 
         <button

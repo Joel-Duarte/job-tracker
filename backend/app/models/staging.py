@@ -9,7 +9,7 @@ from app.models.applications import Base
 
 
 class StagingItemModel(Base):
-    __tablename__ = "email_staging_items"
+    __tablename__ = "staging_items"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
@@ -44,7 +44,7 @@ class StagingItemModel(Base):
     )
 
     __table_args__ = (
-        Index("idx_email_staging_items_status", "status"),
-        Index("idx_email_staging_items_conversation_id", "email_conversation_id"),
-        Index("idx_email_staging_items_received_at", "email_received_at"),
+        Index("idx_staging_items_status", "status"),
+        Index("idx_staging_items_conversation_id", "email_conversation_id"),
+        Index("idx_staging_items_received_at", "email_received_at"),
     )

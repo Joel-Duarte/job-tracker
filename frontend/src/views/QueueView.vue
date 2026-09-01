@@ -31,6 +31,9 @@ import {
   Mail,
   ChevronDown,
   ChevronUp,
+  HelpCircle,
+  Copy,
+  Check,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -41,7 +44,7 @@ const isClearing = ref(false)
 const retryingTaskIds = ref(new Set())
 const selectedTaskIds = ref(new Set())
 const statusFilter = ref('ALL') // 'ALL' | 'FAILED' | 'RUNNING' | 'PENDING' | 'COMPLETED'
-const typeFilter = ref('ALL') // 'ALL' | 'JOB_ASSESSMENT' | 'CV_EXTRACTION' | 'EMBEDDING' | 'COVER_LETTER'
+const typeFilter = ref('ALL') // 'ALL' | 'JOB_ASSESSMENT' | 'CV_EXTRACTION' | 'EMBEDDING' | 'COVER_LETTER' | 'APPLICATION_QA' | 'ROLE_ALIGNMENT_DOSSIER'
 const searchQuery = ref('')
 const showBulkDeleteConfirm = ref(false)
 const isBulkActing = ref(false)
@@ -58,8 +61,10 @@ const fixJDRawText = ref('')
 const fixJDJobUrl = ref('')
 const isSubmittingFixJD = ref(false)
 
-// Expandable Email Sync details
+// Expandable details state
 const expandedEmailDetails = ref(new Set())
+const expandedQADetails = ref(new Set())
+const expandedDossierDetails = ref(new Set())
 
 function toggleEmailDetails(taskId) {
   const newSet = new Set(expandedEmailDetails.value)
@@ -69,6 +74,40 @@ function toggleEmailDetails(taskId) {
     newSet.add(taskId)
   }
   expandedEmailDetails.value = newSet
+}
+
+function toggleQADetails(taskId) {
+  const newSet = new Set(expandedQADetails.value)
+  if (newSet.has(taskId)) {
+    newSet.delete(taskId)
+  } else {
+    newSet.add(taskId)
+  }
+  expandedQADetails.value = newSet
+}
+
+function toggleDossierDetails(taskId) {
+  const newSet = new Set(expandedDossierDetails.value)
+  if (newSet.has(taskId)) {
+    newSet.delete(taskId)
+  } else {
+    newSet.add(taskId)
+  }
+  expandedDossierDetails.value = newSet
+}
+
+function copyTaskQA(task) {
+  const qs = task.result_json?.questions || []
+  const answered = qs.filter((q) => q.answer && q.answer.trim())
+  if (answered.length === 0) {
+    uiStore.showToast('No answers to copy', 'warning')
+    return
+  }
+  const formatted = answered
+    .map((q, i) => `Question ${i + 1}: ${q.question}\nAnswer: ${q.answer}`)
+    .join('\n\n')
+  navigator.clipboard.writeText(formatted)
+  uiStore.showToast(`Copied ${answered.length} answers to clipboard!`, 'success')
 }
 
 const tasks = computed(() => queueStore.tasks)
@@ -100,10 +139,49 @@ const filteredTasks = computed(() => {
 
 function getTaskDisplayTitle(task) {
   if (!task) return 'Task'
+  if (task.task_type === 'APPLICATION_QA') {
+    const comp = task.result_json?.company || 'Application'
+    const pos = task.result_json?.position ? ` (${task.result_json.position})` : ''
+    return `Form Q&A • ${comp}${pos}`
+  }
+  if (task.task_type === 'ROLE_ALIGNMENT_DOSSIER') {
+    const track = task.result_json?.role_track || task.title_hint || 'Career Dossier'
+    return `AI Career Dossier • ${track}`
+  }
+  if (task.task_type === 'COVER_LETTER') {
+    const comp = task.result_json?.company || task.title_hint || 'Application'
+    return `Cover Letter • ${comp}`
+  }
+  if (task.task_type === 'CV_EXTRACTION') {
+    return 'Candidate CV Profile Extraction'
+  }
+  if (task.task_type === 'EMBEDDING') {
+    return 'Vector Embedding Generation'
+  }
   if (task.result_json?.company && task.result_json?.position) {
     return `${task.result_json.company} - ${task.result_json.position}`
   }
   return task.title_hint || task.job_url || `Task #${task.id}`
+}
+
+function getTaskTypeIcon(type) {
+  if (type === 'CV_EXTRACTION') return UserCheck
+  if (type === 'EMBEDDING') return Layers
+  if (type === 'ROLE_ALIGNMENT_DOSSIER') return Sparkles
+  if (type === 'COVER_LETTER') return FileText
+  if (type === 'APPLICATION_QA') return HelpCircle
+  if (type === 'EMAIL_SYNC' || type === 'EMAIL_INTAKE') return Mail
+  return Briefcase
+}
+
+function getTaskTypeLabel(type) {
+  if (type === 'CV_EXTRACTION') return 'CV Profile Extraction'
+  if (type === 'EMBEDDING') return 'Vector Embedding'
+  if (type === 'ROLE_ALIGNMENT_DOSSIER') return 'Career Dossier'
+  if (type === 'COVER_LETTER') return 'Cover Letter Generation'
+  if (type === 'APPLICATION_QA') return 'Form Q&A'
+  if (type === 'EMAIL_SYNC' || type === 'EMAIL_INTAKE') return 'Email Sync'
+  return 'Job Assessment'
 }
 
 const runningCount = computed(() => queueStore.runningCount)
@@ -410,6 +488,22 @@ onMounted(() => {
           </button>
           <button
             class="type-pill"
+            :class="{ active: typeFilter === 'APPLICATION_QA' }"
+            @click="typeFilter = 'APPLICATION_QA'"
+          >
+            <HelpCircle :size="12" />
+            <span>Form Q&amp;A</span>
+          </button>
+          <button
+            class="type-pill"
+            :class="{ active: typeFilter === 'ROLE_ALIGNMENT_DOSSIER' }"
+            @click="typeFilter = 'ROLE_ALIGNMENT_DOSSIER'"
+          >
+            <Sparkles :size="12" />
+            <span>Career Dossier</span>
+          </button>
+          <button
+            class="type-pill"
             :class="{ active: typeFilter === 'EMAIL_SYNC' }"
             @click="typeFilter = 'EMAIL_SYNC'"
           >
@@ -668,11 +762,13 @@ onMounted(() => {
                   'type-job': task.task_type === 'JOB_ASSESSMENT' || !task.task_type,
                   'type-embedding': task.task_type === 'EMBEDDING',
                   'type-cover-letter': task.task_type === 'COVER_LETTER',
+                  'type-qa': task.task_type === 'APPLICATION_QA',
+                  'type-dossier': task.task_type === 'ROLE_ALIGNMENT_DOSSIER',
                   'type-email-sync': task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE'
                 }"
               >
-                <component :is="task.task_type === 'CV_EXTRACTION' ? UserCheck : (task.task_type === 'EMBEDDING' ? Layers : (task.task_type === 'COVER_LETTER' ? FileText : (task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE' ? Mail : Briefcase)))" :size="12" />
-                <span>{{ task.task_type === 'CV_EXTRACTION' ? 'CV Profile Extraction' : (task.task_type === 'EMBEDDING' ? 'Vector Embedding' : (task.task_type === 'COVER_LETTER' ? 'Cover Letter Generation' : (task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE' ? 'Email Sync' : 'Job Assessment'))) }}</span>
+                <component :is="getTaskTypeIcon(task.task_type)" :size="12" />
+                <span>{{ getTaskTypeLabel(task.task_type) }}</span>
               </span>
               <span class="task-title-text" :title="getTaskDisplayTitle(task)">
                 {{ getTaskDisplayTitle(task) }}
@@ -725,7 +821,7 @@ onMounted(() => {
           <!-- DEDICATED PIPELINE STEPPERS -->
           <div class="task-pipeline-container">
             <!-- 1. JOB ASSESSMENT STEPPER (Conditional 5 or 6 Stages based on enableAutoCoverLetter) -->
-            <div v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'EMAIL_SYNC', 'EMAIL_INTAKE'].includes(task.task_type)" class="pipeline-stepper job-stepper">
+            <div v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'EMAIL_SYNC', 'EMAIL_INTAKE'].includes(task.task_type)" class="pipeline-stepper job-stepper">
               <div
                 class="stepper-node"
                 :class="{
@@ -910,7 +1006,143 @@ onMounted(() => {
               </div>
             </div>
 
-            <!-- 5. EMAIL SYNC PROGRESS / SUMMARY -->
+            <!-- 5. APPLICATION FORM Q&A STEPPER & DETAILS (3 Stages) -->
+            <div v-else-if="task.task_type === 'APPLICATION_QA'" class="pipeline-stepper-box">
+              <div class="pipeline-stepper qa-stepper">
+                <div
+                  class="stepper-node"
+                  :class="{
+                    active: task.stage === 'QUEUED',
+                    done: ['ANSWERING', 'GENERATING', 'COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
+                  }"
+                >
+                  <div class="node-bullet">1</div>
+                  <span class="node-label">Queued</span>
+                </div>
+
+                <div
+                  class="stepper-node"
+                  :class="{
+                    active: ['ANSWERING', 'GENERATING'].includes(task.stage),
+                    done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
+                  }"
+                >
+                  <div class="node-bullet">2</div>
+                  <span class="node-label">Synthesizing Answers</span>
+                </div>
+
+                <div
+                  class="stepper-node"
+                  :class="{
+                    done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
+                  }"
+                >
+                  <div class="node-bullet">3</div>
+                  <span class="node-label">Q&amp;A Ready</span>
+                </div>
+              </div>
+
+              <!-- Completed Q&A Answers Expandable Preview -->
+              <div v-if="(task.status === 'COMPLETED' || task.result_json?.questions) && task.result_json" class="qa-details-container">
+                <div class="qa-details-toggle-row">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-xs"
+                    @click="toggleQADetails(task.id)"
+                  >
+                    <ChevronDown v-if="!expandedQADetails.has(task.id)" :size="12" />
+                    <ChevronUp v-else :size="12" />
+                    <span>{{ expandedQADetails.has(task.id) ? 'Hide' : 'View' }} Questions &amp; Answers ({{ (task.result_json.questions || []).length }})</span>
+                  </button>
+                </div>
+
+                <div v-if="expandedQADetails.has(task.id)" class="qa-preview-list animate-fade-in">
+                  <div
+                    v-for="(qItem, qIdx) in (task.result_json.questions || [])"
+                    :key="qItem.id || qIdx"
+                    class="qa-preview-card"
+                  >
+                    <div class="qa-preview-q">
+                      <span class="qa-q-num">Q{{ qIdx + 1 }}:</span>
+                      <span class="qa-q-text font-medium">{{ qItem.question }}</span>
+                    </div>
+                    <div class="qa-preview-a">
+                      <p v-if="qItem.answer" class="qa-a-text">{{ qItem.answer }}</p>
+                      <span v-else class="text-xs text-muted italic">No answer generated</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 6. ROLE ALIGNMENT DOSSIER STEPPER & DETAILS (3 Stages) -->
+            <div v-else-if="task.task_type === 'ROLE_ALIGNMENT_DOSSIER'" class="pipeline-stepper-box">
+              <div class="pipeline-stepper dossier-stepper">
+                <div
+                  class="stepper-node"
+                  :class="{
+                    active: task.stage === 'QUEUED',
+                    done: ['ANALYZING', 'GENERATING', 'SYNTHESIZING', 'COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
+                  }"
+                >
+                  <div class="node-bullet">1</div>
+                  <span class="node-label">Queued</span>
+                </div>
+
+                <div
+                  class="stepper-node"
+                  :class="{
+                    active: ['ANALYZING', 'GENERATING', 'SYNTHESIZING'].includes(task.stage),
+                    done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
+                  }"
+                >
+                  <div class="node-bullet">2</div>
+                  <span class="node-label">Analyzing Alignment</span>
+                </div>
+
+                <div
+                  class="stepper-node"
+                  :class="{
+                    done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
+                  }"
+                >
+                  <div class="node-bullet">3</div>
+                  <span class="node-label">Dossier Synthesized</span>
+                </div>
+              </div>
+
+              <!-- Completed Dossier Highlights Expandable Preview -->
+              <div v-if="(task.status === 'COMPLETED' || task.result_json) && task.result_json" class="dossier-details-container">
+                <div class="dossier-details-toggle-row">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-xs"
+                    @click="toggleDossierDetails(task.id)"
+                  >
+                    <ChevronDown v-if="!expandedDossierDetails.has(task.id)" :size="12" />
+                    <ChevronUp v-else :size="12" />
+                    <span>{{ expandedDossierDetails.has(task.id) ? 'Hide' : 'View' }} Dossier Highlights</span>
+                  </button>
+                </div>
+
+                <div v-if="expandedDossierDetails.has(task.id)" class="dossier-preview-card animate-fade-in">
+                  <div v-if="task.result_json.executive_positioning" class="dossier-preview-section">
+                    <span class="text-xs font-semibold text-primary uppercase tracking-wider">Executive Positioning</span>
+                    <p class="text-xs text-secondary mt-1 leading-relaxed">{{ task.result_json.executive_positioning }}</p>
+                  </div>
+                  <div v-if="task.result_json.talking_points && task.result_json.talking_points.length" class="dossier-preview-section mt-2">
+                    <span class="text-xs font-semibold text-primary uppercase tracking-wider">Strategic Talking Points ({{ task.result_json.talking_points.length }})</span>
+                    <ul class="dossier-talking-points-list mt-1">
+                      <li v-for="(tp, tpIdx) in task.result_json.talking_points.slice(0, 3)" :key="tpIdx" class="text-xs text-secondary">
+                        • {{ tp.title || tp }}
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 7. EMAIL SYNC PROGRESS / SUMMARY -->
             <div v-else-if="task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE'" class="email-sync-progress-box">
               <div v-if="task.status === 'PROCESSING' || task.status === 'QUEUED'" class="email-sync-progress-container">
                 <div class="email-sync-progress-header">
@@ -1034,7 +1266,7 @@ onMounted(() => {
           <!-- Result Footer & Contextual Actions -->
           <div v-else-if="task.status === 'COMPLETED' && task.result_json" class="task-card-footer">
             <!-- Job Assessment Context -->
-            <template v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'EMAIL_SYNC', 'EMAIL_INTAKE'].includes(task.task_type)">
+            <template v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'EMAIL_SYNC', 'EMAIL_INTAKE'].includes(task.task_type)">
               <div class="footer-left">
                 <span class="score-badge algo-score-badge">
                   Algo: {{ getFitScores(task.result_json).computedText }}
@@ -1090,6 +1322,60 @@ onMounted(() => {
                 <span v-if="task.result_json.company" class="footer-meta-text">
                   {{ task.result_json.company }} • {{ task.result_json.position || 'Position' }}
                 </span>
+              </div>
+            </template>
+
+            <!-- Application Form Q&A Context -->
+            <template v-else-if="task.task_type === 'APPLICATION_QA'">
+              <div class="footer-left">
+                <span class="badge-cv-ready">
+                  <HelpCircle :size="12" />
+                  <span>Q&amp;A Ready • {{ (task.result_json?.questions || []).length }} Questions</span>
+                </span>
+                <span v-if="task.result_json?.company" class="footer-meta-text">
+                  {{ task.result_json.company }} • {{ task.result_json.position || 'Position' }}
+                </span>
+              </div>
+              <div class="footer-right flex items-center gap-2">
+                <button
+                  v-if="task.result_json?.questions?.some(q => q.answer)"
+                  class="btn btn-secondary btn-xs"
+                  @click="copyTaskQA(task)"
+                  title="Copy generated answers"
+                >
+                  <Copy :size="12" />
+                  <span>Copy Answers</span>
+                </button>
+                <button
+                  class="btn btn-primary btn-xs"
+                  @click="uiStore.openAppQuestionsModal(task.result_json?.application_id || Number(task.raw_text))"
+                  title="Open in Q&A Studio"
+                >
+                  <HelpCircle :size="12" />
+                  <span>Open Q&amp;A Studio &rarr;</span>
+                </button>
+              </div>
+            </template>
+
+            <!-- Role Alignment Dossier Context -->
+            <template v-else-if="task.task_type === 'ROLE_ALIGNMENT_DOSSIER'">
+              <div class="footer-left">
+                <span class="badge-cv-ready">
+                  <Sparkles :size="12" />
+                  <span>Career Dossier Synthesized</span>
+                </span>
+                <span v-if="task.result_json?.role_track" class="footer-meta-text">
+                  Track: {{ task.result_json.role_track }}
+                </span>
+              </div>
+              <div class="footer-right">
+                <router-link
+                  to="/profile"
+                  class="btn btn-primary btn-xs"
+                >
+                  <Sparkles :size="12" />
+                  <span>View in Profile &rarr;</span>
+                </router-link>
               </div>
             </template>
 
@@ -1561,10 +1847,105 @@ onMounted(() => {
   border: 1px solid var(--status-interview-border);
 }
 
+.task-type-tag.type-qa {
+  background-color: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.task-type-tag.type-dossier {
+  background-color: rgba(168, 85, 247, 0.12);
+  color: #a855f7;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
 .task-type-tag.type-email-sync {
   background-color: var(--primary-subtle);
   color: var(--primary);
   border: 1px solid var(--primary-glow);
+}
+
+.pipeline-stepper-box {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.qa-details-container,
+.dossier-details-container {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.qa-details-toggle-row,
+.dossier-details-toggle-row {
+  display: flex;
+  align-items: center;
+}
+
+.qa-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.qa-preview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.qa-preview-q {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-main);
+}
+
+.qa-q-num {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+  font-family: var(--font-mono);
+}
+
+.qa-preview-a {
+  padding-left: 20px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.qa-a-text {
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.dossier-preview-card {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.dossier-talking-points-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 4px 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .email-sync-progress-box {

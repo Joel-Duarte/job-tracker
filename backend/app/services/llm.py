@@ -1,7 +1,9 @@
 import json
 import logging
 import re
+from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -481,7 +483,7 @@ async def generate_cover_letter(
         },
         db=db,
     ) as trace_ctx:
-        llm = await get_task_chat_model(db, task_type="COVER_LETTER", temperature=0.3)
+        llm = await get_task_chat_model(db, task_type="COVER_LETTER", temperature=0.15)
         template_str = await get_prompt_template(db, "cover_letter")
 
         prompt = ChatPromptTemplate.from_messages(
@@ -491,7 +493,8 @@ async def generate_cover_letter(
                     (
                         "You are an expert executive resume and cover letter writer. "
                         "Write a compelling, concise, and professional cover letter tailored to the target role and company using the candidate's CV. "
-                        "Strictly adhere to the candidate's actual CV facts without inventing skills, metrics, histories, or tools."
+                        "STRICT GROUNDING DIRECTIVE: Strictly adhere to facts, roles, and accomplishments in the candidate's CV. "
+                        "Never fabricate unmentioned projects, companies, tools, metrics, or client situations."
                     ),
                 ),
                 ("human", template_str),
@@ -520,6 +523,177 @@ async def generate_cover_letter(
 
         trace_ctx["outputs"] = {"cover_letter_length": len(content)}
         return content.strip()
+
+
+async def generate_application_answers(
+    db: AsyncSession,
+    company_name: str,
+    position: str,
+    job_description: str,
+    candidate_cv: str,
+    questions: list[dict[str, Any]],
+    tone: str | None = "professional",
+    custom_instructions: str | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Generates strictly grounded answers to application form questions using APPLICATION_QA task type.
+    Returns a list of dicts with {"id": ..., "question": ..., "word_limit": ..., "answer": ..., "status": ..., "updated_at": ...}.
+    """
+    if not questions:
+        return []
+
+    cleaned_jd = truncate_text_semantically(job_description)
+    cleaned_cv = truncate_text_semantically(candidate_cv)
+    tone_str = (tone or "professional").strip().lower()
+
+    questions_payload = []
+    for q in questions:
+        q_item: dict[str, Any] = {
+            "id": q.get("id") or f"q_{uuid4().hex[:8]}",
+            "question": q.get("question", ""),
+        }
+        if q.get("word_limit"):
+            q_item["word_limit"] = q["word_limit"]
+        questions_payload.append(q_item)
+
+    questions_json_str = json.dumps(questions_payload, indent=2)
+
+    instructions_str = (
+        f"\nCustom User Instructions: {custom_instructions.strip()}"
+        if custom_instructions and custom_instructions.strip()
+        else ""
+    )
+
+    async with trace_operation(
+        category="llm",
+        name="generate_application_answers",
+        inputs={
+            "company_name": company_name,
+            "position": position,
+            "tone": tone_str,
+            "questions_count": len(questions_payload),
+            "jd_length": len(cleaned_jd),
+            "cv_length": len(cleaned_cv),
+        },
+        db=db,
+    ) as trace_ctx:
+        llm = await get_task_chat_model(
+            db, task_type="APPLICATION_QA", temperature=0.15
+        )
+        template_str = await get_prompt_template(db, "application_qa")
+
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    (
+                        "You are an expert career strategist and recruiter. Write concise, compelling, and strictly factual answers "
+                        "to application form questions. Derive all facts, metrics, and experiences strictly from the candidate's CV. "
+                        "Never fabricate unmentioned technologies, achievements, or stories. Output strict JSON array."
+                    ),
+                ),
+                ("human", template_str),
+            ]
+        )
+
+        chain = prompt | llm
+        response = await chain.ainvoke(
+            {
+                "company_name": company_name or "Target Company",
+                "position": position or "Target Role",
+                "job_description": cleaned_jd or "No detailed description provided.",
+                "candidate_cv": cleaned_cv or "No CV provided.",
+                "questions_json": questions_json_str,
+                "tone": tone_str,
+                "custom_instructions": instructions_str,
+            },
+            config={"callbacks": [PostgresTracer()]},
+        )
+
+        content = response.content if hasattr(response, "content") else str(response)
+        if isinstance(content, list):
+            content = "".join(
+                [c.get("text", "") if isinstance(c, dict) else str(c) for c in content]
+            )
+
+        # Parse JSON output
+        parsed_answers: list[dict[str, Any]] = []
+        cleaned_content = content.strip()
+        if cleaned_content.startswith("```json"):
+            cleaned_content = cleaned_content[7:]
+        elif cleaned_content.startswith("```"):
+            cleaned_content = cleaned_content[3:]
+        if cleaned_content.endswith("```"):
+            cleaned_content = cleaned_content[:-3]
+        cleaned_content = cleaned_content.strip()
+
+        try:
+            raw_parsed = json.loads(cleaned_content)
+            if isinstance(raw_parsed, list):
+                parsed_answers = raw_parsed
+            elif (
+                isinstance(raw_parsed, dict)
+                and "questions" in raw_parsed
+                and isinstance(raw_parsed["questions"], list)
+            ):
+                parsed_answers = raw_parsed["questions"]
+            elif (
+                isinstance(raw_parsed, dict)
+                and "answers" in raw_parsed
+                and isinstance(raw_parsed["answers"], list)
+            ):
+                parsed_answers = raw_parsed["answers"]
+            elif isinstance(raw_parsed, dict):
+                parsed_answers = [raw_parsed]
+        except Exception as parse_err:
+            logger.warning(
+                "Failed to parse JSON for application QA: %s. Content: %s",
+                parse_err,
+                cleaned_content,
+            )
+            parsed_answers = [
+                {
+                    "id": q.get("id"),
+                    "question": q.get("question"),
+                    "answer": cleaned_content,
+                }
+                for q in questions_payload
+            ]
+
+        # Merge back into original question objects
+        merged_results = []
+        now_iso = datetime.now(UTC).isoformat()
+        answer_by_id = {
+            str(a.get("id")): a.get("answer", "")
+            for a in parsed_answers
+            if isinstance(a, dict)
+        }
+        answer_by_q = {
+            str(a.get("question")): a.get("answer", "")
+            for a in parsed_answers
+            if isinstance(a, dict)
+        }
+
+        for q in questions_payload:
+            q_id = str(q.get("id"))
+            q_text = str(q.get("question"))
+            ans = answer_by_id.get(q_id) or answer_by_q.get(q_text) or ""
+            merged_results.append(
+                {
+                    "id": q_id,
+                    "question": q_text,
+                    "word_limit": q.get("word_limit"),
+                    "answer": ans,
+                    "status": "GENERATED" if ans else "DRAFT",
+                    "updated_at": now_iso,
+                }
+            )
+
+        trace_ctx["outputs"] = {
+            "questions_answered": len(merged_results),
+            "success_count": sum(1 for m in merged_results if m.get("answer")),
+        }
+        return merged_results
 
 
 async def anonymize_and_parse_cv(

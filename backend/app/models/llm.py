@@ -9,7 +9,7 @@ from app.models.applications import Base
 
 
 class LLMConfigModel(Base):
-    __tablename__ = "email_llm_configs"
+    __tablename__ = "llm_configs"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     provider_name: Mapped[str] = mapped_column(Text, nullable=False, default="custom")

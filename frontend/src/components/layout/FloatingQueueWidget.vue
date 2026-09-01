@@ -19,6 +19,8 @@ import {
   Layers,
   Edit3,
   Sparkles,
+  FileText,
+  HelpCircle,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -39,7 +41,16 @@ const isSubmittingFixJD = ref(false)
 
 function isManualDescriptionEligible(task) {
   if (!task) return false
-  if (['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER'].includes(task.task_type)) return false
+  if (
+    [
+      'CV_EXTRACTION',
+      'EMBEDDING',
+      'COVER_LETTER',
+      'APPLICATION_QA',
+      'ROLE_ALIGNMENT_DOSSIER',
+    ].includes(task.task_type)
+  )
+    return false
   if (!['FAILED', 'CANCELLED', 'ERROR'].includes(task.status)) return false
   const msg = (task.error_message || '').toUpperCase()
   return (
@@ -108,10 +119,47 @@ const widgetState = computed(() => {
 
 function getTaskDisplayTitle(task) {
   if (!task) return 'Task'
+  if (task.task_type === 'APPLICATION_QA') {
+    const comp = task.result_json?.company || 'Application'
+    const pos = task.result_json?.position ? ` (${task.result_json.position})` : ''
+    return `Form Q&A • ${comp}${pos}`
+  }
+  if (task.task_type === 'ROLE_ALIGNMENT_DOSSIER') {
+    const track = task.result_json?.role_track || task.title_hint || 'Career Dossier'
+    return `AI Career Dossier • ${track}`
+  }
+  if (task.task_type === 'COVER_LETTER') {
+    const comp = task.result_json?.company || task.title_hint || 'Application'
+    return `Cover Letter • ${comp}`
+  }
+  if (task.task_type === 'CV_EXTRACTION') {
+    return 'Candidate CV Profile Extraction'
+  }
+  if (task.task_type === 'EMBEDDING') {
+    return 'Vector Embedding Generation'
+  }
   if (task.result_json?.company && task.result_json?.position) {
     return `${task.result_json.company} - ${task.result_json.position}`
   }
   return task.title_hint || task.job_url || `Task #${task.id}`
+}
+
+function getTaskTypeIcon(type) {
+  if (type === 'CV_EXTRACTION') return UserCheck
+  if (type === 'EMBEDDING') return Layers
+  if (type === 'ROLE_ALIGNMENT_DOSSIER') return Sparkles
+  if (type === 'COVER_LETTER') return FileText
+  if (type === 'APPLICATION_QA') return HelpCircle
+  return Briefcase
+}
+
+function getTaskTypeLabel(type) {
+  if (type === 'CV_EXTRACTION') return 'CV Extraction'
+  if (type === 'EMBEDDING') return 'Vector Embedding'
+  if (type === 'ROLE_ALIGNMENT_DOSSIER') return 'Career Dossier'
+  if (type === 'COVER_LETTER') return 'Cover Letter'
+  if (type === 'APPLICATION_QA') return 'Form Q&A'
+  return 'Job Assessment'
 }
 
 async function pollQueueStatus(silent = true) {
@@ -162,20 +210,6 @@ async function deleteTask(taskId) {
   } catch (err) {
     // Handled in store with toast & rollback
   }
-}
-
-function getTaskTypeIcon(type) {
-  if (type === 'CV_EXTRACTION') return UserCheck
-  if (type === 'EMBEDDING') return Layers
-  if (type === 'ROLE_ALIGNMENT_DOSSIER') return Sparkles
-  return Briefcase
-}
-
-function getTaskTypeLabel(type) {
-  if (type === 'CV_EXTRACTION') return 'CV Extract'
-  if (type === 'EMBEDDING') return 'Embedding'
-  if (type === 'ROLE_ALIGNMENT_DOSSIER') return 'AI Dossier'
-  return 'Job Lead'
 }
 
 onMounted(() => {

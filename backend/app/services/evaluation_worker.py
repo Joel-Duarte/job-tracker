@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 import app.core.database as db_module
@@ -26,6 +27,7 @@ from app.services.llm import (
     anonymize_and_parse_cv,
     assess_job_posting,
     extract_job_spec,
+    generate_application_answers,
     generate_cover_letter,
 )
 from app.services.matcher import compute_programmatic_skill_match
@@ -34,6 +36,124 @@ from app.services.skill_normalizer import hybrid_extract_skills
 from app.services.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
+
+
+async def _execute_application_qa_steps(
+    task: IntakeEvaluationTaskModel, db: AsyncSession
+) -> None:
+    task_id = int(task.id)
+    try:
+        app_id = (task.result_json or {}).get("application_id")
+        if not app_id and task.raw_text and task.raw_text.isdigit():
+            app_id = int(task.raw_text)
+
+        if not app_id:
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = "No application_id found for APPLICATION_QA task."
+            task.completed_at = datetime.now(UTC)
+            await db.commit()
+            return
+
+        task.stage = "ANSWERING"
+        await db.commit()
+
+        stmt = (
+            select(ApplicationModel)
+            .where(ApplicationModel.id == app_id)
+            .options(
+                joinedload(ApplicationModel.company),
+                selectinload(ApplicationModel.job_posting),
+            )
+        )
+        res = await db.execute(stmt)
+        app = res.scalar_one_or_none()
+
+        if not app:
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = f"Application {app_id} not found."
+            task.completed_at = datetime.now(UTC)
+            await db.commit()
+            return
+
+        # Fetch Candidate CV
+        cv_stmt = select(CandidateCVModel).limit(1)
+        cv_res = await db.execute(cv_stmt)
+        active_cv = cv_res.scalars().first()
+
+        cv_text = (active_cv.anonymized_text or active_cv.raw_text) if active_cv else ""
+        company_name = app.company.name if app.company else ""
+        position_name = app.position or ""
+        job_desc = (
+            app.job_posting.description_markdown
+            if app.job_posting and app.job_posting.description_markdown
+            else ""
+        )
+
+        task_result = task.result_json or {}
+        questions_payload = (
+            task_result.get("questions") or app.application_questions or []
+        )
+        tone_val = task_result.get("tone") or "professional"
+        instructions_val = task_result.get("custom_instructions")
+
+        generated_qa = await generate_application_answers(
+            db,
+            company_name=company_name,
+            position=position_name,
+            job_description=job_desc,
+            candidate_cv=cv_text,
+            questions=questions_payload,
+            tone=tone_val,
+            custom_instructions=instructions_val,
+        )
+
+        app.application_questions = generated_qa
+
+        task.status = "COMPLETED"
+        task.stage = "COMPLETE"
+        task.result_json = {
+            "application_id": app.id,
+            "company": company_name,
+            "position": position_name,
+            "tone": tone_val,
+            "questions": generated_qa,
+        }
+        task.completed_at = datetime.now(UTC)
+        await db.commit()
+        logger.info(
+            "Application QA task %d completed successfully for app %d (%d questions answered)",
+            task_id,
+            app.id,
+            len(generated_qa),
+        )
+
+    except Exception as err:
+        logger.error(
+            "Failed processing Application QA task %d: %s", task_id, err, exc_info=True
+        )
+        try:
+            await db.rollback()
+            refreshed = await db.get(IntakeEvaluationTaskModel, task_id)
+            target_task = (
+                refreshed if isinstance(refreshed, IntakeEvaluationTaskModel) else task
+            )
+            target_task.status = "FAILED"
+            target_task.stage = "FAILED"
+            target_task.error_message = str(err)
+            target_task.completed_at = datetime.now(UTC)
+            await db.commit()
+        except Exception as rollback_err:
+            logger.error(
+                "Error setting failure state for Application QA task %d: %s",
+                task_id,
+                rollback_err,
+            )
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = str(err)
+            task.completed_at = datetime.now(UTC)
 
 
 async def _execute_cover_letter_steps(
@@ -679,6 +799,13 @@ async def _execute_evaluation_steps(
 
         if task.task_type == "COVER_LETTER":
             await _execute_cover_letter_steps(task, db)
+            ctx["outputs"] = {"status": task.status, "stage": task.stage}
+            if task.status == "FAILED":
+                ctx["error"] = task.error_message
+            return
+
+        if task.task_type == "APPLICATION_QA":
+            await _execute_application_qa_steps(task, db)
             ctx["outputs"] = {"status": task.status, "stage": task.stage}
             if task.status == "FAILED":
                 ctx["error"] = task.error_message

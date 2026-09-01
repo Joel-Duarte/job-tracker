@@ -120,6 +120,7 @@ class ApplicationDetailResponse(ApplicationListItem):
     cover_letter_text: str | None = None
     cover_letter_status: str | None = None
     cover_letter_generated_at: datetime | None = None
+    application_questions: list[dict[str, Any]] | None = None
     created_at: datetime
     updated_at: datetime
     events: list[ApplicationEventDetail] = []
@@ -334,3 +335,47 @@ class ApplicationAnalyzeSpecRequest(BaseModel):
     raw_description: str | None = Field(
         None, description="Raw pasted job description text or specification markdown"
     )
+
+
+class ApplicationQuestionItem(BaseModel):
+    id: str = Field(..., description="Unique question identifier")
+    question: str = Field(..., description="Application form question prompt")
+    word_limit: int | None = Field(
+        None, description="Optional word count limit for the answer"
+    )
+    answer: str | None = Field(None, description="Generated or edited answer content")
+    status: str = Field("DRAFT", description="Status: DRAFT, QUEUED, GENERATED")
+    updated_at: datetime | None = Field(
+        None, description="Timestamp when question/answer was last updated"
+    )
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GenerateApplicationQuestionsRequest(BaseModel):
+    questions: list[ApplicationQuestionItem] = Field(
+        ..., description="List of questions to generate answers for"
+    )
+    tone: str | None = Field(
+        "professional",
+        description="Desired tone e.g. professional, enthusiastic, concise, executive, technical",
+    )
+    custom_instructions: str | None = Field(
+        None,
+        description="Optional guidance or custom instructions for drafting answers",
+    )
+
+
+class ApplicationQuestionsUpdateRequest(BaseModel):
+    questions: list[ApplicationQuestionItem] = Field(
+        ..., description="Full updated list of questions and answers"
+    )
+
+
+class ApplicationQuestionsResponse(BaseModel):
+    application_id: int
+    questions: list[ApplicationQuestionItem] = []
+    status: str | None = None
+    last_generated_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)

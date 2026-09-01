@@ -32,11 +32,11 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
 - **Key Services:**
   - `scraper.py`: Extracts job descriptions from URLs, bypassing cookie banners and "show more" toggles via Camofox Javascript evaluation.
   - `domain_resolver.py`: Multi-tier company domain extraction engine (direct URL parsing, 20+ ATS host filtering, AI domain extraction, and Clearbit autocomplete fallback) ensuring accurate `CompanyModel.domain` and favicon resolution.
-  - `llm.py` / `llm_factory.py`: Abstractions over OpenAI, Anthropic, or local open-source models for various prompts (summarization, extraction, matching).
+  - `llm.py` / `llm_factory.py`: Abstractions over OpenAI, Anthropic, or local open-source models for various prompts (summarization, extraction, matching, zero-hallucination cover letter, and application form Q&A generation).
   - `intake_graph.py` & `interview_guide_graph.py`: LangGraph state machines managing complex data extraction and document generation.
   - `interview_simulator_service.py`: Interactive role-playing mock interview simulator supporting multiple question formats (`TEXT_CONVERSATIONAL`, `MULTIPLE_CHOICE`, `HYBRID`), interviewer personas (`TECHNICAL_BAR_RAISER`, `HIRING_MANAGER`, `BEHAVIORAL_CULTURE`, `SUPPORTIVE_COACH`), adaptive local (unlimited)/cloud (120s) timeouts, real-time STAR evaluation, and post-session debrief scorecards saved to application notes and timeline events.
   - `email_fetcher.py`: Connects to IMAP or OAuth to pull recruitment emails, deduplicating via `message_id`.
-  - `evaluation_worker.py`: Background worker for processing async evaluations in a 4-stage pipeline.
+  - `evaluation_worker.py`: Background worker for processing async evaluations in a 4-stage pipeline, including `APPLICATION_QA` and `COVER_LETTER` generation tasks.
   - `staleness_archiver`: Background lifecycle job that sweeps across all 4 active application stages (`APPLIED`, `ONLINE_ASSESSMENT`, `TECHNICAL_INTERVIEW`, `OFFER`) and transitions inactive applications to `ARCHIVED` (rather than `REJECTED`), leaving all terminal statuses untouched.
   - `pricing_service.py`: Computes token consumption, dollar costs, and local LLM cloud savings using configurable model rates and extraction from diagnostic telemetry traces.
   - `system.py`: High-performance badge and system synchronization endpoint (`GET /api/v1/system/badges`) unifying staging queue, action item, and intake task count metrics in a single indexed query.
@@ -59,7 +59,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
 - **Production Mode:** Run `./jt` or `./jt start` (using `docker-compose.yml` with `ENVIRONMENT=production`). All services run permanently in the background with `restart: unless-stopped`, meaning they automatically auto-start on PC/system boot whenever the Docker daemon starts and only stop when explicitly taken down (`./jt stop`). Seed data is strictly skipped in production.
 
 ## Core Domains & Data Models
-- **Applications:** `ApplicationModel` linked to `CompanyModel` (persisting canonical corporate `domain`). 
+- **Applications:** `ApplicationModel` linked to `CompanyModel` (persisting canonical corporate `domain`). Persists cover letters (`cover_letter_text`, `cover_letter_status`) and application form Q&A pairs (`application_questions` JSONB).
   - **Statuses (`AllowedApplicationStatus`):**
     - *Active Stages (4):* `APPLIED`, `ONLINE_ASSESSMENT`, `TECHNICAL_INTERVIEW`, `OFFER`.
     - *Terminal Statuses:* `HIRED`, `ARCHIVED`, `WITHDRAWN`, `REJECTED` (terminal records are immutable to automated staleness transitions).

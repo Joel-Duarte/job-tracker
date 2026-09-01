@@ -210,6 +210,58 @@ export async function handleDemoRequest(config) {
     })
   }
 
+  const appQuestionsMatch = urlPath.match(/^\/applications\/([^/]+)\/questions$/)
+  if (appQuestionsMatch) {
+    const appId = appQuestionsMatch[1]
+    const app = (db.applications || []).find((a) => String(a.id) === String(appId))
+    if (method === 'get') {
+      return ok({
+        application_id: Number(appId),
+        questions: app?.application_questions || [],
+        status: (app?.application_questions || []).some(q => q.answer) ? 'COMPLETED' : 'DRAFT',
+      })
+    }
+    if (method === 'patch') {
+      if (app) {
+        app.application_questions = data.questions || []
+        saveDemoDb(db)
+      }
+      return ok({
+        application_id: Number(appId),
+        questions: app?.application_questions || [],
+        status: 'COMPLETED',
+      })
+    }
+  }
+
+  const appQuestionsGenMatch = urlPath.match(/^\/applications\/([^/]+)\/questions\/generate$/)
+  if (appQuestionsGenMatch && method === 'post') {
+    const appId = appQuestionsGenMatch[1]
+    const app = (db.applications || []).find((a) => String(a.id) === String(appId))
+    const company = app?.company?.name || app?.company_name || 'Target Company'
+
+    const inputQuestions = data.questions || []
+    const generatedQuestions = inputQuestions.map((q) => ({
+      id: q.id || `q_${Math.random().toString(36).substring(2, 9)}`,
+      question: q.question,
+      word_limit: q.word_limit,
+      answer: `Drawing from 8+ years of distributed systems engineering in Python, Go, and PostgreSQL, I have architected high-throughput infrastructure supporting 45,000 req/sec at CloudTech. For ${company}, this deep background enables immediate contribution to core reliability, sub-10ms query optimization, and resilient microservices.`,
+      status: 'GENERATED',
+      updated_at: new Date().toISOString(),
+    }))
+
+    if (app) {
+      app.application_questions = generatedQuestions
+      saveDemoDb(db)
+    }
+
+    return ok({
+      application_id: Number(appId),
+      questions: generatedQuestions,
+      status: 'COMPLETED',
+    })
+  }
+
   const analyzeSpecMatch = urlPath.match(/^\/applications\/([^/]+)\/analyze-spec$/)
   if (analyzeSpecMatch && method === 'post') {
     const appId = analyzeSpecMatch[1]

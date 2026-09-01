@@ -48,6 +48,7 @@ import {
   Inbox,
   Archive,
   ArchiveRestore,
+  HelpCircle,
 } from 'lucide-vue-next'
 import { renderEmailBody } from '../../utils/emailRenderer'
 import { getCurrencySymbol } from '../../utils/formatters'
@@ -1131,6 +1132,24 @@ function formatDate(isoStr) {
             >
               <Sparkles :size="13" class="text-primary" />
               <span>Match: {{ getFitScores(appStore.selectedApplication).aiScore !== null ? Math.round(getFitScores(appStore.selectedApplication).aiScore) + '%' : (appStore.selectedApplication.match_score + '%') }}</span>
+            </div>
+
+            <div
+              class="meta-item match-pill-btn"
+              title="Draft or Edit Application Form Q&A"
+              @click="uiStore.openAppQuestionsModal(appStore.selectedApplication.id)"
+            >
+              <HelpCircle :size="13" class="text-primary" />
+              <span>Form Q&amp;A</span>
+            </div>
+
+            <div
+              class="meta-item match-pill-btn"
+              title="Draft or View Cover Letter"
+              @click="uiStore.openCoverLetterModal(appStore.selectedApplication.id)"
+            >
+              <FileText :size="13" class="text-primary" />
+              <span>Cover Letter</span>
             </div>
 
             <a
