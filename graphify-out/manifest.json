@@ -336,9 +336,9 @@
     "semantic_hash": ""
   },
   "backend/app/schemas/analytics.py": {
-    "mtime": 1788302343.3707175,
-    "seen": 1788302654.032941,
-    "ast_hash": "cfeac8ecc5d7b70f43ac65e8efa89be7",
+    "mtime": 1788302812.9646056,
+    "seen": 1788302949.0531328,
+    "ast_hash": "dc3f218a1976c57b25e2550b54deaf1f",
     "semantic_hash": ""
   },
   "backend/app/schemas/applications.py": {
@@ -426,9 +426,9 @@
     "semantic_hash": "db45cfccff8ddb37e4e3637e8575486c"
   },
   "backend/app/services/analytics.py": {
-    "mtime": 1788299847.2284627,
-    "seen": 1788302654.0329757,
-    "ast_hash": "3dd326724143734090f049e7d6fa1e85",
+    "mtime": 1788302896.536373,
+    "seen": 1788302949.0531702,
+    "ast_hash": "d0c64aa7d12f67f23c324b15e480e120",
     "semantic_hash": ""
   },
   "backend/app/services/domain_resolver.py": {
@@ -618,9 +618,9 @@
     "semantic_hash": ""
   },
   "backend/app/tests/test_analytics_unit.py": {
-    "mtime": 1788299795.6779459,
-    "seen": 1788302654.0330412,
-    "ast_hash": "7e6555b7e6a136608de39bf4b76cc10b",
+    "mtime": 1788302894.3114326,
+    "seen": 1788302949.0532255,
+    "ast_hash": "6ea93349bffaea04e759c58a7629c5a9",
     "semantic_hash": ""
   },
   "backend/app/tests/test_application_transitions.py": {
@@ -1014,9 +1014,9 @@
     "semantic_hash": "f5e58c049815d3048a3e22a8a01679b4"
   },
   "frontend/src/demo/apiAdapter.js": {
-    "mtime": 1788300957.1866205,
-    "seen": 1788302654.0331728,
-    "ast_hash": "fb0f139dc7d65becfd44bbec3118f110",
+    "mtime": 1788302876.938898,
+    "seen": 1788302949.0532982,
+    "ast_hash": "05ac6dbaf85ddcc85ad2c32df492b4c3",
     "semantic_hash": ""
   },
   "frontend/src/demo/demoStorage.js": {
@@ -1128,9 +1128,9 @@
     "semantic_hash": ""
   },
   "frontend/src/views/AnalyticsView.vue": {
-    "mtime": 1788302013.515222,
-    "seen": 1788302654.033227,
-    "ast_hash": "42d9d93df1ef5b3cff0e192c89fb4838",
+    "mtime": 1788302868.8131156,
+    "seen": 1788302949.0533202,
+    "ast_hash": "8540d16e63aa3b82f5d18d555eafce63",
     "semantic_hash": ""
   },
   "frontend/src/views/ApplicationsView.vue": {
@@ -1482,9 +1482,9 @@
     "semantic_hash": ""
   },
   "frontend/src/stores/analyticsStore.js": {
-    "mtime": 1788302318.119445,
-    "seen": 1788302654.0331929,
-    "ast_hash": "35542278268dcb297314227e3be91eed",
+    "mtime": 1788302873.9029794,
+    "seen": 1788302949.0533051,
+    "ast_hash": "4a72977d3caee37064f9cccc19099a5b",
     "semantic_hash": ""
   }
 }
