@@ -3,7 +3,7 @@ import logging
 from collections import defaultdict
 from difflib import SequenceMatcher
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.applications import (
@@ -34,13 +34,98 @@ from app.services.skill_normalizer import normalize_skill, normalize_skills_list
 
 logger = logging.getLogger(__name__)
 
+# Cache stores: { cache_key: (fingerprint, response_model) }
+_OVERVIEW_CACHE: dict[tuple, tuple[tuple[int, int], AnalyticsOverviewResponse]] = {}
+_FUNNEL_CACHE: dict[tuple, tuple[tuple[int, int, int], FunnelMetricsResponse]] = {}
+_ROLE_ALIGNMENT_CACHE: dict[tuple, tuple[tuple[int, int], RoleAlignmentResponse]] = {}
+
+
+async def _get_applications_fingerprint(db: AsyncSession) -> tuple[int, int]:
+    """Lightweight indexed check returning (total_applications_count, max_application_id)."""
+    try:
+        stmt = select(
+            func.count(ApplicationModel.id),
+            func.coalesce(func.max(ApplicationModel.id), 0),
+        )
+        res = await db.execute(stmt)
+        row = res.first()
+        if row:
+            return (int(row[0] or 0), int(row[1] or 0))
+    except Exception:
+        pass
+    return (0, 0)
+
+
+async def _get_role_alignment_fingerprint(db: AsyncSession) -> tuple[int, int]:
+    """Lightweight indexed check returning (analyzed_applications_count, max_analyzed_id)."""
+    try:
+        stmt = select(
+            func.count(ApplicationModel.id),
+            func.coalesce(func.max(ApplicationModel.id), 0),
+        ).where(ApplicationModel.match_analysis_payload.isnot(None))
+        res = await db.execute(stmt)
+        row = res.first()
+        if row:
+            return (int(row[0] or 0), int(row[1] or 0))
+    except Exception:
+        pass
+    return (0, 0)
+
+
+async def _get_funnel_fingerprint(db: AsyncSession) -> tuple[int, int, int]:
+    """Lightweight indexed check returning (apps_count, max_app_id, intake_tasks_count)."""
+    try:
+        app_stmt = select(
+            func.count(ApplicationModel.id),
+            func.coalesce(func.max(ApplicationModel.id), 0),
+        )
+        app_row = (await db.execute(app_stmt)).first()
+        app_count = int(app_row[0] or 0) if app_row else 0
+        max_app_id = int(app_row[1] or 0) if app_row else 0
+
+        intake_stmt = select(func.count(IntakeEvaluationTaskModel.id))
+        intake_res = (await db.execute(intake_stmt)).scalar() or 0
+        return (app_count, max_app_id, int(intake_res))
+    except Exception:
+        pass
+    return (0, 0, 0)
+
+
+def clear_analytics_cache(domain: str | None = None) -> None:
+    """
+    Clears in-memory caches for analytics computations.
+    If domain is provided ('overview', 'funnel', 'alignment'), clears only that domain.
+    Otherwise clears all analytics caches.
+    """
+    global _OVERVIEW_CACHE, _FUNNEL_CACHE, _ROLE_ALIGNMENT_CACHE
+    if domain == "overview":
+        _OVERVIEW_CACHE.clear()
+    elif domain == "funnel":
+        _FUNNEL_CACHE.clear()
+    elif domain == "alignment":
+        _ROLE_ALIGNMENT_CACHE.clear()
+    else:
+        _OVERVIEW_CACHE.clear()
+        _FUNNEL_CACHE.clear()
+        _ROLE_ALIGNMENT_CACHE.clear()
+
 
 async def get_analytics_overview(
     db: AsyncSession,
     days_limit: int | None = None,
     work_model: str | None = None,
     top_n_skills: int | None = None,
+    use_cache: bool = True,
 ) -> AnalyticsOverviewResponse:
+    cache_key = (days_limit, (work_model or "").strip().lower(), top_n_skills)
+    current_fp = (0, 0)
+    if use_cache:
+        current_fp = await _get_applications_fingerprint(db)
+        if cache_key in _OVERVIEW_CACHE:
+            cached_fp, cached_res = _OVERVIEW_CACHE[cache_key]
+            if cached_fp == current_fp:
+                return cached_res
+
     candidate_skills = set()
     rows = []
 
@@ -346,7 +431,7 @@ async def get_analytics_overview(
         unknown_count=work_models["unknown"],
     )
 
-    return AnalyticsOverviewResponse(
+    overview_resp = AnalyticsOverviewResponse(
         total_applications=total_applications,
         active_pipeline_count=active_pipeline_count,
         interview_rate=interview_rate,
@@ -358,15 +443,33 @@ async def get_analytics_overview(
         work_model_distribution=work_model_distribution,
         salary_insights=salary_insights,
     )
+    if use_cache:
+        _OVERVIEW_CACHE[cache_key] = (current_fp, overview_resp)
+    return overview_resp
 
 
 async def get_funnel_performance_metrics(
-    db: AsyncSession, period: str = "weekly", num_periods: int = 8
+    db: AsyncSession,
+    period: str = "weekly",
+    num_periods: int = 8,
+    use_cache: bool = True,
 ) -> FunnelMetricsResponse:
     """
     Aggregates intake leads, applications, interviews, and offers by cohort periods (weekly or monthly).
     Calculates summary KPIs with trend deltas vs the previous period and builds cohort tables and chart data.
     """
+    normalized_period = (
+        "monthly" if (period or "").strip().lower() == "monthly" else "weekly"
+    )
+    cache_key = (normalized_period, num_periods)
+    current_fp = (0, 0, 0)
+    if use_cache:
+        current_fp = await _get_funnel_fingerprint(db)
+        if cache_key in _FUNNEL_CACHE:
+            cached_fp, cached_res = _FUNNEL_CACHE[cache_key]
+            if cached_fp == current_fp:
+                return cached_res
+
     now = datetime.datetime.now(datetime.UTC)
 
     # Build cohort periods boundaries
@@ -608,12 +711,15 @@ async def get_funnel_performance_metrics(
     # Reverse chart_data so chronological order (oldest to newest) is rendered left-to-right
     chart_data = list(reversed(cohort_data))
 
-    return FunnelMetricsResponse(
-        period_type=period,
+    funnel_resp = FunnelMetricsResponse(
+        period_type=normalized_period,
         summary_kpis=summary_kpis,
         chart_data=chart_data,
         table_data=cohort_data,
     )
+    if use_cache:
+        _FUNNEL_CACHE[cache_key] = (current_fp, funnel_resp)
+    return funnel_resp
 
 
 TRACK_DEFINITIONS = [
@@ -686,11 +792,21 @@ async def get_role_alignment(
     db: AsyncSession,
     role_track: str | None = "all",
     days: int | None = None,
+    use_cache: bool = True,
 ) -> RoleAlignmentResponse:
     """
     Aggregates vocabulary translations, ATS keyword shifts, bullet-point reframings,
     and missing prerequisites across evaluated job dossiers grouped by role track.
     """
+    selected_track_norm = (role_track or "all").strip().lower()
+    cache_key = (selected_track_norm, days)
+    current_fp = (0, 0)
+    if use_cache:
+        current_fp = await _get_role_alignment_fingerprint(db)
+        if cache_key in _ROLE_ALIGNMENT_CACHE:
+            cached_fp, cached_res = _ROLE_ALIGNMENT_CACHE[cache_key]
+            if cached_fp == current_fp:
+                return cached_res
     # Query applications with match_analysis_payload
     query = select(ApplicationModel).where(
         ApplicationModel.match_analysis_payload.isnot(None)
@@ -854,10 +970,13 @@ async def get_role_alignment(
             )
         )
 
-    return RoleAlignmentResponse(
+    role_alignment_resp = RoleAlignmentResponse(
         detected_tracks=detected_tracks,
         selected_track=selected_track_norm,
         total_analyzed_jobs=total_analyzed,
         vocabulary_shifts=vocab_items,
         bullet_reframes=bullet_items,
     )
+    if use_cache:
+        _ROLE_ALIGNMENT_CACHE[cache_key] = (current_fp, role_alignment_resp)
+    return role_alignment_resp

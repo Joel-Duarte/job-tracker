@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
 import { useApplicationsStore } from '../stores/applicationsStore'
@@ -284,20 +284,55 @@ function formatStageLabel(stage) {
   }
 }
 
+function startPollingIfNeeded() {
+  if (pollingInterval) return
+  if (activeTasks.value.length > 0 && !document.hidden) {
+    pollingInterval = setInterval(async () => {
+      await loadEvaluations(true)
+      if (activeTasks.value.length === 0) {
+        stopPolling()
+      }
+    }, 2500)
+  }
+}
+
+function stopPolling() {
+  if (pollingInterval) {
+    clearInterval(pollingInterval)
+    pollingInterval = null
+  }
+}
+
+function handleVisibilityChange() {
+  if (document.hidden) {
+    stopPolling()
+  } else {
+    loadEvaluations(true)
+    startPollingIfNeeded()
+  }
+}
+
+watch(
+  () => activeTasks.value.length,
+  (newCount) => {
+    if (newCount > 0) {
+      startPollingIfNeeded()
+    } else {
+      stopPolling()
+    }
+  }
+)
+
 onMounted(() => {
   fetchExtensionConfig()
   loadEvaluations()
-
-  // Poll active tasks every 2.5s
-  pollingInterval = setInterval(() => {
-    if (activeTasks.value.length > 0) {
-      loadEvaluations(true)
-    }
-  }, 2500)
+  startPollingIfNeeded()
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onUnmounted(() => {
-  if (pollingInterval) clearInterval(pollingInterval)
+  stopPolling()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>
 

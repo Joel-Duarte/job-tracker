@@ -25,6 +25,7 @@ from app.routers import (
     prompts,
     search,
     staging,
+    system,
     system_settings,
 )
 
@@ -133,6 +134,7 @@ app.include_router(admin.router, prefix="/api/v1")
 app.include_router(prompts.router, prefix="/api/v1")
 app.include_router(email_accounts.router, prefix="/api/v1")
 app.include_router(staging.router, prefix="/api/v1")
+app.include_router(system.router, prefix="/api/v1")
 app.include_router(diagnostics.router, prefix="/api/v1")
 app.include_router(llm.router, prefix="/api/v1")
 app.include_router(interview_simulator.router)

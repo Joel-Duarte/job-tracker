@@ -62,15 +62,27 @@ export const useQueueStore = defineStore('queue', () => {
 
   function scheduleNextPoll() {
     stopPolling()
-    const interval = activeCount.value > 0 ? 1500 : 4000
-    pollTimer = setTimeout(async () => {
-      await fetchTasks(true)
-    }, interval)
+    // Only schedule polling when there are active tasks in flight and tab is visible
+    if (activeCount.value > 0 && typeof document !== 'undefined' && !document.hidden) {
+      pollTimer = setTimeout(async () => {
+        await fetchTasks(true)
+      }, 2500)
+    }
   }
 
   function startPolling() {
     stopPolling()
     scheduleNextPoll()
+  }
+
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        stopPolling()
+      } else if (activeCount.value > 0) {
+        fetchTasks(true)
+      }
+    })
   }
 
   // Fetch Queue Evaluations from API
@@ -93,7 +105,7 @@ export const useQueueStore = defineStore('queue', () => {
     }
   }
 
-  // Auto-initialize hydration & central polling loop on store creation
+  // Auto-initialize hydration once on store creation
   fetchTasks(true)
 
   // 1. Enqueue Assessment Optimistically

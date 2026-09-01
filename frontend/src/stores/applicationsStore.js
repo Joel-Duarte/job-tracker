@@ -23,6 +23,13 @@ export const useApplicationsStore = defineStore('applications', () => {
   const loadingDetail = ref(false)
 
   const pipelineViewMode = ref('active') // 'active' | 'archive' | 'hired'
+  const lastFetchedAt = ref(null)
+  const isStale = ref(false)
+  const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes cache TTL
+
+  function invalidateCache() {
+    isStale.value = true
+  }
 
   function getAppActivityDate(app) {
     if (!app) return null
@@ -315,8 +322,19 @@ export const useApplicationsStore = defineStore('applications', () => {
     return columns
   })
 
-  async function fetchApplications() {
-    loading.value = true
+  async function fetchApplications(force = false) {
+    const isFresh =
+      !force &&
+      !isStale.value &&
+      lastFetchedAt.value !== null &&
+      applications.value.length > 0 &&
+      Date.now() - lastFetchedAt.value < CACHE_TTL_MS
+
+    if (isFresh) {
+      return
+    }
+
+    loading.value = applications.value.length === 0
     error.value = null
     try {
       const params = {
@@ -326,6 +344,8 @@ export const useApplicationsStore = defineStore('applications', () => {
       const res = await ApplicationsAPI.list(params)
       applications.value = res.data.items || []
       total.value = res.data.total || (res.data.items || []).length
+      lastFetchedAt.value = Date.now()
+      isStale.value = false
     } catch (err) {
       error.value = err.message
     } finally {
@@ -551,5 +571,8 @@ export const useApplicationsStore = defineStore('applications', () => {
     bulkTransition,
     restoreToActive,
     deleteApplication,
+    invalidateCache,
+    lastFetchedAt,
+    isStale,
   }
 })

@@ -635,6 +635,22 @@ async function quickDismissItem(item) {
 
 let stagingPollInterval = null
 
+function handleVisibilityChange() {
+  if (document.hidden) {
+    if (stagingPollInterval) {
+      clearInterval(stagingPollInterval)
+      stagingPollInterval = null
+    }
+  } else {
+    fetchStagingItems(true)
+    if (!stagingPollInterval) {
+      stagingPollInterval = setInterval(() => {
+        fetchStagingItems(true)
+      }, 10000)
+    }
+  }
+}
+
 function handleKeyDown(e) {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
     return
@@ -653,17 +669,20 @@ onMounted(() => {
   }
 
   window.addEventListener('keydown', handleKeyDown)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 
-  // Background real-time polling
+  // Background real-time polling (10s when active)
   stagingPollInterval = setInterval(() => {
     fetchStagingItems(true)
-  }, 4000)
+  }, 10000)
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
   if (stagingPollInterval) {
     clearInterval(stagingPollInterval)
+    stagingPollInterval = null
   }
 })
 

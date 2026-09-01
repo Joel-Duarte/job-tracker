@@ -18,6 +18,7 @@ import {
   UserCheck,
   Layers,
   Edit3,
+  Sparkles,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -166,12 +167,14 @@ async function deleteTask(taskId) {
 function getTaskTypeIcon(type) {
   if (type === 'CV_EXTRACTION') return UserCheck
   if (type === 'EMBEDDING') return Layers
+  if (type === 'ROLE_ALIGNMENT_DOSSIER') return Sparkles
   return Briefcase
 }
 
 function getTaskTypeLabel(type) {
   if (type === 'CV_EXTRACTION') return 'CV Extract'
   if (type === 'EMBEDDING') return 'Embedding'
+  if (type === 'ROLE_ALIGNMENT_DOSSIER') return 'AI Dossier'
   return 'Job Lead'
 }
 

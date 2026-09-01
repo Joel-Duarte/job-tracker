@@ -141,3 +141,75 @@ class RoleAlignmentResponse(BaseModel):
     bullet_reframes: list[BulletReframeItem]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ExecutiveTrackFit(BaseModel):
+    market_competitiveness_rating: (
+        str  # 'EXCEPTIONAL' | 'STRONG' | 'MODERATE' | 'EMERGING'
+    )
+    positioning_summary: str
+    competitive_advantages: list[str] = []
+    primary_vulnerabilities: list[str] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BulletRewriteItem(BaseModel):
+    original_bullet: str
+    rewritten_bullet: str
+    target_competency: str
+    impact_quantification: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class InterviewTalkingPointItem(BaseModel):
+    topic_area: str
+    technical_story_hook: str
+    key_takeaway: str
+    sample_questions: list[str] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SkillBridgeItem(BaseModel):
+    skill_or_tool: str
+    category: str
+    rationale: str
+    learning_priority: str  # 'HIGH' | 'MEDIUM' | 'LOW'
+    recommended_actions: list[str] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RoleAlignmentDossierPayload(BaseModel):
+    executive_fit: ExecutiveTrackFit
+    bullet_rewrites: list[BulletRewriteItem] = []
+    talking_points: list[InterviewTalkingPointItem] = []
+    skill_bridge_roadmap: list[SkillBridgeItem] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RoleAlignmentDossierResponse(BaseModel):
+    id: int
+    cv_id: int
+    role_track: str
+    dossier: RoleAlignmentDossierPayload
+    model_name: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    created_at: str
+    updated_at: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RoleAlignmentEnhanceResponse(BaseModel):
+    task_id: int
+    task_type: str = "ROLE_ALIGNMENT_DOSSIER"
+    status: str = "QUEUED"
+    stage: str = "QUEUED"
+    role_track: str
+
+    model_config = ConfigDict(from_attributes=True)

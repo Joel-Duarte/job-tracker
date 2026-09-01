@@ -18,6 +18,7 @@ from app.models.interview_session import InterviewSessionModel
 from app.models.llm import LLMConfigModel
 from app.models.processed_email import ProcessedEmailModel
 from app.models.prompts import PromptModel
+from app.models.role_alignment_dossier import RoleAlignmentDossierModel
 from app.models.staging import StagingItemModel
 from app.models.system_settings import SystemSettingsModel
 
@@ -39,6 +40,7 @@ __all__ = [
     "OtherEventModel",
     "ProcessedEmailModel",
     "PromptModel",
+    "RoleAlignmentDossierModel",
     "StagingItemModel",
     "AgentChatModel",
     "TraceEventModel",

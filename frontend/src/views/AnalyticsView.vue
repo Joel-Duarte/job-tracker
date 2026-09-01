@@ -27,31 +27,33 @@ import {
   Copy,
   Check,
   Search,
-  ArrowRight,
   ShieldAlert,
   Zap,
+  Award,
+  Compass,
+  MessageSquare,
+  AlertTriangle,
+  ChevronUp,
+  BookOpen,
 } from 'lucide-vue-next'
 import { useUIStore } from '../stores/uiStore'
-import { getCurrencySymbol } from '../utils/formatters'
+import { useAnalyticsStore } from '../stores/analyticsStore'
+import { getCurrencySymbol, formatDate } from '../utils/formatters'
 import PageHeader from '../components/common/PageHeader.vue'
 
 const uiStore = useUIStore()
+const analyticsStore = useAnalyticsStore()
 
 // Active Tab: 'market' | 'funnel' | 'alignment'
 const activeTab = ref('market')
 
 // Role Alignment State & Filters
-const loadingAlignment = ref(true)
-const alignmentData = ref(null)
 const alignmentSubTab = ref('vocab') // 'vocab' | 'bullet'
 const selectedTrackKey = ref('all')
 const customSearchQuery = ref('')
 const copiedItemKey = ref(null)
 
 // Market Intelligence State & Filters
-const loadingMarket = ref(true)
-const analyticsData = ref(null)
-
 const filters = ref({
   days: null, // null for all time
   work_model: 'all',
@@ -64,9 +66,56 @@ const dateOptions = [
 ]
 
 // Pipeline Funnel Performance State & Filters
-const loadingFunnel = ref(true)
-const funnelData = ref(null)
 const funnelPeriod = ref('weekly') // 'weekly' | 'monthly'
+
+// Store Bindings & Computed Views
+const analyticsData = computed(() => analyticsStore.overviewData)
+const funnelData = computed(() => analyticsStore.funnelData)
+
+const currentTrackKey = computed(() => {
+  const trackParam = customSearchQuery.value.trim() || selectedTrackKey.value || 'all'
+  return trackParam.toLowerCase()
+})
+
+const currentTrackLabel = computed(() => {
+  if (customSearchQuery.value.trim()) return `Custom Track: "${customSearchQuery.value.trim()}"`
+  const found = alignmentData.value?.detected_tracks?.find((t) => t.key === selectedTrackKey.value)
+  return found ? found.label : 'All Career Tracks'
+})
+
+const currentAlignmentKey = computed(() => {
+  return `${currentTrackKey.value}-${filters.value.days || 'all'}`
+})
+
+const defaultAlignment = {
+  detected_tracks: [
+    { key: 'all', label: 'All Tracks', job_count: 0 },
+    { key: 'backend', label: 'Backend Engineering', job_count: 0 },
+  ],
+  selected_track: selectedTrackKey.value,
+  total_analyzed_jobs: 0,
+  vocabulary_shifts: [],
+  bullet_reframes: [],
+  missing_prerequisites: [],
+}
+
+const alignmentData = computed(() => {
+  return analyticsStore.roleAlignmentCache[currentAlignmentKey.value] || defaultAlignment
+})
+
+const dossierMeta = computed(() => analyticsStore.dossierCache[currentTrackKey.value] || null)
+const currentDossier = computed(() => dossierMeta.value?.dossier || null)
+const isGeneratingDossier = computed(() => analyticsStore.loadingDossier)
+const isDossierCollapsed = ref(false)
+
+async function handleGenerateDossier() {
+  await analyticsStore.enhanceDossier(currentTrackKey.value)
+}
+
+const loadingMarket = computed(() => analyticsStore.loadingOverview)
+const loadingFunnel = computed(() => analyticsStore.loadingFunnel)
+const loadingAlignment = computed(() => analyticsStore.loadingAlignment)
+const isRecalculating = computed(() => analyticsStore.isRecalculating)
 
 function toggleWorkModel(model) {
   if (filters.value.work_model === model) {
@@ -77,101 +126,38 @@ function toggleWorkModel(model) {
   fetchAnalytics()
 }
 
-async function fetchAnalytics() {
-  loadingMarket.value = true
-  try {
-    const params = {}
-    if (filters.value.days) params.days = filters.value.days
-    if (filters.value.work_model !== 'all') params.work_model = filters.value.work_model
+async function fetchAnalytics(force = false) {
+  const params = {}
+  if (filters.value.days) params.days = filters.value.days
+  if (filters.value.work_model !== 'all') params.work_model = filters.value.work_model
 
-    const res = await AnalyticsAPI.getOverview(params)
-    analyticsData.value = res.data
+  try {
+    await analyticsStore.fetchOverview(params, force)
   } catch (err) {
-    uiStore.showToast('Failed to load market intelligence', 'error')
-    console.error(err)
-    if (!analyticsData.value) {
-      analyticsData.value = {
-        total_applications: 0,
-        active_pipeline_count: 0,
-        interview_rate: 0.0,
-        offer_rate: 0.0,
-        average_fit_score: null,
-        top_in_demand_skills: [],
-        priority_skill_gaps: [],
-        pipeline_funnel: [
-          { stage: 'Applied', count: 0, conversion_rate: 0, dropoff_rate: 0 },
-          { stage: 'Assessment', count: 0, conversion_rate: 0, dropoff_rate: 0 },
-          { stage: 'Interview', count: 0, conversion_rate: 0, dropoff_rate: 0 },
-          { stage: 'Offer', count: 0, conversion_rate: 0, dropoff_rate: 0 },
-        ],
-        work_model_distribution: { remote_count: 0, hybrid_count: 0, onsite_count: 0, unknown_count: 0 },
-        salary_insights: [],
-      }
-    }
-  } finally {
-    loadingMarket.value = false
+    // handled in store
   }
 }
 
-async function fetchFunnelMetrics() {
-  loadingFunnel.value = true
+async function fetchFunnelMetrics(force = false) {
   try {
-    const res = await AnalyticsAPI.getFunnelMetrics({ period: funnelPeriod.value })
-    funnelData.value = res.data
+    await analyticsStore.fetchFunnel({ period: funnelPeriod.value }, force)
   } catch (err) {
-    uiStore.showToast('Failed to load pipeline funnel performance', 'error')
-    console.error(err)
-    if (!funnelData.value) {
-      funnelData.value = {
-        period_type: funnelPeriod.value,
-        summary_kpis: {
-          intakes: { label: 'Total Intake Leads', value: 14, trend_percentage: 12.0, is_positive: true },
-          applications: { label: 'Submitted Applications', value: 10, trend_percentage: 8.5, is_positive: true },
-          interviews: { label: 'Interview Conversions', value: 4, trend_percentage: 25.0, is_positive: true },
-          offers: { label: 'Offers Received', value: 2, trend_percentage: 50.0, is_positive: true },
-        },
-        chart_data: [
-          { period_key: 'P1', period_label: 'W01', start_date: '2025-01-01', end_date: '2025-01-07', intakes: 10, applications: 7, interviews: 2, offers: 1, conversion_rate: 28.5 },
-          { period_key: 'P2', period_label: 'W02', start_date: '2025-01-08', end_date: '2025-01-14', intakes: 14, applications: 10, interviews: 4, offers: 2, conversion_rate: 40.0 },
-        ],
-        table_data: [
-          { period_key: 'P2', period_label: 'W02', start_date: '2025-01-08', end_date: '2025-01-14', intakes: 14, applications: 10, interviews: 4, offers: 2, conversion_rate: 40.0 },
-          { period_key: 'P1', period_label: 'W01', start_date: '2025-01-01', end_date: '2025-01-07', intakes: 10, applications: 7, interviews: 2, offers: 1, conversion_rate: 28.5 },
-        ]
-      }
-    }
-  } finally {
-    loadingFunnel.value = false
+    // handled in store
   }
 }
 
-async function fetchRoleAlignment() {
-  loadingAlignment.value = true
-  try {
-    const trackParam = customSearchQuery.value.trim() || selectedTrackKey.value
-    const params = { role_track: trackParam }
-    if (filters.value.days) params.days = filters.value.days
+async function fetchRoleAlignment(force = false) {
+  const trackParam = customSearchQuery.value.trim() || selectedTrackKey.value || 'all'
+  const params = { role_track: trackParam }
+  if (filters.value.days) params.days = filters.value.days
 
-    const res = await AnalyticsAPI.getRoleAlignment(params)
-    alignmentData.value = res.data
+  try {
+    await Promise.allSettled([
+      analyticsStore.fetchRoleAlignment(params, force),
+      analyticsStore.fetchDossier(trackParam, force),
+    ])
   } catch (err) {
-    uiStore.showToast('Failed to load role alignment analytics', 'error')
-    console.error(err)
-    if (!alignmentData.value) {
-      alignmentData.value = {
-        detected_tracks: [
-          { key: 'all', label: 'All Tracks', job_count: 0 },
-          { key: 'backend', label: 'Backend Engineering', job_count: 0 },
-        ],
-        selected_track: selectedTrackKey.value,
-        total_analyzed_jobs: 0,
-        vocabulary_shifts: [],
-        bullet_reframes: [],
-        missing_prerequisites: [],
-      }
-    }
-  } finally {
-    loadingAlignment.value = false
+    // handled in store
   }
 }
 
@@ -257,11 +243,11 @@ function copyToClipboard(text, key) {
 
 function switchTab(tab) {
   activeTab.value = tab
-  if (tab === 'market' && !analyticsData.value) {
+  if (tab === 'market') {
     fetchAnalytics()
-  } else if (tab === 'funnel' && !funnelData.value) {
+  } else if (tab === 'funnel') {
     fetchFunnelMetrics()
-  } else if (tab === 'alignment' && !alignmentData.value) {
+  } else if (tab === 'alignment') {
     fetchRoleAlignment()
   }
 }
@@ -271,8 +257,21 @@ function handlePeriodChange() {
 }
 
 onMounted(() => {
-  fetchAnalytics()
-  fetchFunnelMetrics()
+  // 1. Immediately revalidate active tab in background
+  if (activeTab.value === 'market') {
+    fetchAnalytics()
+  } else if (activeTab.value === 'funnel') {
+    fetchFunnelMetrics()
+  } else if (activeTab.value === 'alignment') {
+    fetchRoleAlignment()
+  }
+
+  // 2. Silently warm other tabs in background without network contention
+  setTimeout(() => {
+    if (activeTab.value !== 'market') fetchAnalytics()
+    if (activeTab.value !== 'funnel') fetchFunnelMetrics()
+    if (activeTab.value !== 'alignment') fetchRoleAlignment()
+  }, 300)
 })
 
 // Tab 1 Computed Metrics
@@ -543,12 +542,7 @@ const maxCohortVolume = computed(() => {
           </div>
         </div>
 
-        <div v-if="loadingMarket && !analyticsData" class="loading-state">
-          <RefreshCw class="spin text-primary" :size="32" />
-          <p>Crunching market intelligence...</p>
-        </div>
-
-        <div v-else-if="analyticsData" class="dashboard-layout">
+        <div class="dashboard-layout">
           <!-- 4-Card Top KPI Banner -->
           <div class="kpi-banner-4">
             <div class="kpi-card">
@@ -1013,12 +1007,7 @@ const maxCohortVolume = computed(() => {
           </div>
         </div>
 
-        <div v-if="loadingFunnel && !funnelData" class="loading-state">
-          <RefreshCw class="spin text-primary" :size="32" />
-          <p>Calculating cohort funnel performance...</p>
-        </div>
-
-        <div v-else-if="funnelData" class="dashboard-layout">
+        <div class="dashboard-layout">
           <!-- KPI Summary Cards with Trend Deltas -->
           <div class="kpi-banner-4">
             <div class="kpi-card">
@@ -1261,12 +1250,273 @@ const maxCohortVolume = computed(() => {
           </button>
         </div>
 
-        <div v-if="loadingAlignment && !alignmentData" class="loading-state">
-          <RefreshCw class="spin text-primary" :size="32" />
-          <p>Analyzing role alignment and vocabulary shifts...</p>
-        </div>
+        <div class="dashboard-layout">
+          <!-- ================================================================= -->
+          <!-- AI Strategic Alignment Dossier Hero Card                          -->
+          <!-- ================================================================= -->
+          <div class="ai-dossier-hero-card" :class="{ 'has-dossier': !!currentDossier }">
+            <!-- State 1: Generating Shimmer State -->
+            <div v-if="isGeneratingDossier" class="dossier-generating-state">
+              <div class="generating-pulse-icon">
+                <Sparkles :size="28" class="animate-spin text-primary" />
+              </div>
+              <div class="generating-info">
+                <h3 class="generating-title">Synthesizing AI Strategic Alignment Dossier...</h3>
+                <p class="generating-desc">
+                  Evaluating your candidate profile against top aggregated market patterns across {{ alignmentData.total_analyzed_jobs }} analyzed {{ currentTrackLabel }} jobs. Formulating executive positioning, high-impact bullet rewrites, and interview narratives...
+                </p>
+                <div class="generating-bar">
+                  <div class="generating-bar-fill"></div>
+                </div>
+              </div>
+            </div>
 
-        <div v-else-if="alignmentData" class="dashboard-layout">
+            <!-- State 2: Un-generated CTA Hero Banner -->
+            <div v-else-if="!currentDossier" class="dossier-cta-state">
+              <div class="dossier-cta-left">
+                <div class="dossier-sparkle-badge">
+                  <Sparkles :size="20" />
+                </div>
+                <div class="dossier-cta-copy">
+                  <h3 class="dossier-cta-title">
+                    ✨ Enhance with AI: Strategic Alignment Dossier for <span class="highlight-track">{{ currentTrackLabel }}</span>
+                  </h3>
+                  <p class="dossier-cta-desc">
+                    Synthesizes your active CV with top market demand patterns across {{ alignmentData.total_analyzed_jobs }} {{ currentTrackLabel }} postings. Generates executive positioning, tailored bullet rewrites, technical interview talking points, and a prioritized skill roadmap.
+                  </p>
+                </div>
+              </div>
+              <div class="dossier-cta-action">
+                <button
+                  type="button"
+                  class="btn-enhance-ai"
+                  @click="handleGenerateDossier"
+                >
+                  <Sparkles :size="16" />
+                  <span>Generate AI Strategic Dossier</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- State 3: Generated Strategic Dossier Active View -->
+            <div v-else class="dossier-active-view">
+              <!-- Dossier Card Header with Quick Actions -->
+              <div class="dossier-view-header">
+                <div class="dossier-view-title-group">
+                  <div class="dossier-badge-icon">
+                    <Sparkles :size="18" />
+                  </div>
+                  <div>
+                    <div class="dossier-title-row">
+                      <h3 class="dossier-main-title">AI Strategic Alignment Dossier</h3>
+                      <span class="dossier-track-tag">{{ currentTrackLabel }}</span>
+                      <span
+                        class="dossier-rating-badge"
+                        :class="'rating-' + (currentDossier.executive_fit?.market_competitiveness_rating || 'STRONG').toLowerCase()"
+                      >
+                        {{ currentDossier.executive_fit?.market_competitiveness_rating }} FIT
+                      </span>
+                    </div>
+                    <p class="dossier-timestamp">
+                      Synthesized with {{ dossierMeta?.model_name || 'AI' }} • Cached in PostgreSQL
+                    </p>
+                  </div>
+                </div>
+
+                <div class="dossier-view-actions">
+                  <button
+                    type="button"
+                    class="dossier-regen-btn"
+                    :disabled="isGeneratingDossier"
+                    @click="handleGenerateDossier"
+                    title="Regenerate analysis with latest requirements"
+                  >
+                    <RefreshCw :size="13" :class="{ 'animate-spin': isGeneratingDossier }" />
+                    <span>Regenerate</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="dossier-toggle-btn"
+                    @click="isDossierCollapsed = !isDossierCollapsed"
+                    :title="isDossierCollapsed ? 'Expand dossier' : 'Collapse dossier'"
+                  >
+                    <component :is="isDossierCollapsed ? ChevronDown : ChevronUp" :size="15" />
+                  </button>
+                </div>
+              </div>
+
+              <!-- Collapsible Content Body -->
+              <div v-show="!isDossierCollapsed" class="dossier-pillars-container">
+                <!-- Pillar 1: Executive Market Positioning -->
+                <div class="dossier-pillar-card pillar-executive">
+                  <div class="pillar-header">
+                    <Compass :size="16" class="pillar-icon" />
+                    <h4 class="pillar-title">1. Executive Positioning &amp; Market Diagnosis</h4>
+                  </div>
+                  <p class="executive-summary-text">
+                    {{ currentDossier.executive_fit?.positioning_summary }}
+                  </p>
+
+                  <div class="fit-two-col-grid">
+                    <div class="fit-col advantages-col">
+                      <div class="fit-col-header">
+                        <CheckCircle2 :size="14" class="text-emerald" />
+                        <span>Core Competitive Strengths</span>
+                      </div>
+                      <ul class="fit-bullets-list">
+                        <li v-for="(adv, i) in currentDossier.executive_fit?.competitive_advantages || []" :key="i">
+                          {{ adv }}
+                        </li>
+                      </ul>
+                    </div>
+
+                    <div class="fit-col vulnerabilities-col">
+                      <div class="fit-col-header">
+                        <AlertTriangle :size="14" class="text-amber" />
+                        <span>Vulnerabilities &amp; Proactive Mitigations</span>
+                      </div>
+                      <ul class="fit-bullets-list">
+                        <li v-for="(vuln, i) in currentDossier.executive_fit?.primary_vulnerabilities || []" :key="i">
+                          {{ vuln }}
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Pillar 2: High-Impact Quantified Bullet Rewrites -->
+                <div class="dossier-pillar-card pillar-bullets">
+                  <div class="pillar-header">
+                    <FileEdit :size="16" class="pillar-icon" />
+                    <h4 class="pillar-title">2. Tailored CV Impact Bullet Rewrites (Consolidated &amp; Quantified)</h4>
+                    <span class="pillar-count-badge">{{ currentDossier.bullet_rewrites?.length || 0 }} bullets</span>
+                  </div>
+
+                  <div class="bullet-rewrites-grid">
+                    <div
+                      v-for="(item, idx) in currentDossier.bullet_rewrites || []"
+                      :key="idx"
+                      class="bullet-rewrite-card"
+                    >
+                      <div class="bullet-card-top">
+                        <span class="competency-chip">{{ item.target_competency }}</span>
+                        <button
+                          type="button"
+                          class="copy-chip-btn"
+                          @click="copyToClipboard(item.rewritten_bullet, 'dossier-bullet-' + idx)"
+                        >
+                          <component :is="copiedItemKey === 'dossier-bullet-' + idx ? Check : Copy" :size="12" />
+                          <span>{{ copiedItemKey === 'dossier-bullet-' + idx ? 'Copied' : 'Copy Upgrade' }}</span>
+                        </button>
+                      </div>
+
+                      <div class="bullet-diff-box">
+                        <div class="bullet-row original-row">
+                          <span class="bullet-tag original-tag">Original CV Entry</span>
+                          <p class="bullet-text">{{ item.original_bullet }}</p>
+                        </div>
+                        <div class="bullet-row tailored-row">
+                          <span class="bullet-tag tailored-tag">✨ Consolidated Upgrade</span>
+                          <p class="bullet-text highlight-text">{{ item.rewritten_bullet }}</p>
+                        </div>
+                      </div>
+
+                      <div v-if="item.impact_quantification" class="quant-note">
+                        <Zap :size="12" class="text-amber" />
+                        <span><strong>Quantified Anchor:</strong> {{ item.impact_quantification }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Pillar 3: Strategic Interview Talking Points -->
+                <div class="dossier-pillar-card pillar-interview">
+                  <div class="pillar-header">
+                    <MessageSquare :size="16" class="pillar-icon" />
+                    <h4 class="pillar-title">3. Strategic Interview Talking Points &amp; Technical Hooks</h4>
+                    <span class="pillar-count-badge">{{ currentDossier.talking_points?.length || 0 }} narratives</span>
+                  </div>
+
+                  <div class="talking-points-grid">
+                    <div
+                      v-for="(point, pIdx) in currentDossier.talking_points || []"
+                      :key="pIdx"
+                      class="talking-point-card"
+                    >
+                      <div class="point-header">
+                        <h5 class="point-topic">{{ point.topic_area }}</h5>
+                        <button
+                          type="button"
+                          class="copy-chip-btn"
+                          @click="copyToClipboard(point.technical_story_hook, 'dossier-point-' + pIdx)"
+                        >
+                          <component :is="copiedItemKey === 'dossier-point-' + pIdx ? Check : Copy" :size="12" />
+                          <span>{{ copiedItemKey === 'dossier-point-' + pIdx ? 'Copied' : 'Copy Story Hook' }}</span>
+                        </button>
+                      </div>
+
+                      <div class="point-hook-box">
+                        <span class="box-label">Technical Narrative Hook:</span>
+                        <p class="hook-text">{{ point.technical_story_hook }}</p>
+                      </div>
+
+                      <div class="point-takeaway-box">
+                        <span class="box-label">Core Engineering Takeaway:</span>
+                        <p class="takeaway-text">{{ point.key_takeaway }}</p>
+                      </div>
+
+                      <div v-if="point.sample_questions?.length" class="sample-questions-box">
+                        <span class="questions-label">Likely Interview Questions:</span>
+                        <ul class="questions-list">
+                          <li v-for="(q, qI) in point.sample_questions" :key="qI">{{ q }}</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Pillar 4: Priority Skill Bridge Roadmap -->
+                <div class="dossier-pillar-card pillar-roadmap">
+                  <div class="pillar-header">
+                    <Award :size="16" class="pillar-icon" />
+                    <h4 class="pillar-title">4. Priority Skill Bridge Roadmap</h4>
+                    <span class="pillar-count-badge">{{ currentDossier.skill_bridge_roadmap?.length || 0 }} skills</span>
+                  </div>
+
+                  <div class="roadmap-grid">
+                    <div
+                      v-for="(skill, sIdx) in currentDossier.skill_bridge_roadmap || []"
+                      :key="sIdx"
+                      class="roadmap-skill-card"
+                    >
+                      <div class="skill-card-top">
+                        <div class="skill-title-group">
+                          <span class="skill-name">{{ skill.skill_or_tool }}</span>
+                          <span class="skill-category-tag">{{ skill.category }}</span>
+                        </div>
+                        <span
+                          class="priority-badge"
+                          :class="'priority-' + (skill.learning_priority || 'MEDIUM').toLowerCase()"
+                        >
+                          {{ skill.learning_priority }} PRIORITY
+                        </span>
+                      </div>
+
+                      <p class="skill-rationale-text">{{ skill.rationale }}</p>
+
+                      <div v-if="skill.recommended_actions?.length" class="skill-actions-box">
+                        <span class="actions-label">Actionable Next Steps:</span>
+                        <ul class="actions-list">
+                          <li v-for="(act, aI) in skill.recommended_actions" :key="aI">{{ act }}</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Combined Single Full-Width Bento Card -->
           <div class="bento-card full-width-bento">
             <!-- Studio Tab Switcher Header (Left & Right aligned) -->
@@ -3233,4 +3483,677 @@ const maxCohortVolume = computed(() => {
     min-width: 580px;
   }
 }
+
+/* ========================================================================== */
+/* AI Strategic Dossier Hero Card Styles (Fully Theme Adaptive)              */
+/* ========================================================================== */
+.ai-dossier-hero-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg, 12px);
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-normal);
+  position: relative;
+  overflow: hidden;
+}
+
+.ai-dossier-hero-card.has-dossier {
+  border-color: var(--border-subtle);
+  box-shadow: var(--shadow-md);
+}
+
+/* Generating Pulse State */
+.dossier-generating-state {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 6px;
+}
+
+.generating-pulse-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-full);
+  background: var(--primary-subtle);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.generating-info {
+  flex: 1;
+}
+
+.generating-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+
+.generating-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.generating-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-input);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.generating-bar-fill {
+  width: 45%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), var(--primary-hover), var(--primary));
+  border-radius: var(--radius-full);
+  animation: shimmer-progress 1.6s infinite ease-in-out;
+}
+
+@keyframes shimmer-progress {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+/* Un-generated CTA State */
+.dossier-cta-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.dossier-cta-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex: 1;
+  min-width: 280px;
+}
+
+.dossier-sparkle-badge {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md, 8px);
+  background: var(--primary-subtle);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.dossier-cta-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+
+.highlight-track {
+  color: var(--primary);
+}
+
+.dossier-cta-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.btn-enhance-ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: var(--primary);
+  color: var(--primary-contrast);
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--radius-md, 8px);
+  border: none;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.btn-enhance-ai:hover {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+/* Active Dossier View Header */
+.dossier-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
+}
+
+.dossier-view-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dossier-badge-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md, 8px);
+  background: var(--primary-subtle);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dossier-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.dossier-main-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.dossier-track-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-color);
+}
+
+.dossier-rating-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  letter-spacing: 0.04em;
+}
+
+.rating-exceptional {
+  background: var(--status-offer-bg);
+  color: var(--status-offer-text);
+  border: 1px solid var(--status-offer-border);
+}
+
+.rating-strong {
+  background: var(--status-assessment-bg);
+  color: var(--status-assessment-text);
+  border: 1px solid var(--status-assessment-border);
+}
+
+.rating-moderate {
+  background: var(--status-interview-bg);
+  color: var(--status-interview-text);
+  border: 1px solid var(--status-interview-border);
+}
+
+.rating-emerging {
+  background: var(--status-applied-bg);
+  color: var(--status-applied-text);
+  border: 1px solid var(--status-applied-border);
+}
+
+.dossier-timestamp {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 2px 0 0;
+}
+
+.dossier-view-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dossier-regen-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.dossier-regen-btn:hover:not(:disabled) {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--bg-hover);
+}
+
+.dossier-toggle-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.dossier-toggle-btn:hover {
+  color: var(--text-main);
+  border-color: var(--border-subtle);
+  background: var(--bg-hover);
+}
+
+/* Pillars Container */
+.dossier-pillars-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.dossier-pillar-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md, 8px);
+  padding: 20px;
+}
+
+.pillar-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.pillar-icon {
+  color: var(--primary);
+}
+
+.pillar-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+  flex: 1;
+}
+
+.pillar-count-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+}
+
+/* Pillar 1: Executive Fit */
+.executive-summary-text {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-main);
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--primary);
+}
+
+.fit-two-col-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.fit-col {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md, 8px);
+  padding: 14px 16px;
+}
+
+.fit-col-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 10px;
+}
+
+.text-emerald { color: var(--text-success); }
+.text-amber { color: var(--text-warning); }
+
+.fit-bullets-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fit-bullets-list li {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+/* Pillar 2: Bullet Rewrites */
+.bullet-rewrites-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.bullet-rewrite-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md, 8px);
+  padding: 14px 16px;
+}
+
+.bullet-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.competency-chip {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  background: var(--primary-subtle);
+  color: var(--primary);
+  border-radius: var(--radius-full);
+}
+
+.copy-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.copy-chip-btn:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--bg-hover);
+}
+
+.bullet-diff-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.bullet-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bullet-tag {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.original-tag { color: var(--text-muted); }
+.tailored-tag { color: var(--text-success); }
+
+.bullet-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.highlight-text {
+  color: var(--text-main);
+  font-weight: 500;
+}
+
+.quant-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-color);
+}
+
+/* Pillar 3: Talking Points */
+.talking-points-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.talking-point-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md, 8px);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.point-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.point-topic {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.box-label {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--primary);
+  margin-bottom: 3px;
+}
+
+.hook-text, .takeaway-text {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.sample-questions-box {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.questions-label {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.questions-list {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.questions-list li {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* Pillar 4: Skill Roadmap */
+.roadmap-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.roadmap-skill-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md, 8px);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skill-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.skill-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.skill-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.skill-category-tag {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-color);
+}
+
+.priority-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  letter-spacing: 0.04em;
+}
+
+.priority-high {
+  background: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+  border: 1px solid var(--status-rejected-border);
+}
+
+.priority-medium {
+  background: var(--status-interview-bg);
+  color: var(--status-interview-text);
+  border: 1px solid var(--status-interview-border);
+}
+
+.priority-low {
+  background: var(--status-assessment-bg);
+  color: var(--status-assessment-text);
+  border: 1px solid var(--status-assessment-border);
+}
+
+.skill-rationale-text {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.skill-actions-box {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.actions-label {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--primary);
+  margin-bottom: 4px;
+}
+
+.actions-list {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.actions-list li {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 900px) {
+  .fit-two-col-grid,
+  .talking-points-grid,
+  .roadmap-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
+

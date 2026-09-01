@@ -319,6 +319,72 @@ async def _execute_cv_extraction_steps(
             task.completed_at = datetime.now(UTC)
 
 
+async def _execute_role_alignment_dossier_steps(
+    task: IntakeEvaluationTaskModel, db: AsyncSession
+) -> None:
+    task_id = int(task.id)
+    try:
+        from app.services.role_alignment_dossier_service import (
+            enhance_role_alignment_dossier,
+        )
+
+        task.stage = "SYNTHESIZING"
+        await db.commit()
+
+        role_track = (
+            (task.result_json or {}).get("role_track") or task.raw_text or "all"
+        )
+
+        dossier_res = await enhance_role_alignment_dossier(
+            db=db, role_track=role_track, force_regenerate=True
+        )
+
+        task.status = "COMPLETED"
+        task.stage = "COMPLETED"
+        task.result_json = {
+            "role_track": role_track,
+            "dossier_id": dossier_res.id,
+            "model_name": dossier_res.model_name,
+            "executive_fit": dossier_res.dossier.executive_fit.model_dump(),
+        }
+        task.completed_at = datetime.now(UTC)
+        await db.commit()
+        logger.info(
+            "Role alignment dossier task %d completed for track: %s",
+            task.id,
+            role_track,
+        )
+
+    except Exception as err:
+        logger.error(
+            "Failed processing role alignment dossier task %d: %s",
+            task_id,
+            err,
+            exc_info=True,
+        )
+        try:
+            await db.rollback()
+            refreshed = await db.get(IntakeEvaluationTaskModel, task_id)
+            target_task = (
+                refreshed if isinstance(refreshed, IntakeEvaluationTaskModel) else task
+            )
+            target_task.status = "FAILED"
+            target_task.stage = "FAILED"
+            target_task.error_message = str(err)
+            target_task.completed_at = datetime.now(UTC)
+            await db.commit()
+        except Exception as rollback_err:
+            logger.error(
+                "Error setting failure state for dossier task %d: %s",
+                task_id,
+                rollback_err,
+            )
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = str(err)
+            task.completed_at = datetime.now(UTC)
+
+
 async def _execute_email_sync_steps(
     task: IntakeEvaluationTaskModel, db: AsyncSession
 ) -> None:
@@ -613,6 +679,13 @@ async def _execute_evaluation_steps(
 
         if task.task_type == "COVER_LETTER":
             await _execute_cover_letter_steps(task, db)
+            ctx["outputs"] = {"status": task.status, "stage": task.stage}
+            if task.status == "FAILED":
+                ctx["error"] = task.error_message
+            return
+
+        if task.task_type == "ROLE_ALIGNMENT_DOSSIER":
+            await _execute_role_alignment_dossier_steps(task, db)
             ctx["outputs"] = {"status": task.status, "stage": task.stage}
             if task.status == "FAILED":
                 ctx["error"] = task.error_message
@@ -1034,9 +1107,13 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
                             "GENERATING"
                             if task.task_type == "COVER_LETTER"
                             else (
-                                "PARSING"
-                                if task.task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]
-                                else "FETCHING"
+                                "SYNTHESIZING"
+                                if task.task_type == "ROLE_ALIGNMENT_DOSSIER"
+                                else (
+                                    "PARSING"
+                                    if task.task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]
+                                    else "FETCHING"
+                                )
                             )
                         )
                     )
@@ -1108,9 +1185,13 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
                             "GENERATING"
                             if task.task_type == "COVER_LETTER"
                             else (
-                                "PARSING"
-                                if task.task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]
-                                else "FETCHING"
+                                "SYNTHESIZING"
+                                if task.task_type == "ROLE_ALIGNMENT_DOSSIER"
+                                else (
+                                    "PARSING"
+                                    if task.task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]
+                                    else "FETCHING"
+                                )
                             )
                         )
                     )

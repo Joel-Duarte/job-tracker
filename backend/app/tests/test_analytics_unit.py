@@ -5,9 +5,17 @@ import pytest
 
 from app.models.applications import ApplicationModel, CompanyModel, JobPostingModel
 from app.services.analytics import (
+    clear_analytics_cache,
     get_analytics_overview,
     get_funnel_performance_metrics,
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_analytics_cache():
+    clear_analytics_cache()
+    yield
+    clear_analytics_cache()
 
 
 @pytest.mark.asyncio
@@ -48,7 +56,7 @@ async def test_get_analytics_overview_unit():
 
     mock_db.execute.side_effect = [mock_cv_res, mock_app_res]
 
-    overview = await get_analytics_overview(mock_db)
+    overview = await get_analytics_overview(mock_db, use_cache=False)
 
     assert overview.total_applications == 5
     assert len(overview.top_in_demand_skills) >= 2

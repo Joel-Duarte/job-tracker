@@ -962,6 +962,20 @@ export async function handleDemoRequest(config) {
   }
 
   // 7. SYSTEM & AI CONFIG
+  if (urlPath === '/system/badges' && method === 'get') {
+    const stagingCount = (db.staging_items || []).filter((s) => s.status === 'PENDING').length
+    const pendingTasksCount = (db.action_items || []).filter((a) => a.status === 'PENDING').length
+    const activeQueueTasksCount = (db.intake_evaluations || []).filter((t) =>
+      ['QUEUED', 'PROCESSING', 'FETCHING', 'EXTRACTING', 'MATCHING', 'ASSESSING', 'SAVING'].includes(t.status)
+    ).length
+
+    return ok({
+      staging_count: stagingCount,
+      pending_action_items_count: pendingTasksCount,
+      active_queue_tasks_count: activeQueueTasksCount,
+    })
+  }
+
   if (urlPath === '/config/system' && method === 'get') {
     return ok(db.system_settings || {})
   }
@@ -1361,6 +1375,10 @@ export async function handleDemoRequest(config) {
   }
 
   // 10. SEARCH & ANALYTICS ENDPOINTS
+  if (urlPath === '/analytics/recalculate' && method === 'post') {
+    return ok({ status: 'ok', message: 'Analytics cache cleared and recalculated' })
+  }
+
   if (urlPath === '/search/semantic' && method === 'get') {
     const query = (params.query || '').toLowerCase()
     const matches = (db.applications || []).filter(
@@ -1562,6 +1580,147 @@ export async function handleDemoRequest(config) {
     })
   }
 
-  // Fallback default response
+  if (urlPath === '/analytics/role-alignment/dossier' && method === 'get') {
+    const track = params.role_track || 'all'
+    return ok({
+      id: 1,
+      cv_id: 1,
+      role_track: track,
+      model_name: "gpt-4o",
+      input_tokens: 1250,
+      output_tokens: 680,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      dossier: {
+        executive_fit: {
+          market_competitiveness_rating: "STRONG",
+          positioning_summary: "High-caliber Distributed Systems & Backend profile with deep expertise in asynchronous messaging, Python/Go, and cloud-native scaling. Highly aligned with Tier-1 Tech backend requirements.",
+          competitive_advantages: [
+            "Demonstrated mastery in high-throughput gRPC and Kafka event stream architectures",
+            "Strong track record in Postgres query profiling and database scaling",
+            "Robust end-to-end CI/CD and observability implementation across microservices"
+          ],
+          primary_vulnerabilities: [
+            "Limited explicit mention of Kubernetes operator development or deep eBPF observability",
+            "Opportunity to showcase more multi-region cross-cloud active-active failover design"
+          ]
+        },
+        bullet_rewrites: [
+          {
+            original_bullet: "Built backend APIs and microservices for core product platform.",
+            rewritten_bullet: "Architected distributed asynchronous microservices in FastAPI & gRPC, scaling throughput by 3.5x to handle 10M+ daily events with 99.99% availability.",
+            target_competency: "High-Throughput Distributed Architecture",
+            impact_quantification: "3.5x throughput scale, 10M+ daily events, 99.99% SLA"
+          },
+          {
+            original_bullet: "Improved database performance and fixed query bottlenecks.",
+            rewritten_bullet: "Optimized complex PostgreSQL queries and connection pooling via pgvector/pgBouncer, cutting p99 query latency from 850ms to 42ms.",
+            target_competency: "Database Performance & Query Tuning",
+            impact_quantification: "95% p99 latency reduction (850ms to 42ms)"
+          },
+          {
+            original_bullet: "Implemented observability and monitoring dashboards.",
+            rewritten_bullet: "Instrumented OpenTelemetry distributed tracing and Prometheus metrics across 24 microservices, reducing Mean Time to Resolution (MTTR) by 60%.",
+            target_competency: "Production Observability & SRE",
+            impact_quantification: "60% MTTR reduction across 24 microservices"
+          }
+        ],
+        talking_points: [
+          {
+            topic_area: "Distributed Consensus & Idempotency",
+            technical_story_hook: "Resolving duplicate event processing across a multi-partition Kafka pipeline using Redis-backed distributed locks and transactional outbox patterns.",
+            key_takeaway: "Deep understanding of at-least-once delivery trade-offs and zero-data-loss consistency guarantees.",
+            sample_questions: [
+              "How do you design an idempotent webhook consumer that survives worker node crashes?",
+              "What strategies do you use to prevent duplicate writes during network partitions?"
+            ]
+          },
+          {
+            topic_area: "High-Concurrency Async Architecture",
+            technical_story_hook: "Refactoring synchronous I/O blocking routes to native Python AsyncIO/uvloop with worker connection pooling.",
+            key_takeaway: "Proactive resource optimization reducing server compute costs while doubling concurrency limits.",
+            sample_questions: [
+              "How do you diagnose event loop blocking in async Python runtimes?",
+              "When would you choose gRPC over HTTP/2 REST for inter-service communication?"
+            ]
+          }
+        ],
+        skill_bridge_roadmap: [
+          {
+            skill_or_tool: "Kubernetes & Helm",
+            category: "Cloud & Orchestration",
+            rationale: "Required in 85% of Senior/Staff Backend job postings in this track.",
+            learning_priority: "HIGH",
+            recommended_actions: [
+              "Deploy a multi-tier FastAPI + PostgreSQL application to a local KinD/k3s cluster using custom Helm charts.",
+              "Configure Horizontal Pod Autoscaling (HPA) based on custom Prometheus request metrics."
+            ]
+          },
+          {
+            skill_or_tool: "eBPF / Advanced Tracing",
+            category: "Observability",
+            rationale: "Differentiates Staff-level candidates in latency-critical infrastructure roles.",
+            learning_priority: "MEDIUM",
+            recommended_actions: [
+              "Experiment with Cilium or Pixie for zero-code network profiling in test environments."
+            ]
+          }
+        ]
+      }
+    })
+  }
+
+  if (urlPath === '/analytics/role-alignment/enhance' && method === 'post') {
+    const track = params.role_track || 'all'
+    return ok({
+      id: 1,
+      cv_id: 1,
+      role_track: track,
+      model_name: "gpt-4o",
+      input_tokens: 1420,
+      output_tokens: 720,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      dossier: {
+        executive_fit: {
+          market_competitiveness_rating: "EXCEPTIONAL",
+          positioning_summary: "Generated AI Dossier: Exceptional alignment with modern distributed backend engineering standards.",
+          competitive_advantages: [
+            "Strong command of asynchronous concurrency and distributed systems",
+            "High database tuning competency with PostgreSQL and pgvector",
+            "Proven ability to reduce latency and system MTTR"
+          ],
+          primary_vulnerabilities: [
+            "Add more explicit Kubernetes operator and multi-region deployment evidence"
+          ]
+        },
+        bullet_rewrites: [
+          {
+            original_bullet: "Built backend APIs and microservices for core product platform.",
+            rewritten_bullet: "Architected distributed asynchronous microservices in FastAPI & gRPC, scaling throughput by 3.5x to handle 10M+ daily events with 99.99% availability.",
+            target_competency: "High-Throughput Distributed Architecture",
+            impact_quantification: "3.5x throughput scale, 10M+ daily events, 99.99% SLA"
+          }
+        ],
+        talking_points: [
+          {
+            topic_area: "Distributed Consensus & Idempotency",
+            technical_story_hook: "Resolving duplicate event processing across Kafka partitions.",
+            key_takeaway: "Deep understanding of zero-data-loss consistency guarantees.",
+            sample_questions: ["How do you design an idempotent webhook consumer?"]
+          }
+        ],
+        skill_bridge_roadmap: [
+          {
+            skill_or_tool: "Kubernetes & Helm",
+            category: "Cloud & Orchestration",
+            rationale: "Required in 85% of Senior Backend job postings.",
+            learning_priority: "HIGH",
+            recommended_actions: ["Deploy a multi-tier app on KinD with custom Helm charts."]
+          }
+        ]
+      }
+    })
+  }
   return ok({ message: 'Client Demo Mode mock response' })
 }

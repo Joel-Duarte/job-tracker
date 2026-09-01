@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
 import { useApplicationsStore } from '../stores/applicationsStore'
@@ -453,13 +453,54 @@ function formatDate(isoStr) {
   }
 }
 
-onMounted(() => {
-  loadEvaluations()
-  pollTimer = setInterval(() => loadEvaluations(true), 4000)
+function startPollingIfNeeded() {
+  if (pollTimer) return
+  if (queueStore.activeTasks.length > 0 && !document.hidden) {
+    pollTimer = setInterval(async () => {
+      await loadEvaluations(true)
+      if (queueStore.activeTasks.length === 0) {
+        stopPolling()
+      }
+    }, 4000)
+  }
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+function handleVisibilityChange() {
+  if (document.hidden) {
+    stopPolling()
+  } else {
+    loadEvaluations(true)
+    startPollingIfNeeded()
+  }
+}
+
+watch(
+  () => queueStore.activeTasks.length,
+  (newCount) => {
+    if (newCount > 0) {
+      startPollingIfNeeded()
+    } else {
+      stopPolling()
+    }
+  }
+)
+
+onMounted(async () => {
+  await loadEvaluations()
+  startPollingIfNeeded()
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onUnmounted(() => {
-  if (pollTimer) clearInterval(pollTimer)
+  stopPolling()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>
 

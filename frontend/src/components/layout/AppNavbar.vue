@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUIStore } from '../../stores/uiStore'
 import { useQueueStore } from '../../stores/queueStore'
-import { StagingAPI, ActionItemsAPI } from '../../api/endpoints'
+import { StagingAPI, ActionItemsAPI, SystemAPI } from '../../api/endpoints'
 import ThemePalettePopover from './ThemePalettePopover.vue'
 import {
   Briefcase,
@@ -86,24 +86,34 @@ function handleClickOutside(event) {
   }
 }
 
+let badgeInterval = null
+
 async function fetchBadgeCounts() {
   try {
-    await uiStore.fetchPendingStagingCount()
+    const res = await SystemAPI.getBadgeCounts()
+    if (res?.data) {
+      uiStore.setPendingStagingCount(res.data.staging_count)
+      pendingTasksCount.value = res.data.pending_action_items_count || 0
+      if (res.data.active_queue_tasks_count > 0 || queueStore.tasks.length === 0) {
+        await queueStore.fetchTasks(true)
+      }
+    }
   } catch (err) {
-    // ignore
+    // Fallback: silent ignore network errors
   }
+}
 
-  try {
-    const resTasks = await ActionItemsAPI.list({ status: 'PENDING', limit: 1 })
-    pendingTasksCount.value = resTasks.data.pending_count || 0
-  } catch (err) {
-    // ignore
-  }
-
-  try {
-    await queueStore.fetchTasks(true)
-  } catch (err) {
-    // ignore
+function handleVisibilityChange() {
+  if (document.hidden) {
+    if (badgeInterval) {
+      clearInterval(badgeInterval)
+      badgeInterval = null
+    }
+  } else {
+    fetchBadgeCounts()
+    if (!badgeInterval) {
+      badgeInterval = setInterval(fetchBadgeCounts, 10000)
+    }
   }
 }
 
@@ -173,11 +183,17 @@ watch(
 onMounted(() => {
   uiStore.initAIHealthMonitor()
   fetchBadgeCounts()
-  setInterval(fetchBadgeCounts, 10000)
+  badgeInterval = setInterval(fetchBadgeCounts, 10000)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
   document.addEventListener('click', handleClickOutside)
 })
 
 onUnmounted(() => {
+  if (badgeInterval) {
+    clearInterval(badgeInterval)
+    badgeInterval = null
+  }
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
   document.removeEventListener('click', handleClickOutside)
 })
 </script>

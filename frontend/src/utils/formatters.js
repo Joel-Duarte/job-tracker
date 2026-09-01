@@ -282,3 +282,22 @@ export function getCompanyFaviconUrl(companyName, existingDomain = null, size = 
   if (!domain) return null
   return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=${size}`
 }
+
+/**
+ * Formats ISO date string into human-readable format (e.g. Sep 1, 2026)
+ */
+export function formatDate(dateString) {
+  if (!dateString) return ''
+  try {
+    const d = new Date(dateString)
+    if (isNaN(d.getTime())) return String(dateString)
+    return d.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    })
+  } catch {
+    return String(dateString)
+  }
+}
+

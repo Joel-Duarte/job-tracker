@@ -146,6 +146,11 @@ export const AnalyticsAPI = {
   getWorkModelBreakdown: () => apiClient.get('/analytics/work-model-breakdown'),
   getFunnelMetrics: (params = {}) => apiClient.get('/analytics/funnel', { params }),
   getRoleAlignment: (params = {}) => apiClient.get('/analytics/role-alignment', { params }),
+  getRoleAlignmentDossier: (role_track = 'all') =>
+    apiClient.get('/analytics/role-alignment/dossier', { params: { role_track } }),
+  enhanceRoleAlignment: (role_track = 'all', force = true) =>
+    apiClient.post('/analytics/role-alignment/enhance', null, { params: { role_track, force } }),
+  recalculate: () => apiClient.post('/analytics/recalculate'),
 }
 
 export const InterviewSimulatorAPI = {
@@ -164,4 +169,9 @@ export const EventsAPI = {
   delete: (id, source = 'application') => apiClient.delete(`/events/${id}`, { params: { source } }),
   moveToStaging: (id) => apiClient.post(`/events/${id}/move-to-staging`),
 }
+
+export const SystemAPI = {
+  getBadgeCounts: () => apiClient.get('/system/badges'),
+}
+
 

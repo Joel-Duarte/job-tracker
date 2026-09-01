@@ -39,6 +39,8 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - `evaluation_worker.py`: Background worker for processing async evaluations in a 4-stage pipeline.
   - `staleness_archiver`: Background lifecycle job that sweeps across all 4 active application stages (`APPLIED`, `ONLINE_ASSESSMENT`, `TECHNICAL_INTERVIEW`, `OFFER`) and transitions inactive applications to `ARCHIVED` (rather than `REJECTED`), leaving all terminal statuses untouched.
   - `pricing_service.py`: Computes token consumption, dollar costs, and local LLM cloud savings using configurable model rates and extraction from diagnostic telemetry traces.
+  - `system.py`: High-performance badge and system synchronization endpoint (`GET /api/v1/system/badges`) unifying staging queue, action item, and intake task count metrics in a single indexed query.
+  - `role_alignment_dossier_service.py`: Synthesizes high-impact career track dossiers (executive market positioning, quantified bullet rewrites, strategic interview talking points, and skill bridge roadmaps) persisted in `role_alignment_dossiers`.
 
 ### Infrastructure & Development Startup
 - **Unified Daily-Driver CLI Launcher (`jt`):** Run `./jt` on Linux/macOS or `jt.cmd` / `jt` on Windows.
@@ -70,6 +72,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
 - **Intake/Staging:** Raw leads are ingested as `StagingItemModel` or evaluated directly into `IntakeEvaluationTaskModel`. Supports bulk task management endpoints (`POST /api/v1/intake/evaluations/bulk-retry` and `POST /api/v1/intake/evaluations/bulk-delete`).
 - **Emails & Events:** `ApplicationEventModel` (tied to an app) or `OtherEventModel` (general recruitment spam/newsletters).
 - **Action Items:** `ActionItemModel` tracks tasks and deadlines (`PENDING`, `COMPLETED`, `DISMISSED`). An application's `has_action_required` badge strictly reflects whether active `PENDING` action items exist.
+- **Role Alignment Dossiers:** `RoleAlignmentDossierModel` stores structured AI career intelligence dossiers (executive positioning, tailored bullet rewrites, technical interview talking points, skill roadmaps) linked to `CandidateCVModel` and `role_track`.
 - **Vector Embeddings:** Uses `pgvector` (`ApplicationEmbeddingModel`) to allow semantic search over job applications.
 
 ---
