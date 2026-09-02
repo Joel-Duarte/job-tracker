@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.llm_factory import get_active_llm_config_dict, get_task_chat_model
+from app.core.prompts import get_prompt_template
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
@@ -244,6 +245,27 @@ Respond ONLY with a valid JSON object:
 """
 
 
+async def _format_prompt_from_db(
+    db: AsyncSession,
+    prompt_name: str,
+    fallback_template: str,
+    **kwargs: Any,
+) -> str:
+    try:
+        raw_tmpl = await get_prompt_template(db, prompt_name)
+    except Exception:
+        raw_tmpl = fallback_template
+    if not raw_tmpl:
+        raw_tmpl = fallback_template
+    try:
+        return raw_tmpl.format(**kwargs)
+    except Exception:
+        try:
+            return fallback_template.format(**kwargs)
+        except Exception:
+            return raw_tmpl
+
+
 def _normalize_mc_options(raw_options: Any) -> list[dict[str, Any]]:
     if not isinstance(raw_options, list) or not raw_options:
         return [
@@ -459,7 +481,10 @@ class InterviewSimulatorService:
         first_turn = None
         if question_mode == "MULTIPLE_CHOICE":
             # Generate initial Multiple Choice challenge
-            prompt = MULTIPLE_CHOICE_QUESTION_PROMPT.format(
+            prompt = await _format_prompt_from_db(
+                db,
+                "interview_mc_generator",
+                MULTIPLE_CHOICE_QUESTION_PROMPT,
                 persona_instruction=persona_inst,
                 position=ctx["position"],
                 company_name=ctx["company_name"],
@@ -470,7 +495,9 @@ class InterviewSimulatorService:
             from app.services.postgres_tracer import PostgresTracer
 
             tracer = PostgresTracer()
-            chat_model = await get_task_chat_model(db, task_type="INTERVIEW_GUIDE")
+            chat_model = await get_task_chat_model(
+                db, task_type="INTERVIEW_MC_GENERATOR"
+            )
             parser = JsonOutputParser()
 
             try:
@@ -525,8 +552,13 @@ class InterviewSimulatorService:
             from app.services.postgres_tracer import PostgresTracer
 
             tracer = PostgresTracer()
-            chat_model = await get_task_chat_model(db, task_type="INTERVIEW_GUIDE")
-            prompt = QUESTION_GENERATION_SYSTEM_PROMPT.format(
+            chat_model = await get_task_chat_model(
+                db, task_type="INTERVIEW_QUESTION_GEN"
+            )
+            prompt = await _format_prompt_from_db(
+                db,
+                "interview_question_gen",
+                QUESTION_GENERATION_SYSTEM_PROMPT,
                 persona_instruction=persona_inst,
                 position=ctx["position"],
                 company_name=ctx["company_name"],
@@ -652,7 +684,10 @@ class InterviewSimulatorService:
                 options_lines.append(line)
             options_text = "\n".join(options_lines) or "A, B, C, D"
 
-            prompt = MULTIPLE_CHOICE_EVALUATION_PROMPT.format(
+            prompt = await _format_prompt_from_db(
+                db,
+                "interview_mc_eval",
+                MULTIPLE_CHOICE_EVALUATION_PROMPT,
                 persona_instruction=persona_inst,
                 context_info=f"Role: {ctx['position']} at {ctx['company_name']}\nJD: {ctx['job_spec'][:1000]}",
                 question_asked=target_turn.get("question", ""),
@@ -662,15 +697,19 @@ class InterviewSimulatorService:
                 or "None specified",
                 user_answer=answer_text or "No additional explanation provided.",
             )
+            chat_model = await get_task_chat_model(db, task_type="INTERVIEW_MC_EVAL")
         else:
-            prompt = DECOUPLED_EVALUATION_SYSTEM_PROMPT.format(
+            prompt = await _format_prompt_from_db(
+                db,
+                "interview_star_eval",
+                DECOUPLED_EVALUATION_SYSTEM_PROMPT,
                 persona_instruction=persona_inst,
                 context_info=f"Role: {ctx['position']} at {ctx['company_name']}\nJD: {ctx['job_spec'][:1000]}",
                 question_asked=target_turn.get("question", ""),
                 user_answer=answer_text,
             )
+            chat_model = await get_task_chat_model(db, task_type="INTERVIEW_STAR_EVAL")
 
-        chat_model = await get_task_chat_model(db, task_type="ASSESSMENT")
         parser = JsonOutputParser()
         try:
             llm_res = await _invoke_llm_adaptive(
@@ -786,7 +825,13 @@ class InterviewSimulatorService:
         next_index = len(turns) + 1
 
         if should_generate_mc:
-            prompt = MULTIPLE_CHOICE_QUESTION_PROMPT.format(
+            chat_model = await get_task_chat_model(
+                db, task_type="INTERVIEW_MC_GENERATOR"
+            )
+            prompt = await _format_prompt_from_db(
+                db,
+                "interview_mc_generator",
+                MULTIPLE_CHOICE_QUESTION_PROMPT,
                 persona_instruction=persona_inst,
                 position=ctx["position"],
                 company_name=ctx["company_name"],
@@ -838,7 +883,13 @@ class InterviewSimulatorService:
                     "created_at": datetime.now(UTC).isoformat(),
                 }
         else:
-            prompt = QUESTION_GENERATION_SYSTEM_PROMPT.format(
+            chat_model = await get_task_chat_model(
+                db, task_type="INTERVIEW_QUESTION_GEN"
+            )
+            prompt = await _format_prompt_from_db(
+                db,
+                "interview_question_gen",
+                QUESTION_GENERATION_SYSTEM_PROMPT,
                 persona_instruction=persona_inst,
                 position=ctx["position"],
                 company_name=ctx["company_name"],
@@ -932,7 +983,10 @@ class InterviewSimulatorService:
             persona_enum, PERSONA_PROMPTS[InterviewPersona.TECHNICAL_BAR_RAISER]
         )
 
-        prompt = DRILL_DOWN_SYSTEM_PROMPT.format(
+        prompt = await _format_prompt_from_db(
+            db,
+            "interview_drilldown",
+            DRILL_DOWN_SYSTEM_PROMPT,
             persona_instruction=persona_inst,
             last_question=last_turn.get("question", ""),
             last_answer=last_turn.get("user_answer", "N/A"),
@@ -943,7 +997,7 @@ class InterviewSimulatorService:
 
         tracer = PostgresTracer()
 
-        chat_model = await get_task_chat_model(db, task_type="INTERVIEW_GUIDE")
+        chat_model = await get_task_chat_model(db, task_type="INTERVIEW_DRILLDOWN")
         parser = JsonOutputParser()
         try:
             llm_res = await _invoke_llm_adaptive(

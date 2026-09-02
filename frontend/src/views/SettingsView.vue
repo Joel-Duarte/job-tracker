@@ -639,12 +639,37 @@ async function reindexMissingEmbeddings() {
   }
 }
 
-const TASKS = [
+const TASK_CATEGORIES = [
   {
+    id: 'ingestion',
+    label: 'Ingestion & Extraction',
+    icon: Mail,
+  },
+  {
+    id: 'evaluation',
+    label: 'Evaluation & Matching',
+    icon: Sparkles,
+  },
+  {
+    id: 'generation',
+    label: 'Application & Dossier Studio',
+    icon: FileText,
+  },
+  {
+    id: 'interview',
+    label: 'Interview Prep & Simulation',
+    icon: Bot,
+  },
+]
+
+const TASKS = [
+  // --- Category: Ingestion & Extraction ---
+  {
+    category: 'ingestion',
     key: 'JD_EXTRACTION',
     promptKey: 'jd_extraction',
     label: 'Job Spec Web Extraction',
-    icon: 'Briefcase',
+    icon: Briefcase,
     recommendedTemp: 0.0,
     recommendedReasoning: 'none',
     recommendedMaxTokens: null,
@@ -654,23 +679,41 @@ const TASKS = [
     variables: ['{raw_webpage_data}'],
   },
   {
+    category: 'ingestion',
     key: 'EXTRACTION',
     promptKey: 'email_extraction',
-    label: 'Email Metadata Extraction',
-    icon: 'Mail',
+    label: 'Email & Event Classification',
+    icon: Mail,
     recommendedTemp: 0.0,
     recommendedReasoning: 'none',
     recommendedMaxTokens: null,
     reasoningTip: '💡 Local & Cloud: None (Fast) — Deterministic parsing of email dates, companies, and interview stages.',
     hasPrompt: true,
-    desc: 'Parses job details, dates, companies, and roles from emails into structured Pydantic schemas.',
+    desc: 'Parses recruiter correspondence, interview invites, and application status updates.',
     variables: ['{email_content}'],
   },
   {
+    category: 'ingestion',
+    key: 'CV_ANONYMIZATION',
+    promptKey: 'cv_anonymization',
+    label: 'CV Parsing & PII Scrubbing',
+    icon: ShieldCheck,
+    recommendedTemp: 0.0,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
+    reasoningTip: '💡 Local & Cloud: None (Fast) — Strips PII and parses canonical skill taxonomy directly.',
+    hasPrompt: true,
+    desc: 'Replaces personal identifiers with scale tags, transforms dates into durations, and extracts canonical technical skills.',
+    variables: ['{resume_text}'],
+  },
+
+  // --- Category: Evaluation & Matching ---
+  {
+    category: 'evaluation',
     key: 'ASSESSMENT',
     promptKey: 'assessment',
-    label: 'Pre-Screen Match Audit & Tips',
-    icon: 'Sparkles',
+    label: 'Job Fit & Gap Assessment',
+    icon: Sparkles,
     recommendedTemp: 0.1,
     recommendedReasoning: 'none',
     recommendedMaxTokens: null,
@@ -680,63 +723,12 @@ const TASKS = [
     variables: ['{job_description}', '{candidate_cv}', '{programmatic_baseline}'],
   },
   {
-    key: 'cv_anonymization',
-    promptKey: 'cv_anonymization',
-    label: 'CV De-Identification & Skills',
-    icon: 'ShieldCheck',
-    recommendedTemp: 0.0,
-    recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
-    reasoningTip: '💡 Local & Cloud: None (Fast) — Strips PII and parses canonical skill taxonomy directly.',
-    hasPrompt: true,
-    desc: 'Replaces companies with scale tags, transforms date windows into durations, and extracts canonical technical skills.',
-    variables: ['{resume_text}'],
-  },
-  {
-    key: 'AGENT_REASONING',
-    promptKey: 'agent_system',
-    label: 'LangGraph Reasoning & Assistant',
-    icon: 'Bot',
-    recommendedTemp: 0.3,
-    recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
-    reasoningTip: '💡 Local & Cloud: None (<3s message turn latency) | Cloud: Low if executing complex multi-agent planning.',
-    hasPrompt: true,
-    desc: 'Evaluates fuzzy deduplication confidence and powers the interactive chat assistant & interview simulation.',
-    variables: [],
-  },
-  {
-    key: 'INTERVIEW_GUIDE',
-    promptKey: 'interview_guide',
-    label: 'Interview Prep Guide',
-    icon: 'BookOpen',
-    recommendedTemp: 0.3,
-    recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
-    reasoningTip: '💡 Local: None (~25s) | Cloud: Medium/High on Claude 3.7 / o3-mini for deeper strategic STAR scenario planning.',
-    hasPrompt: true,
-    desc: 'Generates tailored interview preparation guides, STAR stories, and strategic question defenses.',
-    variables: ['{language}', '{company_name}', '{position}', '{company_context}', '{jd_text}', '{cv_text}', '{target_section}'],
-  },
-  {
-    key: 'COVER_LETTER',
-    promptKey: 'cover_letter',
-    label: 'Cover Letter Generation',
-    icon: 'FileText',
-    recommendedTemp: 0.3,
-    recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
-    reasoningTip: '💡 Local & Cloud: None — Standard direct generation produces more natural, persuasive writing without analytical stiffness.',
-    hasPrompt: true,
-    desc: 'Generates tailored cover letters referencing candidate experiences against target role and company requirements.',
-    variables: ['{company_name}', '{position}', '{job_description}', '{candidate_cv}', '{tone}', '{length}'],
-  },
-  {
+    category: 'evaluation',
     key: 'EMBEDDING',
     promptKey: null,
-    label: 'Vector Embeddings (pgvector)',
+    label: 'pgvector Dense Embeddings',
     hidden: computed(() => !uiStore.enableEmbeddings),
-    icon: 'Cpu',
+    icon: Cpu,
     recommendedTemp: null,
     recommendedReasoning: 'none',
     recommendedMaxTokens: null,
@@ -744,6 +736,150 @@ const TASKS = [
     hasPrompt: false,
     desc: 'Generates 768-dimension dense vector representations for pgvector cosine similarity search.',
     variables: [],
+  },
+
+  // --- Category: Application & Dossier Studio ---
+  {
+    category: 'generation',
+    key: 'COVER_LETTER',
+    promptKey: 'cover_letter',
+    label: 'Cover Letter Drafting',
+    icon: FileText,
+    recommendedTemp: 0.15,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
+    reasoningTip: '💡 Local & Cloud: Low Temperature (0.15) — Ensures zero-hallucination factual grounding on candidate CV.',
+    hasPrompt: true,
+    desc: 'Generates tailored cover letters referencing candidate experiences against target role and company requirements.',
+    variables: ['{company_name}', '{position}', '{job_description}', '{candidate_cv}', '{tone}', '{length}'],
+  },
+  {
+    category: 'generation',
+    key: 'APPLICATION_QA',
+    promptKey: 'application_qa',
+    label: 'Application Form Q&A',
+    icon: HelpCircle,
+    recommendedTemp: 0.15,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
+    reasoningTip: '💡 Local & Cloud: Low Temperature (0.15) — Grounded synthesis for employer portal questions without inventing stories.',
+    hasPrompt: true,
+    desc: 'Synthesizes grounded answers to bespoke employer application form questions with strict anti-hallucination boundaries.',
+    variables: ['{company_name}', '{position}', '{job_description}', '{candidate_cv}', '{questions_json}', '{tone}', '{custom_instructions}'],
+  },
+  {
+    category: 'generation',
+    key: 'ROLE_ALIGNMENT_DOSSIER',
+    promptKey: 'role_alignment_dossier',
+    label: 'Role Alignment Dossier',
+    icon: BarChart3,
+    recommendedTemp: 0.2,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
+    reasoningTip: '💡 Local & Cloud: Low (0.2) — Synthesizes executive positioning, bullet rewrites, talking points, and skill bridge roadmaps.',
+    hasPrompt: true,
+    desc: 'Synthesizes executive market positioning, quantified bullet rewrites, strategic interview talking points, and skill bridge roadmaps.',
+    variables: ['{role_track}', '{candidate_cv}', '{market_context}'],
+  },
+
+  // --- Category: Interview Prep & Simulation ---
+  {
+    category: 'interview',
+    key: 'INTERVIEW_GUIDE',
+    promptKey: 'interview_guide',
+    label: 'Interview Prep Guide',
+    icon: BookOpen,
+    recommendedTemp: 0.3,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
+    reasoningTip: '💡 Local: None (~25s) | Cloud: Medium/High on Claude 3.7 / o3-mini for deeper strategic STAR scenario planning.',
+    hasPrompt: true,
+    desc: 'Generates tailored interview preparation guides, STAR stories, and strategic question defenses in the requested language.',
+    variables: ['{language}', '{company_name}', '{position}', '{company_context}', '{jd_text}', '{cv_text}', '{target_section}'],
+  },
+  {
+    category: 'interview',
+    key: 'AGENT_REASONING',
+    promptKey: 'agent_system',
+    label: 'AI Chat Assistant System',
+    icon: Bot,
+    recommendedTemp: 0.3,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
+    reasoningTip: '💡 Local & Cloud: None (<3s message turn latency) | Cloud: Low if executing complex multi-agent planning.',
+    hasPrompt: true,
+    desc: 'Core system prompt powering conversational navigation, application query assistance, and interview practice.',
+    variables: [],
+  },
+  {
+    category: 'interview',
+    key: 'INTERVIEW_STAR_EVAL',
+    promptKey: 'interview_star_eval',
+    label: 'STAR Turn Evaluator',
+    icon: CheckCircle,
+    recommendedTemp: 0.1,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
+    reasoningTip: '💡 Local & Cloud: None (Fast) — Scrutinizes Situation, Task, Action, Result elements and scores candidate responses.',
+    hasPrompt: true,
+    desc: 'Evaluates candidate interview responses in real time across Situation, Task, Action, and Result dimensions.',
+    variables: ['{persona_instruction}', '{position}', '{company_name}', '{question_context}', '{candidate_response}'],
+  },
+  {
+    category: 'interview',
+    key: 'INTERVIEW_MC_GENERATOR',
+    promptKey: 'interview_mc_generator',
+    label: 'MC Challenge Generator',
+    icon: Layers,
+    recommendedTemp: 0.2,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
+    reasoningTip: '💡 Local & Cloud: Low (0.2) — Generates objective 4-option architectural and technical interview scenarios.',
+    hasPrompt: true,
+    desc: 'Generates high-stakes technical and architectural multiple-choice challenges based on role requirements.',
+    variables: ['{persona_instruction}', '{position}', '{company_name}', '{job_spec}', '{cv_summary}', '{turns_summary}'],
+  },
+  {
+    category: 'interview',
+    key: 'INTERVIEW_MC_EVAL',
+    promptKey: 'interview_mc_eval',
+    label: 'MC Option Evaluator',
+    icon: CheckCircle2,
+    recommendedTemp: 0.1,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
+    reasoningTip: '💡 Local & Cloud: Low (0.1) — Evaluates multiple choice selection correctness and explains core architectural tradeoffs.',
+    hasPrompt: true,
+    desc: 'Evaluates candidate multiple choice selection and explains why chosen option is optimal or suboptimal.',
+    variables: ['{persona_instruction}', '{context_info}', '{question_asked}', '{options_text}', '{selected_option}', '{user_answer}'],
+  },
+  {
+    category: 'interview',
+    key: 'INTERVIEW_DRILLDOWN',
+    promptKey: 'interview_drilldown',
+    label: 'Drill-Down Follow-up',
+    icon: RotateCcw,
+    recommendedTemp: 0.2,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
+    reasoningTip: '💡 Local & Cloud: Low (0.2) — Formulates targeted follow-up questions probing gaps identified in previous turns.',
+    hasPrompt: true,
+    desc: 'Adaptive drill-down question generator that probes candidate response weaknesses, tradeoffs, and edge cases.',
+    variables: ['{persona_instruction}', '{last_question}', '{last_answer}', '{missing_gaps}'],
+  },
+  {
+    category: 'interview',
+    key: 'INTERVIEW_QUESTION_GEN',
+    promptKey: 'interview_question_gen',
+    label: 'Primary Question Generator',
+    icon: HelpCircle,
+    recommendedTemp: 0.2,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
+    reasoningTip: '💡 Local & Cloud: Low (0.2) — Generates tailored opening and progression interview challenges aligned with interviewer persona.',
+    hasPrompt: true,
+    desc: 'Generates persona-tailored interview challenges testing position competencies and candidate background.',
+    variables: ['{persona_instruction}', '{position}', '{company_name}', '{job_spec}', '{cv_summary}', '{turns_summary}', '{persona_name}'],
   },
 ]
 
@@ -1979,31 +2115,48 @@ onUnmounted(() => {
         <div class="studio-sidebar">
           <div class="sidebar-header">
             <span class="sidebar-title">Pipeline Tasks</span>
-            <span class="sidebar-badge">{{ TASKS.length }} Tasks</span>
+            <span class="sidebar-badge">{{ TASKS.filter(t => !t.hidden?.value).length }} Tasks</span>
           </div>
 
           <div class="task-nav-list">
-            <button
-              v-for="t in TASKS"
-              :key="t.key"
-              v-show="!t.hidden?.value"
-              class="task-nav-item"
-              :class="{ active: selectedTaskKey === t.key }"
-              @click="selectStudioTask(t.key)"
+            <div
+              v-for="cat in TASK_CATEGORIES"
+              :key="cat.id"
+              class="task-category-group"
             >
-              <div class="task-nav-left">
-                <span class="task-nav-name">{{ t.label }}</span>
-              </div>
-              <div class="task-nav-right">
-                <span
-                  v-if="isTaskCustomized(t.key)"
-                  class="task-bound-indicator"
-                  title="Customized parameters"
-                >
-                  <CheckCircle2 :size="12" class="text-primary" />
+              <div class="task-category-header">
+                <component :is="cat.icon" :size="12" class="task-category-icon" />
+                <span class="task-category-title">{{ cat.label }}</span>
+                <span class="task-category-count">
+                  {{ TASKS.filter(t => t.category === cat.id && !t.hidden?.value).length }}
                 </span>
               </div>
-            </button>
+
+              <div class="task-category-items">
+                <button
+                  v-for="t in TASKS.filter(t => t.category === cat.id)"
+                  :key="t.key"
+                  v-show="!t.hidden?.value"
+                  class="task-nav-item"
+                  :class="{ active: selectedTaskKey === t.key }"
+                  @click="selectStudioTask(t.key)"
+                >
+                  <div class="task-nav-left">
+                    <component :is="t.icon" :size="14" class="task-nav-icon" />
+                    <span class="task-nav-name">{{ t.label }}</span>
+                  </div>
+                  <div class="task-nav-right">
+                    <span
+                      v-if="isTaskCustomized(t.key)"
+                      class="task-bound-indicator"
+                      title="Customized parameters or prompt override"
+                    >
+                      <CheckCircle2 :size="12" class="text-primary" />
+                    </span>
+                  </div>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -4034,14 +4187,56 @@ onUnmounted(() => {
 .task-nav-list {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+}
+
+.task-category-group {
+  display: flex;
+  flex-direction: column;
   gap: 4px;
+}
+
+.task-category-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 2px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.task-category-icon {
+  color: var(--primary);
+  opacity: 0.85;
+}
+
+.task-category-title {
+  flex: 1;
+}
+
+.task-category-count {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 9999px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+}
+
+.task-category-items {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .task-nav-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 9px 10px;
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
@@ -4061,8 +4256,17 @@ onUnmounted(() => {
 
 .task-nav-left {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-nav-icon {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.task-nav-item.active .task-nav-icon {
+  color: var(--primary);
 }
 
 .task-nav-name {

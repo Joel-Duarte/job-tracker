@@ -441,6 +441,16 @@ TASK_RECOMMENDED_DEFAULTS = {
         "reasoning_effort": "none",
         "max_tokens": None,
     },
+    "CV_ANONYMIZATION": {
+        "temperature": 0.0,
+        "reasoning_effort": "none",
+        "max_tokens": None,
+    },
+    "cv_anonymization": {
+        "temperature": 0.0,
+        "reasoning_effort": "none",
+        "max_tokens": None,
+    },
     "ASSESSMENT": {
         "temperature": 0.1,
         "reasoning_effort": "none",
@@ -461,7 +471,42 @@ TASK_RECOMMENDED_DEFAULTS = {
         "reasoning_effort": "none",
         "max_tokens": None,
     },
+    "ROLE_ALIGNMENT_DOSSIER": {
+        "temperature": 0.2,
+        "reasoning_effort": "none",
+        "max_tokens": None,
+    },
     "AGENT": {"temperature": 0.3, "reasoning_effort": "none", "max_tokens": None},
+    "AGENT_REASONING": {
+        "temperature": 0.3,
+        "reasoning_effort": "none",
+        "max_tokens": None,
+    },
+    "INTERVIEW_STAR_EVAL": {
+        "temperature": 0.1,
+        "reasoning_effort": "none",
+        "max_tokens": None,
+    },
+    "INTERVIEW_MC_GENERATOR": {
+        "temperature": 0.2,
+        "reasoning_effort": "none",
+        "max_tokens": None,
+    },
+    "INTERVIEW_MC_EVAL": {
+        "temperature": 0.1,
+        "reasoning_effort": "none",
+        "max_tokens": None,
+    },
+    "INTERVIEW_DRILLDOWN": {
+        "temperature": 0.2,
+        "reasoning_effort": "none",
+        "max_tokens": None,
+    },
+    "INTERVIEW_QUESTION_GEN": {
+        "temperature": 0.2,
+        "reasoning_effort": "none",
+        "max_tokens": None,
+    },
 }
 
 

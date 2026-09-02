@@ -1193,6 +1193,14 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         extra_kwargs={"reasoning_effort": "none"},
         is_active=True,
     )
+    binding_7 = AITaskBindingModel(
+        task_type="APPLICATION_QA",
+        provider_id=provider_local.id,
+        model_name="qwen/qwen3.5-9b",
+        temperature=0.15,
+        extra_kwargs={"reasoning_effort": "none"},
+        is_active=True,
+    )
     session.add_all(
         [
             binding_global,
@@ -1202,10 +1210,11 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
             binding_4,
             binding_5,
             binding_6,
+            binding_7,
         ]
     )
     stats["ai_providers"] = 1
-    stats["ai_task_bindings"] = 7
+    stats["ai_task_bindings"] = 8
 
     # -------------------------------------------------------------------------
     # 7. Connected Email Accounts

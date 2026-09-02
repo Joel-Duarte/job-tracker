@@ -4,11 +4,12 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm_factory import get_task_chat_model
+from app.core.prompts import get_prompt_template
 from app.models.candidate_profile import CandidateCVModel
 from app.models.role_alignment_dossier import RoleAlignmentDossierModel
 from app.schemas.analytics import (
@@ -199,27 +200,20 @@ async def enhance_role_alignment_dossier(
         ],
     }
 
-    user_prompt = f"""Target Role Track: {norm_track.upper()}
-
-Candidate CV Profile:
-{json.dumps(cv_context, indent=2)}
-
-Market Intelligence & Track Requirements:
-{json.dumps(track_context, indent=2)}
-
-Generate the comprehensive Strategic Alignment Dossier in valid JSON."""
-
     # 4. Invoke LLM with telemetry
+    prompt_template_str = await get_prompt_template(db, "role_alignment_dossier")
+    prompt_template = ChatPromptTemplate.from_template(prompt_template_str)
+    formatted_prompt = prompt_template.format_messages(
+        role_track=norm_track.upper(),
+        candidate_cv=json.dumps(cv_context, indent=2),
+        market_context=json.dumps(track_context, indent=2),
+    )
+
     chat_model = await get_task_chat_model(task_type="ROLE_ALIGNMENT_DOSSIER", db=db)
     tracer = PostgresTracer()
 
-    messages = [
-        SystemMessage(content=SYSTEM_PROMPT),
-        HumanMessage(content=user_prompt),
-    ]
-
     response = await chat_model.ainvoke(
-        messages,
+        formatted_prompt,
         config={"callbacks": [tracer]},
     )
 

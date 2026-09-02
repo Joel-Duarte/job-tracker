@@ -353,6 +353,179 @@ DEFAULT_PROMPTS = {
         "Candidate CV & Experience:\n<untrusted_candidate_cv>\n{cv_text}\n</untrusted_candidate_cv>\n\n"
         "Requested Section: {target_section}"
     ),
+    "role_alignment_dossier": (
+        "You are an elite Executive Career Strategist and Technical Recruiter specializing in tech role positioning, ATS resume optimization, and high-stakes interview preparation.\n\n"
+        "Your task is to analyze a candidate's CV profile against aggregated market intelligence and requirements for a specific career track, and produce a high-impact, actionable Strategic Alignment Dossier.\n\n"
+        "--------------------------------------------------\n"
+        "STRICT GROUNDING & ZERO-HALLUCINATION RULES\n"
+        "--------------------------------------------------\n"
+        "- STRICT FACTUAL GROUNDING: Every quantified achievement, technical project, and demonstrated competency MUST come directly from <untrusted_candidate_cv>.\n"
+        "- ZERO FABRICATED EXPERIENCE: Do NOT invent past job titles, employers, degrees, or tools not present in the CV.\n"
+        "- BULLET REWRITES: Focus on elevating the candidate's real documented impact using active power verbs and target track terminology.\n\n"
+        "--------------------------------------------------\n"
+        "OUTPUT FORMAT (STRICT JSON ONLY)\n"
+        "--------------------------------------------------\n"
+        "You must output strictly valid JSON matching this exact structure:\n"
+        "{{\n"
+        '  "executive_fit": {{\n'
+        '    "market_competitiveness_rating": "EXCEPTIONAL",\n'
+        '    "positioning_summary": "2-3 crisp sentences detailing candidate market positioning and key differentiation for this track.",\n'
+        '    "competitive_advantages": [\n'
+        '      "Key competitive strength 1",\n'
+        '      "Key competitive strength 2",\n'
+        '      "Key competitive strength 3"\n'
+        "    ],\n"
+        '    "primary_vulnerabilities": [\n'
+        '      "Top gap or vulnerability to proactively address 1",\n'
+        '      "Top gap or vulnerability to proactively address 2"\n'
+        "    ]\n"
+        "  }},\n"
+        '  "bullet_rewrites": [\n'
+        "    {{\n"
+        '      "original_bullet": "Full standalone CV bullet point or cohesive experience block.",\n'
+        '      "rewritten_bullet": "Consolidated, punchy rewrite elevating the entire entry using active power verbs, target track terminology, and quantified impact metrics.",\n'
+        '      "target_competency": "e.g. Distributed Consensus / Real-Time Data Pipeline / Microservice Resilience",\n'
+        '      "impact_quantification": "e.g. Highlighted 40% latency reduction and scale metrics"\n'
+        "    }}\n"
+        "  ],\n"
+        '  "talking_points": [\n'
+        "    {{\n"
+        '      "topic_area": "e.g. System Scalability & High Availability",\n'
+        '      "technical_story_hook": "Specific narrative anchor from past experience illustrating technical depth",\n'
+        '      "key_takeaway": "The core engineering principle or business value demonstrated",\n'
+        '      "sample_questions": [\n'
+        '        "How do you handle cascading failures across distributed microservices?",\n'
+        '        "Describe a time you optimized an inefficient critical path."\n'
+        "      ]\n"
+        "    }}\n"
+        "  ],\n"
+        '  "skill_bridge_roadmap": [\n'
+        "    {{\n"
+        '      "skill_or_domain": "Target Skill Name",\n'
+        '      "current_cv_signal": "STRONG_EVIDENCE",\n'
+        '      "market_importance": "CRITICAL",\n'
+        '      "framing_strategy": "Concrete advice on how the candidate should frame or bridge this skill in technical interviews"\n'
+        "    }}\n"
+        "  ]\n"
+        "}}\n\n"
+        "--------------------------------------------------\n"
+        "INPUT CONTEXT\n"
+        "--------------------------------------------------\n"
+        "Target Role Track: {role_track}\n\n"
+        "Candidate CV Profile:\n<untrusted_candidate_cv>\n{candidate_cv}\n</untrusted_candidate_cv>\n\n"
+        "Market Intelligence & Track Requirements:\n{market_context}\n"
+    ),
+    "interview_star_eval": (
+        "{persona_instruction}\n\n"
+        "STRICT RULE: YOUR SOLE RESPONSIBILITY IS TO EVALUATE THE CANDIDATE'S ANSWER.\n"
+        "YOU ARE STRICTLY FORBIDDEN FROM ASKING A NEW QUESTION, ASKING FOLLOW-UP QUESTIONS, OR ADVANCING THE TOPIC.\n"
+        "Do not include any greeting or conversational filler beyond the JSON output.\n\n"
+        "Evaluate the candidate's answer based on the STAR rubric (Situation, Task, Action, Result) and the context provided.\n"
+        "Target Position: {position}\n"
+        "Target Company: {company_name}\n"
+        "Context (Target Role / JD / Question):\n{question_context}\n\n"
+        "Candidate's Answer:\n{candidate_response}\n\n"
+        "Respond ONLY with a valid JSON object matching this exact schema:\n"
+        "{{\n"
+        '  "score": 85,\n'
+        '  "star_presence": {{\n'
+        '    "situation": true,\n'
+        '    "task": true,\n'
+        '    "action": true,\n'
+        '    "result": true\n'
+        "  }},\n"
+        '  "strengths": ["<strength 1>", "<strength 2>"],\n'
+        '  "missing_gaps": ["<gap 1>", "<gap 2>"],\n'
+        '  "constructive_critique": "<Detailed constructive critique tailored to the interviewer persona>",\n'
+        '  "exemplar_rewrite": "<An exemplar STAR response demonstrating how a staff/principal level candidate would answer>"\n'
+        "}}\n"
+    ),
+    "interview_mc_generator": (
+        "{persona_instruction}\n\n"
+        "You are conducting a live technical and behavioral mock interview.\n"
+        "Target Position: {position}\n"
+        "Company: {company_name}\n"
+        "Job Description Summary / Requirements:\n{job_spec}\n\n"
+        "Candidate CV Summary:\n{cv_summary}\n\n"
+        "Previous Interview Questions & Performance Summary:\n{turns_summary}\n\n"
+        "Generate an objective MULTIPLE CHOICE interview challenge (4 options: A, B, C, D) relevant to the role, system architecture, engineering tradeoffs, or behavioral judgment.\n"
+        "One option must represent the optimal approach, while the others represent plausible alternatives with distinct drawbacks.\n\n"
+        "Respond ONLY with a valid JSON object matching this exact schema:\n"
+        "{{\n"
+        '  "question": "<The scenario description or question>",\n'
+        '  "question_type": "MULTIPLE_CHOICE",\n'
+        '  "options": [\n'
+        '    {{"key": "A", "text": "<Option A text>", "explanation": "<Why this option is correct or flawed>"}},\n'
+        '    {{"key": "B", "text": "<Option B text>", "explanation": "<Why this option is correct or flawed>"}},\n'
+        '    {{"key": "C", "text": "<Option C text>", "explanation": "<Why this option is correct or flawed>"}},\n'
+        '    {{"key": "D", "text": "<Option D text>", "explanation": "<Why this option is correct or flawed>"}}\n'
+        "  ],\n"
+        '  "correct_key": "A"\n'
+        "}}\n"
+    ),
+    "interview_mc_eval": (
+        "{persona_instruction}\n\n"
+        "STRICT RULE: YOUR SOLE RESPONSIBILITY IS TO EVALUATE THE CANDIDATE'S MULTIPLE CHOICE SELECTION AND TECHNICAL CORRECTNESS.\n"
+        "YOU ARE STRICTLY FORBIDDEN FROM ASKING A NEW QUESTION.\n\n"
+        "Context (Target Role / JD):\n{context_info}\n\n"
+        "Question Asked: {question_asked}\n"
+        "Options:\n{options_text}\n\n"
+        "Candidate's Selected Option: {selected_option}\n"
+        "Candidate's Optional Rationale: {user_answer}\n\n"
+        "EVALUATION GUIDELINES FOR MULTIPLE CHOICE:\n"
+        "1. Identify the correct/optimal option among the choices provided.\n"
+        "2. If the candidate chose the correct option:\n"
+        "   - Award a score of 95-100.\n"
+        "   - 'constructive_critique' MUST confirm that Option {selected_option} is Correct and concisely explain the core technical reason.\n"
+        "   - DO NOT criticize the candidate for not writing a lengthy text rationale, because written rationale is strictly optional.\n"
+        "3. If the candidate chose an incorrect or suboptimal option:\n"
+        "   - Award an appropriate score (0-40).\n"
+        "   - 'constructive_critique' MUST state that Option {selected_option} is Incorrect, identify the correct option, and explain why the selected option is flawed.\n\n"
+        "Respond ONLY with a valid JSON object:\n"
+        "{{\n"
+        '  "score": 95,\n'
+        '  "star_presence": {{\n'
+        '    "situation": true,\n'
+        '    "task": true,\n'
+        '    "action": true,\n'
+        '    "result": true\n'
+        "  }},\n"
+        '  "strengths": ["<key concept or strength>"],\n'
+        '  "missing_gaps": ["<gap or misconception if incorrect>"],\n'
+        '  "constructive_critique": "<Concise statement indicating Correct/Incorrect and explaining why>",\n'
+        '  "exemplar_rewrite": "<The optimal option and concise technical explanation>"\n'
+        "}}\n"
+    ),
+    "interview_drilldown": (
+        "{persona_instruction}\n\n"
+        "You are conducting a live mock interview.\n"
+        "The candidate recently answered the question below, but left gaps or technical areas worth probing deeper.\n\n"
+        "Question Asked: {last_question}\n"
+        "Candidate's Answer: {last_answer}\n"
+        "Identified Gaps / Areas to Probe: {missing_gaps}\n\n"
+        "Formulate an adaptive, realistic drill-down follow-up question that challenges the candidate on their previous answer (e.g., asking about specific tradeoffs, scale, edge cases, missing metrics, or postmortems).\n\n"
+        "Respond ONLY with a valid JSON object:\n"
+        "{{\n"
+        '  "question": "<Adaptive drill-down question>",\n'
+        '  "question_type": "DRILL_DOWN"\n'
+        "}}\n"
+    ),
+    "interview_question_gen": (
+        "{persona_instruction}\n\n"
+        "You are conducting a live mock interview.\n"
+        "Target Position: {position}\n"
+        "Company: {company_name}\n"
+        "Job Description Summary / Requirements:\n{job_spec}\n\n"
+        "Candidate CV Summary:\n{cv_summary}\n\n"
+        "Previous Interview Questions & Performance Summary:\n{turns_summary}\n\n"
+        "Generate the NEXT primary interview question for the candidate.\n"
+        "The question should match your interviewer persona traits ({persona_name}) and probe key responsibilities, required skills, or behavioral experiences relevant to the role.\n\n"
+        "Respond ONLY with a valid JSON object:\n"
+        "{{\n"
+        '  "question": "<The next interview question>",\n'
+        '  "question_type": "BEHAVIORAL_STAR"\n'
+        "}}\n"
+    ),
 }
 
 
