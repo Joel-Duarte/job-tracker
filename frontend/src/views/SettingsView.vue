@@ -8,6 +8,7 @@ import PageHeader from '../components/common/PageHeader.vue'
 import {
   Activity,
   Cpu,
+  Database,
   Layers,
   Mail,
   Plus,
@@ -742,6 +743,7 @@ async function toggleEmbeddings() {
     const res = await AIConfigAPI.updateGlobalSettings({ ENABLE_EMBEDDINGS: newVal })
     enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS
     uiStore.enableEmbeddings = enableEmbeddings.value
+    isEmbeddingsOpen.value = enableEmbeddings.value
     uiStore.showToast(
       enableEmbeddings.value
         ? 'Vector embeddings enabled.'
@@ -2596,7 +2598,11 @@ onUnmounted(() => {
 
           <!-- VECTOR KNOWLEDGE & DENSE EMBEDDINGS ACCORDION -->
           <div class="advanced-overrides-section">
-            <button class="advanced-toggle-btn" @click="isEmbeddingsOpen = !isEmbeddingsOpen">
+            <button
+              class="advanced-toggle-btn"
+              :class="{ 'opacity-80 pointer-events-none': isUpdatingEmbeddings }"
+              @click="toggleEmbeddings"
+            >
               <div class="advanced-toggle-left">
                 <Cpu :size="16" class="text-primary" />
                 <span>Vector Knowledge &amp; Dense Embeddings (pgvector)</span>
@@ -2604,7 +2610,7 @@ onUnmounted(() => {
                   {{ enableEmbeddings ? `Active (${embeddingForm.model_name || 'nomic-embed-text'})` : 'Disabled' }}
                 </span>
               </div>
-              <div class="flex items-center gap-4" @click.stop>
+              <div class="flex items-center" @click.stop>
                 <label class="switch-toggle" title="Toggle Vector Embeddings generation">
                   <input
                     type="checkbox"
@@ -2614,13 +2620,32 @@ onUnmounted(() => {
                   />
                   <span class="slider round"></span>
                 </label>
-                <ChevronDown :size="16" class="accordion-icon" :class="{ 'rotated': isEmbeddingsOpen }" @click="isEmbeddingsOpen = !isEmbeddingsOpen" />
               </div>
             </button>
 
             <transition name="accordion-fade">
               <div v-show="isEmbeddingsOpen" class="advanced-overrides-content">
                 <div class="studio-card">
+                  <!-- Inline Rebuild Prompt Banner -->
+                  <div class="embeddings-rebuild-alert mb-4">
+                    <div class="flex items-center justify-between gap-3 flex-wrap">
+                      <div class="flex items-center gap-2.5">
+                        <AlertCircle :size="16" class="text-amber-500 flex-shrink-0" />
+                        <span class="text-xs font-medium text-main">
+                          Vector embeddings are active. Existing applications in PostgreSQL may need backfilling.
+                        </span>
+                      </div>
+                      <button
+                        class="btn btn-primary btn-xs flex items-center gap-1.5"
+                        :disabled="!enableEmbeddings || isReindexingEmbeddings"
+                        @click="reindexMissingEmbeddings"
+                      >
+                        <RefreshCw :size="11" :class="{ 'animate-spin': isReindexingEmbeddings }" />
+                        <span>{{ isReindexingEmbeddings ? 'Rebuilding...' : 'Rebuild Missing Embeddings' }}</span>
+                      </button>
+                    </div>
+                  </div>
+
                   <div :class="{ 'opacity-50 pointer-events-none': !enableEmbeddings }">
                     <div class="form-grid-2 mb-3">
                       <div class="input-group">
@@ -2725,13 +2750,16 @@ onUnmounted(() => {
                       </div>
                     </div>
 
-                    <div class="reasoning-info-callout mt-2">
-                      <div class="flex items-start gap-2.5">
-                        <Cpu :size="14" class="text-primary flex-shrink-0 mt-0.5" />
-                        <div class="flex flex-col gap-1.5 text-xs">
+                    <div class="reasoning-info-callout mt-3">
+                      <div class="flex flex-col gap-2.5 text-xs">
+                        <div class="flex items-start gap-2.5">
+                          <Database :size="14" class="text-primary flex-shrink-0 mt-0.5" />
                           <span>
-                            <strong>Dynamic pgvector Auto-Migration:</strong> Changing dimensions automatically updates the PostgreSQL column type. Click <em>Rebuild Missing Embeddings</em> to re-compute all existing vector records.
+                            <strong>Dynamic pgvector Auto-Migration:</strong> Changing dimensions automatically updates the PostgreSQL column type. Click <em>Rebuild Missing Embeddings</em> above to re-compute all existing vector records.
                           </span>
+                        </div>
+                        <div class="flex items-start gap-2.5 pt-2 border-t border-subtle">
+                          <Layers :size="14" class="text-secondary flex-shrink-0 mt-0.5" />
                           <span class="text-secondary leading-relaxed">
                             <strong>Standard Model Dimensions:</strong> Nomic / BGE (768d) • OpenAI / Cohere (1536d) • MiniLM (384d) • Gemma / Google (300d).
                           </span>
@@ -6037,6 +6065,13 @@ onUnmounted(() => {
 
 .advanced-overrides-content {
   margin-top: 16px;
+}
+
+.embeddings-rebuild-alert {
+  background-color: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
 }
 
 .dimension-preset-box {
