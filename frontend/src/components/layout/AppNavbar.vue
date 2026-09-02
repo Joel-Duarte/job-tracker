@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUIStore } from '../../stores/uiStore'
 import { useQueueStore } from '../../stores/queueStore'
+import { useApplicationsStore } from '../../stores/applicationsStore'
 import { StagingAPI, ActionItemsAPI, SystemAPI } from '../../api/endpoints'
 import ThemePalettePopover from './ThemePalettePopover.vue'
 import {
@@ -31,6 +32,7 @@ const router = useRouter()
 const route = useRoute()
 const uiStore = useUIStore()
 const queueStore = useQueueStore()
+const appStore = useApplicationsStore()
 
 const pendingStagingCount = computed(() => uiStore.pendingStagingCount)
 const pendingTasksCount = ref(0)
@@ -97,6 +99,7 @@ async function fetchBadgeCounts() {
       if (res.data.active_queue_tasks_count > 0 || queueStore.tasks.length === 0) {
         await queueStore.fetchTasks(true)
       }
+      await appStore.checkAndSyncWithBadges(res.data)
     }
   } catch (err) {
     // Fallback: silent ignore network errors

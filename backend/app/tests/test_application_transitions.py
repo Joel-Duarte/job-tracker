@@ -188,3 +188,82 @@ async def test_application_patch_updates(db_session: AsyncSession):
             assert data["company"]["domain"] == "acmeglobal.com"
 
     app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_activity_logging_preserves_task_completion(db_session: AsyncSession):
+    app.dependency_overrides[get_db] = lambda: db_session
+
+    company = CompanyModel(name="TestCorp", name_normalized="testcorp", domain="testcorp.com")
+    db_session.add(company)
+    await db_session.flush()
+
+    application = ApplicationModel(
+        company_id=company.id,
+        position="Backend Engineer",
+        position_normalized="backend engineer",
+        status="TECHNICAL_INTERVIEW",
+        application_key="testcorp-101",
+    )
+    db_session.add(application)
+    await db_session.commit()
+    await db_session.refresh(application)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Complete take-home task
+        with patch("app.routers.applications.async_enqueue_application_embedding", new_callable=AsyncMock):
+            resp = await client.post(
+                f"/api/v1/applications/{application.id}/transition",
+                json={
+                    "status": "TECHNICAL_INTERVIEW",
+                    "interview_stage": "Task Completed / Awaiting Response",
+                    "notes": "Submitted coding challenge.",
+                },
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["scheduled_interview_at"] is None
+            assert data["has_action_required"] is False
+
+        # 2. Log activity / general note on the application
+        with patch("app.routers.applications.async_enqueue_application_embedding", new_callable=AsyncMock):
+            resp = await client.post(
+                f"/api/v1/applications/{application.id}/transition",
+                json={
+                    "status": "TECHNICAL_INTERVIEW",
+                    "event_type": "CUSTOM_NOTE",
+                    "notes": "Sent a follow-up email to recruiter.",
+                },
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            # Must NOT reactivate scheduled interview or create duplicate pending action items!
+            assert data["scheduled_interview_at"] is None
+            assert data["has_action_required"] is False
+            assert data["latest_event"]["email_event_type"] == "CUSTOM_NOTE"
+            assert len(data["events"]) == 2
+            assert data["events"][0]["email_event_type"] == "CUSTOM_NOTE"
+            assert "Status changed" not in (data["events"][0]["email_summary"] or "")
+            assert "Sent a follow-up email to recruiter." in (data["events"][0]["email_summary"] or "")
+
+    app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_system_badges_cache_invalidation_fields(db_session: AsyncSession):
+    app.dependency_overrides[get_db] = lambda: db_session
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/v1/system/badges")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "staging_count" in data
+        assert "pending_action_items_count" in data
+        assert "active_queue_tasks_count" in data
+        assert "total_applications_count" in data
+        assert "latest_activity_at" in data
+
+    app.dependency_overrides.clear()
+

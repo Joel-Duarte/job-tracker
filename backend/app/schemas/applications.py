@@ -195,6 +195,10 @@ class ApplicationByStatusResult(BaseModel):
 
 class ApplicationTransitionRequest(BaseModel):
     status: AllowedApplicationStatus = Field(..., description="Target pipeline status")
+    event_type: str | None = Field(
+        "STATUS_CHANGE",
+        description="Timeline event type e.g. STATUS_CHANGE, CUSTOM_NOTE, EMAIL_RECEIVED, EMAIL_SENT, CALL_LOG",
+    )
     interview_stage: str | None = Field(
         None,
         description="Specific interview phase e.g. Screening, Take-Home, System Design, Final Round",

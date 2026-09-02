@@ -197,36 +197,41 @@ async def list_applications(
 
         # Compute scheduled interview date
         scheduled_interview = None
-        latest_evt = app.events[0] if (app.events and len(app.events) > 0) else None
-        latest_stage = (
-            latest_evt.raw_payload.get("interview_stage")
-            if (
-                latest_evt
-                and latest_evt.raw_payload
-                and isinstance(latest_evt.raw_payload, dict)
-            )
-            else None
+        sorted_events = sorted(
+            app.events or [],
+            key=lambda e: _to_utc(e.email_received_at)
+            or datetime.min.replace(tzinfo=UTC),
+            reverse=True,
         )
+        latest_interview_evt = None
+        for evt in sorted_events:
+            if evt.raw_payload and isinstance(evt.raw_payload, dict):
+                if (
+                    "interview_stage" in evt.raw_payload
+                    or "scheduled_at" in evt.raw_payload
+                ):
+                    latest_interview_evt = evt
+                    break
 
-        if latest_stage != "Task Completed / Awaiting Response":
-            for evt in app.events or []:
-                if evt.raw_payload and isinstance(evt.raw_payload, dict):
-                    sched_val = evt.raw_payload.get("scheduled_at")
-                    if sched_val:
-                        try:
-                            scheduled_interview = datetime.fromisoformat(str(sched_val))
-                            break
-                        except Exception:
-                            pass
-            if not scheduled_interview:
-                for act in app.action_items or []:
-                    if (
-                        act.status == "PENDING"
-                        and "interview" in act.title.lower()
-                        and act.due_date
-                    ):
-                        scheduled_interview = act.due_date
-                        break
+        if latest_interview_evt:
+            payload_stage = latest_interview_evt.raw_payload.get("interview_stage")
+            if payload_stage != "Task Completed / Awaiting Response":
+                sched_val = latest_interview_evt.raw_payload.get("scheduled_at")
+                if sched_val:
+                    try:
+                        scheduled_interview = datetime.fromisoformat(str(sched_val))
+                    except Exception:
+                        pass
+
+        if not scheduled_interview:
+            for act in app.action_items or []:
+                if (
+                    act.status == "PENDING"
+                    and "interview" in act.title.lower()
+                    and act.due_date
+                ):
+                    scheduled_interview = act.due_date
+                    break
 
         loc = (
             app.job_posting.location
@@ -463,34 +468,35 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
 
     # Compute scheduled interview date
     scheduled_interview = None
-    latest_stage = (
-        latest_evt.raw_payload.get("interview_stage")
-        if (
-            latest_evt
-            and latest_evt.raw_payload
-            and isinstance(latest_evt.raw_payload, dict)
-        )
-        else None
-    )
-    if latest_stage != "Task Completed / Awaiting Response":
-        for evt in sorted_events:
-            if evt.raw_payload and isinstance(evt.raw_payload, dict):
-                sched_val = evt.raw_payload.get("scheduled_at")
-                if sched_val:
-                    try:
-                        scheduled_interview = datetime.fromisoformat(str(sched_val))
-                        break
-                    except Exception:
-                        pass
-        if not scheduled_interview:
-            for act in app.action_items or []:
-                if (
-                    act.status == "PENDING"
-                    and "interview" in act.title.lower()
-                    and act.due_date
-                ):
-                    scheduled_interview = act.due_date
-                    break
+    latest_interview_evt = None
+    for evt in sorted_events:
+        if evt.raw_payload and isinstance(evt.raw_payload, dict):
+            if (
+                "interview_stage" in evt.raw_payload
+                or "scheduled_at" in evt.raw_payload
+            ):
+                latest_interview_evt = evt
+                break
+
+    if latest_interview_evt:
+        payload_stage = latest_interview_evt.raw_payload.get("interview_stage")
+        if payload_stage != "Task Completed / Awaiting Response":
+            sched_val = latest_interview_evt.raw_payload.get("scheduled_at")
+            if sched_val:
+                try:
+                    scheduled_interview = datetime.fromisoformat(str(sched_val))
+                except Exception:
+                    pass
+
+    if not scheduled_interview:
+        for act in app.action_items or []:
+            if (
+                act.status == "PENDING"
+                and "interview" in act.title.lower()
+                and act.due_date
+            ):
+                scheduled_interview = act.due_date
+                break
 
     due_dates = [
         _to_utc(a.due_date)
@@ -817,8 +823,21 @@ async def transition_application(
             )
             db.add(jp)
 
-    # Construct human-readable event summary
-    summary_parts = [f"Status changed from {old_status} to {new_status}."]
+    # Construct human-readable event summary and determine event type
+    resolved_event_type = payload.event_type or (
+        "STATUS_CHANGE" if old_status != new_status else "CUSTOM_NOTE"
+    )
+
+    summary_parts = []
+    if old_status != new_status:
+        summary_parts.append(f"Status changed from {old_status} to {new_status}.")
+    elif (
+        not payload.notes
+        and not payload.interview_stage
+        and not payload.offered_salary
+    ):
+        summary_parts.append(f"Activity logged: {resolved_event_type}.")
+
     if payload.interview_stage:
         summary_parts.append(f"Interview Phase: {payload.interview_stage}.")
 
@@ -846,8 +865,12 @@ async def transition_application(
             urgency="HIGH",
         )
         db.add(action_item)
-    elif new_status == "TECHNICAL_INTERVIEW" and not is_task_completed:
-        # Create action item to respond and schedule interview
+    elif (
+        old_status != new_status
+        and new_status == "TECHNICAL_INTERVIEW"
+        and not is_task_completed
+    ):
+        # Create action item to respond and schedule interview only on actual status transition
         action_item = ActionItemModel(
             application_id=app.id,
             title=f"Schedule Interview / Reply with Availability ({app.company.name})",
@@ -898,7 +921,7 @@ async def transition_application(
     event = ApplicationEventModel(
         email_application_id=app.id,
         email_conversation_id=f"trans-conv-{app.id}",
-        email_event_type="STATUS_CHANGE",
+        email_event_type=resolved_event_type,
         email_status_after_event=new_status,
         email_summary=summary_str,
         email_received_at=event_time,

@@ -403,6 +403,37 @@ export const useApplicationsStore = defineStore('applications', () => {
     return columns
   })
 
+  const lastKnownTotalApps = ref(null)
+  const lastKnownLatestActivityAt = ref(null)
+
+  async function checkAndSyncWithBadges(badgeData) {
+    if (!badgeData) return
+
+    const totalApps = badgeData.total_applications_count ?? 0
+    const latestActivity = badgeData.latest_activity_at ?? null
+
+    const hasAppsCountChanged =
+      lastKnownTotalApps.value !== null && lastKnownTotalApps.value !== totalApps
+    const hasActivityChanged =
+      lastKnownLatestActivityAt.value !== null &&
+      lastKnownLatestActivityAt.value !== latestActivity
+
+    lastKnownTotalApps.value = totalApps
+    lastKnownLatestActivityAt.value = latestActivity
+
+    if (hasAppsCountChanged || hasActivityChanged) {
+      isStale.value = true
+      // If we already have applications loaded in memory, silently refetch fresh data
+      if (applications.value.length > 0) {
+        await fetchApplications(true)
+      }
+      // If an application drawer is currently open, refresh its detail
+      if (selectedApplication.value?.id) {
+        await fetchApplicationDetail(selectedApplication.value.id)
+      }
+    }
+  }
+
   async function fetchApplications(force = false) {
     const isFresh =
       !force &&
@@ -656,6 +687,7 @@ export const useApplicationsStore = defineStore('applications', () => {
     restoreToActive,
     deleteApplication,
     invalidateCache,
+    checkAndSyncWithBadges,
     lastFetchedAt,
     isStale,
   }

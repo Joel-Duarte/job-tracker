@@ -1,3 +1,4 @@
+from datetime import datetime
 from pydantic import BaseModel, Field
 
 
@@ -13,4 +14,12 @@ class BadgeCountsResponse(BaseModel):
     active_queue_tasks_count: int = Field(
         default=0,
         description="Number of actively running background intake/evaluation tasks",
+    )
+    total_applications_count: int = Field(
+        default=0,
+        description="Total number of applications in the system",
+    )
+    latest_activity_at: datetime | None = Field(
+        default=None,
+        description="Timestamp of the most recent application activity for cache invalidation",
     )

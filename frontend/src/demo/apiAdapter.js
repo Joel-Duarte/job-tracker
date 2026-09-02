@@ -1023,10 +1023,18 @@ export async function handleDemoRequest(config) {
       ['QUEUED', 'PROCESSING', 'FETCHING', 'EXTRACTING', 'MATCHING', 'ASSESSING', 'SAVING'].includes(t.status)
     ).length
 
+    const totalAppsCount = (db.applications || []).length
+    const latestActivity = (db.applications || []).reduce((max, app) => {
+      const act = app.last_activity_at || app.created_at
+      return act && (!max || act > max) ? act : max
+    }, null)
+
     return ok({
       staging_count: stagingCount,
       pending_action_items_count: pendingTasksCount,
       active_queue_tasks_count: activeQueueTasksCount,
+      total_applications_count: totalAppsCount,
+      latest_activity_at: latestActivity,
     })
   }
 
