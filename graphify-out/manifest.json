@@ -216,9 +216,9 @@
     "semantic_hash": "bf368ace6ea5154569f2c2c690b28e6f"
   },
   "backend/app/routers/ai_config.py": {
-    "mtime": 1788026739.8388174,
-    "seen": 1788027099.0009754,
-    "ast_hash": "6fd97cefe082fe848bf36e6ecf36b8da",
+    "mtime": 1788349772.4990873,
+    "seen": 1788349859.3891685,
+    "ast_hash": "5f18229e767b4b64485d8bd52d083df1",
     "semantic_hash": ""
   },
   "backend/app/routers/analytics.py": {
@@ -1182,9 +1182,9 @@
     "semantic_hash": "f4a5bffa611e7443745494a098733dad"
   },
   "frontend/src/views/SettingsView.vue": {
-    "mtime": 1788346542.036018,
-    "seen": 1788347742.4640896,
-    "ast_hash": "160350c7b9a44d530bd8cae50b3eaab1",
+    "mtime": 1788351244.726834,
+    "seen": 1788351324.161021,
+    "ast_hash": "6ba428263006fcca76409696b659b916",
     "semantic_hash": ""
   },
   "frontend/src/views/StagingView.vue": {
