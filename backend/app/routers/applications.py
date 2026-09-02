@@ -275,8 +275,13 @@ async def list_applications(
         )
 
         effective_activity_at = (
-            app.last_activity_at
-            or (latest_evt.email_received_at if latest_evt else None)
+            (
+                latest_evt.email_received_at
+                if latest_evt and latest_evt.email_received_at
+                else None
+            )
+            or (latest_evt.created_at if latest_evt else None)
+            or app.last_activity_at
             or (
                 datetime.combine(app.application_date, datetime.min.time()).replace(
                     tzinfo=UTC
@@ -532,8 +537,13 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
     )
 
     effective_activity_at = (
-        app.last_activity_at
-        or (latest_evt.email_received_at if latest_evt else None)
+        (
+            latest_evt.email_received_at
+            if latest_evt and latest_evt.email_received_at
+            else None
+        )
+        or (latest_evt.created_at if latest_evt else None)
+        or app.last_activity_at
         or (
             datetime.combine(app.application_date, datetime.min.time()).replace(
                 tzinfo=UTC

@@ -31,14 +31,32 @@ export const useApplicationsStore = defineStore('applications', () => {
     isStale.value = true
   }
 
+  const KANBAN_SORT_OPTIONS = [
+    { key: 'smart', label: 'Smart Adaptive', shortLabel: 'Smart' },
+    { key: 'latest_activity', label: 'Latest Activity', shortLabel: 'Latest' },
+    { key: 'next_scheduled', label: 'Next Scheduled', shortLabel: 'Scheduled' },
+    { key: 'match_score', label: 'Fit Score', shortLabel: 'Fit Score' },
+  ]
+
+  const kanbanSortMode = ref(localStorage.getItem('jobtracker_kanban_sort_mode') || 'smart')
+
+  function setKanbanSortMode(mode) {
+    kanbanSortMode.value = mode
+    try {
+      localStorage.setItem('jobtracker_kanban_sort_mode', mode)
+    } catch {
+      // ignore storage error
+    }
+  }
+
   function getAppActivityDate(app) {
     if (!app) return null
     return (
-      app.last_activity_at ||
       app.latest_event?.email_received_at ||
       app.latest_event?.created_at ||
       app.events?.[0]?.email_received_at ||
       app.events?.[0]?.created_at ||
+      app.last_activity_at ||
       app.application_date ||
       app.applied_at ||
       app.created_at ||
@@ -267,57 +285,120 @@ export const useApplicationsStore = defineStore('applications', () => {
       return isNaN(ts) ? null : ts
     }
 
+    function getAppScheduledOrDeadlineTimestamp(app) {
+      return getAppInterviewTimestamp(app) ?? getAppOfferDeadlineTimestamp(app)
+    }
+
     function getAppActivityTimestamp(app) {
-      const raw = app.last_activity_at || app.application_date || app.created_at
+      const raw = getAppActivityDate(app)
       if (!raw) return 0
       const ts = new Date(raw).getTime()
       return isNaN(ts) ? 0 : ts
     }
 
-    // Sort APPLIED by last activity (most recent first)
-    columns.APPLIED.sort((a, b) => getAppActivityTimestamp(b) - getAppActivityTimestamp(a))
+    function getAppScore(app) {
+      const score =
+        app.match_score ??
+        app.match_analysis_payload?.ai_fit_score ??
+        app.match_analysis_payload?.fit_score ??
+        app.match_analysis_payload?.match_score ??
+        app.match_analysis_payload?.keyword_overlap_score ??
+        app.latest_event?.raw_payload?.match_score ??
+        app.latest_event?.raw_payload?.fit_score ??
+        app.latest_event?.raw_payload?.overall_fit_score ??
+        -1
+      const num = Number(score)
+      return isNaN(num) ? -1 : num
+    }
 
-    // Sort TECHNICAL_INTERVIEW chronologically by upcoming interview date
-    columns.TECHNICAL_INTERVIEW.sort((a, b) => {
-      const tsA = getAppInterviewTimestamp(a)
-      const tsB = getAppInterviewTimestamp(b)
+    function sortByNextScheduled(list) {
+      return list.sort((a, b) => {
+        const tsA = getAppScheduledOrDeadlineTimestamp(a)
+        const tsB = getAppScheduledOrDeadlineTimestamp(b)
 
-      const isFutureA = tsA !== null && tsA >= nowTs
-      const isFutureB = tsB !== null && tsB >= nowTs
+        const isFutureA = tsA !== null && tsA >= nowTs
+        const isFutureB = tsB !== null && tsB >= nowTs
 
-      if (isFutureA && isFutureB) return tsA - tsB
-      if (isFutureA) return -1
-      if (isFutureB) return 1
+        if (isFutureA && isFutureB) return tsA - tsB
+        if (isFutureA) return -1
+        if (isFutureB) return 1
 
-      const isPastA = tsA !== null && tsA < nowTs
-      const isPastB = tsB !== null && tsB < nowTs
-      if (isPastA && isPastB) return tsB - tsA
-      if (isPastA) return -1
-      if (isPastB) return 1
+        const isPastA = tsA !== null && tsA < nowTs
+        const isPastB = tsB !== null && tsB < nowTs
+        if (isPastA && isPastB) return tsB - tsA
+        if (isPastA) return -1
+        if (isPastB) return 1
 
-      return getAppActivityTimestamp(b) - getAppActivityTimestamp(a)
-    })
+        return getAppActivityTimestamp(b) - getAppActivityTimestamp(a)
+      })
+    }
 
-    // Sort OFFER by nearest decision deadline
-    columns.OFFER.sort((a, b) => {
-      const tsA = getAppOfferDeadlineTimestamp(a)
-      const tsB = getAppOfferDeadlineTimestamp(b)
+    const mode = kanbanSortMode.value || 'smart'
 
-      const isFutureA = tsA !== null && tsA >= nowTs
-      const isFutureB = tsB !== null && tsB >= nowTs
+    if (mode === 'latest_activity') {
+      columns.APPLIED.sort((a, b) => getAppActivityTimestamp(b) - getAppActivityTimestamp(a))
+      columns.TECHNICAL_INTERVIEW.sort((a, b) => getAppActivityTimestamp(b) - getAppActivityTimestamp(a))
+      columns.OFFER.sort((a, b) => getAppActivityTimestamp(b) - getAppActivityTimestamp(a))
+    } else if (mode === 'next_scheduled') {
+      sortByNextScheduled(columns.APPLIED)
+      sortByNextScheduled(columns.TECHNICAL_INTERVIEW)
+      sortByNextScheduled(columns.OFFER)
+    } else if (mode === 'match_score') {
+      const scoreSorter = (a, b) => {
+        const diff = getAppScore(b) - getAppScore(a)
+        if (diff !== 0) return diff
+        return getAppActivityTimestamp(b) - getAppActivityTimestamp(a)
+      }
+      columns.APPLIED.sort(scoreSorter)
+      columns.TECHNICAL_INTERVIEW.sort(scoreSorter)
+      columns.OFFER.sort(scoreSorter)
+    } else {
+      // Default: 'smart' (stage-adaptive)
+      // Sort APPLIED by last activity (most recent first)
+      columns.APPLIED.sort((a, b) => getAppActivityTimestamp(b) - getAppActivityTimestamp(a))
 
-      if (isFutureA && isFutureB) return tsA - tsB
-      if (isFutureA) return -1
-      if (isFutureB) return 1
+      // Sort TECHNICAL_INTERVIEW chronologically by upcoming interview date
+      columns.TECHNICAL_INTERVIEW.sort((a, b) => {
+        const tsA = getAppInterviewTimestamp(a)
+        const tsB = getAppInterviewTimestamp(b)
 
-      const isPastA = tsA !== null && tsA < nowTs
-      const isPastB = tsB !== null && tsB < nowTs
-      if (isPastA && isPastB) return tsB - tsA
-      if (isPastA) return -1
-      if (isPastB) return 1
+        const isFutureA = tsA !== null && tsA >= nowTs
+        const isFutureB = tsB !== null && tsB >= nowTs
 
-      return getAppActivityTimestamp(b) - getAppActivityTimestamp(a)
-    })
+        if (isFutureA && isFutureB) return tsA - tsB
+        if (isFutureA) return -1
+        if (isFutureB) return 1
+
+        const isPastA = tsA !== null && tsA < nowTs
+        const isPastB = tsB !== null && tsB < nowTs
+        if (isPastA && isPastB) return tsB - tsA
+        if (isPastA) return -1
+        if (isPastB) return 1
+
+        return getAppActivityTimestamp(b) - getAppActivityTimestamp(a)
+      })
+
+      // Sort OFFER by nearest decision deadline
+      columns.OFFER.sort((a, b) => {
+        const tsA = getAppOfferDeadlineTimestamp(a)
+        const tsB = getAppOfferDeadlineTimestamp(b)
+
+        const isFutureA = tsA !== null && tsA >= nowTs
+        const isFutureB = tsB !== null && tsB >= nowTs
+
+        if (isFutureA && isFutureB) return tsA - tsB
+        if (isFutureA) return -1
+        if (isFutureB) return 1
+
+        const isPastA = tsA !== null && tsA < nowTs
+        const isPastB = tsB !== null && tsB < nowTs
+        if (isPastA && isPastB) return tsB - tsA
+        if (isPastA) return -1
+        if (isPastB) return 1
+
+        return getAppActivityTimestamp(b) - getAppActivityTimestamp(a)
+      })
+    }
 
     return columns
   })
@@ -559,6 +640,9 @@ export const useApplicationsStore = defineStore('applications', () => {
     archivedApplications,
     hiredApplications,
     kanbanColumns,
+    kanbanSortMode,
+    setKanbanSortMode,
+    KANBAN_SORT_OPTIONS,
     getAppActivityDate,
     fetchApplications,
     fetchApplicationDetail,

@@ -848,6 +848,8 @@ export async function handleDemoRequest(config) {
             raw_payload: {}
           }
           targetApp.events = [newEvt, ...(targetApp.events || [])]
+          targetApp.latest_event = newEvt
+          targetApp.last_activity_at = new Date().toISOString()
           if (data.status) targetApp.status = data.status
         }
       }

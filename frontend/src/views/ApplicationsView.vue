@@ -410,8 +410,8 @@ const sortedArchivedApplications = computed(() => {
       return (scoreA - scoreB) * order
     }
     // Default: archived_date
-    const dateA = new Date(a.rejection_date || appStore.getAppActivityDate(a) || 0).getTime()
-    const dateB = new Date(b.rejection_date || appStore.getAppActivityDate(b) || 0).getTime()
+    const dateA = new Date(appStore.getAppActivityDate(a) || 0).getTime()
+    const dateB = new Date(appStore.getAppActivityDate(b) || 0).getTime()
     return (dateA - dateB) * order
   })
 })
@@ -788,6 +788,31 @@ async function confirmDelete() {
 
         <!-- Dropdown & Date Filters Container -->
         <div class="filters-collapsible-group" :class="{ 'mobile-open': showMobileFilters }">
+          <!-- Kanban Sort Order Selector (Active Kanban view) -->
+          <div
+            v-if="uiStore.viewMode === 'kanban' && appStore.pipelineViewMode === 'active'"
+            class="kanban-sort-group"
+            title="Sort applications in Kanban columns"
+          >
+            <div class="kanban-sort-wrapper">
+              <ArrowUpDown :size="13" class="sort-prefix-icon" />
+              <select
+                :value="appStore.kanbanSortMode"
+                class="filter-select kanban-sort-select"
+                aria-label="Kanban Sort Order"
+                @change="appStore.setKanbanSortMode($event.target.value)"
+              >
+                <option
+                  v-for="opt in appStore.KANBAN_SORT_OPTIONS"
+                  :key="opt.key"
+                  :value="opt.key"
+                >
+                  Sort: {{ opt.label }}
+                </option>
+              </select>
+            </div>
+          </div>
+
           <!-- Status Filter shown in Table view where columns don't separate statuses -->
           <select
             v-if="uiStore.viewMode === 'table' && appStore.pipelineViewMode === 'active'"
@@ -1023,7 +1048,7 @@ async function confirmDelete() {
                 </td>
 
                 <td class="cell-date">
-                  {{ formatDate(app.rejection_date || appStore.getAppActivityDate(app)) }}
+                  {{ formatDate(appStore.getAppActivityDate(app)) }}
                 </td>
 
                 <td class="cell-match">
@@ -2062,6 +2087,46 @@ async function confirmDelete() {
   height: 34px;
   padding: 0 28px 0 10px;
   font-size: 13px;
+}
+
+/* Kanban Sort Selector */
+.kanban-sort-group {
+  display: flex;
+  align-items: center;
+}
+
+.kanban-sort-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.kanban-sort-wrapper .sort-prefix-icon {
+  position: absolute;
+  left: 9px;
+  color: var(--text-secondary);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.filter-select.kanban-sort-select {
+  padding-left: 28px;
+  font-weight: 500;
+  color: var(--text-main);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.filter-select.kanban-sort-select:hover {
+  border-color: var(--border-focus);
+}
+
+.filter-select.kanban-sort-select:focus {
+  border-color: var(--primary);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--primary-glow);
 }
 
 .filter-toggle-btn {

@@ -366,6 +366,10 @@ async def resolve_staging_item(
             or staged_item.email_subject
             or f"Staged item resolved for {payload.position} at {effective_company}."
         )
+        event_time = staged_item.email_received_at or datetime.now(UTC)
+        application.last_activity_at = event_time
+        application.updated_at = datetime.now(UTC)
+
         event = ApplicationEventModel(
             email_application_id=application.id,
             email_message_id=staged_item.email_message_id,
@@ -374,7 +378,7 @@ async def resolve_staging_item(
             email_sender=staged_item.email_sender,
             email_sender_name=staged_item.email_sender_name,
             email_subject=staged_item.email_subject,
-            email_received_at=staged_item.email_received_at or datetime.now(UTC),
+            email_received_at=event_time,
             email_event_type=payload.event_type or "PRE_APPLICATION_ASSESSMENT",
             email_status_after_event=application.status,
             email_summary=summary_val,
