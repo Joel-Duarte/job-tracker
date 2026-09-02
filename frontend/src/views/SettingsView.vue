@@ -281,6 +281,7 @@ const globalBinding = computed(() => {
   return bindings.value.find((b) => b.task_type === 'GLOBAL_DEFAULT') || null
 })
 const isAdvancedOpen = ref(false)
+const isEmbeddingsOpen = ref(false)
 
 // Global Default Model Form State
 const globalForm = ref({
@@ -2551,7 +2552,144 @@ onUnmounted(() => {
               </div>
             </transition>
           </div>
-    </div>
+
+          <!-- VECTOR KNOWLEDGE & DENSE EMBEDDINGS ACCORDION -->
+          <div class="advanced-overrides-section mt-4">
+            <button class="advanced-toggle-btn" @click="isEmbeddingsOpen = !isEmbeddingsOpen">
+              <div class="advanced-toggle-left">
+                <Cpu :size="16" class="text-primary" />
+                <span>Vector Knowledge &amp; Dense Embeddings (pgvector)</span>
+                <span class="sidebar-badge ml-2" :class="enableEmbeddings ? 'text-primary' : 'text-muted'">
+                  {{ enableEmbeddings ? `Active (${embeddingForm.model_name || 'nomic-embed-text'})` : 'Disabled' }}
+                </span>
+              </div>
+              <ChevronDown :size="16" class="accordion-icon" :class="{ 'rotated': isEmbeddingsOpen }" />
+            </button>
+
+            <transition name="accordion-fade">
+              <div v-show="isEmbeddingsOpen" class="advanced-overrides-content">
+                <div class="studio-card">
+                  <!-- Header with Enable/Disable Switch -->
+                  <div class="flex items-center justify-between pb-3 border-b border-subtle mb-4">
+                    <div>
+                      <h4 class="font-bold text-sm text-main">pgvector Dense Indexing</h4>
+                      <p class="text-xs text-muted mt-1">Dense vector representations for semantic job similarity search and candidate match analysis. When disabled, job intake completes faster without embedding latency.</p>
+                    </div>
+                    <label class="switch-toggle ml-4" title="Toggle Vector Embeddings generation">
+                      <input
+                        type="checkbox"
+                        :checked="enableEmbeddings"
+                        :disabled="isUpdatingEmbeddings"
+                        @change="toggleEmbeddings"
+                      />
+                      <span class="slider round"></span>
+                    </label>
+                  </div>
+
+                  <div :class="{ 'opacity-50 pointer-events-none': !enableEmbeddings }">
+                    <div class="form-grid-2 mb-3">
+                      <div class="input-group">
+                        <label class="input-label">Embedding AI Provider *</label>
+                        <select
+                          v-model="embeddingForm.provider_id"
+                          class="form-select"
+                          :disabled="!enableEmbeddings"
+                          @change="onEmbeddingProviderChange"
+                        >
+                          <option
+                            v-for="p in providers"
+                            :key="p.id"
+                            :value="p.id"
+                          >
+                            {{ p.name }} ({{ p.provider_type }})
+                          </option>
+                        </select>
+                      </div>
+
+                      <div class="input-group">
+                        <div class="label-with-hint">
+                          <label class="input-label">Embedding Model Identifier *</label>
+                          <button
+                            v-if="embeddingForm.provider_id"
+                            type="button"
+                            class="btn-refresh-models"
+                            :disabled="!enableEmbeddings || loadingEmbeddingModels"
+                            @click="fetchEmbeddingModels(embeddingForm.provider_id, true)"
+                            title="Discover embedding models from live endpoint"
+                          >
+                            <RefreshCw :class="{ 'animate-spin': loadingEmbeddingModels }" :size="12" />
+                            <span>{{ loadingEmbeddingModels ? 'Scanning...' : 'Auto-Discover' }}</span>
+                          </button>
+                        </div>
+                        <input
+                          v-model="embeddingForm.model_name"
+                          type="text"
+                          placeholder="e.g. nomic-embed-text, text-embedding-3-small"
+                          class="form-input font-mono"
+                          :disabled="!enableEmbeddings"
+                          @input="scheduleEmbeddingAutoSave(600)"
+                        />
+                      </div>
+                    </div>
+
+                    <!-- Quick Pick Discovered Embedding Model Chips -->
+                    <div v-if="embeddingProviderModels.length" class="model-suggestions-box mb-3">
+                      <span class="suggestions-label">Discovered Embedding Models:</span>
+                      <div class="suggestions-list">
+                        <button
+                          v-for="m in embeddingProviderModels"
+                          :key="m.id"
+                          type="button"
+                          class="model-chip font-mono"
+                          :class="{ active: embeddingForm.model_name === m.id }"
+                          :disabled="!enableEmbeddings"
+                          @click="selectEmbeddingSuggestedModel(m.id)"
+                        >
+                          <Check v-if="embeddingForm.model_name === m.id" :size="11" />
+                          <span>{{ m.id }}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="form-grid-2 mb-2">
+                      <div class="input-group">
+                        <label class="input-label">Vector Dimensions</label>
+                        <input
+                          v-model.number="embeddingForm.embedding_dimensions"
+                          type="number"
+                          placeholder="768"
+                          class="form-input font-mono"
+                          :disabled="!enableEmbeddings"
+                          @input="scheduleEmbeddingAutoSave(600)"
+                        />
+                        <span class="preference-field-hint">
+                          Standard dense vector dimensionality (e.g. 768 for nomic-embed-text, 1536 for OpenAI).
+                        </span>
+                      </div>
+
+                      <div class="input-group">
+                        <div class="label-with-hint">
+                          <label class="input-label">Index Maintenance</label>
+                        </div>
+                        <button
+                          class="btn btn-secondary btn-sm w-full"
+                          :disabled="!enableEmbeddings || isReindexingEmbeddings"
+                          @click="reindexMissingEmbeddings"
+                        >
+                          <RefreshCw :size="13" :class="{ 'animate-spin': isReindexingEmbeddings }" />
+                          <span>{{ isReindexingEmbeddings ? 'Re-indexing Embeddings...' : 'Rebuild Missing Embeddings' }}</span>
+                        </button>
+                        <span class="preference-field-hint">
+                          Backfills vector representations across all existing applications in PostgreSQL.
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </transition>
+          </div>
+        </div>
 
     <!-- TAB 2: AI PROVIDERS -->
     <div v-else-if="activeTab === 'providers'" class="tab-content animate-fade-in">
@@ -3164,132 +3302,7 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- 4. Vector Knowledge & Embeddings Card -->
-          <div class="preference-card">
-            <div class="preference-header">
-              <div class="preference-icon text-primary">
-                <Cpu :size="18" />
-              </div>
-              <div class="preference-header-text">
-                <div class="preference-header-between">
-                  <h4 class="preference-title">Vector Embeddings (pgvector)</h4>
-                  <label class="switch-toggle" title="Toggle Vector Embeddings generation">
-                    <input
-                      type="checkbox"
-                      :checked="enableEmbeddings"
-                      :disabled="isUpdatingEmbeddings"
-                      @change="toggleEmbeddings"
-                    />
-                    <span class="slider round"></span>
-                  </label>
-                </div>
-                <p class="preference-desc">Dense vector indexing for semantic job matching and search. Disable to speed up intake.</p>
-              </div>
-            </div>
-
-            <div class="preference-body" :class="{ 'is-disabled': !enableEmbeddings }">
-              <!-- Embedding Provider & Model Controls -->
-              <div class="form-grid-2 mb-3">
-                <div class="input-group">
-                  <label class="input-label">Embedding AI Provider *</label>
-                  <select
-                    v-model="embeddingForm.provider_id"
-                    class="form-select"
-                    :disabled="!enableEmbeddings"
-                    @change="onEmbeddingProviderChange"
-                  >
-                    <option
-                      v-for="p in providers"
-                      :key="p.id"
-                      :value="p.id"
-                    >
-                      {{ p.name }} ({{ p.provider_type }})
-                    </option>
-                  </select>
-                </div>
-
-                <div class="input-group">
-                  <div class="label-with-hint">
-                    <label class="input-label">Embedding Model *</label>
-                    <button
-                      v-if="embeddingForm.provider_id"
-                      type="button"
-                      class="btn-refresh-models"
-                      :disabled="!enableEmbeddings || loadingEmbeddingModels"
-                      @click="fetchEmbeddingModels(embeddingForm.provider_id, true)"
-                      title="Discover embedding models from live endpoint"
-                    >
-                      <RefreshCw :class="{ 'animate-spin': loadingEmbeddingModels }" :size="12" />
-                      <span>{{ loadingEmbeddingModels ? 'Scanning...' : 'Auto-Discover' }}</span>
-                    </button>
-                  </div>
-                  <input
-                    v-model="embeddingForm.model_name"
-                    type="text"
-                    placeholder="e.g. nomic-embed-text, text-embedding-3-small"
-                    class="form-input font-mono"
-                    :disabled="!enableEmbeddings"
-                    @input="scheduleEmbeddingAutoSave(600)"
-                  />
-                </div>
-              </div>
-
-              <!-- Quick Pick Discovered Embedding Model Chips -->
-              <div v-if="embeddingProviderModels.length" class="model-suggestions-box mb-3">
-                <span class="suggestions-label">Discovered Embedding Models:</span>
-                <div class="suggestions-list">
-                  <button
-                    v-for="m in embeddingProviderModels"
-                    :key="m.id"
-                    type="button"
-                    class="model-chip font-mono"
-                    :class="{ active: embeddingForm.model_name === m.id }"
-                    :disabled="!enableEmbeddings"
-                    @click="selectEmbeddingSuggestedModel(m.id)"
-                  >
-                    <Check v-if="embeddingForm.model_name === m.id" :size="11" />
-                    <span>{{ m.id }}</span>
-                  </button>
-                </div>
-              </div>
-
-              <div class="form-grid-2 mb-3">
-                <div class="input-group">
-                  <label class="input-label">Vector Dimensions</label>
-                  <input
-                    v-model.number="embeddingForm.embedding_dimensions"
-                    type="number"
-                    placeholder="768"
-                    class="form-input font-mono"
-                    :disabled="!enableEmbeddings"
-                    @input="scheduleEmbeddingAutoSave(600)"
-                  />
-                  <span class="preference-field-hint">
-                    Standard dimensions for pgvector cosine indexing (e.g. 768 or 1536).
-                  </span>
-                </div>
-
-                <div class="input-group">
-                  <div class="label-with-hint">
-                    <label class="input-label">pgvector Index Maintenance</label>
-                  </div>
-                  <button
-                    class="btn btn-secondary btn-sm w-full"
-                    :disabled="!enableEmbeddings || isReindexingEmbeddings"
-                    @click="reindexMissingEmbeddings"
-                  >
-                    <RefreshCw :size="13" :class="{ 'animate-spin': isReindexingEmbeddings }" />
-                    <span>{{ isReindexingEmbeddings ? 'Re-indexing Embeddings...' : 'Rebuild Missing Embeddings' }}</span>
-                  </button>
-                  <span class="preference-field-hint">
-                    Backfills vector embeddings across all existing applications.
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 5. Diagnostics & Telemetry Card -->
+          <!-- 4. Diagnostics & Telemetry Card -->
           <div class="preference-card">
             <div class="preference-header">
               <div class="preference-icon text-primary">
