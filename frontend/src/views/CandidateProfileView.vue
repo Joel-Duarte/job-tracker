@@ -33,6 +33,7 @@ import {
   Square,
   Languages,
   Globe,
+  Cpu,
 } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -272,7 +273,6 @@ function handleFormatCleanClick() {
 
 // Chips and inputs
 const newSkillInput = ref('')
-const newCompetencyInput = ref('')
 const newDomainName = ref('')
 const newDomainYears = ref(2.0)
 
@@ -385,6 +385,7 @@ async function processCV() {
   }
 
   isProcessing.value = true
+  modalStep.value = 'processing'
   currentTaskStatus.value = 'QUEUED'
   currentTaskStage.value = 'QUEUED'
 
@@ -396,6 +397,7 @@ async function processCV() {
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to enqueue CV processing', 'error')
     isProcessing.value = false
+    modalStep.value = 'input'
   }
 }
 
@@ -469,26 +471,6 @@ function removeSkill(skill) {
   if (profile.value) {
     profile.value.extracted_skills = profile.value.extracted_skills.filter((s) => s !== skill)
     saveProfileField({ extracted_skills: profile.value.extracted_skills })
-  }
-}
-
-// Core competencies management
-function addCompetency() {
-  const comp = newCompetencyInput.value.trim()
-  if (comp && profile.value) {
-    if (!profile.value.core_competencies) profile.value.core_competencies = []
-    if (!profile.value.core_competencies.includes(comp)) {
-      profile.value.core_competencies.push(comp)
-      newCompetencyInput.value = ''
-      saveProfileField({ core_competencies: profile.value.core_competencies })
-    }
-  }
-}
-
-function removeCompetency(comp) {
-  if (profile.value?.core_competencies) {
-    profile.value.core_competencies = profile.value.core_competencies.filter((c) => c !== comp)
-    saveProfileField({ core_competencies: profile.value.core_competencies })
   }
 }
 
@@ -576,7 +558,7 @@ async function saveProfileField(patchData) {
 
 async function deleteProfile() {
   if (!profile.value) return
-  if (!confirm('Are you sure you want to delete your active candidate profile? All extracted competencies will be reset.')) return
+  if (!confirm('Are you sure you want to delete your active candidate profile? All extracted skills and experience breakdown will be reset.')) return
 
   isDeleting.value = true
   try {
@@ -631,6 +613,7 @@ onMounted(async () => {
       <div class="header-actions">
         <button
           class="btn btn-secondary btn-sm"
+          :disabled="isProcessing"
           @click="openCvModal"
         >
           <FileText :size="14" />
@@ -640,7 +623,7 @@ onMounted(async () => {
         <button
           v-if="profile"
           class="btn btn-ghost btn-sm text-danger"
-          :disabled="isDeleting"
+          :disabled="isDeleting || isProcessing"
           @click="deleteProfile"
           title="Remove candidate profile"
         >
@@ -651,9 +634,107 @@ onMounted(async () => {
     </div>
 
     <!-- =================================================================== -->
-    <!-- ACTIVE PROFILE MAIN WORKSPACE (FULL WIDTH SPACIOUS LAYOUT)          -->
+    <!-- 1. ACTIVE IN-FLIGHT CV EXTRACTION WORKSPACE (FULL-PAGE STEPPER)     -->
     <!-- =================================================================== -->
-    <div v-if="profile" class="profile-main-layout animate-fade-in">
+    <div v-if="isProcessing" class="processing-profile-layout animate-fade-in">
+      <div class="processing-card">
+        <div class="processing-card-header">
+          <div class="processing-avatar">
+            <Loader2 class="animate-spin text-primary" :size="28" />
+          </div>
+          <div class="processing-meta-text">
+            <div class="processing-title-row">
+              <h2 class="processing-title">Processing Candidate Resume / CV</h2>
+              <span class="task-status-pill pill-processing">
+                <Loader2 class="animate-spin" :size="10" />
+                <span>{{ currentTaskStage || currentTaskStatus }}</span>
+              </span>
+              <span class="task-id-badge">Task #{{ currentTaskId || '...' }}</span>
+            </div>
+            <p class="processing-sub">
+              De-identifying personal identifiers, extracting canonical technical skills, and calculating domain experience breakdown in the background queue.
+            </p>
+          </div>
+        </div>
+
+        <!-- Dedicated Pipeline Stepper Component -->
+        <div class="task-pipeline-container">
+          <div class="pipeline-stepper cv-stepper">
+            <div
+              class="stepper-node"
+              :class="{
+                active: currentTaskStage === 'SCRUBBING',
+                done: ['EXTRACTING', 'SAVING', 'COMPLETE'].includes(currentTaskStage) || currentTaskStatus === 'COMPLETED',
+              }"
+            >
+              <div class="node-bullet">1</div>
+              <span class="node-label">PII Scrubbing</span>
+            </div>
+
+            <div
+              class="stepper-node"
+              :class="{
+                active: currentTaskStage === 'EXTRACTING',
+                done: ['SAVING', 'COMPLETE'].includes(currentTaskStage) || currentTaskStatus === 'COMPLETED',
+              }"
+            >
+              <div class="node-bullet">2</div>
+              <span class="node-label">Extracting Skills</span>
+            </div>
+
+            <div
+              class="stepper-node"
+              :class="{
+                active: currentTaskStage === 'SAVING',
+                done: currentTaskStage === 'COMPLETE' || currentTaskStatus === 'COMPLETED',
+              }"
+            >
+              <div class="node-bullet">3</div>
+              <span class="node-label">Saving Profile</span>
+            </div>
+
+            <div
+              class="stepper-node"
+              :class="{
+                done: currentTaskStage === 'COMPLETE' || currentTaskStatus === 'COMPLETED',
+              }"
+            >
+              <div class="node-bullet">4</div>
+              <span class="node-label">Profile Ready</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer Actions -->
+        <div class="processing-actions-row">
+          <button
+            v-if="currentTaskId"
+            type="button"
+            class="btn btn-secondary btn-sm text-danger"
+            :disabled="isCancelling"
+            title="Cancel in-flight CV extraction"
+            @click="stopCurrentTask"
+          >
+            <Loader2 v-if="isCancelling" class="animate-spin" :size="13" />
+            <Square v-else :size="13" />
+            <span>{{ isCancelling ? 'Stopping...' : 'Cancel Task' }}</span>
+          </button>
+
+          <router-link
+            to="/queue"
+            class="btn btn-primary btn-sm"
+          >
+            <Cpu :size="14" />
+            <span>Open AI Queue &rarr;</span>
+          </router-link>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- 2. ACTIVE PROFILE MAIN WORKSPACE (FULL WIDTH SPACIOUS LAYOUT)       -->
+    <!-- =================================================================== -->
+    <div v-else-if="profile" class="profile-main-layout animate-fade-in">
       <!-- 1. Top Hero Overview Card -->
       <div class="hero-overview-card">
         <div class="hero-top-row">
@@ -839,44 +920,8 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- 3. Technical Skills & Core Competencies Split -->
+      <!-- 3. Technical Skills & Spoken Languages -->
       <div class="skills-competencies-grid">
-        <!-- Core Competencies -->
-        <div class="content-card">
-          <div class="card-header-clean">
-            <div>
-              <h3 class="card-title">Core Competencies</h3>
-              <p class="card-sub">Top standout technical and leadership strengths.</p>
-            </div>
-          </div>
-
-          <div class="chip-cloud">
-            <span
-              v-for="comp in (profile.core_competencies || [])"
-              :key="comp"
-              class="tag-chip comp-chip"
-            >
-              <span>{{ comp }}</span>
-              <button class="chip-remove-btn" @click="removeCompetency(comp)">
-                <X :size="11" />
-              </button>
-            </span>
-          </div>
-
-          <div class="add-chip-row">
-            <input
-              v-model="newCompetencyInput"
-              type="text"
-              placeholder="+ Add competency..."
-              class="form-input text-xs flex-1"
-              @keyup.enter="addCompetency"
-            />
-            <button class="btn btn-ghost btn-xs" :disabled="!newCompetencyInput.trim()" @click="addCompetency">
-              <Plus :size="12" />
-            </button>
-          </div>
-        </div>
-
         <!-- Canonical Skills Cloud -->
         <div class="content-card">
           <div class="card-header-clean">
@@ -963,9 +1008,9 @@ onMounted(async () => {
     </div>
 
     <!-- =================================================================== -->
-    <!-- EMPTY STATE (NO PROFILE YET)                                       -->
+    <!-- 3. EMPTY STATE (NO PROFILE YET)                                     -->
     <!-- =================================================================== -->
-    <div v-else-if="!isProcessing" class="empty-profile-layout">
+    <div v-else class="empty-profile-layout animate-fade-in">
       <div class="empty-card">
         <ShieldCheck :size="42" class="text-primary" />
         <h2 class="empty-title">No Candidate Profile Active</h2>
@@ -1055,62 +1100,74 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- Queue Processing Stepper Card -->
-          <div v-if="isProcessing" class="queue-progress-card animate-fade-in mt-2">
-            <div class="queue-progress-header">
-              <div class="queue-status-title">
-                <Loader2 class="animate-spin text-primary" :size="16" />
-                <span>Processing in AI Queue (Task #{{ currentTaskId || '...' }})</span>
-              </div>
-              <div class="flex items-center gap-2">
-                <span class="queue-stage-badge">{{ currentTaskStage }}</span>
-                <button
-                  v-if="currentTaskId"
-                  type="button"
-                  class="btn btn-danger btn-xs"
-                  :disabled="isCancelling"
-                  title="Stop in-flight AI processing"
-                  @click="stopCurrentTask"
-                >
-                  <Loader2 v-if="isCancelling" class="animate-spin" :size="11" />
-                  <Square v-else :size="11" />
-                  <span>{{ isCancelling ? 'Stopping...' : 'Stop' }}</span>
-                </button>
-              </div>
-            </div>
-
-            <div class="stepper-track">
-              <div
-                class="stepper-step"
-                :class="{
-                  active: currentTaskStage === 'SCRUBBING',
-                  complete: ['EXTRACTING', 'SAVING', 'COMPLETE'].includes(currentTaskStage),
-                }"
-              >
-                <div class="step-dot">1</div>
-                <span class="step-label">Sanitizing</span>
+          <!-- Step 3: Queue Processing Stepper View -->
+          <div v-else-if="modalStep === 'processing'" class="modal-step-container animate-fade-in">
+            <div class="processing-card modal-processing-card">
+              <div class="processing-card-header">
+                <div class="processing-avatar">
+                  <Loader2 class="animate-spin text-primary" :size="28" />
+                </div>
+                <div class="processing-meta-text">
+                  <div class="processing-title-row">
+                    <h2 class="processing-title">Processing Candidate Resume / CV</h2>
+                    <span class="task-status-pill pill-processing">
+                      <Loader2 class="animate-spin" :size="10" />
+                      <span>{{ currentTaskStage || currentTaskStatus }}</span>
+                    </span>
+                    <span class="task-id-badge">Task #{{ currentTaskId || '...' }}</span>
+                  </div>
+                  <p class="processing-sub">
+                    De-identifying personal identifiers, extracting canonical technical skills, and calculating domain experience breakdown in the background queue.
+                  </p>
+                </div>
               </div>
 
-              <div
-                class="stepper-step"
-                :class="{
-                  active: currentTaskStage === 'EXTRACTING',
-                  complete: ['SAVING', 'COMPLETE'].includes(currentTaskStage),
-                }"
-              >
-                <div class="step-dot">2</div>
-                <span class="step-label">AI Extraction</span>
-              </div>
+              <!-- Dedicated Pipeline Stepper Component -->
+              <div class="task-pipeline-container">
+                <div class="pipeline-stepper cv-stepper">
+                  <div
+                    class="stepper-node"
+                    :class="{
+                      active: currentTaskStage === 'SCRUBBING',
+                      done: ['EXTRACTING', 'SAVING', 'COMPLETE'].includes(currentTaskStage) || currentTaskStatus === 'COMPLETED',
+                    }"
+                  >
+                    <div class="node-bullet">1</div>
+                    <span class="node-label">PII Scrubbing</span>
+                  </div>
 
-              <div
-                class="stepper-step"
-                :class="{
-                  active: currentTaskStage === 'SAVING',
-                  complete: currentTaskStage === 'COMPLETE',
-                }"
-              >
-                <div class="step-dot">3</div>
-                <span class="step-label">Profile Activation</span>
+                  <div
+                    class="stepper-node"
+                    :class="{
+                      active: currentTaskStage === 'EXTRACTING',
+                      done: ['SAVING', 'COMPLETE'].includes(currentTaskStage) || currentTaskStatus === 'COMPLETED',
+                    }"
+                  >
+                    <div class="node-bullet">2</div>
+                    <span class="node-label">Extracting Skills</span>
+                  </div>
+
+                  <div
+                    class="stepper-node"
+                    :class="{
+                      active: currentTaskStage === 'SAVING',
+                      done: currentTaskStage === 'COMPLETE' || currentTaskStatus === 'COMPLETED',
+                    }"
+                  >
+                    <div class="node-bullet">3</div>
+                    <span class="node-label">Saving Profile</span>
+                  </div>
+
+                  <div
+                    class="stepper-node"
+                    :class="{
+                      done: currentTaskStage === 'COMPLETE' || currentTaskStatus === 'COMPLETED',
+                    }"
+                  >
+                    <div class="node-bullet">4</div>
+                    <span class="node-label">Profile Ready</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1148,6 +1205,38 @@ onMounted(async () => {
               <Sparkles v-else :size="15" />
               <span>{{ isProcessing ? 'Processing in Queue...' : 'Continue & Analyze' }}</span>
             </button>
+          </template>
+
+          <!-- Step 3 (Processing in Queue) Footer -->
+          <template v-else-if="modalStep === 'processing'">
+            <button
+              v-if="currentTaskId"
+              type="button"
+              class="btn btn-secondary btn-sm text-danger"
+              :disabled="isCancelling"
+              title="Cancel in-flight CV extraction"
+              @click="stopCurrentTask"
+            >
+              <Loader2 v-if="isCancelling" class="animate-spin" :size="13" />
+              <Square v-else :size="13" />
+              <span>{{ isCancelling ? 'Stopping...' : 'Cancel Task' }}</span>
+            </button>
+
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              @click="showCvModal = false; uiStore.showToast('CV extraction is running in the background queue.', 'info')"
+            >
+              <span>Run in Background</span>
+            </button>
+            <router-link
+              to="/queue"
+              class="btn btn-primary btn-sm"
+              @click="showCvModal = false"
+            >
+              <Cpu :size="14" />
+              <span>Open AI Queue &rarr;</span>
+            </router-link>
           </template>
         </div>
       </div>
@@ -1312,95 +1401,194 @@ onMounted(async () => {
   padding: 10px 12px;
 }
 
-/* Queue Progress Stepper */
-.queue-progress-card {
-  background-color: var(--bg-main);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
+/* Processing Profile Layout (Full-Page Stepper Card) */
+.processing-profile-layout {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  min-height: 380px;
+  padding: 32px 0;
 }
 
-.queue-progress-header {
+.processing-card {
+  width: 100%;
+  max-width: 780px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 28px;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 24px;
+  box-shadow: var(--shadow-sm);
 }
 
-.queue-status-title {
+.processing-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.processing-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background-color: var(--primary-subtle);
+  border: 1px solid var(--primary);
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.processing-meta-text {
+  flex: 1;
+}
+
+.processing-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.processing-title {
+  font-size: 18px;
+  font-weight: 700;
   color: var(--text-main);
+  margin: 0;
 }
 
-.queue-stage-badge {
+.processing-sub {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.task-id-badge {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  background-color: var(--bg-main);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+}
+
+.task-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.pill-processing {
+  background-color: var(--primary-subtle);
   color: var(--primary);
+  border: 1px solid var(--primary);
 }
 
-.stepper-track {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-
-.stepper-step {
+.processing-actions-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  opacity: 0.4;
-  transition: all var(--transition-fast);
+  justify-content: flex-end;
+  gap: 12px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 16px;
 }
 
-.stepper-step.active {
-  opacity: 1;
-  font-weight: 600;
-  color: var(--primary);
-}
-
-.stepper-step.complete {
-  opacity: 0.9;
-  color: var(--text-success);
-}
-
-.step-dot {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background-color: var(--bg-elevated);
+/* Stepper Component */
+.task-pipeline-container {
+  padding: 14px 18px;
+  background-color: var(--bg-main);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.pipeline-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+}
+
+.pipeline-stepper::before {
+  content: '';
+  position: absolute;
+  top: 11px;
+  left: 20px;
+  right: 20px;
+  height: 2px;
+  background-color: var(--border-color);
+  z-index: 1;
+}
+
+.stepper-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  z-index: 2;
+}
+
+.node-bullet {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background-color: var(--bg-card);
+  border: 2px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 10px;
   font-weight: 700;
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
 }
 
-.stepper-step.active .step-dot {
-  background-color: var(--primary);
-  color: #fff;
-  border-color: var(--primary);
-}
-
-.stepper-step.complete .step-dot {
-  background-color: var(--text-success);
-  color: #fff;
-  border-color: var(--text-success);
-}
-
-.step-label {
+.node-label {
   font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.stepper-node.active .node-bullet {
+  border-color: var(--primary);
+  background-color: var(--primary);
+  color: #ffffff;
+  box-shadow: 0 0 8px var(--primary-glow);
+}
+
+.stepper-node.active .node-label {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.stepper-node.done .node-bullet {
+  border-color: var(--status-offer-text);
+  background-color: var(--status-offer-bg);
+  color: var(--status-offer-text);
+}
+
+.stepper-node.done .node-label {
+  color: var(--text-main);
+}
+
+.modal-processing-card {
+  box-shadow: none;
+  border: none;
+  padding: 8px 0;
+  background-color: transparent;
+  max-width: 100%;
 }
 
 /* =================================================================== */
@@ -1509,6 +1697,13 @@ onMounted(async () => {
 .counter-val {
   font-size: 15px;
   color: var(--text-main);
+  min-width: 68px;
+  width: 68px;
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .counter-unit {
@@ -1759,13 +1954,6 @@ onMounted(async () => {
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   font-size: 12px;
-}
-
-.comp-chip {
-  background-color: var(--primary-subtle);
-  border: 1px solid var(--primary);
-  color: var(--primary);
-  font-weight: 500;
 }
 
 .skill-chip {

@@ -176,7 +176,6 @@ async def test_role_alignment_dossier_flow(db_session: AsyncSession, monkeypatch
         extracted_skills=["Python", "FastAPI", "PostgreSQL", "Kafka"],
         years_of_experience=10.0,
         domain_expertise=["Distributed Systems"],
-        core_competencies=["System Architecture"],
         summary="Experienced Staff Backend Engineer",
     )
     db_session.add(cv)

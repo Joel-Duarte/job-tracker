@@ -231,12 +231,6 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
                 "description": "Kafka stream processing, Redis caching, async pipelines",
             },
         ],
-        core_competencies=[
-            "High-Throughput Backend Architecture",
-            "Relational Database Performance Optimization",
-            "Fault-Tolerant Distributed Consensus",
-            "Full-Stack Web App Development (Vue 3 + FastAPI)",
-        ],
         spoken_languages=[
             {"language": "English", "proficiency": "Native"},
             {"language": "Spanish", "proficiency": "Working Proficiency (B2)"},

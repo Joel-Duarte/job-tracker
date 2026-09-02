@@ -24,9 +24,6 @@ class CandidateCVModel(Base):
     domain_experience: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, server_default=text("'[]'::jsonb")
     )
-    core_competencies: Mapped[list[str]] = mapped_column(
-        JSONB, server_default=text("'[]'::jsonb")
-    )
     spoken_languages: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, server_default=text("'[]'::jsonb")
     )

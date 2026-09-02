@@ -200,7 +200,6 @@ DEFAULT_PROMPTS = {
         "- Total Verified Professional Experience: {candidate_years_of_experience}\n"
         "- Verified Technical Skills: {candidate_skills}\n"
         "- Active Domain Experience & Years: {candidate_domain_breakdown}\n"
-        "- Core Competencies: {candidate_core_competencies}\n"
         "- Spoken Languages: {candidate_spoken_languages}\n\n"
         "[CANDIDATE CV / RESUME CONTEXT]:\n<untrusted_candidate_cv>\n{candidate_cv}\n</untrusted_candidate_cv>\n\n"
         "Generate a complete structured evaluation with match_summary, critical_risks, seniority_fit, hard_matches, optimization_gaps, tailoring_strategy, language_match, and markdown_report."
@@ -219,12 +218,11 @@ DEFAULT_PROMPTS = {
         "--------------------------------------------------\n"
         "METADATA EXTRACTION RULES\n"
         "--------------------------------------------------\n"
-        "- Extract an array of individual, atomic technical skills, libraries, frameworks, tools, and competencies (e.g. return 'CI/CD', 'AWS', 'Docker', 'PostgreSQL' rather than compound or descriptive phrases like 'CI/CD pipelines for automated deployments' or 'AWS (EC2, S3)'). Do not include parenthetical explanations, seniority descriptors, or filler words.\n"
+        "- Extract an array of individual, atomic technical skills, libraries, frameworks, tools, and methodologies (e.g. return 'CI/CD', 'AWS', 'Docker', 'PostgreSQL' rather than compound or descriptive phrases like 'CI/CD pipelines for automated deployments' or 'AWS (EC2, S3)'). Do not include parenthetical explanations, seniority descriptors, or filler words.\n"
         "- Extract industry domain expertise tags.\n"
         "- Calculate total cumulative years of professional experience.\n"
         "- Extract granular domain_breakdown with realistic estimated years per specialization (e.g. Backend Systems with 5.0 years, Fintech with 3.0 years).\n"
-        "- Extract 4-6 standout core competencies.\n"
-        "- Extract spoken_languages: Array of natural/spoken languages and proficiencies (e.g. [{'language': 'English', 'proficiency': 'Native'}, {'language': 'German', 'proficiency': 'B2'}]). If no proficiency is specified, default to 'Fluent'.\n"
+        "- Extract spoken_languages: Array of natural/spoken languages and proficiencies (e.g. [{{'language': 'English', 'proficiency': 'Native'}}, {{'language': 'German', 'proficiency': 'B2'}}]). If no proficiency is specified, default to 'Fluent'.\n"
         "- Provide a concise executive candidate summary.\n\n"
         "--------------------------------------------------\n"
         "INPUT DATA\n"
@@ -541,6 +539,10 @@ async def seed_default_prompts(session: AsyncSession) -> None:
         elif prompt_name == "cv_anonymization" and (
             "{'domain'}" in (existing.template or "")
             or "{'domain" in (existing.template or "")
+            or "{'language'}" in (existing.template or "")
+            or "{'language" in (existing.template or "")
+            or "Core Competencies" in (existing.template or "")
+            or "core competencies" in (existing.template or "")
         ):
             # Auto-heal legacy prompt with unescaped braces
             existing.template = default_template
@@ -592,7 +594,12 @@ async def get_prompt_template(
     res_template = ""
     if template:
         if prompt_name == "cv_anonymization" and (
-            "{'domain'}" in template or "{'domain" in template
+            "{'domain'}" in template
+            or "{'domain" in template
+            or "{'language'}" in template
+            or "{'language" in template
+            or "Core Competencies" in template
+            or "core competencies" in template
         ):
             res_template = DEFAULT_PROMPTS["cv_anonymization"]
         elif prompt_name in ["email_extraction", "extraction"] and (

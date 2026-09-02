@@ -131,7 +131,6 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
             ),
             DomainExperienceItem(domain="Fintech", years=3.5, is_active=True),
         ],
-        core_competencies=["Distributed Billing Pipelines", "High-Throughput APIs"],
         spoken_languages=[
             {"language": "English", "proficiency": "Native"},
             {"language": "Spanish", "proficiency": "B2"},
@@ -180,10 +179,6 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
             assert active_data["domain_experience"][0]["years"] == 5.0
             assert active_data["domain_experience"][0]["is_active"] is True
             assert "[Fintech Enterprise]" in active_data["anonymized_text"]
-            assert active_data["core_competencies"] == [
-                "Distributed Billing Pipelines",
-                "High-Throughput APIs",
-            ]
             assert len(active_data["spoken_languages"]) == 2
             assert active_data["spoken_languages"][0]["language"] == "English"
             assert active_data["spoken_languages"][0]["proficiency"] == "Native"
@@ -194,7 +189,6 @@ async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession
                 json={
                     "years_of_experience": 7.0,
                     "anonymized_text": "Updated Custom Sanitized CV",
-                    "core_competencies": ["Distributed Systems", "Cloud Architecture"],
                     "spoken_languages": [
                         {"language": "English", "proficiency": "Native"},
                         {"language": "German", "proficiency": "C1"},
@@ -371,14 +365,12 @@ async def test_assess_job_posting_forwards_authoritative_candidate_profile(
             candidate_domain_breakdown="Distributed Systems (4.0 yrs)",
             candidate_spoken_languages="English (Native)",
             candidate_years_of_experience=4.0,
-            candidate_core_competencies=["Fault-Tolerant Consensus", "Async Messaging"],
             programmatic_baseline=90,
         )
 
         assert res.fit_score == 95
         prompt_text = captured_inputs.to_string()
         assert "Total Verified Professional Experience: 4.0 years" in prompt_text
-        assert "Fault-Tolerant Consensus" in prompt_text
         assert "Python, Go, Distributed Systems" in prompt_text
         assert "Distributed Systems (4.0 yrs)" in prompt_text
         assert "Authoritative Candidate Profile Priority" in prompt_text
@@ -444,3 +436,47 @@ def test_calibrate_assessment_score_and_recommendation_bounds():
     )
     assert score == 35
     assert rec == "DO_NOT_APPLY"
+
+
+@pytest.mark.asyncio
+async def test_cv_anonymization_prompt_template_variables(db_session):
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.runnables import RunnableLambda
+
+    from app.core.prompts import DEFAULT_PROMPTS, get_prompt_template
+    from app.schemas.candidate_profile import CVAnonymizationResult
+    from app.services.llm import anonymize_and_parse_cv
+
+    template_str = await get_prompt_template(db_session, "cv_anonymization")
+    prompt = ChatPromptTemplate.from_template(template_str)
+    assert prompt.input_variables == ["resume_text"]
+
+    # Also test DEFAULT_PROMPTS directly
+    default_prompt = ChatPromptTemplate.from_template(
+        DEFAULT_PROMPTS["cv_anonymization"]
+    )
+    assert default_prompt.input_variables == ["resume_text"]
+
+    # Verify chain invocation with mock model
+    mock_parsed = CVAnonymizationResult(
+        anonymized_resume="[Candidate] Software Engineer",
+        extracted_skills=["Python", "PostgreSQL"],
+        total_years_experience=5.0,
+        domain_expertise=["Backend"],
+        domain_breakdown=[],
+        spoken_languages=[{"language": "English", "proficiency": "Native"}],
+        summary="Senior Backend Engineer",
+    )
+
+    with patch("app.services.llm.get_task_chat_model") as mock_get_chat:
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value = RunnableLambda(
+            lambda x: mock_parsed
+        )
+        mock_get_chat.return_value = mock_llm
+
+        res = await anonymize_and_parse_cv(
+            db_session, "Sample resume content text here for testing"
+        )
+        assert res.total_years_experience == 5.0
+        assert "Python" in res.extracted_skills

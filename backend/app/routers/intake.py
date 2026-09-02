@@ -496,7 +496,6 @@ async def assess_job_lead(
         candidate_years_of_experience=active_cv.years_of_experience
         if active_cv
         else None,
-        candidate_core_competencies=active_cv.core_competencies if active_cv else None,
         programmatic_baseline=match_info.get("programmatic_score"),
         matched_skills_count=match_info.get("matched_count"),
         total_required_skills_count=match_info.get("total_required_count"),

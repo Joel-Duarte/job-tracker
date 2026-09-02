@@ -161,7 +161,14 @@ function getTaskDisplayTitle(task) {
   if (task.result_json?.company && task.result_json?.position) {
     return `${task.result_json.company} - ${task.result_json.position}`
   }
-  return task.title_hint || task.job_url || `Task #${task.id}`
+  return task.title_hint || (task.job_url ? formatLeadUrl(task.job_url, 80) : '') || `Task #${task.id}`
+}
+
+function formatLeadUrl(url, maxChars = 80) {
+  if (!url) return ''
+  const str = String(url).trim()
+  if (str.length <= maxChars) return str
+  return str.slice(0, maxChars) + '...'
 }
 
 function getTaskTypeIcon(type) {
@@ -812,9 +819,15 @@ onMounted(() => {
 
           <!-- URL / Source Bar if available -->
           <div v-if="task.job_url" class="task-source-row">
-            <a :href="task.job_url" target="_blank" rel="noopener noreferrer" class="task-source-link">
-              <ExternalLink :size="11" />
-              <span>{{ task.job_url }}</span>
+            <a
+              :href="task.job_url"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="task-source-link"
+              :title="task.job_url"
+            >
+              <ExternalLink :size="11" class="shrink-0" />
+              <span>{{ formatLeadUrl(task.job_url, 80) }}</span>
             </a>
           </div>
 
@@ -2200,6 +2213,8 @@ onMounted(() => {
 .task-source-row {
   display: flex;
   align-items: center;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .task-source-link {
@@ -2210,6 +2225,16 @@ onMounted(() => {
   color: var(--primary);
   text-decoration: none;
   font-family: var(--font-mono);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-source-link span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .task-source-link:hover {

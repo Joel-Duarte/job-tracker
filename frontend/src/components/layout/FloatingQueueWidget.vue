@@ -141,7 +141,8 @@ function getTaskDisplayTitle(task) {
   if (task.result_json?.company && task.result_json?.position) {
     return `${task.result_json.company} - ${task.result_json.position}`
   }
-  return task.title_hint || task.job_url || `Task #${task.id}`
+  const fallbackUrl = task.job_url ? (task.job_url.length > 80 ? task.job_url.slice(0, 80) + '...' : task.job_url) : ''
+  return task.title_hint || fallbackUrl || `Task #${task.id}`
 }
 
 function getTaskTypeIcon(type) {

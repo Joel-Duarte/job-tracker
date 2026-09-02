@@ -390,7 +390,6 @@ async def _execute_cv_extraction_steps(
             years_of_experience=total_years,
             domain_expertise=domain_expertise,
             domain_experience=raw_breakdown,
-            core_competencies=extracted_data.get("core_competencies") or [],
             spoken_languages=raw_spoken_languages,
             summary=extracted_data.get("summary"),
         )
@@ -962,9 +961,6 @@ async def _execute_evaluation_steps(
                 candidate_years_of_experience = (
                     active_cv.years_of_experience if active_cv else None
                 )
-                candidate_core_competencies = (
-                    active_cv.core_competencies if active_cv else None
-                )
 
                 checkpoint["match_info"] = match_info
                 checkpoint["candidate_skills"] = candidate_skills
@@ -974,7 +970,6 @@ async def _execute_evaluation_steps(
                 checkpoint["candidate_years_of_experience"] = (
                     candidate_years_of_experience
                 )
-                checkpoint["candidate_core_competencies"] = candidate_core_competencies
                 current_json["_checkpoint"] = checkpoint
                 task.result_json = dict(current_json)
                 flag_modified(task, "result_json")
@@ -993,9 +988,6 @@ async def _execute_evaluation_steps(
                 candidate_spoken_languages=checkpoint.get("candidate_spoken_langs_str"),
                 candidate_years_of_experience=checkpoint.get(
                     "candidate_years_of_experience"
-                ),
-                candidate_core_competencies=checkpoint.get(
-                    "candidate_core_competencies"
                 ),
                 programmatic_baseline=match_info.get("programmatic_score"),
                 matched_skills_count=match_info.get("matched_count"),

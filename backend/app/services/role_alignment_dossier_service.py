@@ -173,7 +173,6 @@ async def enhance_role_alignment_dossier(
         "years_of_experience": cv.years_of_experience,
         "extracted_skills": cv.extracted_skills or [],
         "domain_expertise": cv.domain_expertise or [],
-        "core_competencies": cv.core_competencies or [],
         "summary": cv.summary or "",
         "raw_text_snippet": cv.raw_text[:2500] if cv.raw_text else "",
     }
