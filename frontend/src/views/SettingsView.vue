@@ -2621,33 +2621,15 @@ onUnmounted(() => {
             <transition name="accordion-fade">
               <div v-show="isEmbeddingsOpen" class="advanced-overrides-content">
                 <div class="studio-card">
-                  <!-- Dimension & Model Presets Segmented Selector -->
-                  <div class="dimension-preset-box mb-4">
-                    <span class="dimension-preset-label">Standard Model &amp; Dimension Presets:</span>
-                    <div class="dimension-presets-list">
-                      <button
-                        v-for="p in EMBEDDING_PRESETS"
-                        :key="p.name"
-                        type="button"
-                        class="dimension-preset-pill font-mono"
-                        :class="{ active: embeddingForm.embedding_dimensions === p.dims }"
-                        :disabled="!enableEmbeddings"
-                        @click="applyEmbeddingPreset(p)"
-                        :title="p.desc"
-                      >
-                        <Check v-if="embeddingForm.embedding_dimensions === p.dims" :size="11" />
-                        <span>{{ p.name }} ({{ p.dims }}d)</span>
-                      </button>
-                    </div>
-                  </div>
-
                   <div :class="{ 'opacity-50 pointer-events-none': !enableEmbeddings }">
                     <div class="form-grid-2 mb-3">
                       <div class="input-group">
-                        <label class="input-label">Embedding AI Provider *</label>
+                        <div class="label-with-hint">
+                          <label class="input-label">Embedding AI Provider *</label>
+                        </div>
                         <select
                           v-model="embeddingForm.provider_id"
-                          class="form-select"
+                          class="form-input"
                           :disabled="!enableEmbeddings"
                           @change="onEmbeddingProviderChange"
                         >
@@ -2708,7 +2690,9 @@ onUnmounted(() => {
 
                     <div class="form-grid-2 mb-3">
                       <div class="input-group">
-                        <label class="input-label">Vector Dimensions</label>
+                        <div class="label-with-hint">
+                          <label class="input-label">Vector Dimensions</label>
+                        </div>
                         <input
                           v-model.number="embeddingForm.embedding_dimensions"
                           type="number"
@@ -2718,7 +2702,7 @@ onUnmounted(() => {
                           @input="scheduleEmbeddingAutoSave(600)"
                         />
                         <span class="preference-field-hint">
-                          Target pgvector storage dimensionality (768 for Nomic/BGE, 1536 for OpenAI/Cohere, 384 for MiniLM).
+                          Target pgvector storage dimensionality.
                         </span>
                       </div>
 
@@ -2727,7 +2711,8 @@ onUnmounted(() => {
                           <label class="input-label">Index Maintenance</label>
                         </div>
                         <button
-                          class="btn btn-secondary btn-sm w-full"
+                          class="btn btn-secondary w-full"
+                          style="height: 38px; min-height: 38px; max-height: 38px;"
                           :disabled="!enableEmbeddings || isReindexingEmbeddings"
                           @click="reindexMissingEmbeddings"
                         >
@@ -2735,16 +2720,23 @@ onUnmounted(() => {
                           <span>{{ isReindexingEmbeddings ? 'Re-indexing Embeddings...' : 'Rebuild Missing Embeddings' }}</span>
                         </button>
                         <span class="preference-field-hint">
-                          Backfills vector representations across all existing applications in PostgreSQL.
+                          Backfills vector representations across all existing applications.
                         </span>
                       </div>
                     </div>
 
                     <div class="reasoning-info-callout mt-2">
-                      <Cpu :size="13" class="text-primary flex-shrink-0" />
-                      <span>
-                        <strong>Dynamic pgvector Auto-Migration:</strong> Changing dimensions automatically updates the PostgreSQL column type. Click <em>Rebuild Missing Embeddings</em> to re-compute all existing vector records.
-                      </span>
+                      <div class="flex items-start gap-2.5">
+                        <Cpu :size="14" class="text-primary flex-shrink-0 mt-0.5" />
+                        <div class="flex flex-col gap-1.5 text-xs">
+                          <span>
+                            <strong>Dynamic pgvector Auto-Migration:</strong> Changing dimensions automatically updates the PostgreSQL column type. Click <em>Rebuild Missing Embeddings</em> to re-compute all existing vector records.
+                          </span>
+                          <span class="text-secondary leading-relaxed">
+                            <strong>Standard Model Dimensions:</strong> Nomic / BGE (768d) • OpenAI / Cohere (1536d) • MiniLM (384d) • Gemma / Google (300d).
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
