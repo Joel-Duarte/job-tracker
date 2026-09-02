@@ -581,6 +581,47 @@ function scheduleEmbeddingAutoSave(delay = 500) {
   }, delay)
 }
 
+const EMBEDDING_PRESETS = [
+  {
+    name: 'Nomic / BGE',
+    dims: 768,
+    model: 'nomic-embed-text',
+    desc: 'Local & Cloud Default (768d)',
+  },
+  {
+    name: 'OpenAI / Cohere',
+    dims: 1536,
+    model: 'text-embedding-3-small',
+    desc: 'Cloud High-Accuracy (1536d)',
+  },
+  {
+    name: 'MiniLM',
+    dims: 384,
+    model: 'all-MiniLM-L6-v2',
+    desc: 'Ultra-Lightweight (384d)',
+  },
+  {
+    name: 'Gemma / Google',
+    dims: 300,
+    model: 'embeddinggemma-300m',
+    desc: 'Google On-Device (300d)',
+  },
+]
+
+function applyEmbeddingPreset(preset) {
+  embeddingForm.value.embedding_dimensions = preset.dims
+  if (
+    !embeddingForm.value.model_name ||
+    embeddingForm.value.model_name === 'nomic-embed-text' ||
+    embeddingForm.value.model_name === 'text-embedding-3-small' ||
+    embeddingForm.value.model_name === 'all-MiniLM-L6-v2' ||
+    embeddingForm.value.model_name === 'embeddinggemma-300m'
+  ) {
+    embeddingForm.value.model_name = preset.model
+  }
+  scheduleEmbeddingAutoSave(100)
+}
+
 function selectEmbeddingSuggestedModel(modelId) {
   embeddingForm.value.model_name = modelId
   scheduleEmbeddingAutoSave(50)
@@ -2563,7 +2604,7 @@ onUnmounted(() => {
                   {{ enableEmbeddings ? `Active (${embeddingForm.model_name || 'nomic-embed-text'})` : 'Disabled' }}
                 </span>
               </div>
-              <div class="flex items-center gap-3" @click.stop>
+              <div class="flex items-center gap-4" @click.stop>
                 <label class="switch-toggle" title="Toggle Vector Embeddings generation">
                   <input
                     type="checkbox"
@@ -2580,21 +2621,25 @@ onUnmounted(() => {
             <transition name="accordion-fade">
               <div v-show="isEmbeddingsOpen" class="advanced-overrides-content">
                 <div class="studio-card">
-                  <!-- Task Recommendation Badges (Matching Studio Task Headers) -->
-                  <div class="task-badge-row mb-3">
-                    <span class="rec-temp-chip">
-                      <Cpu :size="11" />
-                      <span>Recommended Model: nomic-embed-text (or text-embedding-3-small)</span>
-                    </span>
-                    <span class="rec-temp-chip">
-                      <Zap :size="11" />
-                      <span>Recommended Dimensions: 768 dimensions</span>
-                    </span>
+                  <!-- Dimension & Model Presets Segmented Selector -->
+                  <div class="dimension-preset-box mb-4">
+                    <span class="dimension-preset-label">Standard Model &amp; Dimension Presets:</span>
+                    <div class="dimension-presets-list">
+                      <button
+                        v-for="p in EMBEDDING_PRESETS"
+                        :key="p.name"
+                        type="button"
+                        class="dimension-preset-pill font-mono"
+                        :class="{ active: embeddingForm.embedding_dimensions === p.dims }"
+                        :disabled="!enableEmbeddings"
+                        @click="applyEmbeddingPreset(p)"
+                        :title="p.desc"
+                      >
+                        <Check v-if="embeddingForm.embedding_dimensions === p.dims" :size="11" />
+                        <span>{{ p.name }} ({{ p.dims }}d)</span>
+                      </button>
+                    </div>
                   </div>
-
-                  <p class="text-xs text-secondary mb-4 leading-relaxed">
-                    Generates dense vector embeddings for semantic job description similarity matching, candidate profile auditing, and cosine search across PostgreSQL.
-                  </p>
 
                   <div :class="{ 'opacity-50 pointer-events-none': !enableEmbeddings }">
                     <div class="form-grid-2 mb-3">
@@ -2645,7 +2690,7 @@ onUnmounted(() => {
                     <!-- Quick Pick Discovered Embedding Model Chips -->
                     <div v-if="embeddingProviderModels.length" class="model-suggestions-box mb-3">
                       <span class="suggestions-label">Discovered Embedding Models on Provider:</span>
-                      <div class="suggestions-list">
+                      <div class="suggestions-list max-h-24 overflow-y-auto">
                         <button
                           v-for="m in embeddingProviderModels"
                           :key="m.id"
@@ -2673,7 +2718,7 @@ onUnmounted(() => {
                           @input="scheduleEmbeddingAutoSave(600)"
                         />
                         <span class="preference-field-hint">
-                          Standard dimensionality for pgvector index cosine matching (e.g. 768 or 1536).
+                          Target pgvector storage dimensionality (768 for Nomic/BGE, 1536 for OpenAI/Cohere, 384 for MiniLM).
                         </span>
                       </div>
 
@@ -2698,7 +2743,7 @@ onUnmounted(() => {
                     <div class="reasoning-info-callout mt-2">
                       <Cpu :size="13" class="text-primary flex-shrink-0" />
                       <span>
-                        <strong>Intake Throughput Tip:</strong> Disabling vector embeddings allows raw job posts and emails to be ingested at maximum speed without waiting for local/cloud embedding generation passes.
+                        <strong>Dynamic pgvector Auto-Migration:</strong> Changing dimensions automatically updates the PostgreSQL column type. Click <em>Rebuild Missing Embeddings</em> to re-compute all existing vector records.
                       </span>
                     </div>
                   </div>
@@ -6000,6 +6045,59 @@ onUnmounted(() => {
 
 .advanced-overrides-content {
   margin-top: 16px;
+}
+
+.dimension-preset-box {
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dimension-preset-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.dimension-presets-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dimension-preset-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dimension-preset-pill:hover:not(:disabled) {
+  background-color: var(--bg-surface-hover);
+  border-color: var(--primary-subtle);
+  color: var(--text-main);
+}
+
+.dimension-preset-pill.active {
+  background-color: var(--bg-elevated);
+  border-color: var(--primary);
+  color: var(--primary);
+  font-weight: 700;
+  box-shadow: 0 0 0 1px var(--primary);
 }
 
 .use-global-checkbox {

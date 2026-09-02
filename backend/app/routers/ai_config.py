@@ -6,7 +6,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -951,6 +951,26 @@ async def set_ai_task_binding(
         binding.embedding_dimensions = payload.embedding_dimensions
         binding.extra_kwargs = extra
         binding.is_active = payload.is_active
+
+    if task_type_norm == "EMBEDDING" and payload.embedding_dimensions:
+        new_dims = int(payload.embedding_dimensions)
+        try:
+            # Safely check and alter pgvector column type
+            await db.execute(text("DROP INDEX IF EXISTS application_embeddings_idx"))
+            await db.execute(
+                text(
+                    f"ALTER TABLE application_embeddings ALTER COLUMN embedding TYPE vector({new_dims})"
+                )
+            )
+            await db.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS application_embeddings_idx ON application_embeddings USING hnsw (embedding vector_cosine_ops)"
+                )
+            )
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                f"Could not automatically alter pgvector embedding column dimension to {new_dims}: {e}"
+            )
 
     await db.commit()
     await db.refresh(binding)
