@@ -2554,37 +2554,47 @@ onUnmounted(() => {
           </div>
 
           <!-- VECTOR KNOWLEDGE & DENSE EMBEDDINGS ACCORDION -->
-          <div class="advanced-overrides-section mt-4">
+          <div class="advanced-overrides-section">
             <button class="advanced-toggle-btn" @click="isEmbeddingsOpen = !isEmbeddingsOpen">
               <div class="advanced-toggle-left">
                 <Cpu :size="16" class="text-primary" />
                 <span>Vector Knowledge &amp; Dense Embeddings (pgvector)</span>
-                <span class="sidebar-badge ml-2" :class="enableEmbeddings ? 'text-primary' : 'text-muted'">
+                <span class="sidebar-badge ml-2" :class="enableEmbeddings ? 'text-primary font-semibold' : 'text-muted'">
                   {{ enableEmbeddings ? `Active (${embeddingForm.model_name || 'nomic-embed-text'})` : 'Disabled' }}
                 </span>
               </div>
-              <ChevronDown :size="16" class="accordion-icon" :class="{ 'rotated': isEmbeddingsOpen }" />
+              <div class="flex items-center gap-3" @click.stop>
+                <label class="switch-toggle" title="Toggle Vector Embeddings generation">
+                  <input
+                    type="checkbox"
+                    :checked="enableEmbeddings"
+                    :disabled="isUpdatingEmbeddings"
+                    @change="toggleEmbeddings"
+                  />
+                  <span class="slider round"></span>
+                </label>
+                <ChevronDown :size="16" class="accordion-icon" :class="{ 'rotated': isEmbeddingsOpen }" @click="isEmbeddingsOpen = !isEmbeddingsOpen" />
+              </div>
             </button>
 
             <transition name="accordion-fade">
               <div v-show="isEmbeddingsOpen" class="advanced-overrides-content">
                 <div class="studio-card">
-                  <!-- Header with Enable/Disable Switch -->
-                  <div class="flex items-center justify-between pb-3 border-b border-subtle mb-4">
-                    <div>
-                      <h4 class="font-bold text-sm text-main">pgvector Dense Indexing</h4>
-                      <p class="text-xs text-muted mt-1">Dense vector representations for semantic job similarity search and candidate match analysis. When disabled, job intake completes faster without embedding latency.</p>
-                    </div>
-                    <label class="switch-toggle ml-4" title="Toggle Vector Embeddings generation">
-                      <input
-                        type="checkbox"
-                        :checked="enableEmbeddings"
-                        :disabled="isUpdatingEmbeddings"
-                        @change="toggleEmbeddings"
-                      />
-                      <span class="slider round"></span>
-                    </label>
+                  <!-- Task Recommendation Badges (Matching Studio Task Headers) -->
+                  <div class="task-badge-row mb-3">
+                    <span class="rec-temp-chip">
+                      <Cpu :size="11" />
+                      <span>Recommended Model: nomic-embed-text (or text-embedding-3-small)</span>
+                    </span>
+                    <span class="rec-temp-chip">
+                      <Zap :size="11" />
+                      <span>Recommended Dimensions: 768 dimensions</span>
+                    </span>
                   </div>
+
+                  <p class="text-xs text-secondary mb-4 leading-relaxed">
+                    Generates dense vector embeddings for semantic job description similarity matching, candidate profile auditing, and cosine search across PostgreSQL.
+                  </p>
 
                   <div :class="{ 'opacity-50 pointer-events-none': !enableEmbeddings }">
                     <div class="form-grid-2 mb-3">
@@ -2634,7 +2644,7 @@ onUnmounted(() => {
 
                     <!-- Quick Pick Discovered Embedding Model Chips -->
                     <div v-if="embeddingProviderModels.length" class="model-suggestions-box mb-3">
-                      <span class="suggestions-label">Discovered Embedding Models:</span>
+                      <span class="suggestions-label">Discovered Embedding Models on Provider:</span>
                       <div class="suggestions-list">
                         <button
                           v-for="m in embeddingProviderModels"
@@ -2651,7 +2661,7 @@ onUnmounted(() => {
                       </div>
                     </div>
 
-                    <div class="form-grid-2 mb-2">
+                    <div class="form-grid-2 mb-3">
                       <div class="input-group">
                         <label class="input-label">Vector Dimensions</label>
                         <input
@@ -2663,7 +2673,7 @@ onUnmounted(() => {
                           @input="scheduleEmbeddingAutoSave(600)"
                         />
                         <span class="preference-field-hint">
-                          Standard dense vector dimensionality (e.g. 768 for nomic-embed-text, 1536 for OpenAI).
+                          Standard dimensionality for pgvector index cosine matching (e.g. 768 or 1536).
                         </span>
                       </div>
 
@@ -2683,6 +2693,13 @@ onUnmounted(() => {
                           Backfills vector representations across all existing applications in PostgreSQL.
                         </span>
                       </div>
+                    </div>
+
+                    <div class="reasoning-info-callout mt-2">
+                      <Cpu :size="13" class="text-primary flex-shrink-0" />
+                      <span>
+                        <strong>Intake Throughput Tip:</strong> Disabling vector embeddings allows raw job posts and emails to be ingested at maximum speed without waiting for local/cloud embedding generation passes.
+                      </span>
                     </div>
                   </div>
                 </div>
