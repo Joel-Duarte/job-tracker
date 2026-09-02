@@ -1,22 +1,22 @@
 # Graph Report - job-tracker  (2026-09-02)
 
 ## Corpus Check
-- 235 files · ~295,273 words
+- 235 files · ~295,712 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 3139 nodes · 6165 edges · 211 communities (130 shown, 81 thin omitted)
+- 3150 nodes · 6116 edges · 213 communities (139 shown, 74 thin omitted)
 - Extraction: 89% EXTRACTED · 11% INFERRED · 0% AMBIGUOUS · INFERRED: 668 edges (avg confidence: 0.9)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `c3d2f71e`
+- Built from commit: `52231200`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - SettingsView.vue
-- InterviewSimulatorService
+- PostgresTracer
 - ApplicationDetailDrawer.vue
 - services/agent_tools.py
 - OnboardingWizardModal.vue
@@ -27,15 +27,15 @@
 - AgentChatView.vue
 - QueueView.vue
 - Job Tracker Platform (README)
-- seed_development_dataset
+- test_pricing_service.py
 - StagingView.vue
 - scrape_job_url
 - routers/applications.py
-- archive_stale_applications
+- ApplicationModel
 - routers/candidate_profile.py
 - popup.js
 - AssessmentsView.vue
-- ActionItemModel
+- routers/action_items.py
 - routers/email_accounts.py
 - AnalyticsView.vue
 - CandidateProfileView.vue
@@ -71,16 +71,16 @@
 - LazyAsyncPostgresSaver
 - test_llm_factory.py
 - datetime
-- endpoints.js
+- useQueueStore
 - EmailAccountModel
-- record_diagnostic_event
-- uiStore.js
-- AsyncSession
+- trace_operation
+- endpoints.js
+- routers/events.py
 - scheduleStudioAutoSave
-- AsyncSession
+- schemas/applications.py
 - dock.js
 - CompanyLogo.vue
-- test_analytics.py
+- conftest.py
 - 2b3c4d5e6f7a_rename_poc_email_tables.py
 - routers/prompts.py
 - InterviewReaderModal.vue
@@ -92,7 +92,7 @@
 - loadEmailAccounts
 - clearSelection
 - extractJobData
-- FailoverChatModel
+- index.js
 - TaskTracker
 - saveProfileField
 - schemas/intake.py
@@ -154,17 +154,17 @@
 - patch
 - get_badge_counts
 - field_validator
-- ApplicationModel
+- CompanyModel
 - asyncio
-- PostgresTracer
+- JobPostingModel
 - e4f5a6b7c8d9_drop_candidate_cv_is_active.py
 - f5a6b7c8d9e0_add_provider_token_cost_columns.py
 - routers/llm.py
 - close
-- fetchActionItems
+- routers/diagnostics.py
 - Any
 - executeDirectTransition
-- clear_embeddings_cache
+- invalidate_ai_health_cache
 - JobAssessmentResult
 - StrEnum
 - ApplicationEmbeddingModel
@@ -184,15 +184,15 @@
 - post
 - put
 - setter
-- AsyncSession
-- delete
-- get
-- post
+- test_analytics.py
+- semantic_search
+- test_extension.py
+- switchTab
 - setter
 - BaseModel
 - BackgroundTasks
 - BaseModel
-- deleteTask
+- test_persist_job_assessment_unrestricted_urls
 - JobAssessmentResult
 - enhance_role_alignment_dossier
 - loadPricingRates
@@ -208,43 +208,45 @@
 - scrollToBottom
 - handleAnalyzeSpec
 - _encrypt_table_secrets
+- getCurrencySymbol
 - env.py
 - main.py
 - closeSidebarOnMobile
-- .normalize_work_model
+- fetchRoleAlignment
+- get_funnel_metrics
+- onTrackMouseDown
 - 1a2b3c4d5e6f_create_role_alignment_dossiers.py
 - interviewStore.js
 - AnalyticsOverviewResponse
 - Response
 - FunnelMetricsResponse
 - RoleAlignmentResponse
-- cancel_running_task
 - filteredInterviewSessions
 - asyncio
 
 ## God Nodes (most connected - your core abstractions)
-1. `ApplicationModel` - 121 edges
-2. `CompanyModel` - 85 edges
+1. `ApplicationModel` - 105 edges
+2. `CompanyModel` - 82 edges
 3. `useUIStore` - 41 edges
-4. `ApplicationEventModel` - 40 edges
+4. `ApplicationEventModel` - 37 edges
 5. `EmailAccountModel` - 35 edges
 6. `PostgresTracer` - 34 edges
 7. `EmailPayload` - 34 edges
-8. `process_evaluation_task()` - 33 edges
-9. `get_task_chat_model()` - 32 edges
-10. `ActionItemModel` - 30 edges
+8. `get_task_chat_model()` - 32 edges
+9. `process_evaluation_task()` - 32 edges
+10. `Base` - 30 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `Root Pre-Commit Configuration` --semantically_similar_to--> `Backend Pre-Commit Configuration`  [INFERRED] [semantically similar]
   .pre-commit-config.yaml → backend/.pre-commit-config.yaml
+- `seed()` --uses--> `ApplicationModel`  [INFERRED]
+  seed_db.py → backend/app/models/applications.py
 - `seed()` --uses--> `IntakeEvaluationTaskModel`  [INFERRED]
   seed_db.py → backend/app/models/intake_tasks.py
 - `useQueueStore` --indirect_call--> `enqueueAssessment()`  [INFERRED]
   frontend/src/stores/queueStore.js → extension/utils/api.js
 - `Dependabot Configuration` --references--> `Vue 3 Frontend SPA`  [INFERRED]
   .github/dependabot.yml → README.md
-- `Deploy Frontend to GitHub Pages Workflow` --references--> `Vue 3 Frontend SPA`  [INFERRED]
-  .github/workflows/deploy-pages.yml → README.md
 
 ## Import Cycles
 - None detected.
@@ -256,15 +258,15 @@
 - **Backend LangGraph State Machines** — docs_architecture_intake_stategraph, docs_architecture_interview_guide_graph, docs_architecture_mock_interview_simulator [INFERRED 0.85]
 - **Companion Browser Extension Architecture** — extension_readme_companion_extension, extension_shadow_dom_dock, extension_popup_popup_html, extension_chromewebstore_docs [INFERRED 0.85]
 
-## Communities (211 total, 81 thin omitted)
+## Communities (213 total, 74 thin omitted)
 
 ### Community 0 - "SettingsView.vue"
 Cohesion: 0.02
 Nodes (92): PromptsAPI, accountToClear, accountToDelete, activeTab, activeTaskDef, availableMailFolders, bindings, copiedRedirectUri (+84 more)
 
-### Community 1 - "InterviewSimulatorService"
-Cohesion: 0.10
-Nodes (49): ApplicationModel, InterviewSessionModel, delete_session(), drill_down(), evaluate_answer(), finalize_session(), get_session(), list_sessions() (+41 more)
+### Community 1 - "PostgresTracer"
+Cohesion: 0.08
+Nodes (55): ApplicationModel, AsyncBaseTracer, InterviewSessionModel, delete_session(), drill_down(), evaluate_answer(), finalize_session(), get_session() (+47 more)
 
 ### Community 2 - "ApplicationDetailDrawer.vue"
 Cohesion: 0.02
@@ -287,12 +289,12 @@ Cohesion: 0.03
 Nodes (41): activeColumnIndex, activeGuideAppId, activeMenuApp, analysisAppId, appStore, appToDelete, archiveSortKey, archiveSortOrder (+33 more)
 
 ### Community 7 - "CandidateCVModel"
-Cohesion: 0.16
-Nodes (18): CandidateCVModel, GenerateInterviewGuideRequest, clear_interview_guide(), generate_interview_guide(), generate_interview_guide_stream(), AsyncSession, Async generator that executes `interview_guide_graph.astream(...)` and yields…, Coordinates candidate profile retrieval, job posting lookup, LangGraph… (+10 more)
+Cohesion: 0.18
+Nodes (16): CandidateCVModel, GenerateInterviewGuideRequest, clear_interview_guide(), generate_interview_guide(), generate_interview_guide_stream(), AsyncSession, Async generator that executes `interview_guide_graph.astream(...)` and yields…, Coordinates candidate profile retrieval, job posting lookup, LangGraph… (+8 more)
 
 ### Community 8 - "BaseModel"
-Cohesion: 0.17
-Nodes (19): AIHealthStatusRead, AIProviderCreate, AIProviderModelsResponse, AIProviderRead, AIProviderTestResponse, AIProviderUpdate, AITaskBindingCreate, AITaskBindingRead (+11 more)
+Cohesion: 0.18
+Nodes (18): AIHealthStatusRead, AIProviderCreate, AIProviderModelsResponse, AIProviderRead, AIProviderTestResponse, AIProviderUpdate, AITaskBindingCreate, AITaskBindingRead (+10 more)
 
 ### Community 9 - "AgentChatView.vue"
 Cohesion: 0.04
@@ -300,15 +302,15 @@ Nodes (29): activeMode, appSearchQuery, appStore, candidateAnswer, chatContainer
 
 ### Community 10 - "QueueView.vue"
 Cohesion: 0.04
-Nodes (34): activeCancelTask, activeCount, activeFixJDTask, completedCount, expandedDossierDetails, expandedEmailDetails, expandedQADetails, failedCount (+26 more)
+Nodes (36): activeCancelTask, activeCount, activeFixJDTask, completedCount, deleteTask(), expandedDossierDetails, expandedEmailDetails, expandedQADetails (+28 more)
 
 ### Community 11 - "Job Tracker Platform (README)"
 Cohesion: 0.08
 Nodes (45): Dependabot Configuration, Pull Request Template, Backend CI Workflow, Deploy Frontend to GitHub Pages Workflow, Frontend CI Workflow, Root Pre-Commit Configuration, Job Tracker System Overview (AGENTS.md), Backend Pre-Commit Configuration (+37 more)
 
-### Community 12 - "seed_development_dataset"
-Cohesion: 0.24
-Nodes (12): build_dossier(), build_structured_spec(), is_database_empty(), maybe_seed_dev_data(), AsyncSession, Checks if development seeding is enabled and database is empty. If both…, Checks if the database has zero applications and companies., Populates a rich, 90-day rolling development test dataset following `guide.md`… (+4 more)
+### Community 12 - "test_pricing_service.py"
+Cohesion: 0.14
+Nodes (21): calculate_comparative_provider_costs(), calculate_cost_and_savings(), extract_usage_from_payload(), get_all_pricing_rates(), _match_pricing_key(), Matches a model name string (including path / provider prefixes) to a pricing…, Returns all current pricing rates as a list with custom overrides applied., Updates custom pricing rate override in memory. (+13 more)
 
 ### Community 13 - "StagingView.vue"
 Cohesion: 0.04
@@ -319,12 +321,12 @@ Cohesion: 0.16
 Nodes (25): clean_extracted_text(), has_job_content_keywords(), BaseModel, Validates URL protocol and private IP / loopback address validation (SSRF…, Blazing fast multi-language scraper keyword validation using Python set hash…, Backward-compatible alias for validate_job_content., Normalizes whitespace and strips javascript code blocks, jQuery artifacts, and…, Scrapes a URL using the running Camofox browser automation server. (+17 more)
 
 ### Community 15 - "routers/applications.py"
-Cohesion: 0.11
-Nodes (48): analyze_app_job_spec(), bulk_transition_applications(), clear_app_interview_guide(), delete_application(), generate_app_cover_letter(), generate_app_interview_guide(), generate_app_interview_guide_stream(), generate_application_form_answers() (+40 more)
+Cohesion: 0.10
+Nodes (39): AllowedApplicationStatus, ApplicationAnalyzeSpecRequest, ApplicationTransitionRequest, analyze_app_job_spec(), bulk_transition_applications(), clear_app_interview_guide(), delete_application(), generate_app_cover_letter() (+31 more)
 
-### Community 16 - "archive_stale_applications"
-Cohesion: 0.20
-Nodes (17): archive_stale_applications(), delete_stale_agent_chats(), Any, AsyncSession, Finds all applications in active stages where last_activity_at (or…, Background worker that runs once every interval_seconds., staleness_archiver_worker(), async_client() (+9 more)
+### Community 16 - "ApplicationModel"
+Cohesion: 0.18
+Nodes (21): AgentChatModel, ActionItemModel, ApplicationModel, archive_stale_applications(), delete_stale_agent_chats(), Any, AsyncSession, Finds all applications in active stages where last_activity_at (or… (+13 more)
 
 ### Community 17 - "routers/candidate_profile.py"
 Cohesion: 0.06
@@ -335,12 +337,12 @@ Cohesion: 0.14
 Nodes (32): checkNotifications(), setupAlarm(), updateBadgeCounter(), applyTheme(), checkBackendConnection(), currentSettings, escapeHtml(), handleCaptureSubmit() (+24 more)
 
 ### Community 19 - "AssessmentsView.vue"
-Cohesion: 0.05
-Nodes (33): scores, getFitScores(), activeQueueTasks, activeTab, allCompletedTasks, appStore, averageFitScore, bulkArchive() (+25 more)
+Cohesion: 0.06
+Nodes (28): activeQueueTasks, activeTab, allCompletedTasks, appStore, bulkArchive(), bulkMarkAsApplied(), evaluationTasks, expandedTaskIds (+20 more)
 
-### Community 20 - "ActionItemModel"
-Cohesion: 0.13
-Nodes (30): ActionItemModel, compute_live_urgency(), create_action_item(), delete_action_item(), list_action_items(), override_action_item_urgency(), AsyncSession, BackgroundTasks (+22 more)
+### Community 20 - "routers/action_items.py"
+Cohesion: 0.15
+Nodes (27): compute_live_urgency(), create_action_item(), delete_action_item(), list_action_items(), override_action_item_urgency(), AsyncSession, BackgroundTasks, delete (+19 more)
 
 ### Community 21 - "routers/email_accounts.py"
 Cohesion: 0.11
@@ -348,7 +350,7 @@ Nodes (36): clear_account_processed_emails(), clear_all_processed_emails(), dele
 
 ### Community 22 - "AnalyticsView.vue"
 Cohesion: 0.05
-Nodes (45): activeTab, alignmentData, alignmentSubTab, analyticsData, analyticsStore, copiedItemKey, currentAlignmentKey, currentDossier (+37 more)
+Nodes (33): activeTab, alignmentData, alignmentSubTab, analyticsData, analyticsStore, copiedItemKey, currentAlignmentKey, currentDossier (+25 more)
 
 ### Community 23 - "CandidateProfileView.vue"
 Cohesion: 0.05
@@ -371,8 +373,8 @@ Cohesion: 0.07
 Nodes (26): activeCount, activeFixJDTask, activeTasks, closeMenu(), failedCount, failedTasks, fixJDJobUrl, fixJDRawText (+18 more)
 
 ### Community 28 - "get_task_chat_model"
-Cohesion: 0.20
-Nodes (19): generate_query_embedding(), Generates a vector embedding for an incoming search query string using…, _clean_base_url(), _get_cached_embeddings_model(), get_chat_model(), get_embeddings_model(), get_task_chat_model(), get_task_embeddings_model() (+11 more)
+Cohesion: 0.12
+Nodes (25): generate_query_embedding(), Generates a vector embedding for an incoming search query string using…, _clean_base_url(), FailoverChatModel, get_active_llm_config_dict(), _get_cached_embeddings_model(), get_chat_model(), get_embeddings_model() (+17 more)
 
 ### Community 29 - "routers/intake.py"
 Cohesion: 0.07
@@ -392,7 +394,7 @@ Nodes (32): ApplicationEventModel, EmailPayload, model_validator, Payload for us
 
 ### Community 33 - "ActionItemsView.vue"
 Cohesion: 0.08
-Nodes (17): actionItems, activeUrgencyDropdown, applicationsList, currentEditId, displayedTasks, filterTab, isEditing, isLoading (+9 more)
+Nodes (23): actionItems, activeUrgencyDropdown, applicationsList, currentEditId, deleteTask(), displayedTasks, fetchActionItems(), filterTab (+15 more)
 
 ### Community 34 - "CoverLetterModal.vue"
 Cohesion: 0.06
@@ -407,8 +409,8 @@ Cohesion: 0.07
 Nodes (28): axios, dompurify, dependencies, axios, dompurify, @lucide/vue, lucide-vue-next, pinia (+20 more)
 
 ### Community 37 - "process_evaluation_task"
-Cohesion: 0.13
-Nodes (31): get_running_task_ids(), Registers an in-memory running asyncio Task by database task ID., Removes a finished or cancelled task from the in-memory registry., Returns list of currently active running task IDs., register_running_task(), unregister_running_task(), IntakeEvaluationTaskModel, Persisted queue for asynchronous job lead intake & AI qualification… (+23 more)
+Cohesion: 0.14
+Nodes (30): cancel_running_task(), get_running_task_ids(), Registers an in-memory running asyncio Task by database task ID., Removes a finished or cancelled task from the in-memory registry., Cancels an active background asyncio.Task in memory. Disconnects the active…, Returns list of currently active running task IDs., register_running_task(), unregister_running_task() (+22 more)
 
 ### Community 38 - "AppNavbar.vue"
 Cohesion: 0.08
@@ -419,16 +421,16 @@ Cohesion: 0.07
 Nodes (22): activeTab, appStore, emailAccounts, handleEmailSync(), ingestResult, isDragging, isSubmitting, loadEmailAccounts() (+14 more)
 
 ### Community 40 - "MatchAnalysisModal.vue"
-Cohesion: 0.07
-Nodes (24): analysisData, application, compensationText, computedRatioText, computedScoreText, criticalRisks, emit, error (+16 more)
+Cohesion: 0.06
+Nodes (29): analysisData, application, compensationText, computedRatioText, computedScoreText, criticalRisks, emit, error (+21 more)
 
 ### Community 41 - "test_skill_normalizer.py"
 Cohesion: 0.17
 Nodes (19): extract_skills_from_text(), hybrid_extract_skills(), normalize_skill(), normalize_skills_list(), Skill Canonicalization Engine. Provides multi-stage skill normalization,…, Helper to split compound skills unless protected., Normalizes an array of skills with compound splitting, removes duplicates…, Scans raw text using pre-compiled regex patterns to deterministically detect… (+11 more)
 
 ### Community 42 - "ExtractedEmailInfo"
-Cohesion: 0.17
-Nodes (29): StagingItemModel, JobTrackerState, TypedDict, ExtractedEmailInfo, Structured extraction format returned by the LLM service., prune_terminal_state_node(), Any, Prunes transient multi-kilobyte string fields prior to checkpointer… (+21 more)
+Cohesion: 0.19
+Nodes (26): StagingItemModel, JobTrackerState, TypedDict, ExtractedEmailInfo, Structured extraction format returned by the LLM service., asyncio, AsyncSession, When exactly 1 application exists for a matched company, auto-link to it even… (+18 more)
 
 ### Community 43 - "DiagnosticsView.vue"
 Cohesion: 0.08
@@ -443,12 +445,12 @@ Cohesion: 0.09
 Nodes (23): activeTab, copiedJd, copiedUrl, dismissedLinkedInUrl, dismissLinkedInWarning(), executeEnqueue(), extractUrls(), handleBulkPromptDecision() (+15 more)
 
 ### Community 46 - "test_schemas.py"
-Cohesion: 0.11
-Nodes (22): _get_or_generate_secret_key(), model_validator, Always constructs the connection URI dynamically from current settings., Reads persistent SECRET_KEY from PROJECT_ROOT/data/.sec_key or auto-generates a…, Settings, AllowedApplicationStatus, ApplicationTransitionRequest, ApplicationUpdate (+14 more)
+Cohesion: 0.09
+Nodes (24): _get_or_generate_secret_key(), model_validator, Always constructs the connection URI dynamically from current settings., Reads persistent SECRET_KEY from PROJECT_ROOT/data/.sec_key or auto-generates a…, Settings, AllowedApplicationStatus, ApplicationTransitionRequest, ApplicationUpdate (+16 more)
 
 ### Community 47 - "load_settings"
-Cohesion: 0.09
-Nodes (40): get_setting(), get_system_settings_model(), load_settings(), Any, AsyncSession, Saves system settings from a dictionary supporting lower-case and upper-case…, Fetches the singleton system settings model (id=1), creating it if it does not…, Retrieves a specific system setting by key asynchronously. (+32 more)
+Cohesion: 0.08
+Nodes (43): get_setting(), get_system_settings_model(), load_settings(), Any, AsyncSession, Saves system settings from a dictionary supporting lower-case and upper-case…, Fetches the singleton system settings model (id=1), creating it if it does not…, Retrieves a specific system setting by key asynchronously. (+35 more)
 
 ### Community 48 - "fetch_emails_from_account"
 Cohesion: 0.14
@@ -463,80 +465,80 @@ Cohesion: 0.17
 Nodes (22): generate_oauth_state(), Generates a signed cryptographic state token for OAuth CSRF protection., Validates the OAuth CSRF state token and guards against replay attacks., validate_oauth_state(), asyncio, AsyncSession, Test clearing email deduplication history and resetting sync cursor for a…, Test clearing all email deduplication history and resetting sync cursors across… (+14 more)
 
 ### Community 52 - "bulk_dismiss_staging_items"
-Cohesion: 0.13
-Nodes (22): bulk_dismiss_staging_items(), clear_resolved_staging_items(), list_staging_items(), Bulk dismisses specific staging items or all pending staging items matching…, Purges PROCESSED staging items, optionally older than a given number of days., BaseModel, Schema for displaying an item in the staging queue., Paginated wrapper for staging list endpoint. (+14 more)
+Cohesion: 0.09
+Nodes (32): bulk_dismiss_staging_items(), clear_resolved_staging_items(), get_staging_item(), list_staging_items(), AsyncSession, delete, get, post (+24 more)
 
 ### Community 53 - "LazyAsyncPostgresSaver"
-Cohesion: 0.21
-Nodes (3): AsyncPostgresSaver, LazyAsyncPostgresSaver, setter
+Cohesion: 0.11
+Nodes (11): AsyncPostgresSaver, check_db_connection(), ensure_db_schema(), LazyAsyncPostgresSaver, Tests the connection to PostgreSQL and logs the connected database name., Ensures required extensions exist, provisions any missing database tables from…, health_check(), get (+3 more)
 
 ### Community 54 - "test_llm_factory.py"
-Cohesion: 0.18
-Nodes (24): ApplicationSummaryResult, get_active_llm_config_dict(), Retrieves runtime LLM configuration from the database., AsyncSession, Seeds missing prompts into DB upon boot without overwriting existing user…, seed_default_prompts(), ApplicationSummaryResult, EmailExtractionResult (+16 more)
+Cohesion: 0.27
+Nodes (16): ApplicationSummaryResult, EmailExtractionResult, HardMatches, ImpactReframingItem, OptimizationGaps, ResumeTailoringStrategy, VocabularyTranslationItem, asyncio (+8 more)
 
 ### Community 55 - "datetime"
 Cohesion: 0.24
-Nodes (6): ApplicationEmbeddingModel, Base, OtherEventModel, RoleAlignmentDossierModel, datetime, DeclarativeBase
+Nodes (5): Base, TraceEventModel, RoleAlignmentDossierModel, datetime, DeclarativeBase
 
-### Community 56 - "endpoints.js"
-Cohesion: 0.10
-Nodes (23): ActionItemsAPI, AgentAPI, AnalyticsAPI, IntakeAPI, SearchAPI, StagingAPI, SystemAPI, SystemSettingsAPI (+15 more)
+### Community 56 - "useQueueStore"
+Cohesion: 0.24
+Nodes (10): AnalyticsAPI, IntakeAPI, retryTask(), DEFAULT_ALIGNMENT, DEFAULT_FUNNEL, DEFAULT_OVERVIEW, loadCachedData(), saveCachedData() (+2 more)
 
 ### Community 57 - "EmailAccountModel"
 Cohesion: 0.31
 Nodes (8): EmailAccountModel, asyncio, test_fetch_emails_from_account_imap_threaded(), test_imap_batch_fetching(), asyncio, test_email_intake_disabled_guard(), test_global_settings_backward_compatibility(), test_system_settings_get_and_patch()
 
-### Community 58 - "record_diagnostic_event"
-Cohesion: 0.21
-Nodes (11): TraceEventModel, Any, AsyncSession, datetime, Persists a programmatic execution trace event into the trace_events table., record_diagnostic_event(), asyncio, AsyncSession (+3 more)
+### Community 58 - "trace_operation"
+Cohesion: 0.25
+Nodes (12): Any, AsyncSession, datetime, Persists a programmatic execution trace event into the trace_events table., Async context manager that measures execution time and records diagnostic…, record_diagnostic_event(), trace_operation(), asyncio (+4 more)
 
-### Community 59 - "uiStore.js"
-Cohesion: 0.11
-Nodes (25): apiClient, AIConfigAPI, uiStore, uiStore, router, uiStore, delay(), handleDemoRequest() (+17 more)
+### Community 59 - "endpoints.js"
+Cohesion: 0.10
+Nodes (25): ActionItemsAPI, AgentAPI, AIConfigAPI, SearchAPI, StagingAPI, SystemAPI, SystemSettingsAPI, uiStore (+17 more)
 
-### Community 60 - "AsyncSession"
-Cohesion: 0.16
-Nodes (15): delete_event(), list_action_required_events(), list_application_events(), list_other_events(), AsyncSession, delete, get, Returns stored logs of non-job recruitment emails (e.g. newsletters, automated… (+7 more)
+### Community 60 - "routers/events.py"
+Cohesion: 0.12
+Nodes (21): delete_event(), list_action_required_events(), list_application_events(), list_other_events(), move_event_to_staging(), AsyncSession, delete, get (+13 more)
 
 ### Community 61 - "scheduleStudioAutoSave"
 Cohesion: 0.15
 Nodes (16): applyProbeRecommendations(), deleteProvider(), fetchStudioModels(), loadPrompts(), loadProviders(), onStudioProviderChange(), resetGlobalDefaultToDefaults(), resetStudioPrompt() (+8 more)
 
-### Community 62 - "AsyncSession"
-Cohesion: 0.15
-Nodes (19): AIHealthStatusRead, AIProviderModelsResponse, AsyncSession, check_ai_provider_health(), get_ai_health_endpoint(), get_global_settings(), get_usage_overview_endpoint(), list_provider_models() (+11 more)
+### Community 62 - "schemas/applications.py"
+Cohesion: 0.14
+Nodes (18): ApplicationQuestionsUpdateRequest, get_application_questions(), update_application_questions(), ActionItemDetail, ApplicationAnalyzeSpecRequest, ApplicationDetailResponse, ApplicationEventDetail, ApplicationFilterParams (+10 more)
 
 ### Community 63 - "dock.js"
 Cohesion: 0.23
 Nodes (16): checkFloatingAiHealthGating(), enableDraggable(), onMouseMove(), onMouseUp(), escapeHtml(), extractPageJobData(), loadSettings(), renderDockUI() (+8 more)
 
 ### Community 64 - "CompanyLogo.vue"
-Cohesion: 0.10
-Nodes (19): attemptIndex, candidateDomains, fallbackInitial, faviconUrl, hasError, isLoaded, props, formatJobSpecCompensation() (+11 more)
+Cohesion: 0.12
+Nodes (15): attemptIndex, candidateDomains, fallbackInitial, faviconUrl, hasError, isLoaded, props, formatDate() (+7 more)
 
-### Community 65 - "test_analytics.py"
-Cohesion: 0.07
-Nodes (35): Clears all server-side analytics caches across Overview, Funnel, and Role…, recalculate_analytics(), clear_analytics_cache(), Clears in-memory caches for analytics computations. If domain is provided…, db_session(), FallbackPostgresConnection, is_port_open(), mock_extracted_job_info() (+27 more)
+### Community 65 - "conftest.py"
+Cohesion: 0.12
+Nodes (18): db_session(), FallbackPostgresConnection, is_port_open(), mock_extracted_job_info(), mock_job_email_payload(), postgres_container(), AsyncSession, pytest_collection_modifyitems() (+10 more)
 
 ### Community 66 - "2b3c4d5e6f7a_rename_poc_email_tables.py"
 Cohesion: 0.60
 Nodes (5): downgrade(), _index_exists(), rename poc email tables and indexes Revision ID: 2b3c4d5e6f7a Revises:…, _table_exists(), upgrade()
 
 ### Community 67 - "routers/prompts.py"
-Cohesion: 0.17
-Nodes (18): clear_prompt_cache(), Invalidates the in-memory prompt cache for a specific prompt or all prompts., PromptModel, get_prompt(), list_prompts(), AsyncSession, get, patch (+10 more)
+Cohesion: 0.14
+Nodes (21): clear_prompt_cache(), AsyncSession, Invalidates the in-memory prompt cache for a specific prompt or all prompts., Seeds missing prompts into DB upon boot without overwriting existing user…, seed_default_prompts(), PromptModel, get_prompt(), list_prompts() (+13 more)
 
 ### Community 68 - "InterviewReaderModal.vue"
 Cohesion: 0.13
 Nodes (9): application, emit, error, hasCopied, isFullScreen, isLoading, props, router (+1 more)
 
 ### Community 69 - "routers/ai_config.py"
-Cohesion: 0.14
-Nodes (23): AIProviderCreate, AIProviderModel, AIProviderRead, AIProviderTestResponse, AIProviderUpdate, AITaskTestResponse, create_ai_provider(), _fetch_models_from_endpoint() (+15 more)
+Cohesion: 0.13
+Nodes (23): AIHealthStatusRead, AIProviderModelsResponse, AIProviderTestResponse, AITaskTestResponse, check_ai_provider_health(), _fetch_models_from_endpoint(), get_ai_health_endpoint(), get_pricing_rates_endpoint() (+15 more)
 
 ### Community 70 - "test_ai_health.py"
-Cohesion: 0.35
-Nodes (14): AIProviderModel, AITaskBindingModel, invalidate_ai_health_cache(), asyncio, AsyncSession, fixture, reset_health_cache(), test_ai_health_cache_ttl_and_invalidation() (+6 more)
+Cohesion: 0.47
+Nodes (11): AIProviderModel, AITaskBindingModel, asyncio, AsyncSession, test_ai_health_cache_ttl_and_invalidation(), test_ai_health_healthy_and_degraded(), test_ai_health_offline_and_fallback_resolution(), test_ai_health_unconfigured() (+3 more)
 
 ### Community 71 - "create_account"
 Cohesion: 0.18
@@ -562,9 +564,9 @@ Nodes (4): bulkDeleteSelected(), bulkRetrySelected(), clearSelection(), toggleSe
 Cohesion: 0.22
 Nodes (8): extractJobData(), deriveTitleFromDoc(), getText(), getTextIn(), queryFirst(), queryFirstIn(), isCleanTitle(), resolveCanonicalJobUrl()
 
-### Community 77 - "FailoverChatModel"
-Cohesion: 0.29
-Nodes (4): FailoverChatModel, Any, Transparent failover wrapper around primary and secondary LangChain…, Exception
+### Community 77 - "index.js"
+Cohesion: 0.19
+Nodes (13): apiClient, delay(), handleDemoRequest(), adjustRelativeDates(), getDemoDb(), initDemoDb(), isDemoModeEnabled(), resetDemoDb() (+5 more)
 
 ### Community 79 - "saveProfileField"
 Cohesion: 0.14
@@ -591,8 +593,8 @@ Cohesion: 0.60
 Nodes (5): jt script, check_docker(), ensure_env(), open_browser(), show_help()
 
 ### Community 86 - "routers/extension.py"
-Cohesion: 0.23
-Nodes (14): clip_job_pre_extracted(), clip_job_url(), _extract_text_from_html(), AsyncSession, post, Directly accepts pre-extracted DOM metadata (company, title, description, url)…, Strips HTML tags, removes scripts/styles/nav/forms, and cleans visible text…, Receives a job posting URL, scrapes page text (or uses pre-captured HTML), and… (+6 more)
+Cohesion: 0.21
+Nodes (15): ApplicationEmbeddingModel, clip_job_pre_extracted(), clip_job_url(), _extract_text_from_html(), AsyncSession, post, Directly accepts pre-extracted DOM metadata (company, title, description, url)…, Strips HTML tags, removes scripts/styles/nav/forms, and cleans visible text… (+7 more)
 
 ### Community 87 - "formatRelativeDate"
 Cohesion: 0.28
@@ -627,8 +629,8 @@ Cohesion: 0.22
 Nodes (9): dismissCurrentItem(), executeBulkDismissSelected(), executeClearResolved(), executeDismissAllPending(), fetchStagingItems(), handleReopenStagingItem(), handleVisibilityChange(), quickDismissItem() (+1 more)
 
 ### Community 97 - "services/analytics.py"
-Cohesion: 0.10
-Nodes (35): get_funnel_metrics(), AsyncSession, get, AnalyticsOverviewResponse, BulletReframeItem, BulletRewriteItem, ExecutiveTrackFit, FunnelChartStage (+27 more)
+Cohesion: 0.11
+Nodes (36): AsyncSession, AnalyticsOverviewResponse, BulletReframeItem, BulletRewriteItem, ExecutiveTrackFit, FunnelChartStage, FunnelCohortPeriod, FunnelKpiCard (+28 more)
 
 ### Community 100 - "0a1b2c3d4e5f_add_application_questions.py"
 Cohesion: 0.83
@@ -663,8 +665,8 @@ Cohesion: 0.67
 Nodes (3): loadOAuthConfig(), openAddEmailAccountModal(), toggleEmailIntake()
 
 ### Community 110 - "Any"
-Cohesion: 0.06
-Nodes (74): Any, export_diagnostics(), _extract_tracer_task_name(), get_diagnostics_stats(), get_single_trace(), get_traces(), _parse_filter_datetime(), purge_traces() (+66 more)
+Cohesion: 0.11
+Nodes (44): Any, cover_letter_node(), db_commit_node(), extraction_node(), fuzzy_match_node(), _get_db(), is_email_already_processed(), normalize_and_dedupe_node() (+36 more)
 
 ### Community 116 - "IntakeQueueDrawer.vue"
 Cohesion: 0.22
@@ -682,13 +684,13 @@ Nodes (8): decrypt_secret(), encrypt_secret(), _get_fernet(), Encrypt a sensitiv
 Cohesion: 0.29
 Nodes (6): get_badge_counts(), AsyncSession, get, Returns aggregated counts for Navbar and drawer badges in a single optimized DB…, BadgeCountsResponse, BaseModel
 
-### Community 144 - "ApplicationModel"
-Cohesion: 0.10
-Nodes (41): asyncio, ApplicationModel, CompanyModel, JobPostingModel, Accepts user fixes, applies them to DB records, and marks the staged item…, resolve_staging_item(), persist_or_stage_job_assessment(), AsyncSession (+33 more)
+### Community 144 - "CompanyModel"
+Cohesion: 0.14
+Nodes (26): ApplicationUpdate, asyncio, CompanyModel, Partially updates a job application and enqueues background vector embedding…, update_application(), test_get_analytics_overview_unit(), test_pipeline_funnel_active_and_dropped_unit(), test_analyze_spec_endpoint_validation_and_enqueue() (+18 more)
 
-### Community 146 - "PostgresTracer"
-Cohesion: 0.31
-Nodes (6): AsyncBaseTracer, PostgresTracer, asyncio, test_postgres_tracer_background_persist_and_flush(), test_postgres_tracer_does_not_clear_global_run_map(), Run
+### Community 146 - "JobPostingModel"
+Cohesion: 0.16
+Nodes (14): JobPostingModel, Accepts user fixes, applies them to DB records, and marks the staged item…, resolve_staging_item(), persist_or_stage_job_assessment(), AsyncSession, Persists an AI job assessment to the database. If target_application_id is…, resolve_job_currency(), asyncio (+6 more)
 
 ### Community 147 - "e4f5a6b7c8d9_drop_candidate_cv_is_active.py"
 Cohesion: 0.83
@@ -702,33 +704,53 @@ Nodes (3): _column_exists(), downgrade(), upgrade()
 Cohesion: 0.24
 Nodes (15): mask_secret(), LLMConfigModel, get_current_llm_config(), LLMConfigRead, LLMConfigUpdate, Any, AsyncSession, BaseModel (+7 more)
 
-### Community 151 - "fetchActionItems"
-Cohesion: 0.33
-Nodes (6): deleteTask(), fetchActionItems(), handleSaveTask(), selectMetricTab(), setManualUrgency(), toggleTaskStatus()
+### Community 151 - "routers/diagnostics.py"
+Cohesion: 0.28
+Nodes (12): export_diagnostics(), _extract_tracer_task_name(), get_diagnostics_stats(), get_single_trace(), get_traces(), _parse_filter_datetime(), purge_traces(), AsyncSession (+4 more)
 
-### Community 154 - "clear_embeddings_cache"
-Cohesion: 0.50
-Nodes (5): clear_embeddings_cache(), Clears cached Embeddings model instances., delete_ai_provider(), delete_ai_task_binding(), delete
+### Community 154 - "invalidate_ai_health_cache"
+Cohesion: 0.20
+Nodes (16): AIProviderCreate, AIProviderModel, AIProviderRead, AIProviderUpdate, clear_embeddings_cache(), Clears cached Embeddings model instances., create_ai_provider(), delete_ai_provider() (+8 more)
 
 ### Community 159 - "routers/analytics.py"
-Cohesion: 0.33
-Nodes (10): enhance_role_alignment_endpoint(), get_funnel_metrics(), get_overview(), get_role_alignment_dossier_endpoint(), get_role_alignment_endpoint(), AsyncSession, get, Enqueues an asynchronous AI Strategic Dossier synthesis task through the shared… (+2 more)
+Cohesion: 0.22
+Nodes (14): enhance_role_alignment_endpoint(), get_funnel_metrics(), get_overview(), get_role_alignment_dossier_endpoint(), get_role_alignment_endpoint(), AsyncSession, get, Enqueues an asynchronous AI Strategic Dossier synthesis task through the shared… (+6 more)
 
 ### Community 167 - "programmatic_scrub_cv"
 Cohesion: 0.47
 Nodes (4): programmatic_scrub_cv(), Programmatically sanitizes direct PII (emails, phone numbers, profile URLs,…, test_programmatic_scrub_cv_emails_phones_urls(), test_programmatic_scrub_cv_empty()
+
+### Community 174 - "test_analytics.py"
+Cohesion: 0.27
+Nodes (12): override_db(), asyncio, AsyncSession, fixture, test_auto_recalculate_when_db_has_more_data(), test_get_analytics_overview(), test_get_funnel_metrics_monthly(), test_get_funnel_metrics_weekly() (+4 more)
+
+### Community 175 - "semantic_search"
+Cohesion: 0.31
+Nodes (8): AsyncSession, get, Returns matching companies alongside total tracked application count., search_companies(), semantic_search(), CompanySearchResult, BaseModel, SemanticSearchResult
+
+### Community 176 - "test_extension.py"
+Cohesion: 0.60
+Nodes (5): asyncio, AsyncSession, test_extension_clip_job_direct(), test_extension_clip_url_pipeline(), test_extension_intake_url_and_jd_routes()
+
+### Community 177 - "switchTab"
+Cohesion: 0.40
+Nodes (5): fetchAnalytics(), fetchFunnelMetrics(), handlePeriodChange(), switchTab(), toggleWorkModel()
+
+### Community 182 - "test_persist_job_assessment_unrestricted_urls"
+Cohesion: 0.50
+Nodes (3): asyncio, Test that submitting the same job posting URL with different referral…, test_persist_job_assessment_unrestricted_urls()
 
 ### Community 184 - "enhance_role_alignment_dossier"
 Cohesion: 0.29
 Nodes (9): enhance_role_alignment_dossier(), _extract_json_block(), get_role_alignment_dossier(), Any, AsyncSession, Retrieves the existing AI Strategic Dossier from PostgreSQL if generated, or…, Synthesizes a fresh AI Strategic Dossier using LLM task binding and PostgreSQL…, Robustly extracts JSON object from LLM output. (+1 more)
 
 ### Community 191 - "routers/agent_chat.py"
-Cohesion: 0.17
-Nodes (18): AgentChatModel, AgentChatRead, AgentChatRequest, AgentChatResponse, chat_with_agent(), ChatMessage, delete_chat(), get_chat() (+10 more)
+Cohesion: 0.15
+Nodes (19): AgentChatRead, AgentChatRequest, AgentChatResponse, chat_with_agent(), ChatMessage, delete_chat(), get_chat(), list_chats() (+11 more)
 
 ### Community 192 - "_execute_evaluation_steps"
 Cohesion: 0.10
-Nodes (41): Strips <think>...</think> reasoning tags from LLM output text., strip_reasoning_tags(), get_prompt_template(), Retrieves prompt template from DB with in-memory caching, falling back to…, _execute_application_qa_steps(), _execute_cover_letter_steps(), _execute_cv_extraction_steps(), _execute_email_sync_steps() (+33 more)
+Nodes (42): ApplicationSummaryResult, Strips <think>...</think> reasoning tags from LLM output text., strip_reasoning_tags(), get_prompt_template(), Retrieves prompt template from DB with in-memory caching, falling back to…, _execute_application_qa_steps(), _execute_cover_letter_steps(), _execute_cv_extraction_steps() (+34 more)
 
 ### Community 193 - "normalize_job_url"
 Cohesion: 0.24
@@ -742,41 +764,57 @@ Nodes (10): handleDrillDown(), handleEvaluateAnswer(), handleFinalizeSession(), 
 Cohesion: 0.50
 Nodes (3): _encrypt_table_secrets(), upgrade(), Connection
 
+### Community 198 - "getCurrencySymbol"
+Cohesion: 0.50
+Nodes (4): formatJobSpecCompensation(), getCurrencySymbol(), formatSalary(), getSalaryTooltip()
+
 ### Community 199 - "env.py"
 Cohesion: 0.47
 Nodes (4): do_run_migrations(), Connection, run_async_migrations(), run_migrations_online()
 
 ### Community 200 - "main.py"
-Cohesion: 0.05
-Nodes (46): check_db_connection(), ensure_db_schema(), get_db(), AsyncSession, Tests the connection to PostgreSQL and logs the connected database name., Ensures required extensions exist, provisions any missing database tables from…, health_check(), lifespan() (+38 more)
+Cohesion: 0.08
+Nodes (35): get_db(), AsyncSession, lifespan(), OtherEventModel, delete_application(), delete_event(), get_staleness_stats(), AsyncSession (+27 more)
 
 ### Community 201 - "closeSidebarOnMobile"
 Cohesion: 0.33
 Nodes (6): closeSidebarOnMobile(), enterInterviewFromChat(), handleLoadChat(), handleLoadInterviewSession(), handleNewSimulation(), handleResetChat()
+
+### Community 202 - "fetchRoleAlignment"
+Cohesion: 0.50
+Nodes (4): fetchRoleAlignment(), handleSearchInput(), onTrackPillClick(), selectTrack()
+
+### Community 203 - "get_funnel_metrics"
+Cohesion: 0.67
+Nodes (3): get_funnel_metrics(), AsyncSession, get
+
+### Community 204 - "onTrackMouseDown"
+Cohesion: 1.00
+Nodes (3): onTrackMouseDown(), onTrackMouseMove(), onTrackMouseUp()
 
 ### Community 205 - "1a2b3c4d5e6f_create_role_alignment_dossiers.py"
 Cohesion: 0.83
 Nodes (3): downgrade(), _table_exists(), upgrade()
 
 ## Knowledge Gaps
-- **755 isolated node(s):** `route`, `uiStore`, `activeTab`, `providers`, `loadingProviders` (+750 more)
+- **755 isolated node(s):** `pipelineCount`, `pipelineCountLabel`, `appStore`, `uiStore`, `activeMenuApp` (+750 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **81 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **74 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `useUIStore` connect `uiStore.js` to `SettingsView.vue`, `ApplicationDetailDrawer.vue`, `OnboardingWizardModal.vue`, `ApplicationQuestionModal.vue`, `ApplicationsView.vue`, `AgentChatView.vue`, `QueueView.vue`, `StagingView.vue`, `AssessmentsView.vue`, `AnalyticsView.vue`, `CandidateProfileView.vue`, `JobIntakeView.vue`, `EmailAccountsSettings.vue`, `FloatingQueueWidget.vue`, `ActionItemsView.vue`, `CoverLetterModal.vue`, `LogActivityModal.vue`, `AppNavbar.vue`, `IngestModal.vue`, `MatchAnalysisModal.vue`, `JobIntakeModal.vue`, `endpoints.js`, `InterviewReaderModal.vue`, `IntakeQueueDrawer.vue`?**
-  _High betweenness centrality (0.042) - this node is a cross-community bridge._
-- **Why does `ApplicationModel` connect `ApplicationModel` to `_execute_evaluation_steps`, `test_analytics.py`, `ApplicationEventModel`, `services/agent_tools.py`, `InterviewSimulatorService`, `process_evaluation_task`, `CandidateCVModel`, `main.py`, `ExtractedEmailInfo`, `Any`, `routers/applications.py`, `archive_stale_applications`, `load_settings`, `ActionItemModel`, `routers/extension.py`, `datetime`, `routers/intake.py`?**
-  _High betweenness centrality (0.024) - this node is a cross-community bridge._
-- **Why does `useQueueStore` connect `endpoints.js` to `CoverLetterModal.vue`, `ApplicationQuestionModal.vue`, `AppNavbar.vue`, `uiStore.js`, `QueueView.vue`, `JobIntakeModal.vue`, `popup.js`, `AssessmentsView.vue`, `JobIntakeView.vue`, `FloatingQueueWidget.vue`?**
-  _High betweenness centrality (0.020) - this node is a cross-community bridge._
-- **Are the 96 inferred relationships involving `ApplicationModel` (e.g. with `create_action_item()` and `list_action_items()`) actually correct?**
-  _`ApplicationModel` has 96 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 67 inferred relationships involving `CompanyModel` (e.g. with `get_applications_by_status()` and `list_applications()`) actually correct?**
-  _`CompanyModel` has 67 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 24 inferred relationships involving `ApplicationEventModel` (e.g. with `update_action_item()` and `delete_event()`) actually correct?**
-  _`ApplicationEventModel` has 24 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `route`, `uiStore`, `activeTab` to the rest of the system?**
+- **Why does `useUIStore` connect `endpoints.js` to `SettingsView.vue`, `ApplicationDetailDrawer.vue`, `OnboardingWizardModal.vue`, `ApplicationQuestionModal.vue`, `ApplicationsView.vue`, `AgentChatView.vue`, `QueueView.vue`, `StagingView.vue`, `AssessmentsView.vue`, `AnalyticsView.vue`, `CandidateProfileView.vue`, `JobIntakeView.vue`, `EmailAccountsSettings.vue`, `FloatingQueueWidget.vue`, `ActionItemsView.vue`, `CoverLetterModal.vue`, `LogActivityModal.vue`, `AppNavbar.vue`, `IngestModal.vue`, `MatchAnalysisModal.vue`, `JobIntakeModal.vue`, `useQueueStore`, `InterviewReaderModal.vue`, `index.js`, `IntakeQueueDrawer.vue`?**
+  _High betweenness centrality (0.049) - this node is a cross-community bridge._
+- **Why does `ApplicationModel` connect `ApplicationModel` to `PostgresTracer`, `services/agent_tools.py`, `CandidateCVModel`, `CompanyModel`, `JobPostingModel`, `routers/action_items.py`, `routers/intake.py`, `ApplicationEventModel`, `process_evaluation_task`, `ExtractedEmailInfo`, `test_analytics.py`, `semantic_search`, `load_settings`, `test_extension.py`, `datetime`, `schemas/applications.py`, `_execute_evaluation_steps`, `main.py`, `routers/extension.py`, `services/analytics.py`, `Any`?**
+  _High betweenness centrality (0.028) - this node is a cross-community bridge._
+- **Why does `get_db()` connect `main.py` to `PostgresTracer`, `routers/prompts.py`, `process_evaluation_task`, `test_ai_health.py`, `test_analytics.py`, `load_settings`, `test_extension.py`, `routers/candidate_profile.py`, `JobPostingModel`, `test_email_accounts.py`, `routers/action_items.py`, `routers/email_accounts.py`, `LazyAsyncPostgresSaver`, `routers/extension.py`, `routers/llm.py`, `routers/agent_chat.py`?**
+  _High betweenness centrality (0.019) - this node is a cross-community bridge._
+- **Are the 81 inferred relationships involving `ApplicationModel` (e.g. with `create_action_item()` and `list_action_items()`) actually correct?**
+  _`ApplicationModel` has 81 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 65 inferred relationships involving `CompanyModel` (e.g. with `update_application()` and `clip_job_pre_extracted()`) actually correct?**
+  _`CompanyModel` has 65 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 22 inferred relationships involving `ApplicationEventModel` (e.g. with `update_action_item()` and `delete_event()`) actually correct?**
+  _`ApplicationEventModel` has 22 INFERRED edges - model-reasoned connections that need verification._
+- **What connects `pipelineCount`, `pipelineCountLabel`, `appStore` to the rest of the system?**
   _755 weakly-connected nodes found - possible documentation gaps or missing edges._
