@@ -514,6 +514,109 @@ function isTaskCustomized(taskKey) {
 const enableEmbeddings = ref(true)
 const isUpdatingEmbeddings = ref(false)
 const isReindexingEmbeddings = ref(false)
+const isSavingEmbeddingBinding = ref(false)
+const embeddingForm = ref({
+  provider_id: null,
+  model_name: 'nomic-embed-text',
+  embedding_dimensions: 768,
+})
+const embeddingProviderModels = ref([])
+const loadingEmbeddingModels = ref(false)
+let embeddingAutoSaveTimer = null
+
+const embeddingBinding = computed(() => {
+  return bindings.value.find((b) => b.task_type === 'EMBEDDING') || null
+})
+
+function syncEmbeddingForm() {
+  const eb = embeddingBinding.value
+  const chosenProviderId = eb?.provider_id || (providers.value[0]?.id || null)
+  embeddingForm.value.provider_id = chosenProviderId
+  embeddingForm.value.model_name = eb?.model_name || 'nomic-embed-text'
+  embeddingForm.value.embedding_dimensions = eb?.embedding_dimensions || 768
+  fetchEmbeddingModels(chosenProviderId)
+}
+
+async function fetchEmbeddingModels(providerId, forceRefresh = false) {
+  if (!providerId) {
+    embeddingProviderModels.value = []
+    return
+  }
+  if (!forceRefresh && providerModelsCache.value[providerId]) {
+    embeddingProviderModels.value = providerModelsCache.value[providerId].filter(
+      (m) =>
+        m.id.toLowerCase().includes('embed') ||
+        m.id.toLowerCase().includes('nomic') ||
+        m.id.toLowerCase().includes('text-embedding') ||
+        m.id.toLowerCase().includes('bge') ||
+        m.id.toLowerCase().includes('minilm')
+    )
+    return
+  }
+  loadingEmbeddingModels.value = true
+  try {
+    const res = await AIConfigAPI.getProviderModels(providerId)
+    const models = res.data?.models || []
+    providerModelsCache.value[providerId] = models
+    embeddingProviderModels.value = models.filter(
+      (m) =>
+        m.id.toLowerCase().includes('embed') ||
+        m.id.toLowerCase().includes('nomic') ||
+        m.id.toLowerCase().includes('text-embedding') ||
+        m.id.toLowerCase().includes('bge') ||
+        m.id.toLowerCase().includes('minilm')
+    )
+  } catch (err) {
+    embeddingProviderModels.value = []
+  } finally {
+    loadingEmbeddingModels.value = false
+  }
+}
+
+function scheduleEmbeddingAutoSave(delay = 500) {
+  if (embeddingAutoSaveTimer) clearTimeout(embeddingAutoSaveTimer)
+  embeddingAutoSaveTimer = setTimeout(() => {
+    saveEmbeddingBinding(true)
+  }, delay)
+}
+
+function selectEmbeddingSuggestedModel(modelId) {
+  embeddingForm.value.model_name = modelId
+  scheduleEmbeddingAutoSave(50)
+}
+
+function onEmbeddingProviderChange() {
+  fetchEmbeddingModels(embeddingForm.value.provider_id)
+  scheduleEmbeddingAutoSave(100)
+}
+
+async function saveEmbeddingBinding(isAutoSave = false) {
+  if (!embeddingForm.value.provider_id || !embeddingForm.value.model_name?.trim()) {
+    if (!isAutoSave) {
+      uiStore.showToast('Please select an embedding provider and specify a model name.', 'warning')
+    }
+    return
+  }
+  isSavingEmbeddingBinding.value = true
+  try {
+    await AIConfigAPI.setBinding('EMBEDDING', {
+      provider_id: embeddingForm.value.provider_id,
+      model_name: embeddingForm.value.model_name.trim(),
+      embedding_dimensions: Number(embeddingForm.value.embedding_dimensions) || 768,
+      extra_kwargs: {},
+    })
+    if (!isAutoSave) {
+      uiStore.showToast('Vector embedding model settings updated.', 'success')
+    }
+    await loadBindings()
+  } catch (err) {
+    if (!isAutoSave) {
+      uiStore.showToast(err.message || 'Failed to update embedding model settings', 'error')
+    }
+  } finally {
+    isSavingEmbeddingBinding.value = false
+  }
+}
 
 // Cover Letter Automation Settings State
 const enableAutoCoverLetter = ref(false)
@@ -721,21 +824,6 @@ const TASKS = [
     hasPrompt: true,
     desc: 'Computes deep semantic fit score, keyword matches/gaps, and strategic resume improvement suggestions.',
     variables: ['{job_description}', '{candidate_cv}', '{programmatic_baseline}'],
-  },
-  {
-    category: 'evaluation',
-    key: 'EMBEDDING',
-    promptKey: null,
-    label: 'pgvector Dense Embeddings',
-    hidden: computed(() => !uiStore.enableEmbeddings),
-    icon: Cpu,
-    recommendedTemp: null,
-    recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
-    reasoningTip: '💡 Embedding Model: Fixed vector embeddings (nomic-embed-text, text-embedding-3-small).',
-    hasPrompt: false,
-    desc: 'Generates 768-dimension dense vector representations for pgvector cosine similarity search.',
-    variables: [],
   },
 
   // --- Category: Application & Dossier Studio ---
@@ -1008,7 +1096,7 @@ function syncStudioForm() {
     (b) => b.task_type.toUpperCase() === taskKey.toUpperCase()
   )
 
-  if (taskKey !== 'GLOBAL_DEFAULT' && taskKey !== 'EMBEDDING' && !existingBinding) {
+  if (taskKey !== 'GLOBAL_DEFAULT' && !existingBinding) {
     studioForm.value.use_global_default = true
   } else if (existingBinding?.extra_kwargs?.use_global_default !== undefined) {
     studioForm.value.use_global_default = existingBinding.extra_kwargs.use_global_default
@@ -1020,13 +1108,12 @@ function syncStudioForm() {
   const chosenProviderId = existingBinding?.provider_id || (providers.value[0]?.id || null)
 
   studioForm.value.provider_id = chosenProviderId
-  studioForm.value.model_name = existingBinding?.model_name || (taskKey === 'EMBEDDING' ? 'nomic-embed-text' : 'qwen3.5-4b')
+  studioForm.value.model_name = existingBinding?.model_name || 'qwen3.5-4b'
   studioForm.value.temperature = existingBinding?.temperature !== undefined ? existingBinding.temperature : defaultTemp
   studioForm.value.reasoning_effort = existingBinding?.reasoning_effort || existingBinding?.extra_kwargs?.reasoning_effort || taskDef.recommendedReasoning || 'none'
   const customExtra = existingBinding?.custom_extra_body || existingBinding?.extra_kwargs?.custom_extra_body || null
   studioForm.value.custom_extra_body_json = customExtra ? JSON.stringify(customExtra, null, 2) : ''
   studioForm.value.max_tokens = existingBinding?.max_tokens || null
-  studioForm.value.embedding_dimensions = existingBinding?.embedding_dimensions || (taskKey === 'EMBEDDING' ? 768 : null)
 
   // 2. Find prompt template if task supports prompts
   if (taskDef.promptKey) {
@@ -1106,7 +1193,7 @@ async function saveStudioTask(isAutoSave = false) {
     }
 
     // 1. Save Model Binding
-    const useGlobal = studioForm.value.use_global_default && taskKey !== 'EMBEDDING'
+    const useGlobal = studioForm.value.use_global_default
     await AIConfigAPI.setBinding(taskKey, {
       provider_id: useGlobal
         ? (globalBinding.value?.provider_id || studioForm.value.provider_id)
@@ -1118,7 +1205,6 @@ async function saveStudioTask(isAutoSave = false) {
       reasoning_effort: studioForm.value.reasoning_effort,
       custom_extra_body: customExtraParsed,
       max_tokens: studioForm.value.max_tokens ? Number(studioForm.value.max_tokens) : undefined,
-      embedding_dimensions: taskKey === 'EMBEDDING' ? studioForm.value.embedding_dimensions : undefined,
       extra_kwargs: {
         use_global_default: useGlobal,
         reasoning_effort: studioForm.value.reasoning_effort,
@@ -1155,15 +1241,10 @@ async function resetStudioTaskToDefaults() {
 
   isResettingPrompt.value = true
   try {
-    if (taskKey === 'EMBEDDING') {
-      studioForm.value.embedding_dimensions = 768
-      studioForm.value.model_name = 'nomic-embed-text'
-    } else {
-      studioForm.value.use_global_default = true
-      studioForm.value.temperature = typeof taskDef.recommendedTemp === 'number' ? taskDef.recommendedTemp : 0.2
-      studioForm.value.reasoning_effort = taskDef.recommendedReasoning || 'none'
-      studioForm.value.max_tokens = null
-    }
+    studioForm.value.use_global_default = true
+    studioForm.value.temperature = typeof taskDef.recommendedTemp === 'number' ? taskDef.recommendedTemp : 0.2
+    studioForm.value.reasoning_effort = taskDef.recommendedReasoning || 'none'
+    studioForm.value.max_tokens = null
 
     if (taskDef.hasPrompt && taskDef.promptKey) {
       const res = await PromptsAPI.reset(taskDef.promptKey)
@@ -1243,6 +1324,7 @@ async function loadBindings() {
     const res = await AIConfigAPI.listBindings()
     bindings.value = res.data || []
     syncGlobalForm()
+    syncEmbeddingForm()
   } catch (err) {
     // ignore
   }
@@ -2170,10 +2252,6 @@ onUnmounted(() => {
                   <Thermometer :size="11" />
                   <span>Recommended Temp: {{ activeTaskDef.recommendedTemp }}</span>
                 </span>
-                <span v-else-if="activeTaskDef.key === 'EMBEDDING'" class="rec-temp-chip">
-                  <Cpu :size="11" />
-                  <span>Dense Vectors: 768 dimensions</span>
-                </span>
                 <span v-if="activeTaskDef.recommendedReasoning && activeTaskDef.recommendedReasoning !== 'none'" class="rec-reasoning-chip">
                   <Zap :size="11" />
                   <span>Recommended Reasoning: {{ activeTaskDef.recommendedReasoning }}</span>
@@ -2203,7 +2281,7 @@ onUnmounted(() => {
               <span>Model &amp; Execution Binding</span>
             </div>
 
-            <div v-if="selectedTaskKey !== 'EMBEDDING'" class="use-global-checkbox mb-4">
+            <div class="use-global-checkbox mb-4">
               <label class="custom-checkbox">
                 <input
                   type="checkbox"
@@ -2216,12 +2294,12 @@ onUnmounted(() => {
               <p class="checkbox-hint">When checked, this task inherits the global provider and model while keeping its own execution parameters.</p>
             </div>
 
-            <div v-if="studioForm.use_global_default && selectedTaskKey !== 'EMBEDDING'" class="inherited-model-banner mb-4">
+            <div v-if="studioForm.use_global_default" class="inherited-model-banner mb-4">
               <span class="inherited-icon">ℹ️</span>
               <span>Inheriting Global Default Model: <strong>{{ globalBinding?.model_name || 'qwen/qwen3.5-9b' }}</strong>. You can still customize temperature, thinking mode, and max tokens below.</span>
             </div>
 
-            <div class="form-grid-2" :class="{ 'opacity-50 pointer-events-none': studioForm.use_global_default && selectedTaskKey !== 'EMBEDDING' }">
+            <div class="form-grid-2" :class="{ 'opacity-50 pointer-events-none': studioForm.use_global_default }">
               <div class="input-group">
                 <div class="label-with-hint">
                   <label class="input-label">AI Provider *</label>
@@ -2320,7 +2398,7 @@ onUnmounted(() => {
             <div
               v-if="studioProviderModels.length"
               class="model-suggestions-box"
-              :class="{ 'opacity-50 pointer-events-none': studioForm.use_global_default && selectedTaskKey !== 'EMBEDDING' }"
+              :class="{ 'opacity-50 pointer-events-none': studioForm.use_global_default }"
             >
               <span class="suggestions-label">Discovered / Available Models on Provider:</span>
               <div class="suggestions-list">
@@ -2329,7 +2407,7 @@ onUnmounted(() => {
                   :key="m.id"
                   type="button"
                   class="model-chip font-mono"
-                  :disabled="studioForm.use_global_default && selectedTaskKey !== 'EMBEDDING'"
+                  :disabled="studioForm.use_global_default"
                   :class="{ active: studioForm.model_name === m.id }"
                   @click="selectStudioSuggestedModel(m.id)"
                 >
@@ -2340,106 +2418,86 @@ onUnmounted(() => {
             </div>
 
             <!-- Parameters Grid (Temperature, Thinking Mode, Max Tokens) -->
-            <div v-if="selectedTaskKey === 'EMBEDDING'" class="form-grid-2 mt-4">
+            <div class="form-grid-2 mt-4">
+              <!-- Thinking / Reasoning Mode Segmented Control -->
               <div class="input-group">
-                <label class="input-label">Embedding Dimensions</label>
+                <div class="label-with-hint">
+                  <label class="input-label">Thinking / Reasoning Mode</label>
+                </div>
+                <div class="reasoning-pills">
+                  <button
+                    v-for="effort in ['none', 'low', 'medium', 'high', 'custom']"
+                    :key="effort"
+                    type="button"
+                    class="reasoning-pill font-mono"
+                    :class="{ active: studioForm.reasoning_effort === effort }"
+                    @click="setStudioReasoningEffort(effort)"
+                  >
+                    {{ effort === 'none' ? 'None (Fast)' : (effort === 'custom' ? 'Custom JSON' : effort) }}
+                  </button>
+                </div>
+                <div v-if="activeTaskDef?.reasoningTip" class="reasoning-task-guidance mt-2 animate-fade-in">
+                  <span>{{ activeTaskDef.reasoningTip }}</span>
+                </div>
+              </div>
+
+              <!-- Max Tokens -->
+              <div class="input-group">
+                <div class="label-with-hint">
+                  <label class="input-label">Max Generation Tokens</label>
+                </div>
                 <input
-                  v-model.number="studioForm.embedding_dimensions"
+                  v-model.number="studioForm.max_tokens"
                   type="number"
-                  placeholder="768"
+                  step="256"
+                  min="256"
+                  max="64000"
+                  placeholder="Optional (Default unconstrained)"
                   class="form-input font-mono"
                   @input="scheduleStudioAutoSave(600)"
                 />
               </div>
-              <div class="input-group flex flex-col justify-end">
-                <span class="text-xs text-muted leading-relaxed">
-                  Vector representation size for <code>pgvector</code> similarity search (standard: 768 dimensions).
-                </span>
+            </div>
+
+            <!-- Custom Extra Body JSON (Expandable Editor) -->
+            <div v-if="studioForm.reasoning_effort === 'custom'" class="input-group mt-3 animate-fade-in">
+              <div class="label-with-hint">
+                <label class="input-label">Custom Request Extra Body (JSON)</label>
+                <span class="text-xs text-muted">Pass engine-specific parameters like <code>chat_template_kwargs</code> or <code>thinking</code></span>
+              </div>
+              <textarea
+                v-model="studioForm.custom_extra_body_json"
+                rows="3"
+                class="form-input font-mono text-xs"
+                placeholder='{\n  "chat_template_kwargs": { "thinking": false }\n}'
+                @input="scheduleStudioAutoSave(800)"
+              ></textarea>
+              <span v-if="customExtraBodyError" class="text-xs text-danger mt-1">
+                {{ customExtraBodyError }}
+              </span>
+            </div>
+
+            <!-- Sampling Temperature Slider -->
+            <div class="input-group mt-3">
+              <div class="label-with-hint">
+                <label class="input-label">Sampling Temperature</label>
+                <span class="font-mono text-xs font-semibold text-primary">{{ studioForm.temperature }}</span>
+              </div>
+              <div class="form-range-container">
+                <input
+                  v-model.number="studioForm.temperature"
+                  type="range"
+                  step="0.05"
+                  min="0.0"
+                  max="1.0"
+                  class="form-range"
+                  @input="scheduleStudioAutoSave(300)"
+                  @change="scheduleStudioAutoSave(50)"
+                />
               </div>
             </div>
 
-            <template v-else>
-              <div class="form-grid-2 mt-4">
-                <!-- Thinking / Reasoning Mode Segmented Control -->
-                <div class="input-group">
-                  <div class="label-with-hint">
-                    <label class="input-label">Thinking / Reasoning Mode</label>
-                  </div>
-                  <div class="reasoning-pills">
-                    <button
-                      v-for="effort in ['none', 'low', 'medium', 'high', 'custom']"
-                      :key="effort"
-                      type="button"
-                      class="reasoning-pill font-mono"
-                      :class="{ active: studioForm.reasoning_effort === effort }"
-                      @click="setStudioReasoningEffort(effort)"
-                    >
-                      {{ effort === 'none' ? 'None (Fast)' : (effort === 'custom' ? 'Custom JSON' : effort) }}
-                    </button>
-                  </div>
-                  <div v-if="activeTaskDef?.reasoningTip" class="reasoning-task-guidance mt-2 animate-fade-in">
-                    <span>{{ activeTaskDef.reasoningTip }}</span>
-                  </div>
-                </div>
-
-                <!-- Max Tokens -->
-                <div class="input-group">
-                  <div class="label-with-hint">
-                    <label class="input-label">Max Generation Tokens</label>
-                  </div>
-                  <input
-                    v-model.number="studioForm.max_tokens"
-                    type="number"
-                    step="256"
-                    min="256"
-                    max="64000"
-                    placeholder="Optional (Default unconstrained)"
-                    class="form-input font-mono"
-                    @input="scheduleStudioAutoSave(600)"
-                  />
-                </div>
-              </div>
-
-              <!-- Custom Extra Body JSON (Expandable Editor) -->
-              <div v-if="studioForm.reasoning_effort === 'custom'" class="input-group mt-3 animate-fade-in">
-                <div class="label-with-hint">
-                  <label class="input-label">Custom Request Extra Body (JSON)</label>
-                  <span class="text-xs text-muted">Pass engine-specific parameters like <code>chat_template_kwargs</code> or <code>thinking</code></span>
-                </div>
-                <textarea
-                  v-model="studioForm.custom_extra_body_json"
-                  rows="3"
-                  class="form-input font-mono text-xs"
-                  placeholder='{\n  "chat_template_kwargs": { "thinking": false }\n}'
-                  @input="scheduleStudioAutoSave(800)"
-                ></textarea>
-                <span v-if="customExtraBodyError" class="text-xs text-danger mt-1">
-                  {{ customExtraBodyError }}
-                </span>
-              </div>
-
-              <!-- Sampling Temperature Slider -->
-              <div class="input-group mt-3">
-                <div class="label-with-hint">
-                  <label class="input-label">Sampling Temperature</label>
-                  <span class="font-mono text-xs font-semibold text-primary">{{ studioForm.temperature }}</span>
-                </div>
-                <div class="form-range-container">
-                  <input
-                    v-model.number="studioForm.temperature"
-                    type="range"
-                    step="0.05"
-                    min="0.0"
-                    max="1.0"
-                    class="form-range"
-                    @input="scheduleStudioAutoSave(300)"
-                    @change="scheduleStudioAutoSave(50)"
-                  />
-                </div>
-              </div>
-            </template>
-
-            <div v-if="selectedTaskKey !== 'EMBEDDING'" class="reasoning-info-callout">
+            <div class="reasoning-info-callout">
               <Zap :size="13" class="text-primary flex-shrink-0" />
               <span>
                 <strong>Thinking Mode &amp; Token Limits:</strong> Instructs reasoning models (e.g. DeepSeek-R1, OpenAI o1/o3-mini, Claude 3.7 Thinking, Gemini Thinking) to execute extended chain-of-thought verification. Leaving Max Tokens as <em>Optional (Default unconstrained)</em> ensures reasoning chains don't get truncated before output generation.
@@ -3114,7 +3172,7 @@ onUnmounted(() => {
               </div>
               <div class="preference-header-text">
                 <div class="preference-header-between">
-                  <h4 class="preference-title">Vector Embeddings</h4>
+                  <h4 class="preference-title">Vector Embeddings (pgvector)</h4>
                   <label class="switch-toggle" title="Toggle Vector Embeddings generation">
                     <input
                       type="checkbox"
@@ -3130,21 +3188,103 @@ onUnmounted(() => {
             </div>
 
             <div class="preference-body" :class="{ 'is-disabled': !enableEmbeddings }">
-              <div class="input-group">
-                <div class="label-with-hint">
-                  <label class="input-label">pgvector Index</label>
+              <!-- Embedding Provider & Model Controls -->
+              <div class="form-grid-2 mb-3">
+                <div class="input-group">
+                  <label class="input-label">Embedding AI Provider *</label>
+                  <select
+                    v-model="embeddingForm.provider_id"
+                    class="form-select"
+                    :disabled="!enableEmbeddings"
+                    @change="onEmbeddingProviderChange"
+                  >
+                    <option
+                      v-for="p in providers"
+                      :key="p.id"
+                      :value="p.id"
+                    >
+                      {{ p.name }} ({{ p.provider_type }})
+                    </option>
+                  </select>
                 </div>
-                <button
-                  class="btn btn-secondary btn-sm w-full"
-                  :disabled="!enableEmbeddings || isReindexingEmbeddings"
-                  @click="reindexMissingEmbeddings"
-                >
-                  <RefreshCw :size="13" :class="{ 'animate-spin': isReindexingEmbeddings }" />
-                  <span>{{ isReindexingEmbeddings ? 'Re-indexing Embeddings...' : 'Rebuild Missing Embeddings' }}</span>
-                </button>
-                <span class="preference-field-hint">
-                  Backfills vector embeddings across all existing applications.
-                </span>
+
+                <div class="input-group">
+                  <div class="label-with-hint">
+                    <label class="input-label">Embedding Model *</label>
+                    <button
+                      v-if="embeddingForm.provider_id"
+                      type="button"
+                      class="btn-refresh-models"
+                      :disabled="!enableEmbeddings || loadingEmbeddingModels"
+                      @click="fetchEmbeddingModels(embeddingForm.provider_id, true)"
+                      title="Discover embedding models from live endpoint"
+                    >
+                      <RefreshCw :class="{ 'animate-spin': loadingEmbeddingModels }" :size="12" />
+                      <span>{{ loadingEmbeddingModels ? 'Scanning...' : 'Auto-Discover' }}</span>
+                    </button>
+                  </div>
+                  <input
+                    v-model="embeddingForm.model_name"
+                    type="text"
+                    placeholder="e.g. nomic-embed-text, text-embedding-3-small"
+                    class="form-input font-mono"
+                    :disabled="!enableEmbeddings"
+                    @input="scheduleEmbeddingAutoSave(600)"
+                  />
+                </div>
+              </div>
+
+              <!-- Quick Pick Discovered Embedding Model Chips -->
+              <div v-if="embeddingProviderModels.length" class="model-suggestions-box mb-3">
+                <span class="suggestions-label">Discovered Embedding Models:</span>
+                <div class="suggestions-list">
+                  <button
+                    v-for="m in embeddingProviderModels"
+                    :key="m.id"
+                    type="button"
+                    class="model-chip font-mono"
+                    :class="{ active: embeddingForm.model_name === m.id }"
+                    :disabled="!enableEmbeddings"
+                    @click="selectEmbeddingSuggestedModel(m.id)"
+                  >
+                    <Check v-if="embeddingForm.model_name === m.id" :size="11" />
+                    <span>{{ m.id }}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="form-grid-2 mb-3">
+                <div class="input-group">
+                  <label class="input-label">Vector Dimensions</label>
+                  <input
+                    v-model.number="embeddingForm.embedding_dimensions"
+                    type="number"
+                    placeholder="768"
+                    class="form-input font-mono"
+                    :disabled="!enableEmbeddings"
+                    @input="scheduleEmbeddingAutoSave(600)"
+                  />
+                  <span class="preference-field-hint">
+                    Standard dimensions for pgvector cosine indexing (e.g. 768 or 1536).
+                  </span>
+                </div>
+
+                <div class="input-group">
+                  <div class="label-with-hint">
+                    <label class="input-label">pgvector Index Maintenance</label>
+                  </div>
+                  <button
+                    class="btn btn-secondary btn-sm w-full"
+                    :disabled="!enableEmbeddings || isReindexingEmbeddings"
+                    @click="reindexMissingEmbeddings"
+                  >
+                    <RefreshCw :size="13" :class="{ 'animate-spin': isReindexingEmbeddings }" />
+                    <span>{{ isReindexingEmbeddings ? 'Re-indexing Embeddings...' : 'Rebuild Missing Embeddings' }}</span>
+                  </button>
+                  <span class="preference-field-hint">
+                    Backfills vector embeddings across all existing applications.
+                  </span>
+                </div>
               </div>
             </div>
           </div>
