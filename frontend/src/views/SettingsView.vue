@@ -743,7 +743,6 @@ async function toggleEmbeddings() {
     const res = await AIConfigAPI.updateGlobalSettings({ ENABLE_EMBEDDINGS: newVal })
     enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS
     uiStore.enableEmbeddings = enableEmbeddings.value
-    isEmbeddingsOpen.value = enableEmbeddings.value
     uiStore.showToast(
       enableEmbeddings.value
         ? 'Vector embeddings enabled.'
@@ -2598,10 +2597,11 @@ onUnmounted(() => {
 
           <!-- VECTOR KNOWLEDGE & DENSE EMBEDDINGS ACCORDION -->
           <div class="advanced-overrides-section">
-            <button
+            <div
               class="advanced-toggle-btn"
-              :class="{ 'opacity-80 pointer-events-none': isUpdatingEmbeddings }"
-              @click="toggleEmbeddings"
+              role="button"
+              tabindex="0"
+              @click="isEmbeddingsOpen = !isEmbeddingsOpen"
             >
               <div class="advanced-toggle-left">
                 <Cpu :size="16" class="text-primary" />
@@ -2610,39 +2610,38 @@ onUnmounted(() => {
                   {{ enableEmbeddings ? `Active (${embeddingForm.model_name || 'nomic-embed-text'})` : 'Disabled' }}
                 </span>
               </div>
-              <div class="flex items-center" @click.stop>
-                <label class="switch-toggle" title="Toggle Vector Embeddings generation">
+              <div class="advanced-toggle-right" @click.stop>
+                <label class="switch-toggle" title="Toggle Vector Embeddings generation" @click.stop>
                   <input
                     type="checkbox"
                     :checked="enableEmbeddings"
                     :disabled="isUpdatingEmbeddings"
-                    @change="toggleEmbeddings"
+                    @click.stop
+                    @change.stop="toggleEmbeddings"
                   />
                   <span class="slider round"></span>
                 </label>
+                <div class="header-divider"></div>
+                <div
+                  class="accordion-arrow-btn"
+                  @click.stop="isEmbeddingsOpen = !isEmbeddingsOpen"
+                  title="Toggle drawer"
+                >
+                  <ChevronDown :size="16" class="accordion-icon" :class="{ 'rotated': isEmbeddingsOpen }" />
+                </div>
               </div>
-            </button>
+            </div>
 
             <transition name="accordion-fade">
               <div v-show="isEmbeddingsOpen" class="advanced-overrides-content">
                 <div class="studio-card">
                   <!-- Inline Rebuild Prompt Banner -->
                   <div class="embeddings-rebuild-alert mb-4">
-                    <div class="flex items-center justify-between gap-3 flex-wrap">
-                      <div class="flex items-center gap-2.5">
-                        <AlertCircle :size="16" class="text-amber-500 flex-shrink-0" />
-                        <span class="text-xs font-medium text-main">
-                          Vector embeddings are active. Existing applications in PostgreSQL may need backfilling.
-                        </span>
-                      </div>
-                      <button
-                        class="btn btn-primary btn-xs flex items-center gap-1.5"
-                        :disabled="!enableEmbeddings || isReindexingEmbeddings"
-                        @click="reindexMissingEmbeddings"
-                      >
-                        <RefreshCw :size="11" :class="{ 'animate-spin': isReindexingEmbeddings }" />
-                        <span>{{ isReindexingEmbeddings ? 'Rebuilding...' : 'Rebuild Missing Embeddings' }}</span>
-                      </button>
+                    <div class="flex items-center gap-2.5">
+                      <AlertCircle :size="16" class="text-amber-500 flex-shrink-0" />
+                      <span class="text-xs font-medium text-main">
+                        Vector embeddings are active. Existing applications in PostgreSQL may need backfilling.
+                      </span>
                     </div>
                   </div>
 
@@ -2736,7 +2735,7 @@ onUnmounted(() => {
                           <label class="input-label">Index Maintenance</label>
                         </div>
                         <button
-                          class="btn btn-secondary w-full"
+                          class="btn btn-primary w-full"
                           style="height: 38px; min-height: 38px; max-height: 38px;"
                           :disabled="!enableEmbeddings || isReindexingEmbeddings"
                           @click="reindexMissingEmbeddings"
@@ -6041,12 +6040,45 @@ onUnmounted(() => {
   color: var(--text-main);
 }
 
+.advanced-toggle-right {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
 .accordion-icon {
   transition: transform 0.3s ease;
 }
 
 .accordion-icon.rotated {
   transform: rotate(180deg);
+}
+
+.header-divider {
+  width: 1px;
+  height: 18px;
+  background-color: var(--border-color);
+  opacity: 0.8;
+}
+
+.accordion-arrow-btn {
+  background: transparent;
+  border: none;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+}
+
+.accordion-arrow-btn:hover {
+  color: var(--text-main);
+  background-color: var(--bg-surface-hover);
 }
 
 .accordion-fade-enter-active,
