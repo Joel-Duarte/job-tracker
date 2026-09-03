@@ -694,6 +694,28 @@ onMounted(() => {
 .task-breakdown-body {
   padding: 16px 18px;
   background: var(--bg-surface);
+  overflow-y: auto;
+  max-height: 60vh;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+}
+
+.task-breakdown-body::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.task-breakdown-body::-webkit-scrollbar-track {
+  background: var(--bg-surface);
+}
+
+.task-breakdown-body::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.task-breakdown-body::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
 }
 
 .task-breakdown-grid {
