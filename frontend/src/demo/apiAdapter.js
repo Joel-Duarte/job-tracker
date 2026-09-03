@@ -1,4 +1,4 @@
-import { getDemoDb, saveDemoDb } from './demoStorage'
+import { getDemoDb, saveDemoDb } from './demoStorage.js'
 
 function delay(ms = null) {
   const actualMs = ms !== null ? ms : Math.floor(Math.random() * 500) + 500
@@ -462,6 +462,17 @@ export async function handleDemoRequest(config) {
   }
 
   if (urlPath === '/intake/confirm-assessment' && method === 'post') {
+    const appId = data.application_id
+    if (appId) {
+      const idx = (db.assessments || []).findIndex(
+        (a) => String(a.id) === String(appId) || String(a.result_json?.application_id) === String(appId)
+      )
+      if (idx !== -1) {
+        if (!db.assessments[idx].result_json) db.assessments[idx].result_json = {}
+        db.assessments[idx].result_json.assessment_archived = true
+      }
+    }
+
     const newApp = {
       id: `app_demo_${Date.now()}`,
       company_name: data.company || 'Confirmed Tech Corp',
@@ -495,6 +506,51 @@ export async function handleDemoRequest(config) {
     db.applications = [newApp, ...(db.applications || [])]
     saveDemoDb(db)
     return ok(newApp)
+  }
+
+  // Assessments Endpoints
+  if (urlPath === '/intake/assessments' && method === 'get') {
+    return ok(db.assessments || [])
+  }
+
+  const assessRestoreMatch = urlPath.match(/^\/intake\/assessments\/([^/]+)\/restore$/)
+  if (assessRestoreMatch && method === 'post') {
+    const appId = assessRestoreMatch[1]
+    const idx = (db.assessments || []).findIndex(
+      (a) => String(a.id) === String(appId) || String(a.result_json?.application_id) === String(appId)
+    )
+    if (idx !== -1) {
+      if (!db.assessments[idx].result_json) db.assessments[idx].result_json = {}
+      db.assessments[idx].result_json.assessment_archived = false
+      saveDemoDb(db)
+      return ok({ status: 'success', message: `Assessment ${appId} restored.` })
+    }
+    return ok({ status: 'success', message: 'Assessment restored.' })
+  }
+
+  const assessPermanentDeleteMatch = urlPath.match(/^\/intake\/assessments\/([^/]+)\/permanent$/)
+  if (assessPermanentDeleteMatch && method === 'delete') {
+    const appId = assessPermanentDeleteMatch[1]
+    db.assessments = (db.assessments || []).filter(
+      (a) => String(a.id) !== String(appId) && String(a.result_json?.application_id) !== String(appId)
+    )
+    saveDemoDb(db)
+    return ok({ status: 'success', message: `Assessment ${appId} deleted.` })
+  }
+
+  const assessDismissMatch = urlPath.match(/^\/intake\/assessments\/([^/]+)$/)
+  if (assessDismissMatch && method === 'delete') {
+    const appId = assessDismissMatch[1]
+    const idx = (db.assessments || []).findIndex(
+      (a) => String(a.id) === String(appId) || String(a.result_json?.application_id) === String(appId)
+    )
+    if (idx !== -1) {
+      if (!db.assessments[idx].result_json) db.assessments[idx].result_json = {}
+      db.assessments[idx].result_json.assessment_archived = true
+      saveDemoDb(db)
+      return ok({ status: 'success', message: `Assessment ${appId} dismissed.` })
+    }
+    return ok({ status: 'success', message: 'Assessment dismissed.' })
   }
 
   if (urlPath === '/intake/evaluations' && method === 'get') {
@@ -1048,6 +1104,14 @@ export async function handleDemoRequest(config) {
     return ok(db.system_settings)
   }
 
+  if (urlPath === '/config/system/test-search-provider' && method === 'post') {
+    return ok({
+      success: true,
+      latency_ms: 110,
+      message: 'Connected to SearXNG search engine successfully (demo mode).',
+    })
+  }
+
   if (urlPath === '/config/ai/health' && method === 'get') {
     return ok({
       status: 'healthy',
@@ -1249,12 +1313,31 @@ export async function handleDemoRequest(config) {
   if (urlPath === '/ai/global-settings' && method === 'get') {
     return ok({
       HAS_COMPLETED_ONBOARDING: db.system_settings?.has_completed_onboarding ?? true,
-      ENABLE_EMAIL_INTAKE: true,
-      ENABLE_EMBEDDINGS: true,
-      ENABLE_AUTO_COVER_LETTER: true,
-      COVER_LETTER_MATCH_THRESHOLD: 70,
-      COVER_LETTER_LENGTH: 'standard',
-      COVER_LETTER_TONE: 'professional',
+      ENABLE_EMAIL_INTAKE: db.system_settings?.enable_email_intake ?? true,
+      ENABLE_EMBEDDINGS: db.system_settings?.enable_embeddings ?? true,
+      ENABLE_AUTO_COVER_LETTER: db.system_settings?.enable_auto_cover_letter ?? true,
+      COVER_LETTER_MATCH_THRESHOLD: db.system_settings?.cover_letter_match_threshold ?? 70,
+      COVER_LETTER_LENGTH: db.system_settings?.cover_letter_length ?? 'standard',
+      COVER_LETTER_TONE: db.system_settings?.cover_letter_tone ?? 'professional',
+    })
+  }
+
+  if (urlPath === '/ai/global-settings' && method === 'patch') {
+    db.system_settings = {
+      ...(db.system_settings || {}),
+      ...(data.COVER_LETTER_TONE ? { cover_letter_tone: data.COVER_LETTER_TONE } : {}),
+      ...(data.cover_letter_tone ? { cover_letter_tone: data.cover_letter_tone } : {}),
+      ...data,
+    }
+    saveDemoDb(db)
+    return ok({
+      HAS_COMPLETED_ONBOARDING: db.system_settings?.has_completed_onboarding ?? true,
+      ENABLE_EMAIL_INTAKE: db.system_settings?.enable_email_intake ?? true,
+      ENABLE_EMBEDDINGS: db.system_settings?.enable_embeddings ?? true,
+      ENABLE_AUTO_COVER_LETTER: db.system_settings?.enable_auto_cover_letter ?? true,
+      COVER_LETTER_MATCH_THRESHOLD: db.system_settings?.cover_letter_match_threshold ?? 70,
+      COVER_LETTER_LENGTH: db.system_settings?.cover_letter_length ?? 'standard',
+      COVER_LETTER_TONE: db.system_settings?.cover_letter_tone ?? 'professional',
     })
   }
 
@@ -1451,6 +1534,19 @@ export async function handleDemoRequest(config) {
         a.description?.toLowerCase().includes(query)
     )
     return ok({ results: matches })
+  }
+
+  if (urlPath === '/search/companies' && method === 'get') {
+    const q = (params.q || '').toLowerCase().trim()
+    const matches = (db.companies || [])
+      .filter((c) => !q || c.name?.toLowerCase().includes(q) || c.domain?.toLowerCase().includes(q))
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        domain: c.domain,
+        rating: c.rating,
+      }))
+    return ok(matches)
   }
 
   if (urlPath === '/analytics/overview' && method === 'get') {
@@ -1784,5 +1880,180 @@ export async function handleDemoRequest(config) {
       }
     })
   }
+
+  // 11. COMPANIES ENDPOINTS
+  if (urlPath === '/companies' && method === 'get') {
+    let items = [...(db.companies || [])]
+    if (params.q) {
+      const q = params.q.toLowerCase().trim()
+      items = items.filter(
+        (c) =>
+          c.name?.toLowerCase().includes(q) ||
+          c.domain?.toLowerCase().includes(q)
+      )
+    }
+    // Calculate application_count dynamically from db.applications
+    items = items.map((c) => {
+      const appCount = (db.applications || []).filter(
+        (a) =>
+          String(a.company_id) === String(c.id) ||
+          a.company_name?.toLowerCase() === c.name?.toLowerCase()
+      ).length
+      return { ...c, application_count: appCount }
+    })
+    return ok(items)
+  }
+
+  if (urlPath === '/companies/duplicates' && method === 'get') {
+    const list = db.companies || []
+    const domainMap = {}
+    list.forEach((c) => {
+      if (c.domain) {
+        const dom = c.domain.toLowerCase().trim()
+        domainMap[dom] = domainMap[dom] || []
+        domainMap[dom].push(c)
+      }
+    })
+    const clusters = []
+    const duplicateIds = new Set()
+    Object.entries(domainMap).forEach(([dom, comps]) => {
+      if (comps.length > 1) {
+        comps.forEach((c) => duplicateIds.add(c.id))
+        clusters.push({
+          canonical_name: comps[0].name,
+          cluster_size: comps.length,
+          companies: comps.map((c) => ({
+            id: c.id,
+            name: c.name,
+            domain: c.domain,
+            application_count: (db.applications || []).filter(
+              (a) => String(a.company_id) === String(c.id) || a.company_name?.toLowerCase() === c.name?.toLowerCase()
+            ).length,
+          })),
+        })
+      }
+    })
+    return ok({
+      total_clusters: clusters.length,
+      total_duplicate_companies: duplicateIds.size,
+      duplicate_company_ids: Array.from(duplicateIds),
+      clusters,
+    })
+  }
+
+  if (urlPath === '/companies/merge' && method === 'post') {
+    const primaryId = data.primary_company_id
+    const duplicateId = data.duplicate_company_id
+    const primaryIdx = (db.companies || []).findIndex((c) => String(c.id) === String(primaryId))
+    const duplicate = (db.companies || []).find((c) => String(c.id) === String(duplicateId))
+    if (primaryIdx !== -1 && duplicate) {
+      // Reassign applications
+      (db.applications || []).forEach((a) => {
+        if (String(a.company_id) === String(duplicateId) || a.company_name?.toLowerCase() === duplicate.name?.toLowerCase()) {
+          a.company_id = db.companies[primaryIdx].id
+          a.company_name = db.companies[primaryIdx].name
+          if (a.company) {
+            a.company.id = db.companies[primaryIdx].id
+            a.company.name = db.companies[primaryIdx].name
+            a.company.domain = db.companies[primaryIdx].domain
+          }
+        }
+      })
+      // Delete duplicate company
+      db.companies = db.companies.filter((c) => String(c.id) !== String(duplicateId))
+      saveDemoDb(db)
+      return ok({
+        status: 'success',
+        message: 'Companies merged successfully',
+        primary_company_id: primaryId,
+      })
+    }
+    return { status: 400, data: { detail: 'Failed to merge companies' } }
+  }
+
+  if (urlPath === '/companies/bulk-research' && method === 'post') {
+    const count = (db.companies || []).length
+    return ok({ enqueued_count: count, skipped_count: 0 })
+  }
+
+  const refreshResearchMatch = urlPath.match(/^\/companies\/([^/]+)\/refresh-research$/)
+  if (refreshResearchMatch && method === 'post') {
+    const cid = refreshResearchMatch[1]
+    const idx = (db.companies || []).findIndex((c) => String(c.id) === String(cid))
+    if (idx !== -1) {
+      db.companies[idx].research_status = 'COMPLETED'
+      db.companies[idx].researched_at = new Date().toISOString()
+      if (!db.companies[idx].company_research) {
+        db.companies[idx].company_research = {
+          summary: `${db.companies[idx].name} is a leading enterprise technology company building cloud software.`,
+          engineering_culture: "Modern engineering practices with continuous delivery and high technical excellence.",
+          recent_initiatives: "Product line expansion, platform infrastructure optimization, and AI automation.",
+          products_and_technical_domain: ["Core Platform", "Cloud Infrastructure"],
+          strategic_priorities: ["Customer satisfaction", "Platform reliability", "High availability"],
+          language_to_mirror: ["Quality-driven", "High reliability", "First-principles engineering"],
+          candidate_alignment_angles: ["Highlight distributed systems scalability and observability"],
+          verified_facts: [
+            { fact: "Enterprise operations across multiple global regions", confidence: "high", source_url: `https://${db.companies[idx].domain || 'example.com'}` }
+          ],
+          employee_signals: [
+            { signal: "Values cross-functional collaboration and clear documentation" }
+          ],
+          public_rating_snippet: "4.2 / 5.0",
+          sources: [`https://${db.companies[idx].domain || 'example.com'}`],
+        }
+      }
+      saveDemoDb(db)
+      return ok(db.companies[idx])
+    }
+    return { status: 404, data: { detail: 'Company not found' } }
+  }
+
+  const companyIdMatch = urlPath.match(/^\/companies\/([^/]+)$/)
+  if (companyIdMatch && method === 'get') {
+    const cid = companyIdMatch[1]
+    const company = (db.companies || []).find(
+      (c) => String(c.id) === String(cid) || c.name?.toLowerCase() === cid.toLowerCase()
+    )
+    if (!company) {
+      return { status: 404, data: { detail: 'Company not found' } }
+    }
+    const apps = (db.applications || []).filter(
+      (a) =>
+        String(a.company_id) === String(company.id) ||
+        a.company_name?.toLowerCase() === company.name?.toLowerCase()
+    )
+    return ok({ ...company, applications: apps, application_count: apps.length })
+  }
+
+  if (companyIdMatch && method === 'patch') {
+    const cid = companyIdMatch[1]
+    const idx = (db.companies || []).findIndex(
+      (c) => String(c.id) === String(cid) || c.name?.toLowerCase() === cid.toLowerCase()
+    )
+    if (idx !== -1) {
+      db.companies[idx] = { ...db.companies[idx], ...data }
+      saveDemoDb(db)
+      return ok(db.companies[idx])
+    }
+    return { status: 404, data: { detail: 'Company not found' } }
+  }
+
+  if (companyIdMatch && method === 'delete') {
+    const cid = companyIdMatch[1]
+    const company = (db.companies || []).find(
+      (c) => String(c.id) === String(cid) || c.name?.toLowerCase() === cid.toLowerCase()
+    )
+    db.companies = (db.companies || []).filter(
+      (c) => String(c.id) !== String(cid) && c.name?.toLowerCase() !== cid.toLowerCase()
+    )
+    if (params.delete_applications === true || params.delete_applications === 'true') {
+      db.applications = (db.applications || []).filter(
+        (a) => String(a.company_id) !== String(cid) && a.company_name?.toLowerCase() !== company?.name?.toLowerCase()
+      )
+    }
+    saveDemoDb(db)
+    return ok({ status: 'success', message: 'Company deleted' })
+  }
+
   return ok({ message: 'Client Demo Mode mock response' })
 }

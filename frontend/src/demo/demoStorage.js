@@ -1,4 +1,4 @@
-import { INITIAL_MOCK_DATA } from './mockData'
+import { INITIAL_MOCK_DATA } from './mockData.js'
 
 const DEMO_STORAGE_KEY = 'jt_demo_db_v1'
 const DEMO_MODE_FLAG_KEY = 'jt_demo_mode'
@@ -28,7 +28,32 @@ export function getDemoDb() {
     return initDemoDb()
   }
   try {
-    return JSON.parse(dataStr)
+    const parsed = JSON.parse(dataStr)
+    let modified = false
+    if (!Array.isArray(parsed.companies) || !parsed.companies.length) {
+      parsed.companies = JSON.parse(JSON.stringify(INITIAL_MOCK_DATA.companies || []))
+      modified = true
+    }
+    if (!Array.isArray(parsed.assessments) || !parsed.assessments.length) {
+      parsed.assessments = JSON.parse(JSON.stringify(INITIAL_MOCK_DATA.assessments || []))
+      modified = true
+    }
+    if (parsed.system_settings) {
+      if (!parsed.system_settings.cover_letter_tone) {
+        parsed.system_settings.cover_letter_tone = 'professional'
+        modified = true
+      }
+      if (!parsed.system_settings.search_provider) {
+        parsed.system_settings.search_provider = 'searxng'
+        parsed.system_settings.searxng_url = 'http://searxng-core:8080'
+        parsed.system_settings.enable_web_search = true
+        modified = true
+      }
+    }
+    if (modified) {
+      saveDemoDb(parsed)
+    }
+    return parsed
   } catch (err) {
     console.error('Failed to parse demo storage, re-initializing:', err)
     return initDemoDb()

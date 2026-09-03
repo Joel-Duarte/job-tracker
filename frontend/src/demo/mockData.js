@@ -520,6 +520,361 @@ export const INITIAL_MOCK_DATA = {
     }
   ],
 
+  companies: [
+    {
+      id: "comp_stripe",
+      name: "Stripe",
+      name_normalized: "stripe",
+      domain: "stripe.com",
+      about_url: "https://stripe.com/about",
+      rating: 5,
+      notes: "Top choice for developer infrastructure. Known for strong compensation, rigorous peer review, and high technical bar.",
+      pros: ["Strong compensation & equity upside", "World-class engineering talent", "High technical bar"],
+      red_flags: ["Demanding on-call rotations", "Fast pace with high delivery expectations"],
+      company_research: {
+        summary: "Global financial infrastructure platform processing hundreds of billions in transactions annually. Builds developer-first APIs, payment processing engines, fraud prevention, and banking infrastructure.",
+        engineering_culture: "Heavy emphasis on written design docs, rigorous peer review, and operational excellence. Distributed platform teams operate primarily in Go, Rust, and Java with strong reliability standards.",
+        recent_initiatives: "Expansion into AI agent payment rails, global crypto onramps, next-generation fraud detection models, and accelerated enterprise billing workflows.",
+        products_and_technical_domain: ["Payment Processing", "Billing & Subscriptions", "Treasury & Banking-as-a-Service", "Radar Fraud Prevention"],
+        strategic_priorities: ["Global payment rails reliability", "Developer API speed & DX", "AI agent native checkout"],
+        language_to_mirror: ["Increase the GDP of the internet", "Infrastructure as a competitive advantage", "First-principles engineering"],
+        candidate_alignment_angles: ["Emphasize low-latency distributed state machines", "Highlight experience with zero-downtime database migrations", "Showcase rigorous observability and SLO discipline"],
+        verified_facts: [
+          { fact: "Over 500 million API requests processed daily during peak seasons", confidence: "high", source_url: "https://stripe.com" },
+          { fact: "99.999% platform availability across core transaction rails", confidence: "high", source_url: "https://stripe.com" }
+        ],
+        employee_signals: [
+          { signal: "Strong focus on clear, asynchronous writing in technical design reviews" },
+          { signal: "Values engineers who own end-to-end incident mitigation" }
+        ],
+        public_rating_snippet: "4.3 / 5.0 (Glassdoor & Levels.fyi)",
+        sources: ["https://stripe.com", "https://stripe.com/jobs", "https://en.wikipedia.org/wiki/Stripe_(company)"]
+      },
+      researched_at: new Date(Date.now() - 86400000 * 3).toISOString(),
+      research_status: "COMPLETED",
+      application_count: 1
+    },
+    {
+      id: "comp_linear",
+      name: "Linear",
+      name_normalized: "linear",
+      domain: "linear.app",
+      about_url: "https://linear.app/about",
+      rating: 5,
+      notes: "Exceptional product craft and performance engineering. Small, highly autonomous teams.",
+      pros: ["Zero unnecessary meetings", "Extreme craft & performance focus", "High autonomy"],
+      red_flags: ["Small team means less structured onboarding"],
+      company_research: {
+        summary: "Purpose-built project management and issue tracking tool for modern software teams. Renowned for fluid, keyboard-driven UI and real-time offline-first sync architecture.",
+        engineering_culture: "Async-first, remote-first culture with flat hierarchy. Heavy use of TypeScript, Rust, and custom WebSocket sync engines with strict 60fps rendering constraints.",
+        recent_initiatives: "Linear Asks customer request integration, automated Git workflow automations, and enterprise workspace insights.",
+        products_and_technical_domain: ["Issue Tracking", "Project Cycles & Roadmaps", "Real-time Sync Protocol"],
+        strategic_priorities: ["Speed & responsiveness", "Keyboard-first workflow DX", "Reliable real-time state sync"],
+        language_to_mirror: ["Software craft", "Fluid interactions", "Uncompromising speed"],
+        candidate_alignment_angles: ["Highlight WebSocket connection pooling and CRDT conflict resolution", "Focus on client-side latency optimization"],
+        verified_facts: [
+          { fact: "Used by thousands of leading tech companies including OpenAI, Ramp, and Vercel", confidence: "high", source_url: "https://linear.app" }
+        ],
+        employee_signals: [
+          { signal: "Engineers have high product sense and make direct UX decisions" }
+        ],
+        public_rating_snippet: "4.9 / 5.0 (Glassdoor)",
+        sources: ["https://linear.app"]
+      },
+      researched_at: new Date(Date.now() - 86400000 * 2).toISOString(),
+      research_status: "COMPLETED",
+      application_count: 1
+    },
+    {
+      id: "comp_figma",
+      name: "Figma",
+      name_normalized: "figma",
+      domain: "figma.com",
+      about_url: "https://figma.com/about",
+      rating: 4,
+      notes: "Pioneers of browser-based collaborative software. Very collaborative culture and complex browser C++ / WebAssembly engine.",
+      pros: ["Collaborative culture", "Technically fascinating WebAssembly architecture", "Strong brand"],
+      red_flags: ["Complex cross-functional roadmap prioritization"],
+      company_research: {
+        summary: "Collaborative interface design and product building platform. Pioneers of running multi-user multiplayer vector graphics directly in the browser via WebAssembly and WebGL.",
+        engineering_culture: "Deep focus on graphics algorithms, browser performance, and multi-tenant canvas collaboration. Tech stack leverages C++, Rust, WebAssembly, and distributed backend servers in Go.",
+        recent_initiatives: "Figma AI generative design tools, Figma Slides collaborative presentations, and Dev Mode code generation improvements.",
+        products_and_technical_domain: ["Figma Design", "FigJam Whiteboard", "Dev Mode", "Figma Slides"],
+        strategic_priorities: ["AI-powered design tooling", "Developer-designer bridge workflow", "Multiplayer canvas performance"],
+        language_to_mirror: ["Make design accessible to everyone", "Multiplayer by default", "Pixel-perfect performance"],
+        candidate_alignment_angles: ["Demonstrate mastery of low-latency state distribution and memory-efficient data structures"],
+        verified_facts: [
+          { fact: "Over 4 million global active designers and product builders", confidence: "high", source_url: "https://figma.com" }
+        ],
+        employee_signals: [
+          { signal: "Values curiosity and collaborative problem-solving across disciplines" }
+        ],
+        public_rating_snippet: "4.5 / 5.0 (Glassdoor)",
+        sources: ["https://figma.com"]
+      },
+      researched_at: new Date(Date.now() - 86400000 * 4).toISOString(),
+      research_status: "COMPLETED",
+      application_count: 1
+    },
+    {
+      id: "comp_datadog",
+      name: "Datadog",
+      name_normalized: "datadog",
+      domain: "datadoghq.com",
+      about_url: "https://datadoghq.com/about",
+      rating: 4,
+      notes: "Observability and cloud security leader. Massive scale with trillions of events daily.",
+      pros: ["Tremendous data scale (trillions of points)", "Strong engineering foundation in Go & eBPF", "Solid compensation"],
+      red_flags: ["Large enterprise matrix structure"],
+      company_research: {
+        summary: "Leading monitoring and cloud security platform for cloud-scale applications. Integrates metrics, distributed traces, and logs across infrastructure, network, and cloud services.",
+        engineering_culture: "High-scale systems engineering focused on data pipelines, eBPF kernel instrumentation, distributed Kafka clusters, and custom time-series databases. Primary languages are Go, Python, and C/C++.",
+        recent_initiatives: "LLM Observability suite, Cloud Security Management expansion, and autonomous incident remediation tooling.",
+        products_and_technical_domain: ["APM & Distributed Tracing", "Infrastructure Monitoring", "Log Management", "eBPF Network Monitoring"],
+        strategic_priorities: ["End-to-end cloud telemetry unification", "Real-time AI model monitoring", "Cost-efficient high-volume data ingestion"],
+        language_to_mirror: ["Bring clarity to complex infrastructure", "Observability at scale", "Low-overhead agent instrumentation"],
+        candidate_alignment_angles: ["Highlight eBPF packet inspection, Kafka streaming, and high-throughput time series ingestion"],
+        verified_facts: [
+          { fact: "Processes tens of trillions of events every single day", confidence: "high", source_url: "https://datadoghq.com" }
+        ],
+        employee_signals: [
+          { signal: "Pragmatic engineering focused on measurable system throughput and stability" }
+        ],
+        public_rating_snippet: "4.1 / 5.0 (Glassdoor)",
+        sources: ["https://datadoghq.com"]
+      },
+      researched_at: new Date(Date.now() - 86400000 * 5).toISOString(),
+      research_status: "COMPLETED",
+      application_count: 1
+    },
+    {
+      id: "comp_snowflake",
+      name: "Snowflake",
+      name_normalized: "snowflake",
+      domain: "snowflake.com",
+      about_url: "https://snowflake.com/about",
+      rating: 4,
+      notes: "Cloud data warehouse pioneer. Large enterprise customer base with high scale requirements.",
+      pros: ["Solid public equity package", "High enterprise scale", "Market leader in cloud data platforms"],
+      red_flags: ["Strict on-site presence policy in San Mateo office"],
+      company_research: {
+        summary: "Cloud-based data warehouse platform that enables data storage, processing, and analytic solutions for thousands of enterprise organizations worldwide.",
+        engineering_culture: "Rigorous systems engineering focused on columnar database formats, SQL query optimization, and distributed foundation storage. Heavily C++ and Java based.",
+        recent_initiatives: "Cortex AI platform, Snowpark container services, and cross-cloud data clean rooms.",
+        products_and_technical_domain: ["Columnar Data Warehouse", "Cortex AI", "Data Cloud & Clean Rooms"],
+        strategic_priorities: ["Enterprise generative AI applications", "Multi-cloud data sovereignty", "Real-time query acceleration"],
+        language_to_mirror: ["Mobilize the world's data", "Near-zero maintenance cloud data platform"],
+        candidate_alignment_angles: ["Emphasize distributed database architecture, concurrency, and multi-tenant isolation"],
+        verified_facts: [
+          { fact: "Over 9,000 enterprise customers across global cloud regions", confidence: "high", source_url: "https://snowflake.com" }
+        ],
+        employee_signals: [
+          { signal: "Focuses on deep systems fundamentals and compiler optimization" }
+        ],
+        public_rating_snippet: "4.0 / 5.0 (Glassdoor)",
+        sources: ["https://snowflake.com"]
+      },
+      researched_at: new Date(Date.now() - 86400000 * 6).toISOString(),
+      research_status: "COMPLETED",
+      application_count: 1
+    },
+    {
+      id: "comp_stripe_dup",
+      name: "Stripe Inc.",
+      name_normalized: "stripe inc",
+      domain: "stripe.com",
+      about_url: "https://stripe.com",
+      rating: 0,
+      notes: "Duplicate employer entity detected via domain matching. Ready for merge review.",
+      pros: [],
+      red_flags: [],
+      company_research: null,
+      researched_at: null,
+      research_status: "PENDING",
+      application_count: 0
+    }
+  ],
+
+  assessments: [
+    {
+      id: 101,
+      task_type: "JOB_ASSESSMENT",
+      status: "COMPLETED",
+      stage: "COMPLETED",
+      title_hint: "Netflix - Senior Distributed Systems Engineer",
+      job_url: "https://jobs.netflix.com/jobs/839210",
+      raw_text: "### Senior Distributed Systems Engineer\nNetflix is looking for a Senior Distributed Systems Engineer to scale our global content delivery and streaming metadata platform. You will design fault-tolerant microservices, optimize edge caching, and build resilient state machines.\n\nRequirements:\n- 6+ years in Go or Java distributed systems\n- Deep knowledge of Cassandra, Kafka, and Kubernetes\n- Experience building multi-region active-active architectures",
+      created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
+      completed_at: new Date(Date.now() - 86400000 * 2).toISOString(),
+      result_json: {
+        application_id: 101,
+        company: "Netflix",
+        position: "Senior Distributed Systems Engineer",
+        company_domain: "netflix.com",
+        fit_score: 89,
+        match_score: 89,
+        programmatic_match_score: 86,
+        recommendation: "APPLY_STRONGLY",
+        seniority_fit: "MATCHES",
+        salary_min: 260000,
+        salary_max: 330000,
+        currency: "USD",
+        location: "Los Gatos, CA / Remote",
+        work_model: "Remote",
+        matching_skills: ["Go", "Distributed Systems", "Kubernetes", "gRPC", "Apache Kafka", "PostgreSQL"],
+        missing_skills: ["Cassandra", "Spinnaker"],
+        summary: "Outstanding match for candidate's high-throughput distributed systems background. Strong Go and Kafka experience aligns directly with streaming telemetry requirements.",
+        tailoring_strategy: "Emphasize past experience with high-throughput event processing, zero-downtime database migrations, and active-active replication models.",
+        vocab_replacements: [
+          {
+            cv_term: "Service Meshes & Routing",
+            jd_term: "Multi-Region Edge Caching",
+            replacement_guidance: "Highlight distributed routing proxies and global edge content delivery."
+          },
+          {
+            cv_term: "Database Failover Orchestration",
+            jd_term: "Active-Active State Synchronization",
+            replacement_guidance: "Focus on multi-region consensus and conflict resolution."
+          }
+        ],
+        pros: [
+          "Top-tier compensation package ($260k-$330k)",
+          "Autonomous culture with high ownership",
+          "Direct match on Go and Kafka streaming architecture"
+        ],
+        cons: [
+          "Minor gap in Apache Cassandra production operations"
+        ],
+        assessment_archived: false,
+        cover_letter_status: "DRAFTED",
+        cover_letter_text: "Dear Netflix Engineering Team,\n\nI am writing to express my enthusiasm for the Senior Distributed Systems Engineer role. Having architected event streaming pipelines handling billions of daily events in Go and Kafka, I am eager to bring my expertise in low-latency infrastructure to Netflix's global content delivery platform.\n\nSincerely,\nJohn Souls"
+      }
+    },
+    {
+      id: 102,
+      task_type: "JOB_ASSESSMENT",
+      status: "COMPLETED",
+      stage: "COMPLETED",
+      title_hint: "Anthropic - Infrastructure Engineer (Compute Platform)",
+      job_url: "https://www.anthropic.com/careers/compute-platform",
+      raw_text: "### Infrastructure Engineer - Compute Platform\nAnthropic is seeking an Infrastructure Engineer to build high-performance distributed training and inference clusters. You will manage large-scale GPU orchestrations, optimize network interconnects, and automate Kubernetes compute workloads.\n\nRequirements:\n- Strong background in Python, Rust, or Go\n- Experience with Kubernetes and high-throughput cloud infrastructure\n- Passion for AI safety and platform reliability",
+      created_at: new Date(Date.now() - 86400000 * 3).toISOString(),
+      completed_at: new Date(Date.now() - 86400000 * 3).toISOString(),
+      result_json: {
+        application_id: 102,
+        company: "Anthropic",
+        position: "Infrastructure Engineer (Compute Platform)",
+        company_domain: "anthropic.com",
+        fit_score: 93,
+        match_score: 93,
+        programmatic_match_score: 91,
+        recommendation: "APPLY_STRONGLY",
+        seniority_fit: "MATCHES",
+        salary_min: 250000,
+        salary_max: 310000,
+        currency: "USD",
+        location: "San Francisco, CA / Hybrid",
+        work_model: "Hybrid",
+        matching_skills: ["Rust", "Python", "Kubernetes", "Docker", "AWS", "Terraform", "Distributed Systems"],
+        missing_skills: ["Slurm"],
+        summary: "Exceptional technical alignment. Candidate's Rust systems programming, eBPF network optimization, and Kubernetes orchestration provide a high-confidence fit for large compute clusters.",
+        tailoring_strategy: "Highlight low-level kernel performance tuning, memory safety in Rust, and automated infrastructure as code in Terraform.",
+        vocab_replacements: [
+          {
+            cv_term: "Microservices Deployment",
+            jd_term: "High-Density Cluster Scheduling",
+            replacement_guidance: "Position container orchestration skills around high-throughput distributed scheduling."
+          }
+        ],
+        pros: [
+          "Industry-defining AI safety and research mission",
+          "Direct alignment with candidate's Rust and Kubernetes skills",
+          "Competitive compensation and equity"
+        ],
+        cons: [
+          "Hybrid requirement in San Francisco"
+        ],
+        assessment_archived: false
+      }
+    },
+    {
+      id: 103,
+      task_type: "JOB_ASSESSMENT",
+      status: "COMPLETED",
+      stage: "COMPLETED",
+      title_hint: "Vercel - Staff Edge Infrastructure Engineer",
+      job_url: "https://vercel.com/careers/edge-infra",
+      raw_text: "### Staff Edge Infrastructure Engineer\nVercel is looking for a Staff Edge Infrastructure Engineer to scale our global serverless edge network. You will design sub-10ms edge compute runtimes, optimize anycast routing, and improve cold-start latencies.\n\nRequirements:\n- 8+ years building edge or cloud platform infrastructure\n- Mastery of Rust or Go, and WebAssembly\n- Deep knowledge of HTTP/3, TLS, and DNS protocols",
+      created_at: new Date(Date.now() - 86400000 * 4).toISOString(),
+      completed_at: new Date(Date.now() - 86400000 * 4).toISOString(),
+      result_json: {
+        application_id: 103,
+        company: "Vercel",
+        position: "Staff Edge Infrastructure Engineer",
+        company_domain: "vercel.com",
+        fit_score: 84,
+        match_score: 84,
+        programmatic_match_score: 82,
+        recommendation: "CONSIDER",
+        seniority_fit: "MATCHES",
+        salary_min: 230000,
+        salary_max: 280000,
+        currency: "USD",
+        location: "Remote",
+        work_model: "Remote",
+        matching_skills: ["Rust", "Go", "Distributed Systems", "gRPC", "Docker"],
+        missing_skills: ["WebAssembly", "HTTP/3"],
+        summary: "Strong candidate fit on Rust systems engineering and low-latency network pipelines. Slight gap in native WebAssembly runtime compilation.",
+        tailoring_strategy: "Emphasize socket-level network optimization, kernel packet inspection in eBPF, and sub-15ms broadcast architectures.",
+        vocab_replacements: [],
+        pros: [
+          "Fully remote engineering organization",
+          "Cutting-edge edge runtime technology",
+          "Strong developer brand"
+        ],
+        cons: [
+          "Requires ramping up on WebAssembly runtime internals"
+        ],
+        assessment_archived: false
+      }
+    },
+    {
+      id: 104,
+      task_type: "JOB_ASSESSMENT",
+      status: "COMPLETED",
+      stage: "COMPLETED",
+      title_hint: "Snowflake - Senior Core Database Engineer",
+      job_url: "https://snowflake.com/careers/core-database",
+      raw_text: "### Senior Core Database Engineer\nSnowflake is hiring a Core Database Engineer to work on query execution and columnar storage engines. You will optimize SQL execution plans, write SIMD vector optimizations, and scale foundation storage.\n\nRequirements:\n- Extensive C++ and FoundationDB experience\n- Deep expertise in SQL query parsing and relational internals\n- SIMD and CPU cache-line optimization",
+      created_at: new Date(Date.now() - 86400000 * 7).toISOString(),
+      completed_at: new Date(Date.now() - 86400000 * 7).toISOString(),
+      result_json: {
+        application_id: 104,
+        company: "Snowflake",
+        position: "Senior Core Database Engineer",
+        company_domain: "snowflake.com",
+        fit_score: 68,
+        match_score: 68,
+        programmatic_match_score: 65,
+        recommendation: "PASS",
+        seniority_fit: "MATCHES",
+        salary_min: 220000,
+        salary_max: 270000,
+        currency: "USD",
+        location: "San Mateo, CA (On-site)",
+        work_model: "On-site",
+        matching_skills: ["PostgreSQL", "Distributed Systems", "SQL"],
+        missing_skills: ["C++", "FoundationDB", "SIMD", "Query Optimization"],
+        summary: "Marginal fit. Role requires heavy C++ query execution and compiler optimizations, whereas candidate's core strength is Go and Rust distributed services.",
+        tailoring_strategy: "De-prioritized. Archived as passed review.",
+        vocab_replacements: [],
+        pros: ["Strong public enterprise brand"],
+        cons: ["Requires deep C++ compiler internals and mandatory on-site presence in San Mateo"],
+        assessment_archived: true
+      }
+    }
+  ],
+
   action_items: [
     {
       id: "action_001",
@@ -1248,7 +1603,11 @@ export const INITIAL_MOCK_DATA = {
     enable_embeddings: false,
     enable_auto_cover_letter: true,
     cover_letter_match_threshold: 70,
-    cover_letter_length: "standard"
+    cover_letter_length: "standard",
+    cover_letter_tone: "professional",
+    search_provider: "searxng",
+    searxng_url: "http://searxng-core:8080",
+    enable_web_search: true
   },
 
   interview_sessions: [
