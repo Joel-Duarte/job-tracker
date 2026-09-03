@@ -924,9 +924,9 @@
     "semantic_hash": "5b5091f28f06602d11dd72553899bcd5"
   },
   "frontend/src/components/drawers/ApplicationDetailDrawer.vue": {
-    "mtime": 1788475888.45633,
-    "seen": 1788476015.0728374,
-    "ast_hash": "d64734bb233914239a39f6feb37136f4",
+    "mtime": 1788476128.7692697,
+    "seen": 1788476168.0537093,
+    "ast_hash": "ca8fc8b652ee69e2c8992bc3c116c23d",
     "semantic_hash": ""
   },
   "frontend/src/components/layout/AppNavbar.vue": {
@@ -954,9 +954,9 @@
     "semantic_hash": "c15ce7b801a44b0683ad2b88248fdc5b"
   },
   "frontend/src/components/modals/CoverLetterModal.vue": {
-    "mtime": 1788471334.05584,
-    "seen": 1788471475.7129655,
-    "ast_hash": "c0ab77e554652c68962ad928099b0044",
+    "mtime": 1788476131.60817,
+    "seen": 1788476168.053723,
+    "ast_hash": "ff981b8f1ca0536a08099e35a0c2e450",
     "semantic_hash": ""
   },
   "frontend/src/components/modals/IngestModal.vue": {
