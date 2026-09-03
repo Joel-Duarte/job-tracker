@@ -1014,21 +1014,21 @@
     "semantic_hash": "f5e58c049815d3048a3e22a8a01679b4"
   },
   "frontend/src/demo/apiAdapter.js": {
-    "mtime": 1788470483.800639,
-    "seen": 1788470648.63005,
-    "ast_hash": "3c8dea469cddab3f825d5d4a1f6b59a2",
+    "mtime": 1788472378.1962636,
+    "seen": 1788472442.0678551,
+    "ast_hash": "1c27013d6576c86bc89cfd3985bc9b66",
     "semantic_hash": ""
   },
   "frontend/src/demo/demoStorage.js": {
-    "mtime": 1787593144.135058,
-    "seen": 1787875053.7693799,
-    "ast_hash": "64b19ecdc271246b1d3f09f004dc94ed",
-    "semantic_hash": "64b19ecdc271246b1d3f09f004dc94ed"
+    "mtime": 1788472380.5331738,
+    "seen": 1788472442.0678573,
+    "ast_hash": "9c4dbee475ca0bbb97e4fe959ff02879",
+    "semantic_hash": ""
   },
   "frontend/src/demo/mockData.js": {
-    "mtime": 1788027410.017496,
-    "seen": 1788027438.5256448,
-    "ast_hash": "61d04c41b64904b501741eda36a1c38d",
+    "mtime": 1788472344.2405665,
+    "seen": 1788472442.0678587,
+    "ast_hash": "94c3c6223807ec9cb2e08f5fa0a3b0d0",
     "semantic_hash": ""
   },
   "frontend/src/main.js": {
