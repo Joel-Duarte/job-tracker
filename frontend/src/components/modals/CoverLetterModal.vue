@@ -243,14 +243,38 @@ watch(
       await queueStore.fetchTasks(true)
 
       try {
-        const res = await ApplicationsAPI.getCoverLetter(appId)
-        application.value = res.data
-        editableText.value = res.data.cover_letter_text || ''
-        if (res.data?.company?.company_research) {
-          companyResearch.value = JSON.parse(JSON.stringify(res.data.company.company_research))
-        } else {
-          companyResearch.value = null
+        const [clRes, appRes] = await Promise.allSettled([
+          ApplicationsAPI.getCoverLetter(appId),
+          ApplicationsAPI.get(appId),
+        ])
+
+        if (clRes.status === 'fulfilled' && clRes.value?.data) {
+          editableText.value = clRes.value.data.cover_letter_text || ''
         }
+
+        if (appRes.status === 'fulfilled' && appRes.value?.data) {
+          application.value = appRes.value.data
+        } else {
+          const found = appStore.applications.find((a) => a.id === appId)
+          if (found) application.value = found
+        }
+
+        let cr = application.value?.company?.company_research
+        if ((!cr || Object.keys(cr).length === 0) && application.value?.company?.id) {
+          try {
+            const compRes = await CompaniesAPI.get(application.value.company.id)
+            if (compRes.data?.company_research && Object.keys(compRes.data.company_research).length > 0) {
+              cr = compRes.data.company_research
+              if (application.value?.company) {
+                application.value.company.company_research = cr
+              }
+            }
+          } catch (cErr) {
+            console.warn('Could not fetch company direct research fallback:', cErr)
+          }
+        }
+
+        companyResearch.value = cr && Object.keys(cr).length > 0 ? JSON.parse(JSON.stringify(cr)) : null
       } catch (err) {
         // Fallback to appStore if detailed endpoint fails or app object in store
         const found = appStore.applications.find((a) => a.id === appId)
@@ -334,13 +358,18 @@ async function handleRefreshCompanyResearch() {
   isRefreshingResearch.value = true
   try {
     const res = await CompaniesAPI.refreshResearch(compId)
-    if (res.data?.company_research) {
+    if (res.data?.company_research && Object.keys(res.data.company_research).length > 0) {
       companyResearch.value = res.data.company_research
       if (application.value?.company) {
         application.value.company.company_research = res.data.company_research
       }
       isResearchExpanded.value = true
       uiStore.showToast('Company intelligence refreshed from web!', 'success')
+    } else if (res.data?.status === 'queued' || res.data?.status === 'already_queued' || res.data?.queued) {
+      uiStore.showToast('Company research task queued in AI background queue.', 'info')
+      if (queueStore.fetchTasks) {
+        await queueStore.fetchTasks(true)
+      }
     } else {
       uiStore.showToast('No company information found online', 'info')
     }

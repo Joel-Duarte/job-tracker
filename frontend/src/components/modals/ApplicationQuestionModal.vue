@@ -133,6 +133,49 @@ const queuePositionInfo = computed(() => {
 
 const isCurrentlyGenerating = computed(() => isGenerating.value || !!activeQATask.value)
 
+const activeCompanyResearchTask = computed(() => {
+  if (!application.value?.company?.id) return null
+  const compIdStr = String(application.value.company.id)
+  return (
+    queueStore.tasks.find(
+      (t) =>
+        t.task_type === 'COMPANY_RESEARCH' &&
+        (t.raw_text === compIdStr || t.result_json?.company_id === application.value.company.id) &&
+        ['QUEUED', 'PROCESSING'].includes(t.status)
+    ) || null
+  )
+})
+
+const hasResearchData = computed(() => {
+  if (!companyResearch.value) return false
+  return Boolean(
+    companyResearch.value.summary ||
+      companyResearch.value.engineering_culture ||
+      companyResearch.value.recent_initiatives ||
+      (companyResearch.value.sources && companyResearch.value.sources.length > 0)
+  )
+})
+
+watch(
+  () => activeCompanyResearchTask.value,
+  async (newVal, oldVal) => {
+    if (oldVal && !newVal && application.value?.company?.id) {
+      try {
+        const compRes = await CompaniesAPI.get(application.value.company.id)
+        if (compRes.data?.company_research) {
+          companyResearch.value = { ...compRes.data.company_research }
+          if (application.value.company) {
+            application.value.company.company_research = compRes.data.company_research
+          }
+          uiStore.showToast('Company intelligence updated from web!', 'success')
+        }
+      } catch (err) {
+        console.error('Failed to reload company research after task completed:', err)
+      }
+    }
+  }
+)
+
 function stopPolling() {
   if (pollTimer) {
     clearInterval(pollTimer)
@@ -195,9 +238,23 @@ async function loadApplicationData(appId) {
     const res = await ApplicationsAPI.get(appId)
     application.value = res.data
 
-    companyResearch.value = application.value.company?.company_research
-      ? { ...application.value.company.company_research }
-      : null
+    let cr = application.value.company?.company_research
+    // Fallback: If company has an ID but research is null on the application object, query the company directly
+    if ((!cr || Object.keys(cr).length === 0) && application.value.company?.id) {
+      try {
+        const compRes = await CompaniesAPI.get(application.value.company.id)
+        if (compRes.data?.company_research && Object.keys(compRes.data.company_research).length > 0) {
+          cr = compRes.data.company_research
+          if (application.value.company) {
+            application.value.company.company_research = cr
+          }
+        }
+      } catch (compErr) {
+        console.warn('Could not fetch company direct research fallback:', compErr)
+      }
+    }
+
+    companyResearch.value = cr && Object.keys(cr).length > 0 ? { ...cr } : null
 
     const qRes = await ApplicationsAPI.getApplicationQuestions(appId)
     const rawQs = qRes.data?.questions || []
@@ -235,9 +292,17 @@ async function handleRefreshCompanyResearch() {
   isRefreshingResearch.value = true
   try {
     const res = await CompaniesAPI.refreshResearch(application.value.company.id)
-    if (res.data?.company_research) {
+    if (res.data?.company_research && Object.keys(res.data.company_research).length > 0) {
       companyResearch.value = { ...res.data.company_research }
+      if (application.value.company) {
+        application.value.company.company_research = res.data.company_research
+      }
       uiStore.showToast('Company intelligence refreshed from web!', 'success')
+    } else if (res.data?.status === 'queued' || res.data?.status === 'already_queued' || res.data?.queued) {
+      uiStore.showToast('Company research task queued in AI background queue.', 'info')
+      if (queueStore.fetchTasks) {
+        await queueStore.fetchTasks(true)
+      }
     } else {
       uiStore.showToast('No company web results found', 'info')
     }
@@ -689,13 +754,13 @@ onUnmounted(() => {
                 <button
                   type="button"
                   class="btn-refresh-research"
-                  :disabled="isRefreshingResearch"
+                  :disabled="isRefreshingResearch || !!activeCompanyResearchTask"
                   @click="handleRefreshCompanyResearch"
                   title="Refresh research from web"
                 >
-                  <Loader2 v-if="isRefreshingResearch" :size="12" class="animate-spin" />
+                  <Loader2 v-if="isRefreshingResearch || activeCompanyResearchTask" :size="12" class="animate-spin" />
                   <RefreshCw v-else :size="12" />
-                  <span>{{ isRefreshingResearch ? 'Researching...' : 'Refresh from Web' }}</span>
+                  <span>{{ isRefreshingResearch || activeCompanyResearchTask ? 'Researching...' : 'Refresh from Web' }}</span>
                 </button>
                 <button
                   type="button"
@@ -709,7 +774,7 @@ onUnmounted(() => {
 
             <!-- Expandable Research Editor -->
             <div v-if="isResearchExpanded && includeCompanyResearch" class="research-card-body">
-              <div v-if="companyResearch" class="research-fields-grid">
+              <div v-if="hasResearchData" class="research-fields-grid">
                 <div class="research-field">
                   <label class="form-label text-xs">Mission & Focus</label>
                   <textarea
@@ -751,6 +816,12 @@ onUnmounted(() => {
                     <ExternalLink :size="10" />
                   </a>
                 </div>
+              </div>
+              <div v-else-if="activeCompanyResearchTask" class="research-empty-state">
+                <p class="text-xs text-muted flex items-center gap-1.5">
+                  <Loader2 class="animate-spin text-primary" :size="13" />
+                  Researching {{ application?.company?.name || 'this company' }} in background AI queue...
+                </p>
               </div>
               <div v-else class="research-empty-state">
                 <p class="text-xs text-muted">

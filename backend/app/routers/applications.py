@@ -302,8 +302,10 @@ async def list_applications(
         items.append(
             ApplicationListItem(
                 id=app.id,
-                company=CompanySummary(
-                    id=app.company.id, name=app.company.name, domain=app.company.domain
+                company=(
+                    CompanySummary.model_validate(app.company)
+                    if app.company
+                    else CompanySummary(id=0, name="Unknown")
                 ),
                 position=app.position,
                 status=app.status,
@@ -564,8 +566,10 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
 
     return ApplicationDetailResponse(
         id=app.id,
-        company=CompanySummary(
-            id=app.company.id, name=app.company.name, domain=app.company.domain
+        company=(
+            CompanySummary.model_validate(app.company)
+            if app.company
+            else CompanySummary(id=0, name="Unknown")
         ),
         position=app.position,
         status=app.status,
