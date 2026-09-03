@@ -2111,12 +2111,12 @@ function formatDate(isoStr) {
                         </div>
                         <div class="research-field">
                           <label class="form-label text-xs">Recent Initiatives</label>
-                          <input
+                          <textarea
                             v-model="companyResearch.recent_initiatives"
-                            type="text"
+                            rows="2"
                             class="form-input form-input-sm"
                             placeholder="Recent product launches, open source..."
-                          />
+                          ></textarea>
                         </div>
                         <div v-if="companyResearch.sources?.length" class="research-sources">
                           <span class="text-xs text-muted">Sources:</span>
