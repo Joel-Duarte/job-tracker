@@ -262,6 +262,85 @@ export async function handleDemoRequest(config) {
     })
   }
 
+  const appGuideMatch = urlPath.match(/^\/applications\/([^/]+)\/interview-guide$/)
+  if (appGuideMatch) {
+    const appId = appGuideMatch[1]
+    const app = (db.applications || []).find((a) => String(a.id) === String(appId))
+    if (method === 'post') {
+      const company = app?.company?.name || app?.company_name || 'Target Company'
+      const position = app?.position || 'Software Engineer'
+      const cr = data.company_research || app?.company?.company_research || app?.company_research
+      const cultureNote = cr?.engineering_culture
+        ? `<p><strong>Engineering Values:</strong> ${cr.engineering_culture}</p>`
+        : ''
+      const prioritiesNote = cr?.strategic_priorities
+        ? `<p><strong>Strategic Focus:</strong> ${(Array.isArray(cr.strategic_priorities) ? cr.strategic_priorities : [cr.strategic_priorities]).join(', ')}</p>`
+        : ''
+
+      const sampleHtml = `
+        <div class="guide-section">
+          <h2>1. 🏢 Role & Company Brief</h2>
+          <p>Tailored preparation for <strong>${position}</strong> at <strong>${company}</strong>.</p>
+          ${cultureNote}
+          ${prioritiesNote}
+        </div>
+        <div class="guide-section">
+          <h2>2. 🎯 Strategic Fit & Elevator Pitch</h2>
+          <p>60-90 second introduction tailored to ${company}'s core technical stack.</p>
+        </div>
+        <div class="guide-section">
+          <h2>3. ⭐ Tailored STAR Stories</h2>
+          <p>High-impact stories demonstrating leadership, systems architecture, and production delivery.</p>
+        </div>
+        <div class="guide-section">
+          <h2>4. 🧠 Behavioral & Technical Question Defenses</h2>
+          <p>Key architectural questions and defense talking points tailored to ${company}.</p>
+        </div>
+        <div class="guide-section">
+          <h2>5. 💬 High-Leverage Questions to Ask Interviewer</h2>
+          <p>Insightful questions demonstrating technical curiosity about ${company}'s scale and roadmaps.</p>
+        </div>
+        <div class="guide-section">
+          <h2>6. ✅ Final Pre-Interview Checklist</h2>
+          <p>Quick checklist to review 15 minutes before interviewing with ${company}.</p>
+        </div>
+      `.trim()
+
+      if (app) {
+        app.interview_guide_html = sampleHtml
+        app.interview_guide_language = data.language || 'en'
+        app.interview_guide_generated_at = new Date().toISOString()
+        app.interview_guide_preferences = data
+        saveDemoDb(db)
+      }
+
+      return ok(
+        app || {
+          id: appId,
+          interview_guide_html: sampleHtml,
+          interview_guide_language: data.language || 'en',
+          interview_guide_generated_at: new Date().toISOString(),
+          interview_guide_preferences: data,
+        }
+      )
+    }
+
+    if (method === 'delete') {
+      if (app) {
+        app.interview_guide_html = null
+        app.interview_guide_generated_at = null
+        saveDemoDb(db)
+      }
+      return ok(
+        app || {
+          id: appId,
+          interview_guide_html: null,
+          interview_guide_generated_at: null,
+        }
+      )
+    }
+  }
+
   const analyzeSpecMatch = urlPath.match(/^\/applications\/([^/]+)\/analyze-spec$/)
   if (analyzeSpecMatch && method === 'post') {
     const appId = analyzeSpecMatch[1]

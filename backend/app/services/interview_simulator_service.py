@@ -135,6 +135,9 @@ QUESTION_GENERATION_SYSTEM_PROMPT = """{persona_instruction}
 You are conducting a live mock interview.
 Target Position: {position}
 Company: {company_name}
+Company Culture, Architecture & Strategic Priorities:
+{company_research_summary}
+
 Job Description Summary / Requirements:
 {job_spec}
 
@@ -159,6 +162,9 @@ MULTIPLE_CHOICE_QUESTION_PROMPT = """{persona_instruction}
 You are conducting a live technical and behavioral mock interview.
 Target Position: {position}
 Company: {company_name}
+Company Culture, Architecture & Strategic Priorities:
+{company_research_summary}
+
 Job Description Summary / Requirements:
 {job_spec}
 
@@ -411,6 +417,8 @@ class InterviewSimulatorService:
             "Tell me about a time you faced a complex technical challenge or production incident and how you resolved it."
         ]
 
+        company_research_summary = "General tech industry standards."
+
         if application_id:
             stmt = (
                 select(ApplicationModel)
@@ -427,6 +435,44 @@ class InterviewSimulatorService:
                 position = app_model.position or position
                 if app_model.company:
                     company_name = app_model.company.name or company_name
+                    if app_model.company.company_research and isinstance(
+                        app_model.company.company_research, dict
+                    ):
+                        cr = app_model.company.company_research
+                        cr_lines = []
+                        if cr.get("summary"):
+                            cr_lines.append(f"Mission: {cr['summary']}")
+                        if cr.get("engineering_culture"):
+                            cr_lines.append(f"Culture: {cr['engineering_culture']}")
+                        if cr.get("strategic_priorities"):
+                            p = cr["strategic_priorities"]
+                            cr_lines.append(
+                                "Priorities: "
+                                + (", ".join(p) if isinstance(p, list) else str(p))
+                            )
+                        if cr.get("products_and_technical_domain"):
+                            prods = cr["products_and_technical_domain"]
+                            cr_lines.append(
+                                "Stack/Domain: "
+                                + (
+                                    ", ".join(prods)
+                                    if isinstance(prods, list)
+                                    else str(prods)
+                                )
+                            )
+                        if cr.get("candidate_alignment_angles"):
+                            ang = cr["candidate_alignment_angles"]
+                            cr_lines.append(
+                                "Alignment: "
+                                + (
+                                    ", ".join(ang)
+                                    if isinstance(ang, list)
+                                    else str(ang)
+                                )
+                            )
+                        if cr_lines:
+                            company_research_summary = "\n".join(cr_lines)
+
                 if app_model.job_posting and app_model.job_posting.description_markdown:
                     job_spec = app_model.job_posting.description_markdown[:2000]
 
@@ -454,6 +500,7 @@ class InterviewSimulatorService:
         return {
             "position": position,
             "company_name": company_name,
+            "company_research_summary": company_research_summary,
             "job_spec": job_spec,
             "cv_summary": cv_summary,
             "opening_questions": opening_questions,
@@ -488,6 +535,9 @@ class InterviewSimulatorService:
                 persona_instruction=persona_inst,
                 position=ctx["position"],
                 company_name=ctx["company_name"],
+                company_research_summary=ctx.get(
+                    "company_research_summary", "General tech industry standards."
+                ),
                 job_spec=ctx["job_spec"][:1500],
                 cv_summary=ctx["cv_summary"][:1500],
                 turns_summary="Starting initial round.",
@@ -518,10 +568,10 @@ class InterviewSimulatorService:
                     "turn_index": 1,
                     "question": q_data.get(
                         "question",
-                        "Which architectural strategy best provides high availability for distributed stateful services?",
+                        "Which core architectural principle best addresses low latency data synchronization in distributed systems?",
                     )
                     if isinstance(q_data, dict)
-                    else "Which architectural strategy best provides high availability for distributed stateful services?",
+                    else "Which core architectural principle best addresses low latency data synchronization in distributed systems?",
                     "question_type": "MULTIPLE_CHOICE",
                     "options": _normalize_mc_options(raw_opts),
                     "selected_option": None,
@@ -532,13 +582,10 @@ class InterviewSimulatorService:
                     "created_at": datetime.now(UTC).isoformat(),
                 }
             except Exception as e:
-                logger.warning(
-                    "LLM initial MC question generation failed: %s. Using default opening challenge.",
-                    e,
-                )
+                logger.warning("LLM initial MC generation failed: %s.", e)
                 first_turn = {
                     "turn_index": 1,
-                    "question": "Which architectural strategy best balances low read latency and write consistency in high-traffic APIs?",
+                    "question": "Which architecture pattern guarantees sub-50ms query responses across globally partitioned databases?",
                     "question_type": "MULTIPLE_CHOICE",
                     "options": _normalize_mc_options(None),
                     "selected_option": None,
@@ -562,6 +609,9 @@ class InterviewSimulatorService:
                 persona_instruction=persona_inst,
                 position=ctx["position"],
                 company_name=ctx["company_name"],
+                company_research_summary=ctx.get(
+                    "company_research_summary", "General tech industry standards."
+                ),
                 job_spec=ctx["job_spec"][:1500],
                 cv_summary=ctx["cv_summary"][:1500],
                 turns_summary="Starting initial round. Generate a tailored opening challenge specifically testing the requirements of this role and candidate background.",
@@ -835,6 +885,9 @@ class InterviewSimulatorService:
                 persona_instruction=persona_inst,
                 position=ctx["position"],
                 company_name=ctx["company_name"],
+                company_research_summary=ctx.get(
+                    "company_research_summary", "General tech industry standards."
+                ),
                 job_spec=ctx["job_spec"][:1500],
                 cv_summary=ctx["cv_summary"][:1500],
                 turns_summary=turns_summary,
@@ -893,6 +946,9 @@ class InterviewSimulatorService:
                 persona_instruction=persona_inst,
                 position=ctx["position"],
                 company_name=ctx["company_name"],
+                company_research_summary=ctx.get(
+                    "company_research_summary", "General tech industry standards."
+                ),
                 job_spec=ctx["job_spec"][:1500],
                 cv_summary=ctx["cv_summary"][:1500],
                 turns_summary=turns_summary,

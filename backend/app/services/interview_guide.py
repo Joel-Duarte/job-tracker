@@ -83,13 +83,67 @@ async def generate_interview_guide(
         )
         jd_text = f"Position: {position} at {company_name}.\nRecent Communications & Timeline: {event_notes or 'Active recruitment process.'}"
 
-    # 4. Prepare Initial State & Invoke LangGraph
+    # 4. Synthesize Company Research Context
+    company_context_items: list[str] = []
+    if request.include_company_research:
+        cr = request.company_research
+        if not cr and application.company and application.company.company_research:
+            cr = application.company.company_research
+
+        if cr and isinstance(cr, dict):
+            lines = [f"=== Company Intelligence: {company_name} ==="]
+            if cr.get("summary"):
+                lines.append(f"Mission & Summary: {cr['summary']}")
+            if cr.get("engineering_culture"):
+                lines.append(
+                    f"Engineering Culture & Values: {cr['engineering_culture']}"
+                )
+            if cr.get("recent_initiatives"):
+                lines.append(f"Recent Initiatives: {cr['recent_initiatives']}")
+            if cr.get("strategic_priorities"):
+                prio = cr["strategic_priorities"]
+                prio_str = ", ".join(prio) if isinstance(prio, list) else str(prio)
+                lines.append(f"Strategic Priorities: {prio_str}")
+            if cr.get("products_and_technical_domain"):
+                prods = cr["products_and_technical_domain"]
+                prod_str = ", ".join(prods) if isinstance(prods, list) else str(prods)
+                lines.append(f"Products & Technical Domain: {prod_str}")
+            if cr.get("language_to_mirror"):
+                mirror = cr["language_to_mirror"]
+                mirror_str = (
+                    ", ".join(mirror) if isinstance(mirror, list) else str(mirror)
+                )
+                lines.append(
+                    f"Corporate Terminology & Language to Mirror: {mirror_str}"
+                )
+            if cr.get("candidate_alignment_angles"):
+                angles = cr["candidate_alignment_angles"]
+                angles_str = (
+                    ", ".join(angles) if isinstance(angles, list) else str(angles)
+                )
+                lines.append(f"Strategic Alignment Angles: {angles_str}")
+            if cr.get("verified_facts"):
+                facts = cr["verified_facts"]
+                if isinstance(facts, list):
+                    fact_lines = [
+                        f"- {f.get('fact')}"
+                        for f in facts
+                        if isinstance(f, dict) and f.get("fact")
+                    ]
+                    if fact_lines:
+                        lines.append(
+                            "Verified Organizational Facts:\n"
+                            + "\n".join(fact_lines[:5])
+                        )
+            company_context_items.append("\n".join(lines))
+
+    # 5. Prepare Initial State & Invoke LangGraph
     initial_state = {
         "cv_text": cv_text,
         "jd_text": jd_text,
         "company_name": company_name,
         "position": position,
-        "company_context": [],
+        "company_context": company_context_items,
         "target_sections": request.selected_sections,
         "current_section_index": 0,
         "completed_sections": [],

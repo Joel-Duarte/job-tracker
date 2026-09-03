@@ -84,10 +84,14 @@ async def extractor_node(state: InterviewGuideState) -> dict[str, Any]:
 async def web_researcher_node(
     state: InterviewGuideState, config: RunnableConfig | None = None
 ) -> dict[str, Any]:
+    """Gathers company context, cultural signals, and technical stack background.
+    Preserves pre-populated company_context from the unified company research dossier,
+    or falls back to LLM synthesis from the job spec.
     """
-    Gathers company context, cultural signals, and technical stack background.
-    Uses LLM synthesis with web search context resilience.
-    """
+    existing_context = state.get("company_context") or []
+    if existing_context and any(c.strip() for c in existing_context):
+        return {"company_context": existing_context}
+
     company = state.get("company_name", "Target Company")
     jd_text = state.get("jd_text", "")
     db = (

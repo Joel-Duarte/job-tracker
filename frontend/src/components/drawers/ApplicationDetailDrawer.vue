@@ -39,6 +39,7 @@ import {
   BookOpen,
   Globe,
   RotateCcw,
+  RefreshCw,
   Briefcase,
   Target,
   ListChecks,
@@ -611,6 +612,58 @@ function selectAllSections() {
   selectedSections.value = ALL_SECTIONS.map((s) => s.id)
 }
 
+// Company Research state for Interview Guide
+const includeCompanyResearch = ref(true)
+const companyResearch = ref(null)
+const isRefreshingResearch = ref(false)
+const isResearchExpanded = ref(false)
+
+async function fetchCompanyResearchForGuide() {
+  const app = appStore.selectedApplication
+  if (!app) return
+
+  let cr = app.company?.company_research
+  const compId = app.company?.id || app.company_id
+  if ((!cr || Object.keys(cr).length === 0) && compId) {
+    try {
+      const compRes = await CompaniesAPI.get(compId)
+      if (compRes.data?.company_research && Object.keys(compRes.data.company_research).length > 0) {
+        cr = compRes.data.company_research
+        if (app.company) {
+          app.company.company_research = cr
+        }
+      }
+    } catch (cErr) {
+      console.warn('Could not fetch company direct research for guide:', cErr)
+    }
+  }
+  companyResearch.value = cr && Object.keys(cr).length > 0 ? JSON.parse(JSON.stringify(cr)) : null
+}
+
+async function handleRefreshCompanyResearch() {
+  const compId = appStore.selectedApplication?.company?.id || appStore.selectedApplication?.company_id
+  if (!compId) {
+    uiStore.showToast('No company linked to this application', 'warning')
+    return
+  }
+  isRefreshingResearch.value = true
+  try {
+    const res = await CompaniesAPI.refreshResearch(compId)
+    const updated = res.data?.company_research
+    if (updated) {
+      companyResearch.value = JSON.parse(JSON.stringify(updated))
+      if (appStore.selectedApplication?.company) {
+        appStore.selectedApplication.company.company_research = updated
+      }
+    }
+    uiStore.showToast('Company research refreshed successfully!', 'success')
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || 'Failed to refresh company research', 'error')
+  } finally {
+    isRefreshingResearch.value = false
+  }
+}
+
 async function handleGenerateGuide() {
   if (!(await uiStore.ensureAIReady())) return
 
@@ -625,6 +678,8 @@ async function handleGenerateGuide() {
       language: selectedLanguage.value,
       selected_sections: selectedSections.value,
       recursion_limit: Number(recursionLimit.value) || 25,
+      include_company_research: includeCompanyResearch.value,
+      company_research: includeCompanyResearch.value ? companyResearch.value : null,
     }
     const res = await ApplicationsAPI.generateInterviewGuide(appStore.selectedApplication.id, payload)
     appStore.selectedApplication = res.data
@@ -690,6 +745,7 @@ watch(
         recursionLimit.value = appStore.selectedApplication.interview_guide_preferences.recursion_limit
       }
       showConfigPanel.value = !appStore.selectedApplication.interview_guide_html
+      fetchCompanyResearchForGuide()
     }
   },
   { immediate: true }
@@ -1996,6 +2052,89 @@ function formatDate(isoStr) {
                           {{ lang.label }}
                         </option>
                       </select>
+                    </div>
+                  </div>
+
+                  <!-- Company Intelligence Section -->
+                  <div class="company-research-card">
+                    <div class="research-card-header">
+                      <div class="research-header-left">
+                        <Globe :size="14" class="text-primary" />
+                        <span class="research-card-title">Live Company Research</span>
+                        <label class="research-toggle-label">
+                          <input type="checkbox" v-model="includeCompanyResearch" />
+                          <span>Include in generation</span>
+                        </label>
+                      </div>
+                      <div class="research-header-right">
+                        <button
+                          type="button"
+                          class="btn-refresh-research"
+                          :disabled="isRefreshingResearch"
+                          @click="handleRefreshCompanyResearch"
+                          title="Refresh research from web"
+                        >
+                          <Loader2 v-if="isRefreshingResearch" :size="12" class="animate-spin" />
+                          <RefreshCw v-else :size="12" />
+                          <span>{{ isRefreshingResearch ? 'Researching...' : 'Refresh from Web' }}</span>
+                        </button>
+                        <button
+                          type="button"
+                          class="btn-toggle-expand"
+                          @click="isResearchExpanded = !isResearchExpanded"
+                        >
+                          {{ isResearchExpanded ? 'Hide Details' : 'Preview & Edit' }}
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- Expandable Research Editor -->
+                    <div v-if="isResearchExpanded && includeCompanyResearch" class="research-card-body">
+                      <div v-if="companyResearch" class="research-fields-grid">
+                        <div class="research-field">
+                          <label class="form-label text-xs">Mission & Focus</label>
+                          <textarea
+                            v-model="companyResearch.summary"
+                            rows="2"
+                            class="form-input form-input-sm"
+                            placeholder="What does the company build and value..."
+                          ></textarea>
+                        </div>
+                        <div class="research-field">
+                          <label class="form-label text-xs">Engineering Culture</label>
+                          <textarea
+                            v-model="companyResearch.engineering_culture"
+                            rows="2"
+                            class="form-input form-input-sm"
+                            placeholder="Engineering culture, tech stack focus..."
+                          ></textarea>
+                        </div>
+                        <div class="research-field">
+                          <label class="form-label text-xs">Recent Initiatives</label>
+                          <input
+                            v-model="companyResearch.recent_initiatives"
+                            type="text"
+                            class="form-input form-input-sm"
+                            placeholder="Recent product launches, open source..."
+                          />
+                        </div>
+                        <div v-if="companyResearch.sources?.length" class="research-sources">
+                          <span class="text-xs text-muted">Sources:</span>
+                          <a
+                            v-for="(src, idx) in companyResearch.sources"
+                            :key="idx"
+                            :href="src"
+                            target="_blank"
+                            class="source-link"
+                          >
+                            <ExternalLink :size="10" />
+                            <span>{{ src }}</span>
+                          </a>
+                        </div>
+                      </div>
+                      <div v-else class="research-empty-state">
+                        <p class="text-xs text-muted">No cached research found for this company yet. Click <strong>Refresh from Web</strong> to fetch live context.</p>
+                      </div>
                     </div>
                   </div>
 
@@ -4155,6 +4294,130 @@ function formatDate(isoStr) {
   display: grid;
   grid-template-columns: 1fr;
   gap: 16px;
+}
+
+.company-research-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.research-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.research-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.research-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.research-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  margin-left: 8px;
+}
+
+.research-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-refresh-research,
+.btn-toggle-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.btn-refresh-research:hover,
+.btn-toggle-expand:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.btn-refresh-research:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.research-card-body {
+  border-top: 1px solid var(--border-color);
+  padding-top: 12px;
+}
+
+.research-fields-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.research-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.research-sources {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--primary);
+  text-decoration: none;
+  background: var(--primary-subtle);
+  border: 1px solid var(--border-color);
+  padding: 2px 8px;
+  border-radius: 4px;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-link:hover {
+  text-decoration: underline;
+}
+
+.research-empty-state {
+  padding: 8px 0;
 }
 .sections-picker-group {
   display: flex;

@@ -152,6 +152,12 @@ class GenerateInterviewGuideRequest(BaseModel):
     recursion_limit: int = Field(
         25, ge=5, le=100, description="LangGraph execution recursion limit"
     )
+    include_company_research: bool = Field(
+        True, description="Whether to include live company research in generation"
+    )
+    company_research: dict[str, Any] | None = Field(
+        None, description="Custom or overridden company research context"
+    )
 
 
 # --- Query Filter Schema ---
