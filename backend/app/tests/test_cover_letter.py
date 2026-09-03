@@ -42,19 +42,23 @@ def test_cover_letter_schemas():
         ENABLE_AUTO_COVER_LETTER=True,
         COVER_LETTER_MATCH_THRESHOLD=75,
         COVER_LETTER_LENGTH="concise",
+        COVER_LETTER_TONE="enthusiastic",
     )
     assert gs_read.ENABLE_AUTO_COVER_LETTER is True
     assert gs_read.COVER_LETTER_MATCH_THRESHOLD == 75
     assert gs_read.COVER_LETTER_LENGTH == "concise"
+    assert gs_read.COVER_LETTER_TONE == "enthusiastic"
 
     gs_update = GlobalSettingsUpdate(
         ENABLE_AUTO_COVER_LETTER=False,
         COVER_LETTER_MATCH_THRESHOLD=80,
         COVER_LETTER_LENGTH="detailed",
+        COVER_LETTER_TONE="executive",
     )
     assert gs_update.ENABLE_AUTO_COVER_LETTER is False
     assert gs_update.COVER_LETTER_MATCH_THRESHOLD == 80
     assert gs_update.COVER_LETTER_LENGTH == "detailed"
+    assert gs_update.COVER_LETTER_TONE == "executive"
 
 
 def test_cover_letter_prompt_template_exists():

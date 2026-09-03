@@ -27,6 +27,7 @@ async def test_system_settings_get_and_patch(db_session):
                 "has_completed_onboarding": True,
                 "enable_email_intake": True,
                 "enable_embeddings": False,
+                "cover_letter_tone": "executive",
             },
         )
         assert patch_res.status_code == 200
@@ -34,6 +35,7 @@ async def test_system_settings_get_and_patch(db_session):
         assert patch_data["has_completed_onboarding"] is True
         assert patch_data["enable_email_intake"] is True
         assert patch_data["enable_embeddings"] is False
+        assert patch_data["cover_letter_tone"] == "executive"
 
         # 3. Verify GET reflects updated values
         get_res_2 = await ac.get("/api/v1/config/system")
@@ -42,6 +44,7 @@ async def test_system_settings_get_and_patch(db_session):
         assert data_2["has_completed_onboarding"] is True
         assert data_2["enable_email_intake"] is True
         assert data_2["enable_embeddings"] is False
+        assert data_2["cover_letter_tone"] == "executive"
 
 
 @pytest.mark.asyncio
@@ -108,3 +111,52 @@ async def test_email_intake_disabled_guard(db_session):
         emails, cursor = await fetch_emails_from_account(account)
         assert emails == []
         assert cursor is None
+
+
+@pytest.mark.asyncio
+async def test_search_provider_settings_and_test_endpoint(db_session):
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        # 1. Update search provider to SearXNG with custom URL
+        patch_res = await ac.patch(
+            "/api/v1/config/system",
+            json={
+                "search_provider": "searxng",
+                "searxng_url": "http://192.168.1.50:8080",
+            },
+        )
+        assert patch_res.status_code == 200
+        patch_data = patch_res.json()
+        assert patch_data["search_provider"] == "searxng"
+        assert patch_data["searxng_url"] == "http://192.168.1.50:8080"
+
+        # 2. GET reflects search provider settings
+        get_res = await ac.get("/api/v1/config/system")
+        assert get_res.status_code == 200
+        get_data = get_res.json()
+        assert get_data["search_provider"] == "searxng"
+        assert get_data["searxng_url"] == "http://192.168.1.50:8080"
+
+        # 3. Test DDGS connection via test endpoint
+        ddgs_test = await ac.post(
+            "/api/v1/config/system/test-search-provider",
+            json={"provider": "ddgs", "searxng_url": ""},
+        )
+        assert ddgs_test.status_code == 200
+        ddgs_data = ddgs_test.json()
+        assert ddgs_data["success"] is True
+        assert ddgs_data["provider"] == "ddgs"
+
+        # 4. Test SearXNG with invalid/unreachable URL returns clean failure without crash
+        searx_test = await ac.post(
+            "/api/v1/config/system/test-search-provider",
+            json={"provider": "searxng", "searxng_url": "http://127.0.0.1:59999"},
+        )
+        assert searx_test.status_code == 200
+        searx_data = searx_test.json()
+        assert searx_data["success"] is False
+        assert (
+            "unable to connect" in searx_data["message"].lower()
+            or "failed" in searx_data["message"].lower()
+        )

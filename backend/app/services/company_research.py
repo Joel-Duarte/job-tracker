@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config_manager import get_setting
 from app.core.llm_factory import get_task_chat_model
+from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.models.applications import CompanyModel
 from app.services.telemetry import trace_operation
 from app.services.web_search import fetch_webpage_content, search_web
@@ -31,7 +32,9 @@ def build_company_research_queries(
     """Builds focused searches so one broad result page does not dominate research."""
     clean_name = company_name.strip()
     clean_domain = (domain or "").strip().lower()
-    domain_suffix = f" site:{clean_domain}" if clean_domain and "." in clean_domain else ""
+    domain_suffix = (
+        f" site:{clean_domain}" if clean_domain and "." in clean_domain else ""
+    )
     return {
         "identity": f'"{clean_name}" mission products customers{domain_suffix}',
         "technical": f'"{clean_name}" engineering technology architecture platform{domain_suffix}',
@@ -49,7 +52,10 @@ def _normalise_url(url: str) -> str:
 
 
 async def _collect_company_evidence(
-    company_name: str, domain: str | None, db: AsyncSession | None
+    company_name: str,
+    domain: str | None,
+    db: AsyncSession | None,
+    concurrency_limit: int = 1,
 ) -> list[dict[str, str]]:
     """Runs bounded category searches and deduplicates their sanitized results."""
     import asyncio
@@ -57,7 +63,12 @@ async def _collect_company_evidence(
     queries = build_company_research_queries(company_name, domain)
     responses = await asyncio.gather(
         *(
-            search_web(query, max_results=_MAX_SEARCH_RESULTS_PER_QUERY, db=db)
+            search_web(
+                query,
+                max_results=_MAX_SEARCH_RESULTS_PER_QUERY,
+                db=db,
+                concurrency_limit=concurrency_limit,
+            )
             for query in queries.values()
         )
     )
@@ -229,6 +240,36 @@ async def _invoke_llm(
     return _extract_json(raw_content)
 
 
+async def _resolve_research_concurrency(db: AsyncSession | None) -> int:
+    """Reads the configured COMPANY_RESEARCH/Global provider concurrency ceiling."""
+    if db is None:
+        return 1
+    try:
+        stmt = (
+            select(AITaskBindingModel, AIProviderModel)
+            .join(AIProviderModel, AITaskBindingModel.provider_id == AIProviderModel.id)
+            .where(
+                AITaskBindingModel.task_type.in_(
+                    ["COMPANY_RESEARCH", "GLOBAL_DEFAULT"]
+                ),
+                AITaskBindingModel.is_active,
+                AIProviderModel.is_active,
+            )
+        )
+        rows = (await db.execute(stmt)).all()
+        exact = next(
+            (row for row in rows if row[0].task_type == "COMPANY_RESEARCH"), None
+        )
+        fallback = next(
+            (row for row in rows if row[0].task_type == "GLOBAL_DEFAULT"), None
+        )
+        selected = exact or fallback
+        return max(1, int(selected[1].max_concurrency)) if selected else 1
+    except Exception as err:
+        logger.debug("Could not resolve research concurrency; using one: %s", err)
+        return 1
+
+
 async def _reprompt_missing_fields(
     chat_model: Any,
     data: dict,
@@ -289,7 +330,9 @@ async def _select_urls_for_deep_fetch(
         response = await chat_model.ainvoke(
             [HumanMessage(content=prompt)], config={"callbacks": [tracer]}
         )
-        raw = response.content.strip() if hasattr(response, "content") else str(response)
+        raw = (
+            response.content.strip() if hasattr(response, "content") else str(response)
+        )
         selected = _extract_json(raw).get("urls", [])
     except Exception as err:
         logger.debug("Deep-fetch URL selection failed for %s: %s", company_name, err)
@@ -307,13 +350,24 @@ async def _select_urls_for_deep_fetch(
 
 
 async def _fetch_selected_pages(
-    urls: list[str], company_name: str, db: AsyncSession | None
+    urls: list[str],
+    company_name: str,
+    db: AsyncSession | None,
+    concurrency_limit: int = 1,
 ) -> list[dict[str, str]]:
     """Fetches only triaged URLs through the existing Camofox-safe scraper."""
     import asyncio
 
     pages = await asyncio.gather(
-        *(fetch_webpage_content(url, max_chars=5000, db=db) for url in urls)
+        *(
+            fetch_webpage_content(
+                url,
+                max_chars=5000,
+                db=db,
+                concurrency_limit=concurrency_limit,
+            )
+            for url in urls
+        )
     )
     return [
         {
@@ -368,15 +422,25 @@ async def research_company_context(
     if company_rec and company_rec.company_research and not force_refresh:
         return company_rec.company_research
 
+    web_enabled = await get_setting("enable_web_search", False, db=db)
+    if not web_enabled:
+        return {}
+
     resolved_domain = domain or (company_rec.domain if company_rec else None)
     about_url = (company_rec.about_url if company_rec else None) or None
 
     snippets: list[dict] = []
+    concurrency_limit = await _resolve_research_concurrency(db)
 
     # 3. Scrape user-provided about_url first (if set) — prepend as leading snippet
     if about_url:
         try:
-            about_text = await fetch_webpage_content(about_url, max_chars=5000, db=db)
+            about_text = await fetch_webpage_content(
+                about_url,
+                max_chars=5000,
+                db=db,
+                concurrency_limit=concurrency_limit,
+            )
             if about_text:
                 snippets.append(
                     {
@@ -400,7 +464,9 @@ async def research_company_context(
 
     # 4. Search several focused categories instead of relying on one broad result set.
     snippets.extend(
-        await _collect_company_evidence(clean_name, resolved_domain, db)
+        await _collect_company_evidence(
+            clean_name, resolved_domain, db, concurrency_limit
+        )
     )
 
     if not snippets:
@@ -449,6 +515,15 @@ async def research_company_context(
             deep_pages = await _fetch_selected_pages(selected_urls, clean_name, db)
             snippets.extend(deep_pages)
 
+            formatted_snippets = [
+                f"[{i}] {snip.get('title', '')}\n"
+                f"URL: {snip.get('url', '')}\n"
+                f"Category: {snip.get('category', 'unknown')}\n"
+                f"Snippet: {snip.get('snippet', '')}"
+                for i, snip in enumerate(snippets, 1)
+            ]
+            snippets_block = "\n\n".join(formatted_snippets)
+
             # Primary LLM extraction
             data = await _invoke_llm(
                 chat_model,
@@ -462,7 +537,12 @@ async def research_company_context(
             # 6. Focused profile/ratings query if profile_links still empty
             if not data.get("profile_links"):
                 rating_query = build_ratings_query(clean_name, resolved_domain)
-                rating_snippets = await search_web(rating_query, max_results=3, db=db)
+                rating_snippets = await search_web(
+                    rating_query,
+                    max_results=3,
+                    db=db,
+                    concurrency_limit=concurrency_limit,
+                )
                 if rating_snippets:
                     rating_block = "\n\n".join(
                         f"[R{i}] {s.get('title', '')}\n"
@@ -500,7 +580,10 @@ async def research_company_context(
 
             # Employee-reported material is intentionally kept separate from application facts.
             employer_signal_snippets = await search_web(
-                build_employer_signals_query(clean_name), max_results=5, db=db
+                build_employer_signals_query(clean_name),
+                max_results=5,
+                db=db,
+                concurrency_limit=concurrency_limit,
             )
             if employer_signal_snippets:
                 employer_signal_block = "\n\n".join(

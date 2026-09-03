@@ -293,3 +293,43 @@ async def test_update_company_auto_merges_when_renamed():
     assert res.name == "CSSF"
     assert c_existing.domain == "cssf.lu"
     db.delete.assert_awaited_once_with(c_renamed)
+
+
+@pytest.mark.asyncio
+async def test_bulk_research_companies_mode_and_duplicate_prevention():
+    from fastapi import BackgroundTasks
+
+    from app.routers.companies import bulk_research_companies
+
+    db = AsyncMock()
+    bg = BackgroundTasks()
+
+    c1 = CompanyModel(id=1, name="Company 1", domain="c1.com", company_research=None)
+    c2 = CompanyModel(
+        id=2,
+        name="Company 2",
+        domain="c2.com",
+        company_research={"summary": "Has summary already"},
+    )
+    c3 = CompanyModel(id=3, name="Company 3", domain="c3.com", company_research={})
+
+    mock_companies = MagicMock()
+    mock_companies.scalars.return_value.all.return_value = [c1, c2, c3]
+
+    # Active tasks: company 3 is already active (raw_text = '3')
+    mock_active = MagicMock()
+    mock_active.scalars.return_value.all.return_value = ["3"]
+
+    db.execute.side_effect = [mock_companies, mock_active]
+
+    # 1. Run in default mode="missing"
+    # c2 has summary -> excluded by mode
+    # c1 and c3 lack summary -> candidates
+    # c3 is already active -> skipped
+    # Only c1 is enqueued!
+    res = await bulk_research_companies(
+        background_tasks=bg, payload={"mode": "missing"}, db=db
+    )
+    assert res["status"] == "enqueued"
+    assert res["enqueued_count"] == 1
+    assert res["skipped_count"] == 1  # c3 skipped as duplicate

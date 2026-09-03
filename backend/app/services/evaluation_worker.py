@@ -38,6 +38,16 @@ from app.services.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
 
+_company_research_semaphore: asyncio.Semaphore | None = None
+
+
+def get_company_research_semaphore() -> asyncio.Semaphore:
+    """Returns a process-wide semaphore limiting simultaneous company research tasks to 2."""
+    global _company_research_semaphore
+    if _company_research_semaphore is None:
+        _company_research_semaphore = asyncio.Semaphore(2)
+    return _company_research_semaphore
+
 
 async def _execute_application_qa_steps(
     task: IntakeEvaluationTaskModel, db: AsyncSession
@@ -588,13 +598,14 @@ async def _execute_company_research_steps(
         if not about_url and company_rec and company_rec.about_url:
             about_url = company_rec.about_url
 
-        research_result = await research_company_context(
-            company_name=company_name,
-            domain=domain,
-            company_id=company_id,
-            force_refresh=True,
-            db=db,
-        )
+        async with get_company_research_semaphore():
+            research_result = await research_company_context(
+                company_name=company_name,
+                domain=domain,
+                company_id=company_id,
+                force_refresh=True,
+                db=db,
+            )
 
         # Stage 3: COMPLETED
         # research_company_context already sets research_status=COMPLETED on the record;
@@ -609,12 +620,18 @@ async def _execute_company_research_steps(
             "summary": research_result.get("summary"),
             "engineering_culture": research_result.get("engineering_culture"),
             "recent_initiatives": research_result.get("recent_initiatives"),
-            "company_mission_and_customer": research_result.get("company_mission_and_customer"),
-            "products_and_technical_domain": research_result.get("products_and_technical_domain", []),
+            "company_mission_and_customer": research_result.get(
+                "company_mission_and_customer"
+            ),
+            "products_and_technical_domain": research_result.get(
+                "products_and_technical_domain", []
+            ),
             "strategic_priorities": research_result.get("strategic_priorities", []),
             "language_to_mirror": research_result.get("language_to_mirror", []),
             "verified_facts": research_result.get("verified_facts", []),
-            "candidate_alignment_angles": research_result.get("candidate_alignment_angles", []),
+            "candidate_alignment_angles": research_result.get(
+                "candidate_alignment_angles", []
+            ),
             "employee_signals": research_result.get("employee_signals", []),
             "evidence_quality": research_result.get("evidence_quality"),
             "profile_links": research_result.get("profile_links", []),

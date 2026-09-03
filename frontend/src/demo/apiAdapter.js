@@ -1254,6 +1254,7 @@ export async function handleDemoRequest(config) {
       ENABLE_AUTO_COVER_LETTER: true,
       COVER_LETTER_MATCH_THRESHOLD: 70,
       COVER_LETTER_LENGTH: 'standard',
+      COVER_LETTER_TONE: 'professional',
     })
   }
 

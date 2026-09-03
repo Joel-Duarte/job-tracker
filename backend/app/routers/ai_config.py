@@ -382,8 +382,11 @@ async def get_global_settings(
         ENABLE_AUTO_COVER_LETTER=settings.get("enable_auto_cover_letter", False),
         COVER_LETTER_MATCH_THRESHOLD=settings.get("cover_letter_match_threshold", 70),
         COVER_LETTER_LENGTH=settings.get("cover_letter_length", "standard"),
+        COVER_LETTER_TONE=settings.get("cover_letter_tone", "professional"),
         ENABLE_EMAIL_INTAKE=settings.get("enable_email_intake", False),
         HAS_COMPLETED_ONBOARDING=settings.get("has_completed_onboarding", False),
+        SEARCH_PROVIDER=settings.get("search_provider", "automatic"),
+        SEARXNG_URL=settings.get("searxng_url", None),
     )
 
 
@@ -405,10 +408,16 @@ async def update_global_settings(
         settings["cover_letter_match_threshold"] = payload.COVER_LETTER_MATCH_THRESHOLD
     if payload.COVER_LETTER_LENGTH is not None:
         settings["cover_letter_length"] = payload.COVER_LETTER_LENGTH
+    if payload.COVER_LETTER_TONE is not None:
+        settings["cover_letter_tone"] = payload.COVER_LETTER_TONE
     if payload.ENABLE_EMAIL_INTAKE is not None:
         settings["enable_email_intake"] = payload.ENABLE_EMAIL_INTAKE
     if payload.HAS_COMPLETED_ONBOARDING is not None:
         settings["has_completed_onboarding"] = payload.HAS_COMPLETED_ONBOARDING
+    if payload.SEARCH_PROVIDER is not None:
+        settings["search_provider"] = payload.SEARCH_PROVIDER
+    if payload.SEARXNG_URL is not None or "SEARXNG_URL" in payload.model_fields_set:
+        settings["searxng_url"] = payload.SEARXNG_URL
     await save_settings(settings, db)
     return GlobalSettingsRead(
         ENABLE_EMBEDDINGS=settings.get("enable_embeddings", False),
@@ -417,8 +426,11 @@ async def update_global_settings(
         ENABLE_AUTO_COVER_LETTER=settings.get("enable_auto_cover_letter", False),
         COVER_LETTER_MATCH_THRESHOLD=settings.get("cover_letter_match_threshold", 70),
         COVER_LETTER_LENGTH=settings.get("cover_letter_length", "standard"),
+        COVER_LETTER_TONE=settings.get("cover_letter_tone", "professional"),
         ENABLE_EMAIL_INTAKE=settings.get("enable_email_intake", False),
         HAS_COMPLETED_ONBOARDING=settings.get("has_completed_onboarding", False),
+        SEARCH_PROVIDER=settings.get("search_provider", "automatic"),
+        SEARXNG_URL=settings.get("searxng_url", None),
     )
 
 

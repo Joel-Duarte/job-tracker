@@ -29,7 +29,10 @@ async def get_system_settings_model(
                 enable_auto_cover_letter=True,
                 cover_letter_match_threshold=70,
                 cover_letter_length="standard",
+                cover_letter_tone="professional",
                 enable_web_search=False,
+                search_provider="automatic",
+                searxng_url=None,
             )
             session.add(record)
             await session.commit()
@@ -59,6 +62,11 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
         cover_letter_length = (
             getattr(model, "cover_letter_length", "standard") or "standard"
         )
+        cover_letter_tone = (
+            getattr(model, "cover_letter_tone", "professional") or "professional"
+        )
+        search_provider = getattr(model, "search_provider", "automatic") or "automatic"
+        searxng_url = getattr(model, "searxng_url", None)
 
         return {
             "has_completed_onboarding": has_completed_onboarding,
@@ -69,6 +77,9 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
             "enable_auto_cover_letter": enable_auto_cover_letter,
             "cover_letter_match_threshold": cover_letter_match_threshold,
             "cover_letter_length": cover_letter_length,
+            "cover_letter_tone": cover_letter_tone,
+            "search_provider": search_provider,
+            "searxng_url": searxng_url,
             # Backward compatibility uppercase keys
             "HAS_COMPLETED_ONBOARDING": has_completed_onboarding,
             "ENABLE_EMAIL_INTAKE": enable_email_intake,
@@ -78,6 +89,9 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
             "ENABLE_AUTO_COVER_LETTER": enable_auto_cover_letter,
             "COVER_LETTER_MATCH_THRESHOLD": cover_letter_match_threshold,
             "COVER_LETTER_LENGTH": cover_letter_length,
+            "COVER_LETTER_TONE": cover_letter_tone,
+            "SEARCH_PROVIDER": search_provider,
+            "SEARXNG_URL": searxng_url,
         }
     except Exception as e:
         logger.error(f"Failed to load global settings from DB: {e}")
@@ -90,6 +104,9 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
             "enable_auto_cover_letter": True,
             "cover_letter_match_threshold": 70,
             "cover_letter_length": "standard",
+            "cover_letter_tone": "professional",
+            "search_provider": "automatic",
+            "searxng_url": None,
             "HAS_COMPLETED_ONBOARDING": False,
             "ENABLE_EMAIL_INTAKE": True,
             "ENABLE_EMBEDDINGS": False,
@@ -98,6 +115,9 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
             "ENABLE_AUTO_COVER_LETTER": True,
             "COVER_LETTER_MATCH_THRESHOLD": 70,
             "COVER_LETTER_LENGTH": "standard",
+            "COVER_LETTER_TONE": "professional",
+            "SEARCH_PROVIDER": "automatic",
+            "SEARXNG_URL": None,
         }
 
 
@@ -171,6 +191,32 @@ async def save_settings(
         )
         if val_length is not None:
             model.cover_letter_length = str(val_length).strip().lower()
+
+        val_tone = (
+            settings.get("cover_letter_tone")
+            if "cover_letter_tone" in settings
+            else settings.get("COVER_LETTER_TONE")
+        )
+        if val_tone is not None:
+            model.cover_letter_tone = str(val_tone).strip().lower()
+
+        val_search_provider = (
+            settings.get("search_provider")
+            if "search_provider" in settings
+            else settings.get("SEARCH_PROVIDER")
+        )
+        if val_search_provider is not None:
+            model.search_provider = str(val_search_provider).strip().lower()
+
+        val_searxng_url = (
+            settings.get("searxng_url")
+            if "searxng_url" in settings
+            else settings.get("SEARXNG_URL")
+        )
+        if "searxng_url" in settings or "SEARXNG_URL" in settings:
+            model.searxng_url = (
+                str(val_searxng_url).strip() if val_searxng_url else None
+            )
 
         await session.commit()
 

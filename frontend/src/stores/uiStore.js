@@ -350,6 +350,7 @@ export const useUIStore = defineStore('ui', () => {
   const enableAutoCoverLetter = ref(false)
   const coverLetterMatchThreshold = ref(70)
   const coverLetterLength = ref('standard')
+  const coverLetterTone = ref('professional')
 
   function openOnboardingWizard() {
     isOnboardingWizardOpen.value = true
@@ -370,6 +371,7 @@ export const useUIStore = defineStore('ui', () => {
         enableAutoCoverLetter.value = res.data.enable_auto_cover_letter ?? false
         coverLetterMatchThreshold.value = res.data.cover_letter_match_threshold ?? 70
         coverLetterLength.value = res.data.cover_letter_length ?? 'standard'
+        coverLetterTone.value = res.data.cover_letter_tone ?? 'professional'
       }
     } catch (err) {
       try {
@@ -382,6 +384,7 @@ export const useUIStore = defineStore('ui', () => {
           enableAutoCoverLetter.value = res.data.ENABLE_AUTO_COVER_LETTER ?? false
           coverLetterMatchThreshold.value = res.data.COVER_LETTER_MATCH_THRESHOLD ?? 70
           coverLetterLength.value = res.data.COVER_LETTER_LENGTH ?? 'standard'
+          coverLetterTone.value = res.data.COVER_LETTER_TONE ?? 'professional'
         }
       } catch (fallbackErr) {
         console.warn('Failed to load system settings', fallbackErr)
@@ -680,6 +683,7 @@ export const useUIStore = defineStore('ui', () => {
     enableAutoCoverLetter,
     coverLetterMatchThreshold,
     coverLetterLength,
+    coverLetterTone,
     fetchSystemSettings,
     autoArchiveEnabled,
     autoArchiveDays,

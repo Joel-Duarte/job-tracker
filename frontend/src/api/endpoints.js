@@ -95,6 +95,7 @@ export const SearchAPI = {
 export const SystemSettingsAPI = {
   get: () => apiClient.get('/config/system'),
   update: (data) => apiClient.patch('/config/system', data),
+  testSearchProvider: (data) => apiClient.post('/config/system/test-search-provider', data),
 }
 
 export const AIConfigAPI = {

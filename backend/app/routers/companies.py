@@ -367,7 +367,9 @@ async def delete_company(
     """Deletes a company, optionally deleting all of its linked applications."""
     company = await db.get(CompanyModel, company_id)
     if not company:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Company not found"
+        )
 
     apps_result = await db.execute(
         select(ApplicationModel).where(ApplicationModel.company_id == company_id)
@@ -404,6 +406,21 @@ async def refresh_company_research(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Company not found"
         )
+
+    # Duplicate prevention: check if an active research task already exists
+    stmt_check = select(IntakeEvaluationTaskModel).where(
+        IntakeEvaluationTaskModel.task_type == "COMPANY_RESEARCH",
+        IntakeEvaluationTaskModel.status.in_(["QUEUED", "IN_PROGRESS"]),
+        IntakeEvaluationTaskModel.raw_text == str(c.id),
+    )
+    existing_task = (await db.execute(stmt_check)).scalars().first()
+    if existing_task:
+        return {
+            "status": "already_queued",
+            "company_id": c.id,
+            "task_id": existing_task.id,
+            "message": f"Company research for '{c.name}' is already active in AI Queue.",
+        }
 
     task = IntakeEvaluationTaskModel(
         task_type="COMPANY_RESEARCH",
@@ -516,36 +533,47 @@ async def bulk_research_companies(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Enqueues individual COMPANY_RESEARCH evaluation tasks in the central AI Queue
-    for companies that do not currently possess a synthesized company intelligence summary.
-    If company_ids is provided, enqueues strictly for those IDs.
-    Filters in Python (not SQL) to correctly catch companies whose company_research JSONB
-    exists but lacks a meaningful 'summary' field.
+    Enqueues individual COMPANY_RESEARCH evaluation tasks in the central AI Queue.
+    Supports mode="missing" (default) or mode="all".
+    Includes duplicate prevention to skip companies with active tasks already in-flight.
     """
     from app.models.intake_tasks import IntakeEvaluationTaskModel
     from app.services.evaluation_worker import process_evaluation_task
 
     company_ids = payload.get("company_ids") if payload else None
+    mode = (payload.get("mode") or "missing").lower() if payload else "missing"
 
     if company_ids:
         stmt = select(CompanyModel).where(CompanyModel.id.in_(company_ids))
     else:
-        # Fetch all; filter in Python so we catch non-null but summary-less JSONB dicts
         stmt = select(CompanyModel)
 
     res = await db.execute(stmt)
-    all_companies = res.scalars().all()
+    all_companies = list(res.scalars().all())
 
-    # Mirror the frontend's companiesWithoutInfo logic
-    if not company_ids:
-        all_companies = [
+    # Mode filtering: "missing" filters for companies lacking research summary
+    if mode == "missing" and not company_ids:
+        target_companies = [
             c
             for c in all_companies
             if not c.company_research or not c.company_research.get("summary")
         ]
+    else:
+        target_companies = all_companies
+
+    # Duplicate prevention: find companies already queued or in progress
+    active_stmt = select(IntakeEvaluationTaskModel.raw_text).where(
+        IntakeEvaluationTaskModel.task_type == "COMPANY_RESEARCH",
+        IntakeEvaluationTaskModel.status.in_(["QUEUED", "IN_PROGRESS"]),
+    )
+    active_res = await db.execute(active_stmt)
+    active_ids = {int(r) for r in active_res.scalars().all() if r and str(r).isdigit()}
+
+    companies_to_queue = [c for c in target_companies if c.id not in active_ids]
+    skipped_count = len(target_companies) - len(companies_to_queue)
 
     enqueued_tasks = []
-    for c in all_companies:
+    for c in companies_to_queue:
         task = IntakeEvaluationTaskModel(
             task_type="COMPANY_RESEARCH",
             title_hint=c.name,
@@ -575,6 +603,7 @@ async def bulk_research_companies(
     return {
         "status": "enqueued",
         "enqueued_count": len(task_ids),
+        "skipped_count": skipped_count,
         "task_ids": task_ids,
-        "message": f"Successfully enqueued {len(task_ids)} company research tasks in AI Queue.",
+        "message": f"Successfully enqueued {len(task_ids)} company research tasks in AI Queue ({skipped_count} skipped as already active).",
     }

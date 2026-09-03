@@ -1159,7 +1159,9 @@ async def dismiss_assessment(
             detail=f"Assessment application {application_id} not found.",
         )
 
-    if (app_rec.is_assessment or app_rec.status == "ASSESSMENT") and app_rec.status == "ASSESSMENT":
+    if (
+        app_rec.is_assessment or app_rec.status == "ASSESSMENT"
+    ) and app_rec.status == "ASSESSMENT":
         app_rec.status = "ARCHIVED"
         app_rec.is_assessment = True
         app_rec.updated_at = datetime.now(UTC)
@@ -1195,9 +1197,14 @@ async def restore_assessment(
     """Restores an archived assessment dossier to the ready-for-review state."""
     app_rec = await db.get(ApplicationModel, application_id)
     if not app_rec or not app_rec.is_assessment:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment dossier not found.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Assessment dossier not found.",
+        )
     if app_rec.status != "ARCHIVED":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Assessment is not archived.")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Assessment is not archived."
+        )
     app_rec.status = "ASSESSMENT"
     app_rec.updated_at = datetime.now(UTC)
     await db.commit()
@@ -1329,9 +1336,7 @@ async def clear_completed_evaluations(
     from sqlalchemy import delete
 
     stmt = delete(IntakeEvaluationTaskModel).where(
-        IntakeEvaluationTaskModel.status.in_(
-            ["COMPLETED", "FAILED", "CANCELLED"]
-        )
+        IntakeEvaluationTaskModel.status.in_(["COMPLETED", "FAILED", "CANCELLED"])
     )
     result = await db.execute(stmt)
     await db.commit()

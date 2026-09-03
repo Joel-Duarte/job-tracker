@@ -166,7 +166,9 @@ async def test_archived_assessment_remains_listed(db_session: AsyncSession):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/api/v1/intake/assessments")
         assert response.status_code == 200
-        archived = next(item for item in response.json() if item["id"] == application.id)
+        archived = next(
+            item for item in response.json() if item["id"] == application.id
+        )
         assert archived["result_json"]["assessment_archived"] is True
 
     app.dependency_overrides.clear()

@@ -23,6 +23,7 @@ import {
   GitMerge,
   TriangleAlert,
   RefreshCw,
+  Clock,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
@@ -44,8 +45,11 @@ const filterDuplicatesOnly = ref(false)
 
 // Bulk Researching State
 const isResearchingBulk = ref(false)
+const bulkResearchMode = ref('missing')
 const bulkProgressTotal = ref(0)
 const bulkProgressCompleted = ref(0)
+const bulkProgressFailed = ref(0)
+const bulkProgressActive = ref(0)
 const lastFetchedAt = ref(null)
 const isStale = ref(false)
 const COMPANY_CACHE_KEY = 'jobtracker_companies_cache'
@@ -178,39 +182,74 @@ function refreshCompaniesFromEvent() {
   fetchCompanies()
 }
 
-async function triggerBulkResearch() {
-  if (!companiesWithoutInfo.value.length || isResearchingBulk.value) return
+async function triggerBulkResearch(mode = 'missing') {
+  if (isResearchingBulk.value) return
+  if (mode === 'missing' && !companiesWithoutInfo.value.length) return
+  if (mode === 'all' && !companies.value.length) return
+
   isResearchingBulk.value = true
-  bulkProgressTotal.value = companiesWithoutInfo.value.length
+  bulkResearchMode.value = mode
   bulkProgressCompleted.value = 0
+  bulkProgressFailed.value = 0
 
   try {
-    const res = await CompaniesAPI.bulkResearch()
+    const res = await CompaniesAPI.bulkResearch({ mode })
     const enqueued = res.data?.enqueued_count || 0
+    const skipped = res.data?.skipped_count || 0
+    bulkProgressTotal.value = enqueued
+    bulkProgressActive.value = enqueued
+
     if (enqueued === 0) {
-      uiStore.showToast('All companies already have up-to-date intelligence.', 'info')
+      if (skipped > 0) {
+        uiStore.showToast(
+          `${skipped} company research task${skipped > 1 ? 's are' : ' is'} already active in AI Queue.`,
+          'info'
+        )
+      } else {
+        uiStore.showToast('All target companies already have up-to-date intelligence.', 'info')
+      }
       isResearchingBulk.value = false
       return
     }
 
     uiStore.showToast(
-      `Enqueued ${enqueued} company intelligence task${enqueued > 1 ? 's' : ''} in AI Queue`,
+      `Enqueued ${enqueued} company research task${enqueued > 1 ? 's' : ''} in AI Queue${skipped > 0 ? ` (${skipped} already active)` : ''}.`,
       'success'
     )
 
-    const initialMissing = companiesWithoutInfo.value.length
+    await fetchCompaniesSilently()
+
     if (pollInterval) clearInterval(pollInterval)
     pollInterval = setInterval(async () => {
       await fetchCompaniesSilently()
-      const currentMissing = companiesWithoutInfo.value.length
-      bulkProgressCompleted.value = Math.max(0, initialMissing - currentMissing)
-      if (currentMissing === 0 || bulkProgressCompleted.value >= initialMissing) {
+
+      const activeCount = companies.value.filter(
+        (c) => c.research_status === 'QUEUED' || c.research_status === 'IN_PROGRESS'
+      ).length
+      bulkProgressActive.value = activeCount
+
+      const failedCount = companies.value.filter(
+        (c) => c.research_status === 'FAILED'
+      ).length
+      bulkProgressFailed.value = failedCount
+
+      if (activeCount === 0) {
         clearInterval(pollInterval)
         pollInterval = null
         isResearchingBulk.value = false
-        uiStore.showToast('All company research tasks completed!', 'success')
+        bulkProgressCompleted.value = bulkProgressTotal.value
+        if (failedCount > 0) {
+          uiStore.showToast(
+            `Company research finished: ${failedCount} task${failedCount > 1 ? 's' : ''} failed.`,
+            'warning'
+          )
+        } else {
+          uiStore.showToast('All company research tasks completed successfully!', 'success')
+        }
+      } else {
+        bulkProgressCompleted.value = Math.max(0, bulkProgressTotal.value - activeCount)
       }
-    }, 3000)
+    }, 2500)
   } catch (err) {
     uiStore.showToast(err.response?.data?.detail || 'Failed to trigger bulk research', 'error')
     isResearchingBulk.value = false
@@ -369,12 +408,18 @@ function openCompanyDrawerWithMerge(companyId) {
             <div class="bulk-progress-bar">
               <div
                 class="bulk-progress-fill"
-                :style="{ width: `${Math.round((bulkProgressCompleted / (bulkProgressTotal || 1)) * 100)}%` }"
+                :style="{ width: `${Math.min(100, Math.round(((bulkProgressTotal - bulkProgressActive) / (bulkProgressTotal || 1)) * 100))}%` }"
               ></div>
             </div>
-            <span class="bulk-progress-text">
-              {{ bulkProgressCompleted }} of {{ bulkProgressTotal }} completed
-            </span>
+            <div class="bulk-progress-text-row">
+              <span class="bulk-progress-text">
+                {{ Math.max(0, bulkProgressTotal - bulkProgressActive) }} of {{ bulkProgressTotal }} processed
+                <span v-if="bulkProgressActive > 0" class="text-muted">({{ bulkProgressActive }} active)</span>
+              </span>
+              <span v-if="bulkProgressFailed > 0" class="bulk-progress-failed-text">
+                · {{ bulkProgressFailed }} failed
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -393,11 +438,22 @@ function openCompanyDrawerWithMerge(companyId) {
         <button
           class="btn btn-primary btn-sm btn-bulk-research"
           :disabled="isResearchingBulk || !companiesWithoutInfo.length"
-          @click="triggerBulkResearch"
+          @click="triggerBulkResearch('missing')"
+          title="Research only companies that lack synthesized company intelligence"
         >
-          <Loader2 v-if="isResearchingBulk" :size="14" class="animate-spin" />
+          <Loader2 v-if="isResearchingBulk && bulkResearchMode === 'missing'" :size="14" class="animate-spin" />
           <Globe v-else :size="14" />
-          <span>{{ isResearchingBulk ? 'Researching...' : `Research All (${companiesWithoutInfo.length})` }}</span>
+          <span>Research Missing ({{ companiesWithoutInfo.length }})</span>
+        </button>
+        <button
+          class="btn btn-secondary btn-sm btn-refresh-all"
+          :disabled="isResearchingBulk || !companies.length"
+          @click="triggerBulkResearch('all')"
+          title="Re-run research and update intelligence for all companies"
+        >
+          <Loader2 v-if="isResearchingBulk && bulkResearchMode === 'all'" :size="14" class="animate-spin" />
+          <RefreshCw v-else :size="14" />
+          <span>Refresh All</span>
         </button>
       </div>
     </div>
@@ -511,16 +567,35 @@ function openCompanyDrawerWithMerge(companyId) {
             </div>
           </div>
 
+          <!-- Research Status Chips -->
+          <span
+            v-if="company.research_status === 'QUEUED'"
+            class="badge-research-queued"
+            title="Company research is queued in the AI Queue"
+          >
+            <Clock :size="11" />
+            <span>Queued</span>
+          </span>
+
+          <span
+            v-else-if="company.research_status === 'IN_PROGRESS'"
+            class="badge-research-progress"
+            title="Gathering web research and synthesizing intel"
+          >
+            <Loader2 :size="11" class="animate-spin" />
+            <span>Researching</span>
+          </span>
+
           <!-- Research FAILED chip -->
           <button
-            v-if="company.research_status === 'FAILED'"
+            v-else-if="company.research_status === 'FAILED'"
             type="button"
             class="badge-research-failed"
             @click.stop="retryCompanyResearch(company)"
             title="Research failed — click to retry"
           >
             <TriangleAlert :size="11" />
-            <span>Research Failed</span>
+            <span>Failed · Retry</span>
             <RefreshCw :size="10" />
           </button>
 
@@ -761,6 +836,57 @@ function openCompanyDrawerWithMerge(companyId) {
   background: #ef4444;
   color: #ffffff;
   border-color: #ef4444;
+}
+
+.badge-research-queued {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: rgba(148, 163, 184, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: var(--text-muted, #94a3b8);
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 5px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.badge-research-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #3b82f6;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 5px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.btn-refresh-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.bulk-progress-text-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.bulk-progress-failed-text {
+  color: #ef4444;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 /* Potential Duplicates Alert Banner */

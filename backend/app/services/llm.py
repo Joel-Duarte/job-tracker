@@ -488,6 +488,8 @@ async def generate_cover_letter(
 
     cleaned_jd = truncate_text_semantically(job_description)
     cleaned_cv = truncate_text_semantically(candidate_cv)
+    if not tone:
+        tone = await get_setting("COVER_LETTER_TONE", "professional", db=db)
     tone_str = (tone or "professional").strip().lower()
 
     if not length:

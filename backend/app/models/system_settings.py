@@ -34,6 +34,15 @@ class SystemSettingsModel(Base):
     cover_letter_length: Mapped[str] = mapped_column(
         String(50), nullable=False, default="standard"
     )
+    cover_letter_tone: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="professional"
+    )
+    search_provider: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="automatic"
+    )
+    searxng_url: Mapped[str | None] = mapped_column(
+        String(500), nullable=True, default=None
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

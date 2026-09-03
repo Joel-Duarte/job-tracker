@@ -666,11 +666,81 @@ async function saveEmbeddingBinding(isAutoSave = false) {
 const enableAutoCoverLetter = ref(false)
 const coverLetterMatchThreshold = ref(70)
 const coverLetterLength = ref('standard')
+const coverLetterTone = ref('professional')
 const isUpdatingCoverLetterSettings = ref(false)
 
-// Web Search Settings State
+// Web Search & Provider Settings State
 const enableWebSearch = ref(false)
 const isUpdatingWebSearch = ref(false)
+const searchProvider = ref('automatic')
+const searxngUrl = ref('')
+const initialSearchProvider = ref('automatic')
+const initialSearxngUrl = ref('')
+const isTestingSearchProvider = ref(false)
+const searchTestResult = ref(null)
+async function onSearchProviderChange(event) {
+  const newProvider = event.target.value
+  searchProvider.value = newProvider
+  searchTestResult.value = null
+  try {
+    const cleanUrl = searxngUrl.value.trim() || null
+    const res = await AIConfigAPI.updateGlobalSettings({
+      SEARCH_PROVIDER: newProvider,
+      SEARXNG_URL: cleanUrl,
+    })
+    searchProvider.value = res.data.SEARCH_PROVIDER || newProvider
+    initialSearchProvider.value = searchProvider.value
+    const label = newProvider === 'ddgs' ? 'DuckDuckGo' : (newProvider === 'automatic' ? 'Automatic (SearXNG + DDGS)' : 'SearXNG')
+    uiStore.showToast(`Search provider updated to ${label}.`, 'success')
+  } catch (err) {
+    uiStore.showToast('Failed to update search provider', 'error')
+  }
+}
+
+async function testAndSaveSearxngUrl() {
+  const cleanUrl = searxngUrl.value.trim()
+  if (!cleanUrl) {
+    uiStore.showToast('Please enter a SearXNG URL to test & save', 'warning')
+    return
+  }
+  isTestingSearchProvider.value = true
+  searchTestResult.value = null
+  try {
+    const res = await SystemSettingsAPI.testSearchProvider({
+      provider: searchProvider.value,
+      searxng_url: cleanUrl,
+    })
+    searchTestResult.value = {
+      ...res.data,
+      testedUrl: cleanUrl,
+    }
+    if (res.data.success) {
+      // Auto-save verified URL
+      const saveRes = await AIConfigAPI.updateGlobalSettings({
+        SEARCH_PROVIDER: searchProvider.value,
+        SEARXNG_URL: cleanUrl,
+      })
+      searxngUrl.value = saveRes.data.SEARXNG_URL || cleanUrl
+      initialSearxngUrl.value = searxngUrl.value
+      uiStore.showToast(
+        `SearXNG connected (${res.data.latency_ms}ms) and saved!`,
+        'success'
+      )
+    } else {
+      uiStore.showToast(res.data.message || 'Connection failed; URL not saved', 'error')
+    }
+  } catch (err) {
+    const msg = err.response?.data?.detail || err.message || 'Connection test failed'
+    searchTestResult.value = {
+      success: false,
+      message: msg,
+      testedUrl: cleanUrl,
+    }
+    uiStore.showToast(msg, 'error')
+  } finally {
+    isTestingSearchProvider.value = false
+  }
+}
 
 async function loadGlobalSettings() {
   try {
@@ -681,12 +751,19 @@ async function loadGlobalSettings() {
     enableWebSearch.value = res.data.ENABLE_WEB_SEARCH ?? false
     uiStore.enableWebSearch = enableWebSearch.value
 
+    searchProvider.value = res.data.SEARCH_PROVIDER || 'automatic'
+    searxngUrl.value = res.data.SEARXNG_URL || ''
+    initialSearchProvider.value = searchProvider.value
+    initialSearxngUrl.value = searxngUrl.value
+
     enableAutoCoverLetter.value = res.data.ENABLE_AUTO_COVER_LETTER ?? false
     coverLetterMatchThreshold.value = res.data.COVER_LETTER_MATCH_THRESHOLD ?? 70
     coverLetterLength.value = res.data.COVER_LETTER_LENGTH ?? 'standard'
+    coverLetterTone.value = res.data.COVER_LETTER_TONE ?? 'professional'
     uiStore.enableAutoCoverLetter = enableAutoCoverLetter.value
     uiStore.coverLetterMatchThreshold = coverLetterMatchThreshold.value
     uiStore.coverLetterLength = coverLetterLength.value
+    uiStore.coverLetterTone = coverLetterTone.value
   } catch (err) {
     console.error('Failed to load global settings', err)
   }
@@ -723,6 +800,22 @@ async function updateCoverLetterLength(event) {
     uiStore.showToast(`Default cover letter length updated to ${val}.`, 'success')
   } catch (err) {
     uiStore.showToast('Failed to update cover letter length setting', 'error')
+  } finally {
+    isUpdatingCoverLetterSettings.value = false
+  }
+}
+
+async function updateCoverLetterTone(event) {
+  const val = event.target.value
+  coverLetterTone.value = val
+  isUpdatingCoverLetterSettings.value = true
+  try {
+    const res = await AIConfigAPI.updateGlobalSettings({ COVER_LETTER_TONE: val })
+    coverLetterTone.value = res.data.COVER_LETTER_TONE
+    uiStore.coverLetterTone = res.data.COVER_LETTER_TONE
+    uiStore.showToast(`Desired cover letter tone updated to ${val}.`, 'success')
+  } catch (err) {
+    uiStore.showToast('Failed to update cover letter tone setting', 'error')
   } finally {
     isUpdatingCoverLetterSettings.value = false
   }
@@ -3271,6 +3364,100 @@ onUnmounted(() => {
             </div>
           </div>
 
+          <!-- Web Search Engine Card -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <Globe :size="18" />
+              </div>
+              <div class="preference-header-text">
+                <div class="preference-header-between">
+                  <h4 class="preference-title">Web Search Engine</h4>
+                  <label class="switch-toggle" title="Toggle live web search">
+                    <input
+                      type="checkbox"
+                      :checked="enableWebSearch"
+                      :disabled="isUpdatingWebSearch"
+                      @change="toggleWebSearch"
+                    />
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+                <p class="preference-desc">Powers live employer research, culture analysis, and public ratings.</p>
+              </div>
+            </div>
+
+            <div class="preference-body" :class="{ 'is-disabled': !enableWebSearch }">
+              <div class="input-group">
+                <div class="label-with-hint">
+                  <label class="input-label">Provider</label>
+                </div>
+                <select
+                  :value="searchProvider"
+                  :disabled="!enableWebSearch"
+                  class="form-input"
+                  @change="onSearchProviderChange"
+                >
+                  <option value="automatic">Automatic (SearXNG + DDGS)</option>
+                  <option value="ddgs">DuckDuckGo (DDGS)</option>
+                  <option value="searxng">SearXNG (Self-Hosted)</option>
+                </select>
+                <span class="preference-field-hint">
+                  {{ searchProvider === 'ddgs' ? 'Uses DuckDuckGo search exclusively.' : (searchProvider === 'automatic' ? 'SearXNG prioritized with automatic DDGS fallback.' : 'SearXNG prioritized with automatic DDGS fallback.') }}
+                </span>
+              </div>
+
+              <!-- SearXNG URL input & Test & Save button inline -->
+              <div v-if="searchProvider !== 'ddgs'" class="input-group mt-3">
+                <div class="label-with-hint">
+                  <label class="input-label">SearXNG URL</label>
+                  <a
+                    href="https://docs.searxng.org/admin/settings/settings.html#search-formats"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="searxng-docs-link"
+                    title="View SearXNG configuration documentation"
+                  >
+                    <span>Docs</span>
+                    <ExternalLink :size="12" />
+                  </a>
+                </div>
+                <div class="searxng-input-row">
+                  <input
+                    v-model="searxngUrl"
+                    type="text"
+                    placeholder="http://192.168.1.187:8181"
+                    :disabled="!enableWebSearch || isTestingSearchProvider"
+                    class="form-input searxng-url-input font-mono"
+                    @input="searchTestResult = null"
+                    @keydown.enter.prevent="testAndSaveSearxngUrl"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-sm btn-test-save"
+                    :disabled="!enableWebSearch || !searxngUrl.trim() || isTestingSearchProvider"
+                    @click="testAndSaveSearxngUrl"
+                    title="Test connection and automatically save verified URL"
+                  >
+                    <Loader2 v-if="isTestingSearchProvider" class="animate-spin" :size="13" />
+                    <CheckCircle2 v-else :size="13" />
+                    <span>Test &amp; Save</span>
+                  </button>
+                </div>
+
+                <!-- Compact test result message -->
+                <div v-if="searchTestResult" class="searxng-test-status mt-1">
+                  <span v-if="searchTestResult.success" class="text-xs text-emerald-500 flex items-center gap-1 font-medium">
+                    <CheckCircle :size="12" /> Connected ({{ searchTestResult.latency_ms }}ms) &amp; Saved
+                  </span>
+                  <span v-else class="text-xs text-rose-500 flex items-center gap-1 font-medium" :title="searchTestResult.message">
+                    <AlertCircle :size="12" /> {{ searchTestResult.message }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- 1. Default System Currency Card -->
           <div class="preference-card">
             <div class="preference-header">
@@ -3333,7 +3520,7 @@ onUnmounted(() => {
             <div class="preference-body" :class="{ 'is-disabled': !enableAutoCoverLetter }">
               <div class="cover-letter-pref-grid">
                 <!-- Minimum Match Score Threshold -->
-                <div class="input-group">
+                <div class="input-group match-threshold-group">
                   <div class="label-with-hint">
                     <label class="input-label">Match Threshold</label>
                   </div>
@@ -3372,7 +3559,29 @@ onUnmounted(() => {
                     <option value="detailed">Detailed (~450w)</option>
                   </select>
                   <span class="preference-field-hint">
-                    Word count passed to generation prompt.
+                    Word count for generation.
+                  </span>
+                </div>
+
+                <!-- Desired Cover Letter Tone -->
+                <div class="input-group">
+                  <div class="label-with-hint">
+                    <label class="input-label">Desired Tone</label>
+                  </div>
+                  <select
+                    :value="coverLetterTone"
+                    :disabled="!enableAutoCoverLetter || isUpdatingCoverLetterSettings"
+                    class="form-input"
+                    @change="updateCoverLetterTone"
+                  >
+                    <option value="professional">Professional &amp; Confident</option>
+                    <option value="enthusiastic">Enthusiastic &amp; Passionate</option>
+                    <option value="concise">Concise &amp; Direct</option>
+                    <option value="executive">Executive Leadership</option>
+                    <option value="technical">Technical &amp; Systems</option>
+                  </select>
+                  <span class="preference-field-hint">
+                    Stylistic framing for drafts.
                   </span>
                 </div>
               </div>
@@ -5329,6 +5538,10 @@ onUnmounted(() => {
   gap: 12px;
 }
 
+.match-threshold-group {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 480px) {
   .cover-letter-pref-grid {
     grid-template-columns: 1fr;
@@ -6911,5 +7124,46 @@ input:checked + .slider:before {
   width: 100%;
   padding-left: 32px !important;
   font-size: 0.84rem;
+}
+
+.searxng-docs-link {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.searxng-docs-link:hover {
+  color: var(--primary-hover);
+  text-decoration: underline;
+}
+
+.searxng-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.searxng-url-input {
+  flex: 1;
+  font-size: 0.82rem;
+  min-width: 0;
+}
+
+.btn-test-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.searxng-test-status {
+  line-height: 1.3;
 }
 </style>
