@@ -9,6 +9,7 @@ export const useQueueStore = defineStore('queue', () => {
   const tasks = ref([])
   const loading = ref(false)
   const error = ref(null)
+  const durableReadyAssessmentsCount = ref(0)
 
   // Reactive Computed Getters
   const activeTasks = computed(() =>
@@ -37,18 +38,7 @@ export const useQueueStore = defineStore('queue', () => {
   const notificationCount = computed(() => activeCount.value + failedCount.value)
 
   const readyAssessmentsCount = computed(() => {
-    let passedSet = new Set()
-    try {
-      passedSet = new Set(JSON.parse(localStorage.getItem('job_tracker_passed_assessments') || '[]'))
-    } catch {
-      // ignore JSON parse error
-    }
-    return tasks.value.filter(
-      (t) =>
-        (t.task_type === 'JOB_ASSESSMENT' || !t.task_type) &&
-        t.status === 'COMPLETED' &&
-        !passedSet.has(String(t.id))
-    ).length
+    return durableReadyAssessmentsCount.value
   })
 
   let pollTimer = null
@@ -90,9 +80,29 @@ export const useQueueStore = defineStore('queue', () => {
     if (!silent) loading.value = true
     error.value = null
     try {
-      const res = await IntakeAPI.getEvaluations(100)
+      const [res, assessmentsRes] = await Promise.all([
+        IntakeAPI.getEvaluations(250),
+        IntakeAPI.getAssessments(),
+      ])
       if (Array.isArray(res.data)) {
         tasks.value = res.data
+      }
+      if (Array.isArray(assessmentsRes.data)) {
+        let passedIds = new Set()
+        try {
+          passedIds = new Set(
+            JSON.parse(localStorage.getItem('job_tracker_passed_assessments') || '[]')
+          )
+        } catch {
+          // Ignore invalid local assessment state and use durable archive state.
+        }
+        durableReadyAssessmentsCount.value = assessmentsRes.data.filter(
+          (assessment) =>
+            assessment.status === 'COMPLETED' &&
+            !assessment.result_json?.assessment_archived &&
+            !passedIds.has(String(assessment.id)) &&
+            !passedIds.has(String(assessment.result_json?.application_id))
+        ).length
       }
     } catch (err) {
       error.value = err.message

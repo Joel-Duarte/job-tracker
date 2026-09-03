@@ -21,6 +21,7 @@ import {
   Sparkles,
   FileText,
   HelpCircle,
+  Building2,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -48,6 +49,7 @@ function isManualDescriptionEligible(task) {
       'COVER_LETTER',
       'APPLICATION_QA',
       'ROLE_ALIGNMENT_DOSSIER',
+      'COMPANY_RESEARCH',
     ].includes(task.task_type)
   )
     return false
@@ -128,6 +130,10 @@ function getTaskDisplayTitle(task) {
     const track = task.result_json?.role_track || task.title_hint || 'Career Dossier'
     return `AI Career Dossier • ${track}`
   }
+  if (task.task_type === 'COMPANY_RESEARCH') {
+    const comp = task.result_json?.company_name || task.title_hint || 'Company'
+    return `Company Intel • ${comp}`
+  }
   if (task.task_type === 'COVER_LETTER') {
     const comp = task.result_json?.company || task.title_hint || 'Application'
     return `Cover Letter • ${comp}`
@@ -149,6 +155,7 @@ function getTaskTypeIcon(type) {
   if (type === 'CV_EXTRACTION') return UserCheck
   if (type === 'EMBEDDING') return Layers
   if (type === 'ROLE_ALIGNMENT_DOSSIER') return Sparkles
+  if (type === 'COMPANY_RESEARCH') return Building2
   if (type === 'COVER_LETTER') return FileText
   if (type === 'APPLICATION_QA') return HelpCircle
   return Briefcase
@@ -158,6 +165,7 @@ function getTaskTypeLabel(type) {
   if (type === 'CV_EXTRACTION') return 'CV Extraction'
   if (type === 'EMBEDDING') return 'Vector Embedding'
   if (type === 'ROLE_ALIGNMENT_DOSSIER') return 'Career Dossier'
+  if (type === 'COMPANY_RESEARCH') return 'Company Research'
   if (type === 'COVER_LETTER') return 'Cover Letter'
   if (type === 'APPLICATION_QA') return 'Form Q&A'
   return 'Job Assessment'

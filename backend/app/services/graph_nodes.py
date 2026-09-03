@@ -25,6 +25,7 @@ from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.models.processed_email import ProcessedEmailModel
 from app.models.staging import StagingItemModel
 from app.schemas.graph_state import JobTrackerState
+from app.services.company_resolver import resolve_or_create_company
 
 generate_and_save_application_embedding = (
     llm_service.generate_and_save_application_embedding
@@ -533,12 +534,10 @@ async def db_commit_node(
     company_name = state.get("company_name") or extracted.get("company", "Unknown")
 
     if not company_id:
-        company = CompanyModel(
-            name=company_name,
-            name_normalized=company_name.strip().lower(),
+        company, _ = await resolve_or_create_company(
+            db=db,
+            company_name=company_name,
         )
-        db.add(company)
-        await db.flush()
         company_id = company.id
 
     application_id = state.get("application_id")

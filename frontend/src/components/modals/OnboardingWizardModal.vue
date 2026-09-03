@@ -22,6 +22,7 @@ import {
   Shield,
   Upload,
   FileText,
+  Globe,
   Loader2,
   X,
   ExternalLink,
@@ -402,6 +403,7 @@ const selectedCurrency = ref(uiStore.defaultCurrency || 'USD')
 const featureEmailIntake = ref(true)
 const featureAutoCoverLetter = ref(true)
 const featureEmbeddings = ref(false)
+const featureWebSearch = ref(true)
 const featureCoverLetterThreshold = ref(70)
 const isSavingFeatures = ref(false)
 
@@ -413,12 +415,14 @@ async function handleStep3Save() {
       enable_email_intake: featureEmailIntake.value,
       enable_embeddings: featureEmbeddings.value,
       enable_auto_cover_letter: featureAutoCoverLetter.value,
+      enable_web_search: featureWebSearch.value,
       cover_letter_match_threshold: featureCoverLetterThreshold.value,
     })
 
     uiStore.enableEmailIntake = featureEmailIntake.value
     uiStore.enableEmbeddings = featureEmbeddings.value
     uiStore.enableAutoCoverLetter = featureAutoCoverLetter.value
+    uiStore.enableWebSearch = featureWebSearch.value
     uiStore.coverLetterMatchThreshold = featureCoverLetterThreshold.value
 
     uiStore.showToast('Workspace settings saved!', 'success')
@@ -928,6 +932,7 @@ async function loadExistingState() {
       featureEmailIntake.value = sysRes.data.enable_email_intake ?? true
       featureEmbeddings.value = sysRes.data.enable_embeddings ?? false
       featureAutoCoverLetter.value = sysRes.data.enable_auto_cover_letter ?? true
+      featureWebSearch.value = sysRes.data.enable_web_search ?? false
       featureCoverLetterThreshold.value = sysRes.data.cover_letter_match_threshold ?? 70
     }
 
@@ -1662,6 +1667,29 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
                     <span class="option-description">Generate dense vector representations for semantic search across applications.</span>
                   </div>
                 </div>
+
+                <!-- 4. Live Web Search & Company Intelligence Selection Card -->
+                <div
+                  class="selection-card"
+                  :class="{ 'card-active': featureWebSearch }"
+                  @click="featureWebSearch = !featureWebSearch"
+                  role="button"
+                  tabindex="0"
+                  @keydown.space.prevent="featureWebSearch = !featureWebSearch"
+                  @keydown.enter.prevent="featureWebSearch = !featureWebSearch"
+                >
+                  <div class="card-icon-wrapper">
+                    <CheckCircle2 v-if="featureWebSearch" class="icon-active" :size="20" />
+                    <Circle v-else class="icon-inactive" :size="20" />
+                  </div>
+                  <div class="option-content">
+                    <div class="option-title-row">
+                      <Globe :size="16" class="text-primary flex-shrink-0" />
+                      <span class="option-label">Live Web Search &amp; Company Intelligence</span>
+                    </div>
+                    <span class="option-description">Enable DuckDuckGo search for company mission, tech stack insights, cover letter grounding, and agent chat intelligence.</span>
+                  </div>
+                </div>
               </div>
 
               <!-- Step 3 Footer Actions -->
@@ -2261,6 +2289,13 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
                     <span class="summary-label">Automated Cover Letters:</span>
                     <span class="summary-value" :class="featureAutoCoverLetter ? 'text-success' : 'text-muted'">
                       {{ featureAutoCoverLetter ? `Enabled (≥ ${featureCoverLetterThreshold}%)` : 'Disabled' }}
+                    </span>
+                  </div>
+
+                  <div class="summary-item">
+                    <span class="summary-label">Web Search &amp; Company Intel:</span>
+                    <span class="summary-value" :class="featureWebSearch ? 'text-success' : 'text-muted'">
+                      {{ featureWebSearch ? 'Active' : 'Disabled' }}
                     </span>
                   </div>
                 </div>

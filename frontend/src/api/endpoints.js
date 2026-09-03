@@ -28,7 +28,8 @@ export const IntakeAPI = {
     }),
   assessJob: (data) => apiClient.post('/intake/assess-job', data),
   enqueueAssessment: (data) => apiClient.post('/intake/enqueue-assessment', data),
-  getEvaluations: (limit = 50) => apiClient.get('/intake/evaluations', { params: { limit } }),
+  getEvaluations: (limit = 250, task_type = null) =>
+    apiClient.get('/intake/evaluations', { params: { limit, ...(task_type ? { task_type } : {}) } }),
   getEvaluation: (taskId) => apiClient.get(`/intake/evaluations/${taskId}`),
   deleteEvaluation: (taskId) => apiClient.delete(`/intake/evaluations/${taskId}`),
   cancelEvaluation: (taskId) => apiClient.post(`/intake/evaluations/${taskId}/cancel`),
@@ -37,13 +38,16 @@ export const IntakeAPI = {
   bulkRetryEvaluations: (taskIds) => apiClient.post('/intake/evaluations/bulk-retry', { task_ids: taskIds }),
   bulkDeleteEvaluations: (taskIds) => apiClient.post('/intake/evaluations/bulk-delete', { task_ids: taskIds }),
   clearCompletedEvaluations: () => apiClient.post('/intake/evaluations/clear-completed'),
+  getAssessments: () => apiClient.get('/intake/assessments'),
+  dismissAssessment: (applicationId) => apiClient.delete(`/intake/assessments/${applicationId}`),
+  deleteAssessment: (applicationId) => apiClient.delete(`/intake/assessments/${applicationId}/permanent`),
+  restoreAssessment: (applicationId) => apiClient.post(`/intake/assessments/${applicationId}/restore`),
+  deleteAssessment: (applicationId) => apiClient.delete(`/intake/assessments/${applicationId}/permanent`),
   confirmAssessment: (data) => apiClient.post('/intake/confirm-assessment', data),
   getExtensionConfig: () => apiClient.get('/intake/extension-config'),
   syncAccount: (data) => apiClient.post('/intake/sync-account', data),
   getTaskStatus: (taskId) => apiClient.get(`/intake/tasks/${taskId}`),
 }
-
-
 export const CandidateProfileAPI = {
   get: () => apiClient.get('/profile/cv'),
   save: (rawText) => apiClient.post('/profile/cv', { raw_text: rawText }),
@@ -177,4 +181,14 @@ export const SystemAPI = {
   getBadgeCounts: () => apiClient.get('/system/badges'),
 }
 
-
+export const CompaniesAPI = {
+  list: (params = {}) => apiClient.get('/companies', { params }),
+  get: (id) => apiClient.get(`/companies/${id}`),
+  update: (id, data) => apiClient.patch(`/companies/${id}`, data),
+  delete: (id, deleteApplications = false) =>
+    apiClient.delete(`/companies/${id}`, { params: { delete_applications: deleteApplications } }),
+  refreshResearch: (id) => apiClient.post(`/companies/${id}/refresh-research`),
+  merge: (data) => apiClient.post('/companies/merge', data),
+  bulkResearch: (data = {}) => apiClient.post('/companies/bulk-research', data),
+  getDuplicates: () => apiClient.get('/companies/duplicates'),
+}

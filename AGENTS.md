@@ -20,6 +20,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - `StagingView`: Review and manual resolution area for ambiguous or low-confidence extractions.
   - `AgentChatView`: Unified conversational assistant and live interactive mock interview simulation suite supporting multi-turn drill downs, multiple-choice challenges, voice transcription, debrief scorecards, and session continuation across practice formats.
   - `PastWinsView`: Archive and showcase for accepted offers, hired milestones, and celebration analytics.
+  - `CompaniesView`: Directory of employer entities, multi-application history, candidate ratings/notes, and live company intelligence with contextual `CompanyDetailDrawer`.
 
 ### Backend
 - **Framework:** FastAPI
@@ -41,9 +42,12 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - `pricing_service.py`: Computes token consumption, dollar costs, and local LLM cloud savings using configurable model rates and extraction from diagnostic telemetry traces.
   - `system.py`: High-performance badge and system synchronization endpoint (`GET /api/v1/system/badges`) unifying staging queue, action item, and intake task count metrics in a single indexed query.
   - `role_alignment_dossier_service.py`: Synthesizes high-impact career track dossiers (executive market positioning, quantified bullet rewrites, strategic interview talking points, and skill bridge roadmaps) persisted in `role_alignment_dossiers`.
+  - `web_search.py`: Real-time metasearch client powered by `ddgs` (DuckDuckGo Search) and Camofox stealth webpage scraping with SSRF filtering and bounded outputs.
+  - `company_research.py`: Domain-anchored query builder and AI relevance guardrail engine synthesizing corporate mission, tech culture, and public ratings with entity caching on `CompanyModel`.
+  - `company_resolver.py`: Multi-tier employer deduplication engine utilizing exact normalized names, canonical domains, and `pg_trgm` fuzzy similarity matching (>0.85).
 
 ### Infrastructure & Development Startup
-- **Unified Daily-Driver CLI Launcher (`jt`):** Run `./jt` on Linux/macOS or `jt.cmd` / `jt` on Windows.
+- **Unified Daily-Driver CLI Launcher (`jt`):** Run `./jt` on Linux/macOS or `jt.cmd` / `jt` on Windows. Includes `jt update` (automatically saves a pre-update PostgreSQL database snapshot to `backups/` before pulling and migrating) and standalone `jt backup`.
 - **Local Development:** Run `./jt dev` (or `./jt dev --reset` to wipe and restart). This spins up `db` (PostgreSQL), `scraper` (Camofox), `backend` (FastAPI), and `frontend` (Vite dev server) using `docker-compose.dev.yml`.
 - **Automatic Mock Dataset Seeding:** When `./jt dev` or a clean database boots in development mode (`ENVIRONMENT=development` or `SEED_DEV_DATA=true`), the backend automatically populates a comprehensive, domain-tailored mock dataset:
   - 1 Active Candidate CV profile (Staff Distributed Systems Engineer)
@@ -59,7 +63,8 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
 - **Production Mode:** Run `./jt` or `./jt start` (using `docker-compose.yml` with `ENVIRONMENT=production`). All services run permanently in the background with `restart: unless-stopped`, meaning they automatically auto-start on PC/system boot whenever the Docker daemon starts and only stop when explicitly taken down (`./jt stop`). Seed data is strictly skipped in production.
 
 ## Core Domains & Data Models
-- **Applications:** `ApplicationModel` linked to `CompanyModel` (persisting canonical corporate `domain`). Persists cover letters (`cover_letter_text`, `cover_letter_status`) and application form Q&A pairs (`application_questions` JSONB).
+- **Companies & Employer Directory:** `CompanyModel` manages employer entities, corporate domain, candidate notes (`notes`), pros (`pros` JSONB), red flags (`red_flags` JSONB), and live synthesized intelligence (`company_research` JSONB, `researched_at`). Supported by CRUD, explicit company deletion with optional linked-application deletion, live web research refresh, and deduplication merge endpoints (`POST /api/v1/companies/merge`).
+- **Applications:** `ApplicationModel` linked to `CompanyModel` (persisting canonical corporate `domain`). Persists cover letters (`cover_letter_text`, `cover_letter_status`), application form Q&A pairs (`application_questions` JSONB), and durable assessment identity (`is_assessment`) so archived assessment dossiers remain independent of queue task status.
   - **Statuses (`AllowedApplicationStatus`):**
     - *Active Stages (4):* `APPLIED`, `ONLINE_ASSESSMENT`, `TECHNICAL_INTERVIEW`, `OFFER`.
     - *Terminal Statuses:* `HIRED`, `ARCHIVED`, `WITHDRAWN`, `REJECTED` (terminal records are immutable to automated staleness transitions).
@@ -67,7 +72,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - **Bulk Transition Engine (`POST /api/v1/applications/bulk-transition`):** Transitions batches of matching non-terminal applications simultaneously (e.g., auto-withdrawing or archiving remaining active applications upon accepting an offer via `PostHireModal`). Bulk operations automatically generate application timeline events and dismiss associated pending `ActionItemModel` tasks.
 - **Candidate Profile:** `CandidateCVModel` stores raw resumes, anonymized versions, extracted skills, domain expertise, spoken languages with proficiencies (`spoken_languages`), and years of experience.
 - **Mock Interview Simulations:** `InterviewSessionModel` manages multi-turn interview simulations optionally tied to target job applications. Stores per-turn challenge and candidate response transcripts (`turns_data`), question mode (`question_mode`), overall readiness rating (`readiness_rating`), overall score (`overall_score`), and debrief summary feedback (`summary_feedback`).
-- **System Settings & Onboarding:** `SystemSettingsModel` tracks global runtime settings, feature flags (`enable_email_intake`, `enable_embeddings`, `enable_auto_cover_letter`), and onboarding completion state (`has_completed_onboarding`).
+- **System Settings & Onboarding:** `SystemSettingsModel` tracks global runtime settings, feature flags (`enable_email_intake`, `enable_embeddings`, `enable_web_search`, `enable_auto_cover_letter`), and onboarding completion state (`has_completed_onboarding`).
 - **Email Accounts:** `EmailAccountModel` manages multi-provider email synchronization (`IMAP`, `GMAIL_OAUTH`, `MS_GRAPH_OAUTH`) with encrypted credentials, token refresh lifecycles, and mailbox folder selection.
 - **Intake/Staging:** Raw leads are ingested as `StagingItemModel` or evaluated directly into `IntakeEvaluationTaskModel`. Supports bulk task management endpoints (`POST /api/v1/intake/evaluations/bulk-retry` and `POST /api/v1/intake/evaluations/bulk-delete`).
 - **Emails & Events:** `ApplicationEventModel` (tied to an app) or `OtherEventModel` (general recruitment spam/newsletters).

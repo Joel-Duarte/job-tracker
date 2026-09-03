@@ -14,6 +14,7 @@ from app.routers import (
     analytics,
     applications,
     candidate_profile,
+    companies,
     diagnostics,
     email_accounts,
     events,
@@ -127,6 +128,7 @@ app.include_router(ai_config.config_ai_router, prefix="/api/v1")
 app.include_router(ai_config.router, prefix="/api/v1")
 app.include_router(system_settings.router, prefix="/api/v1")
 app.include_router(applications.router, prefix="/api/v1")
+app.include_router(companies.router, prefix="/api/v1")
 app.include_router(action_items.router, prefix="/api/v1")
 app.include_router(events.router, prefix="/api/v1")
 app.include_router(search.router, prefix="/api/v1")

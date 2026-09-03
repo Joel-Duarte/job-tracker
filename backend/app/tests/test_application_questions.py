@@ -72,6 +72,7 @@ def test_application_qa_prompt_template_exists():
     assert set(prompt_obj.input_variables) == {
         "company_name",
         "position",
+        "company_research_context",
         "job_description",
         "candidate_cv",
         "questions_json",
@@ -81,6 +82,7 @@ def test_application_qa_prompt_template_exists():
     formatted = prompt_obj.format(
         company_name="Acme Corp",
         position="Backend Engineer",
+        company_research_context="Verified Company Intelligence:\n- Mission: High scale",
         job_description="Build distributed systems",
         candidate_cv="Staff Engineer with 8 years Python experience",
         questions_json='[{"id":"q1","question":"Why Acme?"}]',
@@ -89,6 +91,7 @@ def test_application_qa_prompt_template_exists():
     )
     assert "Acme Corp" in formatted
     assert '"id": "<question_id>"' in formatted
+    assert "Verified Company Intelligence" in formatted
 
 
 @pytest.mark.asyncio
@@ -273,3 +276,98 @@ async def test_execute_application_qa_steps(db_session):
         "Over 8 years scaling distributed stream architectures with Kafka."
     )
     assert app_rec.application_questions[0]["status"] == "GENERATED"
+
+
+@pytest.mark.asyncio
+async def test_application_qa_worker_invokes_company_research(db_session):
+    company = CompanyModel(
+        name="Apex Systems",
+        name_normalized="apex systems",
+        domain="apex.io",
+        company_research=None,
+    )
+    db_session.add(company)
+    await db_session.flush()
+
+    cv = CandidateCVModel(
+        raw_text="Lead Engineer with 10 years experience",
+        extracted_skills=["Python", "Kafka"],
+    )
+    db_session.add(cv)
+
+    app_rec = ApplicationModel(
+        company_id=company.id,
+        position="Principal Architect",
+        status="APPLIED",
+        application_questions=[
+            {
+                "id": "q_comp",
+                "question": "Why Apex Systems?",
+                "word_limit": 150,
+                "status": "QUEUED",
+            }
+        ],
+    )
+    db_session.add(app_rec)
+    await db_session.flush()
+
+    task = IntakeEvaluationTaskModel(
+        task_type="APPLICATION_QA",
+        status="QUEUED",
+        stage="QUEUED",
+        raw_text=str(app_rec.id),
+        result_json={
+            "application_id": app_rec.id,
+            "company": "Apex Systems",
+            "position": "Principal Architect",
+            "include_company_research": True,
+            "questions": [
+                {
+                    "id": "q_comp",
+                    "question": "Why Apex Systems?",
+                    "word_limit": 150,
+                }
+            ],
+        },
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    mock_research = {
+        "summary": "Building ultra-low-latency financial infrastructure.",
+        "engineering_culture": "Distributed systems, Rust and Python.",
+        "recent_initiatives": "Launched high-throughput settlement engine.",
+    }
+    mock_answers = [
+        {
+            "id": "q_comp",
+            "question": "Why Apex Systems?",
+            "word_limit": 150,
+            "answer": "Apex's ultra-low-latency mission matches my streaming background.",
+            "status": "GENERATED",
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+    ]
+
+    with (
+        patch(
+            "app.services.company_research.research_company_context",
+            new=AsyncMock(return_value=mock_research),
+        ) as mock_res_call,
+        patch(
+            "app.services.evaluation_worker.generate_application_answers",
+            new=AsyncMock(return_value=mock_answers),
+        ) as mock_qa_call,
+    ):
+        await _execute_application_qa_steps(task, db_session)
+
+    mock_res_call.assert_awaited_once()
+    mock_qa_call.assert_awaited_once()
+    qa_kwargs = mock_qa_call.call_args.kwargs
+    assert qa_kwargs.get("company_research") == mock_research
+
+    await db_session.refresh(task)
+    assert task.status == "COMPLETED"
+    assert task.stage == "COMPLETE"
+    assert task.result_json.get("company_research") == mock_research

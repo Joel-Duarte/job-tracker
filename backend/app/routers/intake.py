@@ -17,8 +17,9 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.ai_queue import cancel_running_task
 from app.core.config import settings
@@ -29,7 +30,6 @@ from app.core.url_utils import normalize_job_url
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
-    CompanyModel,
     JobPostingModel,
 )
 from app.models.email_accounts import EmailAccountModel
@@ -48,6 +48,7 @@ from app.schemas.intake import (
     PasteIntakeRequest,
 )
 from app.schemas.llm import JobAssessmentResult
+from app.services.company_resolver import resolve_or_create_company
 from app.services.domain_resolver import resolve_company_domain
 from app.services.email_fetcher import fetch_emails_from_account
 from app.services.evaluation_worker import process_evaluation_task
@@ -528,7 +529,6 @@ async def confirm_job_assessment(
     db: AsyncSession = Depends(get_db),
 ) -> IntakeResultResponse:
     """Commits an assessed job lead to the application pipeline in ASSESSMENT or APPLIED status."""
-    comp_norm = payload.company.strip().lower()
     position_norm = payload.position.strip().lower()
     clean_job_url = normalize_job_url(payload.job_url)
     now = datetime.now(UTC)
@@ -538,21 +538,11 @@ async def confirm_job_assessment(
         company_name=payload.company.strip(),
         source_url=clean_job_url,
     )
-    stmt = select(CompanyModel).where(CompanyModel.name_normalized == comp_norm)
-    res = await db.execute(stmt)
-    company = res.scalar_one_or_none()
-
-    if not company:
-        company = CompanyModel(
-            name=payload.company.strip(),
-            name_normalized=comp_norm,
-            domain=resolved_domain,
-        )
-        db.add(company)
-        await db.flush()
-    elif not company.domain and resolved_domain:
-        company.domain = resolved_domain
-        await db.flush()
+    company, _ = await resolve_or_create_company(
+        db=db,
+        company_name=payload.company.strip(),
+        domain=resolved_domain,
+    )
 
     # 2. Application resolution
     app_record = None
@@ -577,12 +567,17 @@ async def confirm_job_assessment(
             application_date=now,
             last_activity_at=now,
             match_analysis_payload=payload.match_analysis_payload,
+            is_assessment=(payload.status or "ASSESSMENT") == "ASSESSMENT",
         )
         db.add(app_record)
         await db.flush()
     else:
         if payload.status:
             app_record.status = payload.status
+            if payload.status == "ASSESSMENT":
+                app_record.is_assessment = True
+            elif payload.status == "APPLIED":
+                app_record.is_assessment = False
         if clean_job_url and not app_record.job_url:
             app_record.job_url = clean_job_url
         app_record.last_activity_at = now
@@ -1031,20 +1026,225 @@ async def enqueue_job_assessment(
 
 
 @router.get(
+    "/assessments",
+    response_model=list[IntakeEvaluationTaskResponse],
+    status_code=status.HTTP_200_OK,
+)
+async def list_assessments(
+    db: AsyncSession = Depends(get_db),
+) -> list[IntakeEvaluationTaskResponse]:
+    """Retrieves all pending job assessments directly from persistent applications storage,
+
+    supplemented by any actively queued or processing assessment worker tasks.
+    """
+    # 1. Fetch persistent assessments from applications table
+    app_stmt = (
+        select(ApplicationModel)
+        .options(
+            selectinload(ApplicationModel.company),
+            selectinload(ApplicationModel.job_posting),
+        )
+        .where(
+            or_(
+                ApplicationModel.is_assessment.is_(True),
+                ApplicationModel.status == "ASSESSMENT",
+            ),
+            ApplicationModel.status.in_(["ASSESSMENT", "ARCHIVED"]),
+        )
+        .order_by(ApplicationModel.created_at.desc())
+    )
+    app_res = await db.execute(app_stmt)
+    apps = app_res.scalars().all()
+
+    # 2. Fetch active (QUEUED or PROCESSING) assessment tasks
+    active_stmt = (
+        select(IntakeEvaluationTaskModel)
+        .where(
+            IntakeEvaluationTaskModel.task_type == "JOB_ASSESSMENT",
+            IntakeEvaluationTaskModel.status.in_(["QUEUED", "PROCESSING"]),
+        )
+        .order_by(IntakeEvaluationTaskModel.id.desc())
+    )
+    active_res = await db.execute(active_stmt)
+    active_tasks = active_res.scalars().all()
+
+    results: list[IntakeEvaluationTaskResponse] = []
+
+    # Include actively running/queued tasks first
+    for task in active_tasks:
+        results.append(
+            IntakeEvaluationTaskResponse(
+                id=task.id,
+                task_type=task.task_type,
+                job_url=task.job_url,
+                raw_text=task.raw_text,
+                title_hint=task.title_hint,
+                status=task.status,
+                stage=task.stage,
+                error_message=task.error_message,
+                result_json=task.result_json,
+                created_at=task.created_at,
+                completed_at=task.completed_at,
+            )
+        )
+
+    # Include saved assessments from applications table
+    for app_rec in apps:
+        comp_name = app_rec.company.name if app_rec.company else "Unknown Company"
+        comp_domain = app_rec.company.domain if app_rec.company else None
+        title = f"{comp_name} - {app_rec.position}"
+
+        res_payload = dict(app_rec.match_analysis_payload or {})
+        res_payload["application_id"] = app_rec.id
+        res_payload["company"] = comp_name
+        res_payload["position"] = app_rec.position
+        res_payload["company_domain"] = comp_domain
+        res_payload["save_status"] = "SAVED"
+        res_payload["assessment_archived"] = app_rec.status == "ARCHIVED"
+        res_payload["is_duplicate"] = False
+        if app_rec.cover_letter_text:
+            res_payload["cover_letter_text"] = app_rec.cover_letter_text
+            res_payload["cover_letter_status"] = (
+                app_rec.cover_letter_status or "GENERATED"
+            )
+        if app_rec.job_posting:
+            if app_rec.job_posting.salary_min is not None:
+                res_payload["salary_min"] = app_rec.job_posting.salary_min
+            if app_rec.job_posting.salary_max is not None:
+                res_payload["salary_max"] = app_rec.job_posting.salary_max
+            if app_rec.job_posting.currency:
+                res_payload["currency"] = app_rec.job_posting.currency
+            if app_rec.job_posting.location:
+                res_payload["location"] = app_rec.job_posting.location
+            if app_rec.job_posting.work_model:
+                res_payload["work_model"] = app_rec.job_posting.work_model
+
+        raw_jd = (
+            app_rec.job_posting.description_markdown if app_rec.job_posting else None
+        )
+
+        results.append(
+            IntakeEvaluationTaskResponse(
+                id=app_rec.id,
+                task_type="JOB_ASSESSMENT",
+                job_url=app_rec.job_url,
+                raw_text=raw_jd,
+                title_hint=title,
+                status="COMPLETED",
+                stage="COMPLETE",
+                error_message=None,
+                result_json=res_payload,
+                created_at=app_rec.created_at,
+                completed_at=app_rec.created_at,
+            )
+        )
+
+    return results
+
+
+@router.delete(
+    "/assessments/{application_id}",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_admin_access)],
+)
+async def dismiss_assessment(
+    application_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Archives an assessment dossier while keeping it available in Assessments."""
+    app_rec = await db.get(ApplicationModel, application_id)
+    if not app_rec:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Assessment application {application_id} not found.",
+        )
+
+    if (app_rec.is_assessment or app_rec.status == "ASSESSMENT") and app_rec.status == "ASSESSMENT":
+        app_rec.status = "ARCHIVED"
+        app_rec.is_assessment = True
+        app_rec.updated_at = datetime.now(UTC)
+
+    # Also clean up any linked queue task if present
+    tasks_stmt = select(IntakeEvaluationTaskModel).where(
+        IntakeEvaluationTaskModel.task_type == "JOB_ASSESSMENT",
+    )
+    res = await db.execute(tasks_stmt)
+    for t in res.scalars().all():
+        if (
+            isinstance(t.result_json, dict)
+            and t.result_json.get("application_id") == application_id
+        ):
+            await db.delete(t)
+
+    await db.commit()
+    return {
+        "status": "success",
+        "message": f"Assessment {application_id} dismissed.",
+    }
+
+
+@router.post(
+    "/assessments/{application_id}/restore",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_admin_access)],
+)
+async def restore_assessment(
+    application_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Restores an archived assessment dossier to the ready-for-review state."""
+    app_rec = await db.get(ApplicationModel, application_id)
+    if not app_rec or not app_rec.is_assessment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assessment dossier not found.")
+    if app_rec.status != "ARCHIVED":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Assessment is not archived.")
+    app_rec.status = "ASSESSMENT"
+    app_rec.updated_at = datetime.now(UTC)
+    await db.commit()
+    return {"status": "success", "message": f"Assessment {application_id} restored."}
+
+
+@router.delete(
+    "/assessments/{application_id}/permanent",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_admin_access)],
+)
+async def permanently_delete_assessment(
+    application_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently deletes an archived assessment and its related application data."""
+    app_rec = await db.get(ApplicationModel, application_id)
+    if not app_rec or not app_rec.is_assessment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Assessment dossier not found.",
+        )
+    if app_rec.status != "ARCHIVED":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only archived assessment dossiers can be permanently deleted.",
+        )
+    await db.delete(app_rec)
+    await db.commit()
+    return {"status": "success", "message": f"Assessment {application_id} deleted."}
+
+
+@router.get(
     "/evaluations",
     response_model=list[IntakeEvaluationTaskResponse],
     status_code=status.HTTP_200_OK,
 )
 async def list_evaluation_tasks(
-    limit: int = 50,
+    limit: int = 250,
+    task_type: str | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> list[IntakeEvaluationTaskResponse]:
     """Retrieves all queued, processing, and recent evaluation tasks from PostgreSQL."""
-    stmt = (
-        select(IntakeEvaluationTaskModel)
-        .order_by(IntakeEvaluationTaskModel.id.desc())
-        .limit(limit)
-    )
+    stmt = select(IntakeEvaluationTaskModel)
+    if task_type:
+        stmt = stmt.where(IntakeEvaluationTaskModel.task_type == task_type)
+    stmt = stmt.order_by(IntakeEvaluationTaskModel.id.desc()).limit(limit)
     res = await db.execute(stmt)
     return list(res.scalars().all())
 
@@ -1099,6 +1299,19 @@ async def delete_evaluation_task(
         if staged_item:
             await db.delete(staged_item)
 
+    # If this was an unconfirmed job assessment application, transition it to ARCHIVED
+    if task.task_type == "JOB_ASSESSMENT" and isinstance(task.result_json, dict):
+        app_id = task.result_json.get("application_id")
+        if app_id:
+            app_stmt = select(ApplicationModel).where(
+                ApplicationModel.id == app_id,
+                ApplicationModel.status == "ASSESSMENT",
+            )
+            app_rec = (await db.execute(app_stmt)).scalar_one_or_none()
+            if app_rec:
+                app_rec.status = "ARCHIVED"
+                app_rec.updated_at = datetime.now(UTC)
+
     await db.delete(task)
     await db.commit()
     return {"status": "success", "message": f"Evaluation task {task_id} deleted."}
@@ -1112,11 +1325,13 @@ async def delete_evaluation_task(
 async def clear_completed_evaluations(
     db: AsyncSession = Depends(get_db),
 ):
-    """Clears all completed or failed evaluation tasks from the queue history."""
+    """Clears finished queue tasks while preserving durable assessment applications."""
     from sqlalchemy import delete
 
     stmt = delete(IntakeEvaluationTaskModel).where(
-        IntakeEvaluationTaskModel.status.in_(["COMPLETED", "FAILED", "CANCELLED"])
+        IntakeEvaluationTaskModel.status.in_(
+            ["COMPLETED", "FAILED", "CANCELLED"]
+        )
     )
     result = await db.execute(stmt)
     await db.commit()

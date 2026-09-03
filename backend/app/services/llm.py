@@ -423,6 +423,51 @@ async def assess_job_posting(
     return result
 
 
+def build_application_company_context(
+    company_research: dict[str, Any] | None,
+) -> str:
+    """Selects a small, application-safe subset of company research."""
+    if not company_research:
+        return ""
+
+    bullets: list[str] = []
+    field_labels = (
+        ("company_mission_and_customer", "Mission and Customers"),
+        ("summary", "Mission and Products"),
+        ("products_and_technical_domain", "Products and Technical Domains"),
+        ("engineering_culture", "Engineering Signals"),
+        ("strategic_priorities", "Strategic Priorities"),
+        ("recent_initiatives", "Recent Verified Initiative"),
+        ("language_to_mirror", "Company Language"),
+    )
+    used_labels: set[str] = set()
+    for field_name, label in field_labels:
+        value = company_research.get(field_name)
+        if not value or label in used_labels:
+            continue
+        if isinstance(value, list):
+            value = "; ".join(str(item) for item in value[:5] if item)
+        if value:
+            bullets.append(f"- {label}: {value}")
+            used_labels.add(label)
+
+    for fact in company_research.get("verified_facts", [])[:3]:
+        if (
+            isinstance(fact, dict)
+            and fact.get("fact")
+            and fact.get("confidence", "low") in {"medium", "high"}
+        ):
+            bullets.append(f"- Verified Fact: {fact['fact']}")
+
+    if not bullets:
+        return ""
+    return (
+        "Verified Company Intelligence - Application-Safe Context (use only when directly relevant to the role):\n"
+        + "\n".join(bullets)
+        + "\nDo not mention employee signals, public ratings, or unsupported hypotheses."
+    )
+
+
 async def generate_cover_letter(
     db: AsyncSession,
     company_name: str,
@@ -432,9 +477,11 @@ async def generate_cover_letter(
     tone: str | None = "professional",
     length: str | None = None,
     custom_instructions: str | None = None,
+    company_research: dict[str, Any] | None = None,
 ) -> str:
     """
     Generates a tailored cover letter using the COVER_LETTER task type and PostgresTracer.
+    Supports optional grounded company research context for authentic company hooks.
     Returns the cover letter markdown string.
     """
     from app.core.config_manager import get_setting
@@ -457,10 +504,21 @@ async def generate_cover_letter(
         f"{length_code.capitalize()} length (STRICT LIMIT: 250 to 320 words total)",
     )
 
+    instructions_parts = []
+    if custom_instructions and custom_instructions.strip():
+        instructions_parts.append(
+            f"Custom User Instructions: {custom_instructions.strip()}"
+        )
+
+    company_context = build_application_company_context(company_research)
+    if company_context:
+        instructions_parts.append(
+            company_context
+            + "\n(Directive: Connect candidate motivations authentically to these company facts. Do NOT invent company achievements or candidate skills.)"
+        )
+
     instructions_str = (
-        f"\nCustom User Instructions: {custom_instructions.strip()}"
-        if custom_instructions and custom_instructions.strip()
-        else ""
+        ("\n" + "\n\n".join(instructions_parts)) if instructions_parts else ""
     )
 
     async with trace_operation(
@@ -473,12 +531,12 @@ async def generate_cover_letter(
             "length": length_code,
             "jd_length": len(cleaned_jd),
             "cv_length": len(cleaned_cv),
+            "has_company_research": bool(company_research),
         },
         db=db,
     ) as trace_ctx:
         llm = await get_task_chat_model(db, task_type="COVER_LETTER", temperature=0.15)
         template_str = await get_prompt_template(db, "cover_letter")
-
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
@@ -527,6 +585,7 @@ async def generate_application_answers(
     questions: list[dict[str, Any]],
     tone: str | None = "professional",
     custom_instructions: str | None = None,
+    company_research: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Generates strictly grounded answers to application form questions using APPLICATION_QA task type.
@@ -557,6 +616,8 @@ async def generate_application_answers(
         else ""
     )
 
+    company_research_str = build_application_company_context(company_research)
+
     async with trace_operation(
         category="llm",
         name="generate_application_answers",
@@ -567,6 +628,7 @@ async def generate_application_answers(
             "questions_count": len(questions_payload),
             "jd_length": len(cleaned_jd),
             "cv_length": len(cleaned_cv),
+            "has_company_research": bool(company_research),
         },
         db=db,
     ) as trace_ctx:
@@ -594,6 +656,7 @@ async def generate_application_answers(
             {
                 "company_name": company_name or "Target Company",
                 "position": position or "Target Role",
+                "company_research_context": company_research_str,
                 "job_description": cleaned_jd or "No detailed description provided.",
                 "candidate_cv": cleaned_cv or "No CV provided.",
                 "questions_json": questions_json_str,

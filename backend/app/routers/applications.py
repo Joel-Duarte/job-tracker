@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -46,6 +46,7 @@ from app.schemas.applications import (
     JobPostingDetail,
 )
 from app.schemas.intake import IntakeEvaluationTaskResponse
+from app.services.company_resolver import resolve_or_create_company
 from app.services.evaluation_worker import process_evaluation_task
 from app.services.interview_guide import (
     clear_interview_guide,
@@ -199,8 +200,9 @@ async def list_applications(
         scheduled_interview = None
         sorted_events = sorted(
             app.events or [],
-            key=lambda e: _to_utc(e.email_received_at)
-            or datetime.min.replace(tzinfo=UTC),
+            key=lambda e: (
+                _to_utc(e.email_received_at) or datetime.min.replace(tzinfo=UTC)
+            ),
             reverse=True,
         )
         latest_interview_evt = None
@@ -661,23 +663,9 @@ async def update_application(
         if app.job_posting:
             app.job_posting.title = pos
 
-    if "company_name" in update_data and update_data["company_name"] is not None:
-        c_name = update_data["company_name"].strip()
-        if c_name:
-            if app.company:
-                app.company.name = c_name
-            else:
-                comp_stmt = select(CompanyModel).where(CompanyModel.name == c_name)
-                comp = (await db.execute(comp_stmt)).scalars().first()
-                if not comp:
-                    comp = CompanyModel(name=c_name)
-                    db.add(comp)
-                    await db.flush()
-                app.company_id = comp.id
-
-    if "company_domain" in update_data:
+    cleaned_domain = None
+    if "company_domain" in update_data and update_data["company_domain"] is not None:
         raw_dom = update_data["company_domain"]
-        cleaned_domain = None
         if raw_dom and raw_dom.strip():
             raw_val = raw_dom.strip().lower()
             if "://" not in raw_val and not raw_val.startswith("//"):
@@ -695,16 +683,70 @@ async def update_application(
                     cleaned.split("/")[0].split("?")[0].split("#")[0].strip() or None
                 )
 
-        if app.company:
-            app.company.domain = cleaned_domain
-        elif cleaned_domain:
-            comp = CompanyModel(
-                name=app.position or "Company",
-                domain=cleaned_domain,
-            )
-            db.add(comp)
-            await db.flush()
-            app.company_id = comp.id
+    if "company_name" in update_data and update_data["company_name"] is not None:
+        c_name = update_data["company_name"].strip()
+        if c_name:
+            c_norm = c_name.lower()
+            if app.company:
+                stmt_existing = (
+                    select(CompanyModel)
+                    .where(
+                        CompanyModel.id != app.company.id,
+                        (CompanyModel.name_normalized == c_norm)
+                        | (
+                            (CompanyModel.domain == cleaned_domain)
+                            & (CompanyModel.domain.isnot(None))
+                        ),
+                    )
+                    .limit(1)
+                )
+                target_match = (await db.execute(stmt_existing)).scalars().first()
+                if target_match:
+                    logger.info(
+                        "Application %s company renamed to %s matching existing company %s. Auto-merging.",
+                        app.id,
+                        c_name,
+                        target_match.id,
+                    )
+                    old_company = app.company
+                    await db.execute(
+                        update(ApplicationModel)
+                        .where(ApplicationModel.company_id == old_company.id)
+                        .values(company_id=target_match.id)
+                    )
+                    if not target_match.domain and (
+                        cleaned_domain or old_company.domain
+                    ):
+                        target_match.domain = cleaned_domain or old_company.domain
+                    if not target_match.notes and old_company.notes:
+                        target_match.notes = old_company.notes
+                    if target_match.rating is None and old_company.rating is not None:
+                        target_match.rating = old_company.rating
+                    if (
+                        not target_match.company_research
+                        and old_company.company_research
+                    ):
+                        target_match.company_research = old_company.company_research
+                        target_match.researched_at = old_company.researched_at
+
+                    app.company_id = target_match.id
+                    app.company = target_match
+                    await db.delete(old_company)
+                else:
+                    app.company.name = c_name
+                    app.company.name_normalized = c_norm
+                    if cleaned_domain is not None:
+                        app.company.domain = cleaned_domain
+            else:
+                comp, _ = await resolve_or_create_company(
+                    db=db,
+                    company_name=c_name,
+                    domain=cleaned_domain,
+                )
+                app.company_id = comp.id
+                app.company = comp
+    elif "company_domain" in update_data and app.company:
+        app.company.domain = cleaned_domain
 
     if any(
         k in update_data
@@ -832,9 +874,7 @@ async def transition_application(
     if old_status != new_status:
         summary_parts.append(f"Status changed from {old_status} to {new_status}.")
     elif (
-        not payload.notes
-        and not payload.interview_stage
-        and not payload.offered_salary
+        not payload.notes and not payload.interview_stage and not payload.offered_salary
     ):
         summary_parts.append(f"Activity logged: {resolved_event_type}.")
 
@@ -1133,6 +1173,12 @@ async def generate_app_cover_letter(
     tone_val = payload.tone if payload else "professional"
     length_val = payload.length if payload and payload.length else None
     instructions_val = payload.custom_instructions if payload else None
+    inc_research = (
+        payload.include_company_research
+        if (payload and payload.include_company_research is not None)
+        else True
+    )
+    comp_research = payload.company_research if payload else None
 
     # Enqueue task in AI Evaluation Queue
     task_record = IntakeEvaluationTaskModel(
@@ -1149,6 +1195,8 @@ async def generate_app_cover_letter(
             "tone": tone_val,
             "length": length_val,
             "custom_instructions": instructions_val,
+            "include_company_research": inc_research,
+            "company_research": comp_research,
         },
     )
     db.add(task_record)
@@ -1234,6 +1282,12 @@ async def regenerate_app_cover_letter(
     tone_val = payload.tone if payload else "professional"
     length_val = payload.length if payload and payload.length else None
     instructions_val = payload.custom_instructions if payload else None
+    inc_research = (
+        payload.include_company_research
+        if (payload and payload.include_company_research is not None)
+        else True
+    )
+    comp_research = payload.company_research if payload else None
 
     task_record = IntakeEvaluationTaskModel(
         task_type="COVER_LETTER",
@@ -1249,6 +1303,8 @@ async def regenerate_app_cover_letter(
             "tone": tone_val,
             "length": length_val,
             "custom_instructions": instructions_val,
+            "include_company_research": inc_research,
+            "company_research": comp_research,
         },
     )
     db.add(task_record)
@@ -1487,6 +1543,8 @@ async def generate_application_form_answers(
             "position": pos_name,
             "tone": tone_val,
             "custom_instructions": instructions_val,
+            "include_company_research": payload.include_company_research,
+            "company_research": payload.company_research,
             "questions": queued_questions,
         },
     )

@@ -19,6 +19,7 @@ import {
   Filter,
   FileText,
   Briefcase,
+  Building2,
   ShieldCheck,
   CheckCircle2,
   XCircle,
@@ -148,6 +149,10 @@ function getTaskDisplayTitle(task) {
     const track = task.result_json?.role_track || task.title_hint || 'Career Dossier'
     return `AI Career Dossier • ${track}`
   }
+  if (task.task_type === 'COMPANY_RESEARCH') {
+    const comp = task.result_json?.company_name || task.title_hint || 'Company'
+    return `Company Intelligence • ${comp}`
+  }
   if (task.task_type === 'COVER_LETTER') {
     const comp = task.result_json?.company || task.title_hint || 'Application'
     return `Cover Letter • ${comp}`
@@ -175,6 +180,7 @@ function getTaskTypeIcon(type) {
   if (type === 'CV_EXTRACTION') return UserCheck
   if (type === 'EMBEDDING') return Layers
   if (type === 'ROLE_ALIGNMENT_DOSSIER') return Sparkles
+  if (type === 'COMPANY_RESEARCH') return Building2
   if (type === 'COVER_LETTER') return FileText
   if (type === 'APPLICATION_QA') return HelpCircle
   if (type === 'EMAIL_SYNC' || type === 'EMAIL_INTAKE') return Mail
@@ -185,6 +191,7 @@ function getTaskTypeLabel(type) {
   if (type === 'CV_EXTRACTION') return 'CV Profile Extraction'
   if (type === 'EMBEDDING') return 'Vector Embedding'
   if (type === 'ROLE_ALIGNMENT_DOSSIER') return 'Career Dossier'
+  if (type === 'COMPANY_RESEARCH') return 'Company Research'
   if (type === 'COVER_LETTER') return 'Cover Letter Generation'
   if (type === 'APPLICATION_QA') return 'Form Q&A'
   if (type === 'EMAIL_SYNC' || type === 'EMAIL_INTAKE') return 'Email Sync'
@@ -511,6 +518,14 @@ onMounted(() => {
           </button>
           <button
             class="type-pill"
+            :class="{ active: typeFilter === 'COMPANY_RESEARCH' }"
+            @click="typeFilter = 'COMPANY_RESEARCH'"
+          >
+            <Building2 :size="12" />
+            <span>Companies</span>
+          </button>
+          <button
+            class="type-pill"
             :class="{ active: typeFilter === 'EMAIL_SYNC' }"
             @click="typeFilter = 'EMAIL_SYNC'"
           >
@@ -771,6 +786,7 @@ onMounted(() => {
                   'type-cover-letter': task.task_type === 'COVER_LETTER',
                   'type-qa': task.task_type === 'APPLICATION_QA',
                   'type-dossier': task.task_type === 'ROLE_ALIGNMENT_DOSSIER',
+                  'type-company-research': task.task_type === 'COMPANY_RESEARCH',
                   'type-email-sync': task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE'
                 }"
               >
@@ -834,7 +850,7 @@ onMounted(() => {
           <!-- DEDICATED PIPELINE STEPPERS -->
           <div class="task-pipeline-container">
             <!-- 1. JOB ASSESSMENT STEPPER (Conditional 5 or 6 Stages based on enableAutoCoverLetter) -->
-            <div v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'EMAIL_SYNC', 'EMAIL_INTAKE'].includes(task.task_type)" class="pipeline-stepper job-stepper">
+            <div v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'COMPANY_RESEARCH', 'EMAIL_SYNC', 'EMAIL_INTAKE'].includes(task.task_type)" class="pipeline-stepper job-stepper">
               <div
                 class="stepper-node"
                 :class="{
@@ -1019,14 +1035,14 @@ onMounted(() => {
               </div>
             </div>
 
-            <!-- 5. APPLICATION FORM Q&A STEPPER & DETAILS (3 Stages) -->
+            <!-- 5. APPLICATION FORM Q&A STEPPER & DETAILS (4 Stages) -->
             <div v-else-if="task.task_type === 'APPLICATION_QA'" class="pipeline-stepper-box">
               <div class="pipeline-stepper qa-stepper">
                 <div
                   class="stepper-node"
                   :class="{
                     active: task.stage === 'QUEUED',
-                    done: ['ANSWERING', 'GENERATING', 'COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
+                    done: ['RESEARCHING', 'ANSWERING', 'GENERATING', 'COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
                   }"
                 >
                   <div class="node-bullet">1</div>
@@ -1036,11 +1052,22 @@ onMounted(() => {
                 <div
                   class="stepper-node"
                   :class="{
+                    active: task.stage === 'RESEARCHING',
+                    done: ['ANSWERING', 'GENERATING', 'COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
+                  }"
+                >
+                  <div class="node-bullet">2</div>
+                  <span class="node-label">Company Research</span>
+                </div>
+
+                <div
+                  class="stepper-node"
+                  :class="{
                     active: ['ANSWERING', 'GENERATING'].includes(task.stage),
                     done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
                   }"
                 >
-                  <div class="node-bullet">2</div>
+                  <div class="node-bullet">3</div>
                   <span class="node-label">Synthesizing Answers</span>
                 </div>
 
@@ -1050,7 +1077,7 @@ onMounted(() => {
                     done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
                   }"
                 >
-                  <div class="node-bullet">3</div>
+                  <div class="node-bullet">4</div>
                   <span class="node-label">Q&amp;A Ready</span>
                 </div>
               </div>
@@ -1155,7 +1182,67 @@ onMounted(() => {
               </div>
             </div>
 
-            <!-- 7. EMAIL SYNC PROGRESS / SUMMARY -->
+            <!-- 7. COMPANY RESEARCH STEPPER & DETAILS (4 Stages) -->
+            <div v-else-if="task.task_type === 'COMPANY_RESEARCH'" class="pipeline-stepper-box">
+              <div class="pipeline-stepper company-stepper">
+                <div
+                  class="stepper-node"
+                  :class="{
+                    active: task.stage === 'QUEUED',
+                    done: ['WEB_SEARCH', 'AI_SYNTHESIS', 'ENTITY_CACHE', 'COMPLETE', 'COMPLETED'].includes(task.stage) || task.status === 'COMPLETED',
+                  }"
+                >
+                  <div class="node-bullet">1</div>
+                  <span class="node-label">Queued</span>
+                </div>
+
+                <div
+                  class="stepper-node"
+                  :class="{
+                    active: task.stage === 'WEB_SEARCH',
+                    done: ['AI_SYNTHESIS', 'ENTITY_CACHE', 'COMPLETE', 'COMPLETED'].includes(task.stage) || task.status === 'COMPLETED',
+                  }"
+                >
+                  <div class="node-bullet">2</div>
+                  <span class="node-label">Web Search</span>
+                </div>
+
+                <div
+                  class="stepper-node"
+                  :class="{
+                    active: task.stage === 'AI_SYNTHESIS',
+                    done: ['ENTITY_CACHE', 'COMPLETE', 'COMPLETED'].includes(task.stage) || task.status === 'COMPLETED',
+                  }"
+                >
+                  <div class="node-bullet">3</div>
+                  <span class="node-label">AI Synthesis</span>
+                </div>
+
+                <div
+                  class="stepper-node"
+                  :class="{
+                    done: ['COMPLETE', 'COMPLETED'].includes(task.stage) || task.status === 'COMPLETED',
+                  }"
+                >
+                  <div class="node-bullet">4</div>
+                  <span class="node-label">Intelligence Cached</span>
+                </div>
+              </div>
+
+              <!-- Completed Summary Highlights -->
+              <div v-if="(task.status === 'COMPLETED' || task.result_json) && task.result_json" class="dossier-details-container mt-2">
+                <div v-if="task.result_json.summary" class="dossier-preview-section">
+                  <span class="text-xs font-semibold text-primary uppercase tracking-wider">Company Overview</span>
+                  <p class="text-xs text-secondary mt-1 leading-relaxed">{{ task.result_json.summary }}</p>
+                </div>
+                <div v-if="task.result_json.engineering_culture" class="dossier-preview-section mt-2">
+                  <span class="text-xs font-semibold text-primary uppercase tracking-wider">Engineering Culture</span>
+                  <p class="text-xs text-secondary mt-1 leading-relaxed">{{ task.result_json.engineering_culture }}</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- 8. EMAIL SYNC PROGRESS / SUMMARY -->
             <div v-else-if="task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE'" class="email-sync-progress-box">
               <div v-if="task.status === 'PROCESSING' || task.status === 'QUEUED'" class="email-sync-progress-container">
                 <div class="email-sync-progress-header">
@@ -1279,7 +1366,7 @@ onMounted(() => {
           <!-- Result Footer & Contextual Actions -->
           <div v-else-if="task.status === 'COMPLETED' && task.result_json" class="task-card-footer">
             <!-- Job Assessment Context -->
-            <template v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'EMAIL_SYNC', 'EMAIL_INTAKE'].includes(task.task_type)">
+            <template v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'COMPANY_RESEARCH', 'EMAIL_SYNC', 'EMAIL_INTAKE'].includes(task.task_type)">
               <div class="footer-left">
                 <span class="score-badge algo-score-badge">
                   Algo: {{ getFitScores(task.result_json).computedText }}
@@ -1416,6 +1503,37 @@ onMounted(() => {
                   class="btn btn-primary btn-xs"
                 >
                   <span>View Board &rarr;</span>
+                </router-link>
+              </div>
+            </template>
+
+            <!-- Company Research Context -->
+            <template v-else-if="task.task_type === 'COMPANY_RESEARCH'">
+              <div class="footer-left">
+                <span class="badge-cv-ready">
+                  <Building2 :size="12" />
+                  <span>Company Intel Synthesized</span>
+                </span>
+                <span v-if="task.result_json?.domain" class="footer-meta-text">
+                  Domain: {{ task.result_json.domain }}
+                </span>
+              </div>
+              <div class="footer-right flex items-center gap-2">
+                <button
+                  v-if="task.result_json?.company_id"
+                  class="btn btn-primary btn-xs"
+                  @click="uiStore.openCompanyDrawer(task.result_json.company_id)"
+                >
+                  <Building2 :size="12" />
+                  <span>View Company &rarr;</span>
+                </button>
+                <router-link
+                  v-else
+                  to="/companies"
+                  class="btn btn-primary btn-xs"
+                >
+                  <Building2 :size="12" />
+                  <span>View Companies &rarr;</span>
                 </router-link>
               </div>
             </template>
@@ -1870,6 +1988,12 @@ onMounted(() => {
   background-color: rgba(168, 85, 247, 0.12);
   color: #a855f7;
   border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.task-type-tag.type-company-research {
+  background-color: var(--primary-light, rgba(99, 102, 241, 0.12));
+  color: var(--primary-color, #6366f1);
+  border: 1px solid var(--border-color);
 }
 
 .task-type-tag.type-email-sync {

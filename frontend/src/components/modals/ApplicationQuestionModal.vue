@@ -4,7 +4,7 @@ import { storeToRefs } from 'pinia'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
 import { useQueueStore } from '../../stores/queueStore'
-import { ApplicationsAPI } from '../../api/endpoints'
+import { ApplicationsAPI, CompaniesAPI } from '../../api/endpoints'
 import {
   X,
   HelpCircle,
@@ -23,6 +23,9 @@ import {
   FileText,
   Layers,
   ArrowRight,
+  Globe,
+  RefreshCw,
+  ExternalLink,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
@@ -45,6 +48,12 @@ const customInstructions = ref('')
 const isOptionsExpanded = ref(false)
 const showBulkPaste = ref(false)
 const bulkPasteText = ref('')
+
+// Company Research State
+const includeCompanyResearch = ref(true)
+const companyResearch = ref(null)
+const isRefreshingResearch = ref(false)
+const isResearchExpanded = ref(false)
 
 // Auto-save state
 const autoSaveStatus = ref('saved') // 'saved' | 'saving' | 'error' | 'unsaved'
@@ -186,6 +195,10 @@ async function loadApplicationData(appId) {
     const res = await ApplicationsAPI.get(appId)
     application.value = res.data
 
+    companyResearch.value = application.value.company?.company_research
+      ? { ...application.value.company.company_research }
+      : null
+
     const qRes = await ApplicationsAPI.getApplicationQuestions(appId)
     const rawQs = qRes.data?.questions || []
     if (rawQs.length > 0) {
@@ -214,6 +227,25 @@ async function loadApplicationData(appId) {
     uiStore.showToast('Failed to load application questions', 'error')
   } finally {
     isLoadingApp.value = false
+  }
+}
+
+async function handleRefreshCompanyResearch() {
+  if (!application.value?.company?.id) return
+  isRefreshingResearch.value = true
+  try {
+    const res = await CompaniesAPI.refreshResearch(application.value.company.id)
+    if (res.data?.company_research) {
+      companyResearch.value = { ...res.data.company_research }
+      uiStore.showToast('Company intelligence refreshed from web!', 'success')
+    } else {
+      uiStore.showToast('No company web results found', 'info')
+    }
+  } catch (err) {
+    console.error('Failed to refresh company research:', err)
+    uiStore.showToast('Failed to refresh company research', 'error')
+  } finally {
+    isRefreshingResearch.value = false
   }
 }
 
@@ -304,6 +336,8 @@ async function handleGenerate() {
       questions: validQuestions,
       tone: tone.value,
       custom_instructions: customInstructions.value.trim() || null,
+      include_company_research: includeCompanyResearch.value,
+      company_research: includeCompanyResearch.value ? companyResearch.value : null,
     }
 
     const res = await ApplicationsAPI.generateApplicationQuestions(appQuestionsAppId.value, payload)
@@ -636,6 +670,92 @@ onUnmounted(() => {
                     placeholder="e.g. Focus on high throughput Kafka pipelines &amp; mentoring"
                   />
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live Company Research Section -->
+          <div class="company-research-card">
+            <div class="research-card-header">
+              <div class="research-header-left">
+                <Globe :size="14" class="text-primary" />
+                <span class="research-card-title">Live Company Research</span>
+                <label class="research-toggle-label">
+                  <input type="checkbox" v-model="includeCompanyResearch" />
+                  <span>Include in answer generation</span>
+                </label>
+              </div>
+              <div class="research-header-right">
+                <button
+                  type="button"
+                  class="btn-refresh-research"
+                  :disabled="isRefreshingResearch"
+                  @click="handleRefreshCompanyResearch"
+                  title="Refresh research from web"
+                >
+                  <Loader2 v-if="isRefreshingResearch" :size="12" class="animate-spin" />
+                  <RefreshCw v-else :size="12" />
+                  <span>{{ isRefreshingResearch ? 'Researching...' : 'Refresh from Web' }}</span>
+                </button>
+                <button
+                  type="button"
+                  class="btn-toggle-expand"
+                  @click="isResearchExpanded = !isResearchExpanded"
+                >
+                  {{ isResearchExpanded ? 'Hide Details' : 'Preview & Edit' }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Expandable Research Editor -->
+            <div v-if="isResearchExpanded && includeCompanyResearch" class="research-card-body">
+              <div v-if="companyResearch" class="research-fields-grid">
+                <div class="research-field">
+                  <label class="form-label text-xs">Mission & Focus</label>
+                  <textarea
+                    v-model="companyResearch.summary"
+                    rows="2"
+                    class="form-input form-input-sm"
+                    placeholder="What does the company build and value..."
+                  ></textarea>
+                </div>
+                <div class="research-field">
+                  <label class="form-label text-xs">Engineering Culture</label>
+                  <textarea
+                    v-model="companyResearch.engineering_culture"
+                    rows="2"
+                    class="form-input form-input-sm"
+                    placeholder="Engineering culture, tech stack focus..."
+                  ></textarea>
+                </div>
+                <div class="research-field">
+                  <label class="form-label text-xs">Recent Initiatives</label>
+                  <input
+                    v-model="companyResearch.recent_initiatives"
+                    type="text"
+                    class="form-input form-input-sm"
+                    placeholder="Recent product launches, open source..."
+                  />
+                </div>
+                <div v-if="companyResearch.sources?.length" class="research-sources">
+                  <span class="text-xs text-muted">Sources:</span>
+                  <a
+                    v-for="(src, idx) in companyResearch.sources"
+                    :key="idx"
+                    :href="src"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="source-link"
+                  >
+                    <span>{{ src }}</span>
+                    <ExternalLink :size="10" />
+                  </a>
+                </div>
+              </div>
+              <div v-else class="research-empty-state">
+                <p class="text-xs text-muted">
+                  No company intelligence found yet. Click <strong>"Refresh from Web"</strong> to pull live mission and culture data for {{ application?.company?.name || 'this company' }}.
+                </p>
               </div>
             </div>
           </div>
@@ -1156,6 +1276,130 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.company-research-card {
+  margin-top: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md, 8px);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.research-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.research-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.research-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.research-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  margin-left: 6px;
+}
+
+.research-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-refresh-research,
+.btn-toggle-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-size: 11px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.btn-refresh-research:hover,
+.btn-toggle-expand:hover {
+  background: var(--bg-card-hover, var(--bg-card));
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.btn-refresh-research:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.research-card-body {
+  border-top: 1px solid var(--border-color);
+  padding-top: 10px;
+}
+
+.research-fields-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.research-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.research-sources {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--primary-color);
+  text-decoration: none;
+  background: var(--primary-light, rgba(99, 102, 241, 0.12));
+  border: 1px solid var(--border-color);
+  padding: 2px 6px;
+  border-radius: 4px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-link:hover {
+  text-decoration: underline;
+}
+
+.research-empty-state {
+  padding: 8px 0;
 }
 
 @keyframes pulse {

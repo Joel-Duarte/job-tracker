@@ -194,7 +194,9 @@ async def test_application_patch_updates(db_session: AsyncSession):
 async def test_activity_logging_preserves_task_completion(db_session: AsyncSession):
     app.dependency_overrides[get_db] = lambda: db_session
 
-    company = CompanyModel(name="TestCorp", name_normalized="testcorp", domain="testcorp.com")
+    company = CompanyModel(
+        name="TestCorp", name_normalized="testcorp", domain="testcorp.com"
+    )
     db_session.add(company)
     await db_session.flush()
 
@@ -212,7 +214,10 @@ async def test_activity_logging_preserves_task_completion(db_session: AsyncSessi
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # 1. Complete take-home task
-        with patch("app.routers.applications.async_enqueue_application_embedding", new_callable=AsyncMock):
+        with patch(
+            "app.routers.applications.async_enqueue_application_embedding",
+            new_callable=AsyncMock,
+        ):
             resp = await client.post(
                 f"/api/v1/applications/{application.id}/transition",
                 json={
@@ -227,7 +232,10 @@ async def test_activity_logging_preserves_task_completion(db_session: AsyncSessi
             assert data["has_action_required"] is False
 
         # 2. Log activity / general note on the application
-        with patch("app.routers.applications.async_enqueue_application_embedding", new_callable=AsyncMock):
+        with patch(
+            "app.routers.applications.async_enqueue_application_embedding",
+            new_callable=AsyncMock,
+        ):
             resp = await client.post(
                 f"/api/v1/applications/{application.id}/transition",
                 json={
@@ -245,7 +253,9 @@ async def test_activity_logging_preserves_task_completion(db_session: AsyncSessi
             assert len(data["events"]) == 2
             assert data["events"][0]["email_event_type"] == "CUSTOM_NOTE"
             assert "Status changed" not in (data["events"][0]["email_summary"] or "")
-            assert "Sent a follow-up email to recruiter." in (data["events"][0]["email_summary"] or "")
+            assert "Sent a follow-up email to recruiter." in (
+                data["events"][0]["email_summary"] or ""
+            )
 
     app.dependency_overrides.clear()
 
@@ -266,4 +276,3 @@ async def test_system_badges_cache_invalidation_fields(db_session: AsyncSession)
         assert "latest_activity_at" in data
 
     app.dependency_overrides.clear()
-

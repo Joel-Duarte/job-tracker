@@ -11,6 +11,12 @@ class CompanySummary(BaseModel):
     id: int
     name: str
     domain: str | None = None
+    rating: int | None = None
+    notes: str | None = None
+    pros: list[str] | None = None
+    red_flags: list[str] | None = None
+    company_research: dict | None = None
+    researched_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -332,6 +338,14 @@ class GenerateCoverLetterRequest(BaseModel):
     custom_instructions: str | None = Field(
         None, description="Optional custom instructions to guide cover letter drafting"
     )
+    include_company_research: bool | None = Field(
+        True,
+        description="Whether to fetch and inject verified live company intelligence (mission, culture, recent initiatives)",
+    )
+    company_research: dict[str, Any] | None = Field(
+        None,
+        description="Optional pre-edited company research payload to inject directly",
+    )
 
 
 class ApplicationAnalyzeSpecRequest(BaseModel):
@@ -367,6 +381,12 @@ class GenerateApplicationQuestionsRequest(BaseModel):
     custom_instructions: str | None = Field(
         None,
         description="Optional guidance or custom instructions for drafting answers",
+    )
+    include_company_research: bool = Field(
+        True, description="Whether to ground answers in verified company research"
+    )
+    company_research: dict[str, Any] | None = Field(
+        None, description="Optional pre-fetched company research dictionary"
     )
 
 

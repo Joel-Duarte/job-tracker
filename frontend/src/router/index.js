@@ -10,12 +10,18 @@ import SettingsView from '../views/SettingsView.vue'
 import AnalyticsView from '../views/AnalyticsView.vue'
 import InterviewGuideView from '../views/InterviewGuideView.vue'
 import DiagnosticsView from '../views/DiagnosticsView.vue'
+import CompaniesView from '../views/CompaniesView.vue'
 
 const routes = [
   {
     path: '/',
     name: 'Applications',
     component: ApplicationsView,
+  },
+  {
+    path: '/companies',
+    name: 'Companies',
+    component: CompaniesView,
   },
   {
     path: '/analytics',

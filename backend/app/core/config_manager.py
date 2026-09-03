@@ -29,6 +29,7 @@ async def get_system_settings_model(
                 enable_auto_cover_letter=True,
                 cover_letter_match_threshold=70,
                 cover_letter_length="standard",
+                enable_web_search=False,
             )
             session.add(record)
             await session.commit()
@@ -49,6 +50,7 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
         has_completed_onboarding = getattr(model, "has_completed_onboarding", False)
         enable_email_intake = getattr(model, "enable_email_intake", False)
         enable_embeddings = getattr(model, "enable_embeddings", True)
+        enable_web_search = getattr(model, "enable_web_search", False)
         agent_chat_retention_days = getattr(model, "agent_chat_retention_days", 7)
         enable_auto_cover_letter = getattr(model, "enable_auto_cover_letter", False)
         cover_letter_match_threshold = getattr(
@@ -62,6 +64,7 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
             "has_completed_onboarding": has_completed_onboarding,
             "enable_email_intake": enable_email_intake,
             "enable_embeddings": enable_embeddings,
+            "enable_web_search": enable_web_search,
             "agent_chat_retention_days": agent_chat_retention_days,
             "enable_auto_cover_letter": enable_auto_cover_letter,
             "cover_letter_match_threshold": cover_letter_match_threshold,
@@ -70,6 +73,7 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
             "HAS_COMPLETED_ONBOARDING": has_completed_onboarding,
             "ENABLE_EMAIL_INTAKE": enable_email_intake,
             "ENABLE_EMBEDDINGS": enable_embeddings,
+            "ENABLE_WEB_SEARCH": enable_web_search,
             "AGENT_CHAT_RETENTION_DAYS": agent_chat_retention_days,
             "ENABLE_AUTO_COVER_LETTER": enable_auto_cover_letter,
             "COVER_LETTER_MATCH_THRESHOLD": cover_letter_match_threshold,
@@ -81,6 +85,7 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
             "has_completed_onboarding": False,
             "enable_email_intake": True,
             "enable_embeddings": False,
+            "enable_web_search": False,
             "agent_chat_retention_days": 7,
             "enable_auto_cover_letter": True,
             "cover_letter_match_threshold": 70,
@@ -88,6 +93,7 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
             "HAS_COMPLETED_ONBOARDING": False,
             "ENABLE_EMAIL_INTAKE": True,
             "ENABLE_EMBEDDINGS": False,
+            "ENABLE_WEB_SEARCH": False,
             "AGENT_CHAT_RETENTION_DAYS": 7,
             "ENABLE_AUTO_COVER_LETTER": True,
             "COVER_LETTER_MATCH_THRESHOLD": 70,
@@ -125,6 +131,14 @@ async def save_settings(
         )
         if val_embeddings is not None:
             model.enable_embeddings = bool(val_embeddings)
+
+        val_web_search = (
+            settings.get("enable_web_search")
+            if "enable_web_search" in settings
+            else settings.get("ENABLE_WEB_SEARCH")
+        )
+        if val_web_search is not None:
+            model.enable_web_search = bool(val_web_search)
 
         val_retention = (
             settings.get("agent_chat_retention_days")

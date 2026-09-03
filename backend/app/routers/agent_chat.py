@@ -13,6 +13,7 @@ from app.core.database import get_db
 from app.core.llm_factory import get_task_chat_model
 from app.core.prompts import get_prompt_template
 from app.models.agent_chat import AgentChatModel
+from app.models.candidate_profile import CandidateCVModel
 from app.services.agent_tools import create_agent_tools
 from app.services.postgres_tracer import PostgresTracer
 
@@ -124,9 +125,57 @@ async def chat_with_agent(
     Conversational Agent Chat equipped with native semantic vector search and database query/mutation tools.
     """
     system_prompt = await get_prompt_template(db, "agent_system")
+
+    # 1. Inject active candidate profile context (lightweight summary)
+    stmt_cv = (
+        select(CandidateCVModel).order_by(CandidateCVModel.updated_at.desc()).limit(1)
+    )
+    res_cv = await db.execute(stmt_cv)
+    cv_profile = res_cv.scalar_one_or_none()
+    if cv_profile:
+        skills_summary = (
+            ", ".join(cv_profile.extracted_skills[:6])
+            if cv_profile.extracted_skills
+            else "None specified"
+        )
+        exp_years = (
+            f"{cv_profile.years_of_experience:.1f}"
+            if cv_profile.years_of_experience
+            else "Not specified"
+        )
+        headline = (
+            cv_profile.summary.strip().split("\n")[0][:120]
+            if cv_profile.summary
+            else "Candidate"
+        )
+        spoken = (
+            ", ".join(
+                [
+                    f"{lang.get('language') or lang.get('name')}"
+                    for lang in (cv_profile.spoken_languages or [])[:4]
+                ]
+            )
+            or "None specified"
+        )
+        candidate_context = (
+            f"\n\n[Active Candidate Context]\n"
+            f"- Role/Headline: {headline}\n"
+            f"- Total Experience: {exp_years} years\n"
+            f"- Top Skills: {skills_summary}\n"
+            f"- Languages: {spoken}\n"
+            f"(Note: Call get_candidate_profile if detailed work history, specific projects, or deep CV breakdown is required.)"
+        )
+        system_prompt += candidate_context
+
+    # 2. Expose web tools for explicit user-requested research.
+    system_prompt += (
+        "\n\n[Live Web Search Available]\n"
+        "Use `search_web` and `fetch_webpage_content` when the user asks for current external information."
+    )
+
     chat_model = await get_task_chat_model(db, task_type="AGENT_REASONING")
 
-    tools = create_agent_tools(db)
+    tools = create_agent_tools(db, enable_web_search=True)
     tool_map = {t.name: t for t in tools}
 
     try:

@@ -4,6 +4,7 @@ import { AIConfigAPI } from './api/endpoints'
 import { useUIStore } from './stores/uiStore'
 import AppNavbar from './components/layout/AppNavbar.vue'
 import ApplicationDetailDrawer from './components/drawers/ApplicationDetailDrawer.vue'
+import CompanyDetailDrawer from './components/drawers/CompanyDetailDrawer.vue'
 import IngestModal from './components/modals/IngestModal.vue'
 import JobIntakeModal from './components/modals/JobIntakeModal.vue'
 import CoverLetterModal from './components/modals/CoverLetterModal.vue'
@@ -43,6 +44,7 @@ onMounted(async () => {
       </router-view>
     </main>
     <ApplicationDetailDrawer />
+    <CompanyDetailDrawer />
     <IngestModal />
     <JobIntakeModal />
     <CoverLetterModal />

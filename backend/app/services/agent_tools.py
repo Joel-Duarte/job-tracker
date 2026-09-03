@@ -16,16 +16,20 @@ from app.models.applications import (
     CompanyModel,
     JobPostingModel,
 )
+from app.models.candidate_profile import CandidateCVModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.schemas.agent_tools import (
     AnalyzePipelineMetricsInput,
     ApplicationDetailsInput,
     DetectStalledApplicationsInput,
     EvaluateAIFitScoreInput,
+    FetchWebpageContentInput,
+    GetCandidateProfileInput,
     ListApplicationsInput,
     ManageActionItemsInput,
     ManageIntakeQueueInput,
     QueryMarketBenchmarksInput,
+    SearchWebInput,
     SemanticSearchInput,
     StartMockInterviewInput,
     UpdateApplicationPipelineInput,
@@ -33,6 +37,7 @@ from app.schemas.agent_tools import (
 from app.services.analytics import get_funnel_performance_metrics
 from app.services.interview_simulator_service import InterviewSimulatorService
 from app.services.llm import generate_and_save_application_embedding, generate_embedding
+from app.services.web_search import fetch_webpage_content, search_web
 
 logger = logging.getLogger(__name__)
 
@@ -756,7 +761,75 @@ async def execute_start_mock_interview(
     }
 
 
-def create_agent_tools(db: AsyncSession) -> list[StructuredTool]:
+# 12. Candidate Profile Tool
+async def execute_get_candidate_profile(
+    db: AsyncSession,
+    section: str = "all",
+) -> dict[str, Any]:
+    """Retrieves verified candidate CV data, skills, domain tenures, or raw resume text."""
+    stmt = (
+        select(CandidateCVModel).order_by(CandidateCVModel.updated_at.desc()).limit(1)
+    )
+    res = await db.execute(stmt)
+    cv = res.scalar_one_or_none()
+    if not cv:
+        return {
+            "status": "not_found",
+            "message": "No candidate CV profile has been uploaded yet.",
+        }
+
+    if section == "skills":
+        return {
+            "extracted_skills": cv.extracted_skills or [],
+            "spoken_languages": cv.spoken_languages or [],
+            "years_of_experience": cv.years_of_experience,
+        }
+    elif section == "experience":
+        return {
+            "years_of_experience": cv.years_of_experience,
+            "domain_expertise": cv.domain_expertise or [],
+            "domain_experience": cv.domain_experience or [],
+            "summary": cv.summary or "",
+        }
+    elif section == "raw_cv":
+        text_content = cv.anonymized_text or cv.raw_text or ""
+        if len(text_content) > 4000:
+            text_content = text_content[:4000] + "\n... [Truncated for brevity]"
+        return {"cv_text": text_content}
+    else:
+        return {
+            "summary": cv.summary or "",
+            "years_of_experience": cv.years_of_experience,
+            "extracted_skills": cv.extracted_skills or [],
+            "domain_expertise": cv.domain_expertise or [],
+            "domain_experience": cv.domain_experience or [],
+            "spoken_languages": cv.spoken_languages or [],
+        }
+
+
+# 13. Web Search Tool
+async def execute_search_web(
+    db: AsyncSession,
+    query: str,
+    max_results: int = 5,
+) -> list[dict[str, str]]:
+    """Performs live internet search via DuckDuckGo and returns concise snippets."""
+    return await search_web(query=query, max_results=max_results, db=db)
+
+
+# 14. Fetch Webpage Content Tool
+async def execute_fetch_webpage_content(
+    db: AsyncSession,
+    url: str,
+    max_chars: int = 3000,
+) -> str:
+    """Scrapes clean text content from a target URL using stealth scraper."""
+    return await fetch_webpage_content(url=url, max_chars=max_chars, db=db)
+
+
+def create_agent_tools(
+    db: AsyncSession, enable_web_search: bool = False
+) -> list[StructuredTool]:
     """Factory creating bound LangChain tools for the active async database session."""
 
     async def _analyze_pipeline_metrics(
@@ -843,7 +916,19 @@ def create_agent_tools(db: AsyncSession) -> list[StructuredTool]:
         res = await execute_start_mock_interview(db, company_or_id, question_mode)
         return json.dumps(res, indent=2)
 
-    return [
+    async def _get_candidate_profile(section: str = "all") -> str:
+        res = await execute_get_candidate_profile(db, section)
+        return json.dumps(res, indent=2)
+
+    async def _search_web(query: str, max_results: int = 5) -> str:
+        res = await execute_search_web(db, query, max_results)
+        return json.dumps(res, indent=2)
+
+    async def _fetch_webpage_content(url: str, max_chars: int = 3000) -> str:
+        res = await execute_fetch_webpage_content(db, url, max_chars)
+        return str(res)
+
+    tools = [
         StructuredTool.from_function(
             coroutine=_analyze_pipeline_metrics,
             name="analyze_pipeline_metrics",
@@ -910,4 +995,30 @@ def create_agent_tools(db: AsyncSession) -> list[StructuredTool]:
             description="Launches an interactive live mock interview simulation for a target application or general software engineering practice.",
             args_schema=StartMockInterviewInput,
         ),
+        StructuredTool.from_function(
+            coroutine=_get_candidate_profile,
+            name="get_candidate_profile",
+            description="Retrieves the candidate's verified profile, top technical skills, spoken languages, domain expertise breakdown, or raw CV text.",
+            args_schema=GetCandidateProfileInput,
+        ),
     ]
+
+    if enable_web_search:
+        tools.extend(
+            [
+                StructuredTool.from_function(
+                    coroutine=_search_web,
+                    name="search_web",
+                    description="Searches the live internet via DuckDuckGo for recent company news, engineering blogs, salaries, or real-time information.",
+                    args_schema=SearchWebInput,
+                ),
+                StructuredTool.from_function(
+                    coroutine=_fetch_webpage_content,
+                    name="fetch_webpage_content",
+                    description="Scrapes clean text from a specific webpage URL found in search results to read articles, job details, or documentation.",
+                    args_schema=FetchWebpageContentInput,
+                ),
+            ]
+        )
+
+    return tools

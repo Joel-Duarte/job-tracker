@@ -167,3 +167,37 @@ class StartMockInterviewInput(BaseModel):
         default="TEXT_CONVERSATIONAL",
         description="Question format: 'TEXT_CONVERSATIONAL' for behavioral/STAR, 'MULTIPLE_CHOICE' for objective scenario challenges, or 'HYBRID' for mixed.",
     )
+
+
+# 9. Candidate Profile Tool
+class GetCandidateProfileInput(BaseModel):
+    section: Literal["all", "skills", "experience", "raw_cv"] = Field(
+        default="all",
+        description="Which section of candidate profile to inspect: 'all', 'skills', 'experience', or 'raw_cv'.",
+    )
+
+
+# 10. Web Search Tool
+class SearchWebInput(BaseModel):
+    query: str = Field(
+        description="Search query to retrieve live internet info, recent company news, engineering blogs, salaries, or market data."
+    )
+    max_results: int = Field(
+        default=5,
+        ge=1,
+        le=10,
+        description="Max number of search results to return (default 5).",
+    )
+
+
+# 11. Fetch Webpage Content Tool
+class FetchWebpageContentInput(BaseModel):
+    url: str = Field(
+        description="Full HTTP/HTTPS URL of the webpage or blog post to read content from."
+    )
+    max_chars: int = Field(
+        default=3000,
+        ge=500,
+        le=8000,
+        description="Maximum characters of text to return from the page (default 3000).",
+    )

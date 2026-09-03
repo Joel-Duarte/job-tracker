@@ -185,7 +185,8 @@ async def test_agent_tools_unit_handlers():
     # 9. Test LangChain Tool Factory Registration
     tools = create_agent_tools(db)
     tool_names = [t.name for t in tools]
-    assert len(tools) == 11
+    assert len(tools) == 12
     assert "analyze_pipeline_metrics" in tool_names
     assert "detect_stalled_applications" in tool_names
     assert "start_mock_interview" in tool_names
+    assert "get_candidate_profile" in tool_names

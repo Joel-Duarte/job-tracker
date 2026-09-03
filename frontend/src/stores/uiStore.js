@@ -28,6 +28,23 @@ export const useUIStore = defineStore('ui', () => {
   const activeDetailId = ref(null)
   const detailActiveTab = ref('timeline')
 
+  // Company Detail Drawer state
+  const isCompanyDrawerOpen = ref(false)
+  const selectedCompanyId = ref(null)
+  const companyDrawerInitialTab = ref('intel')
+
+  function openCompanyDrawer(companyId, initialTab = 'intel') {
+    selectedCompanyId.value = companyId
+    companyDrawerInitialTab.value = initialTab
+    isCompanyDrawerOpen.value = true
+  }
+
+  function closeCompanyDrawer() {
+    isCompanyDrawerOpen.value = false
+    selectedCompanyId.value = null
+    companyDrawerInitialTab.value = 'intel'
+  }
+
   // Staging queue pending count state
   const pendingStagingCount = ref(0)
 
@@ -329,6 +346,7 @@ export const useUIStore = defineStore('ui', () => {
   const hasCompletedOnboarding = ref(false)
   const enableEmailIntake = ref(false)
   const enableEmbeddings = ref(false)
+  const enableWebSearch = ref(false)
   const enableAutoCoverLetter = ref(false)
   const coverLetterMatchThreshold = ref(70)
   const coverLetterLength = ref('standard')
@@ -348,6 +366,7 @@ export const useUIStore = defineStore('ui', () => {
         hasCompletedOnboarding.value = res.data.has_completed_onboarding ?? false
         enableEmailIntake.value = res.data.enable_email_intake ?? false
         enableEmbeddings.value = res.data.enable_embeddings ?? false
+        enableWebSearch.value = res.data.enable_web_search ?? false
         enableAutoCoverLetter.value = res.data.enable_auto_cover_letter ?? false
         coverLetterMatchThreshold.value = res.data.cover_letter_match_threshold ?? 70
         coverLetterLength.value = res.data.cover_letter_length ?? 'standard'
@@ -359,6 +378,7 @@ export const useUIStore = defineStore('ui', () => {
           hasCompletedOnboarding.value = res.data.HAS_COMPLETED_ONBOARDING ?? false
           enableEmailIntake.value = res.data.ENABLE_EMAIL_INTAKE ?? false
           enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS ?? false
+          enableWebSearch.value = res.data.ENABLE_WEB_SEARCH ?? false
           enableAutoCoverLetter.value = res.data.ENABLE_AUTO_COVER_LETTER ?? false
           coverLetterMatchThreshold.value = res.data.COVER_LETTER_MATCH_THRESHOLD ?? 70
           coverLetterLength.value = res.data.COVER_LETTER_LENGTH ?? 'standard'
@@ -371,6 +391,10 @@ export const useUIStore = defineStore('ui', () => {
 
   function setEnableEmbeddings(val) {
     enableEmbeddings.value = val
+  }
+
+  function setEnableWebSearch(val) {
+    enableWebSearch.value = val
   }
 
   // Currency Preference
@@ -638,6 +662,11 @@ export const useUIStore = defineStore('ui', () => {
     closeJobIntakeModal,
     openDetail,
     closeDetail,
+    isCompanyDrawerOpen,
+    selectedCompanyId,
+    companyDrawerInitialTab,
+    openCompanyDrawer,
+    closeCompanyDrawer,
     addIntakeTask,
     updateIntakeTask,
     removeIntakeTask,
@@ -646,6 +675,8 @@ export const useUIStore = defineStore('ui', () => {
     enableEmailIntake,
     enableEmbeddings,
     setEnableEmbeddings,
+    enableWebSearch,
+    setEnableWebSearch,
     enableAutoCoverLetter,
     coverLetterMatchThreshold,
     coverLetterLength,

@@ -1028,7 +1028,11 @@ async function confirmDelete() {
                 @click="uiStore.openDetail(app.id)"
               >
                 <td class="cell-company">
-                  <div class="company-cell-wrapper">
+                  <div
+                    class="company-cell-wrapper clickable-company-tag"
+                    @click.stop="app.company?.id && uiStore.openCompanyDrawer(app.company.id)"
+                    title="View company intelligence, notes & ratings"
+                  >
                     <CompanyLogo :name="app.company?.name" :domain="app.company?.domain" :size="18" />
                     <span class="company-name-bold">{{ app.company?.name || 'Company' }}</span>
                   </div>
@@ -1173,7 +1177,11 @@ async function confirmDelete() {
               @click="uiStore.openDetail(app.id)"
             >
               <div class="card-header">
-                <div class="company-name-tag">
+                <div
+                  class="company-name-tag clickable-company-tag"
+                  @click.stop="app.company?.id && uiStore.openCompanyDrawer(app.company.id)"
+                  title="View company intelligence, notes & ratings"
+                >
                   <CompanyLogo :name="app.company?.name" :domain="app.company?.domain" :size="18" />
                   <span class="company-name-text">{{ app.company?.name || 'Company' }}</span>
                 </div>
@@ -1405,7 +1413,11 @@ async function confirmDelete() {
                 @click="uiStore.openDetail(app.id)"
               >
                 <td class="cell-company">
-                  <div class="company-cell-wrapper">
+                  <div
+                    class="company-cell-wrapper clickable-company-tag"
+                    @click.stop="app.company?.id && uiStore.openCompanyDrawer(app.company.id)"
+                    title="View company intelligence, notes & ratings"
+                  >
                     <CompanyLogo :name="app.company?.name" :domain="app.company?.domain" :size="18" />
                     <span class="company-name-bold">{{ app.company?.name || 'Company' }}</span>
                   </div>
@@ -2511,6 +2523,17 @@ async function confirmDelete() {
   justify-content: space-between;
   margin-bottom: 6px;
   position: relative;
+}
+
+.clickable-company-tag {
+  cursor: pointer;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.clickable-company-tag:hover .company-name-text,
+.clickable-company-tag:hover .company-name-bold {
+  color: var(--primary-color, #6366f1);
+  text-decoration: underline;
 }
 
 .company-name-tag {

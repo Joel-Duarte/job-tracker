@@ -501,6 +501,27 @@ async function handleAnalyzeSpec() {
   }
 }
 
+// AI Tools Dropdown Menu State
+const isAiMenuOpen = ref(false)
+
+function openMatchAssessmentModal() {
+  isAiMenuOpen.value = false
+  isMatchModalOpen.value = true
+}
+
+function openFormQAModal() {
+  isAiMenuOpen.value = false
+  if (appStore.selectedApplication?.id) {
+    uiStore.openAppQuestionsModal(appStore.selectedApplication.id)
+  }
+}
+
+function openCoverLetterModal() {
+  isAiMenuOpen.value = false
+  if (appStore.selectedApplication?.id) {
+    uiStore.openCoverLetterModal(appStore.selectedApplication.id)
+  }
+}
 
 // Interview Guide state
 const isGenerating = ref(false)
@@ -1087,121 +1108,140 @@ function formatDate(isoStr) {
               </div>
             </div>
 
-            <div class="header-actions">
-              <button
-                class="btn-icon-danger"
-                title="Delete Application"
-                @click="showDeleteConfirm = true"
-              >
-                <Trash2 :size="16" />
-              </button>
-              <button
-                class="btn-icon-action"
-                :title="appStore.selectedApplication.status === 'ARCHIVED' ? 'Unarchive Application (Restore to Active)' : 'Archive Application'"
-                :disabled="isArchiving"
-                @click="handleToggleArchive"
-              >
-                <Loader2 v-if="isArchiving" class="animate-spin" :size="16" />
-                <ArchiveRestore v-else-if="appStore.selectedApplication.status === 'ARCHIVED'" :size="16" />
-                <Archive v-else :size="16" />
-              </button>
-              <button class="btn-close" @click="close" title="Close Drawer">
-                <X :size="18" />
-              </button>
+            <div class="header-actions-col">
+              <div class="header-actions">
+                <a
+                  v-if="appStore.selectedApplication.job_url"
+                  :href="appStore.selectedApplication.job_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="btn-icon-action"
+                  title="Open Original Job Posting"
+                >
+                  <ExternalLink :size="16" />
+                </a>
+                <!-- <button
+                  class="btn-icon-danger"
+                  title="Delete Application"
+                  @click="showDeleteConfirm = true"
+                >
+                  <Trash2 :size="16" />
+                </button> -->
+                <button
+                  class="btn-icon-action"
+                  :title="appStore.selectedApplication.status === 'ARCHIVED' ? 'Unarchive Application (Restore to Active)' : 'Archive Application'"
+                  :disabled="isArchiving"
+                  @click="handleToggleArchive"
+                >
+                  <Loader2 v-if="isArchiving" class="animate-spin" :size="16" />
+                  <ArchiveRestore v-else-if="appStore.selectedApplication.status === 'ARCHIVED'" :size="16" />
+                  <Archive v-else :size="16" />
+                </button>
+              </div>
+              <div class="header-applied-meta">
+                <Calendar :size="12" class="text-muted" />
+                <span>Applied {{ formatDate(appStore.selectedApplication.application_date || appStore.selectedApplication.created_at) }}</span>
+              </div>
             </div>
           </div>
 
-          <!-- Metadata & Status Bar -->
-          <div class="status-bar">
-            <div class="meta-item">
-              <span class="badge" :class="`badge-${(appStore.selectedApplication.status || 'applied').toLowerCase()}`">
-                {{ (appStore.selectedApplication.status || 'APPLIED').replace('_', ' ') }}
-              </span>
-            </div>
-
-            <div class="meta-item">
-              <Calendar :size="14" class="text-muted" />
-              <span>Applied {{ formatDate(appStore.selectedApplication.application_date || appStore.selectedApplication.created_at) }}</span>
-            </div>
-
-            <div
-              v-if="appStore.selectedApplication.match_score !== null || appStore.selectedApplication.match_analysis_payload"
-              class="meta-item match-pill-btn"
-              title="View Match Assessment Report"
-              @click="isMatchModalOpen = true"
-            >
-              <Sparkles :size="13" class="text-primary" />
-              <span>Match: {{ getFitScores(appStore.selectedApplication).aiScore !== null ? Math.round(getFitScores(appStore.selectedApplication).aiScore) + '%' : (appStore.selectedApplication.match_score + '%') }}</span>
-            </div>
-
-            <div
-              class="meta-item match-pill-btn"
-              title="Draft or Edit Application Form Q&A"
-              @click="uiStore.openAppQuestionsModal(appStore.selectedApplication.id)"
-            >
-              <HelpCircle :size="13" class="text-primary" />
-              <span>Form Q&amp;A</span>
-            </div>
-
-            <div
-              class="meta-item match-pill-btn"
-              title="Draft or View Cover Letter"
-              @click="uiStore.openCoverLetterModal(appStore.selectedApplication.id)"
-            >
-              <FileText :size="13" class="text-primary" />
-              <span>Cover Letter</span>
-            </div>
-
-            <a
-              v-if="appStore.selectedApplication.job_url"
-              :href="appStore.selectedApplication.job_url"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="btn-link"
-            >
-              <ExternalLink :size="14" />
-              <span>Job Link</span>
-            </a>
-          </div>
-
-          <!-- Nav Tabs -->
+          <!-- Nav Tabs with AI Tools Menu on the right -->
           <div class="drawer-tabs">
-            <button
-              class="tab-item"
-              :class="{ active: activeTab === 'timeline' }"
-              @click="activeTab = 'timeline'"
-            >
-              <Clock :size="15" />
-              <span>Timeline ({{ appStore.selectedApplication.events?.length || 0 }})</span>
-            </button>
+            <div class="drawer-tabs-left">
+              <button
+                class="tab-item"
+                :class="{ active: activeTab === 'timeline' }"
+                @click="activeTab = 'timeline'"
+              >
+                <Clock :size="15" />
+                <span>Timeline ({{ appStore.selectedApplication.events?.length || 0 }})</span>
+              </button>
 
-            <button
-              class="tab-item"
-              :class="{ active: activeTab === 'job_spec' }"
-              @click="activeTab = 'job_spec'"
-            >
-              <FileText :size="15" />
-              <span>Job Spec</span>
-            </button>
+              <button
+                class="tab-item"
+                :class="{ active: activeTab === 'job_spec' }"
+                @click="activeTab = 'job_spec'"
+              >
+                <FileText :size="15" />
+                <span>Job Spec</span>
+              </button>
 
-            <button
-              class="tab-item"
-              :class="{ active: activeTab === 'actions' }"
-              @click="activeTab = 'actions'"
-            >
-              <CheckSquare :size="15" />
-              <span>Action Items ({{ appStore.selectedApplication.action_items?.length || 0 }})</span>
-            </button>
+              <button
+                class="tab-item"
+                :class="{ active: activeTab === 'actions' }"
+                @click="activeTab = 'actions'"
+              >
+                <CheckSquare :size="15" />
+                <span>Actions ({{ appStore.selectedApplication.action_items?.length || 0 }})</span>
+              </button>
 
-            <button
-              class="tab-item"
-              :class="{ active: activeTab === 'guide' }"
-              @click="activeTab = 'guide'"
-            >
-              <BookOpen :size="15" />
-              <span>Interview Guide</span>
-              <span v-if="appStore.selectedApplication.has_interview_guide" class="guide-ready-indicator"></span>
-            </button>
+              <button
+                class="tab-item"
+                :class="{ active: activeTab === 'guide' }"
+                @click="activeTab = 'guide'"
+                title="Interview Guide"
+              >
+                <BookOpen :size="15" />
+                <span>Guide</span>
+                <span v-if="appStore.selectedApplication.has_interview_guide" class="guide-ready-indicator"></span>
+              </button>
+            </div>
+
+            <!-- AI Tools Dropdown Menu on the right side -->
+            <div class="drawer-tabs-right">
+              <button
+                type="button"
+                class="btn-ai-tools-menu"
+                :class="{ active: isAiMenuOpen }"
+                @click="isAiMenuOpen = !isAiMenuOpen"
+                title="AI Tools & Artifacts"
+              >
+                <Sparkles :size="14" class="text-primary" />
+                <span>AI Tools</span>
+                <ChevronDown :size="13" class="menu-chevron" :class="{ 'rotate-180': isAiMenuOpen }" />
+              </button>
+
+              <div v-if="isAiMenuOpen" class="ai-dropdown-menu animate-fade-in">
+                <button
+                  type="button"
+                  class="ai-menu-item"
+                  @click="openMatchAssessmentModal"
+                >
+                  <div class="ai-item-left">
+                    <Sparkles :size="14" class="text-primary" />
+                    <span class="ai-item-name">Match Assessment</span>
+                  </div>
+                  <span
+                    v-if="appStore.selectedApplication.match_score !== null || appStore.selectedApplication.match_analysis_payload"
+                    class="badge badge-sm badge-primary"
+                  >
+                    {{ getFitScores(appStore.selectedApplication).aiScore !== null ? Math.round(getFitScores(appStore.selectedApplication).aiScore) + '%' : (appStore.selectedApplication.match_score + '%') }}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  class="ai-menu-item"
+                  @click="openFormQAModal"
+                >
+                  <div class="ai-item-left">
+                    <HelpCircle :size="14" class="text-primary" />
+                    <span class="ai-item-name">Application Form Q&amp;A</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  class="ai-menu-item"
+                  @click="openCoverLetterModal"
+                >
+                  <div class="ai-item-left">
+                    <FileText :size="14" class="text-primary" />
+                    <span class="ai-item-name">Cover Letter Generator</span>
+                  </div>
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- Drawer Body Content -->
@@ -2446,7 +2486,7 @@ function formatDate(isoStr) {
 
 .drawer-panel {
   width: 100%;
-  max-width: 620px;
+  max-width: 680px;
   height: 100vh;
   background-color: var(--bg-surface);
   border-left: 1px solid var(--card-border);
@@ -2659,9 +2699,9 @@ function formatDate(isoStr) {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 24px;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 10px 24px;
   background-color: var(--bg-sidebar);
   border-bottom: 1px solid var(--border-color);
   font-size: 13px;
@@ -2788,27 +2828,114 @@ function formatDate(isoStr) {
 
 .drawer-tabs {
   display: flex;
-  padding: 0 24px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
   background-color: var(--bg-sidebar);
   border-bottom: 1px solid var(--border-color);
+  gap: 6px;
+}
+
+.drawer-tabs-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.drawer-tabs-right {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.btn-ai-tools-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 6px);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.btn-ai-tools-menu:hover,
+.btn-ai-tools-menu.active {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  background-color: var(--primary-light, rgba(99, 102, 241, 0.12));
+}
+
+.menu-chevron {
+  transition: transform var(--transition-fast, 0.15s ease);
+}
+
+.menu-chevron.rotate-180 {
+  transform: rotate(180deg);
+}
+
+.ai-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 260px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.35);
+  padding: 6px;
+  z-index: 1050;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ai-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs, 4px);
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+  text-align: left;
+}
+
+.ai-menu-item:hover {
+  background-color: var(--bg-card-hover, var(--bg-surface));
+}
+
+.ai-item-left {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  white-space: nowrap;
-  -webkit-overflow-scrolling: touch;
+}
+
+.ai-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
 }
 
 .tab-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 10px 12px;
+  gap: 5px;
+  padding: 10px 8px;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-secondary);
   border-bottom: 2px solid transparent;
   transition: all var(--transition-fast);
-  scroll-snap-align: start;
   flex-shrink: 0;
   min-height: 48px;
 }
@@ -3300,6 +3427,21 @@ function formatDate(isoStr) {
   font-size: 11px;
   color: var(--text-muted);
   font-family: var(--font-mono);
+}
+
+.header-actions-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.header-applied-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .header-actions {

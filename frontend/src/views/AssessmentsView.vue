@@ -89,9 +89,9 @@ const parsedTailoringStrategy = (task) => {
 const sortBy = ref('match_score') // 'match_score' | 'date_desc' | 'company'
 const passedTaskIds = ref(new Set(JSON.parse(localStorage.getItem('job_tracker_passed_assessments') || '[]')))
 
-// Queue & Tasks State
-const evaluationTasks = computed(() => queueStore.tasks)
-const loadingEvaluations = computed(() => queueStore.loading)
+// Persistent Assessments State
+const evaluationTasks = ref([])
+const loadingEvaluations = ref(false)
 const expandedTaskIds = ref(new Set())
 const processingTaskIds = ref(new Set())
 let pollTimer = null
@@ -146,7 +146,7 @@ async function bulkMarkAsApplied() {
     try {
       const result = task.result_json
       await IntakeAPI.confirmAssessment({
-        application_id: result.application_id,
+        application_id: result.application_id || task.id,
         company: result.company || task.title_hint || 'Company',
         position: result.position || 'Software Engineer',
         status: 'APPLIED',
@@ -160,7 +160,8 @@ async function bulkMarkAsApplied() {
         required_skills: [...(result.matching_skills || []), ...(result.missing_skills || [])],
         match_analysis_payload: result,
       })
-      await IntakeAPI.deleteEvaluation(task.id)
+      const appId = result.application_id || task.id
+      await IntakeAPI.dismissAssessment(appId)
       passedTaskIds.value.delete(String(task.id))
       successCount++
     } catch (err) {
@@ -181,7 +182,12 @@ async function bulkArchive() {
   if (activeTab.value === 'passed') {
     const tasksToDelete = filteredPassedEvaluations.value.filter(t => selectedTaskIds.value.has(t.id))
     for (const task of tasksToDelete) {
-      await IntakeAPI.deleteEvaluation(task.id)
+      const appId = task.result_json?.application_id || task.id
+      if (task.result_json?.application_id) {
+        await IntakeAPI.deleteAssessment(appId)
+      } else {
+        await IntakeAPI.deleteEvaluation(task.id)
+      }
       passedTaskIds.value.delete(String(task.id))
     }
     localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
@@ -209,7 +215,7 @@ function isDirectApplicationTask(task) {
 }
 
 const activeQueueTasks = computed(() =>
-  evaluationTasks.value.filter((t) => ['QUEUED', 'PROCESSING'].includes(t.status) && !isDirectApplicationTask(t))
+  queueStore.tasks.filter((t) => ['QUEUED', 'PROCESSING'].includes(t.status) && !isDirectApplicationTask(t))
 )
 
 const allCompletedTasks = computed(() =>
@@ -219,11 +225,15 @@ const allCompletedTasks = computed(() =>
 )
 
 const readyEvaluations = computed(() => {
-  return allCompletedTasks.value.filter((t) => !passedTaskIds.value.has(String(t.id)))
+  return allCompletedTasks.value.filter(
+    (t) => !passedTaskIds.value.has(String(t.id)) && !t.result_json?.assessment_archived
+  )
 })
 
 const passedEvaluations = computed(() => {
-  return allCompletedTasks.value.filter((t) => passedTaskIds.value.has(String(t.id)))
+  return allCompletedTasks.value.filter(
+    (t) => passedTaskIds.value.has(String(t.id)) || t.result_json?.assessment_archived
+  )
 })
 
 const filteredReadyEvaluations = computed(() => {
@@ -338,7 +348,17 @@ const averageFitScore = computed(() => {
 })
 
 async function loadEvaluations(silent = false) {
-  await queueStore.fetchTasks(silent)
+  if (!silent) loadingEvaluations.value = true
+  try {
+    const res = await IntakeAPI.getAssessments()
+    evaluationTasks.value = res.data || []
+  } catch (err) {
+    if (!silent) {
+      uiStore.showToast(err.message || 'Failed to fetch assessments', 'error')
+    }
+  } finally {
+    if (!silent) loadingEvaluations.value = false
+  }
 }
 
 function toggleExpandTask(taskId) {
@@ -356,7 +376,7 @@ async function markAsApplied(task) {
 
   try {
     const res = await IntakeAPI.confirmAssessment({
-      application_id: result.application_id, // Added application_id to link the record
+      application_id: result.application_id || task.id,
       company: result.company || task.title_hint || 'Company',
       position: result.position || 'Software Engineer',
       status: 'APPLIED',
@@ -377,8 +397,9 @@ async function markAsApplied(task) {
     uiStore.showToast(`'${res.data.company}' successfully added to Applications (Applied)!`, 'success')
     appStore.fetchApplications()
 
-    // Dismiss evaluated task
-    await IntakeAPI.deleteEvaluation(task.id)
+    // Dismiss from assessments
+    const appId = result.application_id || task.id
+    await IntakeAPI.dismissAssessment(appId)
     await loadEvaluations(true)
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to mark as applied', 'error')
@@ -387,25 +408,39 @@ async function markAsApplied(task) {
   }
 }
 
-function passAndArchive(task) {
+async function passAndArchive(task) {
+  const appId = task.result_json?.application_id
+  if (appId) await IntakeAPI.dismissAssessment(appId)
   passedTaskIds.value.add(String(task.id))
+  await loadEvaluations(true)
   localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
   uiStore.showToast(`Archived '${task.result_json?.company || task.title_hint}' as passed`, 'info')
 }
 
-function restorePassed(task) {
+async function restorePassed(task) {
+  const appId = task.result_json?.application_id
+  if (appId) await IntakeAPI.restoreAssessment(appId)
   passedTaskIds.value.delete(String(task.id))
+  await loadEvaluations(true)
   localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
   uiStore.showToast(`Restored '${task.result_json?.company || task.title_hint}' to Ready Reviews`, 'success')
 }
 
 async function deleteEvaluation(taskId) {
   try {
-    await queueStore.deleteTask(taskId)
+    const target = evaluationTasks.value.find(t => t.id === taskId)
+    const appId = target?.result_json?.application_id || taskId
+    if (target?.result_json?.application_id) {
+      await IntakeAPI.deleteAssessment(appId)
+    } else {
+      await IntakeAPI.deleteEvaluation(taskId)
+    }
+    evaluationTasks.value = evaluationTasks.value.filter(t => t.id !== taskId)
     passedTaskIds.value.delete(String(taskId))
     localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
+    uiStore.showToast('Assessment dismissed', 'info')
   } catch (err) {
-    // Handled in store
+    uiStore.showToast(err.message || 'Failed to dismiss assessment', 'error')
   }
 }
 

@@ -22,6 +22,7 @@ from app.models.applications import ApplicationModel
 from app.models.candidate_profile import CandidateCVModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.schemas.llm import ExtractedJobSpec, JobAssessmentResult
+from app.services.company_research import research_company_context
 from app.services.job_saver import persist_or_stage_job_assessment
 from app.services.llm import (
     anonymize_and_parse_cv,
@@ -54,9 +55,6 @@ async def _execute_application_qa_steps(
             task.completed_at = datetime.now(UTC)
             await db.commit()
             return
-
-        task.stage = "ANSWERING"
-        await db.commit()
 
         stmt = (
             select(ApplicationModel)
@@ -97,6 +95,32 @@ async def _execute_application_qa_steps(
         )
         tone_val = task_result.get("tone") or "professional"
         instructions_val = task_result.get("custom_instructions")
+        include_research = task_result.get("include_company_research", True)
+        company_research = task_result.get("company_research")
+
+        if include_research and not company_research and app.company:
+            try:
+                task.stage = "RESEARCHING"
+                await db.commit()
+
+                from app.services.company_research import research_company_context
+
+                company_research = await research_company_context(
+                    company_name=company_name,
+                    domain=app.company.domain,
+                    company_id=app.company.id,
+                    db=db,
+                )
+            except Exception as r_err:
+                logger.warning(
+                    "Failed to retrieve company research for %s in QA task: %s",
+                    company_name,
+                    r_err,
+                )
+                company_research = None
+
+        task.stage = "ANSWERING"
+        await db.commit()
 
         generated_qa = await generate_application_answers(
             db,
@@ -107,6 +131,7 @@ async def _execute_application_qa_steps(
             questions=questions_payload,
             tone=tone_val,
             custom_instructions=instructions_val,
+            company_research=company_research,
         )
 
         app.application_questions = generated_qa
@@ -118,6 +143,8 @@ async def _execute_application_qa_steps(
             "company": company_name,
             "position": position_name,
             "tone": tone_val,
+            "include_company_research": include_research,
+            "company_research": company_research,
             "questions": generated_qa,
         }
         task.completed_at = datetime.now(UTC)
@@ -218,6 +245,26 @@ async def _execute_cover_letter_steps(
         tone_val = (task.result_json or {}).get("tone") or "professional"
         length_val = (task.result_json or {}).get("length")
         instructions_val = (task.result_json or {}).get("custom_instructions")
+        include_research = (task.result_json or {}).get(
+            "include_company_research", True
+        )
+        company_research = (task.result_json or {}).get("company_research")
+
+        if include_research and not company_research and app.company:
+            try:
+                company_research = await research_company_context(
+                    company_name=company_name,
+                    domain=app.company.domain,
+                    company_id=app.company.id,
+                    db=db,
+                )
+            except Exception as r_err:
+                logger.warning(
+                    "Failed to retrieve company research for %s: %s",
+                    company_name,
+                    r_err,
+                )
+                company_research = None
 
         cl_text = await generate_cover_letter(
             db,
@@ -228,6 +275,7 @@ async def _execute_cover_letter_steps(
             tone=tone_val,
             length=length_val,
             custom_instructions=instructions_val,
+            company_research=company_research,
         )
 
         app.cover_letter_text = cl_text
@@ -243,6 +291,7 @@ async def _execute_cover_letter_steps(
             "cover_letter_generated_at": app.cover_letter_generated_at.isoformat(),
             "company": company_name,
             "position": position_name,
+            "company_research": company_research,
             "tone": tone_val,
             "length": length_val,
         }
@@ -495,6 +544,125 @@ async def _execute_role_alignment_dossier_steps(
         except Exception as rollback_err:
             logger.error(
                 "Error setting failure state for dossier task %d: %s",
+                task_id,
+                rollback_err,
+            )
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = str(err)
+            task.completed_at = datetime.now(UTC)
+
+
+async def _execute_company_research_steps(
+    task: IntakeEvaluationTaskModel, db: AsyncSession
+) -> None:
+    task_id = int(task.id)
+    try:
+        from app.models.applications import CompanyModel
+        from app.services.company_research import research_company_context
+
+        current_data = dict(task.result_json or {})
+        company_id = current_data.get("company_id")
+        if not company_id and task.raw_text and task.raw_text.isdigit():
+            company_id = int(task.raw_text)
+
+        company_name = current_data.get("company_name") or task.title_hint
+        domain = current_data.get("domain") or task.job_url
+        about_url = current_data.get("about_url")
+
+        # Load company record so we can track research_status lifecycle
+        company_rec = await db.get(CompanyModel, company_id) if company_id else None
+
+        # Stage 1: WEB_SEARCH — mark company as IN_PROGRESS so the UI shows a spinner
+        task.stage = "WEB_SEARCH"
+        if company_rec:
+            company_rec.research_status = "IN_PROGRESS"
+        await db.commit()
+
+        # Stage 2: AI_SYNTHESIS
+        task.stage = "AI_SYNTHESIS"
+        await db.commit()
+
+        # If the user provided an about_url via the company record, honour it
+        # even if it wasn't stored in result_json (e.g. set after task was queued)
+        if not about_url and company_rec and company_rec.about_url:
+            about_url = company_rec.about_url
+
+        research_result = await research_company_context(
+            company_name=company_name,
+            domain=domain,
+            company_id=company_id,
+            force_refresh=True,
+            db=db,
+        )
+
+        # Stage 3: COMPLETED
+        # research_company_context already sets research_status=COMPLETED on the record;
+        # we confirm task status here.
+        task.status = "COMPLETED"
+        task.stage = "COMPLETED"
+        task.result_json = {
+            "company_id": company_id,
+            "company_name": company_name,
+            "domain": domain,
+            "about_url": about_url,
+            "summary": research_result.get("summary"),
+            "engineering_culture": research_result.get("engineering_culture"),
+            "recent_initiatives": research_result.get("recent_initiatives"),
+            "company_mission_and_customer": research_result.get("company_mission_and_customer"),
+            "products_and_technical_domain": research_result.get("products_and_technical_domain", []),
+            "strategic_priorities": research_result.get("strategic_priorities", []),
+            "language_to_mirror": research_result.get("language_to_mirror", []),
+            "verified_facts": research_result.get("verified_facts", []),
+            "candidate_alignment_angles": research_result.get("candidate_alignment_angles", []),
+            "employee_signals": research_result.get("employee_signals", []),
+            "evidence_quality": research_result.get("evidence_quality"),
+            "profile_links": research_result.get("profile_links", []),
+            "sources": research_result.get("sources", []),
+            "researched_at": research_result.get("researched_at"),
+        }
+        task.completed_at = datetime.now(UTC)
+        await db.commit()
+        logger.info("Company research task %d completed for %s", task_id, company_name)
+    except Exception as err:
+        logger.error(
+            "Failed processing company research task %d: %s",
+            task_id,
+            err,
+            exc_info=True,
+        )
+        try:
+            await db.rollback()
+            from app.models.applications import CompanyModel
+
+            refreshed_task = await db.get(IntakeEvaluationTaskModel, task_id)
+            target_task = (
+                refreshed_task
+                if isinstance(refreshed_task, IntakeEvaluationTaskModel)
+                else task
+            )
+            target_task.status = "FAILED"
+            target_task.stage = "FAILED"
+            target_task.error_message = str(err)
+            target_task.completed_at = datetime.now(UTC)
+
+            # Belt-and-suspenders: also mark company record FAILED in case
+            # research_company_context raised before it could do so itself
+            current_data = dict(target_task.result_json or {})
+            cid = current_data.get("company_id")
+            if not cid and target_task.raw_text and target_task.raw_text.isdigit():
+                cid = int(target_task.raw_text)
+            if cid:
+                failed_company = await db.get(CompanyModel, cid)
+                if failed_company and failed_company.research_status not in (
+                    "COMPLETED",
+                ):
+                    failed_company.research_status = "FAILED"
+
+            await db.commit()
+        except Exception as rollback_err:
+            logger.error(
+                "Error setting failure state for company research task %d: %s",
                 task_id,
                 rollback_err,
             )
@@ -824,6 +992,13 @@ async def _execute_evaluation_steps(
                 ctx["error"] = task.error_message
             return
 
+        if task.task_type == "COMPANY_RESEARCH":
+            await _execute_company_research_steps(task, db)
+            ctx["outputs"] = {"status": task.status, "stage": task.stage}
+            if task.status == "FAILED":
+                ctx["error"] = task.error_message
+            return
+
         try:
             current_json = dict(task.result_json or {})
             checkpoint = dict(current_json.get("_checkpoint") or {})
@@ -1047,15 +1222,35 @@ async def _execute_evaluation_steps(
                             if active_cv
                             else ""
                         )
+                        app_rec = await db.get(ApplicationModel, app_id)
+                        company_research = None
+                        if app_rec and app_rec.company_id:
+                            from app.models.applications import CompanyModel
+
+                            comp = await db.get(CompanyModel, app_rec.company_id)
+                            if comp:
+                                try:
+                                    company_research = await research_company_context(
+                                        company_name=comp.name,
+                                        domain=comp.domain,
+                                        company_id=comp.id,
+                                        db=db,
+                                    )
+                                except Exception as c_err:
+                                    logger.warning(
+                                        "Could not fetch company research: %s",
+                                        c_err,
+                                    )
+
                         letter_text = await generate_cover_letter(
                             db,
                             company_name=assessment.company or "",
                             position=assessment.position or "",
                             job_description=content or "",
                             candidate_cv=cv_text,
+                            company_research=company_research,
                         )
 
-                        app_rec = await db.get(ApplicationModel, app_id)
                         if app_rec:
                             app_rec.cover_letter_text = letter_text
                             app_rec.cover_letter_status = "GENERATED"
@@ -1229,9 +1424,14 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
                                 "SYNTHESIZING"
                                 if task.task_type == "ROLE_ALIGNMENT_DOSSIER"
                                 else (
-                                    "PARSING"
-                                    if task.task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]
-                                    else "FETCHING"
+                                    "WEB_SEARCH"
+                                    if task.task_type == "COMPANY_RESEARCH"
+                                    else (
+                                        "PARSING"
+                                        if task.task_type
+                                        in ["EMAIL_SYNC", "EMAIL_INTAKE"]
+                                        else "FETCHING"
+                                    )
                                 )
                             )
                         )
@@ -1307,9 +1507,14 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
                                 "SYNTHESIZING"
                                 if task.task_type == "ROLE_ALIGNMENT_DOSSIER"
                                 else (
-                                    "PARSING"
-                                    if task.task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]
-                                    else "FETCHING"
+                                    "WEB_SEARCH"
+                                    if task.task_type == "COMPANY_RESEARCH"
+                                    else (
+                                        "PARSING"
+                                        if task.task_type
+                                        in ["EMAIL_SYNC", "EMAIL_INTAKE"]
+                                        else "FETCHING"
+                                    )
                                 )
                             )
                         )

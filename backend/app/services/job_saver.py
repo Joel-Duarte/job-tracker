@@ -14,6 +14,7 @@ from app.models.applications import (
     JobPostingModel,
 )
 from app.schemas.llm import JobAssessmentResult
+from app.services.company_resolver import resolve_or_create_company
 from app.services.domain_resolver import resolve_company_domain
 from app.services.skill_normalizer import hybrid_extract_skills
 
@@ -73,7 +74,6 @@ async def persist_or_stage_job_assessment(
     Otherwise creates a new application in target_status.
     """
     company_name = (assessment.company or "Unknown Company").strip()
-    company_norm = company_name.lower()
     position_name = (assessment.position or "Unspecified Position").strip()
     position_norm = position_name.lower()
     clean_url = normalize_job_url(job_url)
@@ -99,6 +99,8 @@ async def persist_or_stage_job_assessment(
         if app_record:
             if clean_url and not app_record.job_url:
                 app_record.job_url = clean_url
+            if target_status == "ASSESSMENT":
+                app_record.is_assessment = True
             app_record.match_analysis_payload = assessment.model_dump()
             app_record.last_activity_at = now
 
@@ -181,21 +183,11 @@ async def persist_or_stage_job_assessment(
         ai_domain=assessment.company_url,
     )
 
-    comp_stmt = select(CompanyModel).where(CompanyModel.name_normalized == company_norm)
-    comp_res = await db.execute(comp_stmt)
-    company = comp_res.scalar_one_or_none()
-
-    if not company:
-        company = CompanyModel(
-            name=company_name,
-            name_normalized=company_norm,
-            domain=resolved_domain,
-        )
-        db.add(company)
-        await db.flush()
-    elif not company.domain and resolved_domain:
-        company.domain = resolved_domain
-        await db.flush()
+    company, _ = await resolve_or_create_company(
+        db=db,
+        company_name=company_name,
+        domain=resolved_domain,
+    )
 
     # 3. Create Application
     app_record = ApplicationModel(
@@ -203,6 +195,7 @@ async def persist_or_stage_job_assessment(
         position=position_name,
         position_normalized=position_norm,
         status=target_status or "ASSESSMENT",
+        is_assessment=(target_status or "ASSESSMENT") == "ASSESSMENT",
         job_url=clean_url,
         application_date=now,
         last_activity_at=now,

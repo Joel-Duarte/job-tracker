@@ -13,11 +13,11 @@ from app.core.url_utils import normalize_job_url
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
-    CompanyModel,
     JobPostingModel,
 )
 from app.schemas.extension import ClipJobRequest, ClipUrlRequest, ExtensionClipResponse
 from app.schemas.intake import EmailPayload
+from app.services.company_resolver import resolve_or_create_company
 from app.services.intake import process_single_email_graph
 from app.services.llm import generate_and_save_application_embedding
 
@@ -148,22 +148,14 @@ async def clip_job_pre_extracted(
     Directly accepts pre-extracted DOM metadata (company, title, description, url)
     from active browser tab and creates or updates application records.
     """
-    company_norm = payload.company.strip().lower()
     position_norm = payload.position.strip().lower()
     clean_url = normalize_job_url(payload.url)
 
     # Find or create Company
-    comp_stmt = select(CompanyModel).where(CompanyModel.name_normalized == company_norm)
-    comp_res = await db.execute(comp_stmt)
-    company = comp_res.scalar_one_or_none()
-
-    if not company:
-        company = CompanyModel(
-            name=payload.company.strip(),
-            name_normalized=company_norm,
-        )
-        db.add(company)
-        await db.flush()
+    company, _ = await resolve_or_create_company(
+        db=db,
+        company_name=payload.company,
+    )
 
     # Find or create Application
     app_stmt = select(ApplicationModel).where(

@@ -24,6 +24,8 @@ if /i "%COMMAND%"=="status" goto handle_status
 if /i "%COMMAND%"=="ps" goto handle_status
 if /i "%COMMAND%"=="logs" goto handle_logs
 if /i "%COMMAND%"=="open" goto handle_open
+if /i "%COMMAND%"=="backup" goto handle_backup
+if /i "%COMMAND%"=="backup-db" goto handle_backup
 if /i "%COMMAND%"=="update" goto handle_update
 if /i "%COMMAND%"=="reset" goto handle_reset
 if /i "%COMMAND%"=="clean" goto handle_reset
@@ -153,15 +155,47 @@ echo [INFO] Opening Job Tracker in default browser...
 start http://localhost:4173
 exit /b 0
 
+:handle_backup
+call :ensure_env
+shift
+echo [INFO] Creating database backup in backups\...
+if not exist "backups" mkdir backups
+for /f "tokens=2 delims==" %%a in ('wmic OS Get localdatetime /value 2^>nul') do set "dt=%%a"
+if not defined dt (
+    set "TIMESTAMP=%date:~-4%%date:~4,2%%date:~7,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
+    set "TIMESTAMP=!TIMESTAMP: =0!"
+) else (
+    set "TIMESTAMP=!dt:~0,4!!dt:~4,2!!dt:~6,2!_!dt:~8,2!!dt:~10,2!!dt:~12,2!"
+)
+set "BACKUP_FILE=backups\job_tracker_backup_!TIMESTAMP!.sql"
+docker compose up -d db >nul 2>nul
+timeout /t 2 >nul
+docker compose exec -T db pg_dump -U postgres -d postgres --clean --if-exists > "!BACKUP_FILE!" 2>nul
+if exist "!BACKUP_FILE!" (
+    for %%A in ("!BACKUP_FILE!") do (
+        if %%~zA gtr 0 (
+            echo [OK] Database backed up to !BACKUP_FILE!
+        ) else (
+            echo [WARN] Backup file was empty; database may be uninitialized.
+            del "!BACKUP_FILE!" >nul 2>nul
+        )
+    )
+) else (
+    echo [WARN] Could not create database backup.
+)
+exit /b 0
+
 :handle_update
 call :ensure_env
 shift
 echo [INFO] Updating Job Tracker...
-echo 1. Pulling latest base images...
+echo 1. Saving current database backup...
+call :handle_backup
+echo 2. Pulling latest base images...
 docker compose pull
-echo 2. Rebuilding and starting containers...
+echo 3. Rebuilding and starting containers...
 docker compose up -d --build %1 %2 %3 %4 %5 %6 %7 %8 %9
-echo 3. Applying database migrations (Alembic)...
+echo 4. Applying database migrations (Alembic)...
 docker compose exec -T backend alembic upgrade head || docker compose exec -T backend python -m alembic upgrade head || echo [WARN] Migration step skipped or failed.
 echo.
 echo ================================================================================
@@ -224,7 +258,8 @@ echo   stop, down     Stop all Job Tracker containers
 echo   status, ps     Show status and health of Job Tracker containers
 echo   logs           Follow live container logs (Ctrl+C to exit)
 echo   open           Open http://localhost:4173 in default browser
-echo   update         Rebuild containers and apply database migrations (Alembic)
+echo   backup, backup-db Save snapshot of current PostgreSQL database to backups\
+echo   update         Backup database to backups\, pull latest images, rebuild, and apply migrations
 echo   reset, clean   Wipe database and application data after confirmation (or pass -y)
 echo   seed           Run dynamic local LLM mock data generator
 echo   help, -h, /?   Display this command reference

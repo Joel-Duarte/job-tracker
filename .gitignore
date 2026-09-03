@@ -32,6 +32,13 @@ data/.sec_key
 data/
 
 # ==========================================
+# Database Backups
+# ==========================================
+backups/
+*.sql
+*.sql.gz
+
+# ==========================================
 # Docker
 # ==========================================
 # Docker compose override files often contain local paths or dev configs
@@ -134,3 +141,5 @@ GITHUB_SETUP.md
 
 graphify-out/cost.json
 graphify-out/cache/
+
+backups/

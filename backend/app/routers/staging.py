@@ -12,7 +12,6 @@ from app.models.applications import (
     ActionItemModel,
     ApplicationEventModel,
     ApplicationModel,
-    CompanyModel,
     JobPostingModel,
 )
 from app.models.intake_tasks import IntakeEvaluationTaskModel
@@ -24,6 +23,7 @@ from app.schemas.staging import (
     StagingItemResolve,
     StagingPaginationResponse,
 )
+from app.services.company_resolver import resolve_or_create_company
 from app.services.evaluation_worker import process_evaluation_task
 from app.services.llm import generate_and_save_application_embedding
 from app.services.skill_normalizer import normalize_skills_list
@@ -202,7 +202,6 @@ async def resolve_staging_item(
         effective_company = (
             payload.company_name or payload.company or "Unknown Company"
         ).strip()
-        company_norm = effective_company.lower()
         position_norm = payload.position.strip().lower()
         clean_job_url = normalize_job_url(payload.job_url)
 
@@ -222,19 +221,10 @@ async def resolve_staging_item(
 
         # Option B: Match or create company and application
         if not application:
-            comp_stmt = select(CompanyModel).where(
-                CompanyModel.name_normalized == company_norm
+            company, _ = await resolve_or_create_company(
+                db=db,
+                company_name=effective_company,
             )
-            comp_res = await db.execute(comp_stmt)
-            company = comp_res.scalar_one_or_none()
-
-            if not company:
-                company = CompanyModel(
-                    name=effective_company,
-                    name_normalized=company_norm,
-                )
-                db.add(company)
-                await db.flush()
 
             if not payload.create_new:
                 app_stmt = select(ApplicationModel).where(

@@ -7,6 +7,7 @@ import CandidateProfileView from './CandidateProfileView.vue'
 import PageHeader from '../components/common/PageHeader.vue'
 import {
   Activity,
+  Building2,
   Cpu,
   Database,
   Layers,
@@ -667,11 +668,18 @@ const coverLetterMatchThreshold = ref(70)
 const coverLetterLength = ref('standard')
 const isUpdatingCoverLetterSettings = ref(false)
 
+// Web Search Settings State
+const enableWebSearch = ref(false)
+const isUpdatingWebSearch = ref(false)
+
 async function loadGlobalSettings() {
   try {
     const res = await AIConfigAPI.getGlobalSettings()
     enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS ?? true
     uiStore.enableEmbeddings = enableEmbeddings.value
+
+    enableWebSearch.value = res.data.ENABLE_WEB_SEARCH ?? false
+    uiStore.enableWebSearch = enableWebSearch.value
 
     enableAutoCoverLetter.value = res.data.ENABLE_AUTO_COVER_LETTER ?? false
     coverLetterMatchThreshold.value = res.data.COVER_LETTER_MATCH_THRESHOLD ?? 70
@@ -733,6 +741,26 @@ async function updateCoverLetterThreshold(event) {
     uiStore.showToast('Failed to update cover letter threshold', 'error')
   } finally {
     isUpdatingCoverLetterSettings.value = false
+  }
+}
+
+async function toggleWebSearch() {
+  isUpdatingWebSearch.value = true
+  try {
+    const newVal = !enableWebSearch.value
+    const res = await AIConfigAPI.updateGlobalSettings({ ENABLE_WEB_SEARCH: newVal })
+    enableWebSearch.value = res.data.ENABLE_WEB_SEARCH
+    uiStore.enableWebSearch = enableWebSearch.value
+    uiStore.showToast(
+      enableWebSearch.value
+        ? 'Live web search capabilities enabled.'
+        : 'Live web search capabilities disabled.',
+      'success'
+    )
+  } catch (err) {
+    uiStore.showToast('Failed to update web search setting', 'error')
+  } finally {
+    isUpdatingWebSearch.value = false
   }
 }
 
@@ -851,6 +879,20 @@ const TASKS = [
     hasPrompt: true,
     desc: 'Replaces personal identifiers with scale tags, transforms dates into durations, and extracts canonical technical skills.',
     variables: ['{resume_text}'],
+  },
+  {
+    category: 'ingestion',
+    key: 'COMPANY_RESEARCH',
+    promptKey: 'company_research',
+    label: 'Company Intelligence & Research',
+    icon: Building2,
+    recommendedTemp: 0.1,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: null,
+    reasoningTip: '💡 Local & Cloud: None (Fast) — Deterministic synthesis of scraped web snippets and company facts.',
+    hasPrompt: true,
+    desc: 'Extracts company mission, tech culture, and recent initiatives from live web search snippets and caches results on employer entities.',
+    variables: ['{company_name}', '{company_domain}', '{raw_webpage_data}'],
   },
 
   // --- Category: Evaluation & Matching ---
@@ -3383,7 +3425,7 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- 4. Diagnostics & Telemetry Card -->
+          <!-- 5. Diagnostics & Telemetry Card -->
           <div class="preference-card">
             <div class="preference-header">
               <div class="preference-icon text-primary">

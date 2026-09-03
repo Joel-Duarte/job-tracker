@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { unref, ref, computed, watch } from 'vue'
 import { Building2 } from 'lucide-vue-next'
 import { getCompanyDomain } from '../../utils/formatters'
 
@@ -28,7 +28,8 @@ const attemptIndex = ref(0)
 
 const candidateDomains = computed(() => {
   const list = []
-  const clean = getCompanyDomain(props.name, props.domain)
+  const rawDomain = getCompanyDomain(props.name, props.domain)
+  const clean = String(unref(rawDomain) || '')
   if (clean) {
     list.push(clean)
     if (!clean.startsWith('www.')) {

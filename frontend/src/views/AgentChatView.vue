@@ -39,6 +39,7 @@ import {
   Search,
   Circle,
   Layers,
+  Globe,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -240,6 +241,7 @@ onMounted(async () => {
   await appStore.fetchApplications()
   await chatStore.fetchChats()
   await interviewStore.fetchSessions()
+  await uiStore.fetchSystemSettings()
 
   // Handle URL deep-linking (?appId=X&mock=true)
   if (route.query.mock === 'true' || route.query.appId) {
@@ -867,6 +869,13 @@ function getScoreBadgeClass(score) {
                 <span>Live Mock Interview Simulator</span>
               </button>
             </div>
+          </div>
+
+          <div v-if="activeMode === 'assistant'" class="header-right">
+            <span class="web-search-badge active" title="Live web research is available on request">
+              <Globe :size="13" />
+              <span>Web Research Available</span>
+            </span>
           </div>
 
           <div v-if="activeMode === 'interview' && interviewStore.currentSession?.status === 'IN_PROGRESS'" class="header-right">
@@ -1622,6 +1631,30 @@ function getScoreBadgeClass(score) {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.web-search-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: 1px solid var(--border-color);
+  transition: all 0.2s ease;
+}
+
+.web-search-badge.active {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.web-search-badge.inactive {
+  background: var(--bg-surface-alt, rgba(255, 255, 255, 0.04));
+  color: var(--text-muted);
+  border-color: var(--border-color);
 }
 
 .header-left {

@@ -8,6 +8,7 @@ import { StagingAPI, ActionItemsAPI, SystemAPI } from '../../api/endpoints'
 import ThemePalettePopover from './ThemePalettePopover.vue'
 import {
   Briefcase,
+  Building2,
   Layers,
   Bot,
   Settings,
@@ -127,6 +128,8 @@ function getRouteTitle(path) {
     case '/':
     case '/applications':
       return 'Applications'
+    case '/companies':
+      return 'Companies'
     case '/assessments':
     case '/intake':
       return 'Assessments'
@@ -256,6 +259,16 @@ onUnmounted(() => {
           <span v-if="pendingTasksCount > 0" class="nav-badge">
             {{ pendingTasksCount }}
           </span>
+        </router-link>
+
+        <router-link
+          to="/companies"
+          class="nav-link"
+          :class="{ active: route.path.startsWith('/companies') }"
+          @click="uiStore.clearLastNonSettingsRoute()"
+        >
+          <Building2 :size="16" />
+          <span>Companies</span>
         </router-link>
 
         
@@ -475,6 +488,16 @@ onUnmounted(() => {
               <span v-if="pendingTasksCount > 0" class="nav-badge">
                 {{ pendingTasksCount }}
               </span>
+            </router-link>
+
+            <router-link
+              to="/companies"
+              class="mobile-nav-link"
+              :class="{ active: route.path.startsWith('/companies') }"
+              @click="closeMobileMenu(); uiStore.clearLastNonSettingsRoute()"
+            >
+              <Building2 :size="18" />
+              <span>Companies</span>
             </router-link>
 
             <router-link

@@ -66,6 +66,68 @@ open_browser() {
 }
 
 # ------------------------------------------------------------------------------
+# Helper: Backup PostgreSQL database to backups/ directory
+# ------------------------------------------------------------------------------
+backup_database() {
+  local backup_dir="$PROJECT_ROOT/backups"
+  mkdir -p "$backup_dir"
+  local timestamp
+  timestamp="$(date +"%Y%m%d_%H%M%S")"
+  local backup_file="$backup_dir/job_tracker_backup_${timestamp}.sql"
+
+  local db_user="postgres"
+  local db_name="postgres"
+  if [ -f .env ]; then
+    local env_user env_db
+    env_user=$(grep -E '^POSTGRES_USER=' .env | cut -d '=' -f2- | tr -d ' "\r')
+    env_db=$(grep -E '^POSTGRES_DB=' .env | cut -d '=' -f2- | tr -d ' "\r')
+    [ -n "$env_user" ] && db_user="$env_user"
+    [ -n "$env_db" ] && db_name="$env_db"
+  fi
+
+  echo -e "${CYAN}💾 Creating database backup in backups/...${NC}"
+
+  local db_was_running=true
+  if ! docker compose ps --services --filter "status=running" 2>/dev/null | grep -q "^db$"; then
+    db_was_running=false
+    echo "   Starting PostgreSQL container temporarily for backup..."
+    docker compose up -d db >/dev/null 2>&1 || true
+  fi
+
+  # Wait up to 15s for database readiness
+  local db_ready=false
+  for _ in {1..15}; do
+    if docker compose exec -T db pg_isready -U "$db_user" -d "$db_name" >/dev/null 2>&1; then
+      db_ready=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$db_ready" = true ]; then
+    if docker compose exec -T db pg_dump -U "$db_user" -d "$db_name" --clean --if-exists > "$backup_file" 2>/dev/null; then
+      if [ -s "$backup_file" ]; then
+        local file_size
+        file_size=$(du -h "$backup_file" | cut -f1)
+        echo -e "   ${GREEN}✅ Database backed up to: backups/job_tracker_backup_${timestamp}.sql (${file_size})${NC}"
+      else
+        echo -e "   ${YELLOW}⚠️  Backup file was empty; database may be uninitialized.${NC}"
+        rm -f "$backup_file"
+      fi
+    else
+      echo -e "   ${YELLOW}⚠️  pg_dump failed; proceeding with update without backup.${NC}"
+      rm -f "$backup_file"
+    fi
+  else
+    echo -e "   ${YELLOW}⚠️  Database not reachable; proceeding without backup.${NC}"
+  fi
+
+  if [ "$db_was_running" = false ]; then
+    docker compose stop db >/dev/null 2>&1 || true
+  fi
+}
+
+# ------------------------------------------------------------------------------
 # Help menu
 # ------------------------------------------------------------------------------
 show_help() {
@@ -84,7 +146,8 @@ show_help() {
   echo -e "  ${GREEN}status, ps${NC}      Show status of Job Tracker containers"
   echo -e "  ${GREEN}logs${NC}            View and follow live container logs (Ctrl+C to exit)"
   echo -e "  ${GREEN}open${NC}            Open Web Application (http://localhost:4173) in default browser"
-  echo -e "  ${GREEN}update${NC}          Pull latest images, rebuild containers, and apply database migrations"
+  echo -e "  ${GREEN}backup, db-backup${NC} Save snapshot of current PostgreSQL database to backups/"
+  echo -e "  ${GREEN}update${NC}          Backup database to backups/, pull latest images, rebuild, and apply migrations"
   echo -e "  ${GREEN}reset, clean${NC}    Wipe database & data volumes after user confirmation (or pass -y)"
   echo -e "  ${GREEN}seed${NC}            Run dynamic local LLM mock generator to synthesize fresh tech leads"
   echo -e "  ${GREEN}help, -h${NC}        Show this help message"
@@ -210,20 +273,31 @@ case "$COMMAND" in
     open_browser "${1:-http://localhost:4173}"
     ;;
 
+  backup|backup-db)
+    shift || true
+    check_docker
+    ensure_env
+    backup_database
+    ;;
+
   update)
     shift || true
     check_docker
     ensure_env
     echo -e "${CYAN}🔄 Updating Job Tracker...${NC}"
-    echo ">> 1. Pulling upstream base images..."
+    echo ">> 1. Saving current database backup..."
+    backup_database
+
+    echo ""
+    echo ">> 2. Pulling upstream base images..."
     docker compose pull 2>/dev/null || true
 
     echo ""
-    echo ">> 2. Rebuilding and starting containers..."
+    echo ">> 3. Rebuilding and starting containers..."
     docker compose up -d --build "$@"
 
     echo ""
-    echo ">> 3. Applying database migrations (Alembic)..."
+    echo ">> 4. Applying database migrations (Alembic)..."
     # Execute migration inside backend container if healthy/running
     if docker compose ps --services --filter "status=running" | grep -q "^backend$"; then
       docker compose exec -T backend alembic upgrade head || \

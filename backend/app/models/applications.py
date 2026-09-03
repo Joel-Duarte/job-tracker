@@ -9,6 +9,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
     Text,
     func,
     text,
@@ -28,6 +29,24 @@ class CompanyModel(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     name_normalized: Mapped[str] = mapped_column(Text, nullable=False)
     domain: Mapped[str | None] = mapped_column(Text)
+    rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pros: Mapped[list[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    red_flags: Mapped[list[str]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb")
+    )
+    company_research: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    researched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Research pipeline status: NONE | QUEUED | IN_PROGRESS | COMPLETED | FAILED
+    research_status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'NONE'")
+    )
+    # User-provided "About Us" URL to seed the research scraper before DuckDuckGo
+    about_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -66,6 +85,9 @@ class ApplicationModel(Base):
     job_url: Mapped[str | None] = mapped_column(Text)
     application_key: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="APPLIED")
+    is_assessment: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     application_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     interview_guide_html: Mapped[str | None] = mapped_column(Text, nullable=True)

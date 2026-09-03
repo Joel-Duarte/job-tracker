@@ -266,6 +266,7 @@ DEFAULT_PROMPTS = {
         "- STRICT FACTUAL GROUNDING: Every single project, achievement, skill, company, and role mentioned MUST come directly from the candidate's CV.\n"
         "- ZERO INVENTIONS / NO FAKE STORIES: NEVER invent, extrapolate, or assume past projects, initiatives, clients, migrations, skills, programming languages, libraries, frameworks, cloud platforms, tools, certifications, degrees, or employers that are not explicitly documented in <untrusted_candidate_cv>.\n"
         "- MISSING REQUIREMENTS: If the job description requires technologies, skills, or qualifications that are absent from the candidate's CV, DO NOT claim or imply the candidate has production experience with them. Instead, focus entirely on the candidate's actual documented competencies, proven engineering strengths, and genuine transferrable achievements.\n"
+        "- COMPANY RESEARCH: Use only verified or medium/high-confidence company facts. Do not mention employee reviews, hypotheses, or low-confidence claims. Only use a company detail when it clearly connects to the job and candidate CV.\n"
         "- NO FABRICATED METRICS: NEVER invent statistics, dollar amounts, performance percentages, latency improvements, or team sizes. Use only figures explicitly present in the CV.\n"
         "- Desired Tone & Style: {tone}\n"
         "- Desired Length Constraint: {length}\n"
@@ -294,7 +295,7 @@ DEFAULT_PROMPTS = {
         "- STRICT FACTUAL GROUNDING: Every project, achievement, technology, metric, team size, and role mentioned MUST come directly from <untrusted_candidate_cv>.\n"
         "- ZERO INVENTIONS: NEVER invent or extrapolate past projects, programming languages, libraries, tools, cloud platforms, companies, degrees, or certifications that are not explicitly present in the CV.\n"
         "- HONEST SKILL GAP HANDLING: If a question asks about experience with a skill, language, or system that is absent from the candidate's CV, DO NOT fabricate experience. Instead, honestly state actual core competencies, highlight genuine adjacent/transferable engineering foundations, and explain how those enable rapid ramp-up.\n"
-        "- COMPANY MOTIVATION GROUNDING: For questions asking why the candidate wants to work at {company_name} or apply for this role, ground the response directly in the company's real mission, product, technical challenges, and culture described in <untrusted_job_description> mapped to the candidate's documented career trajectory.\n"
+        "- COMPANY MOTIVATION GROUNDING: For questions asking why the candidate wants to work at {company_name} or apply for this role, ground the response directly in the company's real mission, products, technical challenges, and culture described in the verified company intelligence and <untrusted_job_description> mapped to the candidate's documented career trajectory.\n"
         "- NO FABRICATED METRICS: NEVER invent statistics, dollar amounts, performance percentages, or user scale. Only cite numbers explicitly documented in the CV.\n"
         "- WORD COUNT & CONSTRAINT ADHERENCE: If a question specifies a word or character limit (e.g. 'Max 150 words'), strictly adhere to the limit.\n"
         "- Tone: {tone}\n"
@@ -316,6 +317,7 @@ DEFAULT_PROMPTS = {
         "--------------------------------------------------\n"
         "Target Company: {company_name}\n"
         "Position: {position}\n"
+        "{company_research_context}\n"
         "Job Description / Details:\n<untrusted_job_description>\n{job_description}\n</untrusted_job_description>\n\n"
         "Candidate CV / Profile:\n<untrusted_candidate_cv>\n{candidate_cv}\n</untrusted_candidate_cv>\n\n"
         "Application Questions to Answer:\n{questions_json}\n"
@@ -524,6 +526,47 @@ DEFAULT_PROMPTS = {
         '  "question_type": "BEHAVIORAL_STAR"\n'
         "}}\n"
     ),
+    "company_research": (
+        "You are an expert corporate intelligence analyst and tech researcher.\n\n"
+        "Your task is to analyze web search results about the company '{company_name}' (domain: '{company_domain}') "
+        "and synthesize accurate, factual company intelligence.\n\n"
+        "--------------------------------------------------\n"
+        "STRICT GROUNDING & ZERO-HALLUCINATION DIRECTIVES\n"
+        "--------------------------------------------------\n"
+        "- Base your analysis STRICTLY on verifiable facts provided in the search snippets.\n"
+        "- Return empty strings or empty arrays when evidence is missing. Never fill gaps with generic company claims.\n"
+        "- The ONLY exception: if the snippets clearly describe an UNRELATED company or a generic concept, "
+        "return empty strings and arrays for all fields.\n"
+        "- Disregard promotional ad copy, cookie consent notices, and irrelevant navigation text.\n"
+        "- For profile_links: extract Glassdoor, LinkedIn, Indeed, Comparably, or Trustpilot profile page URLs "
+        "only if they appear in the snippets. For each, also extract the numeric rating score if stated "
+        "(e.g. '4.1 stars on Glassdoor' → score: 4.1). Do NOT invent or guess URLs. "
+        "LinkedIn company pages are fine to include even without a numeric score.\n\n"
+        "--------------------------------------------------\n"
+        "INPUT WEB SEARCH & SCRAPED SNIPPETS\n"
+        "--------------------------------------------------\n"
+        "<search_data>\n"
+        "{raw_webpage_data}\n"
+        "</search_data>\n\n"
+        "Respond ONLY with a valid JSON object matching this exact schema (no markdown fences, no prose):\n"
+        "{{\n"
+        '  "summary": "<1-2 evidence-grounded sentences describing what the company builds, or empty string>",\n'
+        '  "engineering_culture": "<Evidence-grounded tech stack, engineering values, or remote work style, or empty string>",\n'
+        '  "recent_initiatives": "<Evidence-grounded products, open-source projects, expansions, or milestones, or empty string>",\n'
+        '  "company_mission_and_customer": "<Who the company serves and what problem it solves, or empty string>",\n'
+        '  "products_and_technical_domain": ["<specific product or technical domain grounded in evidence>"],\n'
+        '  "strategic_priorities": ["<current investment or business priority grounded in evidence>"],\n'
+        '  "language_to_mirror": ["<repeated company terminology useful for applications>"],\n'
+        '  "verified_facts": [{"fact": "<claim supported by a source>", "source_url": "<source URL>", "confidence": "high|medium|low"}],\n'
+        '  "candidate_alignment_angles": ["<potential connection to a candidate, without inventing candidate facts>"],\n'
+        '  "profile_links": [\n'
+        '    {{"label": "Glassdoor", "url": "https://glassdoor.com/...", "score": 4.1}},\n'
+        '    {{"label": "LinkedIn", "url": "https://linkedin.com/company/...", "score": null}}\n'
+        "  ],\n"
+        '  "sources": ["<list of relevant urls from the snippets>"],\n'
+        '  "evidence_quality": "high|medium|low"\n'
+        "}}\n"
+    ),
 }
 
 
@@ -574,6 +617,13 @@ async def seed_default_prompts(session: AsyncSession) -> None:
             or "Bar Raiser" not in (existing.template or "")
             or "Unstated Seniority" not in (existing.template or "")
         ):
+            existing.template = default_template
+
+        elif prompt_name == "company_research" and (
+            "MANDATORY" not in (existing.template or "")
+            or "profile_links" not in (existing.template or "")
+        ):
+            # Auto-heal: upgrade to prompt with mandatory fields and profile_links schema
             existing.template = default_template
 
     await session.commit()
