@@ -213,3 +213,43 @@ async def test_clear_completed_removes_assessment_task_but_keeps_dossier(
     assert application.status == "ASSESSMENT"
     assert await db_session.get(IntakeEvaluationTaskModel, task.id) is None
     app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_permanently_delete_assessment_in_ready_status(db_session: AsyncSession):
+    """Ensure ready assessments (status='ASSESSMENT') can be permanently deleted."""
+    app.dependency_overrides[get_db] = lambda: db_session
+    company = CompanyModel(name="DeleteReadyCorp", name_normalized="deletereadycorp")
+    db_session.add(company)
+    await db_session.flush()
+    application = ApplicationModel(
+        company_id=company.id,
+        position="Ready Role",
+        position_normalized="ready role",
+        status="ASSESSMENT",
+        is_assessment=True,
+    )
+    db_session.add(application)
+    await db_session.flush()
+
+    task = IntakeEvaluationTaskModel(
+        task_type="JOB_ASSESSMENT",
+        title_hint="DeleteReadyCorp",
+        status="COMPLETED",
+        stage="COMPLETE",
+        result_json={"application_id": application.id},
+    )
+    db_session.add(task)
+    await db_session.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.delete(
+            f"/api/v1/intake/assessments/{application.id}/permanent"
+        )
+        assert res.status_code == 200
+        assert res.json()["status"] == "success"
+
+    assert await db_session.get(ApplicationModel, application.id) is None
+    assert await db_session.get(IntakeEvaluationTaskModel, task.id) is None
+    app.dependency_overrides.clear()

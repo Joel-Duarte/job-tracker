@@ -1220,18 +1220,31 @@ async def permanently_delete_assessment(
     application_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """Permanently deletes an archived assessment and its related application data."""
+    """Permanently deletes an assessment dossier (ready or archived) and its related application data."""
     app_rec = await db.get(ApplicationModel, application_id)
-    if not app_rec or not app_rec.is_assessment:
+    if not app_rec or not (app_rec.is_assessment or app_rec.status == "ASSESSMENT"):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Assessment dossier not found.",
         )
-    if app_rec.status != "ARCHIVED":
+    if app_rec.status not in ["ARCHIVED", "ASSESSMENT"]:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Only archived assessment dossiers can be permanently deleted.",
+            detail="Only assessment dossiers (ready or archived) can be permanently deleted.",
         )
+
+    # Also clean up any linked queue task if present
+    tasks_stmt = select(IntakeEvaluationTaskModel).where(
+        IntakeEvaluationTaskModel.task_type == "JOB_ASSESSMENT",
+    )
+    res = await db.execute(tasks_stmt)
+    for t in res.scalars().all():
+        if (
+            isinstance(t.result_json, dict)
+            and t.result_json.get("application_id") == application_id
+        ):
+            await db.delete(t)
+
     await db.delete(app_rec)
     await db.commit()
     return {"status": "success", "message": f"Assessment {application_id} deleted."}

@@ -115,6 +115,30 @@ export const useQueueStore = defineStore('queue', () => {
     }
   }
 
+  function setReadyAssessmentsCount(count) {
+    durableReadyAssessmentsCount.value = Math.max(0, count)
+  }
+
+  function syncReadyAssessments(assessmentsList) {
+    if (!Array.isArray(assessmentsList)) return
+    let passedIds = new Set()
+    try {
+      passedIds = new Set(
+        JSON.parse(localStorage.getItem('job_tracker_passed_assessments') || '[]')
+      )
+    } catch {
+      // ignore
+    }
+    const count = assessmentsList.filter(
+      (assessment) =>
+        assessment.status === 'COMPLETED' &&
+        !assessment.result_json?.assessment_archived &&
+        !passedIds.has(String(assessment.id)) &&
+        !passedIds.has(String(assessment.result_json?.application_id))
+    ).length
+    setReadyAssessmentsCount(count)
+  }
+
   // Auto-initialize hydration once on store creation
   fetchTasks(true)
 
@@ -373,6 +397,8 @@ export const useQueueStore = defineStore('queue', () => {
     completedCount,
     notificationCount,
     readyAssessmentsCount,
+    setReadyAssessmentsCount,
+    syncReadyAssessments,
     fetchTasks,
     startPolling,
     stopPolling,

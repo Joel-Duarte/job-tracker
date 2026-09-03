@@ -581,12 +581,12 @@ function getStatusBadgeClass(status) {
 
           <div class="form-group mt-3">
             <label class="form-label text-xs">Recent Initiatives & Public Milestones</label>
-            <input
+            <textarea
               v-model="researchInitiatives"
-              type="text"
+              rows="3"
               class="form-input form-input-sm"
               placeholder="Recent product launches, open source, investments..."
-            />
+            ></textarea>
           </div>
 
           <div v-if="company.company_research?.products_and_technical_domain?.length" class="research-detail-section">

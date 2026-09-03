@@ -178,33 +178,78 @@ async function bulkMarkAsApplied() {
   await loadEvaluations(true)
 }
 
-async function bulkArchive() {
-  if (activeTab.value === 'passed') {
-    const tasksToDelete = filteredPassedEvaluations.value.filter(t => selectedTaskIds.value.has(t.id))
-    for (const task of tasksToDelete) {
-      const appId = task.result_json?.application_id || task.id
-      if (task.result_json?.application_id) {
+async function bulkDelete() {
+  const currentList = activeTab.value === 'ready' ? filteredReadyEvaluations.value : filteredPassedEvaluations.value
+  const tasksToDelete = currentList.filter(t => selectedTaskIds.value.has(t.id))
+  if (!tasksToDelete.length) return
+
+  let count = 0
+  for (const task of tasksToDelete) {
+    try {
+      const appId = task.result_json?.application_id
+      if (appId) {
         await IntakeAPI.deleteAssessment(appId)
       } else {
         await IntakeAPI.deleteEvaluation(task.id)
       }
+      evaluationTasks.value = evaluationTasks.value.filter(t => t.id !== task.id)
       passedTaskIds.value.delete(String(task.id))
+      if (appId) passedTaskIds.value.delete(String(appId))
+      count++
+    } catch (err) {
+      console.error('Failed to delete assessment in bulk:', task.id, err)
     }
-    localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
-    selectedTaskIds.value.clear()
-    await loadEvaluations(true)
-    return
   }
 
+  localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
+  selectedTaskIds.value.clear()
+  uiStore.showToast(`Permanently deleted ${count} assessments.`, 'info')
+  await loadEvaluations(true)
+  await queueStore.fetchTasks(true)
+}
+
+async function bulkArchive() {
   const tasksToArchive = filteredReadyEvaluations.value.filter(t => selectedTaskIds.value.has(t.id))
   if (!tasksToArchive.length) return
 
   for (const task of tasksToArchive) {
+    const appId = task.result_json?.application_id
+    if (appId) {
+      try {
+        await IntakeAPI.dismissAssessment(appId)
+      } catch (e) {
+        console.warn('Failed to dismiss assessment on backend:', e)
+      }
+    }
     passedTaskIds.value.add(String(task.id))
   }
   localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
   uiStore.showToast(`Archived ${tasksToArchive.length} evaluations.`, 'info')
   selectedTaskIds.value.clear()
+  await loadEvaluations(true)
+  await queueStore.fetchTasks(true)
+}
+
+async function bulkRestore() {
+  const tasksToRestore = filteredPassedEvaluations.value.filter(t => selectedTaskIds.value.has(t.id))
+  if (!tasksToRestore.length) return
+
+  for (const task of tasksToRestore) {
+    const appId = task.result_json?.application_id
+    if (appId) {
+      try {
+        await IntakeAPI.restoreAssessment(appId)
+      } catch (e) {
+        console.warn('Failed to restore assessment on backend:', e)
+      }
+    }
+    passedTaskIds.value.delete(String(task.id))
+  }
+  localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
+  uiStore.showToast(`Restored ${tasksToRestore.length} evaluations to Ready.`, 'success')
+  selectedTaskIds.value.clear()
+  await loadEvaluations(true)
+  await queueStore.fetchTasks(true)
 }
 
 function isDirectApplicationTask(task) {
@@ -235,6 +280,15 @@ const passedEvaluations = computed(() => {
     (t) => passedTaskIds.value.has(String(t.id)) || t.result_json?.assessment_archived
   )
 })
+
+// Keep the navbar assessments badge reactively synchronized with zero delay
+watch(
+  () => readyEvaluations.value.length,
+  (newCount) => {
+    queueStore.setReadyAssessmentsCount(newCount)
+  },
+  { immediate: true }
+)
 
 const filteredReadyEvaluations = computed(() => {
   let list = [...readyEvaluations.value]
@@ -352,6 +406,9 @@ async function loadEvaluations(silent = false) {
   try {
     const res = await IntakeAPI.getAssessments()
     evaluationTasks.value = res.data || []
+    if (Array.isArray(res.data)) {
+      queueStore.syncReadyAssessments(res.data)
+    }
   } catch (err) {
     if (!silent) {
       uiStore.showToast(err.message || 'Failed to fetch assessments', 'error')
@@ -400,7 +457,10 @@ async function markAsApplied(task) {
     // Dismiss from assessments
     const appId = result.application_id || task.id
     await IntakeAPI.dismissAssessment(appId)
+    passedTaskIds.value.add(String(task.id))
+    localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
     await loadEvaluations(true)
+    await queueStore.fetchTasks(true)
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to mark as applied', 'error')
   } finally {
@@ -412,35 +472,41 @@ async function passAndArchive(task) {
   const appId = task.result_json?.application_id
   if (appId) await IntakeAPI.dismissAssessment(appId)
   passedTaskIds.value.add(String(task.id))
-  await loadEvaluations(true)
   localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
   uiStore.showToast(`Archived '${task.result_json?.company || task.title_hint}' as passed`, 'info')
+  await loadEvaluations(true)
+  await queueStore.fetchTasks(true)
 }
 
 async function restorePassed(task) {
   const appId = task.result_json?.application_id
   if (appId) await IntakeAPI.restoreAssessment(appId)
   passedTaskIds.value.delete(String(task.id))
-  await loadEvaluations(true)
   localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
   uiStore.showToast(`Restored '${task.result_json?.company || task.title_hint}' to Ready Reviews`, 'success')
+  await loadEvaluations(true)
+  await queueStore.fetchTasks(true)
 }
 
 async function deleteEvaluation(taskId) {
   try {
     const target = evaluationTasks.value.find(t => t.id === taskId)
-    const appId = target?.result_json?.application_id || taskId
-    if (target?.result_json?.application_id) {
+    const appId = target?.result_json?.application_id
+    if (appId) {
       await IntakeAPI.deleteAssessment(appId)
     } else {
       await IntakeAPI.deleteEvaluation(taskId)
     }
     evaluationTasks.value = evaluationTasks.value.filter(t => t.id !== taskId)
     passedTaskIds.value.delete(String(taskId))
+    if (appId) passedTaskIds.value.delete(String(appId))
+    selectedTaskIds.value.delete(taskId)
     localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
-    uiStore.showToast('Assessment dismissed', 'info')
+    uiStore.showToast('Assessment permanently deleted', 'info')
+    await loadEvaluations(true)
+    await queueStore.fetchTasks(true)
   } catch (err) {
-    uiStore.showToast(err.message || 'Failed to dismiss assessment', 'error')
+    uiStore.showToast(err.message || 'Failed to delete assessment', 'error')
   }
 }
 
@@ -1327,9 +1393,17 @@ onUnmounted(() => {
           <button class="btn btn-ghost btn-sm" @click="selectedTaskIds.clear()">Clear</button>
         </div>
         <div class="batch-buttons">
-          <button class="btn btn-secondary btn-sm" @click="bulkArchive">
+          <button class="btn btn-danger btn-sm" @click="bulkDelete" title="Permanently delete selected assessments">
+            <Trash2 :size="14" />
+            <span>Delete Selected</span>
+          </button>
+          <button v-if="activeTab === 'ready'" class="btn btn-secondary btn-sm" @click="bulkArchive" title="Archive selected assessments as passed">
             <Archive :size="14" />
-            <span>Discard / Archive</span>
+            <span>Pass &amp; Archive</span>
+          </button>
+          <button v-else class="btn btn-secondary btn-sm" @click="bulkRestore" title="Restore selected assessments back to Ready">
+            <RotateCcw :size="14" />
+            <span>Restore to Ready</span>
           </button>
           <button class="btn btn-primary btn-sm" @click="bulkMarkAsApplied">
             <CheckCircle :size="14" />
