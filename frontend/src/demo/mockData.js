@@ -692,6 +692,93 @@ export const INITIAL_MOCK_DATA = {
       researched_at: null,
       research_status: "PENDING",
       application_count: 0
+    },
+    {
+      id: "comp_netflix",
+      name: "Netflix",
+      name_normalized: "netflix",
+      domain: "netflix.com",
+      about_url: "https://about.netflix.com",
+      notes: "Pioneers of chaos engineering, open-source cloud microservices, and autonomous engineering culture.",
+      pros: ["Top of market compensation", "High freedom and responsibility", "World-class distributed systems scale"],
+      red_flags: ["Candid feedback culture requires thick skin"],
+      company_research: {
+        summary: "Global streaming entertainment service providing films, TV series, and games to over 270 million paid memberships worldwide.",
+        engineering_culture: "Renowned 'Freedom and Responsibility' culture. Engineers operate with high autonomy, deploy continuously to multi-region cloud backends, and maintain rigorous Chaos Engineering discipline.",
+        recent_initiatives: "Ad-supported subscription tiers, live streaming infrastructure scaling, and algorithmic recommendation platform modernization.",
+        products_and_technical_domain: ["Content Delivery Platform (Open Connect)", "Global Video Encoding Pipeline", "Recommendation & Personalization Engines"],
+        strategic_priorities: ["Live streaming infrastructure scale", "Global latency minimization", "High reliability active-active multi-region cloud"],
+        language_to_mirror: ["Freedom and responsibility", "Chaos engineering", "Highly aligned, loosely coupled"],
+        candidate_alignment_angles: ["Demonstrate mastery of resilient distributed state synchronization and event telemetry"],
+        verified_facts: [
+          { fact: "Over 270 million global paid subscribers", confidence: "high", source_url: "https://netflix.com" }
+        ],
+        employee_signals: [
+          { signal: "Values context over control and self-managing senior ICs" }
+        ],
+        sources: ["https://netflix.com"]
+      },
+      researched_at: new Date(Date.now() - 86400000 * 2).toISOString(),
+      research_status: "COMPLETED",
+      application_count: 0
+    },
+    {
+      id: "comp_anthropic",
+      name: "Anthropic",
+      name_normalized: "anthropic",
+      domain: "anthropic.com",
+      about_url: "https://www.anthropic.com",
+      notes: "AI safety and research organization building reliable, interpretable, and steerable AI systems including Claude.",
+      pros: ["Frontier AI safety mission", "Extreme technical talent density", "Cutting-edge compute infrastructure"],
+      red_flags: ["Rapid growth and demanding pace"],
+      company_research: {
+        summary: "AI research and deployment company dedicated to building reliable, beneficial artificial intelligence systems, creator of Claude.",
+        engineering_culture: "Research-driven, safety-first engineering. Teams work on massive GPU/TPU distributed clusters with Kubernetes, Rust, and Python.",
+        recent_initiatives: "Claude 3.5 model family releases, computer use agent capabilities, and constitutional AI interpretability research.",
+        products_and_technical_domain: ["Claude Foundation Models", "Anthropic API Platform", "Distributed Training Infrastructure"],
+        strategic_priorities: ["Model alignment and safety", "Low-latency inference serving", "Scalable training cluster resilience"],
+        language_to_mirror: ["Constitutional AI", "Frontier model safety", "Reliable & steerable AI"],
+        candidate_alignment_angles: ["Highlight experience with distributed cluster orchestration and GPU fault tolerance"],
+        verified_facts: [
+          { fact: "Public benefit corporation founded in 2021", confidence: "high", source_url: "https://anthropic.com" }
+        ],
+        employee_signals: [
+          { signal: "Deeply mission-driven researchers and systems engineers" }
+        ],
+        sources: ["https://anthropic.com"]
+      },
+      researched_at: new Date(Date.now() - 86400000 * 1).toISOString(),
+      research_status: "COMPLETED",
+      application_count: 0
+    },
+    {
+      id: "comp_vercel",
+      name: "Vercel",
+      name_normalized: "vercel",
+      domain: "vercel.com",
+      about_url: "https://vercel.com",
+      notes: "Frontend cloud and serverless deployment platform. Creators of Next.js.",
+      pros: ["Fully remote engineering culture", "World-class developer experience focus", "Cutting-edge edge runtime"],
+      red_flags: ["Fast-paced release cycles"],
+      company_research: {
+        summary: "Frontend cloud platform providing developer tooling and edge compute infrastructure for modern web applications and Next.js.",
+        engineering_culture: "Speed-obsessed developer experience culture. Heavily remote, shipping fast with Rust, Go, TypeScript, and WebAssembly.",
+        recent_initiatives: "Vercel AI SDK, Fluid Compute serverless infrastructure, and Next.js 15 performance optimization.",
+        products_and_technical_domain: ["Vercel Edge Network", "Next.js Framework", "v0 Generative UI"],
+        strategic_priorities: ["Edge compute performance", "AI application developer tooling", "Zero cold-start serverless"],
+        language_to_mirror: ["Frontend cloud", "Edge-first architecture", "Frictionless developer experience"],
+        candidate_alignment_angles: ["Focus on sub-15ms edge routing, low-latency microservices, and global distributed networking"],
+        verified_facts: [
+          { fact: "Powers web experiences for millions of developers and enterprise organizations", confidence: "high", source_url: "https://vercel.com" }
+        ],
+        employee_signals: [
+          { signal: "Values taste, speed of execution, and deep care for DX" }
+        ],
+        sources: ["https://vercel.com"]
+      },
+      researched_at: new Date(Date.now() - 86400000 * 3).toISOString(),
+      research_status: "COMPLETED",
+      application_count: 0
     }
   ],
 
@@ -708,6 +795,7 @@ export const INITIAL_MOCK_DATA = {
       completed_at: new Date(Date.now() - 86400000 * 2).toISOString(),
       result_json: {
         application_id: 101,
+        company_id: "comp_netflix",
         company: "Netflix",
         position: "Senior Distributed Systems Engineer",
         company_domain: "netflix.com",
@@ -762,6 +850,7 @@ export const INITIAL_MOCK_DATA = {
       completed_at: new Date(Date.now() - 86400000 * 3).toISOString(),
       result_json: {
         application_id: 102,
+        company_id: "comp_anthropic",
         company: "Anthropic",
         position: "Infrastructure Engineer (Compute Platform)",
         company_domain: "anthropic.com",
@@ -809,6 +898,7 @@ export const INITIAL_MOCK_DATA = {
       completed_at: new Date(Date.now() - 86400000 * 4).toISOString(),
       result_json: {
         application_id: 103,
+        company_id: "comp_vercel",
         company: "Vercel",
         position: "Staff Edge Infrastructure Engineer",
         company_domain: "vercel.com",
@@ -850,6 +940,7 @@ export const INITIAL_MOCK_DATA = {
       completed_at: new Date(Date.now() - 86400000 * 7).toISOString(),
       result_json: {
         application_id: 104,
+        company_id: "comp_snowflake",
         company: "Snowflake",
         position: "Senior Core Database Engineer",
         company_domain: "snowflake.com",

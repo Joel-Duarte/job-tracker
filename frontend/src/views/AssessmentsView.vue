@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useQueueStore } from '../stores/queueStore'
-import { IntakeAPI } from '../api/endpoints'
+import { IntakeAPI, CompaniesAPI } from '../api/endpoints'
 import { getFitScores } from '../utils/fitScores'
 import {
   Sparkles,
@@ -468,6 +468,47 @@ async function markAsApplied(task) {
   }
 }
 
+async function openCompanyDrawerForTask(task) {
+  if (!task) return
+
+  // 1. Direct company_id from task or task.result_json
+  const directId = task.result_json?.company_id || task.company_id
+  if (directId) {
+    uiStore.openCompanyDrawer(directId)
+    return
+  }
+
+  // 2. Fallback: Search company by name or domain
+  const companyName = task.result_json?.company || task.title_hint
+  const companyDomain = task.result_json?.company_domain || task.result_json?.company_url
+
+  if (!companyName && !companyDomain) return
+
+  try {
+    const query = companyName || companyDomain
+    const res = await CompaniesAPI.list({ q: query })
+    const list = res.data || []
+
+    const cleanName = companyName?.trim().toLowerCase()
+    const cleanDom = companyDomain?.trim().toLowerCase()
+
+    const match =
+      list.find(
+        (c) =>
+          (cleanName && c.name?.toLowerCase() === cleanName) ||
+          (cleanDom && c.domain?.toLowerCase() === cleanDom)
+      ) || list[0]
+
+    if (match?.id) {
+      uiStore.openCompanyDrawer(match.id)
+    } else {
+      uiStore.showToast(`Company profile not found in directory.`, 'info')
+    }
+  } catch (err) {
+    console.error('Failed to open company drawer:', err)
+  }
+}
+
 async function passAndArchive(task) {
   const appId = task.result_json?.application_id
   if (appId) await IntakeAPI.dismissAssessment(appId)
@@ -604,15 +645,24 @@ watch(
   }
 )
 
+function onEntityDeleted() {
+  loadEvaluations(true)
+  queueStore.fetchTasks(true)
+}
+
 onMounted(async () => {
   await loadEvaluations()
   startPollingIfNeeded()
   document.addEventListener('visibilitychange', handleVisibilityChange)
+  window.addEventListener('company:deleted', onEntityDeleted)
+  window.addEventListener('application:deleted', onEntityDeleted)
 })
 
 onUnmounted(() => {
   stopPolling()
   document.removeEventListener('visibilitychange', handleVisibilityChange)
+  window.removeEventListener('company:deleted', onEntityDeleted)
+  window.removeEventListener('application:deleted', onEntityDeleted)
 })
 </script>
 
@@ -813,14 +863,27 @@ onUnmounted(() => {
           <div class="eval-card-header">
             <div class="eval-title-group" style="flex-direction: row; align-items: center; gap: 14px;">
               <input type="checkbox" class="form-checkbox" :checked="selectedTaskIds.has(task.id)" @change="toggleTaskSelection(task.id)" />
-              <CompanyLogo
-                :name="task.result_json?.company || task.title_hint"
-                :domain="task.result_json?.company_domain || task.result_json?.company_url || task.job_url"
-                :size="44"
-              />
+              <button
+                type="button"
+                class="eval-logo-btn"
+                @click.stop="openCompanyDrawerForTask(task)"
+                title="Open company details"
+              >
+                <CompanyLogo
+                  :name="task.result_json?.company || task.title_hint"
+                  :domain="task.result_json?.company_domain || task.result_json?.company_url || task.job_url"
+                  :size="44"
+                />
+              </button>
               <div>
                 <div class="company-badge-line">
-                  <span class="eval-company">{{ task.result_json?.company || task.title_hint || 'Target Company' }}</span>
+                  <span
+                    class="eval-company clickable"
+                    @click.stop="openCompanyDrawerForTask(task)"
+                    title="Open company details"
+                  >
+                    {{ task.result_json?.company || task.title_hint || 'Target Company' }}
+                  </span>
                   <span v-if="task.job_url" class="eval-url-link">
                     <a :href="task.job_url" target="_blank" rel="noopener noreferrer" title="Open original job posting">
                       <Globe :size="12" />
@@ -1200,14 +1263,27 @@ onUnmounted(() => {
                 :checked="selectedTaskIds.has(task.id)"
                 @change="toggleTaskSelection(task.id)"
               />
-              <CompanyLogo
-                :name="task.result_json?.company || task.title_hint"
-                :domain="task.result_json?.company_domain || task.result_json?.company_url || task.job_url"
-                :size="44"
-              />
+              <button
+                type="button"
+                class="eval-logo-btn"
+                @click.stop="openCompanyDrawerForTask(task)"
+                title="Open company details"
+              >
+                <CompanyLogo
+                  :name="task.result_json?.company || task.title_hint"
+                  :domain="task.result_json?.company_domain || task.result_json?.company_url || task.job_url"
+                  :size="44"
+                />
+              </button>
               <div>
                 <div class="company-badge-line">
-                  <span class="eval-company">{{ task.result_json?.company || task.title_hint || 'Target Company' }}</span>
+                  <span
+                    class="eval-company clickable"
+                    @click.stop="openCompanyDrawerForTask(task)"
+                    title="Open company details"
+                  >
+                    {{ task.result_json?.company || task.title_hint || 'Target Company' }}
+                  </span>
                   <span v-if="task.job_url" class="eval-url-link">
                     <a :href="task.job_url" target="_blank" rel="noopener noreferrer" title="Open original job posting">
                       <Globe :size="12" />
@@ -1750,6 +1826,33 @@ onUnmounted(() => {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  transition: color var(--transition-fast);
+}
+
+.eval-company.clickable {
+  cursor: pointer;
+}
+
+.eval-company.clickable:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.eval-logo-btn {
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.eval-logo-btn:hover {
+  transform: scale(1.05);
+  opacity: 0.9;
 }
 
 .eval-url-link a {

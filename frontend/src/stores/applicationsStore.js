@@ -602,6 +602,23 @@ export const useApplicationsStore = defineStore('applications', () => {
     })
   }
 
+  function removeApplicationsForCompany(companyId) {
+    applications.value = applications.value.filter(
+      (a) =>
+        String(a.company_id) !== String(companyId) &&
+        String(a.company?.id) !== String(companyId)
+    )
+    total.value = applications.value.length
+    if (
+      selectedApplication.value &&
+      (String(selectedApplication.value.company_id) === String(companyId) ||
+        String(selectedApplication.value.company?.id) === String(companyId))
+    ) {
+      selectedApplication.value = null
+      uiStore.closeApplicationDrawer()
+    }
+  }
+
   // Optimistic deleteApplication
   async function deleteApplication(applicationId) {
     const appsSnapshot = JSON.parse(JSON.stringify(applications.value))
@@ -613,6 +630,12 @@ export const useApplicationsStore = defineStore('applications', () => {
     total.value = Math.max(0, total.value - 1)
     if (selectedApplication.value && selectedApplication.value.id === applicationId) {
       selectedApplication.value = null
+      uiStore.closeApplicationDrawer()
+    }
+
+    // Broadcast event for cross-view synchronization (CompanyDetailDrawer, CompaniesView, AssessmentsView)
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('application:deleted', { detail: { applicationId } }))
     }
 
     try {
@@ -626,6 +649,17 @@ export const useApplicationsStore = defineStore('applications', () => {
       uiStore.showToast(err.message || 'Failed to delete application', 'error')
       throw err
     }
+  }
+
+  // Listen for company:deleted to purge associated applications if deleted
+  if (typeof window !== 'undefined') {
+    window.addEventListener('company:deleted', (event) => {
+      const { companyId, deletedApplications } = event.detail || {}
+      if (companyId && deletedApplications) {
+        removeApplicationsForCompany(companyId)
+        fetchApplications(true)
+      }
+    })
   }
 
   // Update application fields (e.g. position, company_name)
@@ -686,6 +720,7 @@ export const useApplicationsStore = defineStore('applications', () => {
     bulkTransition,
     restoreToActive,
     deleteApplication,
+    removeApplicationsForCompany,
     invalidateCache,
     checkAndSyncWithBadges,
     lastFetchedAt,

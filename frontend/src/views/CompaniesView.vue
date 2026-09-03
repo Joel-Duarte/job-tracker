@@ -6,7 +6,6 @@ import CompanyLogo from '../components/common/CompanyLogo.vue'
 import {
   Building2,
   Search,
-  Star,
   Globe,
   Briefcase,
   ExternalLink,
@@ -56,16 +55,6 @@ const COMPANY_CACHE_KEY = 'jobtracker_companies_cache'
 const COMPANY_CACHE_TTL_MS = 5 * 60 * 1000
 let pollInterval = null
 
-/** Returns average of all numeric scores across a company's profile_links, or null. */
-function computeAvgRating(company) {
-  const links = company.company_research?.profile_links || []
-  const scores = links
-    .map((l) => parseFloat(l.score))
-    .filter((s) => !isNaN(s) && s > 0)
-  if (!scores.length) return null
-  return Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10
-}
-
 const companiesWithoutInfo = computed(() =>
   companies.value.filter((c) => !c.company_research || !c.company_research.summary)
 )
@@ -76,6 +65,7 @@ onMounted(async () => {
   window.addEventListener('company:updated', refreshCompaniesFromEvent)
   window.addEventListener('company:merged', refreshCompaniesFromEvent)
   window.addEventListener('company:deleted', refreshCompaniesFromEvent)
+  window.addEventListener('application:deleted', refreshCompaniesFromEvent)
 })
 
 onUnmounted(() => {
@@ -86,6 +76,7 @@ onUnmounted(() => {
   window.removeEventListener('company:updated', refreshCompaniesFromEvent)
   window.removeEventListener('company:merged', refreshCompaniesFromEvent)
   window.removeEventListener('company:deleted', refreshCompaniesFromEvent)
+  window.removeEventListener('application:deleted', refreshCompaniesFromEvent)
 })
 
 async function fetchCompanies() {
@@ -177,7 +168,12 @@ function persistCompanyCache() {
   }
 }
 
-function refreshCompaniesFromEvent() {
+function refreshCompaniesFromEvent(event) {
+  if (event?.type === 'company:deleted' && event.detail?.companyId) {
+    companies.value = companies.value.filter(
+      (c) => String(c.id) !== String(event.detail.companyId)
+    )
+  }
   isStale.value = true
   fetchCompanies()
 }
@@ -269,14 +265,9 @@ async function retryCompanyResearch(company) {
 const stats = computed(() => {
   const total = companies.value.length
   const withActive = companies.value.filter((c) => c.active_applications_count > 0).length
-  const withRatings = companies.value.filter((c) => computeAvgRating(c) !== null)
-  const avgRating =
-    withRatings.length
-      ? (
-          withRatings.reduce((sum, c) => sum + computeAvgRating(c), 0) / withRatings.length
-        ).toFixed(1)
-      : 'N/A'
-  return { total, withActive, ratedCount: withRatings.length, avgRating }
+  const withResearch = companies.value.filter((c) => c.company_research && c.company_research.summary).length
+  const totalApps = companies.value.reduce((acc, c) => acc + (c.applications_count || 0), 0)
+  return { total, withActive, researchedCount: withResearch, totalApplications: totalApps }
 })
 
 const filteredCompanies = computed(() => {
@@ -338,7 +329,7 @@ function openCompanyDrawerWithMerge(companyId) {
       <div>
         <h2 class="view-title">Companies Directory</h2>
         <p class="view-subtitle">
-          Manage employer entities, review candidate ratings, view multi-application histories, and explore live company intelligence.
+          Manage employer entities, view multi-application histories, and explore live company intelligence.
         </p>
       </div>
     </div>
@@ -366,21 +357,21 @@ function openCompanyDrawerWithMerge(companyId) {
 
       <div class="metric-card">
         <div class="metric-icon-wrap bg-success-soft">
-          <CheckCircle2 :size="18" class="text-success" />
+          <Sparkles :size="18" class="text-success" />
         </div>
         <div class="metric-info">
-          <span class="metric-num">{{ stats.ratedCount }}</span>
-          <span class="metric-label">Rated Companies</span>
+          <span class="metric-num">{{ stats.researchedCount }}</span>
+          <span class="metric-label">Research Synthesized</span>
         </div>
       </div>
 
       <div class="metric-card">
-        <div class="metric-icon-wrap bg-amber-soft">
-          <Star :size="18" class="text-amber" />
+        <div class="metric-icon-wrap bg-purple-soft">
+          <Briefcase :size="18" class="text-primary" />
         </div>
         <div class="metric-info">
-          <span class="metric-num">{{ stats.avgRating }} <span v-if="stats.avgRating !== 'N/A'" class="text-xs text-muted">/ 5</span></span>
-          <span class="metric-label">Average Rating</span>
+          <span class="metric-num">{{ stats.totalApplications }}</span>
+          <span class="metric-label">Applications Linked</span>
         </div>
       </div>
     </div>
@@ -517,7 +508,7 @@ function openCompanyDrawerWithMerge(companyId) {
       <Building2 :size="40" class="text-muted" />
       <h3 class="mt-2 font-semibold">No Companies Found</h3>
       <p class="text-xs text-muted mt-1">
-        {{ searchQuery ? 'Try adjusting your search query or rating filter.' : 'Companies are automatically created when you ingest applications.' }}
+        {{ searchQuery ? 'Try adjusting your search query.' : 'Companies are automatically created when you ingest applications.' }}
       </p>
     </div>
 
@@ -598,15 +589,6 @@ function openCompanyDrawerWithMerge(companyId) {
             <span>Failed · Retry</span>
             <RefreshCw :size="10" />
           </button>
-
-          <!-- Public Avg Rating Badge -->
-          <div class="rating-badge" @click.stop="openCompanyDrawer(company.id)">
-            <Star :size="13" class="text-amber" fill="currentColor" />
-            <span v-if="computeAvgRating(company) !== null" class="font-bold text-xs">
-              {{ computeAvgRating(company) }}
-            </span>
-            <span v-else class="text-xs text-muted">N/A</span>
-          </div>
         </div>
 
         <!-- Mission / Notes Snippet -->
@@ -1133,18 +1115,6 @@ function openCompanyDrawerWithMerge(companyId) {
 
 .domain-link:hover {
   text-decoration: underline;
-}
-
-.rating-badge {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: var(--bg-elevated, var(--bg-surface-hover));
-  border: 1px solid var(--border-color);
-  padding: 4px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  flex-shrink: 0;
 }
 
 .company-snippet {

@@ -38,7 +38,7 @@ async def test_collect_company_evidence_uses_categories_and_deduplicates():
     ) as search_mock:
         evidence = await _collect_company_evidence("Acme", "acme.com", None)
 
-    assert search_mock.await_count == 4
+    assert search_mock.await_count == 6
     assert all(call.kwargs["max_results"] == 5 for call in search_mock.await_args_list)
     assert len(evidence) == 1
     assert evidence[0]["category"] == "identity"

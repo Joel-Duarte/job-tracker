@@ -38,7 +38,9 @@ def build_company_research_queries(
     return {
         "identity": f'"{clean_name}" mission products customers{domain_suffix}',
         "technical": f'"{clean_name}" engineering technology architecture platform{domain_suffix}',
-        "recent": f'"{clean_name}" product launch open source expansion announcement{domain_suffix}',
+        "products": f'"{clean_name}" products solutions architecture capabilities{domain_suffix}',
+        "priorities": f'"{clean_name}" strategic priorities roadmap expansion announcement{domain_suffix}',
+        "recent": f'"{clean_name}" product launch open source press news{domain_suffix}',
         "employer": f'"{clean_name}" engineering interview process workplace culture',
     }
 
@@ -199,27 +201,31 @@ async def _invoke_llm(
         )
     else:
         system_instruction = (
-            "You are a factual corporate intelligence synthesizer. "
-            f"Your task is to analyze the search snippets for '{clean_name}' "
-            f"(domain: '{resolved_domain or 'unknown'}').\n"
-            "Strict Guardrails:\n"
-            "1. If snippets describe an unrelated company, return empty strings for all fields.\n"
-            "2. Return empty strings when summary, engineering_culture, or recent_initiatives lack evidence. "
-            "Never replace missing evidence with generic corporate filler.\n"
-            "3. profile_links: extract Glassdoor, LinkedIn, Indeed, Comparably, or Trustpilot "
-            "profile page URLs only if they appear in the snippets. Include numeric score if stated. "
-            "Do NOT invent URLs.\n"
-            "4. Respond ONLY with valid JSON, no markdown fences:\n"
+            "You are an expert corporate intelligence synthesizer and tech researcher. "
+            f"Your task is to analyze the search snippets and scraped pages for '{clean_name}' "
+            f"(domain: '{resolved_domain or 'unknown'}').\n\n"
+            "Extraction & Synthesis Directives:\n"
+            "1. summary: 1-2 evidence-grounded sentences describing what the company builds, its core platform, and who it serves.\n"
+            "2. engineering_culture: Evidence-grounded tech stack, engineering values, or remote work style.\n"
+            "3. recent_initiatives: Concrete recent product releases, open-source projects, strategic expansions, or milestones.\n"
+            "4. company_mission_and_customer: Clear articulation of who the company solves problems for and its target customers.\n"
+            "5. products_and_technical_domain: Array of specific products, platform modules, or technical domains mentioned (e.g. ['Billing APIs', 'Fraud Detection', 'Developer SDKs']). Extract all concrete product names.\n"
+            "6. strategic_priorities: Array of current company initiatives, business focus areas, or strategic goals mentioned.\n"
+            "7. language_to_mirror: Array of distinctive terms, brand taglines, or internal keywords repeatedly used by the company that a candidate should mirror.\n"
+            "8. verified_facts: Array of objects [{'fact': 'claim supported by metrics or milestones', 'source_url': 'url', 'confidence': 'high|medium|low'}].\n"
+            "9. candidate_alignment_angles: Proactively deduce 2-3 strategic interview talking points connecting what the company values with engineering best practices.\n"
+            "10. profile_links: extract Glassdoor, LinkedIn, Indeed, Comparably, or Trustpilot profile URLs if present in snippets. Include numeric score if stated.\n"
+            "11. Respond ONLY with valid JSON, no markdown fences:\n"
             "{\n"
             '  "summary": "...",\n'
             '  "engineering_culture": "...",\n'
             '  "recent_initiatives": "...",\n'
             '  "company_mission_and_customer": "...",\n'
-            '  "products_and_technical_domain": [],\n'
-            '  "strategic_priorities": [],\n'
-            '  "language_to_mirror": [],\n'
-            '  "verified_facts": [],\n'
-            '  "candidate_alignment_angles": [],\n'
+            '  "products_and_technical_domain": ["..."],\n'
+            '  "strategic_priorities": ["..."],\n'
+            '  "language_to_mirror": ["..."],\n'
+            '  "verified_facts": [{"fact": "...", "source_url": "...", "confidence": "high"}],\n'
+            '  "candidate_alignment_angles": ["..."],\n'
             '  "employee_signals": [],\n'
             '  "profile_links": [{"label": "Glassdoor", "url": "...", "score": 4.1}],\n'
             '  "sources": ["url1", "url2"]\n'
@@ -432,33 +438,43 @@ async def research_company_context(
     snippets: list[dict] = []
     concurrency_limit = await _resolve_research_concurrency(db)
 
-    # 3. Scrape user-provided about_url first (if set) — prepend as leading snippet
+    # 3. Seed research with corporate homepage & about page scraping (leading first-party evidence)
+    seed_urls: list[str] = []
     if about_url:
+        seed_urls.append(about_url)
+    elif resolved_domain and "." in resolved_domain:
+        clean_dom = resolved_domain.lower().strip()
+        seed_urls.append(f"https://{clean_dom}")
+        seed_urls.append(f"https://{clean_dom}/about")
+
+    for s_url in seed_urls:
         try:
-            about_text = await fetch_webpage_content(
-                about_url,
+            page_text = await fetch_webpage_content(
+                s_url,
                 max_chars=5000,
                 db=db,
                 concurrency_limit=concurrency_limit,
             )
-            if about_text:
+            if page_text:
                 snippets.append(
                     {
-                        "title": f"{clean_name} — About Page",
-                        "url": about_url,
-                        "snippet": about_text[:1500],
+                        "title": f"{clean_name} — Official Corporate Webpage",
+                        "url": s_url,
+                        "snippet": page_text[:2500],
+                        "category": "first_party_page",
                     }
                 )
                 logger.debug(
-                    "Seeded research for %s from about_url (%d chars)",
+                    "Seeded research for %s from %s (%d chars)",
                     clean_name,
-                    len(about_text),
+                    s_url,
+                    len(page_text),
                 )
         except Exception as seed_err:
             logger.debug(
-                "about_url scrape failed for %s (%s): %s",
+                "Corporate seed scrape failed for %s (%s): %s",
                 clean_name,
-                about_url,
+                s_url,
                 seed_err,
             )
 

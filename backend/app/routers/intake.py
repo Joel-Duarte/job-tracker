@@ -1096,6 +1096,7 @@ async def list_assessments(
 
         res_payload = dict(app_rec.match_analysis_payload or {})
         res_payload["application_id"] = app_rec.id
+        res_payload["company_id"] = app_rec.company_id
         res_payload["company"] = comp_name
         res_payload["position"] = app_rec.position
         res_payload["company_domain"] = comp_domain

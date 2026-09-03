@@ -528,18 +528,23 @@ DEFAULT_PROMPTS = {
     ),
     "company_research": (
         "You are an expert corporate intelligence analyst and tech researcher.\n\n"
-        "Your task is to analyze web search results about the company '{company_name}' (domain: '{company_domain}') "
-        "and synthesize accurate, factual company intelligence.\n\n"
+        "Your task is to analyze web search results and official corporate webpage data about the company '{company_name}' (domain: '{company_domain}') "
+        "and synthesize accurate, high-impact company intelligence.\n\n"
         "--------------------------------------------------\n"
-        "STRICT GROUNDING & ZERO-HALLUCINATION DIRECTIVES\n"
+        "EXTRACTION & SYNTHESIS DIRECTIVES\n"
         "--------------------------------------------------\n"
-        "- Base your analysis STRICTLY on verifiable facts provided in the search snippets.\n"
-        "- Return empty strings or empty arrays when evidence is missing. Never fill gaps with generic company claims.\n"
-        "- The ONLY exception: if the snippets clearly describe an UNRELATED company or a generic concept, "
-        "return empty strings and arrays for all fields.\n"
-        "- Disregard promotional ad copy, cookie consent notices, and irrelevant navigation text.\n"
+        "- Base your analysis on verified facts from the search and webpage snippets.\n"
+        "- summary: 1-2 evidence-grounded sentences describing what the company builds, its core platform, and who it serves.\n"
+        "- engineering_culture: Evidence-grounded tech stack, architecture standards, engineering values, or remote/on-site work style.\n"
+        "- recent_initiatives: Concrete recent product releases, open-source projects, strategic expansions, or milestones.\n"
+        "- company_mission_and_customer: Who the company serves and what core problem it solves.\n"
+        "- products_and_technical_domain: Array of specific products, platform modules, or technical domains mentioned (e.g. ['Billing APIs', 'Fraud Prevention', 'Developer SDKs']). Extract all product names explicitly mentioned.\n"
+        "- strategic_priorities: Array of current company initiatives, business focus areas, or strategic roadmap goals.\n"
+        "- language_to_mirror: Array of distinctive terms, brand taglines, or internal keywords repeatedly used by the company that a candidate should mirror.\n"
+        '- verified_facts: Array of objects [{{"fact": "claim supported by a source with metrics or milestones", "source_url": "<source URL>", "confidence": "high|medium|low"}}].\n'
+        "- candidate_alignment_angles: Proactively deduce 2-3 strategic interview talking points connecting what the company values with engineering best practices.\n"
         "- For profile_links: extract Glassdoor, LinkedIn, Indeed, Comparably, or Trustpilot profile page URLs "
-        "only if they appear in the snippets. For each, also extract the numeric rating score if stated "
+        "only if they appear in the snippets. For each, extract the numeric rating score if stated "
         "(e.g. '4.1 stars on Glassdoor' → score: 4.1). Do NOT invent or guess URLs. "
         "LinkedIn company pages are fine to include even without a numeric score.\n\n"
         "--------------------------------------------------\n"
@@ -557,7 +562,7 @@ DEFAULT_PROMPTS = {
         '  "products_and_technical_domain": ["<specific product or technical domain grounded in evidence>"],\n'
         '  "strategic_priorities": ["<current investment or business priority grounded in evidence>"],\n'
         '  "language_to_mirror": ["<repeated company terminology useful for applications>"],\n'
-        '  "verified_facts": [{"fact": "<claim supported by a source>", "source_url": "<source URL>", "confidence": "high|medium|low"}],\n'
+        '  "verified_facts": [{{"fact": "<claim supported by a source>", "source_url": "<source URL>", "confidence": "high|medium|low"}}],\n'
         '  "candidate_alignment_angles": ["<potential connection to a candidate, without inventing candidate facts>"],\n'
         '  "profile_links": [\n'
         '    {{"label": "Glassdoor", "url": "https://glassdoor.com/...", "score": 4.1}},\n'

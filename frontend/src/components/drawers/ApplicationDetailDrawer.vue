@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
-import { ActionItemsAPI, ApplicationsAPI, EventsAPI, IntakeAPI } from '../../api/endpoints'
+import { ActionItemsAPI, ApplicationsAPI, CompaniesAPI, EventsAPI, IntakeAPI } from '../../api/endpoints'
 import DateTimePicker from '../common/DateTimePicker.vue'
 import InterviewReaderModal from '../modals/InterviewReaderModal.vue'
 import LogActivityModal from '../modals/LogActivityModal.vue'
@@ -192,6 +192,42 @@ function startEditHeader() {
 
 function cancelEditHeader() {
   isEditingHeader.value = false
+}
+
+async function openCompanyDrawerForCurrentApp() {
+  const app = appStore.selectedApplication
+  if (!app) return
+
+  const companyId = app.company?.id || app.company_id
+  if (companyId) {
+    uiStore.openCompanyDrawer(companyId)
+    return
+  }
+
+  const name = app.company?.name || app.company_name
+  const domain = app.company?.domain
+  if (!name && !domain) return
+
+  try {
+    const res = await CompaniesAPI.list({ q: name || domain })
+    const list = res.data || []
+    const cleanName = name?.trim().toLowerCase()
+    const cleanDom = domain?.trim().toLowerCase()
+    const match =
+      list.find(
+        (c) =>
+          (cleanName && c.name?.toLowerCase() === cleanName) ||
+          (cleanDom && c.domain?.toLowerCase() === cleanDom)
+      ) || list[0]
+
+    if (match?.id) {
+      uiStore.openCompanyDrawer(match.id)
+    } else {
+      uiStore.showToast('Company profile not found in directory.', 'info')
+    }
+  } catch (err) {
+    console.error('Failed to open company drawer:', err)
+  }
 }
 
 async function saveEditHeader() {
@@ -1001,15 +1037,25 @@ function formatDate(isoStr) {
           <!-- Drawer Header -->
           <div class="drawer-header">
             <div class="header-main">
-              <CompanyLogo
-                :name="appStore.selectedApplication.company?.name"
-                :domain="appStore.selectedApplication.company?.domain"
-                :size="44"
-                class="company-badge-large"
-              />
+              <div
+                class="company-logo-btn"
+                @click.stop="openCompanyDrawerForCurrentApp"
+                title="Open company details"
+              >
+                <CompanyLogo
+                  :name="appStore.selectedApplication.company?.name"
+                  :domain="appStore.selectedApplication.company?.domain"
+                  :size="44"
+                  class="company-badge-large clickable"
+                />
+              </div>
               <div v-if="!isEditingHeader" class="header-titles">
                 <div class="title-with-edit">
-                  <h2 class="company-name">
+                  <h2
+                    class="company-name clickable"
+                    @click.stop="openCompanyDrawerForCurrentApp"
+                    title="Open company details"
+                  >
                     {{ appStore.selectedApplication.company?.name || 'Company' }}
                   </h2>
                   <button
@@ -2522,6 +2568,18 @@ function formatDate(isoStr) {
   gap: 14px;
 }
 
+.company-logo-btn {
+  cursor: pointer;
+  display: inline-flex;
+  border-radius: var(--radius-md);
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.company-logo-btn:hover {
+  transform: scale(1.05);
+  opacity: 0.9;
+}
+
 .company-badge-large {
   display: flex;
   align-items: center;
@@ -2540,6 +2598,16 @@ function formatDate(isoStr) {
   font-size: 18px;
   color: var(--text-main);
   line-height: 1.2;
+}
+
+.company-name.clickable {
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.company-name.clickable:hover {
+  color: var(--primary);
+  text-decoration: underline;
 }
 
 .title-with-edit {

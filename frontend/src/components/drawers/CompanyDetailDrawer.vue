@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, computed, onMounted } from 'vue'
+import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
@@ -7,7 +7,6 @@ import { CompaniesAPI } from '../../api/endpoints'
 import CompanyLogo from '../common/CompanyLogo.vue'
 import {
   X,
-  Star,
   Globe,
   RefreshCw,
   ExternalLink,
@@ -196,6 +195,7 @@ function closeDrawer() {
 
 async function deleteCompany() {
   if (!company.value || isDeletingCompany.value) return
+  const companyId = company.value.id
   const hasApplications = (company.value.applications || []).length > 0
   const message = hasApplications
     ? `Delete ${company.value.name} and all ${company.value.applications.length} linked applications? This cannot be undone.`
@@ -204,16 +204,50 @@ async function deleteCompany() {
 
   isDeletingCompany.value = true
   try {
-    await CompaniesAPI.delete(company.value.id, hasApplications)
-    window.dispatchEvent(new CustomEvent('company:deleted', { detail: { companyId: company.value.id } }))
+    await CompaniesAPI.delete(companyId, hasApplications)
     uiStore.showToast('Company deleted', 'success')
     closeDrawer()
+
+    // Dispatch global event for cross-view synchronization
+    window.dispatchEvent(
+      new CustomEvent('company:deleted', {
+        detail: { companyId, deletedApplications: hasApplications }
+      })
+    )
+
+    if (hasApplications) {
+      appStore.removeApplicationsForCompany(companyId)
+      appStore.fetchApplications(true)
+    }
   } catch (err) {
     uiStore.showToast(err.response?.data?.detail || 'Failed to delete company', 'error')
   } finally {
     isDeletingCompany.value = false
   }
 }
+
+function onApplicationDeleted(event) {
+  const deletedId = event.detail?.applicationId
+  if (!deletedId || !company.value?.applications) return
+  const prevLen = company.value.applications.length
+  company.value.applications = company.value.applications.filter(
+    (a) => String(a.id) !== String(deletedId)
+  )
+  if (company.value.applications.length !== prevLen) {
+    company.value.applications_count = Math.max(0, (company.value.applications_count || 1) - 1)
+    company.value.active_applications_count = (company.value.applications || []).filter((a) =>
+      ['APPLIED', 'ONLINE_ASSESSMENT', 'TECHNICAL_INTERVIEW', 'OFFER'].includes(a.status)
+    ).length
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('application:deleted', onApplicationDeleted)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('application:deleted', onApplicationDeleted)
+})
 
 async function saveQuickUpdate(payload) {
   if (!company.value) return
@@ -547,11 +581,6 @@ function getStatusBadgeClass(status) {
               <RefreshCw :size="11" />
               <span>Retry</span>
             </button>
-          </div>
-
-          <div v-if="company.company_research?.public_rating_snippet" class="public-score-badge">
-            <Star :size="13" class="text-warning" />
-            <span>{{ company.company_research.public_rating_snippet }}</span>
           </div>
 
           <div class="form-group mt-3">
@@ -1338,20 +1367,6 @@ textarea.edit-input-field {
 
 .research-failed-callout span {
   flex: 1;
-}
-
-.public-score-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--status-warning-bg, rgba(245, 158, 11, 0.1));
-  border: 1px solid var(--status-warning-border, rgba(245, 158, 11, 0.2));
-  color: var(--text-warning, #fbbf24);
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  margin-bottom: 8px;
 }
 
 .research-detail-section {
