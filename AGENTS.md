@@ -33,7 +33,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
 - **Key Services:**
   - `scraper.py`: Extracts job descriptions from URLs, bypassing cookie banners and "show more" toggles via Camofox Javascript evaluation.
   - `domain_resolver.py`: Multi-tier company domain extraction engine (direct URL parsing, 20+ ATS host filtering, AI domain extraction, and Clearbit autocomplete fallback) ensuring accurate `CompanyModel.domain` and favicon resolution.
-  - `llm.py` / `llm_factory.py`: Abstractions over OpenAI, Anthropic, or local open-source models for various prompts (summarization, extraction, matching, zero-hallucination cover letter, and application form Q&A generation).
+  - `llm.py` / `llm_factory.py`: Abstractions over OpenAI, Anthropic, or local open-source models for various prompts (job spec extraction, email categorization, candidate assessment, zero-hallucination cover letter, and application form Q&A generation).
   - `intake_graph.py` & `interview_guide_graph.py`: LangGraph state machines managing complex data extraction and document generation.
   - `interview_simulator_service.py`: Interactive role-playing mock interview simulator supporting multiple question formats (`TEXT_CONVERSATIONAL`, `MULTIPLE_CHOICE`, `HYBRID`), interviewer personas (`TECHNICAL_BAR_RAISER`, `HIRING_MANAGER`, `BEHAVIORAL_CULTURE`, `SUPPORTIVE_COACH`), adaptive local (unlimited)/cloud (120s) timeouts, real-time STAR evaluation, and post-session debrief scorecards saved to application notes and timeline events.
   - `email_fetcher.py`: Connects to IMAP or OAuth to pull recruitment emails, deduplicating via `message_id`.
