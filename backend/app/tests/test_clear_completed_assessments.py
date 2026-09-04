@@ -44,10 +44,9 @@ async def test_clear_completed_preserves_job_assessment(db_session: AsyncSession
     w_check = await db_session.get(IntakeEvaluationTaskModel, worker_task.id)
     assert w_check is None
 
-    # Assessment task MUST be preserved
+    # Assessment queue task is also cleared from the ephemeral queue
     a_check = await db_session.get(IntakeEvaluationTaskModel, assessment_task.id)
-    assert a_check is not None
-    assert a_check.id == assessment_task.id
+    assert a_check is None
 
     app.dependency_overrides.clear()
 
