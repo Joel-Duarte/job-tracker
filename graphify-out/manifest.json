@@ -1578,9 +1578,9 @@
     "semantic_hash": ""
   },
   "backend/app/tests/test_clear_completed_assessments.py": {
-    "mtime": 1788389844.5643492,
-    "seen": 1788448062.7365773,
-    "ast_hash": "360c017055eb86248a6f69112ae8fbc1",
+    "mtime": 1788551531.235426,
+    "seen": 1788551790.8188837,
+    "ast_hash": "b7de1618c735478332334f9e4111b8ef",
     "semantic_hash": ""
   },
   "backend/app/tests/test_companies_router.py": {
