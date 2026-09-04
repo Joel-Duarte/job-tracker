@@ -11,7 +11,7 @@ class PromptModel(Base):
 
     name: Mapped[str] = mapped_column(
         String(50), primary_key=True
-    )  # 'extraction' or 'summarization'
+    )  # e.g. 'email_extraction', 'jd_extraction'
     template: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

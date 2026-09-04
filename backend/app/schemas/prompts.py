@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class PromptResponse(BaseModel):
     name: str = Field(
-        description="Unique prompt key (e.g., 'extraction', 'summarization')"
+        description="Unique prompt key (e.g., 'email_extraction', 'jd_extraction')"
     )
     template: str = Field(description="The prompt template text")
     updated_at: datetime = Field(

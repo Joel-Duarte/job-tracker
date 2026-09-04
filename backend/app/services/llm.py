@@ -21,7 +21,6 @@ from app.core.prompts import get_prompt_template
 from app.models.applications import ApplicationEmbeddingModel, ApplicationModel
 from app.schemas.candidate_profile import CVAnonymizationResult
 from app.schemas.llm import (
-    ApplicationSummaryResult,
     EmailExtractionResult,
     ExtractedJobSpec,
     JobAssessmentResult,
@@ -807,34 +806,6 @@ async def anonymize_and_parse_cv(
     if isinstance(result, CVAnonymizationResult):
         return result
     return CVAnonymizationResult.model_validate(result)
-
-
-async def summarize_application_status(
-    db: AsyncSession, events_timeline: list[dict[str, Any]]
-) -> ApplicationSummaryResult:
-    """Synthesizes a narrative status snapshot from timeline events using LangChain SUMMARIZATION model."""
-    llm = await get_task_chat_model(db, task_type="SUMMARIZATION", temperature=0.1)
-    structured_llm = llm.with_structured_output(
-        ApplicationSummaryResult, method="json_schema"
-    )
-    events_str = json.dumps(events_timeline, indent=2)
-    template_str = await get_prompt_template(db, "summarization")
-
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", "You summarize job application timelines for embeddings."),
-            ("human", template_str),
-        ]
-    )
-
-    chain = prompt | structured_llm
-    result = await chain.ainvoke(
-        {"events_str": events_str},
-        config={"callbacks": [PostgresTracer()]},
-    )
-    if isinstance(result, ApplicationSummaryResult):
-        return result
-    return ApplicationSummaryResult.model_validate(result)
 
 
 async def generate_embedding(

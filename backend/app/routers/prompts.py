@@ -40,7 +40,7 @@ async def list_prompts(db: AsyncSession = Depends(get_db)):
 
 @router.get("/{name}", response_model=PromptResponse)
 async def get_prompt(name: str, db: AsyncSession = Depends(get_db)):
-    """Fetch a specific prompt template by name ('extraction' or 'summarization')."""
+    """Fetch a specific prompt template by name (e.g., 'email_extraction', 'jd_extraction')."""
     if name not in DEFAULT_PROMPTS:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

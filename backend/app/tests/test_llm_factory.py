@@ -15,14 +15,12 @@ from app.core.prompts import seed_default_prompts
 from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.models.llm import LLMConfigModel
 from app.schemas.llm import (
-    ApplicationSummaryResult,
     EmailExtractionResult,
     ExtractedJobSpec,
 )
 from app.services.llm import (
     extract_email_info,
     extract_job_spec,
-    summarize_application_status,
 )
 
 
@@ -175,29 +173,6 @@ async def test_extract_job_spec_runnable(db_session: AsyncSession):
         assert res.company == "Stripe"
         assert res.position == "Senior Staff Backend Engineer"
         assert "Kafka" in res.extracted_skills
-
-
-@pytest.mark.asyncio
-async def test_summarize_application_status_runnable(db_session: AsyncSession):
-    await seed_default_prompts(db_session)
-
-    mock_summary = ApplicationSummaryResult(
-        snapshot="Applied on July 20. Interview scheduled for July 25.",
-        current_stage="INTERVIEW",
-        next_action="Prepare for interview",
-    )
-
-    with patch("app.services.llm.get_task_chat_model") as mock_get_chat:
-        mock_llm = MagicMock()
-        mock_llm.with_structured_output.return_value = RunnableLambda(
-            AsyncMock(return_value=mock_summary)
-        )
-        mock_get_chat.return_value = mock_llm
-
-        timeline = [{"event_type": "INTERVIEW_INVITE", "date": "2026-07-25"}]
-        res = await summarize_application_status(db_session, timeline)
-        assert res.current_stage == "INTERVIEW"
-        assert "Interview scheduled" in res.snapshot
 
 
 @pytest.mark.asyncio
