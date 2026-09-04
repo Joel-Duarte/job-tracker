@@ -84,9 +84,9 @@
     "semantic_hash": ""
   },
   "backend/app/core/prompts.py": {
-    "mtime": 1788473133.0020747,
-    "seen": 1788475014.337578,
-    "ast_hash": "72f4c1d96235b83697291cbe09d14724",
+    "mtime": 1788549941.5615716,
+    "seen": 1788550174.1864378,
+    "ast_hash": "47e978c12b794e5bd64692e96c7d20a0",
     "semantic_hash": ""
   },
   "backend/app/core/security.py": {
@@ -264,9 +264,9 @@
     "semantic_hash": ""
   },
   "backend/app/routers/intake.py": {
-    "mtime": 1788473913.90769,
-    "seen": 1788475014.3376372,
-    "ast_hash": "83e0d81d7161c36a74a211d10ab896ba",
+    "mtime": 1788550052.2963388,
+    "seen": 1788550174.1865005,
+    "ast_hash": "730ca6399129b87dc8dd712d8a781d26",
     "semantic_hash": ""
   },
   "backend/app/routers/interview_simulator.py": {
@@ -432,10 +432,10 @@
     "semantic_hash": ""
   },
   "backend/app/services/domain_resolver.py": {
-    "mtime": 1787077797.728181,
-    "seen": 1787875053.7692337,
-    "ast_hash": "d0ca35c2c05df0649415720339c4b178",
-    "semantic_hash": "d0ca35c2c05df0649415720339c4b178"
+    "mtime": 1788550052.2943387,
+    "seen": 1788550174.1865683,
+    "ast_hash": "d3dcdbd25d7177fdbc7c22007b466890",
+    "semantic_hash": ""
   },
   "backend/app/services/email_fetcher.py": {
     "mtime": 1787602065.4832196,
@@ -492,15 +492,15 @@
     "semantic_hash": ""
   },
   "backend/app/services/job_saver.py": {
-    "mtime": 1788443416.644032,
-    "seen": 1788448062.7365491,
-    "ast_hash": "c0c83ee2cf486e1979a219f1b38932a1",
+    "mtime": 1788550052.2953389,
+    "seen": 1788550174.1865869,
+    "ast_hash": "d9cf658695f49e1958f4004ad81d9e70",
     "semantic_hash": ""
   },
   "backend/app/services/llm.py": {
-    "mtime": 1788470465.0193965,
-    "seen": 1788470648.6298604,
-    "ast_hash": "f759f21cd0b72835fa971ac455a3510e",
+    "mtime": 1788550003.4702063,
+    "seen": 1788550174.1865885,
+    "ast_hash": "ae8d4b4152e3d6b36ba2172af554f3f6",
     "semantic_hash": ""
   },
   "backend/app/services/matcher.py": {
@@ -660,10 +660,10 @@
     "semantic_hash": ""
   },
   "backend/app/tests/test_domain_resolver.py": {
-    "mtime": 1787159120.2993531,
-    "seen": 1787875053.7692955,
-    "ast_hash": "d37fb2b8340b97de113300510268f1be",
-    "semantic_hash": "d37fb2b8340b97de113300510268f1be"
+    "mtime": 1788550052.2943387,
+    "seen": 1788550174.1866632,
+    "ast_hash": "e76a7f1909be44ded939165c8549ac00",
+    "semantic_hash": ""
   },
   "backend/app/tests/test_email_accounts.py": {
     "mtime": 1787516557.2349186,
@@ -1554,9 +1554,9 @@
     "semantic_hash": ""
   },
   "backend/app/services/company_research.py": {
-    "mtime": 1788473102.0082786,
-    "seen": 1788475014.3376946,
-    "ast_hash": "99aa02b6dafdf1dce841bfe6d1ea3540",
+    "mtime": 1788550031.8631203,
+    "seen": 1788550174.1865642,
+    "ast_hash": "a43cebc5ce34a9a7bf5bf7c2a8ffe7c2",
     "semantic_hash": ""
   },
   "backend/app/services/company_resolver.py": {
@@ -1635,6 +1635,18 @@
     "mtime": 1788469627.1042247,
     "seen": 1788470648.629983,
     "ast_hash": "754618e304130fdbb04c8d4ff9cce3f6",
+    "semantic_hash": ""
+  },
+  "backend/app/services/about_resolver.py": {
+    "mtime": 1788550052.2943387,
+    "seen": 1788550174.1865585,
+    "ast_hash": "62379e06e60a8997ebd615de64b84763",
+    "semantic_hash": ""
+  },
+  "backend/app/tests/test_about_resolver.py": {
+    "mtime": 1788550052.2943387,
+    "seen": 1788550174.1866233,
+    "ast_hash": "4b6f62d6b0801e50caa37ef43715caa7",
     "semantic_hash": ""
   }
 }
