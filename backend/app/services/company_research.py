@@ -440,12 +440,26 @@ async def research_company_context(
 
     # 3. Seed research with corporate homepage & about page scraping (leading first-party evidence)
     seed_urls: list[str] = []
-    if about_url:
-        seed_urls.append(about_url)
-    elif resolved_domain and "." in resolved_domain:
+    discovered_about_url = about_url
+
+    if resolved_domain and "." in resolved_domain:
         clean_dom = resolved_domain.lower().strip()
         seed_urls.append(f"https://{clean_dom}")
-        seed_urls.append(f"https://{clean_dom}/about")
+
+        if not discovered_about_url:
+            from app.services.about_resolver import resolve_company_about_url
+
+            try:
+                discovered_about_url = await resolve_company_about_url(clean_dom, db=db)
+            except Exception as res_err:
+                logger.debug(
+                    "Dynamic about URL resolution failed for %s: %s", clean_dom, res_err
+                )
+
+        if discovered_about_url and discovered_about_url not in seed_urls:
+            seed_urls.append(discovered_about_url)
+    elif about_url:
+        seed_urls.append(about_url)
 
     for s_url in seed_urls:
         try:
@@ -647,11 +661,17 @@ async def research_company_context(
             data["profile_links"] = _normalise_profile_links(data.get("profile_links"))
 
             data["researched_at"] = datetime.now(UTC).isoformat()
+            if discovered_about_url:
+                data["about_url"] = discovered_about_url
             if not data.get("sources"):
                 data["sources"] = [s.get("url") for s in snippets if s.get("url")]
+            elif discovered_about_url and discovered_about_url not in data["sources"]:
+                data["sources"].insert(0, discovered_about_url)
 
             # 9. Persist to CompanyModel
             if company_rec and db is not None:
+                if discovered_about_url and not company_rec.about_url:
+                    company_rec.about_url = discovered_about_url
                 company_rec.company_research = data
                 company_rec.researched_at = datetime.now(UTC)
                 company_rec.research_status = "COMPLETED"

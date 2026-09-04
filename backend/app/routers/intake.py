@@ -534,13 +534,31 @@ async def confirm_job_assessment(
     now = datetime.now(UTC)
 
     # 1. Company
+    from app.services.domain_resolver import (
+        clean_company_name,
+        extract_organization_from_ats_url,
+    )
+
+    clean_name = clean_company_name(payload.company.strip())
+    if not clean_name or clean_name.lower() in {
+        "unknown",
+        "careers",
+        "team",
+        "engineering",
+        "not specified",
+    }:
+        ats_slug = extract_organization_from_ats_url(clean_job_url)
+        if ats_slug:
+            clean_name = ats_slug.title()
+
     resolved_domain = await resolve_company_domain(
-        company_name=payload.company.strip(),
+        company_name=clean_name or payload.company.strip(),
         source_url=clean_job_url,
+        db=db,
     )
     company, _ = await resolve_or_create_company(
         db=db,
-        company_name=payload.company.strip(),
+        company_name=clean_name or payload.company.strip(),
         domain=resolved_domain,
     )
 

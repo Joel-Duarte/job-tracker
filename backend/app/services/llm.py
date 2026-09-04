@@ -125,6 +125,11 @@ async def extract_job_spec(
         if not isinstance(result, ExtractedJobSpec):
             result = ExtractedJobSpec.model_validate(result)
 
+        from app.services.domain_resolver import clean_company_name
+
+        if result.company:
+            result.company = clean_company_name(result.company)
+
         trace_ctx["outputs"] = {
             "job_found": result.job_found,
             "company": result.company,

@@ -80,9 +80,15 @@ async def test_resolve_company_domain_direct_url():
 
 @pytest.mark.asyncio
 async def test_resolve_company_domain_clearbit_fallback():
-    with patch(
-        "app.services.domain_resolver.query_clearbit_autocomplete",
-        new=AsyncMock(return_value="segment.com"),
+    with (
+        patch(
+            "app.services.domain_resolver.search_company_domain_and_about",
+            new=AsyncMock(return_value=(None, None)),
+        ),
+        patch(
+            "app.services.domain_resolver.query_clearbit_autocomplete",
+            new=AsyncMock(return_value="segment.com"),
+        ),
     ):
         domain = await resolve_company_domain(
             company_name="Segment",
@@ -91,3 +97,71 @@ async def test_resolve_company_domain_clearbit_fallback():
             allow_network=True,
         )
         assert domain == "segment.com"
+
+
+def test_clean_company_name():
+    from app.services.domain_resolver import clean_company_name
+
+    assert clean_company_name("Stripe, Inc.") == "Stripe"
+    assert clean_company_name("Acme LLC") == "Acme"
+    assert clean_company_name("Linear - Careers") == "Linear"
+    assert clean_company_name("Datadog Jobs") == "Datadog"
+    assert clean_company_name("  'Figma'  ") == "Figma"
+    assert clean_company_name("TechCorp GmbH") == "TechCorp"
+    assert clean_company_name(None) == ""
+
+
+def test_extract_organization_from_ats_url():
+    from app.services.domain_resolver import extract_organization_from_ats_url
+
+    assert (
+        extract_organization_from_ats_url(
+            "https://boards.greenhouse.io/stripe/jobs/123"
+        )
+        == "stripe"
+    )
+    assert (
+        extract_organization_from_ats_url("https://jobs.lever.co/linear/456")
+        == "linear"
+    )
+    assert (
+        extract_organization_from_ats_url("https://jobs.ashbyhq.com/figma/789")
+        == "figma"
+    )
+    assert (
+        extract_organization_from_ats_url("https://apply.workable.com/vercel/j/ABC/")
+        == "vercel"
+    )
+    assert (
+        extract_organization_from_ats_url("https://datadog.bamboohr.com/careers/10")
+        == "datadog"
+    )
+    assert (
+        extract_organization_from_ats_url("https://warp.rippling-ats.com/job/10")
+        == "warp"
+    )
+    assert extract_organization_from_ats_url("https://stripe.com/jobs/123") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_company_domain_searches_and_ignores_hallucinated_ai():
+    # ATS job with hallucinated ai_domain should search and return the authentic .com domain
+    mock_search_results = [
+        {
+            "title": "LinkedIn: Jobs at Acme",
+            "url": "https://www.linkedin.com/jobs/acme",
+        },
+        {"title": "Acme - Official Site", "url": "https://www.acme-corp.com/home"},
+        {"title": "Acme About Page", "url": "https://www.acme-corp.com/about-us"},
+    ]
+    with patch(
+        "app.services.web_search.search_web",
+        new=AsyncMock(return_value=mock_search_results),
+    ):
+        domain = await resolve_company_domain(
+            company_name="Acme Corp, Inc.",
+            source_url="https://boards.greenhouse.io/acme/jobs/999",
+            ai_domain="acme.ai",  # Hallucinated by LLM
+            allow_network=True,
+        )
+        assert domain == "acme-corp.com"

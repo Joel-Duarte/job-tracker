@@ -177,15 +177,33 @@ async def persist_or_stage_job_assessment(
             }
 
     # 2. Find or Create Company
+    from app.services.domain_resolver import (
+        clean_company_name,
+        extract_organization_from_ats_url,
+    )
+
+    clean_name = clean_company_name(company_name)
+    if not clean_name or clean_name.lower() in {
+        "unknown",
+        "careers",
+        "team",
+        "engineering",
+        "not specified",
+    }:
+        ats_slug = extract_organization_from_ats_url(clean_url)
+        if ats_slug:
+            clean_name = ats_slug.title()
+
     resolved_domain = await resolve_company_domain(
-        company_name=company_name,
+        company_name=clean_name or company_name,
         source_url=clean_url,
         ai_domain=assessment.company_url,
+        db=db,
     )
 
     company, _ = await resolve_or_create_company(
         db=db,
-        company_name=company_name,
+        company_name=clean_name or company_name,
         domain=resolved_domain,
     )
 
