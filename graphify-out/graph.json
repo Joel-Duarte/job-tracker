@@ -311,7 +311,7 @@
       "file_type": "code",
       "norm_label": "rolealignmentdossierresponse",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L196"
+      "source_location": "L199"
     },
     {
       "id": "backend_app_schemas_analytics_rolealignmentenhanceresponse",
@@ -324,7 +324,7 @@
       "file_type": "code",
       "norm_label": "rolealignmentenhanceresponse",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L210"
+      "source_location": "L213"
     },
     {
       "id": "backend_app_models_email_accounts_emailaccountmodel",
@@ -2560,7 +2560,7 @@
       "file_type": "code",
       "norm_label": "analyticsoverviewresponse",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L55"
+      "source_location": "L58"
     },
     {
       "id": "backend_app_schemas_analytics_bulletreframeitem",
@@ -2573,7 +2573,7 @@
       "file_type": "code",
       "norm_label": "bulletreframeitem",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L121"
+      "source_location": "L124"
     },
     {
       "id": "backend_app_schemas_analytics_bulletrewriteitem",
@@ -2586,7 +2586,7 @@
       "file_type": "code",
       "norm_label": "bulletrewriteitem",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L159"
+      "source_location": "L162"
     },
     {
       "id": "backend_app_schemas_analytics_executivetrackfit",
@@ -2599,7 +2599,7 @@
       "file_type": "code",
       "norm_label": "executivetrackfit",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L148"
+      "source_location": "L151"
     },
     {
       "id": "backend_app_schemas_analytics_funnelchartstage",
@@ -2612,7 +2612,7 @@
       "file_type": "code",
       "norm_label": "funnelchartstage",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L80"
+      "source_location": "L83"
     },
     {
       "id": "backend_app_schemas_analytics_funnelcohortperiod",
@@ -2625,7 +2625,7 @@
       "file_type": "code",
       "norm_label": "funnelcohortperiod",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L87"
+      "source_location": "L90"
     },
     {
       "id": "backend_app_schemas_analytics_funnelkpicard",
@@ -2638,7 +2638,7 @@
       "file_type": "code",
       "norm_label": "funnelkpicard",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L70"
+      "source_location": "L73"
     },
     {
       "id": "backend_app_schemas_analytics_funnelmetricsresponse",
@@ -2651,7 +2651,7 @@
       "file_type": "code",
       "norm_label": "funnelmetricsresponse",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L102"
+      "source_location": "L105"
     },
     {
       "id": "backend_app_schemas_analytics_funnelstageitem",
@@ -2677,7 +2677,7 @@
       "file_type": "code",
       "norm_label": "interviewtalkingpointitem",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L168"
+      "source_location": "L171"
     },
     {
       "id": "backend_app_schemas_analytics_rolealignmentdossierpayload",
@@ -2690,7 +2690,7 @@
       "file_type": "code",
       "norm_label": "rolealignmentdossierpayload",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L187"
+      "source_location": "L190"
     },
     {
       "id": "backend_app_schemas_analytics_rolealignmentresponse",
@@ -2703,7 +2703,7 @@
       "file_type": "code",
       "norm_label": "rolealignmentresponse",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L138"
+      "source_location": "L141"
     },
     {
       "id": "backend_app_schemas_analytics_roletrackcluster",
@@ -2716,7 +2716,7 @@
       "file_type": "code",
       "norm_label": "roletrackcluster",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L130"
+      "source_location": "L133"
     },
     {
       "id": "backend_app_schemas_analytics_salaryinsightitem",
@@ -2729,7 +2729,7 @@
       "file_type": "code",
       "norm_label": "salaryinsightitem",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L45"
+      "source_location": "L48"
     },
     {
       "id": "backend_app_schemas_analytics_skillbridgeitem",
@@ -2742,7 +2742,7 @@
       "file_type": "code",
       "norm_label": "skillbridgeitem",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L177"
+      "source_location": "L180"
     },
     {
       "id": "backend_app_schemas_analytics_skilldemanditem",
@@ -2781,7 +2781,7 @@
       "file_type": "code",
       "norm_label": "vocabularyshiftitem",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L111"
+      "source_location": "L114"
     },
     {
       "id": "backend_app_schemas_analytics_workmodelbreakdown",
@@ -2794,7 +2794,7 @@
       "file_type": "code",
       "norm_label": "workmodelbreakdown",
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L36"
+      "source_location": "L39"
     },
     {
       "id": "frontend_src_views_settingsview_applyrateguidepreset",
@@ -17902,7 +17902,7 @@
       "file_type": "code",
       "norm_label": "test_get_funnel_performance_metrics_unit()",
       "source_file": "backend/app/tests/test_analytics_unit.py",
-      "source_location": "L163"
+      "source_location": "L166"
     },
     {
       "id": "backend_app_tests_test_analytics_unit_test_get_role_alignment_unit",
@@ -17914,7 +17914,7 @@
       "file_type": "code",
       "norm_label": "test_get_role_alignment_unit()",
       "source_file": "backend/app/tests/test_analytics_unit.py",
-      "source_location": "L189"
+      "source_location": "L192"
     },
     {
       "id": "backend_app_tests_test_analytics_unit_test_pipeline_funnel_active_and_dropped_unit",
@@ -19654,7 +19654,7 @@
       "file_type": "code",
       "norm_label": "classify_position_to_track()",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L763"
+      "source_location": "L775"
     },
     {
       "id": "backend_app_services_analytics_get_analytics_overview",
@@ -19702,7 +19702,7 @@
       "file_type": "code",
       "norm_label": "get_funnel_performance_metrics()",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L477"
+      "source_location": "L489"
     },
     {
       "id": "backend_app_services_analytics_get_role_alignment",
@@ -19714,7 +19714,7 @@
       "file_type": "code",
       "norm_label": "get_role_alignment()",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L817"
+      "source_location": "L829"
     },
     {
       "id": "backend_app_services_analytics_get_role_alignment_fingerprint",
@@ -27142,7 +27142,7 @@
       "file_type": "code",
       "norm_label": "maxcohortvolume",
       "source_file": "frontend/src/views/AnalyticsView.vue",
-      "source_location": "L514"
+      "source_location": "L625"
     },
     {
       "id": "frontend_src_views_analyticsview_maxgapscore",
@@ -39757,7 +39757,7 @@
       "source_location": "L45"
     },
     {
-      "id": "backend_app_services_analytics_rationale_483",
+      "id": "backend_app_services_analytics_rationale_495",
       "label": "Aggregates intake leads, applications, interviews, and offers by cohort periods\u2026",
       "_origin": "ast",
       "community": 97,
@@ -39765,7 +39765,7 @@
       "file_type": "rationale",
       "norm_label": "aggregates intake leads, applications, interviews, and offers by cohort periods...",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L483"
+      "source_location": "L495"
     },
     {
       "id": "backend_app_services_analytics_rationale_61",
@@ -39790,7 +39790,7 @@
       "source_location": "L77"
     },
     {
-      "id": "backend_app_services_analytics_rationale_823",
+      "id": "backend_app_services_analytics_rationale_835",
       "label": "Aggregates vocabulary translations, ATS keyword shifts, bullet-point\u2026",
       "_origin": "ast",
       "community": 97,
@@ -39798,7 +39798,7 @@
       "file_type": "rationale",
       "norm_label": "aggregates vocabulary translations, ats keyword shifts, bullet-point...",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L823"
+      "source_location": "L835"
     },
     {
       "id": "backend_app_tests_test_analytics_unit_py_asyncio",
@@ -43794,7 +43794,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L386",
+      "source_location": "L395",
       "weight": 1.0
     },
     {
@@ -43806,7 +43806,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L398",
+      "source_location": "L407",
       "weight": 1.0
     },
     {
@@ -43818,7 +43818,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L420",
+      "source_location": "L429",
       "weight": 1.0
     },
     {
@@ -43830,7 +43830,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L442",
+      "source_location": "L451",
       "weight": 1.0
     },
     {
@@ -43842,7 +43842,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L453",
+      "source_location": "L465",
       "weight": 1.0
     },
     {
@@ -43854,7 +43854,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L460",
+      "source_location": "L472",
       "weight": 1.0
     },
     {
@@ -43866,7 +43866,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L493",
+      "source_location": "L505",
       "weight": 1.0
     },
     {
@@ -43878,7 +43878,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L676",
+      "source_location": "L688",
       "weight": 1.0
     },
     {
@@ -43890,7 +43890,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L682",
+      "source_location": "L694",
       "weight": 1.0
     },
     {
@@ -43902,7 +43902,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L711",
+      "source_location": "L723",
       "weight": 1.0
     },
     {
@@ -43914,55 +43914,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L740",
-      "weight": 1.0
-    },
-    {
-      "source": "backend_app_services_analytics_get_role_alignment",
-      "target": "backend_app_services_analytics_get_role_alignment_fingerprint",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "call",
-      "source_file": "backend/app/services/analytics.py",
-      "source_location": "L831",
-      "weight": 1.0
-    },
-    {
-      "source": "backend_app_services_analytics_get_role_alignment",
-      "target": "backend_app_services_analytics_classify_position_to_track",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "call",
-      "source_file": "backend/app/services/analytics.py",
-      "source_location": "L851",
-      "weight": 1.0
-    },
-    {
-      "source": "backend_app_services_analytics_get_role_alignment",
-      "target": "backend_app_schemas_analytics_roletrackcluster",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "call",
-      "source_file": "backend/app/services/analytics.py",
-      "source_location": "L856",
-      "weight": 1.0
-    },
-    {
-      "source": "backend_app_services_analytics_get_role_alignment",
-      "target": "backend_app_schemas_analytics_vocabularyshiftitem",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "call",
-      "source_file": "backend/app/services/analytics.py",
-      "source_location": "L969",
+      "source_location": "L752",
       "weight": 1.0
     },
     {
@@ -43974,7 +43926,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L991",
+      "source_location": "L1003",
       "weight": 1.0
     },
     {
@@ -43986,7 +43938,55 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L999",
+      "source_location": "L1011",
+      "weight": 1.0
+    },
+    {
+      "source": "backend_app_services_analytics_get_role_alignment",
+      "target": "backend_app_services_analytics_get_role_alignment_fingerprint",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "backend/app/services/analytics.py",
+      "source_location": "L843",
+      "weight": 1.0
+    },
+    {
+      "source": "backend_app_services_analytics_get_role_alignment",
+      "target": "backend_app_services_analytics_classify_position_to_track",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "backend/app/services/analytics.py",
+      "source_location": "L863",
+      "weight": 1.0
+    },
+    {
+      "source": "backend_app_services_analytics_get_role_alignment",
+      "target": "backend_app_schemas_analytics_roletrackcluster",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "backend/app/services/analytics.py",
+      "source_location": "L868",
+      "weight": 1.0
+    },
+    {
+      "source": "backend_app_services_analytics_get_role_alignment",
+      "target": "backend_app_schemas_analytics_vocabularyshiftitem",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "backend/app/services/analytics.py",
+      "source_location": "L981",
       "weight": 1.0
     },
     {
@@ -46482,7 +46482,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/tests/test_analytics_unit.py",
-      "source_location": "L178",
+      "source_location": "L181",
       "weight": 1.0
     },
     {
@@ -46494,7 +46494,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "backend/app/tests/test_analytics_unit.py",
-      "source_location": "L234",
+      "source_location": "L237",
       "weight": 1.0
     },
     {
@@ -55866,7 +55866,7 @@
       "confidence_score": 1.0,
       "context": "decorator",
       "source_file": "backend/app/tests/test_analytics_unit.py",
-      "source_location": "L162",
+      "source_location": "L165",
       "weight": 1.0
     },
     {
@@ -55878,7 +55878,7 @@
       "confidence_score": 1.0,
       "context": "decorator",
       "source_file": "backend/app/tests/test_analytics_unit.py",
-      "source_location": "L188",
+      "source_location": "L191",
       "weight": 1.0
     },
     {
@@ -62058,7 +62058,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "backend/app/tests/test_analytics_unit.py",
-      "source_location": "L232",
+      "source_location": "L235",
       "weight": 1.0
     },
     {
@@ -72762,7 +72762,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L477",
+      "source_location": "L489",
       "weight": 1.0
     },
     {
@@ -72774,7 +72774,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L817",
+      "source_location": "L829",
       "weight": 1.0
     },
     {
@@ -79671,7 +79671,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L102",
+      "source_location": "L105",
       "weight": 1.0
     },
     {
@@ -79682,7 +79682,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L111",
+      "source_location": "L114",
       "weight": 1.0
     },
     {
@@ -79693,7 +79693,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L121",
+      "source_location": "L124",
       "weight": 1.0
     },
     {
@@ -79704,7 +79704,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L130",
+      "source_location": "L133",
       "weight": 1.0
     },
     {
@@ -79715,18 +79715,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L138",
-      "weight": 1.0
-    },
-    {
-      "source": "backend_app_schemas_analytics",
-      "target": "backend_app_schemas_analytics_executivetrackfit",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L148",
+      "source_location": "L141",
       "weight": 1.0
     },
     {
@@ -79742,13 +79731,24 @@
     },
     {
       "source": "backend_app_schemas_analytics",
+      "target": "backend_app_schemas_analytics_executivetrackfit",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "backend/app/schemas/analytics.py",
+      "source_location": "L151",
+      "weight": 1.0
+    },
+    {
+      "source": "backend_app_schemas_analytics",
       "target": "backend_app_schemas_analytics_bulletrewriteitem",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L159",
+      "source_location": "L162",
       "weight": 1.0
     },
     {
@@ -79759,7 +79759,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L168",
+      "source_location": "L171",
       "weight": 1.0
     },
     {
@@ -79770,7 +79770,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L177",
+      "source_location": "L180",
       "weight": 1.0
     },
     {
@@ -79781,7 +79781,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L187",
+      "source_location": "L190",
       "weight": 1.0
     },
     {
@@ -79792,7 +79792,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L196",
+      "source_location": "L199",
       "weight": 1.0
     },
     {
@@ -79803,7 +79803,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L210",
+      "source_location": "L213",
       "weight": 1.0
     },
     {
@@ -79825,7 +79825,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L36",
+      "source_location": "L39",
       "weight": 1.0
     },
     {
@@ -79847,7 +79847,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L45",
+      "source_location": "L48",
       "weight": 1.0
     },
     {
@@ -79858,7 +79858,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L55",
+      "source_location": "L58",
       "weight": 1.0
     },
     {
@@ -79869,7 +79869,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L70",
+      "source_location": "L73",
       "weight": 1.0
     },
     {
@@ -79880,7 +79880,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L80",
+      "source_location": "L83",
       "weight": 1.0
     },
     {
@@ -79891,7 +79891,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L87",
+      "source_location": "L90",
       "weight": 1.0
     },
     {
@@ -81222,7 +81222,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L477",
+      "source_location": "L489",
       "weight": 1.0
     },
     {
@@ -81255,7 +81255,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L763",
+      "source_location": "L775",
       "weight": 1.0
     },
     {
@@ -81266,7 +81266,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L817",
+      "source_location": "L829",
       "weight": 1.0
     },
     {
@@ -83378,7 +83378,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/tests/test_analytics_unit.py",
-      "source_location": "L163",
+      "source_location": "L166",
       "weight": 1.0
     },
     {
@@ -83389,7 +83389,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/tests/test_analytics_unit.py",
-      "source_location": "L189",
+      "source_location": "L192",
       "weight": 1.0
     },
     {
@@ -95450,17 +95450,6 @@
     },
     {
       "source": "frontend_src_views_analyticsview",
-      "target": "frontend_src_views_analyticsview_maxcohortvolume",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "frontend/src/views/AnalyticsView.vue",
-      "source_location": "L514",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_views_analyticsview",
       "target": "frontend_src_views_analyticsview_selectedtrackkey",
       "relation": "contains",
       "_origin": "ast",
@@ -95512,6 +95501,17 @@
       "confidence_score": 1.0,
       "source_file": "frontend/src/views/AnalyticsView.vue",
       "source_location": "L62",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_views_analyticsview",
+      "target": "frontend_src_views_analyticsview_maxcohortvolume",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/src/views/AnalyticsView.vue",
+      "source_location": "L625",
       "weight": 1.0
     },
     {
@@ -103068,7 +103068,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L55",
+      "source_location": "L58",
       "weight": 1.0
     },
     {
@@ -103079,7 +103079,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L121",
+      "source_location": "L124",
       "weight": 1.0
     },
     {
@@ -103090,7 +103090,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L159",
+      "source_location": "L162",
       "weight": 1.0
     },
     {
@@ -103101,7 +103101,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L148",
+      "source_location": "L151",
       "weight": 1.0
     },
     {
@@ -103112,7 +103112,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L80",
+      "source_location": "L83",
       "weight": 1.0
     },
     {
@@ -103123,7 +103123,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L87",
+      "source_location": "L90",
       "weight": 1.0
     },
     {
@@ -103134,7 +103134,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L70",
+      "source_location": "L73",
       "weight": 1.0
     },
     {
@@ -103145,7 +103145,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L102",
+      "source_location": "L105",
       "weight": 1.0
     },
     {
@@ -103167,7 +103167,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L168",
+      "source_location": "L171",
       "weight": 1.0
     },
     {
@@ -103178,7 +103178,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L187",
+      "source_location": "L190",
       "weight": 1.0
     },
     {
@@ -103189,7 +103189,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L196",
+      "source_location": "L199",
       "weight": 1.0
     },
     {
@@ -103200,7 +103200,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L210",
+      "source_location": "L213",
       "weight": 1.0
     },
     {
@@ -103211,7 +103211,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L138",
+      "source_location": "L141",
       "weight": 1.0
     },
     {
@@ -103222,7 +103222,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L130",
+      "source_location": "L133",
       "weight": 1.0
     },
     {
@@ -103233,7 +103233,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L45",
+      "source_location": "L48",
       "weight": 1.0
     },
     {
@@ -103244,7 +103244,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L177",
+      "source_location": "L180",
       "weight": 1.0
     },
     {
@@ -103277,7 +103277,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L111",
+      "source_location": "L114",
       "weight": 1.0
     },
     {
@@ -103288,7 +103288,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/schemas/analytics.py",
-      "source_location": "L36",
+      "source_location": "L39",
       "weight": 1.0
     },
     {
@@ -106944,14 +106944,14 @@
       "weight": 1.0
     },
     {
-      "source": "backend_app_services_analytics_rationale_483",
+      "source": "backend_app_services_analytics_rationale_495",
       "target": "backend_app_services_analytics_get_funnel_performance_metrics",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L483",
+      "source_location": "L495",
       "weight": 1.0
     },
     {
@@ -106977,14 +106977,14 @@
       "weight": 1.0
     },
     {
-      "source": "backend_app_services_analytics_rationale_823",
+      "source": "backend_app_services_analytics_rationale_835",
       "target": "backend_app_services_analytics_get_role_alignment",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L823",
+      "source_location": "L835",
       "weight": 1.0
     },
     {
@@ -110947,7 +110947,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/services/analytics.py",
-      "source_location": "L278",
+      "source_location": "L287",
       "weight": 1.0
     },
     {
@@ -112399,7 +112399,7 @@
       "confidence_score": 0.85,
       "context": "call",
       "source_file": "backend/app/tests/test_analytics_unit.py",
-      "source_location": "L218",
+      "source_location": "L221",
       "weight": 1.0
     },
     {
@@ -118560,5 +118560,5 @@
       "source_file": "extension/README.md"
     }
   ],
-  "built_at_commit": "6b6e331bebc8cec1dc8ead3ea3858b445b6d6855"
+  "built_at_commit": "f2faaef4c35ef0519e5be0e640aad1420b622400"
 }

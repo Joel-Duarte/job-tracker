@@ -1,7 +1,7 @@
 # Graph Report - job-tracker  (2026-09-06)
 
 ## Corpus Check
-- 259 files · ~326,339 words
+- 259 files · ~327,201 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `6b6e331b`
+- Built from commit: `f2faaef4`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -251,10 +251,10 @@
 ## Surprising Connections (you probably didn't know these)
 - `Root Pre-Commit Configuration` --semantically_similar_to--> `Backend Pre-Commit Configuration`  [INFERRED] [semantically similar]
   .pre-commit-config.yaml → backend/.pre-commit-config.yaml
-- `useQueueStore` --indirect_call--> `enqueueAssessment()`  [INFERRED]
-  frontend/src/stores/queueStore.js → extension/utils/api.js
 - `seed()` --uses--> `IntakeEvaluationTaskModel`  [INFERRED]
   seed_db.py → backend/app/models/intake_tasks.py
+- `useQueueStore` --indirect_call--> `enqueueAssessment()`  [INFERRED]
+  frontend/src/stores/queueStore.js → extension/utils/api.js
 - `Dependabot Configuration` --references--> `Vue 3 Frontend SPA`  [INFERRED]
   .github/dependabot.yml → README.md
 - `Deploy Frontend to GitHub Pages Workflow` --references--> `Vue 3 Frontend SPA`  [INFERRED]
@@ -821,7 +821,7 @@ Cohesion: 0.67
 Nodes (3): get_funnel_metrics(), AsyncSession, get
 
 ## Knowledge Gaps
-- **827 isolated node(s):** `router`, `uiStore`, `appStore`, `queueStore`, `activeTab` (+822 more)
+- **827 isolated node(s):** `uiStore`, `analyticsStore`, `activeTab`, `alignmentSubTab`, `selectedTrackKey` (+822 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **83 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -829,16 +829,16 @@ Nodes (3): get_funnel_metrics(), AsyncSession, get
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `useUIStore` connect `uiStore.js` to `SettingsView.vue`, `ApplicationDetailDrawer.vue`, `OnboardingWizardModal.vue`, `ApplicationQuestionModal.vue`, `ApplicationsView.vue`, `demoStorage.js`, `AgentChatView.vue`, `QueueView.vue`, `StagingView.vue`, `CompanyDetailDrawer.vue`, `AssessmentsView.vue`, `AnalyticsView.vue`, `CandidateProfileView.vue`, `JobIntakeView.vue`, `EmailAccountsSettings.vue`, `FloatingQueueWidget.vue`, `ActionItemsView.vue`, `CoverLetterModal.vue`, `AppNavbar.vue`, `IngestModal.vue`, `MatchAnalysisModal.vue`, `JobIntakeModal.vue`, `SearchView.vue`, `CompaniesView.vue`, `LogActivityModal.vue`, `InterviewReaderModal.vue`, `endpoints.js`?**
-  _High betweenness centrality (0.039) - this node is a cross-community bridge._
+  _High betweenness centrality (0.041) - this node is a cross-community bridge._
 - **Why does `ApplicationModel` connect `ApplicationModel` to `InterviewSimulatorService`, `services/agent_tools.py`, `main.py`, `persist_or_stage_job_assessment`, `normalize_job_url`, `datetime`, `ActionItemModel`, `load_settings`, `resolve_or_create_company`, `process_evaluation_task`, `ApplicationEventModel`, `ExtractedEmailInfo`, `test_ai_config.py`, `StagingItemModel`, `JobPostingModel`, `test_analytics.py`, `generate_and_save_application_embedding`, `section_generator_node`, `seed_development_dataset`?**
-  _High betweenness centrality (0.033) - this node is a cross-community bridge._
-- **Why does `CompanyModel` connect `ApplicationModel` to `test_analytics.py`, `InterviewSimulatorService`, `services/agent_tools.py`, `process_evaluation_task`, `main.py`, `ApplicationEventModel`, `section_generator_node`, `normalize_job_url`, `seed_development_dataset`, `ExtractedEmailInfo`, `test_ai_config.py`, `datetime`, `JobPostingModel`, `load_settings`, `resolve_or_create_company`?**
   _High betweenness centrality (0.023) - this node is a cross-community bridge._
+- **Why does `CompanyModel` connect `ApplicationModel` to `test_analytics.py`, `InterviewSimulatorService`, `services/agent_tools.py`, `process_evaluation_task`, `main.py`, `ApplicationEventModel`, `section_generator_node`, `normalize_job_url`, `seed_development_dataset`, `ExtractedEmailInfo`, `test_ai_config.py`, `datetime`, `JobPostingModel`, `load_settings`, `resolve_or_create_company`?**
+  _High betweenness centrality (0.015) - this node is a cross-community bridge._
 - **Are the 86 inferred relationships involving `ApplicationModel` (e.g. with `create_action_item()` and `list_action_items()`) actually correct?**
   _`ApplicationModel` has 86 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 81 inferred relationships involving `CompanyModel` (e.g. with `search_companies()` and `semantic_search()`) actually correct?**
   _`CompanyModel` has 81 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 2 inferred relationships involving `useUIStore` (e.g. with `openCoverLetterModal()` and `openCompanyDrawer()`) actually correct?**
   _`useUIStore` has 2 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `router`, `uiStore`, `appStore` to the rest of the system?**
+- **What connects `uiStore`, `analyticsStore`, `activeTab` to the rest of the system?**
   _827 weakly-connected nodes found - possible documentation gaps or missing edges._

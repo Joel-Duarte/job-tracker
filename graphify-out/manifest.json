@@ -336,9 +336,9 @@
     "semantic_hash": ""
   },
   "backend/app/schemas/analytics.py": {
-    "mtime": 1788302812.9646056,
-    "seen": 1788302949.0531328,
-    "ast_hash": "dc3f218a1976c57b25e2550b54deaf1f",
+    "mtime": 1788723443.90333,
+    "seen": 1788723718.1561987,
+    "ast_hash": "771caedfbe0596f6ed09bc9b33929add",
     "semantic_hash": ""
   },
   "backend/app/schemas/applications.py": {
@@ -426,9 +426,9 @@
     "semantic_hash": ""
   },
   "backend/app/services/analytics.py": {
-    "mtime": 1788302896.536373,
-    "seen": 1788302949.0531702,
-    "ast_hash": "d0c64aa7d12f67f23c324b15e480e120",
+    "mtime": 1788723467.8298538,
+    "seen": 1788723718.156215,
+    "ast_hash": "77664a5702821ba237294db5bc225fc8",
     "semantic_hash": ""
   },
   "backend/app/services/domain_resolver.py": {
@@ -618,9 +618,9 @@
     "semantic_hash": ""
   },
   "backend/app/tests/test_analytics_unit.py": {
-    "mtime": 1788302894.3114326,
-    "seen": 1788302949.0532255,
-    "ast_hash": "6ea93349bffaea04e759c58a7629c5a9",
+    "mtime": 1788723485.044511,
+    "seen": 1788723718.1563017,
+    "ast_hash": "27a826c11c264ff166c39295cbc01b0f",
     "semantic_hash": ""
   },
   "backend/app/tests/test_application_transitions.py": {
@@ -1014,9 +1014,9 @@
     "semantic_hash": "f5e58c049815d3048a3e22a8a01679b4"
   },
   "frontend/src/demo/apiAdapter.js": {
-    "mtime": 1788475916.4612534,
-    "seen": 1788476015.0728521,
-    "ast_hash": "3974b55f854337ad72925482b7a1839b",
+    "mtime": 1788723502.788158,
+    "seen": 1788723718.1564498,
+    "ast_hash": "4cebedd9cf215f82959578749dbc956e",
     "semantic_hash": ""
   },
   "frontend/src/demo/demoStorage.js": {
@@ -1128,9 +1128,9 @@
     "semantic_hash": ""
   },
   "frontend/src/views/AnalyticsView.vue": {
-    "mtime": 1788303102.931788,
-    "seen": 1788303128.8843749,
-    "ast_hash": "db1704e3c7c56dbf4b5451dbca3173b1",
+    "mtime": 1788723615.329916,
+    "seen": 1788723718.1564875,
+    "ast_hash": "6426562514aa7f2c091c52b999e6d3cc",
     "semantic_hash": ""
   },
   "frontend/src/views/ApplicationsView.vue": {
