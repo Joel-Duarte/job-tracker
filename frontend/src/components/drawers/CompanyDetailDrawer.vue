@@ -22,7 +22,9 @@ import {
   ThumbsUp,
   AlertOctagon,
   Search,
+  Calendar,
 } from 'lucide-vue-next'
+import { formatRelativeDate } from '../../utils/formatters'
 
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
@@ -63,8 +65,13 @@ const applicationFilters = [
   { key: 'APPLIED', label: 'Applied' },
   { key: 'TECHNICAL_INTERVIEW', label: 'Interview' },
   { key: 'OFFER', label: 'Offers' },
+  { key: 'REJECTED', label: 'Rejected' },
   { key: 'ARCHIVED', label: 'Archived' },
 ]
+
+function getAppDate(app) {
+  return app?.latest_event_at || app?.applied_at || app?.created_at || null
+}
 
 const filteredCompanyApplications = computed(() => {
   const applications = [...(company.value?.applications || [])]
@@ -73,14 +80,17 @@ const filteredCompanyApplications = computed(() => {
     if (applicationFilter.value === 'ASSESSMENT') {
       return app.is_assessment || app.status === 'ASSESSMENT'
     }
+    if (applicationFilter.value === 'REJECTED') {
+      return app.status === 'REJECTED' && !app.is_assessment
+    }
     if (applicationFilter.value === 'ARCHIVED') {
       return app.status === 'ARCHIVED' && !app.is_assessment
     }
     return app.status === applicationFilter.value && !app.is_assessment
   })
   return filtered.sort((a, b) => {
-    const dateA = new Date(a.latest_event_at || a.created_at || 0).getTime()
-    const dateB = new Date(b.latest_event_at || b.created_at || 0).getTime()
+    const dateA = new Date(getAppDate(a) || 0).getTime()
+    const dateB = new Date(getAppDate(b) || 0).getTime()
     return dateB - dateA
   })
 })
@@ -386,6 +396,30 @@ function getStatusBadgeClass(status) {
       return 'badge-neutral'
     default:
       return 'badge-primary'
+  }
+}
+
+function getPositionTextColorClass(app) {
+  if (!app) return 'status-text-default'
+  if (app.is_assessment || app.status === 'ASSESSMENT') {
+    return 'status-text-assessment'
+  }
+  switch (app.status) {
+    case 'OFFER':
+    case 'HIRED':
+      return 'status-text-offer'
+    case 'TECHNICAL_INTERVIEW':
+    case 'ONLINE_ASSESSMENT':
+      return 'status-text-interview'
+    case 'REJECTED':
+      return 'status-text-rejected'
+    case 'APPLIED':
+      return 'status-text-applied'
+    case 'ARCHIVED':
+    case 'WITHDRAWN':
+      return 'status-text-archived'
+    default:
+      return 'status-text-default'
   }
 }
 </script>
@@ -800,12 +834,18 @@ function getStatusBadgeClass(status) {
               @click="openApplication(app.id)"
             >
               <div class="app-card-top">
-                <span class="app-position">{{ app.position || 'Untitled application' }}</span>
+                <span :class="['app-position', getPositionTextColorClass(app)]">
+                  {{ app.position || 'Untitled application' }}
+                </span>
                 <span :class="['badge badge-sm', getStatusBadgeClass(app.status)]">
                   {{ app.is_assessment ? 'ASSESSMENT' : app.status }}
                 </span>
               </div>
               <div class="app-card-meta">
+                <div v-if="getAppDate(app)" class="app-card-date">
+                  <Calendar :size="12" class="date-icon" />
+                  <span>{{ formatRelativeDate(getAppDate(app)) }}</span>
+                </div>
                 <div class="app-card-actions">
                   <span class="view-app-link">View in Drawer →</span>
                   <a
@@ -1577,17 +1617,59 @@ textarea.edit-input-field {
   font-size: 14px;
 }
 
+.app-position.status-text-applied {
+  color: var(--status-applied-text);
+}
+
+.app-position.status-text-assessment {
+  color: var(--status-assessment-text);
+}
+
+.app-position.status-text-interview {
+  color: var(--status-interview-text);
+}
+
+.app-position.status-text-offer {
+  color: var(--status-offer-text);
+}
+
+.app-position.status-text-rejected {
+  color: var(--status-rejected-text);
+}
+
+.app-position.status-text-archived {
+  color: var(--text-muted);
+}
+
+.app-position.status-text-default {
+  color: var(--text-main);
+}
+
 .app-card-meta {
-  margin-top: 6px;
+  margin-top: 8px;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-card-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.app-card-date .date-icon {
+  opacity: 0.7;
 }
 
 .app-card-actions {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  margin-left: auto;
 }
 
 .app-url-link {
