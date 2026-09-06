@@ -89,8 +89,9 @@ const parsedTailoringStrategy = (task) => {
 const sortBy = ref('match_score') // 'match_score' | 'date_desc' | 'company'
 const passedTaskIds = ref(new Set(JSON.parse(localStorage.getItem('job_tracker_passed_assessments') || '[]')))
 
-// Persistent Assessments State
-const evaluationTasks = ref([])
+// Persistent Assessments State (hydrated from queueStore cache)
+const evaluationTasks = ref([...(queueStore.assessments || [])])
+const hasLoadedOnce = ref((queueStore.assessments || []).length > 0)
 const loadingEvaluations = ref(false)
 const expandedTaskIds = ref(new Set())
 const processingTaskIds = ref(new Set())
@@ -285,9 +286,10 @@ const passedEvaluations = computed(() => {
 watch(
   () => readyEvaluations.value.length,
   (newCount) => {
-    queueStore.setReadyAssessmentsCount(newCount)
-  },
-  { immediate: true }
+    if (hasLoadedOnce.value || evaluationTasks.value.length > 0) {
+      queueStore.setReadyAssessmentsCount(newCount)
+    }
+  }
 )
 
 const filteredReadyEvaluations = computed(() => {
@@ -405,9 +407,11 @@ async function loadEvaluations(silent = false) {
   if (!silent) loadingEvaluations.value = true
   try {
     const res = await IntakeAPI.getAssessments()
-    evaluationTasks.value = res.data || []
-    if (Array.isArray(res.data)) {
-      queueStore.syncReadyAssessments(res.data)
+    const data = res.data || []
+    evaluationTasks.value = data
+    hasLoadedOnce.value = true
+    if (Array.isArray(data)) {
+      queueStore.setAssessments(data)
     }
   } catch (err) {
     if (!silent) {
@@ -415,6 +419,7 @@ async function loadEvaluations(silent = false) {
     }
   } finally {
     if (!silent) loadingEvaluations.value = false
+    hasLoadedOnce.value = true
   }
 }
 
@@ -651,7 +656,8 @@ function onEntityDeleted() {
 }
 
 onMounted(async () => {
-  await loadEvaluations()
+  const hasCache = (queueStore.assessments || []).length > 0
+  await loadEvaluations(hasCache)
   startPollingIfNeeded()
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('company:deleted', onEntityDeleted)

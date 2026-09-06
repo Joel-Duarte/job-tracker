@@ -7,6 +7,7 @@ export const useQueueStore = defineStore('queue', () => {
   const uiStore = useUIStore()
 
   const tasks = ref([])
+  const assessments = ref([])
   const loading = ref(false)
   const error = ref(null)
   const durableReadyAssessmentsCount = ref(0)
@@ -88,6 +89,7 @@ export const useQueueStore = defineStore('queue', () => {
         tasks.value = res.data
       }
       if (Array.isArray(assessmentsRes.data)) {
+        assessments.value = assessmentsRes.data
         let passedIds = new Set()
         try {
           passedIds = new Set(
@@ -119,8 +121,16 @@ export const useQueueStore = defineStore('queue', () => {
     durableReadyAssessmentsCount.value = Math.max(0, count)
   }
 
+  function setAssessments(items) {
+    if (Array.isArray(items)) {
+      assessments.value = items
+      syncReadyAssessments(items)
+    }
+  }
+
   function syncReadyAssessments(assessmentsList) {
     if (!Array.isArray(assessmentsList)) return
+    assessments.value = assessmentsList
     let passedIds = new Set()
     try {
       passedIds = new Set(
@@ -385,6 +395,7 @@ export const useQueueStore = defineStore('queue', () => {
 
   return {
     tasks,
+    assessments,
     loading,
     error,
     activeTasks,
@@ -398,6 +409,7 @@ export const useQueueStore = defineStore('queue', () => {
     notificationCount,
     readyAssessmentsCount,
     setReadyAssessmentsCount,
+    setAssessments,
     syncReadyAssessments,
     fetchTasks,
     startPolling,
