@@ -142,6 +142,9 @@ async def test_pipeline_funnel_active_and_dropped_unit():
     assert applied_stage.count == 4
     assert applied_stage.active_count == 1
     assert applied_stage.dropped_count == 1
+    assert applied_stage.rejected_count == 1
+    assert applied_stage.archived_count == 0
+    assert applied_stage.withdrawn_count == 0
     assert applied_stage.dropoff_rate == 25.0
 
     # Interview: 2 reached (app2, app3), 1 active (app2), 0 dropped

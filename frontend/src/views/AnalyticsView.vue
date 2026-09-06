@@ -395,6 +395,9 @@ const sankeyData = computed(() => {
       count: funnel[0]?.count || 0,
       dropped: funnel[0]?.dropped_count || 0,
       active: funnel[0]?.active_count || 0,
+      rejected_count: funnel[0]?.rejected_count || 0,
+      archived_count: (funnel[0]?.archived_count || 0) + (funnel[0]?.withdrawn_count || 0),
+      withdrawn_count: funnel[0]?.withdrawn_count || 0,
     },
     {
       key: 'Interview',
@@ -404,6 +407,9 @@ const sankeyData = computed(() => {
       count: funnel[1]?.count || 0,
       dropped: funnel[1]?.dropped_count || 0,
       active: funnel[1]?.active_count || 0,
+      rejected_count: funnel[1]?.rejected_count || 0,
+      archived_count: (funnel[1]?.archived_count || 0) + (funnel[1]?.withdrawn_count || 0),
+      withdrawn_count: funnel[1]?.withdrawn_count || 0,
     },
     {
       key: 'Offer',
@@ -413,11 +419,26 @@ const sankeyData = computed(() => {
       count: funnel[2]?.count || 0,
       dropped: funnel[2]?.dropped_count || 0,
       active: funnel[2]?.active_count || 0,
+      rejected_count: funnel[2]?.rejected_count || 0,
+      archived_count: (funnel[2]?.archived_count || 0) + (funnel[2]?.withdrawn_count || 0),
+      withdrawn_count: funnel[2]?.withdrawn_count || 0,
     },
   ]
 
+  // Fallback if legacy backend returned dropped_count without specific breakdown
+  stages.forEach((s) => {
+    if (s.dropped > 0 && s.rejected_count === 0 && s.archived_count === 0) {
+      s.rejected_count = s.dropped
+    }
+  })
+
+  const totalRejected = stages.reduce((sum, s) => sum + s.rejected_count, 0)
+  const totalArchived = stages.reduce((sum, s) => sum + s.archived_count, 0)
+  const totalWithdrawn = stages.reduce((sum, s) => sum + s.withdrawn_count, 0)
+  const totalPureArchived = Math.max(0, totalArchived - totalWithdrawn)
+
   const nodeWidth = 96
-  const nodeHeight = 50
+  const nodeHeight = 48
   const nodeY = 14
 
   const nodes = stages.map((s) => ({
@@ -428,17 +449,45 @@ const sankeyData = computed(() => {
     rate: total > 0 ? ((s.count / total) * 100).toFixed(0) : 0,
   }))
 
+  const terminalNodes = [
+    {
+      key: 'Rejected',
+      label: 'Rejected',
+      color: isDark ? '#fb7185' : '#e11d48',
+      x: 92,
+      y: 124,
+      w: 112,
+      h: 48,
+      count: totalRejected,
+      rate: total > 0 ? ((totalRejected / total) * 100).toFixed(0) : 0,
+      subtitle: `${totalRejected} dropped`,
+      tooltip: `${totalRejected} applications rejected`,
+    },
+    {
+      key: 'Archived',
+      label: 'Archived',
+      color: isDark ? '#94a3b8' : '#64748b',
+      x: 318,
+      y: 124,
+      w: 112,
+      h: 48,
+      count: totalArchived,
+      rate: total > 0 ? ((totalArchived / total) * 100).toFixed(0) : 0,
+      subtitle: totalWithdrawn > 0 ? `${totalPureArchived} arch • ${totalWithdrawn} w/d` : `${totalArchived} inactive`,
+      tooltip: `${totalPureArchived} archived, ${totalWithdrawn} withdrawn`,
+    },
+  ]
+
   const flows = []
   const dropoffs = []
 
+  // Horizontal Progression ribbons between active stages
   for (let i = 0; i < stages.length - 1; i++) {
     const src = nodes[i]
     const tgt = nodes[i + 1]
 
     const advancedCount = tgt.count
-    const droppedCount = src.dropped || 0
-
-    const maxH = 26
+    const maxH = 24
     const ribbonH = src.count > 0 ? Math.max(4, (advancedCount / src.count) * maxH) : 3
 
     const x1 = src.x + src.w
@@ -461,53 +510,115 @@ const sankeyData = computed(() => {
       pathD,
       gradientId: `sankey-grad-${i}`,
     })
+  }
 
-    if (droppedCount > 0) {
-      const dropH = Math.max(3, (droppedCount / (total || 1)) * 14)
-      const dropX1 = x1
-      const dropY1 = src.y + src.h / 2 + ribbonH / 2
-      const dropX2 = src.x + src.w + 36
-      const dropY2 = 104
+  // Dropped ribbons to Rejected and Archived terminal nodes
+  const rejNode = terminalNodes[0]
+  const archNode = terminalNodes[1]
 
-      const dropD = `M ${dropX1} ${dropY1}
-                     C ${dropX1 + 18} ${dropY1 + 10}, ${dropX2 - 12} ${dropY2 - 8}, ${dropX2} ${dropY2}
-                     L ${dropX2 + 6} ${dropY2 + dropH}
-                     C ${dropX2 - 8} ${dropY2 + dropH}, ${dropX1 + 14} ${dropY1 + dropH + 4}, ${dropX1} ${dropY1 + dropH} Z`
+  nodes.forEach((src, idx) => {
+    // 1. Drop ribbon to Rejected
+    if (src.rejected_count > 0) {
+      const dropW = Math.max(3, (src.rejected_count / (total || 1)) * 14)
+      let x1, y1, x2, y2, lblX, lblY
+      if (src.key === 'Applied') {
+        x1 = src.x + src.w
+        y1 = src.y + src.h / 2 + 5
+        x2 = rejNode.x + 28
+        y2 = rejNode.y
+        lblX = x1 + 12
+        lblY = 88
+      } else if (src.key === 'Interview') {
+        x1 = src.x + 18
+        y1 = src.y + src.h
+        x2 = rejNode.x + rejNode.w - 24
+        y2 = rejNode.y
+        lblX = rejNode.x + rejNode.w + 6
+        lblY = 92
+      } else {
+        x1 = src.x + 16
+        y1 = src.y + src.h
+        x2 = rejNode.x + rejNode.w / 2
+        y2 = rejNode.y
+        lblX = x1 - 10
+        lblY = 100
+      }
+
+      const dx = (x2 - x1) * 0.5
+      const dy = (y2 - y1) * 0.5
+      const pathD = `M ${x1} ${y1}
+                     C ${x1 + dx * 0.4} ${y1 + dy * 0.8}, ${x2 - dx * 0.4} ${y2 - dy * 0.8}, ${x2} ${y2}
+                     L ${x2 + dropW} ${y2}
+                     C ${x2 + dropW - dx * 0.4} ${y2 - dy * 0.8}, ${x1 + dx * 0.4} ${y1 + dropW + dy * 0.8}, ${x1} ${y1 + dropW} Z`
 
       dropoffs.push({
+        type: 'rejected',
         from: src.label,
-        count: droppedCount,
-        pathD: dropD,
-        labelX: dropX2 + 8,
-        labelY: dropY2 + 6,
+        to: 'Rejected',
+        count: src.rejected_count,
+        pathD,
+        labelX: lblX,
+        labelY: lblY,
+        labelText: `-${src.rejected_count} rejected`,
+        color: rejNode.color,
+        gradientId: `sankey-drop-rej-${idx}`,
+        srcColor: src.color,
+        tgtColor: rejNode.color,
       })
     }
-  }
 
-  // Also check if final stage (Offer) had drops (e.g. declined/rescinded)
-  const lastNode = nodes[nodes.length - 1]
-  if (lastNode && lastNode.dropped > 0) {
-    const dropH = Math.max(3, (lastNode.dropped / (total || 1)) * 14)
-    const dropX1 = lastNode.x + lastNode.w
-    const dropY1 = lastNode.y + lastNode.h / 2
-    const dropX2 = Math.min(500, lastNode.x + lastNode.w + 20)
-    const dropY2 = 104
+    // 2. Drop ribbon to Archived
+    if (src.archived_count > 0) {
+      const dropW = Math.max(3, (src.archived_count / (total || 1)) * 14)
+      let x1, y1, x2, y2, lblX, lblY
+      if (src.key === 'Applied') {
+        x1 = src.x + src.w
+        y1 = src.y + src.h / 2 + 14
+        x2 = archNode.x + 20
+        y2 = archNode.y
+        lblX = 232
+        lblY = 110
+      } else if (src.key === 'Interview') {
+        x1 = src.x + src.w
+        y1 = src.y + src.h / 2 + 5
+        x2 = archNode.x + 36
+        y2 = archNode.y
+        lblX = x1 + 12
+        lblY = 88
+      } else {
+        x1 = src.x + src.w
+        y1 = src.y + src.h / 2
+        x2 = archNode.x + archNode.w - 20
+        y2 = archNode.y
+        lblX = x1 - 10
+        lblY = 96
+      }
 
-    const dropD = `M ${dropX1} ${dropY1}
-                   C ${dropX1 + 12} ${dropY1 + 10}, ${dropX2 - 8} ${dropY2 - 8}, ${dropX2} ${dropY2}
-                   L ${dropX2 + 4} ${dropY2 + dropH}
-                   C ${dropX2 - 6} ${dropY2 + dropH}, ${dropX1 + 10} ${dropY1 + dropH + 4}, ${dropX1} ${dropY1 + dropH} Z`
+      const dx = (x2 - x1) * 0.5
+      const dy = (y2 - y1) * 0.5
+      const pathD = `M ${x1} ${y1}
+                     C ${x1 + dx * 0.4} ${y1 + dy * 0.8}, ${x2 - dx * 0.4} ${y2 - dy * 0.8}, ${x2} ${y2}
+                     L ${x2 + dropW} ${y2}
+                     C ${x2 + dropW - dx * 0.4} ${y2 - dy * 0.8}, ${x1 + dx * 0.4} ${y1 + dropW + dy * 0.8}, ${x1} ${y1 + dropW} Z`
 
-    dropoffs.push({
-      from: lastNode.label,
-      count: lastNode.dropped,
-      pathD: dropD,
-      labelX: dropX2 + 6,
-      labelY: dropY2 + 6,
-    })
-  }
+      dropoffs.push({
+        type: 'archived',
+        from: src.label,
+        to: 'Archived',
+        count: src.archived_count,
+        pathD,
+        labelX: lblX,
+        labelY: lblY,
+        labelText: `-${src.archived_count} archived`,
+        color: archNode.color,
+        gradientId: `sankey-drop-arch-${idx}`,
+        srcColor: src.color,
+        tgtColor: archNode.color,
+      })
+    }
+  })
 
-  return { nodes, flows, dropoffs }
+  return { nodes, terminalNodes, flows, dropoffs }
 })
 
 // Tab 2 Funnel Visualization Max Count
@@ -710,7 +821,7 @@ const maxCohortVolume = computed(() => {
 
               <!-- Native SVG Sankey Flow Diagram (Desktop >=768px) -->
               <div v-if="sankeyData" class="sankey-container desktop-sankey">
-                <svg class="sankey-svg" viewBox="0 0 522 128">
+                <svg class="sankey-svg" viewBox="0 0 522 188">
                   <defs>
                     <linearGradient
                       v-for="flow in sankeyData.flows"
@@ -724,26 +835,39 @@ const maxCohortVolume = computed(() => {
                       <stop offset="0%" :stop-color="flow.srcColor" stop-opacity="0.45" />
                       <stop offset="100%" :stop-color="flow.tgtColor" stop-opacity="0.45" />
                     </linearGradient>
+                    <linearGradient
+                      v-for="drop in sankeyData.dropoffs"
+                      :id="drop.gradientId"
+                      :key="drop.gradientId"
+                      x1="0%"
+                      y1="0%"
+                      x2="0%"
+                      y2="100%"
+                    >
+                      <stop offset="0%" :stop-color="drop.srcColor" stop-opacity="0.35" />
+                      <stop offset="100%" :stop-color="drop.tgtColor" stop-opacity="0.5" />
+                    </linearGradient>
                   </defs>
 
-                  <!-- Drop-off Curved Branches -->
+                  <!-- Drop-off Curved Ribbons to Terminal Destinations -->
                   <g class="sankey-dropoffs-layer">
                     <path
                       v-for="(drop, dIdx) in sankeyData.dropoffs"
                       :key="'drop-' + dIdx"
                       :d="drop.pathD"
-                      class="sankey-dropoff"
+                      :fill="`url(#${drop.gradientId})`"
+                      :class="['sankey-dropoff', `dropoff-${drop.type}`]"
                     >
-                      <title>{{ drop.count }} applications dropped after {{ drop.from }}</title>
+                      <title>{{ drop.count }} applications {{ drop.type }} after {{ drop.from }}</title>
                     </path>
                     <text
                       v-for="(drop, dIdx) in sankeyData.dropoffs"
                       :key="'droplbl-' + dIdx"
                       :x="drop.labelX"
                       :y="drop.labelY"
-                      class="sankey-dropoff-label"
+                      :class="['sankey-dropoff-label', `label-${drop.type}`]"
                     >
-                      -{{ drop.count }} drop
+                      {{ drop.labelText }}
                     </text>
                   </g>
 
@@ -803,6 +927,49 @@ const maxCohortVolume = computed(() => {
                       </text>
                       <title>{{ node.label }}: {{ node.count }} reached ({{ node.active }} active in progress, {{ node.dropped }} dropped)</title>
                     </g>
+
+                    <!-- Terminal Outcome Capsules (Rejected & Archived) -->
+                    <g
+                      v-for="term in sankeyData.terminalNodes"
+                      :key="'term-' + term.key"
+                      class="sankey-node-group sankey-terminal-group"
+                    >
+                      <rect
+                        :x="term.x"
+                        :y="term.y"
+                        :width="term.w"
+                        :height="term.h"
+                        rx="6"
+                        class="sankey-node-rect sankey-terminal-rect"
+                        :style="{ stroke: term.color, fill: `${term.color}18` }"
+                      />
+                      <text
+                        :x="term.x + term.w / 2"
+                        :y="term.y + 14"
+                        text-anchor="middle"
+                        class="sankey-node-title"
+                      >
+                        {{ term.label }}
+                      </text>
+                      <text
+                        :x="term.x + term.w / 2"
+                        :y="term.y + 27"
+                        text-anchor="middle"
+                        class="sankey-node-sub"
+                      >
+                        {{ term.count }} total ({{ term.rate }}%)
+                      </text>
+                      <text
+                        :x="term.x + term.w / 2"
+                        :y="term.y + 40"
+                        text-anchor="middle"
+                        class="sankey-node-active"
+                        :style="{ fill: term.color }"
+                      >
+                        {{ term.subtitle }}
+                      </text>
+                      <title>{{ term.tooltip }}</title>
+                    </g>
                   </g>
                 </svg>
               </div>
@@ -832,15 +999,41 @@ const maxCohortVolume = computed(() => {
                     <div v-if="node.active > 0 || node.dropped > 0" class="mobile-step-subtext text-muted">
                       <span v-if="node.active > 0">{{ node.active }} in progress</span>
                       <span v-if="node.active > 0 && node.dropped > 0"> • </span>
-                      <span v-if="node.dropped > 0" class="text-danger">{{ node.dropped }} dropped</span>
+                      <span v-if="node.rejected_count > 0" class="text-danger">{{ node.rejected_count }} rejected</span>
+                      <span v-if="node.rejected_count > 0 && node.archived_count > 0"> • </span>
+                      <span v-if="node.archived_count > 0" class="text-muted">{{ node.archived_count }} archived</span>
+                      <span v-if="!node.rejected_count && !node.archived_count && node.dropped > 0" class="text-danger">{{ node.dropped }} dropped</span>
                     </div>
                   </div>
 
                   <div v-if="idx < sankeyData.nodes.length - 1" class="mobile-step-arrow">
                     <span class="arrow-down-icon">↓</span>
-                    <span v-if="node.dropped > 0" class="drop-text text-danger">
-                      -{{ node.dropped }} dropped
+                    <span v-if="node.dropped > 0" class="drop-text">
+                      <span v-if="node.rejected_count > 0" class="text-danger">-{{ node.rejected_count }} rejected</span>
+                      <span v-if="node.rejected_count > 0 && node.archived_count > 0"> • </span>
+                      <span v-if="node.archived_count > 0" class="text-muted">-{{ node.archived_count }} archived</span>
+                      <span v-if="!node.rejected_count && !node.archived_count" class="text-danger">-{{ node.dropped }} drop</span>
                     </span>
+                  </div>
+                </div>
+
+                <!-- Mobile Terminal Summary Cards (Rejected & Archived) -->
+                <div v-if="sankeyData.terminalNodes?.length" class="mobile-terminal-grid">
+                  <div
+                    v-for="term in sankeyData.terminalNodes"
+                    :key="'mob-term-' + term.key"
+                    class="mobile-step-card terminal-card"
+                    :style="{ borderLeftColor: term.color }"
+                  >
+                    <div class="mobile-step-header">
+                      <span class="mobile-step-title">{{ term.label }}</span>
+                      <span class="mobile-step-count" :style="{ color: term.color }">
+                        {{ term.count }} ({{ term.rate }}%)
+                      </span>
+                    </div>
+                    <div class="mobile-step-subtext text-muted">
+                      <span>{{ term.subtitle }}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2239,22 +2432,41 @@ const maxCohortVolume = computed(() => {
 }
 
 .sankey-dropoff {
-  fill: rgba(239, 68, 68, 0.28);
-  stroke: rgba(239, 68, 68, 0.4);
-  stroke-width: 0.5px;
   cursor: pointer;
-  transition: opacity var(--transition-fast);
+  transition: opacity var(--transition-fast), filter var(--transition-fast);
+}
+
+.sankey-dropoff.dropoff-rejected {
+  stroke: rgba(244, 63, 94, 0.45);
+  stroke-width: 0.5px;
+}
+
+.sankey-dropoff.dropoff-archived {
+  stroke: rgba(148, 163, 184, 0.45);
+  stroke-width: 0.5px;
 }
 
 .sankey-dropoff:hover {
-  fill: rgba(239, 68, 68, 0.6);
+  filter: brightness(1.2) drop-shadow(0 2px 5px rgba(0, 0, 0, 0.25));
+  opacity: 0.95;
 }
 
 .sankey-dropoff-label {
-  font-size: 9px;
+  font-size: 8.5px;
   font-weight: 700;
-  fill: #ef4444;
   dominant-baseline: middle;
+}
+
+.sankey-dropoff-label.label-rejected {
+  fill: #f43f5e;
+}
+
+.sankey-dropoff-label.label-archived {
+  fill: #94a3b8;
+}
+
+.sankey-terminal-rect {
+  stroke-dasharray: 4 2;
 }
 
 .sankey-node-group {
@@ -2869,6 +3081,19 @@ const maxCohortVolume = computed(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.mobile-terminal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.mobile-step-card.terminal-card {
+  padding: 8px 10px;
 }
 
 /* Role Alignment Studio Toggle Header */

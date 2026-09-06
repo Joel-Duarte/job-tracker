@@ -177,6 +177,9 @@ async def get_analytics_overview(
     stage_counts = {"Applied": 0, "Interview": 0, "Offer": 0}
     stage_active = {"Applied": 0, "Interview": 0, "Offer": 0}
     stage_dropped = {"Applied": 0, "Interview": 0, "Offer": 0}
+    stage_rejected = {"Applied": 0, "Interview": 0, "Offer": 0}
+    stage_archived = {"Applied": 0, "Interview": 0, "Offer": 0}
+    stage_withdrawn = {"Applied": 0, "Interview": 0, "Offer": 0}
 
     TERMINAL_DROP_STATUSES = {"REJECTED", "WITHDRAWN", "ARCHIVED"}
     INTERVIEW_EVENT_TYPES = {
@@ -251,6 +254,12 @@ async def get_analytics_overview(
         # Attribute Active vs Dropped
         if status in TERMINAL_DROP_STATUSES:
             stage_dropped[max_stage] += 1
+            if status == "REJECTED":
+                stage_rejected[max_stage] += 1
+            elif status == "ARCHIVED":
+                stage_archived[max_stage] += 1
+            elif status == "WITHDRAWN":
+                stage_withdrawn[max_stage] += 1
         else:
             if status in ["OFFER", "HIRED"]:
                 stage_active["Offer"] += 1
@@ -446,6 +455,9 @@ async def get_analytics_overview(
                 dropoff_rate=dropoff_rate,
                 dropped_count=dropped,
                 active_count=active,
+                rejected_count=stage_rejected[stage],
+                archived_count=stage_archived[stage],
+                withdrawn_count=stage_withdrawn[stage],
             )
         )
 

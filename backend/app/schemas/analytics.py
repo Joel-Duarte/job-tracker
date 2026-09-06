@@ -29,6 +29,9 @@ class FunnelStageItem(BaseModel):
     dropoff_rate: float
     dropped_count: int = 0
     active_count: int = 0
+    rejected_count: int = 0
+    archived_count: int = 0
+    withdrawn_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
