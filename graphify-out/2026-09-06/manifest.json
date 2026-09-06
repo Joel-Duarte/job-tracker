@@ -1266,9 +1266,9 @@
     "semantic_hash": "0596e67d968351ca73fa8247b01e2b58"
   },
   "AGENTS.md": {
-    "mtime": 1788551792.7233393,
-    "seen": 1788722939.1371534,
-    "ast_hash": "492073a47220764514c34094e88ac850",
+    "mtime": 1788469649.2513626,
+    "seen": 1788470648.6301394,
+    "ast_hash": "3e31e2f1e7073bd1c70daf887d3439db",
     "semantic_hash": ""
   },
   "README.md": {
@@ -1602,9 +1602,9 @@
     "semantic_hash": ""
   },
   "frontend/src/components/drawers/CompanyDetailDrawer.vue": {
-    "mtime": 1788722786.7093475,
-    "seen": 1788722939.1371012,
-    "ast_hash": "97dd9116f1b0be72e822d937dc73bb7b",
+    "mtime": 1788474647.8716388,
+    "seen": 1788475014.337877,
+    "ast_hash": "f4bfe1a5575163f2211ad5792e695feb",
     "semantic_hash": ""
   },
   "frontend/src/views/CompaniesView.vue": {
