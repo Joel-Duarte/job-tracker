@@ -42,3 +42,15 @@ async def test_seed_and_get_prompt_template(db_session: AsyncSession):
     clear_prompt_cache("jd_extraction")
     tmpl_reloaded = await get_prompt_template(db_session, "jd_extraction")
     assert tmpl_reloaded == DEFAULT_PROMPTS["jd_extraction"]
+
+
+def test_assessment_prompt_seniority_directives():
+    """Verify assessment prompt contains explicit seniority bands, tolerance buffers, and anti-speculation rules."""
+    template = DEFAULT_PROMPTS["assessment"]
+    assert "STRICT BAN ON SPECULATIVE INFERENCE" in template
+    assert "Junior / Associate / Intern: 0–3 years" in template
+    assert "Mid-Level / Medior / Generic Titles" in template
+    assert "Senior / Lead: 4+ years" in template
+    assert "Staff / Principal / Architect: 8+ years" in template
+    assert "1-Year Tolerance Buffer" in template
+    assert "Permissive Overqualification" in template
