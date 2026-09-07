@@ -1,0 +1,64 @@
+# ==========================================
+# Secrets & Environment Files
+# ==========================================
+.env*
+*.env
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+*.p8
+*credential*
+*secret*
+data/
+data/.sec_key
+
+# ==========================================
+# Database & Backups
+# ==========================================
+backups/
+*.sql
+*.sql.gz
+*.dump
+
+# ==========================================
+# Build & Distribution Artifacts
+# ==========================================
+dist/
+build/
+out/
+frontend/dist/
+*.egg-info/
+node_modules/
+
+# ==========================================
+# Caches & Virtual Environments
+# ==========================================
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage*
+htmlcov/
+.eslintcache
+.stylelintcache
+.vite/
+
+# ==========================================
+# Graphify Outputs
+# ==========================================
+graphify-out/
+
+# ==========================================
+# Temporary & Log Files
+# ==========================================
+*.log
+*.swp
+*.swo
+*~
+.DS_Store
