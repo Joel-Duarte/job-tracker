@@ -163,6 +163,7 @@ When creating or modifying Vue components, layouts, stores, or styling:
   4. Equipped with a dedicated, domain-tailored pipeline stepper, status badges, expandable preview drawer, and 1-click action buttons in `QueueView.vue` and floating queue widgets.
 - **Modifying the UI:** When modifying frontend features, ensure the component's setup script (`<script setup>`) interacts with `pinia` stores (like `uiStore` or `applicationsStore`) correctly for state reactivity. Ensure Lucide icons used are imported from `lucide-vue-next`.
 - **Modifying the Database:** If adding a new field to a database model, update the corresponding Pydantic schemas in the `schemas/` directory to reflect the change for both request validation and response serialization, and generate an Alembic migration.
+- **Codebase Exploration & Architecture (Graphify):** This project maintains an indexed knowledge graph at `graphify-out/`. For codebase architecture, dependencies, symbol cross-references, or locating components, always query the knowledge graph first via `graphify query "<question>"` (CLI) or `query_graph` (MCP) before falling back to manual grep/find. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts.
 
 ### 4. Telemetry & Diagnostics Tracing Protocol (Mandatory)
 Every new or modified LLM call, external network request (scrapers, IMAP/OAuth email fetchers, 3rd-party APIs), background worker task, vector embedding generation, or complex programmatic workflow that can fail **MUST register traces with the diagnostics telemetry system** (`trace_events` table).
@@ -258,7 +259,7 @@ Before committing or completing tasks, agents and developers must execute and pa
 ---
 
 ## Workflow Execution (For Automated Agents)
-1. **Read Intent & Context:** Understand user requirements and inspect related backend models, schemas, routers, and frontend components.
+1. **Read Intent & Context:** Understand user requirements. Check the graph (`graphify query "<question>"`) to locate affected symbols, relationships, and dependencies before inspecting related backend models, schemas, routers, and frontend components.
 2. **Draft Plan:** Create an implementation plan artifact when making multi-step or architectural changes.
 3. **Database & UI Preparation:**
    - For backend tests: Ensure database access via Testcontainers (`uv run pytest`) or `docker compose up -d db`.
