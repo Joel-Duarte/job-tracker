@@ -834,9 +834,9 @@
     "semantic_hash": "665dc9fdc6cbc183cff9ef2341dda24f"
   },
   "extension/content/dock.js": {
-    "mtime": 1787960608.2518635,
-    "seen": 1787960854.0363238,
-    "ast_hash": "d24223a01de2831976f9f8ce5f6097c3",
+    "mtime": 1788795726.931587,
+    "seen": 1788795772.796676,
+    "ast_hash": "de5a20bba2f83255c6533f845919337b",
     "semantic_hash": ""
   },
   "extension/content/extractor.js": {
@@ -852,9 +852,9 @@
     "semantic_hash": "58f2c2f4202a4c236a488530c87e1caf"
   },
   "extension/popup/popup.js": {
-    "mtime": 1787960612.0707347,
-    "seen": 1787960854.0363297,
-    "ast_hash": "07afb1d3404fc5211caa0641c556e2fd",
+    "mtime": 1788795712.352142,
+    "seen": 1788795772.7966816,
+    "ast_hash": "1909072b2c3e85943d00e900b8313418",
     "semantic_hash": ""
   },
   "extension/utils/api.js": {
