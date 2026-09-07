@@ -1660,5 +1660,17 @@
     "seen": 1788785133.8593516,
     "ast_hash": "4acaa3d4f3d48374921315d9c00218f0",
     "semantic_hash": ""
+  },
+  ".agents/rules/graphify.md": {
+    "mtime": 1788807700.6863952,
+    "seen": 1788807748.0237153,
+    "ast_hash": "f1e53ecc9194573d3c28fc116c743a2e",
+    "semantic_hash": ""
+  },
+  ".agents/workflows/graphify.md": {
+    "mtime": 1788807700.686502,
+    "seen": 1788807748.0237174,
+    "ast_hash": "6d73634a678cf1e1c71930adf80bd1f0",
+    "semantic_hash": ""
   }
 }
