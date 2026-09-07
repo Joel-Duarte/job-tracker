@@ -1134,9 +1134,9 @@
     "semantic_hash": ""
   },
   "frontend/src/views/ApplicationsView.vue": {
-    "mtime": 1788366372.5117826,
-    "seen": 1788448062.736655,
-    "ast_hash": "b11d612d537d61a91b9191a8eedcf73f",
+    "mtime": 1788796637.604505,
+    "seen": 1788796833.1584263,
+    "ast_hash": "74392d22d5c996d1fe9eb0ea34f6f41f",
     "semantic_hash": ""
   },
   "frontend/src/views/AssessmentsView.vue": {
@@ -1182,9 +1182,9 @@
     "semantic_hash": "f4a5bffa611e7443745494a098733dad"
   },
   "frontend/src/views/SettingsView.vue": {
-    "mtime": 1788470564.7003844,
-    "seen": 1788470648.630106,
-    "ast_hash": "0c0c5b6ae54aa64ecfc4d8b8cac0496f",
+    "mtime": 1788796805.7099853,
+    "seen": 1788796833.1584349,
+    "ast_hash": "7c56a93bb124ebfed45aeadf3406c401",
     "semantic_hash": ""
   },
   "frontend/src/views/StagingView.vue": {
