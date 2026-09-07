@@ -692,17 +692,26 @@
     });
 
     submitBtn.addEventListener('click', async () => {
+      // Perform live DOM re-extraction at the exact moment of clicking Send
+      const freshJobData = extractPageJobData();
+      if (freshJobData) {
+        currentJobData = freshJobData;
+      }
+
       const compInput = shadowRoot.getElementById('dock-input-company');
       const posInput = shadowRoot.getElementById('dock-input-position');
       const locInput = shadowRoot.getElementById('dock-input-location');
       const salInput = shadowRoot.getElementById('dock-input-salary');
       const wmSelect = shadowRoot.getElementById('dock-select-work-model');
 
-      const company = compInput?.value?.trim() || currentJobData.company || 'Job Posting';
-      const position = posInput?.value?.trim() || currentJobData.title || 'Unknown Position';
-      const location = locInput?.value?.trim() || currentJobData.location || '';
-      const salary = salInput?.value?.trim() || currentJobData.salary || '';
-      const work_model = wmSelect?.value || currentJobData.work_model || 'Unknown';
+      // Preserve user-edited form fields; fall back to freshly re-extracted values
+      const company = compInput?.value?.trim() || freshJobData?.company || currentJobData.company || 'Job Posting';
+      const position = posInput?.value?.trim() || freshJobData?.title || currentJobData.title || 'Unknown Position';
+      const location = locInput?.value?.trim() || freshJobData?.location || currentJobData.location || '';
+      const salary = salInput?.value?.trim() || freshJobData?.salary || currentJobData.salary || '';
+      const work_model = wmSelect?.value || freshJobData?.work_model || currentJobData.work_model || 'Unknown';
+      const rawText = freshJobData?.description_text || currentJobData.description_text || '';
+      const jobUrl = freshJobData?.url || currentJobData.url || window.location.href;
 
       submitBtn.disabled = true;
 
@@ -720,8 +729,8 @@
             {
               type: 'ENQUEUE_JOB',
               payload: {
-                text: currentJobData.description_text,
-                url: currentJobData.url,
+                text: rawText,
+                url: jobUrl,
                 title_hint: titleHint.slice(0, 80)
               }
             },
@@ -744,8 +753,8 @@
               payload: {
                 company,
                 position,
-                url: currentJobData.url,
-                description: currentJobData.description_text,
+                url: jobUrl,
+                description: rawText,
                 location,
                 salary,
                 work_model,

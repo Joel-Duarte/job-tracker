@@ -218,6 +218,33 @@ async function checkBackendConnection() {
 }
 
 /**
+ * Queries active tab and executes DOM extractor script directly.
+ * Returns the fresh extracted data payload or null if unavailable.
+ */
+async function fetchFreshExtraction() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.id) return null;
+
+    if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('edge://') || tab.url.startsWith('chrome-extension://')) {
+      return null;
+    }
+
+    const [executionResult] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['content/extractor.js']
+    });
+
+    if (executionResult && executionResult.result) {
+      return executionResult.result;
+    }
+  } catch (err) {
+    console.warn('Live DOM extraction failed:', err);
+  }
+  return null;
+}
+
+/**
  * Injects DOM extractor script into active browser tab and populates input fields.
  */
 async function extractActiveTab() {
@@ -241,13 +268,9 @@ async function extractActiveTab() {
       return;
     }
 
-    const [executionResult] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      files: ['content/extractor.js']
-    });
-
-    if (executionResult && executionResult.result) {
-      extractedData = executionResult.result;
+    const freshData = await fetchFreshExtraction();
+    if (freshData) {
+      extractedData = freshData;
 
       if (siteBadge) {
         siteBadge.textContent = extractedData.site_type || 'GENERIC';
@@ -428,11 +451,18 @@ async function handleCaptureSubmit() {
   const selectedModeRadio = document.querySelector('input[name="ingestMode"]:checked');
   const ingestMode = selectedModeRadio ? selectedModeRadio.value : 'AI_QUEUE';
 
-  let company = compInput?.value?.trim() || extractedData?.company || 'Job Posting';
-  let position = posInput?.value?.trim() || extractedData?.title || 'Unknown Position';
-  let location = locInput?.value?.trim() || extractedData?.location || '';
-  let salary = salInput?.value?.trim() || extractedData?.salary || '';
-  let work_model = wmSelect?.value || extractedData?.work_model || 'Unknown';
+  // Perform live DOM re-extraction at the exact moment of clicking Send
+  const liveData = await fetchFreshExtraction();
+  if (liveData) {
+    extractedData = { ...extractedData, ...liveData };
+  }
+
+  // Preserve user-edited form fields; fall back to freshly re-extracted values
+  let company = compInput?.value?.trim() || liveData?.company || extractedData?.company || 'Job Posting';
+  let position = posInput?.value?.trim() || liveData?.title || extractedData?.title || 'Unknown Position';
+  let location = locInput?.value?.trim() || liveData?.location || extractedData?.location || '';
+  let salary = salInput?.value?.trim() || liveData?.salary || extractedData?.salary || '';
+  let work_model = wmSelect?.value || liveData?.work_model || extractedData?.work_model || 'Unknown';
 
   if (ingestMode === 'DIRECT_APPLIED' && (!compInput?.value?.trim() || !posInput?.value?.trim())) {
     showFullCardFeedback({
@@ -444,8 +474,8 @@ async function handleCaptureSubmit() {
 
   const settings = await getSettings();
   const appUrl = settings.appUrl || 'http://localhost:4173';
-  const rawText = extractedData?.description_text || `${company} - ${position}\nLocation: ${location}`;
-  const jobUrl = extractedData?.url || '';
+  const rawText = liveData?.description_text || extractedData?.description_text || `${company} - ${position}\nLocation: ${location}`;
+  const jobUrl = liveData?.url || extractedData?.url || '';
 
   if (ingestMode === 'AI_QUEUE') {
     showFullCardFeedback({
