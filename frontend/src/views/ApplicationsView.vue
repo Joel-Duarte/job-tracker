@@ -707,17 +707,28 @@ function openDeleteConfirm(app) {
   showDeleteModal.value = true
 }
 
+function closeDeleteModal() {
+  showDeleteModal.value = false
+  appToDelete.value = null
+}
+
 async function confirmDelete() {
-  if (!appToDelete.value) return
+  if (!appToDelete.value) {
+    showDeleteModal.value = false
+    return
+  }
+  const targetId = appToDelete.value.id
+  showDeleteModal.value = false
+  appToDelete.value = null
   isDeleting.value = true
   try {
-    await appStore.deleteApplication(appToDelete.value.id)
-    showDeleteModal.value = false
-    appToDelete.value = null
-  } catch {
-    // Error toast already displayed in appStore.deleteApplication
+    await appStore.deleteApplication(targetId)
+  } catch (err) {
+    console.error('Failed to delete application:', err)
   } finally {
     isDeleting.value = false
+    showDeleteModal.value = false
+    appToDelete.value = null
   }
 }
 </script>
@@ -1738,14 +1749,14 @@ async function confirmDelete() {
 
     <!-- DELETE CONFIRMATION MODAL -->
     <Transition name="fade">
-      <div v-if="showDeleteModal" class="inner-modal-backdrop" @click.self="showDeleteModal = false">
+      <div v-if="showDeleteModal" class="inner-modal-backdrop" @click.self="closeDeleteModal">
         <div class="inner-modal-box modal-danger">
           <div class="inner-modal-header">
             <div class="inner-modal-title text-danger">
               <Trash2 :size="18" />
               <span>Delete Job Application?</span>
             </div>
-            <button class="btn-close" @click="showDeleteModal = false">
+            <button class="btn-close" @click="closeDeleteModal">
               <X :size="16" />
             </button>
           </div>
@@ -1762,7 +1773,7 @@ async function confirmDelete() {
           </div>
 
           <div class="inner-modal-footer">
-            <button class="btn btn-secondary" @click="showDeleteModal = false">Cancel</button>
+            <button class="btn btn-secondary" @click="closeDeleteModal">Cancel</button>
             <button
               class="btn btn-danger"
               :disabled="isDeleting"

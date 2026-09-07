@@ -5111,6 +5111,8 @@ onUnmounted(() => {
   color: var(--text-main);
   line-height: 1.5;
   resize: vertical;
+  min-height: 240px;
+  box-sizing: border-box;
 }
 
 .prompt-textarea:focus {
