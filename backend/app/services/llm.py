@@ -856,11 +856,20 @@ async def generate_and_save_application_embedding(
     db: AsyncSession,
     application_id: int,
     skip_llm_summary: bool = True,
-) -> ApplicationEmbeddingModel:
+) -> ApplicationEmbeddingModel | None:
     """
     Creates or updates 768-dim vector embedding record for an application.
     Constructs the embedding directly from structured application metadata and the latest timeline event.
     """
+    from app.core.config_manager import get_setting
+
+    if not await get_setting("ENABLE_EMBEDDINGS", False, db=db):
+        logger.debug(
+            "Skipping vector embedding generation for app %s (Embeddings Disabled)",
+            application_id,
+        )
+        return None
+
     stmt = (
         select(ApplicationModel)
         .options(
@@ -971,9 +980,10 @@ async def async_enqueue_application_embedding(
     """
     from app.core.config_manager import get_setting
 
-    if not await get_setting("ENABLE_EMBEDDINGS", True):
+    if not await get_setting("ENABLE_EMBEDDINGS", False):
         logger.debug(
-            f"Skipping vector embedding for app {application_id} (Embeddings Disabled)"
+            "Skipping vector embedding for app %s (Embeddings Disabled)",
+            application_id,
         )
         return
 

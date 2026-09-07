@@ -447,7 +447,7 @@ async def execute_semantic_vector_search(
     """Performs semantic vector search across pgvector application embeddings, with fallback if embeddings are disabled."""
     from app.core.config_manager import get_setting
 
-    if not await get_setting("ENABLE_EMBEDDINGS", True, db):
+    if not await get_setting("ENABLE_EMBEDDINGS", False, db):
         words = [w for w in query.strip().split() if len(w) > 2]
         stmt = (
             select(ApplicationModel)
@@ -575,9 +575,12 @@ async def execute_update_application_pipeline(
     # Update vector embeddings
     if status_norm != "ASSESSMENT":
         try:
-            await generate_and_save_application_embedding(
-                db, app.id, skip_llm_summary=True
-            )
+            from app.core.config_manager import get_setting
+
+            if await get_setting("ENABLE_EMBEDDINGS", False, db=db):
+                await generate_and_save_application_embedding(
+                    db, app.id, skip_llm_summary=True
+                )
         except Exception as err:
             logger.warning("Embedding update deferred: %s", err)
 

@@ -1,7 +1,7 @@
 import logging
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import String, cast, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +25,7 @@ from app.schemas.staging import (
 )
 from app.services.company_resolver import resolve_or_create_company
 from app.services.evaluation_worker import process_evaluation_task
-from app.services.llm import generate_and_save_application_embedding
+from app.services.llm import async_enqueue_application_embedding
 from app.services.skill_normalizer import normalize_skills_list
 
 logger = logging.getLogger(__name__)
@@ -178,6 +178,7 @@ async def get_staging_item(
 async def resolve_staging_item(
     item_id: int,
     payload: StagingItemResolve,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """Accepts user fixes, applies them to DB records, and marks the staged item PROCESSED."""
@@ -480,12 +481,12 @@ async def resolve_staging_item(
             detail=f"Failed to resolve staging item: {e!s}",
         )
 
-    # Isolated embedding block after successful commit
-    try:
-        await generate_and_save_application_embedding(db, target_app_id)
-    except Exception as e:
-        logger.warning(
-            "Failed to generate embedding for Application ID %d: %s", target_app_id, e
+    # Enqueue non-blocking background embedding generation (only if embeddings enabled)
+    from app.core.config_manager import get_setting
+
+    if await get_setting("ENABLE_EMBEDDINGS", False, db=db):
+        background_tasks.add_task(
+            async_enqueue_application_embedding, target_app_id, skip_llm_summary=True
         )
 
     return {
