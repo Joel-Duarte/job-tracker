@@ -30,6 +30,7 @@ from app.core.url_utils import normalize_job_url
 from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
+    CompanyModel,
     JobPostingModel,
 )
 from app.models.email_accounts import EmailAccountModel
@@ -533,39 +534,52 @@ async def confirm_job_assessment(
     clean_job_url = normalize_job_url(payload.job_url)
     now = datetime.now(UTC)
 
-    # 1. Company
-    from app.services.domain_resolver import (
-        clean_company_name,
-        extract_organization_from_ats_url,
-    )
-
-    clean_name = clean_company_name(payload.company.strip())
-    if not clean_name or clean_name.lower() in {
-        "unknown",
-        "careers",
-        "team",
-        "engineering",
-        "not specified",
-    }:
-        ats_slug = extract_organization_from_ats_url(clean_job_url)
-        if ats_slug:
-            clean_name = ats_slug.title()
-
-    resolved_domain = await resolve_company_domain(
-        company_name=clean_name or payload.company.strip(),
-        source_url=clean_job_url,
-        db=db,
-    )
-    company, _ = await resolve_or_create_company(
-        db=db,
-        company_name=clean_name or payload.company.strip(),
-        domain=resolved_domain,
-    )
-
-    # 2. Application resolution
+    # 1. Application resolution
     app_record = None
     if payload.application_id:
         app_record = await db.get(ApplicationModel, payload.application_id)
+
+    # 2. Company resolution (reuse existing company if linked, else resolve locally without network searches)
+    company = None
+    if app_record and app_record.company_id:
+        company = await db.get(CompanyModel, app_record.company_id)
+
+    if not company:
+        from app.services.domain_resolver import (
+            clean_company_name,
+            extract_organization_from_ats_url,
+        )
+
+        clean_name = clean_company_name(payload.company.strip())
+        if not clean_name or clean_name.lower() in {
+            "unknown",
+            "careers",
+            "team",
+            "engineering",
+            "not specified",
+        }:
+            ats_slug = extract_organization_from_ats_url(clean_job_url)
+            if ats_slug:
+                clean_name = ats_slug.title()
+
+        ai_domain = None
+        if isinstance(payload.match_analysis_payload, dict):
+            ai_domain = payload.match_analysis_payload.get(
+                "company_url"
+            ) or payload.match_analysis_payload.get("company_domain")
+
+        resolved_domain = await resolve_company_domain(
+            company_name=clean_name or payload.company.strip(),
+            source_url=clean_job_url,
+            ai_domain=ai_domain,
+            allow_network=False,
+            db=db,
+        )
+        company, _ = await resolve_or_create_company(
+            db=db,
+            company_name=clean_name or payload.company.strip(),
+            domain=resolved_domain,
+        )
 
     if not app_record and not payload.force_new:
         app_stmt = select(ApplicationModel).where(

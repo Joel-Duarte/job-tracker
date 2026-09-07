@@ -14,7 +14,7 @@ import {
   AlertTriangle,
   AlertOctagon,
   Building2,
-  DollarSign,
+  Banknote,
   MapPin,
   Loader2,
   ArrowRight,
@@ -49,12 +49,18 @@ import CompanyLogo from '../components/common/CompanyLogo.vue'
 import {
   normalizeWorkModel,
   formatRelativeDate,
+  formatSalaryRange,
 } from '../utils/formatters'
 
 const router = useRouter()
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
 const queueStore = useQueueStore()
+
+function formatTaskSalary(result) {
+  if (!result) return null
+  return formatSalaryRange(result.salary_min, result.salary_max, result.currency || uiStore.defaultCurrency)
+}
 
 // Active Tab
 const activeTab = ref('ready') // 'ready' | 'queue' | 'passed'
@@ -459,13 +465,17 @@ async function markAsApplied(task) {
     uiStore.showToast(`'${res.data.company}' successfully added to Applications (Applied)!`, 'success')
     appStore.fetchApplications()
 
-    // Dismiss from assessments
+    // Dismiss from assessments immediately
     const appId = result.application_id || task.id
-    await IntakeAPI.dismissAssessment(appId)
     passedTaskIds.value.add(String(task.id))
     localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
-    await loadEvaluations(true)
-    await queueStore.fetchTasks(true)
+
+    await IntakeAPI.dismissAssessment(appId)
+    await Promise.all([
+      appStore.fetchApplications(),
+      loadEvaluations(true),
+      queueStore.fetchTasks(true),
+    ])
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to mark as applied', 'error')
   } finally {
@@ -919,12 +929,9 @@ onUnmounted(() => {
 
           <!-- Metadata Tags Row (Salary, Location, Work Mode) -->
           <div class="eval-meta-chips">
-            <span v-if="task.result_json?.salary_min || task.result_json?.salary_max" class="meta-chip">
-              <DollarSign :size="12" />
-              <span>
-                {{ task.result_json.currency || '$' }}{{ task.result_json.salary_min ? task.result_json.salary_min.toLocaleString() : '' }}
-                {{ task.result_json.salary_max ? ' - ' + task.result_json.salary_max.toLocaleString() : '+' }}
-              </span>
+            <span v-if="formatTaskSalary(task.result_json)" class="meta-chip">
+              <Banknote :size="12" />
+              <span>{{ formatTaskSalary(task.result_json) }}</span>
             </span>
 
             <span v-if="task.result_json?.location" class="meta-chip">
@@ -1319,12 +1326,9 @@ onUnmounted(() => {
 
           <!-- Metadata Tags Row (Salary, Location, Work Mode) -->
           <div class="eval-meta-chips">
-            <span v-if="task.result_json?.salary_min || task.result_json?.salary_max" class="meta-chip">
-              <DollarSign :size="12" />
-              <span>
-                {{ task.result_json.currency || '$' }}{{ task.result_json.salary_min ? task.result_json.salary_min.toLocaleString() : '' }}
-                {{ task.result_json.salary_max ? ' - ' + task.result_json.salary_max.toLocaleString() : '+' }}
-              </span>
+            <span v-if="formatTaskSalary(task.result_json)" class="meta-chip">
+              <Banknote :size="12" />
+              <span>{{ formatTaskSalary(task.result_json) }}</span>
             </span>
 
             <span v-if="task.result_json?.location" class="meta-chip">
