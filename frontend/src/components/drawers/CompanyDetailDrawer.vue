@@ -185,24 +185,52 @@ const displayResearchStatus = computed(() => {
   return s
 })
 
+function normalizeText(val) {
+  if (val == null) return ''
+  if (Array.isArray(val)) {
+    return val
+      .map((item) => (typeof item === 'string' ? item.trim() : JSON.stringify(item)))
+      .filter(Boolean)
+      .join('\n')
+  }
+  if (typeof val === 'object') {
+    return JSON.stringify(val, null, 2)
+  }
+  return String(val)
+}
+
+function normalizeList(val) {
+  if (val == null) return []
+  if (Array.isArray(val)) {
+    return val
+      .map((item) => (typeof item === 'string' ? item.trim() : String(item)))
+      .filter(Boolean)
+  }
+  if (typeof val === 'string') {
+    const trimmed = val.trim()
+    return trimmed ? [trimmed] : []
+  }
+  return []
+}
+
 function hasIntelContent(key) {
   switch (key) {
     case 'summary':
-      return Boolean(researchSummary.value && researchSummary.value.trim().length > 0)
+      return Boolean(typeof researchSummary.value === 'string' ? researchSummary.value.trim() : normalizeText(researchSummary.value).trim())
     case 'company_mission_and_customer':
-      return Boolean(researchMissionAndCustomer.value && researchMissionAndCustomer.value.trim().length > 0)
+      return Boolean(typeof researchMissionAndCustomer.value === 'string' ? researchMissionAndCustomer.value.trim() : normalizeText(researchMissionAndCustomer.value).trim())
     case 'engineering_culture':
-      return Boolean(researchCulture.value && researchCulture.value.trim().length > 0)
+      return Boolean(typeof researchCulture.value === 'string' ? researchCulture.value.trim() : normalizeText(researchCulture.value).trim())
     case 'recent_initiatives':
-      return Boolean(researchInitiatives.value && researchInitiatives.value.trim().length > 0)
+      return Boolean(typeof researchInitiatives.value === 'string' ? researchInitiatives.value.trim() : normalizeText(researchInitiatives.value).trim())
     case 'products_and_technical_domain':
-      return Boolean(researchProducts.value && researchProducts.value.length > 0)
+      return Array.isArray(researchProducts.value) && researchProducts.value.length > 0
     case 'strategic_priorities':
-      return Boolean(researchPriorities.value && researchPriorities.value.length > 0)
+      return Array.isArray(researchPriorities.value) && researchPriorities.value.length > 0
     case 'language_to_mirror':
-      return Boolean(researchLanguage.value && researchLanguage.value.length > 0)
+      return Array.isArray(researchLanguage.value) && researchLanguage.value.length > 0
     case 'candidate_alignment_angles':
-      return Boolean(researchAlignmentAngles.value && researchAlignmentAngles.value.length > 0)
+      return Array.isArray(researchAlignmentAngles.value) && researchAlignmentAngles.value.length > 0
     default:
       return false
   }
@@ -225,23 +253,16 @@ const hasAnyVisibleIntelSection = computed(() => {
   )
 })
 
-function syncResearchState(cr = {}) {
-  researchSummary.value = cr.summary || ''
-  researchMissionAndCustomer.value = cr.company_mission_and_customer || ''
-  researchCulture.value = cr.engineering_culture || ''
-  researchInitiatives.value = cr.recent_initiatives || ''
-  researchProducts.value = Array.isArray(cr.products_and_technical_domain)
-    ? [...cr.products_and_technical_domain]
-    : []
-  researchPriorities.value = Array.isArray(cr.strategic_priorities)
-    ? [...cr.strategic_priorities]
-    : []
-  researchLanguage.value = Array.isArray(cr.language_to_mirror)
-    ? [...cr.language_to_mirror]
-    : []
-  researchAlignmentAngles.value = Array.isArray(cr.candidate_alignment_angles)
-    ? [...cr.candidate_alignment_angles]
-    : []
+function syncResearchState(cr) {
+  const safeCr = cr && typeof cr === 'object' ? cr : {}
+  researchSummary.value = normalizeText(safeCr.summary)
+  researchMissionAndCustomer.value = normalizeText(safeCr.company_mission_and_customer)
+  researchCulture.value = normalizeText(safeCr.engineering_culture)
+  researchInitiatives.value = normalizeText(safeCr.recent_initiatives)
+  researchProducts.value = normalizeList(safeCr.products_and_technical_domain)
+  researchPriorities.value = normalizeList(safeCr.strategic_priorities)
+  researchLanguage.value = normalizeList(safeCr.language_to_mirror)
+  researchAlignmentAngles.value = normalizeList(safeCr.candidate_alignment_angles)
 
   const nextRevealed = new Set()
   INTEL_FIELD_DEFS.forEach((field) => {
@@ -349,13 +370,14 @@ async function fetchCompany(id) {
     notes.value = res.data.notes || ''
     pros.value = [...(res.data.pros || [])]
     redFlags.value = [...(res.data.red_flags || [])]
-    syncResearchState(res.data.company_research || {})
+    syncResearchState(res.data.company_research)
 
     // Broadcast updated company data so CompaniesView cards immediately reflect latest intel
     window.dispatchEvent(new CustomEvent('company:updated', { detail: res.data }))
     checkAndStartDrawerPolling()
   } catch (err) {
-    uiStore.showToast('Failed to load company details', 'error')
+    console.error('Failed to load company details:', err)
+    uiStore.showToast(err.response?.data?.detail || 'Failed to load company details', 'error')
     closeDrawer()
   } finally {
     isLoading.value = false
@@ -500,20 +522,25 @@ async function saveQuickUpdate(payload) {
   }
 }
 
+function safeTrim(val) {
+  if (val == null) return ''
+  return typeof val === 'string' ? val.trim() : normalizeText(val).trim()
+}
+
 async function saveAllDetails() {
   if (!company.value) return
   isSaving.value = true
   try {
     const updatedResearch = {
       ...(company.value.company_research || {}),
-      summary: researchSummary.value.trim(),
-      company_mission_and_customer: researchMissionAndCustomer.value.trim(),
-      engineering_culture: researchCulture.value.trim(),
-      recent_initiatives: researchInitiatives.value.trim(),
-      products_and_technical_domain: [...researchProducts.value],
-      strategic_priorities: [...researchPriorities.value],
-      language_to_mirror: [...researchLanguage.value],
-      candidate_alignment_angles: [...researchAlignmentAngles.value],
+      summary: safeTrim(researchSummary.value),
+      company_mission_and_customer: safeTrim(researchMissionAndCustomer.value),
+      engineering_culture: safeTrim(researchCulture.value),
+      recent_initiatives: safeTrim(researchInitiatives.value),
+      products_and_technical_domain: normalizeList(researchProducts.value),
+      strategic_priorities: normalizeList(researchPriorities.value),
+      language_to_mirror: normalizeList(researchLanguage.value),
+      candidate_alignment_angles: normalizeList(researchAlignmentAngles.value),
     }
 
     const payload = {
@@ -524,10 +551,11 @@ async function saveAllDetails() {
     }
     const res = await CompaniesAPI.update(company.value.id, payload)
     company.value = res.data
-    syncResearchState(res.data.company_research || {})
+    syncResearchState(res.data.company_research)
     window.dispatchEvent(new CustomEvent('company:updated', { detail: res.data }))
     uiStore.showToast('Company saved successfully', 'success')
   } catch (err) {
+    console.error('Failed to save company:', err)
     uiStore.showToast(err.response?.data?.detail || 'Failed to save company', 'error')
   } finally {
     isSaving.value = false
@@ -538,14 +566,14 @@ async function handleRefreshResearch() {
   if (!company.value) return
 
   const hasExistingResearch = Boolean(
-    researchSummary.value?.trim() ||
-    researchMissionAndCustomer.value?.trim() ||
-    researchCulture.value?.trim() ||
-    researchInitiatives.value?.trim() ||
-    (researchProducts.value && researchProducts.value.length > 0) ||
-    (researchPriorities.value && researchPriorities.value.length > 0) ||
-    (researchLanguage.value && researchLanguage.value.length > 0) ||
-    (researchAlignmentAngles.value && researchAlignmentAngles.value.length > 0) ||
+    hasIntelContent('summary') ||
+    hasIntelContent('company_mission_and_customer') ||
+    hasIntelContent('engineering_culture') ||
+    hasIntelContent('recent_initiatives') ||
+    hasIntelContent('products_and_technical_domain') ||
+    hasIntelContent('strategic_priorities') ||
+    hasIntelContent('language_to_mirror') ||
+    hasIntelContent('candidate_alignment_angles') ||
     (company.value.company_research && Object.keys(company.value.company_research).length > 0)
   )
 
@@ -574,6 +602,7 @@ async function handleRefreshResearch() {
       uiStore.showToast('No company web results found', 'info')
     }
   } catch (err) {
+    console.error('Failed to refresh research:', err)
     uiStore.showToast(err.response?.data?.detail || 'Failed to refresh research', 'error')
   } finally {
     isRefreshing.value = false
