@@ -64,7 +64,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
 - **Production Mode:** Run `./jt` or `./jt start` (using `docker-compose.yml` with `ENVIRONMENT=production`). All services run permanently in the background with `restart: unless-stopped`, meaning they automatically auto-start on PC/system boot whenever the Docker daemon starts and only stop when explicitly taken down (`./jt stop`). Seed data is strictly skipped in production.
 
 ## Core Domains & Data Models
-- **Companies & Employer Directory:** `CompanyModel` manages employer entities, corporate domain, candidate notes (`notes`), pros (`pros` JSONB), red flags (`red_flags` JSONB), and live synthesized intelligence (`company_research` JSONB, `researched_at`). Supported by CRUD, explicit company deletion with optional linked-application deletion, live web research refresh, and deduplication merge endpoints (`POST /api/v1/companies/merge`).
+- **Companies & Employer Directory:** `CompanyModel` manages employer entities, corporate domain, candidate notes (`notes`), pros (`pros` JSONB), red flags (`red_flags` JSONB), and live synthesized intelligence (`company_research` JSONB, `researched_at`). Supported by CRUD (including `POST /api/v1/companies` with optional immediate web intelligence queueing), explicit company deletion with optional linked-application deletion, live web research refresh, and deduplication merge endpoints (`POST /api/v1/companies/merge`).
 - **Applications:** `ApplicationModel` linked to `CompanyModel` (persisting canonical corporate `domain`). Persists cover letters (`cover_letter_text`, `cover_letter_status`), application form Q&A pairs (`application_questions` JSONB), and durable assessment identity (`is_assessment`) so archived assessment dossiers remain independent of queue task status.
   - **Statuses (`AllowedApplicationStatus`):**
     - *Active Stages (4):* `APPLIED`, `ONLINE_ASSESSMENT`, `TECHNICAL_INTERVIEW`, `OFFER`.
@@ -85,10 +85,11 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
 
 ## Agent Guidelines & Development Rules
 
-### 1. Backend Testing Strategy (Database-First Protocol)
-The PostgreSQL database is the cornerstone of the application—it holds `pgvector` vector embeddings, `pg_trgm` fuzzy text matching indexes, application states, mock datasets, AI provider task bindings, and LangGraph checkpointer pools.
+> [!IMPORTANT]
+> **No Preemptive Builds or Tests:** Never run `uv run pytest`, `npm run build`, or start dev servers upon initial startup, during task planning, or while answering investigatory questions. For code exploration and search, use `ripwire` or `graphify`. Run test suites and build commands **strictly after modifying code** to verify your changes.
 
-**Agents MUST follow this 4-tier database resolution hierarchy for running backend tests:**
+### 1. Backend Testing Protocol (Post-Edit Verification Only)
+When executing backend tests to verify code changes (during TDD or before completing a task), agents MUST follow this 4-tier database resolution hierarchy:
 
 1. **Tier 1 (Automatic Testcontainers - Default):**
    ```bash
@@ -122,11 +123,11 @@ The PostgreSQL database is the cornerstone of the application—it holds `pgvect
    > [!WARNING]
    > Agents falling back to Tier 4 must explicitly state in their final summary that database integration tests were skipped due to environment constraints.
 
-### 2. Frontend & UI Testing Protocol
+### 2. Frontend & UI Testing Protocol (Post-Edit Verification Only)
 When creating or modifying Vue components, layouts, stores, or styling:
 
 1. **Live Development Stack & Mock Data:**
-   Run `./jt dev` (or `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d`) to start the hot-reloading development environment.
+   Run `./jt dev` (or `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d`) to start the hot-reloading development environment when live visual testing is required.
    - Frontend UI: `http://localhost:5173`
    - Backend API: `http://localhost:5173/api`
    - Auto-seeded mock dataset provides realistic test data across all views (Kanban board, AI fit dossiers, timeline events, action items).
@@ -135,15 +136,15 @@ When creating or modifying Vue components, layouts, stores, or styling:
    - Use browser / Chrome DevTools tools (or take screenshots) to verify UI elements, layout responsiveness, modal interactions, and Pinia store reactivity against `http://localhost:5173`.
    - Check browser console logs for any Vue reactivity warnings or runtime errors.
 
-3. **Compilation & Type Check:**
-   In `frontend/`, always run:
+3. **Compilation & Type Check (Post-Edit Only):**
+   Only after modifying frontend code, in `frontend/`, run:
    ```bash
    npm run build
    ```
-   This compiles all Vue SFC templates and TypeScript/JavaScript to ensure zero bundling errors or broken imports.
+   This compiles all Vue SFC templates and TypeScript/JavaScript to ensure zero bundling errors or broken imports. Do NOT run this if no frontend changes were made.
 
 4. **No-Docker UI Fallback:**
-   If Docker is unavailable, agents must run `npm run build` for structural validation and may run `npm run dev` locally.
+   If Docker is unavailable, agents run `npm run build` after editing for structural validation and may run `npm run dev` locally.
 
 ### 3. General Development Rules
 - **Formatting & Linting:** The backend uses `ruff` (`uv run ruff check .`, `uv run ruff format .`, `uv run ruff format --check .`). Always ensure 0 lint errors and clean formatting before committing.
@@ -163,7 +164,11 @@ When creating or modifying Vue components, layouts, stores, or styling:
   4. Equipped with a dedicated, domain-tailored pipeline stepper, status badges, expandable preview drawer, and 1-click action buttons in `QueueView.vue` and floating queue widgets.
 - **Modifying the UI:** When modifying frontend features, ensure the component's setup script (`<script setup>`) interacts with `pinia` stores (like `uiStore` or `applicationsStore`) correctly for state reactivity. Ensure Lucide icons used are imported from `lucide-vue-next`.
 - **Modifying the Database:** If adding a new field to a database model, update the corresponding Pydantic schemas in the `schemas/` directory to reflect the change for both request validation and response serialization, and generate an Alembic migration.
-- **Codebase Exploration & Architecture (Graphify):** This project maintains an indexed knowledge graph at `graphify-out/`. For codebase architecture, dependencies, symbol cross-references, or locating components, always query the knowledge graph first via `graphify query "<question>"` (CLI) or `query_graph` (MCP) before falling back to manual grep/find. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts.
+- **Two-Tier Codebase Exploration (Graphify + Ripwire):** This project pairs Graphify for macro architecture with Ripwire for micro code navigation and verification:
+  - *Macro / Architecture (Graphify):* For high-level system flows, community clusters, or cross-module relationships, query the knowledge graph via `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"`. Keep the graph current with `graphify update .` after code edits.
+  - *Micro / Symbol Search & Impact (Ripwire):* To locate exact symbols, signatures, or implementations, run `ripwire . --for="<task or symbol>"`. Inspect call hierarchies with `ripwire . --callers="<sym>"` and measure blast radius with `ripwire . --impact="<sym>"`. Avoid reading whole large files when ripwire returns the exact definition and callers.
+  - *Situational Awareness:* Run `ripwire . --situ` to inspect uncommitted edits for transitive blast radius, affected stores/files, and targeted tests before running full test suites.
+  - *Tool Precedence:* Do NOT use native `grep_search` or `find_by_name` as default code navigation tools; use `ripwire` or `graphify` instead. Reserve `grep_search` only for exact string literals.
 
 ### 4. Telemetry & Diagnostics Tracing Protocol (Mandatory)
 Every new or modified LLM call, external network request (scrapers, IMAP/OAuth email fetchers, 3rd-party APIs), background worker task, vector embedding generation, or complex programmatic workflow that can fail **MUST register traces with the diagnostics telemetry system** (`trace_events` table).
@@ -259,11 +264,12 @@ Before committing or completing tasks, agents and developers must execute and pa
 ---
 
 ## Workflow Execution (For Automated Agents)
-1. **Read Intent & Context:** Understand user requirements. Check the graph (`graphify query "<question>"`) to locate affected symbols, relationships, and dependencies before inspecting related backend models, schemas, routers, and frontend components.
-2. **Draft Plan:** Create an implementation plan artifact when making multi-step or architectural changes.
-3. **Database & UI Preparation:**
-   - For backend tests: Ensure database access via Testcontainers (`uv run pytest`) or `docker compose up -d db`.
-   - For UI changes: Spin up `./jt dev` to test visually against seeded mock data at `http://localhost:5173`.
-4. **TDD / Incremental Implementation:** Write or update tests before implementing logic; validate changes incrementally.
-5. **Run Pre-Commit Verification:** Run `./scripts/pre-commit.sh` (or individual Ruff, Pytest, and npm build checks).
-6. **Verify 0 Errors:** Ensure all tests pass and 0 lint/format/build errors remain before submitting.
+1. **Read Intent & Context (Two-Tier Navigation):** Understand user requirements. Query Graphify (`graphify query "<question>"`) for high-level module/flow mapping; use Ripwire (`ripwire . --for="<symbol/task>"` and `ripwire . --callers="<sym>"`) to inspect exact signatures, callers, and dependencies without reading whole files. **Do NOT run test suites or build commands during research/read-only tasks.**
+2. **Draft Plan (When Warranted):** Create an implementation plan artifact when making multi-step or architectural changes. Do not run commands that modify state or execute test suites while planning.
+3. **Targeted Implementation:** Implement changes incrementally and surgically. Modify only the necessary files.
+4. **Post-Edit Verification (Only After Code Edits):**
+   - Run `ripwire . --situ` to inspect uncommitted changes, assess blast radius, and identify affected test suites.
+   - For backend changes: Run the targeted test suite (e.g. `uv run pytest backend/app/tests/test_specific.py`). Full suite `uv run pytest` is only needed during final pre-commit or when shared/database core code changes.
+   - For frontend changes: Run `npm run build` in `frontend/` to confirm template/TypeScript compilation.
+   - Do NOT run frontend builds if only backend code was modified, and vice-versa.
+5. **Pre-Commit Verification:** Ensure `uv run ruff format --check .` and `uv run ruff check .` pass with 0 errors before completing.

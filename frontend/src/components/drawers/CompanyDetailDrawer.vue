@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
+import { ref, watch, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
@@ -23,6 +23,7 @@ import {
   AlertOctagon,
   Search,
   Calendar,
+  ChevronDown,
 } from 'lucide-vue-next'
 import { formatRelativeDate } from '../../utils/formatters'
 
@@ -50,9 +51,80 @@ const pros = ref([])
 const redFlags = ref([])
 const newProInput = ref('')
 const newRedFlagInput = ref('')
+
+// Intel form states - 8 editable fields
 const researchSummary = ref('')
+const researchMissionAndCustomer = ref('')
 const researchCulture = ref('')
 const researchInitiatives = ref('')
+const researchProducts = ref([])
+const researchPriorities = ref([])
+const researchLanguage = ref([])
+const researchAlignmentAngles = ref([])
+
+// Temporary input models for chips and lists
+const newProductInput = ref('')
+const newLanguageInput = ref('')
+const newPriorityInput = ref('')
+const newAlignmentAngleInput = ref('')
+
+// Dropdown & revealed sections state
+const isAddIntelDropdownOpen = ref(false)
+const revealedSections = ref(new Set())
+const addIntelDropdownRef = ref(null)
+
+// Focus element refs
+const summaryInputRef = ref(null)
+const missionCustomerInputRef = ref(null)
+const cultureInputRef = ref(null)
+const initiativesInputRef = ref(null)
+const productInputRef = ref(null)
+const priorityInputRef = ref(null)
+const languageInputRef = ref(null)
+const alignmentAngleInputRef = ref(null)
+
+const INTEL_FIELD_DEFS = [
+  {
+    key: 'summary',
+    label: '+ Add Mission & Core Products',
+    title: 'Mission & Core Products',
+  },
+  {
+    key: 'company_mission_and_customer',
+    label: '+ Add Customers & Problem Space',
+    title: 'Customers & Problem Space',
+  },
+  {
+    key: 'engineering_culture',
+    label: '+ Add Engineering Culture',
+    title: 'Engineering Culture & Tech Stack',
+  },
+  {
+    key: 'recent_initiatives',
+    label: '+ Add Recent Initiatives',
+    title: 'Recent Initiatives & Milestones',
+  },
+  {
+    key: 'products_and_technical_domain',
+    label: '+ Add Products',
+    title: 'Products & Technical Domains',
+  },
+  {
+    key: 'strategic_priorities',
+    label: '+ Add Strategic Priorities',
+    title: 'Strategic Priorities',
+  },
+  {
+    key: 'language_to_mirror',
+    label: '+ Add Company Language',
+    title: 'Company Language to Mirror',
+  },
+  {
+    key: 'candidate_alignment_angles',
+    label: '+ Add Alignment Guidance',
+    title: 'Candidate Alignment Guidance',
+  },
+]
 
 // Merge state
 const allCompanies = ref([])
@@ -105,6 +177,145 @@ const filteredMergeCompanies = computed(() => {
   })
 })
 
+const displayResearchStatus = computed(() => {
+  const s = company.value?.research_status || 'NONE'
+  if (s === 'QUEUED' && (company.value?.company_research?.summary || researchSummary.value) && !isRefreshing.value) {
+    return 'COMPLETED'
+  }
+  return s
+})
+
+function hasIntelContent(key) {
+  switch (key) {
+    case 'summary':
+      return Boolean(researchSummary.value && researchSummary.value.trim().length > 0)
+    case 'company_mission_and_customer':
+      return Boolean(researchMissionAndCustomer.value && researchMissionAndCustomer.value.trim().length > 0)
+    case 'engineering_culture':
+      return Boolean(researchCulture.value && researchCulture.value.trim().length > 0)
+    case 'recent_initiatives':
+      return Boolean(researchInitiatives.value && researchInitiatives.value.trim().length > 0)
+    case 'products_and_technical_domain':
+      return Boolean(researchProducts.value && researchProducts.value.length > 0)
+    case 'strategic_priorities':
+      return Boolean(researchPriorities.value && researchPriorities.value.length > 0)
+    case 'language_to_mirror':
+      return Boolean(researchLanguage.value && researchLanguage.value.length > 0)
+    case 'candidate_alignment_angles':
+      return Boolean(researchAlignmentAngles.value && researchAlignmentAngles.value.length > 0)
+    default:
+      return false
+  }
+}
+
+function isSectionVisible(key) {
+  return revealedSections.value.has(key) || hasIntelContent(key)
+}
+
+const availableIntelFields = computed(() => {
+  return INTEL_FIELD_DEFS.filter((f) => !isSectionVisible(f.key))
+})
+
+const hasAnyVisibleIntelSection = computed(() => {
+  return (
+    INTEL_FIELD_DEFS.some((f) => isSectionVisible(f.key)) ||
+    Boolean(company.value?.company_research?.verified_facts?.length) ||
+    Boolean(company.value?.company_research?.employee_signals?.length) ||
+    Boolean(company.value?.company_research?.sources?.length)
+  )
+})
+
+function syncResearchState(cr = {}) {
+  researchSummary.value = cr.summary || ''
+  researchMissionAndCustomer.value = cr.company_mission_and_customer || ''
+  researchCulture.value = cr.engineering_culture || ''
+  researchInitiatives.value = cr.recent_initiatives || ''
+  researchProducts.value = Array.isArray(cr.products_and_technical_domain)
+    ? [...cr.products_and_technical_domain]
+    : []
+  researchPriorities.value = Array.isArray(cr.strategic_priorities)
+    ? [...cr.strategic_priorities]
+    : []
+  researchLanguage.value = Array.isArray(cr.language_to_mirror)
+    ? [...cr.language_to_mirror]
+    : []
+  researchAlignmentAngles.value = Array.isArray(cr.candidate_alignment_angles)
+    ? [...cr.candidate_alignment_angles]
+    : []
+
+  const nextRevealed = new Set()
+  INTEL_FIELD_DEFS.forEach((field) => {
+    if (hasIntelContent(field.key)) {
+      nextRevealed.add(field.key)
+    }
+  })
+  revealedSections.value = nextRevealed
+  isAddIntelDropdownOpen.value = false
+}
+
+async function addIntelField(key) {
+  revealedSections.value.add(key)
+  isAddIntelDropdownOpen.value = false
+  await nextTick()
+  if (key === 'summary' && summaryInputRef.value) {
+    summaryInputRef.value.focus()
+  } else if (key === 'company_mission_and_customer' && missionCustomerInputRef.value) {
+    missionCustomerInputRef.value.focus()
+  } else if (key === 'engineering_culture' && cultureInputRef.value) {
+    cultureInputRef.value.focus()
+  } else if (key === 'recent_initiatives' && initiativesInputRef.value) {
+    initiativesInputRef.value.focus()
+  } else if (key === 'products_and_technical_domain' && productInputRef.value) {
+    productInputRef.value.focus()
+  } else if (key === 'strategic_priorities' && priorityInputRef.value) {
+    priorityInputRef.value.focus()
+  } else if (key === 'language_to_mirror' && languageInputRef.value) {
+    languageInputRef.value.focus()
+  } else if (key === 'candidate_alignment_angles' && alignmentAngleInputRef.value) {
+    alignmentAngleInputRef.value.focus()
+  }
+}
+
+let drawerPollInterval = null
+
+function checkAndStartDrawerPolling() {
+  if (
+    company.value &&
+    (company.value.research_status === 'QUEUED' || company.value.research_status === 'IN_PROGRESS') &&
+    !drawerPollInterval
+  ) {
+    drawerPollInterval = setInterval(async () => {
+      if (!selectedCompanyId.value || !isCompanyDrawerOpen.value) {
+        stopDrawerPolling()
+        return
+      }
+      try {
+        const res = await CompaniesAPI.get(selectedCompanyId.value)
+        if (res.data) {
+          company.value = res.data
+          if (res.data.company_research) {
+            syncResearchState(res.data.company_research)
+          }
+          window.dispatchEvent(new CustomEvent('company:updated', { detail: res.data }))
+
+          if (res.data.research_status !== 'QUEUED' && res.data.research_status !== 'IN_PROGRESS') {
+            stopDrawerPolling()
+          }
+        }
+      } catch (e) {
+        // silent background poll
+      }
+    }, 2500)
+  }
+}
+
+function stopDrawerPolling() {
+  if (drawerPollInterval) {
+    clearInterval(drawerPollInterval)
+    drawerPollInterval = null
+  }
+}
+
 watch(selectedCompanyId, async (newId) => {
   if (newId && isCompanyDrawerOpen.value) {
     activeTab.value = uiStore.companyDrawerInitialTab || 'intel'
@@ -114,6 +325,7 @@ watch(selectedCompanyId, async (newId) => {
     }
   } else {
     company.value = null
+    stopDrawerPolling()
   }
 })
 
@@ -124,6 +336,8 @@ watch(isCompanyDrawerOpen, async (isOpen) => {
     if (activeTab.value === 'merge') {
       await loadAllCompaniesForMerge()
     }
+  } else {
+    stopDrawerPolling()
   }
 })
 
@@ -135,9 +349,11 @@ async function fetchCompany(id) {
     notes.value = res.data.notes || ''
     pros.value = [...(res.data.pros || [])]
     redFlags.value = [...(res.data.red_flags || [])]
-    researchSummary.value = res.data.company_research?.summary || ''
-    researchCulture.value = res.data.company_research?.engineering_culture || ''
-    researchInitiatives.value = res.data.company_research?.recent_initiatives || ''
+    syncResearchState(res.data.company_research || {})
+
+    // Broadcast updated company data so CompaniesView cards immediately reflect latest intel
+    window.dispatchEvent(new CustomEvent('company:updated', { detail: res.data }))
+    checkAndStartDrawerPolling()
   } catch (err) {
     uiStore.showToast('Failed to load company details', 'error')
     closeDrawer()
@@ -200,6 +416,10 @@ function toggleSourceCandidate(id) {
 }
 
 function closeDrawer() {
+  stopDrawerPolling()
+  if (company.value) {
+    window.dispatchEvent(new CustomEvent('company:updated', { detail: company.value }))
+  }
   uiStore.closeCompanyDrawer()
 }
 
@@ -251,12 +471,21 @@ function onApplicationDeleted(event) {
   }
 }
 
+function handleDocumentClick(e) {
+  if (addIntelDropdownRef.value && !addIntelDropdownRef.value.contains(e.target)) {
+    isAddIntelDropdownOpen.value = false
+  }
+}
+
 onMounted(() => {
   window.addEventListener('application:deleted', onApplicationDeleted)
+  document.addEventListener('click', handleDocumentClick)
 })
 
 onUnmounted(() => {
+  stopDrawerPolling()
   window.removeEventListener('application:deleted', onApplicationDeleted)
+  document.removeEventListener('click', handleDocumentClick)
 })
 
 async function saveQuickUpdate(payload) {
@@ -277,9 +506,14 @@ async function saveAllDetails() {
   try {
     const updatedResearch = {
       ...(company.value.company_research || {}),
-      summary: researchSummary.value,
-      engineering_culture: researchCulture.value,
-      recent_initiatives: researchInitiatives.value,
+      summary: researchSummary.value.trim(),
+      company_mission_and_customer: researchMissionAndCustomer.value.trim(),
+      engineering_culture: researchCulture.value.trim(),
+      recent_initiatives: researchInitiatives.value.trim(),
+      products_and_technical_domain: [...researchProducts.value],
+      strategic_priorities: [...researchPriorities.value],
+      language_to_mirror: [...researchLanguage.value],
+      candidate_alignment_angles: [...researchAlignmentAngles.value],
     }
 
     const payload = {
@@ -290,6 +524,7 @@ async function saveAllDetails() {
     }
     const res = await CompaniesAPI.update(company.value.id, payload)
     company.value = res.data
+    syncResearchState(res.data.company_research || {})
     window.dispatchEvent(new CustomEvent('company:updated', { detail: res.data }))
     uiStore.showToast('Company saved successfully', 'success')
   } catch (err) {
@@ -301,17 +536,39 @@ async function saveAllDetails() {
 
 async function handleRefreshResearch() {
   if (!company.value) return
+
+  const hasExistingResearch = Boolean(
+    researchSummary.value?.trim() ||
+    researchMissionAndCustomer.value?.trim() ||
+    researchCulture.value?.trim() ||
+    researchInitiatives.value?.trim() ||
+    (researchProducts.value && researchProducts.value.length > 0) ||
+    (researchPriorities.value && researchPriorities.value.length > 0) ||
+    (researchLanguage.value && researchLanguage.value.length > 0) ||
+    (researchAlignmentAngles.value && researchAlignmentAngles.value.length > 0) ||
+    (company.value.company_research && Object.keys(company.value.company_research).length > 0)
+  )
+
+  if (hasExistingResearch) {
+    const confirmed = window.confirm(
+      "Refreshing will re-run web research and overwrite custom edits to this company's intelligence. Continue?"
+    )
+    if (!confirmed) return
+  }
+
   isRefreshing.value = true
   try {
     const res = await CompaniesAPI.refreshResearch(company.value.id)
     if (res.data?.queued || res.data?.status?.toUpperCase() === 'QUEUED') {
       company.value.research_status = 'QUEUED'
+      window.dispatchEvent(new CustomEvent('company:updated', { detail: company.value }))
+      checkAndStartDrawerPolling()
       uiStore.showToast('Company intelligence research queued', 'success')
     } else if (res.data?.company_research) {
       company.value.company_research = res.data.company_research
-      researchSummary.value = res.data.company_research.summary || ''
-      researchCulture.value = res.data.company_research.engineering_culture || ''
-      researchInitiatives.value = res.data.company_research.recent_initiatives || ''
+      company.value.research_status = 'COMPLETED'
+      syncResearchState(res.data.company_research)
+      window.dispatchEvent(new CustomEvent('company:updated', { detail: company.value }))
       uiStore.showToast('Company intelligence refreshed from web!', 'success')
     } else {
       uiStore.showToast('No company web results found', 'info')
@@ -321,6 +578,54 @@ async function handleRefreshResearch() {
   } finally {
     isRefreshing.value = false
   }
+}
+
+function addProduct() {
+  const clean = newProductInput.value.trim()
+  if (clean && !researchProducts.value.includes(clean)) {
+    researchProducts.value.push(clean)
+    newProductInput.value = ''
+  }
+}
+
+function removeProduct(idx) {
+  researchProducts.value.splice(idx, 1)
+}
+
+function addLanguage() {
+  const clean = newLanguageInput.value.trim()
+  if (clean && !researchLanguage.value.includes(clean)) {
+    researchLanguage.value.push(clean)
+    newLanguageInput.value = ''
+  }
+}
+
+function removeLanguage(idx) {
+  researchLanguage.value.splice(idx, 1)
+}
+
+function addPriority() {
+  const clean = newPriorityInput.value.trim()
+  if (clean && !researchPriorities.value.includes(clean)) {
+    researchPriorities.value.push(clean)
+    newPriorityInput.value = ''
+  }
+}
+
+function removePriority(idx) {
+  researchPriorities.value.splice(idx, 1)
+}
+
+function addAlignmentAngle() {
+  const clean = newAlignmentAngleInput.value.trim()
+  if (clean && !researchAlignmentAngles.value.includes(clean)) {
+    researchAlignmentAngles.value.push(clean)
+    newAlignmentAngleInput.value = ''
+  }
+}
+
+function removeAlignmentAngle(idx) {
+  researchAlignmentAngles.value.splice(idx, 1)
 }
 
 function addPro() {
@@ -589,8 +894,8 @@ function getPositionTextColorClass(app) {
         <div v-if="activeTab === 'intel'" class="tab-pane">
           <div class="intel-header-row">
             <h4 class="pane-title">Company Intelligence</h4>
-            <span :class="['research-status-badge', `research-status-${(company.research_status || 'NONE').toLowerCase()}`]">
-              {{ company.research_status || 'NONE' }}
+            <span :class="['research-status-badge', `research-status-${displayResearchStatus.toLowerCase()}`]">
+              {{ displayResearchStatus }}
             </span>
             <button
               class="btn btn-secondary btn-sm"
@@ -603,7 +908,7 @@ function getPositionTextColorClass(app) {
             </button>
           </div>
 
-          <div v-if="company.research_status === 'FAILED'" class="research-failed-callout">
+          <div v-if="displayResearchStatus === 'FAILED'" class="research-failed-callout">
             <AlertTriangle :size="15" />
             <span>Company intelligence research failed.</span>
             <button
@@ -617,9 +922,11 @@ function getPositionTextColorClass(app) {
             </button>
           </div>
 
-          <div class="form-group mt-3">
+          <!-- 1. Mission & Core Products (Textarea) -->
+          <div v-if="isSectionVisible('summary')" class="form-group mt-3">
             <label class="form-label text-xs">Mission & Core Products</label>
             <textarea
+              ref="summaryInputRef"
               v-model="researchSummary"
               rows="3"
               class="form-input form-input-sm"
@@ -627,14 +934,23 @@ function getPositionTextColorClass(app) {
             ></textarea>
           </div>
 
-          <div v-if="company.company_research?.company_mission_and_customer" class="research-detail-section">
+          <!-- 2. Customers & Problem Space (Textarea) -->
+          <div v-if="isSectionVisible('company_mission_and_customer')" class="form-group mt-3">
             <label class="form-label text-xs">Customers & Problem Space</label>
-            <p class="research-detail-copy">{{ company.company_research.company_mission_and_customer }}</p>
+            <textarea
+              ref="missionCustomerInputRef"
+              v-model="researchMissionAndCustomer"
+              rows="3"
+              class="form-input form-input-sm"
+              placeholder="Who the company serves and what core problem it solves..."
+            ></textarea>
           </div>
 
-          <div class="form-group mt-3">
+          <!-- 3. Engineering Culture & Tech Stack (Textarea) -->
+          <div v-if="isSectionVisible('engineering_culture')" class="form-group mt-3">
             <label class="form-label text-xs">Engineering Culture & Tech Stack</label>
             <textarea
+              ref="cultureInputRef"
               v-model="researchCulture"
               rows="3"
               class="form-input form-input-sm"
@@ -642,9 +958,11 @@ function getPositionTextColorClass(app) {
             ></textarea>
           </div>
 
-          <div class="form-group mt-3">
-            <label class="form-label text-xs">Recent Initiatives & Public Milestones</label>
+          <!-- 4. Recent Initiatives & Public Milestones (Textarea) -->
+          <div v-if="isSectionVisible('recent_initiatives')" class="form-group mt-3">
+            <label class="form-label text-xs">Recent Initiatives & Milestones</label>
             <textarea
+              ref="initiativesInputRef"
               v-model="researchInitiatives"
               rows="3"
               class="form-input form-input-sm"
@@ -652,38 +970,139 @@ function getPositionTextColorClass(app) {
             ></textarea>
           </div>
 
-          <div v-if="company.company_research?.products_and_technical_domain?.length" class="research-detail-section">
+          <!-- 5. Products & Technical Domains (Editable Tag Chips) -->
+          <div v-if="isSectionVisible('products_and_technical_domain')" class="research-detail-section">
             <label class="form-label text-xs">Products & Technical Domains</label>
-            <div class="research-chip-list">
-              <span v-for="domain in company.company_research.products_and_technical_domain" :key="domain" class="research-chip">
-                {{ domain }}
+            <div v-if="researchProducts.length" class="tag-chips-wrap">
+              <span v-for="(domain, idx) in researchProducts" :key="idx" class="tag-chip tag-intel-chip">
+                <span>{{ domain }}</span>
+                <button
+                  type="button"
+                  class="chip-delete"
+                  title="Remove product"
+                  aria-label="Remove product"
+                  @click="removeProduct(idx)"
+                >
+                  <X :size="11" />
+                </button>
               </span>
+            </div>
+            <div class="tag-input-row mt-2">
+              <input
+                ref="productInputRef"
+                v-model="newProductInput"
+                type="text"
+                class="form-input form-input-sm"
+                placeholder="Add product or domain..."
+                @keyup.enter="addProduct"
+              />
+              <button type="button" class="btn btn-secondary btn-sm" @click="addProduct">
+                <Plus :size="13" />
+                <span>Add</span>
+              </button>
             </div>
           </div>
 
-          <div v-if="company.company_research?.strategic_priorities?.length" class="research-detail-section">
+          <!-- 6. Strategic Priorities (Editable Bullet List) -->
+          <div v-if="isSectionVisible('strategic_priorities')" class="research-detail-section">
             <label class="form-label text-xs">Strategic Priorities</label>
-            <ul class="research-list">
-              <li v-for="priority in company.company_research.strategic_priorities" :key="priority">{{ priority }}</li>
+            <ul v-if="researchPriorities.length" class="editable-bullet-list">
+              <li v-for="(priority, idx) in researchPriorities" :key="idx" class="bullet-list-item">
+                <span class="bullet-item-text">{{ priority }}</span>
+                <button
+                  type="button"
+                  class="bullet-item-delete"
+                  title="Delete priority"
+                  aria-label="Delete priority"
+                  @click="removePriority(idx)"
+                >
+                  <Trash2 :size="12" />
+                </button>
+              </li>
             </ul>
-          </div>
-
-          <div v-if="company.company_research?.language_to_mirror?.length" class="research-detail-section">
-            <label class="form-label text-xs">Company Language</label>
-            <div class="research-chip-list">
-              <span v-for="phrase in company.company_research.language_to_mirror" :key="phrase" class="research-chip">
-                {{ phrase }}
-              </span>
+            <div class="tag-input-row mt-2">
+              <input
+                ref="priorityInputRef"
+                v-model="newPriorityInput"
+                type="text"
+                class="form-input form-input-sm"
+                placeholder="Add strategic priority..."
+                @keyup.enter="addPriority"
+              />
+              <button type="button" class="btn btn-secondary btn-sm" @click="addPriority">
+                <Plus :size="13" />
+                <span>Add item</span>
+              </button>
             </div>
           </div>
 
-          <div v-if="company.company_research?.candidate_alignment_angles?.length" class="research-detail-section alignment-section">
-            <label class="form-label text-xs">Candidate Alignment Guidance</label>
-            <ul class="research-list">
-              <li v-for="angle in company.company_research.candidate_alignment_angles" :key="angle">{{ angle }}</li>
-            </ul>
+          <!-- 7. Company Language to Mirror (Editable Tag Chips) -->
+          <div v-if="isSectionVisible('language_to_mirror')" class="research-detail-section">
+            <label class="form-label text-xs">Company Language to Mirror</label>
+            <div v-if="researchLanguage.length" class="tag-chips-wrap">
+              <span v-for="(phrase, idx) in researchLanguage" :key="idx" class="tag-chip tag-intel-chip">
+                <span>{{ phrase }}</span>
+                <button
+                  type="button"
+                  class="chip-delete"
+                  title="Remove company language phrase"
+                  aria-label="Remove company language phrase"
+                  @click="removeLanguage(idx)"
+                >
+                  <X :size="11" />
+                </button>
+              </span>
+            </div>
+            <div class="tag-input-row mt-2">
+              <input
+                ref="languageInputRef"
+                v-model="newLanguageInput"
+                type="text"
+                class="form-input form-input-sm"
+                placeholder="Add term or phrase to mirror..."
+                @keyup.enter="addLanguage"
+              />
+              <button type="button" class="btn btn-secondary btn-sm" @click="addLanguage">
+                <Plus :size="13" />
+                <span>Add</span>
+              </button>
+            </div>
           </div>
 
+          <!-- 8. Candidate Alignment Guidance (Editable Bullet List) -->
+          <div v-if="isSectionVisible('candidate_alignment_angles')" class="research-detail-section alignment-section">
+            <label class="form-label text-xs">Candidate Alignment Guidance</label>
+            <ul v-if="researchAlignmentAngles.length" class="editable-bullet-list">
+              <li v-for="(angle, idx) in researchAlignmentAngles" :key="idx" class="bullet-list-item">
+                <span class="bullet-item-text">{{ angle }}</span>
+                <button
+                  type="button"
+                  class="bullet-item-delete"
+                  title="Delete alignment angle"
+                  aria-label="Delete alignment angle"
+                  @click="removeAlignmentAngle(idx)"
+                >
+                  <Trash2 :size="12" />
+                </button>
+              </li>
+            </ul>
+            <div class="tag-input-row mt-2">
+              <input
+                ref="alignmentAngleInputRef"
+                v-model="newAlignmentAngleInput"
+                type="text"
+                class="form-input form-input-sm"
+                placeholder="Add alignment guidance talking point..."
+                @keyup.enter="addAlignmentAngle"
+              />
+              <button type="button" class="btn btn-secondary btn-sm" @click="addAlignmentAngle">
+                <Plus :size="13" />
+                <span>Add item</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Read-Only Audit Trail: Verified Facts -->
           <div v-if="company.company_research?.verified_facts?.length" class="research-detail-section">
             <label class="form-label text-xs">Verified Facts</label>
             <ul class="research-list">
@@ -705,6 +1124,7 @@ function getPositionTextColorClass(app) {
             </ul>
           </div>
 
+          <!-- Read-Only Audit Trail: Private Interview Signals -->
           <div v-if="company.company_research?.employee_signals?.length" class="research-detail-section private-signals-section">
             <label class="form-label text-xs">Private Interview Signals</label>
             <ul class="research-list">
@@ -712,6 +1132,7 @@ function getPositionTextColorClass(app) {
             </ul>
           </div>
 
+          <!-- Read-Only Audit Trail: Sources & References -->
           <div v-if="company.company_research?.sources?.length" class="sources-box mt-3">
             <label class="form-label text-xs">Sources & References</label>
             <div class="sources-list">
@@ -726,6 +1147,46 @@ function getPositionTextColorClass(app) {
                 <ExternalLink :size="11" />
                 <span>{{ src }}</span>
               </a>
+            </div>
+          </div>
+
+          <!-- Empty State -->
+          <div v-if="!hasAnyVisibleIntelSection" class="empty-intel-box mt-3">
+            <p class="text-xs text-muted">No intelligence recorded for this company yet.</p>
+          </div>
+
+          <!-- Compact Drawer: "+ Add Intel Field" Dropdown Menu -->
+          <div
+            v-if="availableIntelFields.length"
+            ref="addIntelDropdownRef"
+            class="add-intel-dropdown-wrap mt-4"
+          >
+            <div class="add-intel-dropdown">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm add-intel-btn"
+                :aria-expanded="isAddIntelDropdownOpen"
+                @click="isAddIntelDropdownOpen = !isAddIntelDropdownOpen"
+              >
+                <Plus :size="13" />
+                <span>Add Intel Field</span>
+                <ChevronDown :size="13" class="dropdown-chevron" :class="{ 'rotate-180': isAddIntelDropdownOpen }" />
+              </button>
+
+              <Transition name="dropdown-fade">
+                <div v-if="isAddIntelDropdownOpen" class="intel-dropdown-menu">
+                  <button
+                    v-for="field in availableIntelFields"
+                    :key="field.key"
+                    type="button"
+                    class="intel-dropdown-item"
+                    @click="addIntelField(field.key)"
+                  >
+                    <Plus :size="12" class="item-icon" />
+                    <span>{{ field.label }}</span>
+                  </button>
+                </div>
+              </Transition>
             </div>
           </div>
         </div>
@@ -1732,5 +2193,147 @@ textarea.edit-input-field {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+.tag-intel-chip {
+  background: var(--bg-elevated, var(--bg-surface-hover));
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.editable-bullet-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bullet-list-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-elevated, var(--bg-surface-hover));
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.bullet-item-text {
+  flex: 1;
+  word-break: break-word;
+}
+
+.bullet-item-delete {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color var(--transition-fast, 0.15s ease);
+}
+
+.bullet-item-delete:hover {
+  color: var(--text-danger, #f87171);
+}
+
+.add-intel-dropdown-wrap {
+  position: relative;
+  display: inline-block;
+  margin-top: 16px;
+}
+
+.add-intel-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.add-intel-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dropdown-chevron {
+  transition: transform 0.2s ease;
+}
+
+.dropdown-chevron.rotate-180 {
+  transform: rotate(180deg);
+}
+
+.intel-dropdown-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  min-width: 250px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg, 0 10px 25px -5px rgba(0, 0, 0, 0.3));
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.intel-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: var(--text-main);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast, 0.15s ease);
+}
+
+.intel-dropdown-item:hover {
+  background: var(--bg-surface-hover, rgba(255, 255, 255, 0.06));
+}
+
+.intel-dropdown-item .item-icon {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.empty-intel-box {
+  padding: 16px;
+  text-align: center;
+  border: 1px dashed var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-surface);
+}
+
+.dropdown-fade-enter-active,
+.dropdown-fade-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.dropdown-fade-enter-from,
+.dropdown-fade-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
 }
 </style>

@@ -40,6 +40,22 @@ class CompanyRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CompanyCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255, description="Company name")
+    domain: str | None = Field(
+        default=None,
+        description="Company website URL or domain (e.g. acme.com or https://acme.com)",
+    )
+    about_url: str | None = Field(
+        default=None,
+        description="Optional About Us page URL to seed research",
+    )
+    queue_research: bool = Field(
+        default=False,
+        description="Whether to immediately enqueue background AI web research for this company",
+    )
+
+
 class CompanyUpdate(BaseModel):
     name: str | None = None
     domain: str | None = None

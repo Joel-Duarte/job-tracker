@@ -23,6 +23,7 @@ import {
   TriangleAlert,
   RefreshCw,
   Clock,
+  Plus,
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
@@ -41,6 +42,69 @@ const duplicateData = ref({
   clusters: [],
 })
 const filterDuplicatesOnly = ref(false)
+
+// Create Company Modal State
+const isCreateModalOpen = ref(false)
+const isSubmittingCompany = ref(false)
+const newCompanyName = ref('')
+const newCompanyUrl = ref('')
+const newCompanyAboutUrl = ref('')
+
+function openCreateModal() {
+  newCompanyName.value = ''
+  newCompanyUrl.value = ''
+  newCompanyAboutUrl.value = ''
+  isCreateModalOpen.value = true
+}
+
+function closeCreateModal() {
+  if (isSubmittingCompany.value) return
+  isCreateModalOpen.value = false
+}
+
+async function handleCreateCompany(queueResearch = false) {
+  const name = newCompanyName.value.trim()
+  if (!name) {
+    uiStore.showToast('Please enter a company name', 'warning')
+    return
+  }
+
+  isSubmittingCompany.value = true
+  try {
+    const payload = {
+      name,
+      domain: newCompanyUrl.value.trim() || null,
+      about_url: newCompanyAboutUrl.value.trim() || null,
+      queue_research: queueResearch,
+    }
+
+    const res = await CompaniesAPI.create(payload)
+    const createdCompany = res.data
+
+    uiStore.showToast(
+      queueResearch
+        ? `Company '${createdCompany.name}' created and web research queued in AI Queue!`
+        : `Company '${createdCompany.name}' created successfully!`,
+      'success'
+    )
+
+    isCreateModalOpen.value = false
+    isStale.value = true
+    lastFetchedAt.value = null
+    await fetchCompanies()
+    checkAndStartActiveResearchPolling()
+
+    // Automatically open the company drawer for quick review
+    if (createdCompany?.id) {
+      openCompanyDrawer(createdCompany.id)
+    }
+  } catch (err) {
+    const errorMsg = err.response?.data?.detail || 'Failed to create company'
+    uiStore.showToast(errorMsg, 'error')
+  } finally {
+    isSubmittingCompany.value = false
+  }
+}
 
 // Bulk Researching State
 const isResearchingBulk = ref(false)
@@ -62,6 +126,7 @@ const companiesWithoutInfo = computed(() =>
 onMounted(async () => {
   hydrateCompanyCache()
   await fetchCompanies()
+  checkAndStartActiveResearchPolling()
   window.addEventListener('company:updated', refreshCompaniesFromEvent)
   window.addEventListener('company:merged', refreshCompaniesFromEvent)
   window.addEventListener('company:deleted', refreshCompaniesFromEvent)
@@ -78,6 +143,51 @@ onUnmounted(() => {
   window.removeEventListener('company:deleted', refreshCompaniesFromEvent)
   window.removeEventListener('application:deleted', refreshCompaniesFromEvent)
 })
+
+function checkAndStartActiveResearchPolling() {
+  const activeCount = companies.value.filter(
+    (c) => c.research_status === 'QUEUED' || c.research_status === 'IN_PROGRESS'
+  ).length
+
+  if (activeCount > 0 && !pollInterval) {
+    pollInterval = setInterval(async () => {
+      await fetchCompaniesSilently()
+
+      const currentActive = companies.value.filter(
+        (c) => c.research_status === 'QUEUED' || c.research_status === 'IN_PROGRESS'
+      ).length
+
+      const failedCount = companies.value.filter(
+        (c) => c.research_status === 'FAILED'
+      ).length
+
+      if (isResearchingBulk.value) {
+        bulkProgressActive.value = currentActive
+        bulkProgressFailed.value = failedCount
+        bulkProgressCompleted.value = Math.max(0, bulkProgressTotal.value - currentActive)
+      }
+
+      if (currentActive === 0) {
+        if (pollInterval) {
+          clearInterval(pollInterval)
+          pollInterval = null
+        }
+        if (isResearchingBulk.value) {
+          isResearchingBulk.value = false
+          bulkProgressCompleted.value = bulkProgressTotal.value
+          if (failedCount > 0) {
+            uiStore.showToast(
+              `Company research finished: ${failedCount} task${failedCount > 1 ? 's' : ''} failed.`,
+              'warning'
+            )
+          } else {
+            uiStore.showToast('All company research tasks completed successfully!', 'success')
+          }
+        }
+      }
+    }, 2500)
+  }
+}
 
 async function fetchCompanies() {
   if (
@@ -109,6 +219,7 @@ async function fetchCompanies() {
     lastFetchedAt.value = Date.now()
     isStale.value = false
     persistCompanyCache()
+    checkAndStartActiveResearchPolling()
   } catch (err) {
     uiStore.showToast('Failed to load companies directory', 'error')
   } finally {
@@ -169,13 +280,34 @@ function persistCompanyCache() {
 }
 
 function refreshCompaniesFromEvent(event) {
+  const updatedCompany = event?.detail?.company || event?.detail
+  if (updatedCompany && updatedCompany.id) {
+    const idx = companies.value.findIndex(
+      (c) => String(c.id) === String(updatedCompany.id)
+    )
+    if (idx > -1) {
+      companies.value[idx] = {
+        ...companies.value[idx],
+        ...updatedCompany,
+        applications_count: updatedCompany.applications_count ?? companies.value[idx].applications_count,
+        active_applications_count: updatedCompany.active_applications_count ?? companies.value[idx].active_applications_count,
+      }
+      persistCompanyCache()
+    }
+  }
+
   if (event?.type === 'company:deleted' && event.detail?.companyId) {
     companies.value = companies.value.filter(
       (c) => String(c.id) !== String(event.detail.companyId)
     )
+    persistCompanyCache()
   }
+
   isStale.value = true
-  fetchCompanies()
+  lastFetchedAt.value = null
+  fetchCompaniesSilently().then(() => {
+    checkAndStartActiveResearchPolling()
+  })
 }
 
 async function triggerBulkResearch(mode = 'missing') {
@@ -215,37 +347,11 @@ async function triggerBulkResearch(mode = 'missing') {
 
     await fetchCompaniesSilently()
 
-    if (pollInterval) clearInterval(pollInterval)
-    pollInterval = setInterval(async () => {
-      await fetchCompaniesSilently()
-
-      const activeCount = companies.value.filter(
-        (c) => c.research_status === 'QUEUED' || c.research_status === 'IN_PROGRESS'
-      ).length
-      bulkProgressActive.value = activeCount
-
-      const failedCount = companies.value.filter(
-        (c) => c.research_status === 'FAILED'
-      ).length
-      bulkProgressFailed.value = failedCount
-
-      if (activeCount === 0) {
-        clearInterval(pollInterval)
-        pollInterval = null
-        isResearchingBulk.value = false
-        bulkProgressCompleted.value = bulkProgressTotal.value
-        if (failedCount > 0) {
-          uiStore.showToast(
-            `Company research finished: ${failedCount} task${failedCount > 1 ? 's' : ''} failed.`,
-            'warning'
-          )
-        } else {
-          uiStore.showToast('All company research tasks completed successfully!', 'success')
-        }
-      } else {
-        bulkProgressCompleted.value = Math.max(0, bulkProgressTotal.value - activeCount)
-      }
-    }, 2500)
+    if (pollInterval) {
+      clearInterval(pollInterval)
+      pollInterval = null
+    }
+    checkAndStartActiveResearchPolling()
   } catch (err) {
     uiStore.showToast(err.response?.data?.detail || 'Failed to trigger bulk research', 'error')
     isResearchingBulk.value = false
@@ -257,6 +363,7 @@ async function retryCompanyResearch(company) {
     await CompaniesAPI.refreshResearch(company.id)
     uiStore.showToast(`Research re-queued for ${company.name}`, 'success')
     await fetchCompaniesSilently()
+    checkAndStartActiveResearchPolling()
   } catch (err) {
     uiStore.showToast('Failed to queue research retry', 'error')
   }
@@ -494,6 +601,16 @@ function openCompanyDrawerWithMerge(companyId) {
           <span>Potential Duplicates ({{ duplicateData.total_duplicate_companies }})</span>
         </button>
 
+        <button
+          type="button"
+          class="btn-add-company"
+          @click="openCreateModal"
+          title="Add a new company entity"
+        >
+          <Plus :size="14" />
+          <span>Add Company</span>
+        </button>
+
       </div>
     </div>
 
@@ -558,55 +675,12 @@ function openCompanyDrawerWithMerge(companyId) {
             </div>
           </div>
 
-          <!-- Research Status Chips -->
-          <span
-            v-if="company.research_status === 'QUEUED'"
-            class="badge-research-queued"
-            title="Company research is queued in the AI Queue"
-          >
-            <Clock :size="11" />
-            <span>Queued</span>
-          </span>
-
-          <span
-            v-else-if="company.research_status === 'IN_PROGRESS'"
-            class="badge-research-progress"
-            title="Gathering web research and synthesizing intel"
-          >
-            <Loader2 :size="11" class="animate-spin" />
-            <span>Researching</span>
-          </span>
-
-          <!-- Research FAILED chip -->
-          <button
-            v-else-if="company.research_status === 'FAILED'"
-            type="button"
-            class="badge-research-failed"
-            @click.stop="retryCompanyResearch(company)"
-            title="Research failed — click to retry"
-          >
-            <TriangleAlert :size="11" />
-            <span>Failed · Retry</span>
-            <RefreshCw :size="10" />
-          </button>
         </div>
 
         <!-- Mission / Notes Snippet -->
         <p class="company-snippet text-muted">
           {{ company.company_research?.summary || company.notes || 'No company overview or notes recorded yet.' }}
         </p>
-
-        <!-- Pros / Red Flags Counts -->
-        <div v-if="company.pros?.length || company.red_flags?.length" class="tags-preview-row">
-          <span v-if="company.pros?.length" class="badge-pro-count">
-            <ThumbsUp :size="11" />
-            <span>{{ company.pros.length }} pro{{ company.pros.length > 1 ? 's' : '' }}</span>
-          </span>
-          <span v-if="company.red_flags?.length" class="badge-flag-count">
-            <AlertOctagon :size="11" />
-            <span>{{ company.red_flags.length }} concern{{ company.red_flags.length > 1 ? 's' : '' }}</span>
-          </span>
-        </div>
 
         <!-- Footer Row -->
         <div class="card-footer-row">
@@ -625,14 +699,149 @@ function openCompanyDrawerWithMerge(companyId) {
         </div>
       </div>
     </div>
+
+    <!-- Add Company Modal -->
+    <Teleport to="body">
+      <Transition name="modal-fade">
+        <div
+          v-if="isCreateModalOpen"
+          class="modal-backdrop"
+          @click.self="closeCreateModal"
+        >
+          <div class="modal-card animate-fade-in add-company-modal">
+            <div class="modal-header">
+              <div class="modal-header-title-wrap">
+                <div class="modal-header-icon-wrap">
+                  <Building2 :size="18" class="text-primary" />
+                </div>
+                <div>
+                  <h3 class="modal-title">Add Company</h3>
+                  <p class="modal-subtitle">Create an employer entity to track applications and live intelligence.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="btn-close"
+                :disabled="isSubmittingCompany"
+                @click="closeCreateModal"
+                title="Close modal"
+              >
+                <X :size="18" />
+              </button>
+            </div>
+
+            <div class="modal-body">
+              <div class="form-group">
+                <label class="form-label required">Company Name</label>
+                <input
+                  v-model="newCompanyName"
+                  type="text"
+                  class="form-input"
+                  placeholder="e.g. Stripe, Acme Corp, Linear"
+                  autofocus
+                  :disabled="isSubmittingCompany"
+                  @keydown.enter.prevent="handleCreateCompany(false)"
+                />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">
+                  <span>Website or Careers URL</span>
+                  <span class="text-muted font-normal">(Optional)</span>
+                </label>
+                <div class="input-with-icon">
+                  <Globe :size="15" class="input-icon text-muted" />
+                  <input
+                    v-model="newCompanyUrl"
+                    type="text"
+                    class="form-input"
+                    placeholder="e.g. stripe.com or https://stripe.com/jobs"
+                    :disabled="isSubmittingCompany"
+                    @keydown.enter.prevent="handleCreateCompany(false)"
+                  />
+                </div>
+                <p class="form-hint">
+                  ATS URLs like Greenhouse or Lever and path prefixes are automatically cleaned into root domains.
+                </p>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">
+                  <span>"About Us" or Info Page URL</span>
+                  <span class="text-muted font-normal">(Optional)</span>
+                </label>
+                <input
+                  v-model="newCompanyAboutUrl"
+                  type="text"
+                  class="form-input"
+                  placeholder="e.g. https://company.com/about or /company"
+                  :disabled="isSubmittingCompany"
+                />
+                <p class="form-hint">
+                  Direct link to help the web scraper pinpoint corporate mission and engineering culture.
+                </p>
+              </div>
+
+              <div class="research-recommendation-box">
+                <div class="box-icon">
+                  <Sparkles :size="18" class="text-primary" />
+                </div>
+                <div class="box-content">
+                  <h5 class="box-title">AI Live Web Intelligence</h5>
+                  <p class="box-desc">
+                    Queueing web research will search DuckDuckGo/SearXNG and synthesize corporate culture, public reviews, and strategic overview in the background AI Queue.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="modal-footer">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="isSubmittingCompany"
+                @click="closeCreateModal"
+              >
+                Cancel
+              </button>
+              
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="isSubmittingCompany || !newCompanyName.trim()"
+                @click="handleCreateCompany(false)"
+                title="Create company without running background research"
+              >
+                <Loader2 v-if="isSubmittingCompany" :size="14" class="animate-spin" />
+                <span>Create Only</span>
+              </button>
+
+              <button
+                type="button"
+                class="btn btn-primary btn-sm btn-create-research"
+                :disabled="isSubmittingCompany || !newCompanyName.trim()"
+                @click="handleCreateCompany(true)"
+                title="Create company and immediately enqueue AI web research"
+              >
+                <Loader2 v-if="isSubmittingCompany" :size="14" class="animate-spin" />
+                <Sparkles v-else :size="14" />
+                <span>Create & Queue Research</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
 .companies-view-container {
+  width: 100%;
   max-width: 1440px;
   margin: 0 auto;
   padding: 24px;
+  box-sizing: border-box;
 }
 
 .view-header {
@@ -905,6 +1114,8 @@ function openCompanyDrawerWithMerge(companyId) {
   font-weight: 600;
   border-radius: 6px;
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: all var(--transition-fast, 0.15s ease);
 }
 
@@ -951,7 +1162,7 @@ function openCompanyDrawerWithMerge(companyId) {
 .filter-controls-bar {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   flex-wrap: wrap;
   gap: 16px;
   background: var(--bg-card);
@@ -959,12 +1170,15 @@ function openCompanyDrawerWithMerge(companyId) {
   border-radius: 10px;
   padding: 12px 16px;
   margin-bottom: 20px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .search-input-wrap {
   position: relative;
-  width: 320px;
+  width: 340px;
   max-width: 100%;
+  flex-shrink: 0;
 }
 
 .search-icon {
@@ -1006,14 +1220,21 @@ function openCompanyDrawerWithMerge(companyId) {
 .filter-actions {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
+  justify-content: flex-end;
+  flex-shrink: 0;
 }
 
 .filter-group {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
+}
+
+.filter-group select {
+  min-width: 170px;
 }
 
 .filter-group span {
@@ -1026,6 +1247,8 @@ function openCompanyDrawerWithMerge(companyId) {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   align-items: stretch;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 @media (max-width: 1360px) {
@@ -1059,7 +1282,7 @@ function openCompanyDrawerWithMerge(companyId) {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   min-width: 0;
   width: 100%;
-  height: 100%;
+  min-height: 160px;
   box-sizing: border-box;
 }
 
@@ -1118,45 +1341,17 @@ function openCompanyDrawerWithMerge(companyId) {
 }
 
 .company-snippet {
-  font-size: 10px;
+  font-size: 11px;
+  line-height: 16px;
   margin: 0 0 12px 0;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  line-height: 1.4;
-  height: 40px;
+  text-overflow: ellipsis;
+  max-height: 32px;
   color: var(--text-secondary);
-}
-
-.tags-preview-row {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.badge-pro-count {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--status-success-bg, rgba(34, 197, 94, 0.12));
-  color: var(--text-success, #4ade80);
-}
-
-.badge-flag-count {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--status-rejected-bg, rgba(239, 68, 68, 0.12));
-  color: var(--text-danger, #f87171);
 }
 
 .card-footer-row {
@@ -1193,5 +1388,213 @@ function openCompanyDrawerWithMerge(companyId) {
 .empty-state {
   text-align: center;
   padding: 60px 20px;
+}
+
+/* Add Company Button & Modal Styles */
+.btn-add-company {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.btn-add-company:hover {
+  background: var(--primary-hover, #4f46e5);
+  border-color: var(--primary-hover, #4f46e5);
+  transform: translateY(-1px);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: var(--bg-backdrop, rgba(0, 0, 0, 0.75));
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+}
+
+.modal-fade-enter-active .modal-card {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-fade-enter-from .modal-card {
+  transform: scale(0.96) translateY(8px);
+}
+
+.add-company-modal {
+  width: 100%;
+  max-width: 520px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow-xl, 0 20px 25px -5px rgba(0, 0, 0, 0.2));
+  overflow: hidden;
+  position: relative;
+  z-index: 1001;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-header-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.modal-header-icon-wrap {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--primary-light, rgba(99, 102, 241, 0.12));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.modal-title {
+  font-family: var(--font-heading);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.modal-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 2px 0 0 0;
+}
+
+.modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.form-label.required::after {
+  content: "*";
+  color: #ef4444;
+  margin-left: 2px;
+}
+
+.input-with-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-icon {
+  position: absolute;
+  left: 10px;
+  pointer-events: none;
+}
+
+.input-with-icon .form-input {
+  padding-left: 32px;
+  width: 100%;
+}
+
+.form-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 2px 0 0 0;
+  line-height: 1.4;
+}
+
+.research-recommendation-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--primary-light, rgba(99, 102, 241, 0.08));
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.box-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.box-content {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.box-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.box-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-sidebar, rgba(0, 0, 0, 0.02));
+}
+
+.btn-create-research {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 </style>

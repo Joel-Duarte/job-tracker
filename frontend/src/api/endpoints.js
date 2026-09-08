@@ -184,6 +184,7 @@ export const SystemAPI = {
 
 export const CompaniesAPI = {
   list: (params = {}) => apiClient.get('/companies', { params }),
+  create: (data) => apiClient.post('/companies', data),
   get: (id) => apiClient.get(`/companies/${id}`),
   update: (id, data) => apiClient.patch(`/companies/${id}`, data),
   delete: (id, deleteApplications = false) =>

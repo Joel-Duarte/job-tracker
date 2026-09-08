@@ -333,3 +333,124 @@ async def test_bulk_research_companies_mode_and_duplicate_prevention():
     assert res["status"] == "enqueued"
     assert res["enqueued_count"] == 1
     assert res["skipped_count"] == 1  # c3 skipped as duplicate
+
+
+@pytest.mark.asyncio
+async def test_create_company_without_research_unit():
+    from unittest.mock import patch
+
+    from fastapi import BackgroundTasks
+
+    from app.routers.companies import create_company
+    from app.schemas.companies import CompanyCreate
+
+    db = AsyncMock()
+    bg = BackgroundTasks()
+
+    created_company = CompanyModel(
+        id=10,
+        name="Supabase Inc",
+        name_normalized="supabase inc",
+        domain="supabase.com",
+        about_url="https://supabase.com/about",
+        research_status="NONE",
+        applications=[],
+    )
+
+    with (
+        patch(
+            "app.routers.companies.resolve_or_create_company",
+            new_callable=AsyncMock,
+            return_value=(created_company, True),
+        ),
+        patch(
+            "app.routers.companies.get_company",
+            new_callable=AsyncMock,
+        ) as mock_get_company,
+    ):
+        from app.schemas.companies import CompanyRead
+
+        mock_get_company.return_value = CompanyRead(
+            id=10,
+            name="Supabase Inc",
+            name_normalized="supabase inc",
+            domain="supabase.com",
+            about_url="https://supabase.com/about",
+            research_status="NONE",
+            applications=[],
+        )
+
+        payload = CompanyCreate(
+            name="Supabase Inc",
+            domain="https://supabase.com/careers",
+            about_url="https://supabase.com/about",
+            queue_research=False,
+        )
+
+        res = await create_company(payload=payload, background_tasks=bg, db=db)
+        assert res.id == 10
+        assert res.name == "Supabase Inc"
+        assert res.domain == "supabase.com"
+        assert res.research_status == "NONE"
+        assert len(bg.tasks) == 0
+
+
+@pytest.mark.asyncio
+async def test_create_company_with_queue_research_unit():
+    from unittest.mock import patch
+
+    from fastapi import BackgroundTasks
+
+    from app.routers.companies import create_company
+    from app.schemas.companies import CompanyCreate
+
+    db = AsyncMock()
+    bg = BackgroundTasks()
+
+    # Active research tasks query returns None (not existing)
+    mock_res = MagicMock()
+    mock_res.scalars.return_value.first.return_value = None
+    db.execute.return_value = mock_res
+
+    created_company = CompanyModel(
+        id=11,
+        name="Vercel",
+        name_normalized="vercel",
+        domain="vercel.com",
+        research_status="NONE",
+        applications=[],
+    )
+
+    with (
+        patch(
+            "app.routers.companies.resolve_or_create_company",
+            new_callable=AsyncMock,
+            return_value=(created_company, True),
+        ),
+        patch(
+            "app.routers.companies.get_company",
+            new_callable=AsyncMock,
+        ) as mock_get_company,
+    ):
+        from app.schemas.companies import CompanyRead
+
+        mock_get_company.return_value = CompanyRead(
+            id=11,
+            name="Vercel",
+            name_normalized="vercel",
+            domain="vercel.com",
+            research_status="QUEUED",
+            applications=[],
+        )
+
+        payload = CompanyCreate(
+            name="Vercel",
+            domain="vercel.com",
+            queue_research=True,
+        )
+
+        res = await create_company(payload=payload, background_tasks=bg, db=db)
+        assert res.id == 11
+        assert res.research_status == "QUEUED"
+        assert len(bg.tasks) == 1
+        db.add.assert_called_once()  # IntakeEvaluationTaskModel was added

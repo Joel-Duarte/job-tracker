@@ -9,8 +9,15 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.models.applications import ApplicationModel, CompanyModel
-from app.schemas.companies import CompanyMergeRequest, CompanyRead, CompanyUpdate
-from app.services.company_resolver import GENERIC_ATS_HOSTS
+from app.models.intake_tasks import IntakeEvaluationTaskModel
+from app.schemas.companies import (
+    CompanyCreate,
+    CompanyMergeRequest,
+    CompanyRead,
+    CompanyUpdate,
+)
+from app.services.company_resolver import GENERIC_ATS_HOSTS, resolve_or_create_company
+from app.services.domain_resolver import clean_domain, extract_domain_from_url
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +43,19 @@ async def list_companies(
     res = await db.execute(stmt)
     companies = res.scalars().all()
 
+    # Active research tasks query to avoid stale QUEUED status
+    active_stmt = select(
+        IntakeEvaluationTaskModel.raw_text, IntakeEvaluationTaskModel.status
+    ).where(
+        IntakeEvaluationTaskModel.task_type == "COMPANY_RESEARCH",
+        IntakeEvaluationTaskModel.status.in_(["QUEUED", "IN_PROGRESS"]),
+    )
+    active_res = await db.execute(active_stmt)
+    active_task_map = {
+        int(r[0]): r[1] for r in active_res.all() if r[0] and str(r[0]).isdigit()
+    }
+
+    needs_commit = False
     result: list[CompanyRead] = []
     for c in companies:
         apps = list(c.applications or [])
@@ -45,6 +65,20 @@ async def list_companies(
             d = a.application_date or a.created_at
             if d and (latest_date is None or d > latest_date):
                 latest_date = d
+
+        # Truthful research status check
+        if c.id in active_task_map:
+            effective_status = active_task_map[c.id]
+        elif c.company_research and c.company_research.get("summary"):
+            effective_status = "COMPLETED"
+        elif c.research_status == "FAILED":
+            effective_status = "FAILED"
+        else:
+            effective_status = "NONE"
+
+        if c.research_status != effective_status:
+            c.research_status = effective_status
+            needs_commit = True
 
         app_items = [
             {
@@ -76,7 +110,7 @@ async def list_companies(
                 red_flags=c.red_flags or [],
                 company_research=c.company_research,
                 researched_at=c.researched_at,
-                research_status=c.research_status or "NONE",
+                research_status=effective_status,
                 about_url=c.about_url,
                 applications_count=len(apps),
                 active_applications_count=active_count,
@@ -86,7 +120,86 @@ async def list_companies(
                 updated_at=c.updated_at,
             )
         )
+
+    if needs_commit:
+        await db.commit()
+
     return result
+
+
+@router.post("", response_model=CompanyRead, status_code=status.HTTP_201_CREATED)
+async def create_company(
+    payload: CompanyCreate,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> CompanyRead:
+    """Creates a new company record, cleans its domain/URL, and optionally queues AI web research."""
+    from app.models.intake_tasks import IntakeEvaluationTaskModel
+    from app.services.evaluation_worker import process_evaluation_task
+
+    raw_name = payload.name.strip()
+    if not raw_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Company name cannot be empty.",
+        )
+
+    # Sanitize and extract canonical domain if URL was provided
+    parsed_domain = None
+    if payload.domain:
+        raw_dom = payload.domain.strip()
+        parsed_domain = extract_domain_from_url(raw_dom) or clean_domain(raw_dom)
+
+    # Clean about_url if provided
+    parsed_about = payload.about_url.strip() if payload.about_url else None
+
+    # Resolve or create company record
+    company, was_created = await resolve_or_create_company(
+        db=db,
+        company_name=raw_name,
+        domain=parsed_domain,
+    )
+
+    if parsed_about and not company.about_url:
+        company.about_url = parsed_about
+        company.updated_at = datetime.now(UTC)
+
+    if payload.queue_research:
+        # Check if an active research task already exists
+        stmt_check = select(IntakeEvaluationTaskModel).where(
+            IntakeEvaluationTaskModel.task_type == "COMPANY_RESEARCH",
+            IntakeEvaluationTaskModel.status.in_(["QUEUED", "IN_PROGRESS"]),
+            IntakeEvaluationTaskModel.raw_text == str(company.id),
+        )
+        existing_task = (await db.execute(stmt_check)).scalars().first()
+        if not existing_task:
+            task = IntakeEvaluationTaskModel(
+                task_type="COMPANY_RESEARCH",
+                title_hint=company.name,
+                job_url=company.domain,
+                raw_text=str(company.id),
+                status="QUEUED",
+                stage="QUEUED",
+                result_json={
+                    "company_id": company.id,
+                    "company_name": company.name,
+                    "domain": company.domain,
+                    "about_url": company.about_url,
+                },
+            )
+            db.add(task)
+            company.research_status = "QUEUED"
+            company.updated_at = datetime.now(UTC)
+            await db.commit()
+            await db.refresh(task)
+            background_tasks.add_task(process_evaluation_task, task_id=task.id)
+        else:
+            await db.commit()
+    else:
+        await db.commit()
+
+    await db.refresh(company)
+    return await get_company(company_id=company.id, db=db)
 
 
 @router.get("/duplicates")
@@ -217,6 +330,27 @@ async def get_company(
         for a in apps
     ]
 
+    # Active research task check for this company
+    active_stmt = select(IntakeEvaluationTaskModel.status).where(
+        IntakeEvaluationTaskModel.task_type == "COMPANY_RESEARCH",
+        IntakeEvaluationTaskModel.status.in_(["QUEUED", "IN_PROGRESS"]),
+        IntakeEvaluationTaskModel.raw_text == str(c.id),
+    )
+    active_task_status = (await db.execute(active_stmt)).scalars().first()
+
+    if active_task_status:
+        effective_status = active_task_status
+    elif c.company_research and c.company_research.get("summary"):
+        effective_status = "COMPLETED"
+    elif c.research_status == "FAILED":
+        effective_status = "FAILED"
+    else:
+        effective_status = "NONE"
+
+    if c.research_status != effective_status:
+        c.research_status = effective_status
+        await db.commit()
+
     return CompanyRead(
         id=c.id,
         name=c.name,
@@ -228,7 +362,7 @@ async def get_company(
         red_flags=c.red_flags or [],
         company_research=c.company_research,
         researched_at=c.researched_at,
-        research_status=c.research_status or "NONE",
+        research_status=effective_status,
         about_url=c.about_url,
         applications_count=len(apps),
         active_applications_count=active_count,
