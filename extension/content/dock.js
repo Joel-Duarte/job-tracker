@@ -87,12 +87,13 @@
   /**
    * Unified Extractor Call (Single source of truth via extractor.js)
    */
-  function extractPageJobData() {
+  function extractPageJobData(overrideUrl) {
+    const liveUrl = overrideUrl || window.location.href;
     if (typeof window.__JOB_TRACKER_EXTRACT__ === 'function') {
-      return window.__JOB_TRACKER_EXTRACT__();
+      return window.__JOB_TRACKER_EXTRACT__(liveUrl);
     }
     return {
-      url: window.location.href,
+      url: liveUrl,
       title: document.title || 'Job Posting',
       company: 'Job Posting',
       description_text: document.body ? document.body.textContent.substring(0, 10000) : '',
@@ -692,8 +693,9 @@
     });
 
     submitBtn.addEventListener('click', async () => {
-      // Perform live DOM re-extraction at the exact moment of clicking Send
-      const freshJobData = extractPageJobData();
+      // Capture the live window.location.href and perform live DOM re-extraction at the exact moment of clicking Send
+      const clickTimeUrl = window.location.href;
+      const freshJobData = extractPageJobData(clickTimeUrl);
       if (freshJobData) {
         currentJobData = freshJobData;
       }
@@ -711,7 +713,7 @@
       const salary = salInput?.value?.trim() || freshJobData?.salary || currentJobData.salary || '';
       const work_model = wmSelect?.value || freshJobData?.work_model || currentJobData.work_model || 'Unknown';
       const rawText = freshJobData?.description_text || currentJobData.description_text || '';
-      const jobUrl = freshJobData?.url || currentJobData.url || window.location.href;
+      const jobUrl = freshJobData?.url || clickTimeUrl;
 
       submitBtn.disabled = true;
 

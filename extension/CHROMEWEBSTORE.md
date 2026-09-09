@@ -25,6 +25,7 @@
 | Permission | Justification for Reviewer |
 | :--- | :--- |
 | `activeTab` | Required to inspect the current active tab when the user clicks the extension popup action button to extract job details (title, company, description). |
+| `tabs` | Required to accurately capture the live URL of the active tab at the exact moment the user clicks Send, including dynamically routed Single Page Applications (SPAs) such as LinkedIn, Greenhouse, and Ashby. |
 | `scripting` | Used exclusively to inject `content/extractor.js` into the active tab context upon explicit user button click to parse job markup. |
 | `storage` | Required to store user configuration settings locally (configured Job Tracker backend URL, last-used ingestion mode, badge refresh interval). |
 | `alarms` | Required to schedule periodic background wake-ups for the service worker to poll the user's Job Tracker server for AI evaluation progress. |

@@ -50,6 +50,7 @@
   ],
   "permissions": [
     "activeTab",
+    "tabs",
     "scripting",
     "storage",
     "alarms",

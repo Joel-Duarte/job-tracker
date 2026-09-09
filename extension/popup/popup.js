@@ -226,8 +226,22 @@ async function fetchFreshExtraction() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.id) return null;
 
-    if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('edge://') || tab.url.startsWith('chrome-extension://')) {
+    if (tab.url && (tab.url.startsWith('chrome://') || tab.url.startsWith('edge://') || tab.url.startsWith('chrome-extension://'))) {
       return null;
+    }
+
+    // Capture the tab's true live URL at this exact moment directly from the tab's execution context
+    let liveTabUrl = '';
+    try {
+      const [urlResult] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => window.location.href
+      });
+      if (urlResult && urlResult.result) {
+        liveTabUrl = urlResult.result;
+      }
+    } catch (e) {
+      liveTabUrl = tab.url || '';
     }
 
     const [executionResult] = await chrome.scripting.executeScript({
@@ -236,7 +250,18 @@ async function fetchFreshExtraction() {
     });
 
     if (executionResult && executionResult.result) {
-      return executionResult.result;
+      const data = executionResult.result;
+      if (!data.url && liveTabUrl) {
+        data.url = liveTabUrl;
+      }
+      return data;
+    }
+
+    if (liveTabUrl) {
+      return {
+        url: liveTabUrl,
+        extracted_at: new Date().toISOString()
+      };
     }
   } catch (err) {
     console.warn('Live DOM extraction failed:', err);
@@ -263,7 +288,7 @@ async function extractActiveTab() {
       urlDisplay.title = tab.url || '';
     }
 
-    if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('edge://') || tab.url.startsWith('chrome-extension://')) {
+    if (tab.url && (tab.url.startsWith('chrome://') || tab.url.startsWith('edge://') || tab.url.startsWith('chrome-extension://'))) {
       if (siteBadge) siteBadge.textContent = 'Internal Tab';
       return;
     }
@@ -271,6 +296,11 @@ async function extractActiveTab() {
     const freshData = await fetchFreshExtraction();
     if (freshData) {
       extractedData = freshData;
+
+      if (urlDisplay && freshData.url) {
+        urlDisplay.textContent = freshData.url;
+        urlDisplay.title = freshData.url;
+      }
 
       if (siteBadge) {
         siteBadge.textContent = extractedData.site_type || 'GENERIC';
@@ -476,6 +506,13 @@ async function handleCaptureSubmit() {
   const appUrl = settings.appUrl || 'http://localhost:4173';
   const rawText = liveData?.description_text || extractedData?.description_text || `${company} - ${position}\nLocation: ${location}`;
   const jobUrl = liveData?.url || extractedData?.url || '';
+
+  // Synchronize UI URL display with the live submitted URL
+  const urlDisplay = document.getElementById('meta-url');
+  if (urlDisplay && jobUrl) {
+    urlDisplay.textContent = jobUrl;
+    urlDisplay.title = jobUrl;
+  }
 
   if (ingestMode === 'AI_QUEUE') {
     showFullCardFeedback({

@@ -26,8 +26,8 @@
     return true;
   }
 
-  function extractJobData() {
-    const rawUrl = window.location.href;
+  function extractJobData(customUrl) {
+    const rawUrl = customUrl || window.location.href;
     const host = window.location.hostname.toLowerCase();
     const url = resolveCanonicalJobUrl(host, rawUrl);
 
@@ -558,9 +558,11 @@
       }
 
       // 4. General ATS & Sites
-      const canonicalTag = document.querySelector('link[rel="canonical"]')?.href;
-      const targetUrl = canonicalTag ? new URL(canonicalTag, rawUrl).href : rawUrl;
-      const cleanObj = new URL(targetUrl);
+      // Anchor strictly to the live URL at the moment of user action (rawUrl), stripping tracking parameters.
+      // We intentionally avoid document.querySelector('link[rel="canonical"]') because in SPAs and ATS boards
+      // (Greenhouse, Lever, Ashby, Workday, etc.), the canonical tag retains the initial page load / portal root URL
+      // and is never updated when navigating between jobs.
+      const cleanObj = new URL(rawUrl);
 
       const stripParams = [
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
