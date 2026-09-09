@@ -11,6 +11,7 @@ import LogActivityModal from '../modals/LogActivityModal.vue'
 import PostHireModal from '../modals/PostHireModal.vue'
 import MatchAnalysisModal from '../modals/MatchAnalysisModal.vue'
 import CompanyLogo from '../common/CompanyLogo.vue'
+import CompanyPickerDropdown from '../common/CompanyPickerDropdown.vue'
 
 import {
   X, Check, Edit2,
@@ -172,27 +173,37 @@ async function onActivityLogged() {
 const isDeleting = ref(false)
 const isReaderModalOpen = ref(false)
 
-// Header inline editing state (Company Name, Position Title & Website Domain)
+// Header inline editing state (Job Position Title)
 const isEditingHeader = ref(false)
 const isSavingHeader = ref(false)
 const headerEditForm = ref({
-  company_name: '',
   position: '',
-  company_domain: '',
 })
 
 function startEditHeader() {
   if (!appStore.selectedApplication) return
   headerEditForm.value = {
-    company_name: appStore.selectedApplication.company?.name || '',
     position: appStore.selectedApplication.position || '',
-    company_domain: appStore.selectedApplication.company?.domain || '',
   }
   isEditingHeader.value = true
 }
 
 function cancelEditHeader() {
   isEditingHeader.value = false
+}
+
+async function handleChangeCompany(company) {
+  if (!appStore.selectedApplication || !company?.id) return
+  try {
+    await appStore.updateApplication(appStore.selectedApplication.id, {
+      company_id: company.id,
+    })
+    uiStore.showToast(`Reassigned to ${company.name}`, 'success')
+    await appStore.fetchApplications()
+    await appStore.fetchApplicationDetail(appStore.selectedApplication.id)
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to update company', 'error')
+  }
 }
 
 async function openCompanyDrawerForCurrentApp() {
@@ -233,26 +244,23 @@ async function openCompanyDrawerForCurrentApp() {
 
 async function saveEditHeader() {
   if (!appStore.selectedApplication) return
-  const company_name = headerEditForm.value.company_name.trim()
   const position = headerEditForm.value.position.trim()
-  const company_domain = headerEditForm.value.company_domain.trim()
-  if (!company_name && !position) {
-    uiStore.showToast('Please provide a valid company name or position title', 'error')
+  if (!position) {
+    uiStore.showToast('Please provide a valid position title', 'error')
     return
   }
 
   isSavingHeader.value = true
   try {
     await appStore.updateApplication(appStore.selectedApplication.id, {
-      company_name: company_name || undefined,
-      position: position || undefined,
-      company_domain: company_domain !== undefined ? company_domain : undefined,
+      position,
     })
-    uiStore.showToast('Application details updated', 'success')
+    uiStore.showToast('Position updated', 'success')
     isEditingHeader.value = false
     await appStore.fetchApplications()
+    await appStore.fetchApplicationDetail(appStore.selectedApplication.id)
   } catch (err) {
-    uiStore.showToast(err.message || 'Failed to update application details', 'error')
+    uiStore.showToast(err.message || 'Failed to update position', 'error')
   } finally {
     isSavingHeader.value = false
   }
@@ -1114,16 +1122,24 @@ function formatDate(isoStr) {
                   >
                     {{ appStore.selectedApplication.company?.name || 'Company' }}
                   </h2>
+                  <CompanyPickerDropdown
+                    :current-company-id="appStore.selectedApplication.company?.id || appStore.selectedApplication.company_id"
+                    :current-company-name="appStore.selectedApplication.company?.name"
+                    button-title="Change company"
+                    @select="handleChangeCompany"
+                  />
+                </div>
+                <div class="position-with-edit">
+                  <div class="position-title" title="Click to edit" @click="startEditHeader">
+                    {{ appStore.selectedApplication.position || 'Position Not Specified' }}
+                  </div>
                   <button
                     class="btn-edit-inline"
-                    title="Edit company, position & website"
+                    title="Edit position title"
                     @click="startEditHeader"
                   >
-                    <Edit2 :size="13" />
+                    <Edit2 :size="12" />
                   </button>
-                </div>
-                <div class="position-title" title="Click to edit" @click="startEditHeader">
-                  {{ appStore.selectedApplication.position || 'Position Not Specified' }}
                 </div>
                 <!-- Company Website / Domain Link -->
                 <div class="company-domain-row">
@@ -1142,28 +1158,18 @@ function formatDate(isoStr) {
                   <button
                     v-else
                     class="btn-add-domain"
-                    title="Add company website"
-                    @click="startEditHeader"
+                    title="Open company details"
+                    @click="openCompanyDrawerForCurrentApp"
                   >
                     <Globe :size="12" />
-                    <span>+ Add website</span>
+                    <span>Company details</span>
                   </button>
                 </div>
               </div>
 
-              <!-- Inline Editing Header Form -->
+              <!-- Inline Editing Header Form (Position Only) -->
               <div v-else class="header-edit-form">
                 <div class="edit-inputs-col">
-                  <input
-                    v-model="headerEditForm.company_name"
-                    type="text"
-                    placeholder="Company Name"
-                    class="edit-input-field edit-input-company"
-                    :disabled="isSavingHeader"
-                    @keyup.enter="saveEditHeader"
-                    @keyup.esc="cancelEditHeader"
-                    autofocus
-                  />
                   <input
                     v-model="headerEditForm.position"
                     type="text"
@@ -1172,25 +1178,14 @@ function formatDate(isoStr) {
                     :disabled="isSavingHeader"
                     @keyup.enter="saveEditHeader"
                     @keyup.esc="cancelEditHeader"
+                    autofocus
                   />
-                  <div class="input-with-icon">
-                    <Globe :size="13" class="input-globe-icon" />
-                    <input
-                      v-model="headerEditForm.company_domain"
-                      type="text"
-                      placeholder="Company Website / Domain (e.g. stripe.com)"
-                      class="edit-input-field edit-input-domain"
-                      :disabled="isSavingHeader"
-                      @keyup.enter="saveEditHeader"
-                      @keyup.esc="cancelEditHeader"
-                    />
-                  </div>
                 </div>
                 <div class="edit-actions-row">
                   <button
                     class="btn btn-primary btn-xs"
                     :disabled="isSavingHeader"
-                    title="Save changes"
+                    title="Save position"
                     @click="saveEditHeader"
                   >
                     <Loader2 v-if="isSavingHeader" class="animate-spin" :size="12" />
@@ -2776,10 +2771,16 @@ function formatDate(isoStr) {
   border-color: var(--primary-glow);
 }
 
+.position-with-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
 .position-title {
   font-size: 14px;
   color: var(--text-secondary);
-  margin-top: 2px;
   cursor: pointer;
   transition: color var(--transition-fast);
 }

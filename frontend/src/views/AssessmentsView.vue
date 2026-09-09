@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useQueueStore } from '../stores/queueStore'
-import { IntakeAPI, CompaniesAPI } from '../api/endpoints'
+import { IntakeAPI, CompaniesAPI, ApplicationsAPI } from '../api/endpoints'
 import { getFitScores } from '../utils/fitScores'
 import {
   Sparkles,
@@ -46,6 +46,7 @@ import {
 } from 'lucide-vue-next'
 import PageHeader from '../components/common/PageHeader.vue'
 import CompanyLogo from '../components/common/CompanyLogo.vue'
+import CompanyPickerDropdown from '../components/common/CompanyPickerDropdown.vue'
 import {
   normalizeWorkModel,
   formatRelativeDate,
@@ -524,6 +525,37 @@ async function openCompanyDrawerForTask(task) {
   }
 }
 
+async function handleChangeTaskCompany(task, company) {
+  if (!task || !company?.id) return
+  const appId = task.result_json?.application_id
+  if (!appId) {
+    uiStore.showToast('Cannot reassign company: Application ID missing', 'warning')
+    return
+  }
+
+  try {
+    await ApplicationsAPI.update(appId, { company_id: company.id })
+    uiStore.showToast(`Reassigned assessment to ${company.name}`, 'success')
+
+    // Optimistically update local task state
+    if (task.result_json) {
+      task.result_json.company = company.name
+      task.result_json.company_id = company.id
+      task.result_json.company_domain = company.domain
+      task.result_json.company_url = company.domain
+    }
+    if (task.title_hint) {
+      task.title_hint = company.name
+    }
+
+    // Refresh assessments & applications
+    await loadEvaluations(true)
+    await appStore.fetchApplications()
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to update company', 'error')
+  }
+}
+
 async function passAndArchive(task) {
   const appId = task.result_json?.application_id
   if (appId) await IntakeAPI.dismissAssessment(appId)
@@ -900,6 +932,12 @@ onUnmounted(() => {
                   >
                     {{ task.result_json?.company || task.title_hint || 'Target Company' }}
                   </span>
+                  <CompanyPickerDropdown
+                    :current-company-id="task.result_json?.company_id"
+                    :current-company-name="task.result_json?.company || task.title_hint"
+                    button-title="Change company"
+                    @select="(comp) => handleChangeTaskCompany(task, comp)"
+                  />
                   <span v-if="task.job_url" class="eval-url-link">
                     <a :href="task.job_url" target="_blank" rel="noopener noreferrer" title="Open original job posting">
                       <Globe :size="12" />
@@ -1297,6 +1335,12 @@ onUnmounted(() => {
                   >
                     {{ task.result_json?.company || task.title_hint || 'Target Company' }}
                   </span>
+                  <CompanyPickerDropdown
+                    :current-company-id="task.result_json?.company_id"
+                    :current-company-name="task.result_json?.company || task.title_hint"
+                    button-title="Change company"
+                    @select="(comp) => handleChangeTaskCompany(task, comp)"
+                  />
                   <span v-if="task.job_url" class="eval-url-link">
                     <a :href="task.job_url" target="_blank" rel="noopener noreferrer" title="Open original job posting">
                       <Globe :size="12" />

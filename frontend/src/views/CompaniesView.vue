@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useUIStore } from '../stores/uiStore'
 import { CompaniesAPI } from '../api/endpoints'
 import CompanyLogo from '../components/common/CompanyLogo.vue'
+import AddCompanyModal from '../components/modals/AddCompanyModal.vue'
 import {
   Building2,
   Search,
@@ -45,64 +46,20 @@ const filterDuplicatesOnly = ref(false)
 
 // Create Company Modal State
 const isCreateModalOpen = ref(false)
-const isSubmittingCompany = ref(false)
-const newCompanyName = ref('')
-const newCompanyUrl = ref('')
-const newCompanyAboutUrl = ref('')
 
 function openCreateModal() {
-  newCompanyName.value = ''
-  newCompanyUrl.value = ''
-  newCompanyAboutUrl.value = ''
   isCreateModalOpen.value = true
 }
 
-function closeCreateModal() {
-  if (isSubmittingCompany.value) return
-  isCreateModalOpen.value = false
-}
+async function onCompanyCreated(createdCompany) {
+  isStale.value = true
+  lastFetchedAt.value = null
+  await fetchCompanies()
+  checkAndStartActiveResearchPolling()
 
-async function handleCreateCompany(queueResearch = false) {
-  const name = newCompanyName.value.trim()
-  if (!name) {
-    uiStore.showToast('Please enter a company name', 'warning')
-    return
-  }
-
-  isSubmittingCompany.value = true
-  try {
-    const payload = {
-      name,
-      domain: newCompanyUrl.value.trim() || null,
-      about_url: newCompanyAboutUrl.value.trim() || null,
-      queue_research: queueResearch,
-    }
-
-    const res = await CompaniesAPI.create(payload)
-    const createdCompany = res.data
-
-    uiStore.showToast(
-      queueResearch
-        ? `Company '${createdCompany.name}' created and web research queued in AI Queue!`
-        : `Company '${createdCompany.name}' created successfully!`,
-      'success'
-    )
-
-    isCreateModalOpen.value = false
-    isStale.value = true
-    lastFetchedAt.value = null
-    await fetchCompanies()
-    checkAndStartActiveResearchPolling()
-
-    // Automatically open the company drawer for quick review
-    if (createdCompany?.id) {
-      openCompanyDrawer(createdCompany.id)
-    }
-  } catch (err) {
-    const errorMsg = err.response?.data?.detail || 'Failed to create company'
-    uiStore.showToast(errorMsg, 'error')
-  } finally {
-    isSubmittingCompany.value = false
+  // Automatically open the company drawer for quick review
+  if (createdCompany?.id) {
+    openCompanyDrawer(createdCompany.id)
   }
 }
 
@@ -699,139 +656,11 @@ function openCompanyDrawerWithMerge(companyId) {
         </div>
       </div>
     </div>
-
     <!-- Add Company Modal -->
-    <Teleport to="body">
-      <Transition name="modal-fade">
-        <div
-          v-if="isCreateModalOpen"
-          class="modal-backdrop"
-          @click.self="closeCreateModal"
-        >
-          <div class="modal-card animate-fade-in add-company-modal">
-            <div class="modal-header">
-              <div class="modal-header-title-wrap">
-                <div class="modal-header-icon-wrap">
-                  <Building2 :size="18" class="text-primary" />
-                </div>
-                <div>
-                  <h3 class="modal-title">Add Company</h3>
-                  <p class="modal-subtitle">Create an employer entity to track applications and live intelligence.</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                class="btn-close"
-                :disabled="isSubmittingCompany"
-                @click="closeCreateModal"
-                title="Close modal"
-              >
-                <X :size="18" />
-              </button>
-            </div>
-
-            <div class="modal-body">
-              <div class="form-group">
-                <label class="form-label required">Company Name</label>
-                <input
-                  v-model="newCompanyName"
-                  type="text"
-                  class="form-input"
-                  placeholder="e.g. Stripe, Acme Corp, Linear"
-                  autofocus
-                  :disabled="isSubmittingCompany"
-                  @keydown.enter.prevent="handleCreateCompany(false)"
-                />
-              </div>
-
-              <div class="form-group">
-                <label class="form-label">
-                  <span>Website or Careers URL</span>
-                  <span class="text-muted font-normal">(Optional)</span>
-                </label>
-                <div class="input-with-icon">
-                  <Globe :size="15" class="input-icon text-muted" />
-                  <input
-                    v-model="newCompanyUrl"
-                    type="text"
-                    class="form-input"
-                    placeholder="e.g. stripe.com or https://stripe.com/jobs"
-                    :disabled="isSubmittingCompany"
-                    @keydown.enter.prevent="handleCreateCompany(false)"
-                  />
-                </div>
-                <p class="form-hint">
-                  ATS URLs like Greenhouse or Lever and path prefixes are automatically cleaned into root domains.
-                </p>
-              </div>
-
-              <div class="form-group">
-                <label class="form-label">
-                  <span>"About Us" or Info Page URL</span>
-                  <span class="text-muted font-normal">(Optional)</span>
-                </label>
-                <input
-                  v-model="newCompanyAboutUrl"
-                  type="text"
-                  class="form-input"
-                  placeholder="e.g. https://company.com/about or /company"
-                  :disabled="isSubmittingCompany"
-                />
-                <p class="form-hint">
-                  Direct link to help the web scraper pinpoint corporate mission and engineering culture.
-                </p>
-              </div>
-
-              <div class="research-recommendation-box">
-                <div class="box-icon">
-                  <Sparkles :size="18" class="text-primary" />
-                </div>
-                <div class="box-content">
-                  <h5 class="box-title">AI Live Web Intelligence</h5>
-                  <p class="box-desc">
-                    Queueing web research will search DuckDuckGo/SearXNG and synthesize corporate culture, public reviews, and strategic overview in the background AI Queue.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div class="modal-footer">
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="isSubmittingCompany"
-                @click="closeCreateModal"
-              >
-                Cancel
-              </button>
-              
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="isSubmittingCompany || !newCompanyName.trim()"
-                @click="handleCreateCompany(false)"
-                title="Create company without running background research"
-              >
-                <Loader2 v-if="isSubmittingCompany" :size="14" class="animate-spin" />
-                <span>Create Only</span>
-              </button>
-
-              <button
-                type="button"
-                class="btn btn-primary btn-sm btn-create-research"
-                :disabled="isSubmittingCompany || !newCompanyName.trim()"
-                @click="handleCreateCompany(true)"
-                title="Create company and immediately enqueue AI web research"
-              >
-                <Loader2 v-if="isSubmittingCompany" :size="14" class="animate-spin" />
-                <Sparkles v-else :size="14" />
-                <span>Create & Queue Research</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
+    <AddCompanyModal
+      v-model="isCreateModalOpen"
+      @created="onCompanyCreated"
+    />
   </div>
 </template>
 
@@ -1412,189 +1241,5 @@ function openCompanyDrawerWithMerge(companyId) {
   background: var(--primary-hover, #4f46e5);
   border-color: var(--primary-hover, #4f46e5);
   transform: translateY(-1px);
-}
-
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background-color: var(--bg-backdrop, rgba(0, 0, 0, 0.75));
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 20px;
-}
-
-.modal-fade-enter-active,
-.modal-fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.modal-fade-enter-from,
-.modal-fade-leave-to {
-  opacity: 0;
-}
-
-.modal-fade-enter-active .modal-card {
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.modal-fade-enter-from .modal-card {
-  transform: scale(0.96) translateY(8px);
-}
-
-.add-company-modal {
-  width: 100%;
-  max-width: 520px;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg, 12px);
-  box-shadow: var(--shadow-xl, 0 20px 25px -5px rgba(0, 0, 0, 0.2));
-  overflow: hidden;
-  position: relative;
-  z-index: 1001;
-}
-
-.modal-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 18px 20px;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.modal-header-title-wrap {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.modal-header-icon-wrap {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  background: var(--primary-light, rgba(99, 102, 241, 0.12));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.modal-title {
-  font-family: var(--font-heading);
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-main);
-  margin: 0;
-}
-
-.modal-subtitle {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin: 2px 0 0 0;
-}
-
-.modal-body {
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.form-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-main);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.form-label.required::after {
-  content: "*";
-  color: #ef4444;
-  margin-left: 2px;
-}
-
-.input-with-icon {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.input-icon {
-  position: absolute;
-  left: 10px;
-  pointer-events: none;
-}
-
-.input-with-icon .form-input {
-  padding-left: 32px;
-  width: 100%;
-}
-
-.form-hint {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin: 2px 0 0 0;
-  line-height: 1.4;
-}
-
-.research-recommendation-box {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px 14px;
-  background: var(--primary-light, rgba(99, 102, 241, 0.08));
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-}
-
-.box-icon {
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-
-.box-content {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.box-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-main);
-  margin: 0;
-}
-
-.box-desc {
-  font-size: 11px;
-  color: var(--text-secondary);
-  line-height: 1.4;
-  margin: 0;
-}
-
-.modal-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 14px 20px;
-  border-top: 1px solid var(--border-color);
-  background-color: var(--bg-sidebar, rgba(0, 0, 0, 0.02));
-}
-
-.btn-create-research {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 </style>

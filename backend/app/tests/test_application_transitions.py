@@ -276,3 +276,57 @@ async def test_system_badges_cache_invalidation_fields(db_session: AsyncSession)
         assert "latest_activity_at" in data
 
     app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_application_reassign_company_id(db_session: AsyncSession):
+    app.dependency_overrides[get_db] = lambda: db_session
+
+    company_a = CompanyModel(
+        name="Stripe", name_normalized="stripe", domain="stripe.com"
+    )
+    company_b = CompanyModel(
+        name="Linear", name_normalized="linear", domain="linear.app"
+    )
+    db_session.add_all([company_a, company_b])
+    await db_session.flush()
+
+    application = ApplicationModel(
+        company_id=company_a.id,
+        position="Staff Engineer",
+        position_normalized="staff engineer",
+        status="APPLIED",
+        application_key="stripe-staff-101",
+        match_analysis_payload={"company": "Stripe", "company_domain": "stripe.com"},
+    )
+    db_session.add(application)
+    await db_session.commit()
+    await db_session.refresh(application)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Successful reassign to company_b
+        with patch(
+            "app.routers.applications.async_enqueue_application_embedding",
+            new_callable=AsyncMock,
+        ):
+            resp = await client.patch(
+                f"/api/v1/applications/{application.id}",
+                json={"company_id": company_b.id},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["company"]["id"] == company_b.id
+            assert data["company"]["name"] == "Linear"
+            assert data["match_analysis_payload"]["company"] == "Linear"
+            assert data["match_analysis_payload"]["company_domain"] == "linear.app"
+
+        # 2. Reassign to non-existent company returns 404
+        resp_404 = await client.patch(
+            f"/api/v1/applications/{application.id}",
+            json={"company_id": 999999},
+        )
+        assert resp_404.status_code == 404
+
+    app.dependency_overrides.clear()
+

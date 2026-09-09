@@ -687,7 +687,24 @@ async def update_application(
                     cleaned.split("/")[0].split("?")[0].split("#")[0].strip() or None
                 )
 
-    if "company_name" in update_data and update_data["company_name"] is not None:
+    if "company_id" in update_data and update_data["company_id"] is not None:
+        target_company_id = update_data["company_id"]
+        target_company = await db.get(CompanyModel, target_company_id)
+        if not target_company:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Company with ID {target_company_id} not found.",
+            )
+        app.company_id = target_company.id
+        app.company = target_company
+        if app.match_analysis_payload and isinstance(app.match_analysis_payload, dict):
+            updated_payload = dict(app.match_analysis_payload)
+            updated_payload["company"] = target_company.name
+            if target_company.domain:
+                updated_payload["company_domain"] = target_company.domain
+                updated_payload["company_url"] = target_company.domain
+            app.match_analysis_payload = updated_payload
+    elif "company_name" in update_data and update_data["company_name"] is not None:
         c_name = update_data["company_name"].strip()
         if c_name:
             c_norm = c_name.lower()
@@ -786,6 +803,7 @@ async def update_application(
     for key, value in update_data.items():
         if key not in {
             "position",
+            "company_id",
             "company_name",
             "company_domain",
             "salary_min",

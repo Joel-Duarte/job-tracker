@@ -3,7 +3,7 @@ import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -28,9 +28,10 @@ ACTIVE_STATUSES = ("APPLIED", "ONLINE_ASSESSMENT", "TECHNICAL_INTERVIEW", "OFFER
 
 @router.get("", response_model=list[CompanyRead])
 async def list_companies(
+    q: str | None = Query(None, description="Search query by name or domain"),
     db: AsyncSession = Depends(get_db),
 ) -> list[CompanyRead]:
-    """Lists all companies with aggregated application metrics."""
+    """Lists all companies with aggregated application metrics, optionally filtered by search term."""
     stmt = (
         select(CompanyModel)
         .options(
@@ -38,8 +39,19 @@ async def list_companies(
                 ApplicationModel.events
             )
         )
-        .order_by(CompanyModel.name_normalized.asc())
     )
+
+    if q and q.strip():
+        term = f"%{q.strip().lower()}%"
+        stmt = stmt.where(
+            or_(
+                CompanyModel.name_normalized.ilike(term),
+                CompanyModel.name.ilike(term),
+                CompanyModel.domain.ilike(term),
+            )
+        )
+
+    stmt = stmt.order_by(CompanyModel.name_normalized.asc())
     res = await db.execute(stmt)
     companies = res.scalars().all()
 

@@ -230,7 +230,11 @@ async def test_get_company_includes_assessment_applications():
     )
     mock_res = MagicMock()
     mock_res.scalar_one_or_none.return_value = company
-    db.execute.return_value = mock_res
+
+    mock_active = MagicMock()
+    mock_active.scalars.return_value.first.return_value = None
+
+    db.execute.side_effect = [mock_res, mock_active]
 
     res = await get_company(company_id=1, db=db)
     assert res.applications_count == 2
@@ -284,7 +288,10 @@ async def test_update_company_auto_merges_when_renamed():
     mock_final = MagicMock()
     mock_final.scalar_one_or_none.return_value = c_existing
 
-    db.execute.side_effect = [mock_target, None, mock_final]
+    mock_active = MagicMock()
+    mock_active.scalars.return_value.first.return_value = None
+
+    db.execute.side_effect = [mock_target, None, mock_final, mock_active]
 
     payload = CompanyUpdate(name="CSSF")
     res = await update_company(company_id=2, payload=payload, db=db)
@@ -454,3 +461,33 @@ async def test_create_company_with_queue_research_unit():
         assert res.research_status == "QUEUED"
         assert len(bg.tasks) == 1
         db.add.assert_called_once()  # IntakeEvaluationTaskModel was added
+
+
+@pytest.mark.asyncio
+async def test_list_companies_with_query_filter():
+    from app.routers.companies import list_companies
+
+    db = AsyncMock()
+
+    # Companies query returns matching company
+    comp1 = CompanyModel(
+        id=1,
+        name="Linear",
+        name_normalized="linear",
+        domain="linear.app",
+        research_status="NONE",
+        applications=[],
+    )
+    mock_companies_res = MagicMock()
+    mock_companies_res.scalars.return_value.all.return_value = [comp1]
+
+    # Active research tasks query returns empty
+    mock_active_res = MagicMock()
+    mock_active_res.all.return_value = []
+
+    db.execute.side_effect = [mock_companies_res, mock_active_res]
+
+    results = await list_companies(q="line", db=db)
+    assert len(results) == 1
+    assert results[0].name == "Linear"
+    assert results[0].domain == "linear.app"
