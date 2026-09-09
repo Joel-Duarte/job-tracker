@@ -17,7 +17,11 @@ from app.schemas.companies import (
     CompanyUpdate,
 )
 from app.services.company_resolver import GENERIC_ATS_HOSTS, resolve_or_create_company
-from app.services.domain_resolver import clean_domain, extract_domain_from_url
+from app.services.domain_resolver import (
+    clean_domain,
+    extract_domain_from_url,
+    is_ats_vendor_match,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +36,8 @@ async def list_companies(
     db: AsyncSession = Depends(get_db),
 ) -> list[CompanyRead]:
     """Lists all companies with aggregated application metrics, optionally filtered by search term."""
-    stmt = (
-        select(CompanyModel)
-        .options(
-            selectinload(CompanyModel.applications).selectinload(
-                ApplicationModel.events
-            )
-        )
+    stmt = select(CompanyModel).options(
+        selectinload(CompanyModel.applications).selectinload(ApplicationModel.events)
     )
 
     if q and q.strip():
@@ -160,7 +159,9 @@ async def create_company(
     parsed_domain = None
     if payload.domain:
         raw_dom = payload.domain.strip()
-        parsed_domain = extract_domain_from_url(raw_dom) or clean_domain(raw_dom)
+        parsed_domain = extract_domain_from_url(
+            raw_dom, company_name=raw_name
+        ) or clean_domain(raw_dom)
 
     # Clean about_url if provided
     parsed_about = payload.about_url.strip() if payload.about_url else None
@@ -252,7 +253,10 @@ async def get_potential_duplicates(
                 c1.domain
                 and c2.domain
                 and c1.domain == c2.domain
-                and not any(h in c1.domain for h in GENERIC_ATS_HOSTS)
+                and (
+                    not any(h in c1.domain for h in GENERIC_ATS_HOSTS)
+                    or is_ats_vendor_match(c1.name_normalized, c1.domain)
+                )
             ):
                 is_dup = True
             # Check 3: Fuzzy similarity >= 0.85
@@ -406,8 +410,8 @@ async def update_company(
     new_domain = (
         payload.domain.strip().lower() if payload.domain is not None else c.domain
     )
-    if new_domain and any(h in new_domain for h in GENERIC_ATS_HOSTS):
-        new_domain = None
+    if new_domain:
+        new_domain = clean_domain(new_domain) or new_domain
 
     # Check if another company already matches new_norm or new_domain
     target_match = None

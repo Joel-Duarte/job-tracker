@@ -27,15 +27,42 @@ def test_is_ats_hostname():
     assert is_ats_hostname("stripe.com") is False
     assert is_ats_hostname("linear.app") is False
     assert is_ats_hostname("careers.google.com") is False
+    # Vendor-specific checks
+    assert is_ats_hostname("jobs.ashbyhq.com", company_name="Ashby") is False
+    assert is_ats_hostname("jobs.ashbyhq.com", company_name="AshbyHQ") is False
+    assert is_ats_hostname("jobs.ashbyhq.com", company_name="Figma") is True
+    assert is_ats_hostname("boards.greenhouse.io", company_name="Greenhouse") is False
+    assert is_ats_hostname("boards.greenhouse.io", company_name="Stripe") is True
 
 
 def test_extract_domain_from_url():
-    # ATS URLs must return None so we don't treat greenhouse.io as the company domain
+    # ATS URLs must return None for third parties so we don't treat greenhouse.io as the company domain
     assert (
         extract_domain_from_url("https://boards.greenhouse.io/stripe/jobs/123") is None
     )
     assert extract_domain_from_url("https://jobs.lever.co/linear/456") is None
     assert extract_domain_from_url("https://jobs.ashbyhq.com/figma/789") is None
+    assert (
+        extract_domain_from_url(
+            "https://jobs.ashbyhq.com/figma/789", company_name="Figma"
+        )
+        is None
+    )
+
+    # ATS URLs for the ATS vendor itself should extract the canonical ATS domain
+    assert (
+        extract_domain_from_url("https://jobs.ashbyhq.com/ashby/123") == "ashbyhq.com"
+    )
+    assert (
+        extract_domain_from_url(
+            "https://jobs.ashbyhq.com/ashby/123", company_name="Ashby"
+        )
+        == "ashbyhq.com"
+    )
+    assert (
+        extract_domain_from_url("https://boards.greenhouse.io/greenhouse/jobs/123")
+        == "greenhouse.io"
+    )
 
     # Direct company website URLs should extract clean root domains
     assert extract_domain_from_url("https://stripe.com/jobs/staff-eng") == "stripe.com"
@@ -165,3 +192,41 @@ async def test_resolve_company_domain_searches_and_ignores_hallucinated_ai():
             allow_network=True,
         )
         assert domain == "acme-corp.com"
+
+
+def test_is_ats_vendor_match():
+    from app.services.domain_resolver import is_ats_vendor_match
+
+    assert is_ats_vendor_match("Ashby", "jobs.ashbyhq.com") is True
+    assert is_ats_vendor_match("Ashby HQ", "ashbyhq.com") is True
+    assert is_ats_vendor_match("Figma", "jobs.ashbyhq.com") is False
+    assert is_ats_vendor_match("Greenhouse", "boards.greenhouse.io") is True
+    assert is_ats_vendor_match("Stripe", "boards.greenhouse.io") is False
+
+
+@pytest.mark.asyncio
+async def test_resolve_company_domain_for_ats_vendor():
+    # Job at Ashby itself should resolve to ashbyhq.com
+    domain = await resolve_company_domain(
+        company_name="Ashby",
+        source_url="https://jobs.ashbyhq.com/ashby/123",
+        allow_network=False,
+    )
+    assert domain == "ashbyhq.com"
+
+    # AI domain of ashbyhq.com should be allowed when company is Ashby
+    domain_ai = await resolve_company_domain(
+        company_name="Ashby",
+        source_url=None,
+        ai_domain="ashbyhq.com",
+        allow_network=False,
+    )
+    assert domain_ai == "ashbyhq.com"
+
+    # Job at Figma on Ashby should NOT resolve to ashbyhq.com
+    figma_domain = await resolve_company_domain(
+        company_name="Figma",
+        source_url="https://jobs.ashbyhq.com/figma/123",
+        allow_network=False,
+    )
+    assert figma_domain == "figma.com"

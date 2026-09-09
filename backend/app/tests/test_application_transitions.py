@@ -329,4 +329,3 @@ async def test_application_reassign_company_id(db_session: AsyncSession):
         assert resp_404.status_code == 404
 
     app.dependency_overrides.clear()
-

@@ -38,7 +38,10 @@ async def resolve_or_create_company(
     norm_name = clean_name.lower()
     clean_domain = domain.strip().lower() if domain else None
     if clean_domain and any(h in clean_domain for h in GENERIC_ATS_HOSTS):
-        clean_domain = None
+        from app.services.domain_resolver import is_ats_vendor_match
+
+        if not is_ats_vendor_match(clean_name, clean_domain):
+            clean_domain = None
 
     # Tier 1: Exact normalized name match
     stmt_name = select(CompanyModel).where(CompanyModel.name_normalized == norm_name)

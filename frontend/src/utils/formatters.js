@@ -202,10 +202,36 @@ const KNOWN_ATS_DOMAINS = new Set([
   'glassdoor.com',
 ])
 
+const ATS_VENDOR_ALIASES = {
+  'ashbyhq.com': ['ashby', 'ashbyhq'],
+  'greenhouse.io': ['greenhouse', 'greenhousesoftware'],
+  'lever.co': ['lever'],
+  'workday.com': ['workday'],
+  'smartrecruiters.com': ['smartrecruiters'],
+  'bamboohr.com': ['bamboohr'],
+  'rippling.com': ['rippling'],
+  'rippling-ats.com': ['rippling'],
+  'jobvite.com': ['jobvite'],
+  'icims.com': ['icims'],
+  'workable.com': ['workable'],
+  'breezy.hr': ['breezy', 'breezyhr'],
+  'jazzhr.com': ['jazzhr'],
+  'pinpointhq.com': ['pinpoint', 'pinpointhq'],
+  'teamtailor.com': ['teamtailor'],
+  'recruitee.com': ['recruitee'],
+}
+
 /**
  * Returns clean company domain from company object or company name
  */
 export function getCompanyDomain(companyName, existingDomain = null) {
+  const cleaned = companyName
+    ? String(companyName)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+    : ''
+
   if (existingDomain && String(existingDomain).includes('.')) {
     let clean = String(existingDomain)
       .trim()
@@ -215,9 +241,23 @@ export function getCompanyDomain(companyName, existingDomain = null) {
       .replace(/\/.*$/, '')
       .replace(/^www\./, '')
 
-    const isATS = Array.from(KNOWN_ATS_DOMAINS).some(
+    let isATS = Array.from(KNOWN_ATS_DOMAINS).some(
       (ats) => clean === ats || clean.endsWith(`.${ats}`)
     )
+
+    if (isATS && cleaned) {
+      for (const [atsDomain, aliases] of Object.entries(ATS_VENDOR_ALIASES)) {
+        if (
+          (clean === atsDomain || clean.endsWith(`.${atsDomain}`)) &&
+          aliases.includes(cleaned)
+        ) {
+          isATS = false
+          clean = atsDomain
+          break
+        }
+      }
+    }
+
     if (!isATS) {
       // Strip common recruitment / career subdomains so brand favicons resolve
       clean = clean.replace(/^(careers|jobs|apply|talent|work|join|recruiting|corp)\./, '')
@@ -227,11 +267,6 @@ export function getCompanyDomain(companyName, existingDomain = null) {
     }
   }
   if (!companyName) return null
-
-  const cleaned = String(companyName)
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '')
 
   if (!cleaned) return null
 
@@ -265,6 +300,22 @@ export function getCompanyDomain(companyName, existingDomain = null) {
     discord: 'discord.com',
     zoom: 'zoom.us',
     atlassian: 'atlassian.com',
+    ashby: 'ashbyhq.com',
+    ashbyhq: 'ashbyhq.com',
+    greenhouse: 'greenhouse.io',
+    lever: 'lever.co',
+    workday: 'workday.com',
+    smartrecruiters: 'smartrecruiters.com',
+    bamboohr: 'bamboohr.com',
+    rippling: 'rippling.com',
+    jobvite: 'jobvite.com',
+    icims: 'icims.com',
+    workable: 'workable.com',
+    breezyhr: 'breezy.hr',
+    jazzhr: 'jazzhr.com',
+    pinpoint: 'pinpointhq.com',
+    teamtailor: 'teamtailor.com',
+    recruitee: 'recruitee.com',
   }
 
   if (overrides[cleaned]) {

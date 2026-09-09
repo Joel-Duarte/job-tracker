@@ -491,3 +491,68 @@ async def test_list_companies_with_query_filter():
     assert len(results) == 1
     assert results[0].name == "Linear"
     assert results[0].domain == "linear.app"
+
+
+@pytest.mark.asyncio
+async def test_resolve_or_create_company_ats_vendor_domain():
+    db = AsyncMock()
+    mock_res_none = MagicMock()
+    mock_res_none.scalar_one_or_none.return_value = None
+    mock_res_none.first.return_value = None
+    db.execute.side_effect = [mock_res_none, mock_res_none, mock_res_none]
+
+    # For Ashby itself, ashbyhq.com should be preserved
+    comp, was_created = await resolve_or_create_company(db, "Ashby", "ashbyhq.com")
+    assert was_created is True
+    assert comp.name == "Ashby"
+    assert comp.domain == "ashbyhq.com"
+
+    # Reset mock for third party company
+    db.reset_mock()
+    db.execute.side_effect = [mock_res_none, mock_res_none, mock_res_none]
+
+    # For third party employer, ashbyhq.com should be stripped to None
+    comp2, was_created2 = await resolve_or_create_company(
+        db, "Random Co", "ashbyhq.com"
+    )
+    assert was_created2 is True
+    assert comp2.name == "Random Co"
+    assert comp2.domain is None
+
+
+@pytest.mark.asyncio
+async def test_update_company_allows_ats_domain():
+    from app.routers.companies import update_company
+    from app.schemas.companies import CompanyUpdate
+
+    db = AsyncMock()
+    existing_comp = CompanyModel(
+        id=1,
+        name="Ashby",
+        name_normalized="ashby",
+        domain=None,
+        applications=[],
+    )
+    db.get.return_value = existing_comp
+
+    # 1. Duplicate check returns None
+    mock_no_dup = MagicMock()
+    mock_no_dup.scalars.return_value.first.return_value = None
+
+    # 2. get_company query returns existing_comp
+    mock_comp_res = MagicMock()
+    mock_comp_res.scalar_one_or_none.return_value = existing_comp
+
+    # 3. active research task check returns None
+    mock_active = MagicMock()
+    mock_active.scalars.return_value.first.return_value = None
+
+    db.execute.side_effect = [mock_no_dup, mock_comp_res, mock_active]
+
+    res = await update_company(
+        company_id=1,
+        payload=CompanyUpdate(domain="ashbyhq.com"),
+        db=db,
+    )
+    assert res.domain == "ashbyhq.com"
+    assert existing_comp.domain == "ashbyhq.com"

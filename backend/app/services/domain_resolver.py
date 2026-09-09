@@ -66,6 +66,33 @@ KNOWN_AGGREGATOR_DOMAINS = KNOWN_ATS_DOMAINS | {
     "techcrunch.com",
 }
 
+# Mapping of canonical ATS vendor domain to set of normalized vendor name identifiers/aliases
+ATS_VENDOR_DOMAINS: dict[str, set[str]] = {
+    "ashbyhq.com": {"ashby", "ashbyhq", "ashbytechnologies"},
+    "greenhouse.io": {"greenhouse", "greenhousesoftware"},
+    "lever.co": {"lever"},
+    "workday.com": {"workday"},
+    "smartrecruiters.com": {"smartrecruiters"},
+    "bamboohr.com": {"bamboohr"},
+    "rippling.com": {"rippling"},
+    "rippling-ats.com": {"rippling"},
+    "jobvite.com": {"jobvite"},
+    "icims.com": {"icims"},
+    "workable.com": {"workable"},
+    "breezy.hr": {"breezy", "breezyhr"},
+    "jazzhr.com": {"jazzhr"},
+    "pinpointhq.com": {"pinpoint", "pinpointhq"},
+    "teamtailor.com": {"teamtailor"},
+    "recruitee.com": {"recruitee"},
+    "polymer.co": {"polymer"},
+    "otta.com": {"otta"},
+    "wellfound.com": {"wellfound", "angellist"},
+    "linkedin.com": {"linkedin"},
+    "indeed.com": {"indeed"},
+    "glassdoor.com": {"glassdoor"},
+    "ziprecruiter.com": {"ziprecruiter"},
+}
+
 # Static high-confidence domain overrides for common tech employers
 KNOWN_COMPANY_OVERRIDES = {
     "stripe": "stripe.com",
@@ -96,6 +123,23 @@ KNOWN_COMPANY_OVERRIDES = {
     "discord": "discord.com",
     "zoom": "zoom.us",
     "atlassian": "atlassian.com",
+    "ashby": "ashbyhq.com",
+    "ashbyhq": "ashbyhq.com",
+    "greenhouse": "greenhouse.io",
+    "greenhousesoftware": "greenhouse.io",
+    "lever": "lever.co",
+    "workday": "workday.com",
+    "smartrecruiters": "smartrecruiters.com",
+    "bamboohr": "bamboohr.com",
+    "rippling": "rippling.com",
+    "jobvite": "jobvite.com",
+    "icims": "icims.com",
+    "workable": "workable.com",
+    "breezyhr": "breezy.hr",
+    "jazzhr": "jazzhr.com",
+    "pinpoint": "pinpointhq.com",
+    "teamtailor": "teamtailor.com",
+    "recruitee": "recruitee.com",
 }
 
 
@@ -122,13 +166,34 @@ def clean_domain(raw: str | None) -> str | None:
     return None
 
 
-def is_ats_hostname(hostname: str) -> bool:
-    """Checks if a given hostname belongs to a known ATS or job board."""
+def is_ats_vendor_match(company_name: str | None, domain_or_host: str | None) -> bool:
+    """Checks whether the company name corresponds to the vendor of the given ATS domain."""
+    if not company_name or not domain_or_host:
+        return False
+    norm_name = re.sub(r"[^a-z0-9]", "", company_name.lower())
+    clean_host = clean_domain(domain_or_host) or domain_or_host.strip().lower()
+    for ats_root, aliases in ATS_VENDOR_DOMAINS.items():
+        if clean_host == ats_root or clean_host.endswith(f".{ats_root}"):
+            if norm_name in aliases:
+                return True
+    return False
+
+
+def is_ats_hostname(hostname: str, company_name: str | None = None) -> bool:
+    """Checks if a given hostname belongs to a known ATS or job board.
+
+    If company_name is provided and the company itself is the ATS vendor
+    (e.g., 'Ashby' applying on 'jobs.ashbyhq.com'), returns False so the
+    vendor's domain is not filtered out.
+    """
     if not hostname:
         return False
 
     clean_host = clean_domain(hostname)
     if not clean_host:
+        return False
+
+    if company_name and is_ats_vendor_match(company_name, clean_host):
         return False
 
     for ats in KNOWN_ATS_DOMAINS:
@@ -138,8 +203,10 @@ def is_ats_hostname(hostname: str) -> bool:
     return False
 
 
-def extract_domain_from_url(url: str | None) -> str | None:
-    """Extracts the company domain from a job posting URL if it is not an ATS."""
+def extract_domain_from_url(
+    url: str | None, company_name: str | None = None
+) -> str | None:
+    """Extracts the company domain from a job posting URL if it is not an ATS (or if the company is the ATS vendor)."""
     if not url:
         return None
 
@@ -150,8 +217,27 @@ def extract_domain_from_url(url: str | None) -> str | None:
         if not cleaned:
             return None
 
-        # If it's a known ATS or job board, we cannot treat the hostname as the company domain
-        if is_ats_hostname(cleaned):
+        # Check if URL is an ATS URL where the vendor itself is the employer
+        ats_slug = extract_organization_from_ats_url(url)
+        norm_company = (
+            re.sub(r"[^a-z0-9]", "", company_name.lower()) if company_name else None
+        )
+
+        for ats_root, aliases in ATS_VENDOR_DOMAINS.items():
+            if cleaned == ats_root or cleaned.endswith(f".{ats_root}"):
+                is_vendor = False
+                if ats_slug and ats_slug.lower() in aliases:
+                    is_vendor = True
+                elif norm_company and norm_company in aliases:
+                    is_vendor = True
+                if is_vendor:
+                    # Return the canonical root domain of the vendor
+                    return ats_root
+                # It's an ATS for a third-party company
+                return None
+
+        # If it's a known ATS or job board not caught above
+        if is_ats_hostname(cleaned, company_name=company_name):
             return None
 
         # Strip standard subdomains like careers., jobs., info., app.
@@ -304,7 +390,8 @@ async def search_company_domain_and_about(
                 r_host = r_host[4:]
 
             # Check if host is an aggregator or ATS
-            is_aggregator = any(
+            is_vendor = is_ats_vendor_match(clean_name, r_host)
+            is_aggregator = (not is_vendor) and any(
                 r_host == agg or r_host.endswith("." + agg)
                 for agg in KNOWN_AGGREGATOR_DOMAINS
             )
@@ -378,11 +465,11 @@ async def resolve_company_domain(
 ) -> str | None:
     """Resolves the official company domain using a prioritized multi-stage heuristic:
 
-    1. Static known overrides (e.g. 'Linear' -> 'linear.app', 'Datadog' -> 'datadoghq.com')
-    2. Direct URL extraction (if source URL is hosted directly on company site, e.g. 'stripe.com/jobs')
+    1. Static known overrides (e.g. 'Linear' -> 'linear.app', 'Datadog' -> 'datadoghq.com', 'Ashby' -> 'ashbyhq.com')
+    2. Direct URL extraction (if source URL is hosted directly on company site or is an ATS vendor posting for itself)
     3. Web Search Verification (searches for company official website via SearXNG/DDG, filtering aggregators)
     4. Clearbit autocomplete lookup (fallback)
-    5. Validated ai_domain (if valid domain and not an ATS host)
+    5. Validated ai_domain (if valid domain and not an ATS host unless company is the ATS vendor)
     6. Fallback clean slug domain (e.g. '{company_slug}.com')
     """
     if not company_name:
@@ -393,9 +480,9 @@ async def resolve_company_domain(
     if norm_name in KNOWN_COMPANY_OVERRIDES:
         return KNOWN_COMPANY_OVERRIDES[norm_name]
 
-    # Stage 1: Check direct URL if present and not ATS
+    # Stage 1: Check direct URL if present and not ATS (or if ATS is the employer)
     if source_url:
-        direct_domain = extract_domain_from_url(source_url)
+        direct_domain = extract_domain_from_url(source_url, company_name=cleaned_name)
         if direct_domain:
             return direct_domain
 
@@ -420,7 +507,7 @@ async def resolve_company_domain(
     # Stage 4: Validate AI-extracted domain (only if not an ATS and network search didn't find anything)
     if ai_domain:
         cleaned_ai = clean_domain(ai_domain)
-        if cleaned_ai and not is_ats_hostname(cleaned_ai):
+        if cleaned_ai and not is_ats_hostname(cleaned_ai, company_name=cleaned_name):
             return cleaned_ai
 
     # Stage 5: Simple clean slug fallback

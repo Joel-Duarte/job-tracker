@@ -102,7 +102,12 @@ def build_company_research_query(company_name: str, domain: str | None = None) -
         "smartrecruiters.com",
         "icims.com",
     )
-    if clean_domain and not any(h in clean_domain for h in generic_hosts):
+    from app.services.domain_resolver import is_ats_vendor_match
+
+    is_vendor = is_ats_vendor_match(clean_name, clean_domain)
+    if clean_domain and (
+        is_vendor or not any(h in clean_domain for h in generic_hosts)
+    ):
         return f'"{clean_name}" "{clean_domain}" mission values engineering culture'
     return f'"{clean_name}" company mission values engineering culture technology'
 
