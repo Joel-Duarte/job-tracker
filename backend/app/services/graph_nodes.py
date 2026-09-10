@@ -75,6 +75,108 @@ def _parse_email_date(date_val: str | datetime | None) -> datetime | None:
         return datetime.now(UTC)
 
 
+def _extract_company_fallback(
+    subject: str | None,
+    sender: str | None = None,
+    known_companies: list[str] | None = None,
+) -> str | None:
+    """
+    Recovers company name when LLM extraction returns None or unknown:
+    1. Matches known company names as whole words against subject and sender.
+    2. Matches standard subject patterns (e.g. 'interview at knok', 'Linear - Technical Interview', 'invitation from Figma').
+    """
+    subject_clean = (subject or "").strip()
+    sender_clean = (sender or "").strip()
+
+    # 1. Exact or whole-word match against existing known companies in DB
+    if known_companies and subject_clean:
+        # Sort by length descending so multi-word company names match first
+        for comp_name in sorted(known_companies, key=len, reverse=True):
+            cleaned_c = comp_name.strip()
+            if len(cleaned_c) >= 2:
+                pattern = rf"\b{re.escape(cleaned_c)}\b"
+                if re.search(pattern, subject_clean, re.IGNORECASE):
+                    return cleaned_c
+
+    # Check sender display name for known companies e.g. "Knok Recruiting <talent@...>"
+    if known_companies and sender_clean:
+        for comp_name in sorted(known_companies, key=len, reverse=True):
+            cleaned_c = comp_name.strip()
+            if len(cleaned_c) >= 2:
+                pattern = rf"\b{re.escape(cleaned_c)}\b"
+                if re.search(pattern, sender_clean, re.IGNORECASE):
+                    return cleaned_c
+
+    if not subject_clean:
+        return None
+
+    # 2. Pattern-based extraction from subject
+    # e.g. "interview at knok", "Chat with Stripe", "Invitation to Interview ... at AcmeCorp"
+    m_at = re.search(
+        r"(?:interview|invitation|chat|call|meeting|discussion|update|application|opportunity|status)\s+(?:at|with|for|@)\s+([A-Za-z0-9\s&\'\.-]+?)(?:\s*[-–—:|]|\s+(?:for|regarding|about|on|\d{1,2}(?:st|nd|rd|th)?)|$)",
+        subject_clean,
+        re.IGNORECASE,
+    )
+    if m_at:
+        cand = m_at.group(1).strip()
+        # Clean common trailing notes
+        cand = re.sub(
+            r"\s+(?:team|careers|recruiting|healthcare|hiring)?$",
+            "",
+            cand,
+            flags=re.IGNORECASE,
+        ).strip()
+        if len(cand) >= 2 and cand.lower() not in [
+            "the",
+            "our",
+            "a",
+            "an",
+            "your",
+            "this",
+        ]:
+            return cand
+
+    # e.g. "Linear - Technical Interview", "Figma: Next steps"
+    m_prefix = re.search(
+        r"^([A-Za-z0-9\s&\'\.-]+?)\s*[-–—:|]\s*(?:interview|invitation|application|next steps|offer|technical|recruiter|status)",
+        subject_clean,
+        re.IGNORECASE,
+    )
+    if m_prefix:
+        cand = m_prefix.group(1).strip()
+        if len(cand) >= 2 and cand.lower() not in [
+            "re",
+            "fwd",
+            "fw",
+            "update",
+            "status",
+            "interview",
+            "invitation",
+            "application",
+        ]:
+            return cand
+
+    # e.g. "Your application to knok", "Applying to Figma"
+    m_apply = re.search(
+        r"(?:application|applying)\s+(?:to|with|at)\s+([A-Za-z0-9\s&\'\.-]+?)(?:\s*[-–—:|]|$)",
+        subject_clean,
+        re.IGNORECASE,
+    )
+    if m_apply:
+        cand = m_apply.group(1).strip()
+        if len(cand) >= 2 and cand.lower() not in [
+            "the",
+            "our",
+            "a",
+            "an",
+            "your",
+            "this",
+        ]:
+            return cand
+
+    return None
+
+
 async def _upsert_processed_email(
     db: AsyncSession,
     message_id: str | None,
@@ -196,6 +298,22 @@ async def extraction_node(
         )
         else comp.strip()
     )
+
+    # If company was not identified by LLM, try recovering from subject or sender
+    if not comp_clean:
+        company_names_res = await db.execute(select(CompanyModel.name))
+        known_companies = [c[0] for c in company_names_res.all() if c[0]]
+        recovered = _extract_company_fallback(
+            subject=state.get("subject"),
+            sender=state.get("sender"),
+            known_companies=known_companies,
+        )
+        if recovered:
+            logger.info(
+                "Recovered company name '%s' from subject/sender fallback", recovered
+            )
+            comp_clean = recovered
+            extracted_dict["company"] = recovered
 
     raw_job_url = extracted_dict.get("job_url")
     clean_job_url = normalize_job_url(raw_job_url) if raw_job_url else None

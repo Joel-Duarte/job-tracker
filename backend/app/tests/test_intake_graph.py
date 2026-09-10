@@ -643,3 +643,122 @@ def test_parse_email_date_timezones_and_formats():
     # None and empty
     assert _parse_email_date(None) is None
     assert _parse_email_date("") is None
+
+
+def test_extract_company_fallback():
+    from app.services.graph_nodes import _extract_company_fallback
+
+    known = ["knok", "Stripe", "Linear", "Figma", "Datadog"]
+
+    # 1. Subject matches known company exactly or as whole word
+    assert (
+        _extract_company_fallback("interview at knok", known_companies=known) == "knok"
+    )
+    assert (
+        _extract_company_fallback("Interview with Stripe", known_companies=known)
+        == "Stripe"
+    )
+    assert (
+        _extract_company_fallback(
+            "Invitation to Interview for Machine Learning Engineer at knok on September 14th",
+            known_companies=known,
+        )
+        == "knok"
+    )
+
+    # 2. Sender matches known company
+    assert (
+        _extract_company_fallback(
+            "Next Steps in your interview process",
+            sender="Knok Talent Team <recruiting@knokcare.com>",
+            known_companies=known,
+        )
+        == "knok"
+    )
+
+    # 3. Subject matches pattern when company is not in known list
+    assert (
+        _extract_company_fallback("interview at AcmeCorp", known_companies=[])
+        == "AcmeCorp"
+    )
+    assert (
+        _extract_company_fallback("Linear - Technical Interview", known_companies=[])
+        == "Linear"
+    )
+    assert (
+        _extract_company_fallback("Your application to TechStartup", known_companies=[])
+        == "TechStartup"
+    )
+
+    # 4. Irrelevant subjects return None
+    assert (
+        _extract_company_fallback("Weekly Developer Newsletter", known_companies=known)
+        is None
+    )
+    assert (
+        _extract_company_fallback("Important Security Update", known_companies=known)
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_graph_subject_company_recovery_autolinks_active_application(
+    db_session: AsyncSession,
+):
+    """
+    Simulate scenario where LLM returns company=None, but subject contains 'interview at knok'.
+    The backend recovers 'knok', finds the single active application, and auto-links.
+    """
+    company = CompanyModel(name="knok", name_normalized="knok", domain="knokcare.com")
+    db_session.add(company)
+    await db_session.flush()
+
+    app = ApplicationModel(
+        company_id=company.id,
+        position="Machine Learning Engineer",
+        position_normalized="machine learning engineer",
+        status="APPLIED",
+    )
+    db_session.add(app)
+    await db_session.commit()
+
+    state_input: JobTrackerState = {
+        "message_id": "msg-knok-recovery-1",
+        "conversation_id": "conv-knok-1",
+        "subject": "Invitation to Interview at knok",
+        "body": "Hi, we would like to invite you to an interview.",
+        "received_at": "2026-09-14T15:15:00+01:00",
+    }
+
+    # LLM failed to extract company and position, returning None
+    extracted = ExtractedEmailInfo(
+        email_type="JOB_APPLICATION",
+        company=None,
+        position=None,
+        event_type="INTERVIEW_SCHEDULED",
+        status="TECHNICAL_INTERVIEW",
+        due_date="2026-09-14T15:15:00+01:00",
+        summary="Scheduled interview at knok.",
+        action_required=True,
+        action="Attend interview",
+    )
+
+    with (
+        patch(
+            "app.services.intake.extract_email_info", new_callable=AsyncMock
+        ) as mock_extract,
+        patch(
+            "app.services.graph_nodes.generate_and_save_application_embedding",
+            new_callable=AsyncMock,
+        ),
+    ):
+        mock_extract.return_value = extracted
+
+        result = await intake_graph.ainvoke(
+            state_input,
+            config={"configurable": {"db": db_session}},
+        )
+
+        assert result.get("application_id") == app.id
+        assert result.get("company_name") == "knok"
+        assert result.get("route") == "commit"
