@@ -147,6 +147,56 @@ const queuePositionInfo = computed(() => {
 
 const isCurrentlyGenerating = computed(() => isGenerating.value || !!activeCoverLetterTask.value)
 
+const activeCompanyResearchTask = computed(() => {
+  const compId = application.value?.company_id || application.value?.company?.id
+  if (!compId) return null
+  const compIdStr = String(compId)
+  return (
+    queueStore.tasks.find(
+      (t) =>
+        t.task_type === 'COMPANY_RESEARCH' &&
+        (t.raw_text === compIdStr || t.result_json?.company_id === compId) &&
+        ['QUEUED', 'PROCESSING'].includes(t.status)
+    ) || null
+  )
+})
+
+const hasResearchData = computed(() => {
+  if (!companyResearch.value) return false
+  return Boolean(
+    companyResearch.value.summary ||
+      companyResearch.value.engineering_culture ||
+      companyResearch.value.recent_initiatives ||
+      (companyResearch.value.sources && companyResearch.value.sources.length > 0)
+  )
+})
+
+watch(
+  () => activeCompanyResearchTask.value,
+  async (newVal, oldVal) => {
+    const compId = application.value?.company_id || application.value?.company?.id
+    if (oldVal && !newVal && compId) {
+      try {
+        const compRes = await CompaniesAPI.get(compId)
+        if (compRes.data?.company_research) {
+          companyResearch.value = { ...compRes.data.company_research }
+          if (application.value?.company) {
+            application.value.company.company_research = compRes.data.company_research
+          }
+          isResearchExpanded.value = true
+          uiStore.showToast('Company intelligence updated from web!', 'success')
+        }
+      } catch (err) {
+        console.error('Failed to reload company research after task completed:', err)
+      }
+    } else if (newVal && !oldVal) {
+      if (queueStore.startPolling) {
+        queueStore.startPolling()
+      }
+    }
+  }
+)
+
 function stopPolling() {
   if (pollTimer) {
     clearInterval(pollTimer)
@@ -359,16 +409,20 @@ async function handleRefreshCompanyResearch() {
   try {
     const res = await CompaniesAPI.refreshResearch(compId)
     if (res.data?.company_research && Object.keys(res.data.company_research).length > 0) {
-      companyResearch.value = res.data.company_research
+      companyResearch.value = { ...res.data.company_research }
       if (application.value?.company) {
         application.value.company.company_research = res.data.company_research
       }
       isResearchExpanded.value = true
       uiStore.showToast('Company intelligence refreshed from web!', 'success')
     } else if (res.data?.status === 'queued' || res.data?.status === 'already_queued' || res.data?.queued) {
+      isResearchExpanded.value = true
       uiStore.showToast('Company research task queued in AI background queue.', 'info')
       if (queueStore.fetchTasks) {
         await queueStore.fetchTasks(true)
+      }
+      if (queueStore.startPolling) {
+        queueStore.startPolling()
       }
     } else {
       uiStore.showToast('No company information found online', 'info')
@@ -600,13 +654,13 @@ onUnmounted(() => {
                         <button
                           type="button"
                           class="btn-refresh-research"
-                          :disabled="isRefreshingResearch"
+                          :disabled="isRefreshingResearch || !!activeCompanyResearchTask"
                           @click="handleRefreshCompanyResearch"
                           title="Refresh research from web"
                         >
-                          <Loader2 v-if="isRefreshingResearch" :size="12" class="animate-spin" />
+                          <Loader2 v-if="isRefreshingResearch || activeCompanyResearchTask" :size="12" class="animate-spin" />
                           <RefreshCw v-else :size="12" />
-                          <span>{{ isRefreshingResearch ? 'Researching...' : 'Refresh from Web' }}</span>
+                          <span>{{ isRefreshingResearch || activeCompanyResearchTask ? 'Researching...' : 'Refresh from Web' }}</span>
                         </button>
                         <button
                           type="button"
@@ -620,7 +674,7 @@ onUnmounted(() => {
 
                     <!-- Expandable Research Editor -->
                     <div v-if="isResearchExpanded && includeCompanyResearch" class="research-card-body">
-                      <div v-if="companyResearch" class="research-fields-grid">
+                      <div v-if="hasResearchData" class="research-fields-grid">
                         <div class="research-field">
                           <label class="form-label text-xs">Mission & Focus</label>
                           <textarea
@@ -655,15 +709,24 @@ onUnmounted(() => {
                             :key="idx"
                             :href="src"
                             target="_blank"
+                            rel="noopener noreferrer"
                             class="source-link"
                           >
-                            <ExternalLink :size="10" />
                             <span>{{ src }}</span>
+                            <ExternalLink :size="10" />
                           </a>
                         </div>
                       </div>
+                      <div v-else-if="activeCompanyResearchTask" class="research-empty-state">
+                        <p class="text-xs text-muted flex items-center gap-1.5">
+                          <Loader2 class="animate-spin text-primary" :size="13" />
+                          Researching {{ application?.company?.name || 'this company' }} in background AI queue...
+                        </p>
+                      </div>
                       <div v-else class="research-empty-state">
-                        <p class="text-xs text-muted">No cached research found for this company yet. Click <strong>Refresh from Web</strong> to fetch live context via DuckDuckGo.</p>
+                        <p class="text-xs text-muted">
+                          No company intelligence found yet. Click <strong>"Refresh from Web"</strong> to pull live mission and culture data for {{ application?.company?.name || 'this company' }}.
+                        </p>
                       </div>
                     </div>
                   </div>
