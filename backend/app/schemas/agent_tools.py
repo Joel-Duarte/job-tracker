@@ -143,11 +143,15 @@ class UpdateApplicationPipelineInput(BaseModel):
 class ListApplicationsInput(BaseModel):
     status: str | None = Field(
         default=None,
-        description="Filter by status: APPLIED, TECHNICAL_INTERVIEW, OFFER, REJECTED, ASSESSMENT, HIRED.",
+        description="Filter by status: 'ACTIVE' (all 4 active Kanban stages: APPLIED, ONLINE_ASSESSMENT, TECHNICAL_INTERVIEW, OFFER), or specific stage: APPLIED, ONLINE_ASSESSMENT, TECHNICAL_INTERVIEW, OFFER, REJECTED, WITHDRAWN, HIRED, ARCHIVED.",
     )
     action_required_only: bool = Field(
         default=False,
         description="If true, only returns applications with pending action items.",
+    )
+    include_assessments: bool = Field(
+        default=False,
+        description="If true, includes pre-application AI job fit assessments (is_assessment=True). Defaults to false (actual job applications only).",
     )
     limit: int = Field(default=20, ge=1, le=50, description="Max records to return.")
 
@@ -349,4 +353,18 @@ class BulkTransitionApplicationsInput(BaseModel):
     reason: str | None = Field(
         default=None,
         description="Optional reason logged to application timeline events.",
+    )
+
+
+# 18. Upcoming Interviews Tool
+class GetUpcomingInterviewsInput(BaseModel):
+    days_ahead: int = Field(
+        default=30,
+        ge=1,
+        le=90,
+        description="Lookahead window in days for upcoming scheduled interviews (defaults to 30 days).",
+    )
+    include_pending_scheduling: bool = Field(
+        default=True,
+        description="If true, also lists applications currently in interview stages that lack a confirmed date (e.g. awaiting recruiter scheduling or reply).",
     )

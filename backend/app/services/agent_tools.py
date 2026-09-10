@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from langchain_core.tools import StructuredTool
@@ -34,6 +34,7 @@ from app.schemas.agent_tools import (
     GetCoverLetterInput,
     GetMockInterviewHistoryInput,
     GetRoleAlignmentDossierInput,
+    GetUpcomingInterviewsInput,
     ListApplicationsInput,
     ListCompaniesInput,
     ManageActionItemsInput,
@@ -487,9 +488,14 @@ async def execute_semantic_vector_search(
                 "company": app.company.name if app.company else "Unknown",
                 "position": app.position,
                 "status": app.status,
-                "similarity_score": "Keyword Match (Fast)",
+                "similarity_score": "Keyword Match",
+                "search_mode": "keyword_search",
+                "embeddings_enabled": False,
                 "document_content": f"Application for {app.position} at {app.company.name if app.company else 'Unknown'} ({app.status})",
-                "metadata": {"fallback": True},
+                "metadata": {
+                    "fallback": True,
+                    "note": "Vector embeddings are disabled in system settings. Performed database text keyword match.",
+                },
             }
             for app in apps
         ]
@@ -526,6 +532,8 @@ async def execute_semantic_vector_search(
                 "position": app.position if app else "Unknown",
                 "status": app.status if app else "APPLIED",
                 "similarity_score": f"{sim_pct}%",
+                "search_mode": "vector_similarity",
+                "embeddings_enabled": True,
                 "document_content": emb.content,
                 "metadata": emb.metadata_,
             }
@@ -606,11 +614,68 @@ async def execute_update_application_pipeline(
     }
 
 
+def _resolve_scheduled_interview_info(
+    app: ApplicationModel,
+) -> tuple[datetime | None, str | None]:
+    """Helper extracting confirmed scheduled interview datetime and sub-phase for an application."""
+    scheduled_dt: datetime | None = None
+    sub_stage: str | None = None
+
+    sorted_events = sorted(
+        app.events or [],
+        key=lambda e: (
+            (
+                e.email_received_at
+                if e.email_received_at.tzinfo
+                else e.email_received_at.replace(tzinfo=UTC)
+            )
+            if e.email_received_at
+            else datetime.min.replace(tzinfo=UTC)
+        ),
+        reverse=True,
+    )
+    latest_interview_evt = None
+    for evt in sorted_events:
+        if evt.raw_payload and isinstance(evt.raw_payload, dict):
+            if (
+                "interview_stage" in evt.raw_payload
+                or "scheduled_at" in evt.raw_payload
+            ):
+                latest_interview_evt = evt
+                break
+
+    if latest_interview_evt:
+        payload_stage = latest_interview_evt.raw_payload.get("interview_stage")
+        sub_stage = payload_stage
+        if payload_stage != "Task Completed / Awaiting Response":
+            sched_val = latest_interview_evt.raw_payload.get("scheduled_at")
+            if sched_val:
+                try:
+                    scheduled_dt = datetime.fromisoformat(str(sched_val))
+                except Exception:
+                    pass
+
+    if not scheduled_dt:
+        for act in app.action_items or []:
+            if (
+                act.status == "PENDING"
+                and "interview" in (act.title or "").lower()
+                and act.due_date
+            ):
+                scheduled_dt = act.due_date
+                if not sub_stage:
+                    sub_stage = act.title
+                break
+
+    return scheduled_dt, sub_stage
+
+
 # Retained Legacy Helpers
 async def execute_list_applications(
     db: AsyncSession,
     status: str | None = None,
     action_required_only: bool = False,
+    include_assessments: bool = False,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     """Lists applications directly from the database."""
@@ -622,10 +687,26 @@ async def execute_list_applications(
             selectinload(ApplicationModel.action_items),
         )
         .order_by(ApplicationModel.updated_at.desc())
-        .limit(limit)
     )
+
+    if not include_assessments:
+        stmt = stmt.where(
+            ApplicationModel.is_assessment.is_(False),
+            ApplicationModel.status != "ASSESSMENT",
+        )
+
     if status:
-        stmt = stmt.where(ApplicationModel.status == status.upper())
+        status_norm = status.strip().upper()
+        if status_norm == "ACTIVE":
+            stmt = stmt.where(
+                ApplicationModel.status.in_(
+                    ["APPLIED", "ONLINE_ASSESSMENT", "TECHNICAL_INTERVIEW", "OFFER"]
+                )
+            )
+        else:
+            stmt = stmt.where(ApplicationModel.status == status_norm)
+
+    stmt = stmt.limit(limit)
     res = await db.execute(stmt)
     apps = res.scalars().all()
     out = []
@@ -633,6 +714,7 @@ async def execute_list_applications(
         has_action = any(i.status == "PENDING" for i in (a.action_items or []))
         if action_required_only and not has_action:
             continue
+        sched_dt, sub_stage = _resolve_scheduled_interview_info(a)
         out.append(
             {
                 "id": a.id,
@@ -640,6 +722,8 @@ async def execute_list_applications(
                 "position": a.position,
                 "status": a.status,
                 "has_action_required": has_action,
+                "scheduled_interview_at": sched_dt.isoformat() if sched_dt else None,
+                "interview_stage": sub_stage,
                 "application_date": a.application_date.isoformat()
                 if a.application_date
                 else None,
@@ -649,6 +733,103 @@ async def execute_list_applications(
             }
         )
     return out
+
+
+async def execute_get_upcoming_interviews(
+    db: AsyncSession,
+    days_ahead: int = 30,
+    include_pending_scheduling: bool = True,
+) -> dict[str, Any]:
+    """
+    Fetches upcoming interviews and interview-stage applications,
+    strictly distinguishing confirmed interviews (with dates) from applications
+    awaiting scheduling or recruiter responses.
+    """
+    now = datetime.now(UTC)
+    max_date = now + timedelta(days=days_ahead)
+
+    stmt = (
+        select(ApplicationModel)
+        .options(
+            joinedload(ApplicationModel.company),
+            selectinload(ApplicationModel.events),
+            selectinload(ApplicationModel.action_items),
+        )
+        .where(
+            ApplicationModel.is_assessment.is_(False),
+            ApplicationModel.status.in_(
+                ["TECHNICAL_INTERVIEW", "ONLINE_ASSESSMENT", "OFFER", "APPLIED"]
+            ),
+        )
+        .order_by(ApplicationModel.updated_at.desc())
+    )
+    res = await db.execute(stmt)
+    apps = res.scalars().all()
+
+    confirmed_interviews: list[dict[str, Any]] = []
+    awaiting_scheduling: list[dict[str, Any]] = []
+
+    for a in apps:
+        comp_name = a.company.name if a.company else "Unknown"
+        sched_dt, sub_stage = _resolve_scheduled_interview_info(a)
+
+        if sched_dt:
+            norm_dt = sched_dt if sched_dt.tzinfo else sched_dt.replace(tzinfo=UTC)
+            if (now - timedelta(hours=24)) <= norm_dt <= max_date:
+                confirmed_interviews.append(
+                    {
+                        "application_id": a.id,
+                        "company": comp_name,
+                        "position": a.position,
+                        "status": a.status,
+                        "scheduled_at": sched_dt.isoformat(),
+                        "formatted_date": sched_dt.strftime(
+                            "%A, %b %d, %Y at %I:%M %p UTC"
+                        ),
+                        "interview_stage": sub_stage or "Technical Interview",
+                    }
+                )
+        elif include_pending_scheduling and a.status in [
+            "TECHNICAL_INTERVIEW",
+            "ONLINE_ASSESSMENT",
+        ]:
+            is_awaiting_reply = sub_stage == "Task Completed / Awaiting Response"
+            awaiting_scheduling.append(
+                {
+                    "application_id": a.id,
+                    "company": comp_name,
+                    "position": a.position,
+                    "status": a.status,
+                    "sub_phase": sub_stage
+                    or (
+                        "Task Completed / Awaiting Response"
+                        if is_awaiting_reply
+                        else "Interview Requested / Scheduling Needed"
+                    ),
+                    "scheduled_at": None,
+                    "state": (
+                        "awaiting_recruiter_reply"
+                        if is_awaiting_reply
+                        else "scheduling_needed"
+                    ),
+                    "notes": (
+                        "Completed previous round/task; currently awaiting recruiter feedback."
+                        if is_awaiting_reply
+                        else "Interview requested/in-progress, but specific date/time has not been scheduled yet."
+                    ),
+                }
+            )
+
+    confirmed_interviews.sort(key=lambda x: x["scheduled_at"])
+
+    return {
+        "lookahead_days": days_ahead,
+        "total_confirmed_interviews": len(confirmed_interviews),
+        "confirmed_interviews": confirmed_interviews,
+        "awaiting_scheduling_or_response": (
+            awaiting_scheduling if include_pending_scheduling else []
+        ),
+    }
 
 
 async def execute_get_application_details(
@@ -1546,9 +1727,21 @@ def create_agent_tools(
     async def _list_applications(
         status: str | None = None,
         action_required_only: bool = False,
+        include_assessments: bool = False,
         limit: int = 20,
     ) -> str:
-        res = await execute_list_applications(db, status, action_required_only, limit)
+        res = await execute_list_applications(
+            db, status, action_required_only, include_assessments, limit
+        )
+        return json.dumps(res, indent=2)
+
+    async def _get_upcoming_interviews(
+        days_ahead: int = 30,
+        include_pending_scheduling: bool = True,
+    ) -> str:
+        res = await execute_get_upcoming_interviews(
+            db, days_ahead, include_pending_scheduling
+        )
         return json.dumps(res, indent=2)
 
     async def _get_application_details(company_or_id: str) -> str:
@@ -1698,7 +1891,7 @@ def create_agent_tools(
         StructuredTool.from_function(
             coroutine=_semantic_vector_search,
             name="semantic_vector_search",
-            description="Searches the vector database for relevant job applications, recruiter emails, and timeline updates using semantic cosine similarity.",
+            description="Searches application records and recruitment correspondence. Uses pgvector semantic similarity when embeddings are enabled, or fast keyword search when embeddings are disabled.",
             args_schema=SemanticSearchInput,
         ),
         StructuredTool.from_function(
@@ -1710,8 +1903,14 @@ def create_agent_tools(
         StructuredTool.from_function(
             coroutine=_list_applications,
             name="list_applications",
-            description="Lists job applications directly from the database with optional status or action required filtering.",
+            description="Lists job applications directly from the database. Use status='ACTIVE' for all 4 active stages (APPLIED, ONLINE_ASSESSMENT, TECHNICAL_INTERVIEW, OFFER). Pre-application AI job fit assessments (is_assessment=True) are excluded by default.",
             args_schema=ListApplicationsInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_get_upcoming_interviews,
+            name="get_upcoming_interviews",
+            description="Retrieves upcoming interviews with confirmed dates and times, plus applications in interview stages awaiting scheduling or recruiter replies. Always use this tool when the user asks about upcoming interviews or interview dates.",
+            args_schema=GetUpcomingInterviewsInput,
         ),
         StructuredTool.from_function(
             coroutine=_get_application_details,

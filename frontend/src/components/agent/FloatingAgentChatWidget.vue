@@ -1,7 +1,10 @@
 <script setup>
-import { ref, watch, nextTick, onMounted } from 'vue'
+import { ref, watch, nextTick, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import DOMPurify from 'dompurify'
+import { marked } from 'marked'
 import { useAgentChatStore } from '../../stores/agentChatStore'
+import { useUIStore } from '../../stores/uiStore'
 import {
   Bot,
   User,
@@ -20,6 +23,7 @@ import {
 const router = useRouter()
 const route = useRoute()
 const chatStore = useAgentChatStore()
+const uiStore = useUIStore()
 
 const isOpen = ref(false)
 const inputMessage = ref('')
@@ -28,8 +32,14 @@ const chatMessagesContainer = ref(null)
 const starterPrompts = [
   'Which applications need urgent attention?',
   'Find roles matching Python or Distributed Systems',
-  'What is the status of my active applications?',
+  'Do I have any upcoming interviews scheduled?',
 ]
+
+const searchReadinessLabel = computed(() => {
+  return uiStore.systemSettings?.enable_embeddings
+    ? 'Ready with pgvector search'
+    : 'Ready with pipeline search'
+})
 
 function toggleChat() {
   isOpen.value = !isOpen.value
@@ -73,6 +83,52 @@ function openFullPage() {
   router.push('/chat')
 }
 
+const markdownRenderer = {
+  link({ href, title, text }) {
+    const safeUrl = (href && (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('/') || href.startsWith('mailto:'))) ? href : '#'
+    const titleAttr = title ? ` title="${title}"` : ''
+    return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer"${titleAttr}>${text}</a>`
+  }
+}
+
+marked.use({
+  renderer: markdownRenderer,
+  gfm: true,
+  breaks: true,
+})
+
+function preprocessMarkdown(content) {
+  if (!content) return ''
+  let text = content.replace(/^([\t ]*)[•●○]\s+/gm, '$1- ')
+
+  const codeBlocks = []
+  text = text.replace(/(```[\s\S]*?```|`[^`\n]+`)/g, (match) => {
+    codeBlocks.push(match)
+    return `__CODE_BLOCK_${codeBlocks.length - 1}__`
+  })
+
+  text = text
+    .replace(/^([\t ]*(?:[-*+]|\d+\.)[^\n]+)\n(?!(?:[\t ]*[-*+]|[\t ]*\d+\.|\s*$))([^\n]+)/gm, '$1\n\n$2')
+    .replace(/^(?![\t ]*[-*+]|[\t ]*\d+\.|\s*$)([^\n]+)\n([\t ]*(?:[-*+]|\d+\.)[^\n]+)/gm, '$1\n\n$2')
+
+  text = text.replace(/__CODE_BLOCK_(\d+)__/g, (_, idx) => codeBlocks[Number(idx)])
+  return text
+}
+
+function renderMarkdown(content) {
+  if (!content) return ''
+  try {
+    const preprocessed = preprocessMarkdown(content)
+    const rawHtml = marked.parse(preprocessed)
+    return DOMPurify.sanitize(rawHtml, {
+      ADD_ATTR: ['target', 'rel']
+    })
+  } catch (err) {
+    console.error('Failed to parse markdown in widget:', err)
+    return DOMPurify.sanitize(content)
+  }
+}
+
 function formatActionLabel(act) {
   if (act.action === 'UPDATE_STATUS' || act.action === 'update_application_status') {
     const comp = act.args?.company_name || act.company || 'Application'
@@ -81,10 +137,13 @@ function formatActionLabel(act) {
   }
   if (act.action === 'semantic_vector_search') {
     const q = act.args?.query ? `"${act.args.query}"` : 'records'
-    return `Vector search: ${q}`
+    return `Pipeline search: ${q}`
   }
   if (act.action === 'list_applications') {
     return 'Queried active pipeline'
+  }
+  if (act.action === 'get_upcoming_interviews') {
+    return 'Checked scheduled interviews'
   }
   if (act.action === 'get_application_details') {
     const comp = act.args?.company_or_id || 'Company'
@@ -125,7 +184,7 @@ function formatActionLabel(act) {
               <div class="popover-title">Agent Assistant</div>
               <div class="popover-sub">
                 <span class="pulse-dot"></span>
-                <span>Ready with pgvector search</span>
+                <span>{{ searchReadinessLabel }}</span>
               </div>
             </div>
           </div>
@@ -176,7 +235,12 @@ function formatActionLabel(act) {
                   <span>{{ formatActionLabel(act) }}</span>
                 </div>
               </div>
-              <div class="msg-text">{{ msg.content }}</div>
+              <div
+                v-if="msg.role === 'assistant'"
+                class="msg-text markdown-body"
+                v-html="renderMarkdown(msg.content)"
+              ></div>
+              <div v-else class="msg-text">{{ msg.content }}</div>
             </div>
           </div>
 
@@ -435,13 +499,154 @@ function formatActionLabel(act) {
 
 .msg-user .msg-bubble {
   background-color: var(--primary);
-  color: var(--primary-contrast, #0a0d14);
+  color: var(--primary-contrast);
   border-color: var(--primary);
   border-bottom-right-radius: 2px;
 }
 
 .msg-assistant .msg-bubble {
   border-bottom-left-radius: 2px;
+}
+
+.msg-text.markdown-body {
+  white-space: normal;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-main);
+}
+
+.msg-text.markdown-body :deep(p) {
+  margin-bottom: 0.65rem;
+}
+
+.msg-text.markdown-body :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.msg-text.markdown-body :deep(h1),
+.msg-text.markdown-body :deep(h2),
+.msg-text.markdown-body :deep(h3),
+.msg-text.markdown-body :deep(h4) {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  color: var(--text-main);
+  line-height: 1.35;
+  margin-top: 0.85rem;
+  margin-bottom: 0.35rem;
+}
+
+.msg-text.markdown-body :deep(h1:first-child),
+.msg-text.markdown-body :deep(h2:first-child),
+.msg-text.markdown-body :deep(h3:first-child),
+.msg-text.markdown-body :deep(h4:first-child) {
+  margin-top: 0;
+}
+
+.msg-text.markdown-body :deep(h1) { font-size: 1.15rem; }
+.msg-text.markdown-body :deep(h2) { font-size: 1.05rem; }
+.msg-text.markdown-body :deep(h3) { font-size: 0.95rem; }
+.msg-text.markdown-body :deep(h4) { font-size: 0.85rem; }
+
+.msg-text.markdown-body :deep(ul),
+.msg-text.markdown-body :deep(ol) {
+  margin-top: 0.3rem;
+  margin-bottom: 0.65rem;
+  padding-left: 1.25rem;
+}
+
+.msg-text.markdown-body :deep(ul:last-child),
+.msg-text.markdown-body :deep(ol:last-child) {
+  margin-bottom: 0;
+}
+
+.msg-text.markdown-body :deep(ul) { list-style-type: disc; }
+.msg-text.markdown-body :deep(ol) { list-style-type: decimal; }
+
+.msg-text.markdown-body :deep(li) {
+  margin-bottom: 0.25rem;
+  line-height: 1.5;
+}
+
+.msg-text.markdown-body :deep(li:last-child) {
+  margin-bottom: 0;
+}
+
+.msg-text.markdown-body :deep(strong) {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.msg-text.markdown-body :deep(em) {
+  font-style: italic;
+}
+
+.msg-text.markdown-body :deep(code) {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 0.1em 0.3em;
+  border-radius: var(--radius-xs);
+  background-color: var(--bg-card-hover);
+  border: 1px solid var(--border-color);
+  color: var(--primary);
+}
+
+.msg-text.markdown-body :deep(pre) {
+  margin-top: 0.5rem;
+  margin-bottom: 0.65rem;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-color);
+  overflow-x: auto;
+}
+
+.msg-text.markdown-body :deep(pre code) {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--text-main);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre;
+}
+
+.msg-text.markdown-body :deep(blockquote) {
+  border-left: 2px solid var(--primary);
+  padding-left: 8px;
+  margin: 0.5rem 0;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.msg-text.markdown-body :deep(a) {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.msg-text.markdown-body :deep(a:hover) {
+  color: var(--primary-hover);
+}
+
+.msg-text.markdown-body :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  font-size: 11px;
+  display: block;
+  overflow-x: auto;
+}
+
+.msg-text.markdown-body :deep(th),
+.msg-text.markdown-body :deep(td) {
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  text-align: left;
+}
+
+.msg-text.markdown-body :deep(th) {
+  background-color: var(--bg-surface-hover);
+  font-weight: 600;
 }
 
 .thinking-bubble {

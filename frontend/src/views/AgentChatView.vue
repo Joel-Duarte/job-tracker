@@ -2,6 +2,7 @@
 import { ref, onMounted, nextTick, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DOMPurify from 'dompurify'
+import { marked } from 'marked'
 import { useAgentChatStore } from '../stores/agentChatStore'
 import { useInterviewStore } from '../stores/interviewStore'
 import { useApplicationsStore } from '../stores/applicationsStore'
@@ -585,38 +586,54 @@ function scrollToBottom(smooth = false) {
   })
 }
 
+const markdownRenderer = {
+  link({ href, title, text }) {
+    const safeUrl = (href && (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('/') || href.startsWith('mailto:'))) ? href : '#'
+    const titleAttr = title ? ` title="${title}"` : ''
+    return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer"${titleAttr}>${text}</a>`
+  }
+}
+
+marked.use({
+  renderer: markdownRenderer,
+  gfm: true,
+  breaks: true,
+})
+
+function preprocessMarkdown(content) {
+  if (!content) return ''
+  // Normalize unicode bullets to standard markdown dashes
+  let text = content.replace(/^([\t ]*)[•●○]\s+/gm, '$1- ')
+
+  // Protect code blocks while normalizing list transitions
+  const codeBlocks = []
+  text = text.replace(/(```[\s\S]*?```|`[^`\n]+`)/g, (match) => {
+    codeBlocks.push(match)
+    return `__CODE_BLOCK_${codeBlocks.length - 1}__`
+  })
+
+  // Ensure clean separation between list items and subsequent non-list lines
+  text = text
+    .replace(/^([\t ]*(?:[-*+]|\d+\.)[^\n]+)\n(?!(?:[\t ]*[-*+]|[\t ]*\d+\.|\s*$))([^\n]+)/gm, '$1\n\n$2')
+    .replace(/^(?![\t ]*[-*+]|[\t ]*\d+\.|\s*$)([^\n]+)\n([\t ]*(?:[-*+]|\d+\.)[^\n]+)/gm, '$1\n\n$2')
+
+  // Restore code blocks
+  text = text.replace(/__CODE_BLOCK_(\d+)__/g, (_, idx) => codeBlocks[Number(idx)])
+  return text
+}
+
 function renderMarkdown(content) {
   if (!content) return ''
-  let html = content
-  html = html.replace(/```([a-zA-Z]*)\n([\s\S]*?)```/g, (match, lang, code) => {
-    return `<pre><code class="language-${lang}">${code.trim()}</code></pre>`
-  })
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
-  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>')
-  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>')
-  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>')
-  html = html.replace(/^\&gt;\s?(.*$)/gim, '<blockquote>$1</blockquote>')
-  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>')
-  html = html.replace(/^\s*[\-\*]\s+(.*$)/gim, '<li>$1</li>')
-  html = html.replace(/(<li>.*<\/li>)/gis, '<ul>$1</ul>')
-  html = html.replace(/<\/ul>\s*<ul>/g, '')
-
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, p1, p2) => {
-    const safeUrl = (p2.startsWith('http://') || p2.startsWith('https://') || p2.startsWith('/')) ? p2 : '#'
-    return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${p1}</a>`
-  })
-
-  html = html.replace(/\n\n+/g, '</p><p>')
-  html = `<p>${html}</p>`
-  html = html.replace(/<p>\s*<\/p>/g, '')
-  html = html.replace(/<p>(<h[1-3]>.*?<\/h[1-3]>)<\/p>/g, '$1')
-  html = html.replace(/<p>(<pre>.*?<\/pre>)<\/p>/gs, '$1')
-  html = html.replace(/<p>(<table>.*?<\/table>)<\/p>/gs, '$1')
-  html = html.replace(/<p>(<ul>.*?<\/ul>)<\/p>/gs, '$1')
-  html = html.replace(/<p>(<blockquote>.*?<\/blockquote>)<\/p>/gs, '$1')
-
-  return DOMPurify.sanitize(html)
+  try {
+    const preprocessed = preprocessMarkdown(content)
+    const rawHtml = marked.parse(preprocessed)
+    return DOMPurify.sanitize(rawHtml, {
+      ADD_ATTR: ['target', 'rel']
+    })
+  } catch (err) {
+    console.error('Failed to parse markdown:', err)
+    return DOMPurify.sanitize(content)
+  }
 }
 
 function handleCompanyActionClick(act) {
@@ -1922,6 +1939,193 @@ function getScoreBadgeClass(score) {
   font-size: 13.5px;
   line-height: 1.6;
   color: var(--text-main);
+  word-break: break-word;
+}
+
+.markdown-body :deep(p) {
+  margin-bottom: 0.85rem;
+}
+
+.markdown-body :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.markdown-body :deep(h1),
+.markdown-body :deep(h2),
+.markdown-body :deep(h3),
+.markdown-body :deep(h4) {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  color: var(--text-main);
+  line-height: 1.35;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.markdown-body :deep(h1:first-child),
+.markdown-body :deep(h2:first-child),
+.markdown-body :deep(h3:first-child),
+.markdown-body :deep(h4:first-child) {
+  margin-top: 0;
+}
+
+.markdown-body :deep(h1) {
+  font-size: 1.25rem;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 0.35rem;
+}
+
+.markdown-body :deep(h2) {
+  font-size: 1.15rem;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 0.25rem;
+}
+
+.markdown-body :deep(h3) {
+  font-size: 1.05rem;
+}
+
+.markdown-body :deep(h4) {
+  font-size: 0.95rem;
+}
+
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+  margin-top: 0.4rem;
+  margin-bottom: 0.85rem;
+  padding-left: 1.4rem;
+}
+
+.markdown-body :deep(ul:last-child),
+.markdown-body :deep(ol:last-child) {
+  margin-bottom: 0;
+}
+
+.markdown-body :deep(ul) {
+  list-style-type: disc;
+}
+
+.markdown-body :deep(ol) {
+  list-style-type: decimal;
+}
+
+.markdown-body :deep(li) {
+  margin-bottom: 0.35rem;
+  line-height: 1.55;
+}
+
+.markdown-body :deep(li:last-child) {
+  margin-bottom: 0;
+}
+
+.markdown-body :deep(ul ul),
+.markdown-body :deep(ol ul) {
+  list-style-type: circle;
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.markdown-body :deep(ol ol),
+.markdown-body :deep(ul ol) {
+  list-style-type: lower-alpha;
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.markdown-body :deep(strong) {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.markdown-body :deep(em) {
+  font-style: italic;
+}
+
+.markdown-body :deep(code) {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 0.15em 0.4em;
+  border-radius: var(--radius-xs);
+  background-color: var(--bg-card-hover);
+  border: 1px solid var(--border-color);
+  color: var(--primary);
+}
+
+.markdown-body :deep(pre) {
+  margin-top: 0.75rem;
+  margin-bottom: 0.85rem;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-color);
+  overflow-x: auto;
+}
+
+.markdown-body :deep(pre code) {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--text-main);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.markdown-body :deep(blockquote) {
+  border-left: 3px solid var(--primary);
+  padding-left: 12px;
+  margin: 0.75rem 0;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.markdown-body :deep(blockquote p) {
+  margin-bottom: 0.4rem;
+}
+
+.markdown-body :deep(blockquote p:last-child) {
+  margin-bottom: 0;
+}
+
+.markdown-body :deep(a) {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color var(--transition-fast);
+}
+
+.markdown-body :deep(a:hover) {
+  color: var(--primary-hover);
+}
+
+.markdown-body :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 12.5px;
+}
+
+.markdown-body :deep(th),
+.markdown-body :deep(td) {
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  text-align: left;
+}
+
+.markdown-body :deep(th) {
+  background-color: var(--bg-surface-hover);
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.markdown-body :deep(tr:nth-child(even) td) {
+  background-color: var(--bg-surface);
+}
+
+.markdown-body :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 1.25rem 0;
 }
 
 .chat-bottom-dock {

@@ -5,6 +5,7 @@ import pytest
 
 from app.models.applications import (
     ActionItemModel,
+    ApplicationEventModel,
     ApplicationModel,
     CompanyModel,
     JobPostingModel,
@@ -26,10 +27,13 @@ from app.services.agent_tools import (
     execute_get_cover_letter,
     execute_get_mock_interview_history,
     execute_get_role_alignment_dossier,
+    execute_get_upcoming_interviews,
+    execute_list_applications,
     execute_list_companies,
     execute_manage_action_items,
     execute_manage_intake_queue,
     execute_query_market_benchmarks,
+    execute_semantic_vector_search,
     execute_start_mock_interview,
     execute_update_application_pipeline,
     execute_update_company_notes,
@@ -405,10 +409,95 @@ async def test_agent_tools_unit_handlers():
     assert mock_app_applied.status == "WITHDRAWN"
     assert mock_app_interview.status == "WITHDRAWN"
 
-    # 19. Test LangChain Tool Factory Registration
+    # 19. Test list_applications active & assessment filtering
+    mock_app_act = ApplicationModel(
+        id=201,
+        status="APPLIED",
+        is_assessment=False,
+        company=CompanyModel(name="Linear"),
+        action_items=[],
+        events=[],
+    )
+    mock_res_apps = MagicMock()
+    mock_res_apps.scalars().all.return_value = [mock_app_act]
+    db.execute.side_effect = None
+    db.execute.return_value = mock_res_apps
+    apps_list = await execute_list_applications(
+        db, status="ACTIVE", include_assessments=False
+    )
+    assert len(apps_list) == 1
+    assert apps_list[0]["company"] == "Linear"
+
+    # 20. Test get_upcoming_interviews
+    sched_time = datetime.now(UTC) + timedelta(days=2)
+    mock_app_interview_sched = ApplicationModel(
+        id=301,
+        status="TECHNICAL_INTERVIEW",
+        is_assessment=False,
+        company=CompanyModel(name="Stripe"),
+        position="Staff Engineer",
+        action_items=[],
+        events=[
+            ApplicationEventModel(
+                raw_payload={
+                    "scheduled_at": sched_time.isoformat(),
+                    "interview_stage": "System Architecture",
+                }
+            )
+        ],
+    )
+    mock_app_interview_pending = ApplicationModel(
+        id=302,
+        status="TECHNICAL_INTERVIEW",
+        is_assessment=False,
+        company=CompanyModel(name="Datadog"),
+        position="Backend Engineer",
+        action_items=[],
+        events=[
+            ApplicationEventModel(
+                raw_payload={"interview_stage": "Task Completed / Awaiting Response"}
+            )
+        ],
+    )
+    mock_interview_res = MagicMock()
+    mock_interview_res.scalars().all.return_value = [
+        mock_app_interview_sched,
+        mock_app_interview_pending,
+    ]
+    db.execute.return_value = mock_interview_res
+
+    interviews_res = await execute_get_upcoming_interviews(db, days_ahead=14)
+    assert interviews_res["total_confirmed_interviews"] == 1
+    assert interviews_res["confirmed_interviews"][0]["company"] == "Stripe"
+    assert (
+        "System Architecture"
+        in interviews_res["confirmed_interviews"][0]["interview_stage"]
+    )
+    assert len(interviews_res["awaiting_scheduling_or_response"]) == 1
+    assert interviews_res["awaiting_scheduling_or_response"][0]["company"] == "Datadog"
+    assert (
+        interviews_res["awaiting_scheduling_or_response"][0]["state"]
+        == "awaiting_recruiter_reply"
+    )
+
+    # 21. Test semantic_vector_search fallback when embeddings are disabled
+    with patch(
+        "app.core.config_manager.get_setting",
+        new_callable=AsyncMock,
+        return_value=False,
+    ):
+        mock_search_res = MagicMock()
+        mock_search_res.scalars().all.return_value = [mock_app_act]
+        db.execute.return_value = mock_search_res
+        search_res = await execute_semantic_vector_search(db, query="Linear backend")
+        assert len(search_res) == 1
+        assert search_res[0]["embeddings_enabled"] is False
+        assert search_res[0]["search_mode"] == "keyword_search"
+
+    # 22. Test LangChain Tool Factory Registration
     tools = create_agent_tools(db, enable_web_search=False)
     tool_names = [t.name for t in tools]
-    assert len(tools) == 23
+    assert len(tools) == 24
     assert "analyze_pipeline_metrics" in tool_names
     assert "detect_stalled_applications" in tool_names
     assert "start_mock_interview" in tool_names
@@ -424,10 +513,11 @@ async def test_agent_tools_unit_handlers():
     assert "enqueue_application_questions" in tool_names
     assert "get_role_alignment_dossier" in tool_names
     assert "bulk_transition_applications" in tool_names
+    assert "get_upcoming_interviews" in tool_names
 
     # With web search enabled:
     tools_web = create_agent_tools(db, enable_web_search=True)
-    assert len(tools_web) == 25
+    assert len(tools_web) == 26
     web_tool_names = [t.name for t in tools_web]
     assert "search_web" in web_tool_names
     assert "fetch_webpage_content" in web_tool_names
