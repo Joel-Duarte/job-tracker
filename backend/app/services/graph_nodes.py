@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -39,13 +40,39 @@ def _parse_email_date(date_val: str | datetime | None) -> datetime | None:
     if not date_val:
         return None
     if isinstance(date_val, datetime):
-        return date_val
-    if isinstance(date_val, str):
-        try:
-            return datetime.fromisoformat(date_val.replace("Z", "+00:00"))
-        except Exception:
-            return datetime.now(UTC)
-    return None
+        return date_val if date_val.tzinfo else date_val.replace(tzinfo=UTC)
+    if not isinstance(date_val, str):
+        return None
+
+    val = date_val.strip()
+    if not val:
+        return None
+
+    # Normalize common GMT/UTC offset notations, e.g. "GMT+1" -> "+01:00", "UTC-5" -> "-05:00"
+    m_offset = re.search(
+        r"(?:GMT|UTC)\s*([+-])\s*(\d{1,2})(?::?(\d{2}))?", val, re.IGNORECASE
+    )
+    if m_offset:
+        sign = m_offset.group(1)
+        hours = int(m_offset.group(2))
+        mins = int(m_offset.group(3) or 0)
+        offset_str = f"{sign}{hours:02d}:{mins:02d}"
+        val = val[: m_offset.start()] + offset_str + val[m_offset.end() :]
+        val = val.strip()
+
+    # Replace standalone GMT or UTC with +00:00
+    val = re.sub(r"\b(?:GMT|UTC)\b", "+00:00", val, flags=re.IGNORECASE).strip()
+    # Replace single trailing Z with +00:00
+    val = re.sub(r"Z$", "+00:00", val)
+    # Convert space between date and time to 'T': '2026-09-14 15:15:00' -> '2026-09-14T15:15:00'
+    val = re.sub(r"^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)", r"\1T\2", val)
+
+    try:
+        dt = datetime.fromisoformat(val)
+        return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+    except Exception:
+        logger.warning("Failed to parse date '%s', falling back to UTC now", date_val)
+        return datetime.now(UTC)
 
 
 async def _upsert_processed_email(
@@ -618,6 +645,15 @@ async def db_commit_node(
             )
             return {"event_id": existing_app_ev.id, "application_id": application_id}
 
+    raw_due = extracted.get("due_date")
+    parsed_due = _parse_email_date(raw_due) if raw_due else None
+
+    event_payload: dict[str, Any] = {}
+    if parsed_due:
+        event_payload["scheduled_at"] = parsed_due.isoformat()
+    if extracted.get("event_type"):
+        event_payload["interview_stage"] = extracted.get("event_type")
+
     event = ApplicationEventModel(
         email_application_id=application_id,
         email_message_id=msg_id,
@@ -629,6 +665,7 @@ async def db_commit_node(
         email_action_required=extracted.get("action_required", False),
         email_action=extracted.get("action"),
         email_raw_body=state.get("body", ""),
+        raw_payload=event_payload or None,
     )
     db.add(event)
     await db.flush()
@@ -637,9 +674,6 @@ async def db_commit_node(
     if extracted.get("action_required") and extracted.get("action"):
         action_text = str(extracted.get("action")).strip()
         if action_text:
-            raw_due = extracted.get("due_date")
-            parsed_due = _parse_email_date(raw_due) if raw_due else None
-
             if parsed_due:
                 now_utc = datetime.now(UTC)
                 due_dt = (

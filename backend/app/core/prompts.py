@@ -63,7 +63,7 @@ DEFAULT_PROMPTS = {
         "- status: One of: 'APPLIED', 'RECRUITER_CONTACT', 'PHONE_SCREEN', 'ONLINE_ASSESSMENT', 'TECHNICAL_INTERVIEW', 'BEHAVIORAL_INTERVIEW', 'ONSITE_INTERVIEW', 'FINAL_INTERVIEW', 'OFFER', 'REJECTED', 'WITHDRAWN', 'OTHER'.\n"
         "- action_required: boolean. True if candidate action is needed (scheduling a call, coding assessment, submitting documents, replying with availability).\n"
         "- action: Concise description of the action and deadline if mentioned (e.g. 'Schedule phone screen via Calendly link', 'Complete HackerRank assessment'), else null.\n"
-        "- due_date: Explicit deadline or scheduled interview date in ISO YYYY-MM-DD format (e.g. '2026-08-25'), else null.\n"
+        "- due_date: Explicit deadline or scheduled interview date/time in ISO 8601 format. If an exact meeting hour or timezone is stated (e.g. 'September 14th at 3:15pm GMT+1'), extract full ISO with offset: 'YYYY-MM-DDTHH:MM:SS±HH:MM' (e.g. '2026-09-14T15:15:00+01:00'). If only a date/deadline is mentioned, use 'YYYY-MM-DD'. If none, null.\n"
         "- summary: Concise 1-2 sentence summary, max 25 words, describing the exact milestone or update.\n\n"
         "--------------------------------------------------\n"
         "STATUS & EVENT TYPE MAPPING REFERENCE\n"

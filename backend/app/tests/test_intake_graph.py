@@ -603,3 +603,43 @@ async def test_graph_action_item_generation(db_session: AsyncSession):
     assert "Complete CodeSignal" in action_items[0].title
     assert action_items[0].status == "PENDING"
     assert action_items[0].urgency == "HIGH"
+
+
+def test_parse_email_date_timezones_and_formats():
+    from app.services.graph_nodes import _parse_email_date
+
+    # Date only
+    dt_date = _parse_email_date("2026-09-14")
+    assert dt_date is not None
+    assert dt_date.year == 2026 and dt_date.month == 9 and dt_date.day == 14
+    assert dt_date.hour == 0 and dt_date.minute == 0
+    assert dt_date.tzinfo is not None
+
+    # ISO with offset +01:00
+    dt_offset = _parse_email_date("2026-09-14T15:15:00+01:00")
+    assert dt_offset is not None
+    assert dt_offset.year == 2026 and dt_offset.month == 9 and dt_offset.day == 14
+    assert dt_offset.hour == 15 and dt_offset.minute == 15
+    assert dt_offset.utcoffset().total_seconds() == 3600
+
+    # Human-like GMT+1 offset format
+    dt_gmt = _parse_email_date("2026-09-14 15:15:00 GMT+1")
+    assert dt_gmt is not None
+    assert dt_gmt.year == 2026 and dt_gmt.month == 9 and dt_gmt.day == 14
+    assert dt_gmt.hour == 15 and dt_gmt.minute == 15
+    assert dt_gmt.utcoffset().total_seconds() == 3600
+
+    # Human-like UTC+1 offset format
+    dt_utc = _parse_email_date("2026-09-14 15:15:00 UTC+1")
+    assert dt_utc is not None
+    assert dt_utc.utcoffset().total_seconds() == 3600
+
+    # UTC with Z
+    dt_z = _parse_email_date("2026-09-14T14:15:00Z")
+    assert dt_z is not None
+    assert dt_z.hour == 14 and dt_z.minute == 15
+    assert dt_z.utcoffset().total_seconds() == 0
+
+    # None and empty
+    assert _parse_email_date(None) is None
+    assert _parse_email_date("") is None

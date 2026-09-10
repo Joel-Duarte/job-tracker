@@ -145,32 +145,45 @@ export function formatRelativeDate(dateStr, includeTime = false) {
 
     const diffDays = Math.round((targetMidnight - nowMidnight) / (1000 * 60 * 60 * 24))
 
+    // Check if the input is a date-only string (e.g. "2026-09-14") or midnight UTC fallback
+    const rawStr = typeof dateStr === 'string' ? dateStr.trim() : ''
+    const isDateOnly =
+      /^\d{4}-\d{2}-\d{2}$/.test(rawStr) ||
+      (rawStr.includes('T00:00:00') &&
+        !rawStr.includes('T00:00:00.') &&
+        target.getUTCHours() === 0 &&
+        target.getUTCMinutes() === 0 &&
+        target.getUTCSeconds() === 0)
+
+    const shouldShowTime = includeTime && !isDateOnly
     const timeStr = target.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
     })
 
     if (diffDays === 0) {
-      return includeTime ? `Today, ${timeStr}` : 'Today'
+      return shouldShowTime ? `Today, ${timeStr}` : 'Today'
     }
     if (diffDays === 1) {
-      return includeTime ? `Tomorrow, ${timeStr}` : 'Tomorrow'
+      return shouldShowTime ? `Tomorrow, ${timeStr}` : 'Tomorrow'
     }
     if (diffDays === -1) {
-      return includeTime ? `Yesterday, ${timeStr}` : 'Yesterday'
+      return shouldShowTime ? `Yesterday, ${timeStr}` : 'Yesterday'
     }
     if (diffDays > 1 && diffDays <= 7) {
-      return `In ${diffDays} days`
+      return shouldShowTime ? `In ${diffDays} days, ${timeStr}` : `In ${diffDays} days`
     }
     if (diffDays < -1 && diffDays >= -7) {
       return `${Math.abs(diffDays)} days ago`
     }
 
-    return target.toLocaleDateString('en-US', {
+    const dateFormatted = target.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       year: target.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
     })
+
+    return shouldShowTime ? `${dateFormatted}, ${timeStr}` : dateFormatted
   } catch {
     return String(dateStr)
   }
