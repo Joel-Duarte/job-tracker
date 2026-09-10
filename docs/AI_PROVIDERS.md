@@ -227,7 +227,10 @@ Job Tracker enforces strict parameter isolation across all tasks:
 | **`EMAIL_EXTRACTION`** | Recruitment Email Parser | `temp: 0.0, reasoning: none` | `temp: 0.0, reasoning: none` | High-precision extraction of dates, senders, interview stages, and to-do deadlines. |
 | **`JOB_ASSESSMENT`** | Fit Score & Gap Audit | `temp: 0.1, reasoning: none` | `temp: 0.1, reasoning: low/med` | Fast local intake (~35s vs 145s); programmatic baseline already guides scoring. Cloud reasoning enables deep career transition analysis. |
 | **`cv_anonymization`** | CV De-Identification | `temp: 0.0, reasoning: none` | `temp: 0.0, reasoning: none` | Strict PII redaction and standardized technical skill taxonomy extraction. |
-| **`COVER_LETTER`** | Cover Letter Composition | `temp: 0.3, reasoning: none` | `temp: 0.3, reasoning: none` | Direct instruction produces fluid, persuasive prose; research shows reasoning chains degrade writing style and natural tone. |
+| **`COVER_LETTER`** | Cover Letter Composition | `temp: 0.3, reasoning: none` | `temp: 0.3, reasoning: none` | Strict factual grounding; direct instruction produces fluid, persuasive prose without hallucinated achievements. |
+| **`APPLICATION_QA`** | Application Form Answers | `temp: 0.2, reasoning: none` | `temp: 0.2, reasoning: low` | Factual Q&A answers derived directly from verified candidate profile and job requirements. |
+| **`ROLE_ALIGNMENT_DOSSIER`** | Career Intelligence Dossier | `temp: 0.2, reasoning: none` | `temp: 0.2, reasoning: medium` | Executive market positioning, quantified bullet rewrites, talking points, and skill bridge roadmaps. |
+| **`COMPANY_RESEARCH`** | Live Web Intelligence | `temp: 0.1, reasoning: none` | `temp: 0.1, reasoning: low` | Synthesizes search snippets from DDGS/SearXNG into company culture, tech stack, and employee sentiment dossiers. |
 | **`INTERVIEW_GUIDE`** | STAR Playbook Generator | `temp: 0.3, reasoning: none` | `temp: 0.3, reasoning: medium` | Keeps generation <30s on local hardware; Cloud reasoning models (Claude 3.7 / o3-mini) excel at anticipating tough counter-questions. |
 | **`AGENT_REASONING`** | Assistant & Mock Simulator | `temp: 0.3, reasoning: none` | `temp: 0.3, reasoning: low` | Guarantees low conversational turn latency (<3s). Cloud users can use low reasoning for complex multi-agent planning. |
 | **`EMBEDDING`** | Semantic Search Embeddings | `nomic-embed-text` (768d) | `text-embedding-3-small` (1536d) | Dense vector representations stored in PostgreSQL `pgvector` for similarity matching. |
@@ -257,11 +260,14 @@ When a task has reasoning set to **`none` (Fast)** in the UI:
 2. **`JD_EXTRACTION`**: Parses raw web HTML/markdown from job postings into structured JSON schemas (title, company, salary ranges, technical skill lists).
 3. **`EMAIL_EXTRACTION`**: Scans recruitment emails to extract sender details, interview dates, rejection notices, and pending action items.
 4. **`JOB_ASSESSMENT`**: Performs a comprehensive audit comparing your candidate CV against the job description, computing fit percentages, match rationales, and strategic gap-closing tips.
-5. **`INTERVIEW_GUIDE`**: Synthesizes a structured interview playbook with STAR behavioral stories, company context briefings, and technical defense questions.
-6. **`COVER_LETTER`**: Drafts personalized, high-impact cover letters referencing your real past achievements against company values.
-7. **`cv_anonymization`**: De-identifies resumes for PII protection and extracts standardized skill taxonomies.
-8. **`AGENT_REASONING`**: Powers the conversational assistant (`/assistant`) and mock interview simulator.
-9. **`EMBEDDING`**: Generates dense 768- or 1536-dimensional vectors for semantic search in PostgreSQL (`pgvector`).
+5. **`cv_anonymization`**: De-identifies resumes for PII protection and extracts standardized skill taxonomies.
+6. **`COVER_LETTER`**: Drafts personalized, high-impact cover letters referencing your real past achievements against company values without hallucinating unverified experience.
+7. **`APPLICATION_QA`**: Generates honest, grounded answers for ATS application form questionnaires using verified CV facts.
+8. **`ROLE_ALIGNMENT_DOSSIER`**: Synthesizes career positioning dossiers (executive summary, quantified resume bullets, interview hooks, skill bridges) for a selected role track.
+9. **`COMPANY_RESEARCH`**: Queries DuckDuckGo / SearXNG and synthesizes deep web intelligence on company mission, engineering culture, and employee sentiment.
+10. **`INTERVIEW_GUIDE`**: Synthesizes a structured interview playbook with STAR behavioral stories, company context briefings, and technical defense questions.
+11. **`AGENT_REASONING`**: Powers the conversational assistant (`/chat`) and mock interview simulator.
+12. **`EMBEDDING`**: Generates dense 768- or 1536-dimensional vectors for semantic search in PostgreSQL (`pgvector`).
 
 ---
 
@@ -288,3 +294,51 @@ Job Tracker includes an intelligent **Model Prober** in the Settings UI:
 - **1-Click Model Discovery:** Automatically queries `/v1/models` to list all models available on your endpoint.
 - **Thinking / Reasoning Detection:** Automatically identifies whether a model supports reasoning tags (`<think>`, `reasoning_effort`, `thinking_config`) and configures appropriate parameter envelopes.
 - **Latency & Health Audits:** Real-time latency tracking and telemetry recording for all LLM calls.
+
+---
+
+## ⚡ Concurrency & Hardware Sizing Guidelines
+
+Job Tracker strictly throttles parallel AI requests per-provider using the `max_concurrency` setting in **Settings** ➜ **AI Providers**:
+
+| Provider Setup | Hardware Profile | Recommended `max_concurrency` | Rationale |
+| :--- | :--- | :--- | :--- |
+| **LM Studio / Ollama (Local 8B)** | 8GB–16GB VRAM (RTX 3060/4060, Apple M1/M2 16GB) | `1` | Prevents VRAM thrashing and maintains fast token generation speeds (~40 tok/s). |
+| **LM Studio / Ollama (Local 14B–32B)** | 16GB–32GB VRAM (RTX 4080/4090, Apple M2/M3 Pro 36GB) | `1 - 2` | Ensures stable context caching without GPU out-of-memory errors during multi-turn interviews. |
+| **Cloud Providers (OpenAI / Claude / Gemini)** | Remote API | `3 - 5` | Cloud endpoints easily handle concurrent evaluations, speeding up batch intake processing. |
+
+---
+
+## 💰 Token Pricing, Cost Tracking & Cloud Savings
+
+To track your AI expenses and measure return on investment from local inference:
+
+1. In **Settings** ➜ **AI Providers**, edit any provider card.
+2. Enter the pricing rates per million tokens:
+   - **Input Cost per 1M Tokens (USD)**: e.g. `$2.50` for GPT-4o, `$0.00` for LM Studio.
+   - **Output Cost per 1M Tokens (USD)**: e.g. `$10.00` for GPT-4o, `$0.00` for LM Studio.
+3. In **Diagnostics** (`/diagnostics`), view real-time token telemetry:
+   - **Total Tokens Consumed**: Cumulative input and output token counts.
+   - **Actual Expenditure**: Total USD billed for commercial API usage.
+   - **"What-If" Cloud Savings**: Quantifies the exact dollar amount saved by delegating tasks to local hardware rather than commercial APIs.
+
+---
+
+## 📝 System Prompt Customization & Anti-Hallucination Guardrails
+
+All prompt templates are fully transparent and editable in **Settings** ➜ **System Prompts**:
+
+- **Strict Factual Grounding**: Default templates (`DEFAULT_PROMPTS`) enforce anti-hallucination rules, instructing models to strictly ground cover letters, application answers, and gap analyses on verified candidate CV bullet points.
+- **Dynamic Variables**: Prompts use mustache-style placeholders (`{job_title}`, `{company}`, `{candidate_profile}`, `{job_description}`).
+- **JSON Schema Escaping**: Internal JSON syntax braces are escaped as `{{` and `}}` to ensure prompt stability.
+- **Factory Reset**: Click **Reset to Default** on any prompt to instantly restore the authoritative factory version.
+
+---
+
+## 🌐 Web Search Integration (DuckDuckGo & SearXNG)
+
+Autonomous company research relies on web search capabilities configured in **Settings** ➜ **System Settings**:
+
+- **Search Provider**: Choose between **DuckDuckGo** (`ddgs`) or a self-hosted **SearXNG** meta-search engine.
+- **SearXNG URL**: If using SearXNG, set the endpoint (e.g. `http://searxng:8080` or `http://localhost:8888`).
+- **Rate Limiting & Safety**: Built-in async token bucket (`web_limiter.py`) throttles queries to prevent search engine rate limits and IP bans.

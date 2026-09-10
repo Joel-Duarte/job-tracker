@@ -20,24 +20,34 @@ Welcome to **Job Tracker**, your comprehensive, AI-orchestrated recruitment comm
 4. [Workflow 3: AI Fit Dossier & Gap Analysis](#4-workflow-3-ai-fit-dossier--gap-analysis)
    - [Understanding the AI Fit Score (0–100%)](#understanding-the-ai-fit-score-0100)
    - [Deep Dive Gap Analysis & Tailoring Strategy](#deep-dive-gap-analysis--tailoring-strategy)
-   - [AI-Tailored Cover Letter Generator](#ai-tailored-cover-letter-generator)
+   - [AI-Tailored Cover Letter Generator & PDF Export](#ai-tailored-cover-letter-generator--pdf-export)
+   - [Application Form Q&A Generator](#application-form-qa-generator)
 5. [Workflow 4: Kanban Applications Pipeline & Lifecycle](#5-workflow-4-kanban-applications-pipeline--lifecycle)
    - [Active Pipeline Stages vs. Terminal States](#active-pipeline-stages-vs-terminal-states)
    - [Chronological Sorting & Urgency Signals](#chronological-sorting--urgency-signals)
-   - [Application Detail Drawer & Activity Log](#application-detail-drawer--activity-log)
+   - [Date Range Filtering & Drag-and-Drop Action Dock](#date-range-filtering--drag-and-drop-action-dock)
+   - [Application Detail Drawer, Company Picker & Activity Log](#application-detail-drawer-company-picker--activity-log)
    - [Automated Action Items To-Do Hub](#automated-action-items-to-do-hub)
    - [Automated Staleness Archiver](#automated-staleness-archiver)
-   - [Post-Hire Celebration & Bulk Transitions](#post-hire-celebration--bulk-transitions)
+   - [Post-Hire Celebration, Past Wins & Bulk Transitions](#post-hire-celebration-past-wins--bulk-transitions)
 6. [Workflow 5: Interactive Mock Interview Simulator](#6-workflow-5-interactive-mock-interview-simulator)
    - [Choosing Your Interviewer Persona](#choosing-your-interviewer-persona)
    - [Selecting Challenge Modes (Conversational, MCQ, Hybrid)](#selecting-challenge-modes-conversational-mcq-hybrid)
    - [Real-Time Practice: Voice Transcription & STAR Rubrics](#real-time-practice-voice-transcription--star-rubrics)
    - [Post-Session Debrief Scorecard & Auto-Notes](#post-session-debrief-scorecard--auto-notes)
-7. [Workflow 6: Analytics, Staging Triage & Diagnostics](#7-workflow-6-analytics-staging-triage--diagnostics)
+7. [Workflow 6: Analytics, Role Alignment, Evaluation Queue & Diagnostics](#7-workflow-6-analytics-role-alignment-evaluation-queue--diagnostics)
    - [Market Intelligence & Funnel Analytics](#market-intelligence--funnel-analytics)
+   - [Role Alignment & CV Tuning (Career Intelligence Dossier)](#role-alignment--cv-tuning-career-intelligence-dossier)
+   - [Asynchronous Evaluation Queue (`/queue`)](#asynchronous-evaluation-queue-queue)
    - [Staging Queue Triage & 2-Step Resolution Wizard](#staging-queue-triage--2-step-resolution-wizard)
-   - [Diagnostics & Telemetry Tracing (`/diagnostics`)](#diagnostics--telemetry-tracing-diagnostics)
-8. [Quick Reference & Keyboard Shortcuts](#8-quick-reference--keyboard-shortcuts)
+   - [Diagnostics, Telemetry Tracing & Token Pricing (`/diagnostics`)](#diagnostics-telemetry-tracing--token-pricing-diagnostics)
+8. [Workflow 7: Company Intelligence & Directory Management](#8-workflow-7-company-intelligence--directory-management)
+   - [Navigating the Employer Directory (`/companies`)](#navigating-the-employer-directory-companies)
+   - [Company Detail Drawer & Multi-Application History](#company-detail-drawer--multi-application-history)
+   - [Candidate Pros, Red Flags & Star Ratings](#candidate-pros-red-flags--star-ratings)
+   - [Automated AI Web Research Synthesis (DDGS & SearXNG)](#automated-ai-web-research-synthesis-ddgs--searxng)
+   - [Company Deduplication & Merging](#company-deduplication--merging)
+9. [Quick Reference & Keyboard Shortcuts](#9-quick-reference--keyboard-shortcuts)
 
 ---
 
@@ -296,9 +306,9 @@ Clicking on any assessment card opens the **Match Analysis Modal**:
 
 ---
 
-### AI-Tailored Cover Letter Generator
+### AI-Tailored Cover Letter Generator & PDF Export
 
-Generate customized, highly persuasive cover letters tuned to the specific role and company culture.
+Generate customized, highly persuasive cover letters tuned to the specific role and company culture with zero hallucinations.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -310,7 +320,7 @@ Generate customized, highly persuasive cover letters tuned to the specific role 
 │ Custom Instructions:                                    │
 │ [ Emphasize my experience leading Raft consensus work. ]│
 │                                                         │
-│ [ ⚡ Generate Letter ]    [ 📋 Copy to Clipboard ]      │
+│ [ ⚡ Generate Letter ] [ 📥 Download PDF ] [ 📋 Copy ]  │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -325,7 +335,21 @@ Generate customized, highly persuasive cover letters tuned to the specific role 
   - `Concise (~150 words)`
   - `Standard (~300 words)`
   - `Detailed (~450 words)`
-- **Auto-Save & Markdown Preview**: Edit the letter directly in the built-in rich editor with character/word counters and 1-click clipboard copying.
+- **Asynchronous Generation**: Enqueued into the central background worker (`COVER_LETTER` task) to avoid UI blocking.
+- **1-Click PDF Export**: Download clean, print-ready PDF cover letters generated client-side with consistent typography, header metadata, and proper margins.
+- **Auto-Save & Markdown Preview**: Edit the letter directly in the built-in rich editor with live word count.
+
+---
+
+### Application Form Q&A Generator
+
+Tackle tedious application forms and ATS screening questions without manual rewriting:
+
+1. Open the target application in the **Application Detail Drawer**.
+2. Navigate to the **Application Q&A** tab.
+3. Paste questions from the job portal (e.g., *"Why do you want to work at Figma?"*, *"Describe a challenging distributed systems outage you mitigated."*).
+4. Click **Generate Grounded Answers**: The system dispatches an `APPLICATION_QA` evaluation task that pairs the job posting requirements with your verified candidate CV to craft tailored, factual answers.
+5. Review, tweak, and 1-click copy directly into employer application portals.
 
 ---
 
@@ -375,11 +399,24 @@ Job Tracker automatically surfaces high-priority cards at the top of each column
 
 ---
 
-### Application Detail Drawer & Activity Log
+### Date Range Filtering & Drag-and-Drop Action Dock
+
+Refine your pipeline view and perform rapid card management without modal overhead:
+
+- **Quick Date Range Presets**: Filter the entire Kanban board by active date (`Today`, `Last 7 Days`, `Last 30 Days`, or `All Time`).
+- **Global Drag-and-Drop Action Dock**: When dragging an application card, a bottom dock automatically surfaces with rapid drop zones:
+  - 🗑️ **Delete Application**: Permanently purge application or unbundle associated leads.
+  - 📦 **Archive Application**: Instantly move to terminal `ARCHIVED` state.
+  - 🏆 **Mark as Hired**: Launch the post-hire celebration workflow.
+
+---
+
+### Application Detail Drawer, Company Picker & Activity Log
 
 Clicking any card slides out the **Application Detail Drawer**:
 
-- **Company Intelligence**: Direct links, verified company domain, and high-res favicon.
+- **Company Picker & Reassignment**: Need to associate this role with a different corporate entity or child subsidiary? Select or create a company directly via the inline searchable dropdown.
+- **Inline Field Editing**: Edit compensation details, salary currency, work model (Remote, Hybrid, On-site), and office location in-place.
 - **Unified Timeline**: Complete chronological history of recruitment emails, status transitions, and interview rounds.
 - **Log Activity Modal**: Manually log phone screens, recruiter check-ins, or custom notes with date-time pickers.
 - **Interview Guide**: Download or print a structured AI-generated interview prep packet with company-specific questions and technical review topics.
@@ -388,7 +425,7 @@ Clicking any card slides out the **Application Detail Drawer**:
 
 ### Automated Action Items To-Do Hub
 
-The **Action Items** view (`/actions`) aggregates all pending to-dos across your entire pipeline:
+The **Action Items** view (`/tasks`) aggregates all pending to-dos across your entire pipeline:
 
 - **Automatic Extraction**: Scans inbound emails for explicit deadlines (e.g., *"Please submit your coding challenge by Friday 5 PM"*).
 - **Urgency Classification**: Categorized into `HIGH`, `MEDIUM`, and `LOW` urgency based on due dates and email phrasing.
@@ -407,7 +444,7 @@ To keep your Kanban board clutter-free, Job Tracker includes an **Automated Stal
 
 ---
 
-### Post-Hire Celebration & Bulk Transitions
+### Post-Hire Celebration, Past Wins & Bulk Transitions
 
 When you accept an offer, drag the card to **HIRED** or click **Mark as Hired**. This triggers the celebratory **Post-Hire Modal**:
 
@@ -427,10 +464,10 @@ When you accept an offer, drag the card to **HIRED** or click **Mark as Hired**.
 └─────────────────────────────────────────────────────────┘
 ```
 
-#### Bulk Operations Performed:
-1. Transitions all remaining active applications to `WITHDRAWN` or `ARCHIVED`.
-2. Automatically logs a timeline event (*"Withdrawn — accepted offer at [Company]"*).
-3. Dismisses all associated pending Action Items.
+#### What Happens When You Mark an Offer as Hired:
+1. **Confetti Fanfare**: Changing status to `HIRED` triggers full-screen celebratory confetti and celebratory milestone summary.
+2. **Automated Bulk Cleanup**: With one click, transition remaining active applications to `WITHDRAWN` or `ARCHIVED` with automated timeline notes, dismissing all related pending action items.
+3. **Past Wins Showcase**: Switch to the **Past Wins** view mode directly on the Applications board (`/applications`) to celebrate accepted offers, salary records, and historical career milestones.
 
 ---
 
@@ -503,7 +540,7 @@ When completing a simulation, the AI generates a comprehensive **Debrief Scoreca
 
 ---
 
-## 7. Workflow 6: Analytics, Staging Triage & Diagnostics
+## 7. Workflow 6: Analytics, Role Alignment, Evaluation Queue & Diagnostics
 
 ### Market Intelligence & Funnel Analytics
 
@@ -527,6 +564,59 @@ Navigate to **Analytics** (`/analytics`) to review your job search metrics:
 
 ---
 
+### Role Alignment & CV Tuning (Career Intelligence Dossier)
+
+Inside **Analytics** (`/analytics`), select the **Role Alignment & CV Tuning** tab to synthesize high-impact, career-track-specific intelligence:
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│ 🎯 Career Track: Staff Distributed Systems Engineer                 │
+│ ──────────────────────────────────────────────────────────────────── │
+│  Market Competitiveness: EXCEPTIONAL (Top 5% Candidate Signal)       │
+│                                                                      │
+│  ├── 📌 Executive Positioning Summary                                │
+│  │   High-throughput async architecture specialist with 8+ years     │
+│  │   scaling PostgreSQL and pgvector systems.                        │
+│  ├── ✍️ Quantified Bullet Rewrites                                    │
+│  │   Elevates past project descriptions with active power verbs,     │
+│  │   target competencies, and measurable scale metrics.              │
+│  ├── 🎙️ Strategic Interview Talking Points                           │
+│  │   High-stakes technical story hooks and key engineering principles│
+│  │   tailored to bar raiser rounds.                                  │
+│  └── 🌉 Skill Bridge Roadmap                                         │
+│      Actionable framing strategies to bridge emerging skill gaps.    │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+- **Select Role Track**: Choose from pre-configured or custom career tracks (e.g., *Staff Distributed Systems Engineer*, *Senior Fullstack Engineer*).
+- **Run AI Synthesis**: Generates a persistent `RoleAlignmentDossierModel` stored in your local database.
+- **Direct CV Application**: Copy optimized bullet rewrites directly into your resume editor.
+
+---
+
+### Asynchronous Evaluation Queue (`/queue`)
+
+Job Tracker routes all intensive AI evaluations through an asynchronous background queue to ensure instant UI responsiveness:
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│ ⚡ AI Evaluation Queue (3 Active / 12 Completed)                      │
+│ ──────────────────────────────────────────────────────────────────── │
+│ [ Linear - Senior Backend ]                                          │
+│ Stage: [ Fetching ➔ Scrubbing ➔ Extracting ➔ MATCHING ➔ Saving ]      │
+│ Model: qwen2.5-14b (Local LM Studio)  |  Status: PROCESSING (42s)     │
+│                                                                      │
+│ [ Bulk Actions: 🔄 Retry Failed (1) ]  [ 🗑️ Clear Completed ]        │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+- **Multi-Stage Visual Stepper**: Track task lifecycle (`QUEUED` ➔ `PROCESSING` [Fetching, Scrubbing, Extracting, Matching, Assessing, Saving] ➔ `COMPLETED` / `FAILED`).
+- **Concurrency Guardrails**: Tasks respect per-provider concurrency ceilings (default: 1 concurrent task for local engines to prevent GPU out-of-memory errors).
+- **Bulk Queue Controls**: 1-click **Bulk Retry** for network hiccups and **Bulk Delete / Dismiss** for cancelled leads.
+- **Task Types Supported**: `JOB_ASSESSMENT`, `CV_EXTRACTION`, `COVER_LETTER`, `APPLICATION_QA`, `ROLE_ALIGNMENT_DOSSIER`, `COMPANY_RESEARCH`.
+
+---
+
 ### Staging Queue Triage & 2-Step Resolution Wizard
 
 When an email or webhook arrives with ambiguous company or position information, it is placed in the **Staging Queue** (`/staging`) to prevent data corruption.
@@ -541,29 +631,104 @@ When an email or webhook arrives with ambiguous company or position information,
 
 ---
 
-### Diagnostics & Telemetry Tracing (`/diagnostics`)
+### Diagnostics, Telemetry Tracing & Token Pricing (`/diagnostics`)
 
-Job Tracker includes end-to-end telemetry for monitoring all background operations:
+Job Tracker includes comprehensive observability and financial tracking for all background operations:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │ 🩺 Diagnostics & Telemetry Dashboard                                 │
 │ ──────────────────────────────────────────────────────────────────── │
-│ [ All Telemetry ] [ AI & LLM ] [ Web Scraper ] [ Email Sync ] [ Workers ]│
+│ [ Telemetry Traces ] [ Pricing & Token Costs ] [ Worker Health ]     │
 │                                                                      │
-│ • [LLM]     intake_assessment_evaluation    | Duration: 1.42s | ✅ OK│
-│ • [Scraper] camofox_fetch_job_description   | Duration: 2.10s | ✅ OK│
-│ • [Email]   imap_sync_inbox                 | Duration: 0.85s | ✅ OK│
+│ • [LLM]     assessment_fit_evaluation  | Duration: 1.42s | ✅ OK    │
+│ • [Scraper] camofox_fetch_job          | Duration: 2.10s | ✅ OK    │
+│ • [Search]  searxng_company_query      | Duration: 0.65s | ✅ OK    │
+│ ──────────────────────────────────────────────────────────────────── │
+│ 💰 Financial Telemetry:                                              │
+│ • Total Tokens Processed: 1,482,900 tokens                           │
+│ • Dollar Cost Incurred: $0.00 (100% Local Inference)                 │
+│ • Estimated Cloud Savings: $14.82 vs. GPT-4o commercial rates        │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
 - **Filter by Category**: `llm`, `scraper`, `email_sync`, `worker`, `embedding`.
 - **Inspect Execution Traces**: View full input prompts, raw LLM completions, token counts, network payloads, and error tracebacks.
-- **Retry Failed Jobs**: Re-run failed scrapers or LLM evaluations directly from the trace inspector.
+- **Token Pricing & Savings Engine**:
+  - Configure USD per 1M input/output tokens in **Settings** (`/settings`).
+  - Calculate actual expenditure on paid APIs (OpenAI, Anthropic, Gemini).
+  - Track **"What-If" Cloud Savings**: See exactly how much money your local LM Studio / Ollama instance has saved you compared to proprietary APIs.
 
 ---
 
-## 8. Quick Reference & Keyboard Shortcuts
+## 8. Workflow 7: Company Intelligence & Directory Management
+
+The **Companies Directory** (`/companies`) provides an intelligent corporate Rolodex consolidating all employer records, research findings, and multi-application interactions.
+
+```mermaid
+flowchart LR
+    A["Target Company"] --> B["Multi-Tier Resolver<br/>(Exact Name + Domain + Trigram)"]
+    B --> C["Live Web Search<br/>(DuckDuckGo / SearXNG)"]
+    C --> D["Camofox Deep Scraper"]
+    D --> E["AI Culture & Tech Synthesis"]
+    E --> F[("Company Model<br/>Pros, Red Flags, Star Rating")]
+```
+
+### Navigating the Employer Directory (`/companies`)
+
+- **Unified Grid & List**: Browse all companies where you've applied or saved leads.
+- **Search & Filter**: Instant fuzzy search by company name, industry, or domain.
+- **Quick Statistics**: High-level badge showing total tracked applications, active pipeline stages, and last interaction dates.
+
+---
+
+### Company Detail Drawer & Multi-Application History
+
+Clicking any company opens the contextual **Company Detail Drawer**:
+
+- **Cross-Application Overview**: View all past and active positions you have pursued at this organization (e.g., applied for *Backend Engineer* in 2024, now interviewing for *Staff Engineer*).
+- **Corporate Metadata**: Canonical domain, career portal links, headquarters location, and high-resolution favicon.
+
+---
+
+### Candidate Pros, Red Flags & Star Ratings
+
+Keep qualitative notes on prospective employers:
+
+- ⭐ **Star Rating**: 1 to 5 star rating reflecting your personal excitement or cultural fit.
+- 🟢 **Pros List**: Add structured selling points (e.g., *Full remote, 4-day work week, modern Rust stack*).
+- 🚩 **Red Flags List**: Document cautionary signals (e.g., *High Glassdoor turnover, unbonded on-call rotation*).
+- 📝 **Free-form Notes**: Rich markdown notes for recruiter names, referral contacts, and interview impressions.
+
+---
+
+### Automated AI Web Research Synthesis (DDGS & SearXNG)
+
+Equip yourself with insider knowledge before recruiter screens:
+
+1. Click **Run Web Research** on any company card.
+2. The background engine queries **DuckDuckGo** or your local **SearXNG** instance for recent news, engineering blog posts, and corporate mission statements.
+3. Camofox stealthily scrapes the most relevant pages.
+4. AI synthesizes a structured research dossier:
+   - **Company Mission & Value Proposition**: Core business model and market problems solved.
+   - **Engineering Culture & Tech Stack**: Languages, architectural philosophies, and public open-source contributions.
+   - **Public Sentiment & Employee Feedback**: Curated Glassdoor/Reddit sentiment summary.
+5. Cached permanently on `CompanyModel` for instant retrieval across all associated applications.
+
+---
+
+### Company Deduplication & Merging
+
+When automated scrapers or emails ingest variations of the same employer (e.g., *"Stripe"*, *"Stripe Inc."*, *"Stripe Payments"*):
+
+1. The backend automatically employs `pg_trgm` trigram similarity (>0.85) to suggest merges.
+2. Click **Merge Companies** in the directory header.
+3. Choose the target canonical company and merge source records.
+4. All associated job applications, timeline events, and action items are automatically repointed to the canonical company entity with zero data loss.
+
+---
+
+## 9. Quick Reference & Keyboard Shortcuts
 
 ### Global Keyboard Shortcuts
 

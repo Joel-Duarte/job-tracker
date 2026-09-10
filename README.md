@@ -37,11 +37,15 @@
 | Feature | Description |
 | :--- | :--- |
 | 🔒 **100% Private & Local-First** | Run entirely on your own hardware with **LM Studio** or **Ollama** (zero telemetry, zero cloud data leakage), or connect top-tier cloud models (**OpenAI**, **Anthropic**, **Gemini**, **OpenRouter**). |
+| 🏢 **Companies Directory & Live Intelligence** | Unified employer directory (`/companies`), multi-application history, candidate pros/red flags, and live web research synthesis via DuckDuckGo and SearXNG. |
+| 🎯 **Role Alignment & CV Tuning** | AI career intelligence dossiers: executive market positioning, quantified resume bullet rewrites, strategic interview talking points, and skill bridge roadmaps. |
+| ⚡ **Async Evaluation Queue** | Central background task manager (`/queue`) with per-provider concurrency ceilings, live stage steppers, bulk retries, and cancellation. |
 | 🌐 **1-Click Browser Capture** | Floating capture dock for **LinkedIn**, **Indeed**, **Greenhouse**, **Lever**, **Workday**, and **Ashby**, with universal DOM fallback parsing. |
-| 🤖 **Deep AI Fit & Gap Dossier** | Granular hard/soft skill breakdown, experience alignment scoring, ATS keyword analysis, and customized cover letters. |
+| 🤖 **Deep AI Fit & Gap Dossier** | Granular hard/soft skill breakdown, experience alignment scoring, ATS keyword analysis, zero-hallucination cover letters, and application form Q&A generation. |
 | 🎙️ **Interactive Mock Interview Simulator** | Multi-turn voice and text simulations featuring specialized interviewer personas (*Technical Bar Raiser*, *Hiring Manager*, *Behavioral Coach*) and real-time STAR debrief scorecards. |
 | 📬 **Automated Email Sync & Action Items** | Connects to **Gmail**, **Outlook**, or **IMAP** to extract interview schedules, rejection updates, and to-do deadlines automatically. |
 | 📋 **Smart Kanban Pipeline** | 4 active stages (`APPLIED`, `ONLINE_ASSESSMENT`, `TECHNICAL_INTERVIEW`, `OFFER`), scheduled interview countdowns, automated staleness sweeper, and past wins archive. |
+| 💰 **Token Pricing & Cloud Savings** | Real-time diagnostic telemetry tracking token consumption, dollar costs, and local LLM savings against leading commercial cloud APIs. |
 
 ---
 
@@ -173,6 +177,49 @@ Capture job postings while browsing without switching tabs.
   └────────────────────────────────────────────────────────┘
 ```
 
+### 6. Employer Directory & Live Company Intelligence
+Consolidate employer entities, cross-application history, candidate pros/red flags, and live web research synthesized from DuckDuckGo and SearXNG.
+
+```mermaid
+flowchart LR
+    A["Target Employer<br/>(e.g., Stripe)"] --> B["Domain Resolver &<br/>pg_trgm Fuzzy Match"]
+    B --> C["Web Search Engine<br/>(DDGS / SearXNG)"]
+    C --> D["Stealth Page Scraper<br/>(Camofox Browser)"]
+    D --> E["AI Intelligence Synthesis<br/>(Culture, Tech Stack, Ratings)"]
+    E --> F[("Company Model<br/>Cached Intelligence & Notes")]
+```
+
+### 7. Strategic Role Alignment & CV Tuning
+Generate deep career positioning dossiers linking your candidate CV to specific career tracks. Elevate resume bullets, prepare high-stakes technical talking points, and identify critical bridge skills.
+
+```mermaid
+flowchart TD
+    subgraph Input["Candidate & Target Market"]
+        CV["Master Candidate Profile<br/>(Verified Skills & Experience)"]
+        Track["Target Role Track<br/>(e.g., Staff Distributed Systems)"]
+    end
+    subgraph AI["Career Intelligence Engine"]
+        CV & Track --> DossierGen["Role Alignment Dossier Service<br/>(Market Grounding & Gap Analysis)"]
+    end
+    subgraph Output["Synthesized Career Artifacts"]
+        DossierGen --> Pos["Executive Market Positioning<br/>(Key Differentiators & Strengths)"]
+        DossierGen --> Bullets["Quantified Bullet Rewrites<br/>(Power Verbs & Impact Metrics)"]
+        DossierGen --> Talking["Strategic Talking Points<br/>(High-Stakes Technical Narrative)"]
+        DossierGen --> Bridge["Skill Bridge Roadmap<br/>(Actionable Bridge Advice)"]
+    end
+```
+
+### 8. Async Evaluation Queue & Task Management
+Queue intensive evaluations asynchronously with strict per-provider concurrency ceilings. Monitor progress through multi-stage steppers, trigger bulk retries, and cancel tasks on demand.
+
+```mermaid
+flowchart LR
+    In["Intake Channels<br/>(Browser Ext, Paste, URL)"] --> Queue[("Evaluation Queue<br/>IntakeEvaluationTaskModel")]
+    Queue --> Worker["Evaluation Worker<br/>(Stage Stepper: Fetch ➔ Scrub ➔ Match)"]
+    Worker --> Limiter["Concurrency Limiter<br/>(1-2 reqs Local / Bounded Cloud)"]
+    Limiter --> UI["Real-Time UI Telemetry<br/>(/queue & Floating Dock)"]
+```
+
 ---
 
 ## 📚 Documentation & Deep Dives
@@ -201,6 +248,7 @@ Explore our guides to get the most out of Job Tracker:
 | **AI Orchestration** | LangChain, LangGraph, Pydantic | Multi-agent state machines, role-playing interview simulator, candidate fit evaluation, and customizable provider task bindings. |
 | **Database & Vector Search** | PostgreSQL 16, pgvector, pg_trgm, SQLAlchemy 2 | Relational application storage, vector similarity search, fuzzy full-text matching, and Alembic migrations. |
 | **Stealth Scraper** | Camofox (Headless Firefox Engine) | Anti-bot evasion, dynamic JavaScript execution, cookie dismissals, and high-fidelity DOM extraction. |
+| **Web Search & Limiter** | DuckDuckGo, SearXNG, Token Bucket Limiter | Multi-engine web intelligence retrieval with automatic health fallback and domain-anchored company profiling. |
 | **Browser Extension** | WebExtensions Manifest V3 | Cross-browser floating capture dock for Chrome, Brave, Edge, and Firefox with background sync. |
 
 ---

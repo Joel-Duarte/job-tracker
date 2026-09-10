@@ -249,4 +249,5 @@ docker compose logs -f backend
 
 - Explore the [AI Providers Guide](file:///home/joel/Projects/job-tracker/docs/AI_PROVIDERS.md) to fine-tune per-task model bindings and configure transparent failovers.
 - Visit `/applications` in the web app to manage your Kanban pipeline.
-- Practice multi-turn behavioral and technical interview questions in `/assistant` (Mock Interview Simulator).
+- Explore `/companies` to research employer profiles, track notes, and synthesize web intelligence.
+- Practice multi-turn behavioral and technical interview questions in `/chat` (Agent Chat & Mock Interview Simulator).

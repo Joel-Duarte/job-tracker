@@ -44,9 +44,14 @@ flowchart TD
         API["FastAPI Async API<br/>(Uvicorn / Port 8000)"]
         
         subgraph Services["Core Backend Services"]
+            EVAL_WORKER["Evaluation Worker Queue<br/>(evaluation_worker.py)"]
             INTAKE_G["Intake StateGraph<br/>(LangGraph)"]
             GUIDE_G["Interview Guide Graph<br/>(LangGraph)"]
             SIM_SVC["Mock Interview Simulator<br/>(Adaptive Service)"]
+            COMP_RESEARCH["Company Research & Resolver<br/>(company_research.py)"]
+            WEB_SEARCH["Web Search & Limiter<br/>(DDGS / SearXNG + Limiter)"]
+            ROLE_DOSSIER["Role Alignment Dossier<br/>(role_alignment_dossier_service.py)"]
+            PRICING_SVC["Pricing & Token Tracking<br/>(pricing_service.py)"]
             EMAIL_SYNC["Email Sync Engine<br/>(IMAP / Gmail / MS Graph)"]
             ARCHIVER["Staleness Archiver<br/>(Background Worker)"]
             TELEMETRY["Telemetry & Diagnostics<br/>(PostgresTracer)"]
@@ -69,7 +74,8 @@ flowchart TD
         CLOUD_AI["Cloud AI Providers<br/>(OpenAI GPT-4o / Anthropic Claude)"]
     end
 
-    subgraph ExternalMail["Mailbox Providers"]
+    subgraph ExternalWeb["External Web & Mail Services"]
+        SEARCH_ENGINES["Web Search Engines<br/>(DuckDuckGo / SearXNG API)"]
         IMAP_SRV["IMAP Mail Servers"]
         GMAIL_API["Google Gmail OAuth API"]
         MS_GRAPH["Microsoft Graph Outlook API"]
@@ -81,24 +87,38 @@ flowchart TD
     NGINX -->|Reverse Proxy /api/v1| API
 
     %% Service bindings
+    API --> EVAL_WORKER
     API --> INTAKE_G
     API --> GUIDE_G
     API --> SIM_SVC
+    API --> COMP_RESEARCH
+    API --> ROLE_DOSSIER
+    API --> PRICING_SVC
     API --> EMAIL_SYNC
     API --> ARCHIVER
     API --> TELEMETRY
 
-    %% Scraper integration
-    INTAKE_G -->|HTTP / JSON| CAMOFOX
-    CAMOFOX -.->|Bypass Anti-Bot / Parse DOM| WebPostings["External Job Postings"]
+    %% Scraper & Search integration
+    EVAL_WORKER --> CAMOFOX
+    INTAKE_G --> CAMOFOX
+    COMP_RESEARCH --> WEB_SEARCH
+    WEB_SEARCH --> SEARCH_ENGINES
+    COMP_RESEARCH --> CAMOFOX
+    CAMOFOX -.->|Bypass Anti-Bot / Parse DOM| WebPostings["External Job & Company Pages"]
 
     %% AI Providers
+    EVAL_WORKER -->|Task Chat Model| LOCAL_AI
+    EVAL_WORKER -->|Task Chat Model| CLOUD_AI
     INTAKE_G -->|Task Chat Model| LOCAL_AI
     INTAKE_G -->|Task Chat Model| CLOUD_AI
     GUIDE_G -->|Task Chat Model| LOCAL_AI
     GUIDE_G -->|Task Chat Model| CLOUD_AI
     SIM_SVC -->|Adaptive Invocation| LOCAL_AI
     SIM_SVC -->|Adaptive Invocation| CLOUD_AI
+    ROLE_DOSSIER -->|Task Chat Model| LOCAL_AI
+    ROLE_DOSSIER -->|Task Chat Model| CLOUD_AI
+    COMP_RESEARCH -->|Task Chat Model| LOCAL_AI
+    COMP_RESEARCH -->|Task Chat Model| CLOUD_AI
 
     %% Email Sync
     EMAIL_SYNC -->|IMAP4_SSL| IMAP_SRV
@@ -107,6 +127,7 @@ flowchart TD
 
     %% Database interactions
     API -->|AsyncSession / asyncpg| PG
+    EVAL_WORKER -->|AsyncSession| PG
     PG --- PGV
     PG --- PGT
     INTAKE_G --> CHECKPOINT
@@ -350,6 +371,32 @@ async def sync_mailbox(account_id: int):
         emails = await fetch_new_messages(account_id)
         ctx["outputs"] = {"fetched_count": len(emails)}
 ```
+
+---
+
+### 3.7 Multi-Tier Company Resolution & Deduplication Engine
+Employer records are unified through `company_resolver.py` and `domain_resolver.py` to prevent splintered entities:
+1. **Normalized Exact Matching:** Strips corporate suffixes (*Inc*, *LLC*, *Ltd*, *GmbH*, *Corp*) and punctuation to match canonical company names.
+2. **Canonical Domain Resolution:** Extracts root domain from job URLs, discards 20+ known ATS host domains (Greenhouse, Lever, Ashby, Workday), applies AI domain extraction, and queries Clearbit Autocomplete as fallback.
+3. **Fuzzy Trigram Matching:** Utilizes PostgreSQL `pg_trgm` GIN indexes with a strict `similarity > 0.85` threshold to detect typographical variations.
+4. **Entity Merging:** Supports manual or suggested company deduplication (`POST /api/v1/companies/merge`), seamlessly repointing all applications, timeline events, and action items to the target company record.
+
+---
+
+### 3.8 Live Web Search & Company Intelligence Engine
+Job Tracker features an autonomous web research pipeline (`web_search.py`, `web_limiter.py`, `company_research.py`) to arm candidates with company culture, tech stack, and employee sentiment data:
+1. **Multi-Provider Web Search:** Supports **DuckDuckGo** (`ddgs`) with automatic health failover to self-hosted **SearXNG** instances (`SEARXNG_URL`).
+2. **Token Bucket Rate Limiting:** A centralized async token bucket (`web_limiter.py`) throttles search requests and respects provider-specific concurrency ceilings to prevent search engine rate limits or IP bans.
+3. **Deep Web Ingestion:** Selected high-relevance URLs are retrieved via Camofox headless browser to bypass dynamic JavaScript walls and anti-bot challenges.
+4. **Structured AI Synthesis:** Synthesizes corporate mission, tech culture, engineering stack, and employee review signals, persisting the dossier directly into `CompanyModel.company_research` JSONB.
+
+---
+
+### 3.9 Token Pricing & Cloud Savings Telemetry Engine
+The `pricing_service.py` component provides real-time financial accounting for all AI workloads:
+- **Trace-Level Token Accounting:** Parses input and output token consumption from `trace_events` generated by `PostgresTracer`.
+- **Configurable Model Pricing:** Allows users to define per-provider input and output costs per 1M tokens (`input_cost_per_million`, `output_cost_per_million`) in `ai_providers`.
+- **What-If Cloud Savings Engine:** Computes theoretical expenditure against benchmark commercial models (e.g. OpenAI GPT-4o, Anthropic Claude 3.5 Sonnet) to quantify exact financial savings realized by running local inference on LM Studio or Ollama.
 
 ---
 

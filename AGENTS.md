@@ -12,15 +12,16 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
 - **Routing:** Vue Router
 - **UI Components:** Built with custom CSS (in `src/style.css` and scoped Vue components) and `lucide-vue-next` for iconography.
 - **Key Views:**
-  - `ApplicationsView`: Kanban board for tracking job applications through various stages.
-  - `AssessmentsView`: Dashboard for reviewing AI job assessments.
-  - `CandidateProfileView`: Management of user resumes, skills, and core competencies.
-  - `JobIntakeView`: Tools to paste URLs or job descriptions for ingestion.
-  - `ActionItemsView`: To-do list generated from emails and application updates.
-  - `StagingView`: Review and manual resolution area for ambiguous or low-confidence extractions.
-  - `AgentChatView`: Unified conversational assistant and live interactive mock interview simulation suite supporting multi-turn drill downs, multiple-choice challenges, voice transcription, debrief scorecards, and session continuation across practice formats.
-  - `PastWinsView`: Archive and showcase for accepted offers, hired milestones, and celebration analytics.
+  - `ApplicationsView`: Kanban board for tracking job applications through active stages, with date filtering, drag-and-drop action dock, and an integrated "Past Wins" showcase for accepted offers and hired milestones.
+  - `AssessmentsView`: Dashboard for reviewing AI job fit assessments, skill breakdowns, and gap dossiers.
+  - `QueueView`: Central asynchronous AI task queue (`/queue`) with live stage progress, bulk retry/cancellation, and interactive result inspection.
+  - `AnalyticsView`: Analytics hub featuring funnel conversion metrics and the "Role Alignment & CV Tuning" career intelligence suite.
+  - `CandidateProfileView`: Master management of user resumes, skills, spoken languages, and core competencies (accessible via `/settings?tab=profile`).
   - `CompaniesView`: Directory of employer entities, multi-application history, candidate ratings/notes, and live company intelligence with contextual `CompanyDetailDrawer`.
+  - `ActionItemsView`: High-priority to-do hub generated automatically from recruitment emails and application updates.
+  - `StagingView`: Triage and manual 2-step resolution area for ambiguous or low-confidence email extractions.
+  - `AgentChatView`: Unified conversational assistant and live interactive mock interview simulation suite supporting multi-turn drill downs, multiple-choice challenges, voice transcription, debrief scorecards, and session continuation across practice formats.
+  - `DiagnosticsView`: Deep system telemetry dashboard (`/diagnostics`) tracking execution latency, trace spans, error rates, token consumption, and dollar savings.
 
 ### Backend
 - **Framework:** FastAPI

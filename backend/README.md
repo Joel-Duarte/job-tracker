@@ -213,15 +213,27 @@ backend/
 │   ├── models/               # SQLAlchemy Declarative Models
 │   │   ├── applications.py   # Applications, Companies, Events, ActionItems, Embeddings
 │   │   ├── candidate_profile.py # Candidate CV, Resumes, Extracted Skills
+│   │   ├── intake_tasks.py   # Asynchronous AI Evaluation Tasks queue
+│   │   ├── ai_providers.py   # AI Provider configs and Task Bindings
+│   │   ├── role_alignment.py # Role Alignment Dossiers
+│   │   ├── prompts.py        # System Prompt overrides
 │   │   ├── diagnostics.py    # TraceEventModel (Telemetry)
 │   │   ├── email_accounts.py # Multi-Provider Email Account configs
 │   │   └── interview_session.py # Mock Interview simulation sessions
 │   ├── routers/              # API REST Endpoints (/api/v1)
 │   ├── schemas/              # Pydantic v2 Request/Response validation models
 │   ├── services/             # Graphs, Scrapers, Evaluators, and Services
+│   │   ├── evaluation_worker.py # Central asynchronous AI evaluation worker
 │   │   ├── intake_graph.py   # LangGraph Lead & Email Intake pipeline
 │   │   ├── interview_guide_graph.py # LangGraph Interview Prep Guide generator
 │   │   ├── interview_simulator_service.py # Real-time Mock Interview Simulator
+│   │   ├── company_research.py # Automated company intelligence synthesis
+│   │   ├── company_resolver.py # Multi-tier employer deduplication engine
+│   │   ├── domain_resolver.py  # Canonical company domain resolution
+│   │   ├── web_search.py     # DuckDuckGo & SearXNG multi-engine search
+│   │   ├── web_limiter.py    # Token bucket search rate limiter
+│   │   ├── pricing_service.py # Token consumption and cloud savings telemetry
+│   │   ├── role_alignment_dossier_service.py # Career track intelligence
 │   │   ├── scraper.py        # Camofox Browser Automation wrapper
 │   │   ├── email_fetcher.py  # IMAP & OAuth Mailbox synchronizer
 │   │   └── telemetry.py      # Telemetry tracing helpers
