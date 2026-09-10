@@ -24,7 +24,9 @@ import {
   Search,
   Calendar,
   ChevronDown,
+  Share2,
 } from 'lucide-vue-next'
+import CompanyIntelModal from '../modals/CompanyIntelModal.vue'
 import { formatRelativeDate } from '../../utils/formatters'
 
 const uiStore = useUIStore()
@@ -38,6 +40,21 @@ const isRefreshing = ref(false)
 const isMerging = ref(false)
 const activeTab = ref('intel') // 'intel' | 'notes' | 'applications' | 'merge'
 const applicationFilter = ref('all')
+
+// Intel export/import modal state
+const isIntelModalOpen = ref(false)
+const intelModalInitialTab = ref('export')
+
+function openIntelModal(tab = 'export') {
+  intelModalInitialTab.value = tab
+  isIntelModalOpen.value = true
+}
+
+function onResearchImported(updatedCompany) {
+  company.value = updatedCompany
+  syncResearchState(updatedCompany.company_research)
+  window.dispatchEvent(new CustomEvent('company:updated', { detail: updatedCompany }))
+}
 
 // Header edit state
 const isEditingHeader = ref(false)
@@ -873,6 +890,28 @@ function getPositionTextColorClass(app) {
             </button>
           </div>
         </div>
+
+        <!-- Drawer Header Actions -->
+        <div class="drawer-header-actions">
+          <button
+            v-if="company && !isEditingHeader"
+            type="button"
+            class="btn btn-secondary btn-xs btn-header-intel"
+            title="Export Markdown dossier, generate AI prompts, or import JSON"
+            @click="openIntelModal('export')"
+          >
+            <Share2 :size="12" />
+            <span>Intel Hub</span>
+          </button>
+          <button
+            type="button"
+            class="drawer-header-close-btn"
+            title="Close Drawer"
+            @click="closeDrawer"
+          >
+            <X :size="16" />
+          </button>
+        </div>
       </div>
 
       <!-- Navigation Tabs -->
@@ -1444,6 +1483,15 @@ function getPositionTextColorClass(app) {
       <!-- Drawer Footer -->
       <div v-if="company && activeTab !== 'merge'" class="drawer-footer">
         <button
+          type="button"
+          class="btn btn-secondary btn-sm drawer-intel-action-btn"
+          title="Export Markdown dossier, generate AI prompts, or import JSON"
+          @click="openIntelModal('export')"
+        >
+          <Share2 :size="14" />
+          <span>Intel Hub</span>
+        </button>
+        <button
           class="btn btn-danger btn-sm drawer-delete-company"
           :disabled="isDeletingCompany || isSaving"
           @click="deleteCompany"
@@ -1467,6 +1515,14 @@ function getPositionTextColorClass(app) {
       </div>
     </div>
   </Transition>
+
+  <!-- Company Intelligence Export/Import Modal -->
+  <CompanyIntelModal
+    v-model="isIntelModalOpen"
+    :company="company"
+    :initial-tab="intelModalInitialTab"
+    @imported="onResearchImported"
+  />
 </template>
 
 <style scoped>
@@ -2364,5 +2420,59 @@ textarea.edit-input-field {
 .dropdown-fade-leave-to {
   opacity: 0;
   transform: translateY(4px);
+}
+
+.drawer-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-header-intel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 8px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.btn-header-intel:hover {
+  background-color: var(--primary-subtle);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.drawer-header-close-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-xs, 4px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.drawer-header-close-btn:hover {
+  color: var(--text-main);
+  background-color: var(--bg-surface-hover);
+  border-color: var(--border-subtle);
+}
+
+.drawer-intel-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
 }
 </style>
