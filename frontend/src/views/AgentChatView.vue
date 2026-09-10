@@ -72,10 +72,11 @@ function closeSidebarOnMobile() {
 
 const starterPrompts = [
   '🛠️ What tools can you use?',
+  'What intelligence and research do we have on Stripe?',
   'Which applications currently require urgent action from me?',
-  'Find roles involving Python, Distributed Systems, or Staff engineering',
-  'What is the current status of my Stripe application?',
-  'Move Stripe to OFFER status',
+  'Draft a tailored cover letter for my Linear application',
+  'Show my career role alignment dossier and interview talking points',
+  'Check interview readiness and review past mock interview scorecards',
 ]
 
 const mockAppId = ref(null)
@@ -618,11 +619,32 @@ function renderMarkdown(content) {
   return DOMPurify.sanitize(html)
 }
 
+function handleCompanyActionClick(act) {
+  const cId = act.result?.company_id || (typeof act.args?.company_or_id === 'number' ? act.args.company_or_id : null)
+  if (cId) {
+    uiStore.openCompanyDrawer(cId)
+  } else {
+    router.push('/companies')
+  }
+}
+
+function handleApplicationActionClick(act) {
+  const appId = act.result?.application_id || act.args?.application_id || (typeof act.args?.company_or_id === 'number' ? act.args.company_or_id : null)
+  if (appId) {
+    uiStore.openDetail(appId)
+  }
+}
+
 function formatActionLabel(act) {
-  if (act.action === 'UPDATE_STATUS' || act.action === 'update_application_status') {
-    const comp = act.args?.company_name || act.company || 'Application'
+  if (act.action === 'UPDATE_STATUS' || act.action === 'update_application_status' || act.action === 'update_application_pipeline') {
+    const comp = act.args?.company_or_id || act.args?.company_name || act.company || 'Application'
     const st = act.args?.new_status || act.new_status || 'Updated'
     return `Updated ${comp} status to ${st}`
+  }
+  if (act.action === 'bulk_transition_applications') {
+    const target = act.args?.target_status || 'New Status'
+    const count = act.result?.updated_count
+    return count ? `Bulk transitioned ${count} applications to ${target}` : `Bulk transitioned applications to ${target}`
   }
   if (act.action === 'semantic_vector_search') {
     const q = act.args?.query ? `"${act.args.query}"` : 'records'
@@ -636,12 +658,76 @@ function formatActionLabel(act) {
     const comp = act.args?.company_or_id || 'Company'
     return `Retrieved full event timeline for ${comp}`
   }
-  if (act.action === 'get_action_items') {
-    return `Queried pending action items & deadlines`
+  if (act.action === 'get_action_items' || act.action === 'manage_action_items') {
+    const actType = act.args?.action ? ` (${act.args.action})` : ''
+    return `Managed action items & deadlines${actType}`
   }
   if (act.action === 'start_mock_interview') {
     const comp = act.args?.company_or_id || 'Practice'
-    return `Launched live mock interview for ${comp}`
+    const persona = act.args?.interviewer_persona ? ` · ${act.args.interviewer_persona.replace(/_/g, ' ')}` : ''
+    return `Launched live mock interview for ${comp}${persona}`
+  }
+  if (act.action === 'get_mock_interview_history') {
+    return `Retrieved past simulation sessions & readiness ratings`
+  }
+  if (act.action === 'get_company_details') {
+    const comp = act.args?.company_or_id || 'Company'
+    return `Looked up corporate profile & intelligence for ${comp}`
+  }
+  if (act.action === 'list_companies') {
+    return `Listed tracked employers & research completion`
+  }
+  if (act.action === 'update_company_notes') {
+    const comp = act.args?.company_or_id || 'Company'
+    return `Updated candidate notes & rating for ${comp}`
+  }
+  if (act.action === 'enqueue_company_research') {
+    const comp = act.args?.company_or_id || 'Company'
+    return `Enqueued background AI web research for ${comp}`
+  }
+  if (act.action === 'get_cover_letter') {
+    const appId = act.args?.application_id || act.result?.application_id || ''
+    return `Fetched tailored cover letter (App #${appId})`
+  }
+  if (act.action === 'enqueue_cover_letter_generation') {
+    const appId = act.args?.application_id || act.result?.application_id || ''
+    return `Enqueued cover letter drafting in AI Queue (App #${appId})`
+  }
+  if (act.action === 'get_application_questions') {
+    const appId = act.args?.application_id || act.result?.application_id || ''
+    return `Loaded custom application Q&A pairs (App #${appId})`
+  }
+  if (act.action === 'enqueue_application_questions') {
+    const appId = act.args?.application_id || act.result?.application_id || ''
+    return `Enqueued AI answers for application questions (App #${appId})`
+  }
+  if (act.action === 'get_role_alignment_dossier') {
+    return `Loaded executive role alignment dossier & talking points`
+  }
+  if (act.action === 'get_candidate_profile') {
+    return `Retrieved verified candidate CV profile & skills`
+  }
+  if (act.action === 'analyze_pipeline_metrics') {
+    return `Analyzed recruitment funnel conversion metrics`
+  }
+  if (act.action === 'detect_stalled_applications') {
+    return `Scanned pipeline for stalled application follow-ups`
+  }
+  if (act.action === 'query_market_benchmarks') {
+    return `Aggregated market compensation & skill benchmarks`
+  }
+  if (act.action === 'evaluate_ai_fit_score') {
+    const comp = act.args?.company_or_id || 'Role'
+    return `Evaluated AI fit & gap analysis for ${comp}`
+  }
+  if (act.action === 'manage_intake_queue') {
+    return `Managed background AI evaluation queue`
+  }
+  if (act.action === 'search_web') {
+    return `Searched live internet for "${act.args?.query || ''}"`
+  }
+  if (act.action === 'fetch_webpage_content') {
+    return `Scraped and extracted webpage content`
   }
   return `Executed: ${act.action || 'Tool'}`
 }
@@ -911,6 +997,7 @@ function getScoreBadgeClass(score) {
                 <div class="message-bubble">
                   <div v-if="msg.actions && msg.actions.length > 0" class="actions-chips">
                     <template v-for="(act, aIdx) in msg.actions" :key="aIdx">
+                      <!-- 1. Start Mock Interview interactive jump -->
                       <button
                         v-if="act.action === 'start_mock_interview' && (act.result?.session_id || act.session_id)"
                         class="action-chip action-chip-interactive"
@@ -921,6 +1008,56 @@ function getScoreBadgeClass(score) {
                         <span>Enter Mock Interview (#{{ act.result?.session_id || act.session_id }})</span>
                         <ArrowRight :size="12" />
                       </button>
+
+                      <!-- 2. View Mock Interview Simulator Hub -->
+                      <button
+                        v-else-if="act.action === 'get_mock_interview_history'"
+                        class="action-chip action-chip-interactive"
+                        @click="activeMode = 'interview'"
+                        title="Switch to Interview Simulation view"
+                      >
+                        <Sparkles :size="13" class="text-primary" />
+                        <span>Open Mock Interview Hub</span>
+                        <ArrowRight :size="12" />
+                      </button>
+
+                      <!-- 3. Company Details & Research interactive drawer -->
+                      <button
+                        v-else-if="['get_company_details', 'enqueue_company_research', 'update_company_notes', 'list_companies'].includes(act.action)"
+                        class="action-chip action-chip-interactive"
+                        @click="handleCompanyActionClick(act)"
+                        title="Click to view company profile & research in Companies view"
+                      >
+                        <Briefcase :size="13" class="text-primary" />
+                        <span>{{ formatActionLabel(act) }}</span>
+                        <ArrowRight :size="12" />
+                      </button>
+
+                      <!-- 4. Cover Letter & Application Q&A interactive drawer -->
+                      <button
+                        v-else-if="['get_cover_letter', 'enqueue_cover_letter_generation', 'get_application_questions', 'enqueue_application_questions', 'get_application_details'].includes(act.action) && (act.result?.application_id || act.args?.application_id || (typeof act.args?.company_or_id === 'number'))"
+                        class="action-chip action-chip-interactive"
+                        @click="handleApplicationActionClick(act)"
+                        title="Click to open application drawer"
+                      >
+                        <FileText :size="13" class="text-primary" />
+                        <span>{{ formatActionLabel(act) }}</span>
+                        <ArrowRight :size="12" />
+                      </button>
+
+                      <!-- 5. Role Alignment Career Dossier -->
+                      <button
+                        v-else-if="act.action === 'get_role_alignment_dossier'"
+                        class="action-chip action-chip-interactive"
+                        @click="router.push('/analytics?tab=alignment')"
+                        title="Click to view Role Alignment & CV Tuning Suite"
+                      >
+                        <TrendingUp :size="13" class="text-primary" />
+                        <span>{{ formatActionLabel(act) }}</span>
+                        <ArrowRight :size="12" />
+                      </button>
+
+                      <!-- 6. Default standard action chip -->
                       <div v-else class="action-chip">
                         <CheckCircle2 :size="13" class="text-success" />
                         <span>{{ formatActionLabel(act) }}</span>
@@ -2211,7 +2348,7 @@ function getScoreBadgeClass(score) {
 
 .starter-chip-primary:hover {
   background-color: var(--primary);
-  color: #fff;
+  color: var(--primary-contrast);
 }
 
 .action-chip-interactive {
@@ -2231,7 +2368,7 @@ function getScoreBadgeClass(score) {
 
 .action-chip-interactive:hover {
   background-color: var(--primary);
-  color: #fff;
+  color: var(--primary-contrast);
 }
 
 /* DEBRIEF SCORECARD STYLES */

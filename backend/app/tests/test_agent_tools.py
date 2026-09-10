@@ -9,17 +9,30 @@ from app.models.applications import (
     CompanyModel,
     JobPostingModel,
 )
+from app.models.candidate_profile import CandidateCVModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.services.agent_tools import (
     create_agent_tools,
     execute_analyze_pipeline_metrics,
+    execute_bulk_transition_applications,
     execute_detect_stalled_applications,
+    execute_enqueue_application_questions,
+    execute_enqueue_company_research,
+    execute_enqueue_cover_letter_generation,
     execute_evaluate_ai_fit_score,
+    execute_get_application_questions,
+    execute_get_candidate_profile,
+    execute_get_company_details,
+    execute_get_cover_letter,
+    execute_get_mock_interview_history,
+    execute_get_role_alignment_dossier,
+    execute_list_companies,
     execute_manage_action_items,
     execute_manage_intake_queue,
     execute_query_market_benchmarks,
     execute_start_mock_interview,
     execute_update_application_pipeline,
+    execute_update_company_notes,
 )
 
 
@@ -47,7 +60,17 @@ async def test_agent_tools_unit_handlers():
 
     # 2. Test detect_stalled_applications
     stalled_date = datetime.now(UTC) - timedelta(days=20)
-    mock_company = CompanyModel(id=1, name="Acme Inc", name_normalized="acme inc")
+    mock_company = CompanyModel(
+        id=1,
+        name="Acme Inc",
+        name_normalized="acme inc",
+        domain="acme.com",
+        notes="Target employer",
+        pros=["Culture"],
+        red_flags=["Comp"],
+        rating=4,
+        company_research={"summary": "Fast-growing SaaS startup."},
+    )
     mock_app = ApplicationModel(
         id=1,
         company=mock_company,
@@ -162,7 +185,7 @@ async def test_agent_tools_unit_handlers():
         assert update_res["success"] is True
         assert mock_app_fit.status == "TECHNICAL_INTERVIEW"
 
-    # 8. Test start_mock_interview
+    # 8. Test start_mock_interview with persona
     with patch(
         "app.services.agent_tools.InterviewSimulatorService.start_session",
         new_callable=AsyncMock,
@@ -176,17 +199,235 @@ async def test_agent_tools_unit_handlers():
         mock_start_session.return_value = mock_sim_session
 
         start_res = await execute_start_mock_interview(
-            db, company_or_id="Acme Inc", question_mode="TEXT_CONVERSATIONAL"
+            db,
+            company_or_id="Acme Inc",
+            question_mode="TEXT_CONVERSATIONAL",
+            interviewer_persona="HIRING_MANAGER",
         )
         assert start_res["status"] == "started"
         assert start_res["session_id"] == 42
+        assert start_res["interviewer_persona"] == "HIRING_MANAGER"
         assert "distributed architecture" in start_res["first_question"]
 
-    # 9. Test LangChain Tool Factory Registration
-    tools = create_agent_tools(db)
+    # 9. Test get_company_details
+    with patch(
+        "app.services.agent_tools._resolve_company",
+        new_callable=AsyncMock,
+        return_value=mock_company,
+    ):
+        mock_app_list_res = MagicMock()
+        mock_app_list_res.scalars().all.return_value = [mock_app]
+        db.execute.return_value = mock_app_list_res
+
+        comp_details = await execute_get_company_details(db, "Acme Inc")
+        assert comp_details["status"] == "success"
+        assert comp_details["name"] == "Acme Inc"
+        assert comp_details["domain"] == "acme.com"
+        assert comp_details["candidate_rating"] == 4
+        assert "summary" in comp_details["company_research"]
+        assert comp_details["applications_count"] == 1
+
+    # 10. Test list_companies
+    mock_company.applications = [mock_app]
+    mock_companies_res = MagicMock()
+    mock_companies_res.scalars().all.return_value = [mock_company]
+    db.execute.return_value = mock_companies_res
+
+    comp_list = await execute_list_companies(db, has_research=True, limit=10)
+    assert len(comp_list) == 1
+    assert comp_list[0]["name"] == "Acme Inc"
+    assert comp_list[0]["has_research"] is True
+
+    # 11. Test update_company_notes
+    with patch(
+        "app.services.agent_tools._resolve_company",
+        new_callable=AsyncMock,
+        return_value=mock_company,
+    ):
+        up_notes_res = await execute_update_company_notes(
+            db,
+            company_or_id="Acme Inc",
+            notes="New candidate notes",
+            rating=5,
+        )
+        assert up_notes_res["status"] == "success"
+        assert mock_company.notes == "New candidate notes"
+        assert mock_company.rating == 5
+
+    def mock_create_task(coro):
+        coro.close()
+        return MagicMock()
+
+    # 12. Test enqueue_company_research
+    with (
+        patch(
+            "app.services.agent_tools._resolve_company",
+            new_callable=AsyncMock,
+            return_value=mock_company,
+        ),
+        patch(
+            "asyncio.create_task", side_effect=mock_create_task
+        ) as mock_create_task_spy,
+    ):
+        mock_no_task_res = MagicMock()
+        mock_no_task_res.scalar_one_or_none.return_value = None
+        db.execute.return_value = mock_no_task_res
+
+        q_res = await execute_enqueue_company_research(db, "Acme Inc")
+        assert q_res["status"] == "queued"
+        assert "task_id" in q_res
+        assert mock_company.research_status == "QUEUED"
+        mock_create_task_spy.assert_called_once()
+
+    # 13. Test get_mock_interview_history
+    mock_hist_session = MagicMock()
+    mock_hist_session.id = 101
+    mock_hist_session.application_id = 1
+    mock_hist_session.status = "COMPLETED"
+    mock_hist_session.persona = "TECHNICAL_BAR_RAISER"
+    mock_hist_session.question_mode = "TEXT_CONVERSATIONAL"
+    mock_hist_session.overall_score = 85
+    mock_hist_session.readiness_rating = "STRONG_HIRE"
+    mock_hist_session.summary_feedback = "Strong architectural understanding."
+    mock_hist_session.turns_data = [{"q": "test"}]
+    mock_hist_session.created_at = datetime.now(UTC)
+
+    mock_sess_res = MagicMock()
+    mock_sess_res.scalars().all.return_value = [mock_hist_session]
+    db.execute.return_value = mock_sess_res
+
+    history = await execute_get_mock_interview_history(db, limit=5, application_id=1)
+    assert len(history) == 1
+    assert history[0]["session_id"] == 101
+    assert history[0]["readiness_rating"] == "STRONG_HIRE"
+
+    # 14. Test get_cover_letter and enqueue_cover_letter_generation
+    mock_app.cover_letter_text = "Dear Hiring Team..."
+    mock_app.cover_letter_status = "GENERATED"
+    mock_app.cover_letter_generated_at = datetime.now(UTC)
+    mock_app_res = MagicMock()
+    mock_app_res.scalar_one_or_none.return_value = mock_app
+    db.execute.return_value = mock_app_res
+
+    cl_data = await execute_get_cover_letter(db, application_id=1)
+    assert cl_data["status"] == "success"
+    assert cl_data["cover_letter_status"] == "GENERATED"
+    assert "Dear Hiring Team" in cl_data["cover_letter_text"]
+
+    with patch("asyncio.create_task", side_effect=mock_create_task) as mock_task_cl:
+        q_cl = await execute_enqueue_cover_letter_generation(
+            db, application_id=1, tone="enthusiastic", length="concise"
+        )
+        assert q_cl["status"] == "queued"
+        assert mock_app.cover_letter_status == "DRAFTED"
+        mock_task_cl.assert_called_once()
+
+    # 15. Test get_application_questions and enqueue_application_questions
+    mock_app.application_questions = [
+        {
+            "id": "q_1",
+            "question": "Why Acme?",
+            "answer": "Great mission.",
+            "status": "GENERATED",
+        }
+    ]
+    db.execute.return_value = mock_app_res
+
+    qa_data = await execute_get_application_questions(db, application_id=1)
+    assert qa_data["status"] == "success"
+    assert qa_data["questions_count"] == 1
+
+    with patch("asyncio.create_task", side_effect=mock_create_task) as mock_task_qa:
+        q_qa = await execute_enqueue_application_questions(
+            db, application_id=1, questions=["Why us?", "Tell me about a bug."]
+        )
+        assert q_qa["status"] == "queued"
+        assert q_qa["questions_count"] == 2
+        mock_task_qa.assert_called_once()
+
+    # 16. Test get_role_alignment_dossier
+    mock_dossier = MagicMock()
+    mock_dossier.id = 7
+    mock_dossier.role_track = "Staff Distributed Systems Engineer"
+    mock_dossier.executive_positioning = {"headline": "Staff Engineer"}
+    mock_dossier.bullet_rewrites = [{"original": "x", "rewritten": "y"}]
+    mock_dossier.interview_talking_points = ["Talking point 1"]
+    mock_dossier.skill_bridge_roadmap = ["Rust"]
+    mock_dossier.generated_at = datetime.now(UTC)
+
+    with patch(
+        "app.services.role_alignment_dossier_service.get_role_alignment_dossier",
+        new_callable=AsyncMock,
+        return_value=mock_dossier,
+    ):
+        dossier_res = await execute_get_role_alignment_dossier(db, role_track="Staff")
+        assert dossier_res["status"] == "success"
+        assert dossier_res["role_track"] == "Staff Distributed Systems Engineer"
+        assert len(dossier_res["bullet_rewrites"]) == 1
+
+    # 17. Test get_candidate_profile
+    mock_cv = CandidateCVModel(
+        id=1,
+        summary="Experienced distributed engineer",
+        years_of_experience=10.5,
+        extracted_skills=["Python", "Go", "Postgres"],
+        domain_expertise=["Distributed Systems"],
+        domain_experience=[{"domain": "Backend", "years": 8}],
+        spoken_languages=[{"language": "English", "proficiency": "Native"}],
+        raw_text="Full resume text...",
+    )
+    mock_cv_res = MagicMock()
+    mock_cv_res.scalar_one_or_none.return_value = mock_cv
+    db.execute.return_value = mock_cv_res
+
+    profile_skills = await execute_get_candidate_profile(db, section="skills")
+    assert profile_skills["years_of_experience"] == 10.5
+    assert "Python" in profile_skills["extracted_skills"]
+
+    profile_all = await execute_get_candidate_profile(db, section="all")
+    assert profile_all["summary"] == "Experienced distributed engineer"
+
+    # 18. Test bulk_transition_applications
+    mock_app_applied = ApplicationModel(id=101, status="APPLIED")
+    mock_app_interview = ApplicationModel(id=102, status="TECHNICAL_INTERVIEW")
+    mock_bulk_res = MagicMock()
+    mock_bulk_res.scalars().all.return_value = [mock_app_applied, mock_app_interview]
+
+    mock_empty_ai = MagicMock()
+    mock_empty_ai.scalars().all.return_value = []
+    db.execute.side_effect = [mock_bulk_res, mock_empty_ai, mock_empty_ai]
+
+    bulk_res = await execute_bulk_transition_applications(
+        db, target_status="WITHDRAWN", reason="Offer accepted elsewhere"
+    )
+    assert bulk_res["status"] == "success"
+    assert bulk_res["updated_count"] == 2
+    assert mock_app_applied.status == "WITHDRAWN"
+    assert mock_app_interview.status == "WITHDRAWN"
+
+    # 19. Test LangChain Tool Factory Registration
+    tools = create_agent_tools(db, enable_web_search=False)
     tool_names = [t.name for t in tools]
-    assert len(tools) == 12
+    assert len(tools) == 23
     assert "analyze_pipeline_metrics" in tool_names
     assert "detect_stalled_applications" in tool_names
     assert "start_mock_interview" in tool_names
+    assert "get_mock_interview_history" in tool_names
     assert "get_candidate_profile" in tool_names
+    assert "get_company_details" in tool_names
+    assert "list_companies" in tool_names
+    assert "update_company_notes" in tool_names
+    assert "enqueue_company_research" in tool_names
+    assert "get_cover_letter" in tool_names
+    assert "enqueue_cover_letter_generation" in tool_names
+    assert "get_application_questions" in tool_names
+    assert "enqueue_application_questions" in tool_names
+    assert "get_role_alignment_dossier" in tool_names
+    assert "bulk_transition_applications" in tool_names
+
+    # With web search enabled:
+    tools_web = create_agent_tools(db, enable_web_search=True)
+    assert len(tools_web) == 25
+    web_tool_names = [t.name for t in tools_web]
+    assert "search_web" in web_tool_names
+    assert "fetch_webpage_content" in web_tool_names

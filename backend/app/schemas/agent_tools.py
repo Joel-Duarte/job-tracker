@@ -167,6 +167,10 @@ class StartMockInterviewInput(BaseModel):
         default="TEXT_CONVERSATIONAL",
         description="Question format: 'TEXT_CONVERSATIONAL' for behavioral/STAR, 'MULTIPLE_CHOICE' for objective scenario challenges, or 'HYBRID' for mixed.",
     )
+    interviewer_persona: str = Field(
+        default="TECHNICAL_BAR_RAISER",
+        description="Interviewer persona: 'TECHNICAL_BAR_RAISER', 'HIRING_MANAGER', 'BEHAVIORAL_CULTURE', or 'SUPPORTIVE_COACH'.",
+    )
 
 
 # 9. Candidate Profile Tool
@@ -200,4 +204,149 @@ class FetchWebpageContentInput(BaseModel):
         ge=500,
         le=8000,
         description="Maximum characters of text to return from the page (default 3000).",
+    )
+
+
+# 12. Company Intelligence Tools
+class GetCompanyDetailsInput(BaseModel):
+    company_or_id: str = Field(
+        description="Company name (e.g. 'Stripe') or integer Company ID. Resolves exact or partial names."
+    )
+
+
+class ListCompaniesInput(BaseModel):
+    has_research: bool | None = Field(
+        default=None,
+        description="Optional filter: True to only show companies with completed AI research, False for those without.",
+    )
+    limit: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Max number of companies to list.",
+    )
+
+
+class UpdateCompanyNotesInput(BaseModel):
+    company_or_id: str = Field(
+        description="Company name (e.g. 'Stripe') or integer Company ID."
+    )
+    notes: str | None = Field(
+        default=None,
+        description="Candidate notes or reflections regarding the company.",
+    )
+    pros: list[str] | None = Field(
+        default=None,
+        description="List of positive aspects or reasons for wanting to work at the company.",
+    )
+    red_flags: list[str] | None = Field(
+        default=None,
+        description="List of concerns, red flags, or negative observations about the company.",
+    )
+    rating: int | None = Field(
+        default=None,
+        ge=1,
+        le=5,
+        description="Candidate rating for the company (1-5 stars).",
+    )
+
+
+class EnqueueCompanyResearchInput(BaseModel):
+    company_or_id: str = Field(
+        description="Company name (e.g. 'Stripe') or integer Company ID to queue for AI web research."
+    )
+
+
+# 13. Mock Interview History
+class GetMockInterviewHistoryInput(BaseModel):
+    limit: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Max number of past simulation sessions to retrieve.",
+    )
+    application_id: int | None = Field(
+        default=None,
+        description="Optional filter to only retrieve mock interviews linked to a specific Application ID.",
+    )
+
+
+# 14. Cover Letter Tools
+class GetCoverLetterInput(BaseModel):
+    application_id: int = Field(
+        description="Application ID to fetch the current cover letter text and drafting status for."
+    )
+
+
+class EnqueueCoverLetterGenerationInput(BaseModel):
+    application_id: int = Field(
+        description="Application ID to generate or regenerate a tailored cover letter for."
+    )
+    tone: Literal["professional", "enthusiastic", "technical", "startup"] = Field(
+        default="professional",
+        description="Desired tone of the cover letter.",
+    )
+    length: Literal["concise", "standard", "detailed"] = Field(
+        default="standard",
+        description="Length constraint: 'concise' (120-180w), 'standard' (250-320w), 'detailed' (380-450w).",
+    )
+    custom_instructions: str | None = Field(
+        default=None,
+        description="Optional specific talking points or custom directives to emphasize.",
+    )
+    include_company_research: bool = Field(
+        default=True,
+        description="Whether to incorporate verified company research dossier insights into the letter.",
+    )
+
+
+# 15. Application Form Q&A Tools
+class GetApplicationQuestionsInput(BaseModel):
+    application_id: int = Field(
+        description="Application ID to retrieve custom application questions and answers for."
+    )
+
+
+class EnqueueApplicationQuestionsInput(BaseModel):
+    application_id: int = Field(
+        description="Application ID to attach and generate answers for."
+    )
+    questions: list[str] = Field(
+        description="List of question prompts from the company's application form (e.g. ['Why Stripe?', 'Describe a difficult project'])."
+    )
+
+
+# 16. Role Alignment Career Dossier Tool
+class GetRoleAlignmentDossierInput(BaseModel):
+    role_track: str | None = Field(
+        default=None,
+        description="Optional target role track (e.g. 'Staff Distributed Systems Engineer', 'Full-Stack Lead'). Defaults to active CV track.",
+    )
+
+
+# 17. Bulk Pipeline Transition Tool
+class BulkTransitionApplicationsInput(BaseModel):
+    target_status: Literal[
+        "APPLIED",
+        "ONLINE_ASSESSMENT",
+        "TECHNICAL_INTERVIEW",
+        "OFFER",
+        "HIRED",
+        "ARCHIVED",
+        "WITHDRAWN",
+        "REJECTED",
+    ] = Field(
+        description="The destination status for matching non-terminal applications (e.g. 'WITHDRAWN' or 'ARCHIVED')."
+    )
+    source_statuses: list[str] | None = Field(
+        default=None,
+        description="Optional list of source statuses to transition from (e.g. ['APPLIED', 'TECHNICAL_INTERVIEW']). Defaults to all active stages.",
+    )
+    application_ids: list[int] | None = Field(
+        default=None,
+        description="Optional explicit list of application IDs to transition.",
+    )
+    reason: str | None = Field(
+        default=None,
+        description="Optional reason logged to application timeline events.",
     )

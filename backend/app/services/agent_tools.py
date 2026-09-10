@@ -21,11 +21,21 @@ from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.schemas.agent_tools import (
     AnalyzePipelineMetricsInput,
     ApplicationDetailsInput,
+    BulkTransitionApplicationsInput,
     DetectStalledApplicationsInput,
+    EnqueueApplicationQuestionsInput,
+    EnqueueCompanyResearchInput,
+    EnqueueCoverLetterGenerationInput,
     EvaluateAIFitScoreInput,
     FetchWebpageContentInput,
+    GetApplicationQuestionsInput,
     GetCandidateProfileInput,
+    GetCompanyDetailsInput,
+    GetCoverLetterInput,
+    GetMockInterviewHistoryInput,
+    GetRoleAlignmentDossierInput,
     ListApplicationsInput,
+    ListCompaniesInput,
     ManageActionItemsInput,
     ManageIntakeQueueInput,
     QueryMarketBenchmarksInput,
@@ -33,6 +43,7 @@ from app.schemas.agent_tools import (
     SemanticSearchInput,
     StartMockInterviewInput,
     UpdateApplicationPipelineInput,
+    UpdateCompanyNotesInput,
 )
 from app.services.analytics import get_funnel_performance_metrics
 from app.services.interview_simulator_service import InterviewSimulatorService
@@ -705,6 +716,7 @@ async def execute_start_mock_interview(
     db: AsyncSession,
     company_or_id: str | None = None,
     question_mode: str = "TEXT_CONVERSATIONAL",
+    interviewer_persona: str = "TECHNICAL_BAR_RAISER",
 ) -> dict[str, Any]:
     """Launches an interactive live mock interview simulation tailored to a target application or general practice."""
     app_id = None
@@ -743,10 +755,20 @@ async def execute_start_mock_interview(
     if mode_str not in ("TEXT_CONVERSATIONAL", "MULTIPLE_CHOICE", "HYBRID"):
         mode_str = "TEXT_CONVERSATIONAL"
 
+    # Normalize interviewer_persona
+    persona_norm = str(interviewer_persona).upper().strip()
+    if persona_norm not in (
+        "TECHNICAL_BAR_RAISER",
+        "HIRING_MANAGER",
+        "BEHAVIORAL_CULTURE",
+        "SUPPORTIVE_COACH",
+    ):
+        persona_norm = "TECHNICAL_BAR_RAISER"
+
     session = await InterviewSimulatorService.start_session(
         db=db,
         application_id=app_id,
-        persona="TECHNICAL_BAR_RAISER",
+        persona=persona_norm,
         question_mode=mode_str,
     )
 
@@ -759,8 +781,9 @@ async def execute_start_mock_interview(
         "company_name": company_name,
         "position": position,
         "question_mode": session.question_mode,
+        "interviewer_persona": persona_norm,
         "first_question": first_q,
-        "message": f"Live mock interview session #{session.id} started for {company_name} ({position}).",
+        "message": f"Live mock interview session #{session.id} ({persona_norm}) started for {company_name} ({position}).",
     }
 
 
@@ -828,6 +851,626 @@ async def execute_fetch_webpage_content(
 ) -> str:
     """Scrapes clean text content from a target URL using stealth scraper."""
     return await fetch_webpage_content(url=url, max_chars=max_chars, db=db)
+
+
+# Helper for company resolution
+async def _resolve_company(db: AsyncSession, company_or_id: str) -> CompanyModel | None:
+    """Resolves a company by integer ID, application ID, or name (exact, normalized, or substring)."""
+    if not company_or_id:
+        return None
+    raw = str(company_or_id).strip()
+
+    # Check if numeric ID
+    if raw.isdigit():
+        c_id = int(raw)
+        res = await db.execute(select(CompanyModel).where(CompanyModel.id == c_id))
+        comp = res.scalar_one_or_none()
+        if comp:
+            return comp
+        # Check if it was an application ID
+        app_res = await db.execute(
+            select(ApplicationModel)
+            .options(joinedload(ApplicationModel.company))
+            .where(ApplicationModel.id == c_id)
+        )
+        app = app_res.scalar_one_or_none()
+        if app and app.company:
+            return app.company
+
+    norm_name = raw.lower()
+    stmt = (
+        select(CompanyModel)
+        .where(
+            or_(
+                CompanyModel.name.ilike(raw),
+                CompanyModel.name_normalized == norm_name,
+                CompanyModel.name.ilike(f"%{raw}%"),
+                CompanyModel.domain.ilike(f"%{raw}%"),
+            )
+        )
+        .order_by((CompanyModel.name.ilike(raw)).desc())
+        .limit(1)
+    )
+    res = await db.execute(stmt)
+    comp = res.scalars().first()
+    if comp:
+        return comp
+
+    app_stmt = (
+        select(ApplicationModel)
+        .join(CompanyModel)
+        .options(joinedload(ApplicationModel.company))
+        .where(CompanyModel.name.ilike(f"%{raw}%"))
+        .limit(1)
+    )
+    app_res = await db.execute(app_stmt)
+    app = app_res.scalars().first()
+    if app and app.company:
+        return app.company
+
+    return None
+
+
+# 15. Get Company Details Tool
+async def execute_get_company_details(
+    db: AsyncSession,
+    company_or_id: str,
+) -> dict[str, Any]:
+    """Retrieves comprehensive company entity details, candidate notes, pros/red flags, and AI web research summary."""
+    company = await _resolve_company(db, company_or_id)
+    if not company:
+        return {
+            "status": "not_found",
+            "message": f"Company '{company_or_id}' could not be resolved from tracked companies or applications.",
+        }
+
+    app_stmt = (
+        select(ApplicationModel)
+        .where(ApplicationModel.company_id == company.id)
+        .order_by(ApplicationModel.updated_at.desc())
+    )
+    app_res = await db.execute(app_stmt)
+    apps = app_res.scalars().all()
+    apps_summary = [
+        {
+            "application_id": a.id,
+            "position": a.position,
+            "status": a.status,
+            "application_date": (
+                a.application_date.isoformat() if a.application_date else None
+            ),
+            "cover_letter_status": a.cover_letter_status,
+        }
+        for a in apps
+    ]
+
+    return {
+        "status": "success",
+        "company_id": company.id,
+        "name": company.name,
+        "domain": company.domain,
+        "rating": company.rating,
+        "candidate_rating": company.rating,
+        "notes": company.notes or "",
+        "pros": company.pros or [],
+        "red_flags": company.red_flags or [],
+        "research_status": company.research_status,
+        "researched_at": (
+            company.researched_at.isoformat() if company.researched_at else None
+        ),
+        "company_research": company.company_research or {},
+        "applications": apps_summary,
+        "applications_count": len(apps_summary),
+    }
+
+
+# 16. List Companies Tool
+async def execute_list_companies(
+    db: AsyncSession,
+    has_research: bool | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Lists tracked companies with domain, candidate rating, application counts, and research status."""
+    stmt = (
+        select(CompanyModel)
+        .options(selectinload(CompanyModel.applications))
+        .order_by(CompanyModel.updated_at.desc())
+    )
+    res = await db.execute(stmt)
+    companies = res.scalars().all()
+
+    result = []
+    for c in companies:
+        has_summary = bool(c.company_research and c.company_research.get("summary"))
+        if has_research is True and not has_summary:
+            continue
+        if has_research is False and has_summary:
+            continue
+
+        result.append(
+            {
+                "company_id": c.id,
+                "name": c.name,
+                "domain": c.domain,
+                "rating": c.rating,
+                "candidate_rating": c.rating,
+                "research_status": c.research_status,
+                "has_research": has_summary,
+                "applications_count": len(c.applications) if c.applications else 0,
+            }
+        )
+        if len(result) >= limit:
+            break
+
+    return result
+
+
+# 17. Update Company Notes Tool
+async def execute_update_company_notes(
+    db: AsyncSession,
+    company_or_id: str,
+    notes: str | None = None,
+    pros: list[str] | None = None,
+    red_flags: list[str] | None = None,
+    rating: int | None = None,
+) -> dict[str, Any]:
+    """Updates candidate notes, pros, red flags, or star rating (1-5) for a company."""
+    company = await _resolve_company(db, company_or_id)
+    if not company:
+        return {
+            "status": "not_found",
+            "message": f"Company '{company_or_id}' could not be resolved.",
+        }
+
+    if notes is not None:
+        company.notes = notes
+    if pros is not None:
+        company.pros = pros
+    if red_flags is not None:
+        company.red_flags = red_flags
+    if rating is not None:
+        company.rating = max(1, min(5, rating))
+
+    await db.commit()
+    await db.refresh(company)
+
+    return {
+        "status": "success",
+        "company_id": company.id,
+        "name": company.name,
+        "rating": company.rating,
+        "candidate_rating": company.rating,
+        "notes": company.notes,
+        "pros": company.pros,
+        "red_flags": company.red_flags,
+        "message": f"Updated candidate notes and profile for {company.name}.",
+    }
+
+
+# 18. Enqueue Company Research Tool
+async def execute_enqueue_company_research(
+    db: AsyncSession,
+    company_or_id: str,
+) -> dict[str, Any]:
+    """Enqueues a background AI web research task for a target company."""
+    import asyncio
+
+    from app.services.evaluation_worker import process_evaluation_task
+
+    company = await _resolve_company(db, company_or_id)
+    if not company:
+        return {
+            "status": "not_found",
+            "message": f"Company '{company_or_id}' could not be resolved.",
+        }
+
+    stmt = (
+        select(IntakeEvaluationTaskModel)
+        .where(
+            IntakeEvaluationTaskModel.task_type == "COMPANY_RESEARCH",
+            IntakeEvaluationTaskModel.raw_text == str(company.id),
+            IntakeEvaluationTaskModel.status.in_(["QUEUED", "PROCESSING"]),
+        )
+        .limit(1)
+    )
+    res = await db.execute(stmt)
+    existing = res.scalar_one_or_none()
+    if existing:
+        return {
+            "status": "already_active",
+            "task_id": existing.id,
+            "company_id": company.id,
+            "company_name": company.name,
+            "message": f"Company research for '{company.name}' is already active in AI Queue (Task #{existing.id}).",
+        }
+
+    task = IntakeEvaluationTaskModel(
+        task_type="COMPANY_RESEARCH",
+        raw_text=str(company.id),
+        title_hint=f"Company Research: {company.name}",
+        status="QUEUED",
+        stage="QUEUED",
+        result_json={
+            "company_id": company.id,
+            "company_name": company.name,
+            "domain": company.domain,
+        },
+    )
+    db.add(task)
+    company.research_status = "QUEUED"
+    await db.commit()
+    await db.refresh(task)
+
+    try:
+        asyncio.create_task(process_evaluation_task(task_id=task.id))
+    except Exception as e:
+        logger.warning("Could not dispatch evaluation worker background task: %s", e)
+
+    return {
+        "status": "queued",
+        "task_id": task.id,
+        "company_id": company.id,
+        "company_name": company.name,
+        "message": f"Enqueued background company web research task #{task.id} for '{company.name}'.",
+    }
+
+
+# 19. Get Mock Interview History Tool
+async def execute_get_mock_interview_history(
+    db: AsyncSession,
+    limit: int = 10,
+    application_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """Retrieves history of past mock interview sessions, readiness ratings, STAR evaluation feedback, and overall scores."""
+    from app.models.interview_session import InterviewSessionModel
+
+    stmt = select(InterviewSessionModel).order_by(
+        InterviewSessionModel.created_at.desc()
+    )
+    if application_id is not None:
+        stmt = stmt.where(InterviewSessionModel.application_id == application_id)
+    stmt = stmt.limit(limit)
+
+    res = await db.execute(stmt)
+    sessions = res.scalars().all()
+
+    out = []
+    for s in sessions:
+        out.append(
+            {
+                "session_id": s.id,
+                "application_id": s.application_id,
+                "status": s.status,
+                "persona": s.persona,
+                "question_mode": s.question_mode,
+                "overall_score": s.overall_score,
+                "readiness_rating": s.readiness_rating,
+                "summary_feedback": s.summary_feedback or "",
+                "turns_count": len(s.turns_data) if s.turns_data else 0,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+        )
+    return out
+
+
+# 20. Get Cover Letter Tool
+async def execute_get_cover_letter(
+    db: AsyncSession,
+    application_id: int,
+) -> dict[str, Any]:
+    """Retrieves current cover letter status, text, and last generation timestamp for an application."""
+    stmt = (
+        select(ApplicationModel)
+        .options(joinedload(ApplicationModel.company))
+        .where(ApplicationModel.id == application_id)
+    )
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+    if not app:
+        return {
+            "status": "not_found",
+            "message": f"Application #{application_id} not found.",
+        }
+
+    return {
+        "status": "success",
+        "application_id": app.id,
+        "company": app.company.name if app.company else "Unknown",
+        "position": app.position,
+        "cover_letter_status": app.cover_letter_status or "NOT_GENERATED",
+        "cover_letter_generated_at": (
+            app.cover_letter_generated_at.isoformat()
+            if app.cover_letter_generated_at
+            else None
+        ),
+        "cover_letter_text": app.cover_letter_text or "",
+    }
+
+
+# 21. Enqueue Cover Letter Generation Tool
+async def execute_enqueue_cover_letter_generation(
+    db: AsyncSession,
+    application_id: int,
+    tone: str = "professional",
+    length: str = "standard",
+    custom_instructions: str | None = None,
+    include_company_research: bool = True,
+) -> dict[str, Any]:
+    """Enqueues a background evaluation task to draft or regenerate a tailored cover letter for an application."""
+    import asyncio
+
+    from app.services.evaluation_worker import process_evaluation_task
+
+    stmt = (
+        select(ApplicationModel)
+        .options(
+            joinedload(ApplicationModel.company),
+            selectinload(ApplicationModel.job_posting),
+        )
+        .where(ApplicationModel.id == application_id)
+    )
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+    if not app:
+        return {
+            "status": "not_found",
+            "message": f"Application #{application_id} not found.",
+        }
+
+    comp_name = app.company.name if app.company else "Company"
+    pos_name = app.position or "Position"
+    comp_research = (
+        app.company.company_research
+        if (app.company and include_company_research)
+        else None
+    )
+
+    task_record = IntakeEvaluationTaskModel(
+        task_type="COVER_LETTER",
+        job_url=app.job_url,
+        raw_text=str(app.id),
+        title_hint=f"Cover Letter ({tone}): {comp_name} - {pos_name}",
+        status="QUEUED",
+        stage="QUEUED",
+        result_json={
+            "application_id": app.id,
+            "company": comp_name,
+            "position": pos_name,
+            "tone": tone,
+            "length": length,
+            "custom_instructions": custom_instructions,
+            "include_company_research": include_company_research,
+            "company_research": comp_research,
+        },
+    )
+    db.add(task_record)
+    app.cover_letter_status = "DRAFTED"
+    await db.commit()
+    await db.refresh(task_record)
+
+    try:
+        asyncio.create_task(process_evaluation_task(task_id=task_record.id))
+    except Exception as e:
+        logger.warning("Could not dispatch evaluation worker background task: %s", e)
+
+    return {
+        "status": "queued",
+        "task_id": task_record.id,
+        "application_id": app.id,
+        "company": comp_name,
+        "position": pos_name,
+        "message": f"Enqueued cover letter generation task #{task_record.id} for {comp_name} ({pos_name}).",
+    }
+
+
+# 22. Get Application Questions Tool
+async def execute_get_application_questions(
+    db: AsyncSession,
+    application_id: int,
+) -> dict[str, Any]:
+    """Retrieves custom application form Q&A pairs for an application."""
+    stmt = (
+        select(ApplicationModel)
+        .options(joinedload(ApplicationModel.company))
+        .where(ApplicationModel.id == application_id)
+    )
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+    if not app:
+        return {
+            "status": "not_found",
+            "message": f"Application #{application_id} not found.",
+        }
+
+    raw_questions = app.application_questions or []
+    return {
+        "status": "success",
+        "application_id": app.id,
+        "company": app.company.name if app.company else "Unknown",
+        "position": app.position,
+        "questions_count": len(raw_questions),
+        "questions": raw_questions,
+    }
+
+
+# 23. Enqueue Application Questions Tool
+async def execute_enqueue_application_questions(
+    db: AsyncSession,
+    application_id: int,
+    questions: list[str],
+) -> dict[str, Any]:
+    """Attaches custom application questions and enqueues a background task to generate tailored answers from candidate CV."""
+    import asyncio
+
+    from app.services.evaluation_worker import process_evaluation_task
+
+    stmt = (
+        select(ApplicationModel)
+        .options(joinedload(ApplicationModel.company))
+        .where(ApplicationModel.id == application_id)
+    )
+    res = await db.execute(stmt)
+    app = res.scalar_one_or_none()
+    if not app:
+        return {
+            "status": "not_found",
+            "message": f"Application #{application_id} not found.",
+        }
+
+    formatted_questions = [
+        {
+            "id": f"q_{idx + 1}",
+            "question": q.strip(),
+            "answer": None,
+            "status": "QUEUED",
+        }
+        for idx, q in enumerate(questions)
+        if q.strip()
+    ]
+    if not formatted_questions:
+        return {
+            "status": "error",
+            "message": "No valid questions were provided.",
+        }
+
+    app.application_questions = formatted_questions
+    task_record = IntakeEvaluationTaskModel(
+        task_type="APPLICATION_QA",
+        job_url=app.job_url,
+        raw_text=str(app.id),
+        title_hint=f"Application Q&A ({len(formatted_questions)} questions): {app.company.name if app.company else 'Company'}",
+        status="QUEUED",
+        stage="QUEUED",
+        result_json={
+            "application_id": app.id,
+            "questions": formatted_questions,
+        },
+    )
+    db.add(task_record)
+    await db.commit()
+    await db.refresh(task_record)
+
+    try:
+        asyncio.create_task(process_evaluation_task(task_id=task_record.id))
+    except Exception as e:
+        logger.warning("Could not dispatch evaluation worker background task: %s", e)
+
+    return {
+        "status": "queued",
+        "task_id": task_record.id,
+        "application_id": app.id,
+        "questions_count": len(formatted_questions),
+        "message": f"Enqueued Q&A answer generation task #{task_record.id} for {len(formatted_questions)} questions.",
+    }
+
+
+# 24. Get Role Alignment Career Dossier Tool
+async def execute_get_role_alignment_dossier(
+    db: AsyncSession,
+    role_track: str | None = None,
+) -> dict[str, Any]:
+    """Retrieves high-impact role alignment career dossier (executive market positioning, tailored bullet rewrites, talking points, skill roadmaps)."""
+    from app.services.role_alignment_dossier_service import get_role_alignment_dossier
+
+    dossier = await get_role_alignment_dossier(db=db, role_track=role_track)
+    if not dossier or not getattr(dossier, "role_track", None):
+        return {
+            "status": "not_found",
+            "message": "No role alignment dossier found. Ensure a candidate CV profile is uploaded and evaluated.",
+        }
+
+    return {
+        "status": "success",
+        "dossier_id": getattr(dossier, "id", None),
+        "role_track": dossier.role_track,
+        "executive_positioning": getattr(dossier, "executive_positioning", {}) or {},
+        "bullet_rewrites": getattr(dossier, "bullet_rewrites", []) or [],
+        "interview_talking_points": (
+            getattr(dossier, "interview_talking_points", []) or []
+        ),
+        "skill_bridge_roadmap": getattr(dossier, "skill_bridge_roadmap", []) or [],
+        "generated_at": (
+            dossier.generated_at.isoformat()
+            if getattr(dossier, "generated_at", None)
+            else None
+        ),
+    }
+
+
+# 25. Bulk Transition Applications Tool
+async def execute_bulk_transition_applications(
+    db: AsyncSession,
+    target_status: str,
+    source_statuses: list[str] | None = None,
+    application_ids: list[int] | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Bulk transitions active non-terminal applications to a new status and logs timeline events."""
+    TERMINAL = {"HIRED", "ARCHIVED", "WITHDRAWN", "REJECTED"}
+    target = str(target_status).upper().strip()
+
+    if not source_statuses:
+        source_statuses = [
+            "APPLIED",
+            "ONLINE_ASSESSMENT",
+            "TECHNICAL_INTERVIEW",
+            "OFFER",
+        ]
+
+    safe_from = [
+        s.upper().strip() for s in source_statuses if s.upper().strip() not in TERMINAL
+    ]
+    if not safe_from:
+        return {
+            "status": "ignored",
+            "updated_count": 0,
+            "updated_ids": [],
+            "message": "No non-terminal source statuses provided to transition from.",
+        }
+
+    stmt = select(ApplicationModel).where(ApplicationModel.status.in_(safe_from))
+    if application_ids:
+        stmt = stmt.where(ApplicationModel.id.in_(application_ids))
+
+    res = await db.execute(stmt)
+    apps = res.scalars().all()
+
+    now = datetime.now(UTC)
+    note = reason or f"Bulk transitioned to {target} via AI Agent."
+    updated_ids = []
+
+    for app in apps:
+        app.status = target
+        app.last_activity_at = now
+        event = ApplicationEventModel(
+            email_application_id=app.id,
+            email_event_type="STATUS_CHANGE",
+            email_status_after_event=target,
+            email_summary=note,
+            source_channel="AGENT",
+            raw_payload={"bulk_action": True, "target_status": target},
+        )
+        db.add(event)
+
+        if target in TERMINAL:
+            ai_stmt = select(ActionItemModel).where(
+                ActionItemModel.application_id == app.id,
+                ActionItemModel.status == "PENDING",
+            )
+            ai_res = await db.execute(ai_stmt)
+            for ai in ai_res.scalars().all():
+                ai.status = "DISMISSED"
+
+        updated_ids.append(app.id)
+
+    await db.commit()
+    return {
+        "status": "success",
+        "target_status": target,
+        "updated_count": len(updated_ids),
+        "updated_ids": updated_ids,
+        "message": f"Successfully transitioned {len(updated_ids)} applications to {target}.",
+    }
 
 
 def create_agent_tools(
@@ -915,12 +1558,96 @@ def create_agent_tools(
     async def _start_mock_interview(
         company_or_id: str | None = None,
         question_mode: str = "TEXT_CONVERSATIONAL",
+        interviewer_persona: str = "TECHNICAL_BAR_RAISER",
     ) -> str:
-        res = await execute_start_mock_interview(db, company_or_id, question_mode)
+        res = await execute_start_mock_interview(
+            db, company_or_id, question_mode, interviewer_persona
+        )
+        return json.dumps(res, indent=2)
+
+    async def _get_mock_interview_history(
+        limit: int = 10,
+        application_id: int | None = None,
+    ) -> str:
+        res = await execute_get_mock_interview_history(db, limit, application_id)
         return json.dumps(res, indent=2)
 
     async def _get_candidate_profile(section: str = "all") -> str:
         res = await execute_get_candidate_profile(db, section)
+        return json.dumps(res, indent=2)
+
+    async def _get_company_details(company_or_id: str) -> str:
+        res = await execute_get_company_details(db, company_or_id)
+        return json.dumps(res, indent=2)
+
+    async def _list_companies(
+        has_research: bool | None = None,
+        limit: int = 20,
+    ) -> str:
+        res = await execute_list_companies(db, has_research, limit)
+        return json.dumps(res, indent=2)
+
+    async def _update_company_notes(
+        company_or_id: str,
+        notes: str | None = None,
+        pros: list[str] | None = None,
+        red_flags: list[str] | None = None,
+        rating: int | None = None,
+    ) -> str:
+        res = await execute_update_company_notes(
+            db, company_or_id, notes, pros, red_flags, rating
+        )
+        return json.dumps(res, indent=2)
+
+    async def _enqueue_company_research(company_or_id: str) -> str:
+        res = await execute_enqueue_company_research(db, company_or_id)
+        return json.dumps(res, indent=2)
+
+    async def _get_cover_letter(application_id: int) -> str:
+        res = await execute_get_cover_letter(db, application_id)
+        return json.dumps(res, indent=2)
+
+    async def _enqueue_cover_letter_generation(
+        application_id: int,
+        tone: str = "professional",
+        length: str = "standard",
+        custom_instructions: str | None = None,
+        include_company_research: bool = True,
+    ) -> str:
+        res = await execute_enqueue_cover_letter_generation(
+            db,
+            application_id,
+            tone,
+            length,
+            custom_instructions,
+            include_company_research,
+        )
+        return json.dumps(res, indent=2)
+
+    async def _get_application_questions(application_id: int) -> str:
+        res = await execute_get_application_questions(db, application_id)
+        return json.dumps(res, indent=2)
+
+    async def _enqueue_application_questions(
+        application_id: int,
+        questions: list[str],
+    ) -> str:
+        res = await execute_enqueue_application_questions(db, application_id, questions)
+        return json.dumps(res, indent=2)
+
+    async def _get_role_alignment_dossier(role_track: str | None = None) -> str:
+        res = await execute_get_role_alignment_dossier(db, role_track)
+        return json.dumps(res, indent=2)
+
+    async def _bulk_transition_applications(
+        target_status: str,
+        source_statuses: list[str] | None = None,
+        application_ids: list[int] | None = None,
+        reason: str | None = None,
+    ) -> str:
+        res = await execute_bulk_transition_applications(
+            db, target_status, source_statuses, application_ids, reason
+        )
         return json.dumps(res, indent=2)
 
     async def _search_web(query: str, max_results: int = 5) -> str:
@@ -999,10 +1726,76 @@ def create_agent_tools(
             args_schema=StartMockInterviewInput,
         ),
         StructuredTool.from_function(
+            coroutine=_get_mock_interview_history,
+            name="get_mock_interview_history",
+            description="Retrieves history of past mock interview simulations, overall scores, readiness ratings, and rubric feedback.",
+            args_schema=GetMockInterviewHistoryInput,
+        ),
+        StructuredTool.from_function(
             coroutine=_get_candidate_profile,
             name="get_candidate_profile",
             description="Retrieves the candidate's verified profile, top technical skills, spoken languages, domain expertise breakdown, or raw CV text.",
             args_schema=GetCandidateProfileInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_get_company_details,
+            name="get_company_details",
+            description="Retrieves comprehensive company entity details, domain, user notes, pros/red flags, and synthesized AI web research dossier.",
+            args_schema=GetCompanyDetailsInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_list_companies,
+            name="list_companies",
+            description="Lists tracked companies with domain, candidate star rating, application counts, and research completion status.",
+            args_schema=ListCompaniesInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_update_company_notes,
+            name="update_company_notes",
+            description="Updates candidate notes, pros, red flags, or 1-5 star rating for a tracked company.",
+            args_schema=UpdateCompanyNotesInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_enqueue_company_research,
+            name="enqueue_company_research",
+            description="Enqueues a background AI web research task in the intake evaluation queue to gather intelligence, mission, tech culture, and reviews for a company.",
+            args_schema=EnqueueCompanyResearchInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_get_cover_letter,
+            name="get_cover_letter",
+            description="Retrieves the drafted or generated cover letter markdown text, generation timestamp, and status for an application ID.",
+            args_schema=GetCoverLetterInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_enqueue_cover_letter_generation,
+            name="enqueue_cover_letter_generation",
+            description="Enqueues a background task in the evaluation queue to generate or regenerate a tailored cover letter grounded in candidate CV and company research.",
+            args_schema=EnqueueCoverLetterGenerationInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_get_application_questions,
+            name="get_application_questions",
+            description="Retrieves custom application form questions, drafted answers, and generation statuses for an application ID.",
+            args_schema=GetApplicationQuestionsInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_enqueue_application_questions,
+            name="enqueue_application_questions",
+            description="Attaches custom application questions to an application and enqueues a background task to generate tailored answers from candidate CV.",
+            args_schema=EnqueueApplicationQuestionsInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_get_role_alignment_dossier,
+            name="get_role_alignment_dossier",
+            description="Retrieves high-impact role alignment career dossier (executive market positioning, tailored bullet rewrites, talking points, skill roadmaps) for a role track.",
+            args_schema=GetRoleAlignmentDossierInput,
+        ),
+        StructuredTool.from_function(
+            coroutine=_bulk_transition_applications,
+            name="bulk_transition_applications",
+            description="Transitions batches of non-terminal applications simultaneously (e.g. archiving or withdrawing remaining active jobs upon offer/hired).",
+            args_schema=BulkTransitionApplicationsInput,
         ),
     ]
 
