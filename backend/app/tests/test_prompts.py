@@ -348,3 +348,48 @@ def test_application_qa_behavioral_grounding_rules():
         in template
     )
     assert "verified engineering principles, architectural methodologies" in template
+
+
+def test_sanitize_critical_risks_strips_pseudo_risks():
+    """Verify that false-positive 'none/not specified' pseudo-risks are cleanly stripped."""
+    from app.services.llm import (
+        _sanitize_critical_risks,
+        calibrate_assessment_score_and_recommendation,
+    )
+
+    raw_pseudo_risks = [
+        "Missing mandatory spoken language: None (JD does not specify a mandatory language beyond English/Portuguese context).",
+        "Missing mandatory spoken language: None",
+        "Language requirements: None specified",
+        "No critical risks identified",
+        "None",
+        "N/A",
+        "no deal-breakers",
+    ]
+
+    sanitized = _sanitize_critical_risks(raw_pseudo_risks)
+    assert sanitized == []
+
+    # Verify genuine risks are retained
+    mixed_risks = [
+        "Missing mandatory spoken language: None (JD does not specify a mandatory language beyond English/Portuguese context).",
+        "Missing mandatory spoken language: German (C1 required for Berlin office)",
+        "Seniority deficit: Candidate has 3.5 yrs vs 8+ yrs Staff requirement",
+        "No critical risks",
+    ]
+    cleaned = _sanitize_critical_risks(mixed_risks)
+    assert len(cleaned) == 2
+    assert "German (C1 required for Berlin office)" in cleaned[0]
+    assert "Seniority deficit" in cleaned[1]
+
+    # Verify score calibration treats pseudo-risks as 0 risks and applies clean seniority bonus
+    score, rec = calibrate_assessment_score_and_recommendation(
+        raw_fit_score=88,
+        programmatic_baseline=80,
+        critical_risks=[
+            "Missing mandatory spoken language: None (JD does not specify a mandatory language beyond English/Portuguese context)."
+        ],
+        seniority_fit="MATCHES",
+    )
+    assert score >= 85
+    assert rec == "APPLY_STRONGLY"

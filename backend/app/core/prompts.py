@@ -354,7 +354,7 @@ DEFAULT_PROMPTS = {
         "ANALYSIS METHODOLOGY & GROUND TRUTH RULES\n"
         "--------------------------------------------------\n"
         "1. Authoritative Candidate Profile Priority: Treat the structured candidate profile (Verified Total Experience, Verified Technical Skills, Active Domain Experience & Years, Core Competencies, and Spoken Languages) as authoritative ground truth, prioritizing it over raw resume date calculations or ambiguous tenure gaps.\n"
-        "2. Critical Risks & Deal-Breakers (critical_risks): Return critical risks ONLY for true deal-breakers (missing mandatory spoken language, core primary stack technology missing, verified seniority deficit >= 2 years, or severe domain mismatch). NEVER convert nice-to-have secondary tools, general compliance topics, or soft-skill nuances into critical deal-breakers. If there is only 1 genuine gap (e.g. missing Computer Vision), return ONLY that 1 item; do NOT invent or pad extra risks to fill a list. Return an empty array if there are no genuine deal-breakers.\n"
+        "2. Critical Risks & Deal-Breakers (critical_risks): Return critical risks ONLY for true deal-breakers (e.g. candidate lacks a strictly required mandatory language, core primary stack technology missing, verified seniority deficit >= 2 years, or severe domain mismatch). If there are NO genuine deal-breakers, return an empty array []! STRICT BAN ON PSEUDO-RISKS: NEVER output entries like 'Missing mandatory spoken language: None', 'No critical risks', 'None', or explanatory sentences stating that a risk is absent or not specified. If a category has no failure, OMIT IT ENTIRELY from critical_risks.\n"
         "3. Seniority Assessment (seniority_fit): Classify strictly as 'MATCHES', 'UNDERQUALIFIED', or 'OVERQUALIFIED'.\n"
         "   - Explicit Numerical Years: Compare candidate verified total experience directly against explicitly required years in the JD (e.g. '5+ years', '3-5 years'). Stated numerical years in the JD always take precedence over title defaults.\n"
         "   - Standard Title Seniority Bands (When explicit years are absent from JD):\n"
@@ -373,7 +373,7 @@ DEFAULT_PROMPTS = {
         "   - < 50% (Underqualified / Poor Fit): Missing fundamental primary stack or severe domain mismatch.\n"
         "   - Low-Keyword Postings: When a job description lists few or no explicit tooling keywords (< 4), evaluate fit primarily on architectural alignment with stated responsibilities, domain experience, and seniority match. Do not penalize the candidate for missing unstated tools.\n"
         "   Anchor the score around the programmatic match baseline provided in the target job workload section below. Never award 85%+ if primary prerequisites are missing.\n"
-        "6. Spoken Language Audit (language_match): Verify required spoken languages against candidate languages. If any mandatory language is missing, set is_matched=False, populate missing_mandatory, and explain the mismatch.\n"
+        "6. Spoken Language Audit (language_match): Verify required spoken languages against candidate languages. If any mandatory language is missing, set is_matched=False, populate missing_mandatory, and explain the mismatch. If all spoken languages match or the JD does not require specific languages, do NOT add any language entries to critical_risks.\n"
         "7. FACTUAL STRATEGIC PROS (pros): Every item MUST cite an explicit, documented technical skill, verified accomplishment, or domain experience present in <untrusted_candidate_cv> that directly satisfies a requirement in <untrusted_job_description>. STRICTLY FORBID generic workplace praise, speculative culture claims, or ungrounded compliments (e.g. NEVER output 'Collaborative environment', 'High growth potential', 'Strong leadership opportunities', or 'Exciting modern tech stack'). If there are no clear technical advantages, return direct factual skill alignments.\n"
         "8. FACTUAL GAP CAVEATS (cons): Every item MUST cite an explicit requirement, tool, or qualification from <untrusted_job_description> that is demonstrably absent from <untrusted_candidate_cv>. STRICTLY FORBID speculative workplace warnings, assumptions about work-life balance, or soft-skill guesses (e.g. NEVER output 'Fast-paced environment', 'Potential high pressure', or 'Ambiguous role scope').\n"
         "9. OBJECTIVE MATCH SUMMARY (match_summary): Provide an unvarnished, factual 2-sentence summary specifying: (a) exactly which core competencies and seniority match, and (b) exactly which core technical prerequisites or domain requirements are missing. STRICTLY FORBID soft sugarcoating, speculative enthusiasm, or claiming adjacent tools compensate for mandatory missing prerequisites.\n"
@@ -883,6 +883,7 @@ async def seed_default_prompts(session: AsyncSession) -> None:
             or "Return critical risks ONLY for true deal-breakers"
             not in (existing.template or "")
             or "Low-Keyword Postings" not in (existing.template or "")
+            or "STRICT BAN ON PSEUDO-RISKS" not in (existing.template or "")
         ):
             existing.template = default_template
         elif prompt_name == "company_research" and (
@@ -963,6 +964,7 @@ async def get_prompt_template(
             or "FACTUAL STRATEGIC PROS" not in template
             or "Return critical risks ONLY for true deal-breakers" not in template
             or "Low-Keyword Postings" not in template
+            or "STRICT BAN ON PSEUDO-RISKS" not in template
         ):
             res_template = DEFAULT_PROMPTS["assessment"]
         elif prompt_name == "company_research" and (

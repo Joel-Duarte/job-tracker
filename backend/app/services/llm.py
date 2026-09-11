@@ -249,6 +249,48 @@ Email Body:
     return res_obj
 
 
+def _sanitize_critical_risks(risks: list[str] | None) -> list[str]:
+    """
+    Cleanses critical_risks by stripping false-positive 'pseudo-risks' where the LLM
+    reports an absence of risk (e.g. 'Missing mandatory spoken language: None', 'No critical risks', 'N/A').
+    """
+    if not risks:
+        return []
+
+    pseudo_patterns = [
+        r"^none[\.\s]*$",
+        r"^n/?a[\.\s]*$",
+        r"^no\s+(critical\s+)?(risks?|deal[- ]?breakers?|hesitations?|red\s*flags?|concerns?|issues?)",
+        r"^missing\s+mandatory\s+(spoken\s+)?language\s*:\s*(none|n/?a|not\s+specified|no\b|neither|english|candidate)",
+        r"\blanguage.*:\s*(none|n/?a|not\s+specified|no\b)",
+        r"\bnone\b.*(does not specify|no mandatory|not required|no requirement|context)",
+        r"^no\s+mandatory\s+(spoken\s+)?language",
+        r"^verified\s+prerequisites\s+met",
+        r"^candidate\s+meets\s+(all\s+)?requirements",
+    ]
+    compiled_patterns = [re.compile(p, re.IGNORECASE) for p in pseudo_patterns]
+
+    cleaned = []
+    for item in risks:
+        if not item or not isinstance(item, str):
+            continue
+        trimmed = item.strip()
+        if not trimmed:
+            continue
+        if any(pat.search(trimmed) for pat in compiled_patterns):
+            continue
+        lower_trimmed = trimmed.lower()
+        if (
+            lower_trimmed.endswith(": none")
+            or lower_trimmed.endswith(": n/a")
+            or lower_trimmed.endswith(": none.")
+        ):
+            continue
+        cleaned.append(trimmed)
+
+    return cleaned
+
+
 def calibrate_assessment_score_and_recommendation(
     raw_fit_score: int,
     programmatic_baseline: int | None,
@@ -285,7 +327,8 @@ def calibrate_assessment_score_and_recommendation(
     is_underqualified = seniority_upper == "UNDERQUALIFIED"
     has_explicit_seniority = bool(seniority_upper)
     is_strong_seniority = seniority_upper in ("MATCHES", "OVERQUALIFIED")
-    num_risks = len(critical_risks or [])
+    sanitized_risks = _sanitize_critical_risks(critical_risks)
+    num_risks = len(sanitized_risks)
 
     # True disqualifier penalty: underqualified, or multiple critical risks on a candidate without a strong baseline (<75%)
     has_hard_ceiling = is_underqualified or (
@@ -494,8 +537,7 @@ async def assess_job_posting(
             effective_baseline = None
 
     # 2. Auto-guard critical risks for underqualification or significant missing skills
-    if result.critical_risks is None:
-        result.critical_risks = []
+    result.critical_risks = _sanitize_critical_risks(result.critical_risks)
     if (
         result.seniority_fit
         and result.seniority_fit.upper() == "UNDERQUALIFIED"
