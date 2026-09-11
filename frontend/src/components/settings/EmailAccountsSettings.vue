@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useUIStore } from '../../stores/uiStore'
+import { useQueueStore } from '../../stores/queueStore'
 import { EmailAccountsAPI, IntakeAPI } from '../../api/endpoints'
 import {
   Mail,
@@ -37,6 +38,7 @@ const props = defineProps({
 
 const emit = defineEmits(['refresh'])
 const uiStore = useUIStore()
+const queueStore = useQueueStore()
 
 const loadingAccounts = ref(false)
 const isEmailAccountModalOpen = ref(false)
@@ -301,6 +303,7 @@ async function triggerSync(acc) {
       max_results: 500,
     })
     uiStore.showToast(res.data.message || `Mailbox sync initiated for ${acc.name}!`, 'success')
+    queueStore.fetchTasks(true)
     emit('refresh')
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to sync mailbox', 'error')

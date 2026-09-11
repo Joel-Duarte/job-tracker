@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { IntakeAPI } from '../api/endpoints'
 import { useUIStore } from './uiStore'
+import { useApplicationsStore } from './applicationsStore'
 
 export const useQueueStore = defineStore('queue', () => {
   const uiStore = useUIStore()
@@ -81,13 +82,30 @@ export const useQueueStore = defineStore('queue', () => {
     if (!silent) loading.value = true
     error.value = null
     try {
+      // Record active tasks before fetching new snapshot to detect completions
+      const prevActiveTasks = new Map(
+        tasks.value
+          .filter((t) => ['QUEUED', 'PROCESSING'].includes(t.status))
+          .map((t) => [t.id, t])
+      )
+
       const [res, assessmentsRes] = await Promise.all([
         IntakeAPI.getEvaluations(250),
         IntakeAPI.getAssessments(),
       ])
+
+      const newlyCompletedTasks = []
       if (Array.isArray(res.data)) {
+        if (prevActiveTasks.size > 0) {
+          for (const task of res.data) {
+            if (prevActiveTasks.has(task.id) && task.status === 'COMPLETED') {
+              newlyCompletedTasks.push(task)
+            }
+          }
+        }
         tasks.value = res.data
       }
+
       if (Array.isArray(assessmentsRes.data)) {
         assessments.value = assessmentsRes.data
         let passedIds = new Set()
@@ -105,6 +123,44 @@ export const useQueueStore = defineStore('queue', () => {
             !passedIds.has(String(assessment.id)) &&
             !passedIds.has(String(assessment.result_json?.application_id))
         ).length
+      }
+
+      // If any application-mutating tasks completed, immediately trigger fresh data synchronization
+      if (newlyCompletedTasks.length > 0) {
+        const hasAppMutatingTasks = newlyCompletedTasks.some((t) =>
+          [
+            'EMAIL_SYNC',
+            'EMAIL_INTAKE',
+            'JOB_ASSESSMENT',
+            'APPLICATION_ASSESSMENT',
+            'COVER_LETTER',
+            'APPLICATION_QA',
+            'ROLE_ALIGNMENT_DOSSIER',
+          ].includes(t.task_type)
+        )
+
+        if (hasAppMutatingTasks) {
+          try {
+            const appStore = useApplicationsStore()
+            await appStore.fetchApplications(true)
+            if (appStore.selectedApplication?.id) {
+              await appStore.fetchApplicationDetail(appStore.selectedApplication.id)
+            }
+          } catch (appErr) {
+            console.warn('Failed to auto-refetch applications after task completion:', appErr)
+          }
+        }
+
+        const hasEmailTasks = newlyCompletedTasks.some((t) =>
+          ['EMAIL_SYNC', 'EMAIL_INTAKE'].includes(t.task_type)
+        )
+        if (hasEmailTasks) {
+          try {
+            await uiStore.fetchPendingStagingCount()
+          } catch (stagingErr) {
+            console.warn('Failed to refresh staging count after email task completion:', stagingErr)
+          }
+        }
       }
     } catch (err) {
       error.value = err.message

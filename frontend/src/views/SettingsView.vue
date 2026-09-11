@@ -65,10 +65,12 @@ import {
   Terminal,
 } from 'lucide-vue-next'
 import { useAIStore } from '../stores/aiStore'
+import { useQueueStore } from '../stores/queueStore'
 
 const route = useRoute()
 const uiStore = useUIStore()
 const aiStore = useAIStore()
+const queueStore = useQueueStore()
 
 const activeTab = ref(route.query.tab || 'studio') // 'studio' | 'providers' | 'email_accounts' | 'profile' | 'preferences'
 
@@ -2237,6 +2239,7 @@ async function triggerSync(acc) {
       max_results: 500,
     })
     uiStore.showToast(res.data.message || `Mailbox sync initiated for ${acc.name}!`, 'success')
+    queueStore.fetchTasks(true)
     await loadEmailAccounts()
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to sync mailbox', 'error')

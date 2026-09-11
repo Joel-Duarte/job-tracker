@@ -2,6 +2,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
+import { useQueueStore } from '../../stores/queueStore'
 import { IntakeAPI, EmailAccountsAPI } from '../../api/endpoints'
 import {
   X,
@@ -20,6 +21,7 @@ import {
 
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
+const queueStore = useQueueStore()
 
 // ── tab state ────────────────────────────────────────────────
 const activeTab = ref('sync') // 'sync' | 'paste' | 'upload'
@@ -148,6 +150,7 @@ async function handlePasteSubmit() {
     pasteText.value = ''
     pasteSubject.value = ''
     uiStore.showToast('Pasted email queued for AI extraction', 'success')
+    queueStore.fetchTasks(true)
     appStore.fetchApplications()
   } catch (err) {
     uiStore.showToast(err.message, 'error')
@@ -180,6 +183,7 @@ async function handleUploadSubmit() {
     const count = selectedFiles.value.length
     selectedFiles.value = []
     uiStore.showToast(`Queued ${count} email file(s) for AI processing`, 'success')
+    queueStore.fetchTasks(true)
     appStore.fetchApplications()
   } catch (err) {
     uiStore.showToast(err.message, 'error')
@@ -210,6 +214,7 @@ async function handleEmailSync() {
     })
     syncResult.value = res.data
     uiStore.showToast(res.data.message || 'Email sync queued for AI extraction', 'success')
+    queueStore.fetchTasks(true)
     appStore.fetchApplications()
   } catch (err) {
     uiStore.showToast(err?.response?.data?.detail || err.message, 'error')
