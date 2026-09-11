@@ -1,3 +1,5 @@
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +14,259 @@ def clear_prompt_cache(prompt_name: str | None = None) -> None:
         _PROMPT_CACHE.pop(prompt_name, None)
     else:
         _PROMPT_CACHE.clear()
+
+
+def format_candidate_prefix(cv_data: Any) -> str:
+    """
+    Deterministically formats candidate CV data into an immutable Segment B block.
+    Sorts skills, domains, languages, and metadata to ensure 100% byte-level prefix stability
+    for GPU prompt caching across calls.
+    """
+    if cv_data is None:
+        return "No verified candidate CV profile provided."
+
+    # Handle CandidateCVModel, dict, or string
+    raw_text = ""
+    skills = []
+    years_exp = None
+    domains = []
+    spoken_langs = []
+    summary = ""
+
+    if isinstance(cv_data, dict):
+        raw_text = cv_data.get("anonymized_text") or cv_data.get("raw_text") or ""
+        skills = cv_data.get("extracted_skills") or []
+        years_exp = cv_data.get("years_of_experience")
+        domains = (
+            cv_data.get("domain_experience") or cv_data.get("domain_expertise") or []
+        )
+        spoken_langs = cv_data.get("spoken_languages") or []
+        summary = cv_data.get("summary") or ""
+    elif hasattr(cv_data, "__dict__"):
+        raw_text = (
+            getattr(cv_data, "anonymized_text", None)
+            or getattr(cv_data, "raw_text", None)
+            or ""
+        )
+        skills = getattr(cv_data, "extracted_skills", None) or []
+        years_exp = getattr(cv_data, "years_of_experience", None)
+        domains = (
+            getattr(cv_data, "domain_experience", None)
+            or getattr(cv_data, "domain_expertise", None)
+            or []
+        )
+        spoken_langs = getattr(cv_data, "spoken_languages", None) or []
+        summary = getattr(cv_data, "summary", None) or ""
+    elif isinstance(cv_data, str):
+        return cv_data.strip()
+
+    # Deterministic sorting
+    sorted_skills = sorted(list(set(str(s).strip() for s in skills if str(s).strip())))
+    skills_str = ", ".join(sorted_skills) if sorted_skills else "None documented"
+
+    years_str = (
+        f"{float(years_exp):.1f} years" if years_exp is not None else "Not specified"
+    )
+
+    # Domain experience
+    domain_items = []
+    if domains:
+        for d in domains:
+            if isinstance(d, dict):
+                d_name = d.get("domain") or d.get("name")
+                d_yrs = d.get("years")
+                if d_name:
+                    domain_items.append(
+                        f"{d_name}: {d_yrs} yrs" if d_yrs is not None else str(d_name)
+                    )
+            else:
+                domain_items.append(str(d))
+    domain_items.sort()
+    domain_str = "; ".join(domain_items) if domain_items else "None documented"
+
+    # Spoken languages
+    lang_items = []
+    if spoken_langs:
+        for sl in spoken_langs:
+            if isinstance(sl, dict):
+                l_name = sl.get("language")
+                l_prof = sl.get("proficiency")
+                if l_name:
+                    lang_items.append(f"{l_name} ({l_prof})" if l_prof else str(l_name))
+            else:
+                lang_items.append(str(sl))
+    lang_items.sort()
+    langs_str = ", ".join(lang_items) if lang_items else "English (Fluent)"
+
+    lines = [
+        "[AUTHORITATIVE CANDIDATE DOSSIER (GROUND TRUTH)]",
+        f"- Verified Professional Experience: {years_str}",
+        f"- Verified Technical Skills: {skills_str}",
+        f"- Domain Specialization: {domain_str}",
+        f"- Spoken Languages: {langs_str}",
+    ]
+    if summary:
+        lines.append(f"- Executive Summary: {summary.strip()}")
+    if raw_text:
+        lines.append(
+            f"\n[CANDIDATE CV / RESUME CONTEXT]:\n<untrusted_candidate_cv>\n{raw_text.strip()}\n</untrusted_candidate_cv>"
+        )
+
+    return "\n".join(lines)
+
+
+def sanitize_and_cap_jd(jd_text: str, max_tokens: int = 2500) -> str:
+    """
+    Cleans raw job description text and enforces a strict token/character ceiling
+    (~4 chars per token -> ~10,000 chars for 2500 tokens) to guard model context boundaries.
+    Appends a truncation marker if capped.
+    """
+    if not jd_text:
+        return ""
+
+    import re
+
+    cleaned = re.sub(r"[ \t]+", " ", jd_text)
+    cleaned = re.sub(r"\n\s*\n\s*\n+", "\n\n", cleaned).strip()
+
+    max_chars = max_tokens * 4
+    if len(cleaned) <= max_chars:
+        return cleaned
+
+    truncated = cleaned[:max_chars].rstrip()
+    return f"{truncated}\n\n[Job posting truncated to fit context window]"
+
+
+def build_job_assessment_prompt(
+    system_template: str,
+    candidate_prefix: str,
+    job_description: str,
+    programmatic_baseline: int | None = None,
+) -> str:
+    """
+    Builds a 3-segment prefix-stabilized assessment prompt:
+    Segment A: Immutable System Directives
+    Segment B: Deterministic Candidate Dossier (100% KV cache prefill hit)
+    Segment C: Dynamic Workload Tail (Capped Job Description)
+    """
+    capped_jd = sanitize_and_cap_jd(job_description, max_tokens=2500)
+    baseline_str = str(
+        programmatic_baseline if programmatic_baseline is not None else 0
+    )
+
+    # Format system template baseline if present
+    rendered_sys = system_template.replace("{programmatic_baseline}", baseline_str)
+
+    return (
+        f"{rendered_sys}\n\n"
+        f"--------------------------------------------------\n"
+        f"CANDIDATE MASTER PROFILE (PREFIX STABLE)\n"
+        f"--------------------------------------------------\n"
+        f"{candidate_prefix}\n\n"
+        f"--------------------------------------------------\n"
+        f"TARGET JOB WORKLOAD TAIL\n"
+        f"--------------------------------------------------\n"
+        f"<untrusted_job_description>\n{capped_jd}\n</untrusted_job_description>"
+    )
+
+
+# Standardized Calibrated Senior Engineer Profile (~1,310 tokens)
+BENCHMARK_SENIOR_CV = {
+    "raw_text": (
+        "Alex Morgan\n"
+        "Staff Software Engineer & Distributed Systems Architect\n"
+        "Email: alex.morgan.dev@gmail.com | Location: San Francisco, CA (Remote Friendly)\n\n"
+        "Executive Summary:\n"
+        "Staff backend engineer with 8.5+ years of experience architecting and scaling distributed data platforms, "
+        "high-throughput transactional APIs, and event-driven architectures. Proven track record scaling payment "
+        "settlement pipelines to 45,000 req/sec with sub-15ms p99 latencies and leading multi-region disaster recovery.\n\n"
+        "Core Technical Competencies:\n"
+        "Languages: Python, Go, TypeScript, Rust, SQL\n"
+        "Frameworks & Tooling: FastAPI, Pydantic, SQLAlchemy, LangChain, LangGraph, gRPC, Docker, Kubernetes\n"
+        "Databases & Streaming: PostgreSQL (Partitioning, pgvector, pg_trgm), Kafka, Redis, ClickHouse, DynamoDB\n"
+        "Cloud & Infrastructure: AWS (ECS, EKS, RDS, S3, CloudFront), Terraform, Prometheus, Datadog\n\n"
+        "Professional Experience:\n"
+        "- CloudTech (2022 - Present) | Staff Distributed Systems Engineer\n"
+        "  * Architected and scaled distributed settlement engine handling $1.2B annual transaction volume.\n"
+        "  * Scaled event processing throughput from 8,000 to 45,000 req/sec via Kafka partition tuning and async Redis pipelining.\n"
+        "  * Designed zero-downtime database migration strategy across 180M ledger rows using PostgreSQL logical replication.\n"
+        "  * Led a team of 7 senior engineers across distributed systems design reviews, capacity planning, and postmortems.\n\n"
+        "- DataSphere (2018 - 2022) | Senior Backend Infrastructure Engineer\n"
+        "  * Engineered async data ingestion service in Python/FastAPI processing 12M telemetry events daily.\n"
+        "  * Reduced p99 query latency by 64% through PostgreSQL index restructuring and connection pool optimization.\n"
+        "  * Implemented automated CI/CD deployment pipelines on Kubernetes with Helm and ArgoCD."
+    ),
+    "extracted_skills": [
+        "Python",
+        "FastAPI",
+        "Go",
+        "TypeScript",
+        "PostgreSQL",
+        "Distributed Systems",
+        "Kafka",
+        "Redis",
+        "Docker",
+        "Kubernetes",
+        "AWS",
+        "LangChain",
+        "System Design",
+    ],
+    "years_of_experience": 8.5,
+    "domain_experience": [
+        {
+            "domain": "Fintech & Payments Infrastructure",
+            "years": 4.0,
+            "description": "High-throughput settlement engines and ledger consistency",
+        },
+        {
+            "domain": "Distributed Systems",
+            "years": 6.5,
+            "description": "Kafka stream processing, Redis caching, async pipelines",
+        },
+    ],
+    "spoken_languages": [
+        {"language": "English", "proficiency": "Native"},
+        {"language": "Spanish", "proficiency": "Working Proficiency (B2)"},
+    ],
+    "summary": "Senior / Staff Distributed Systems Engineer specializing in Python, FastAPI, and real-time backend architectures.",
+}
+
+# Standardized Realistic Production Job Description (~1,500 tokens)
+BENCHMARK_PLATFORM_JD = """
+Position: Staff Distributed Systems & Platform Engineer
+Company: CloudScale Infrastructure
+Location: Remote (US / Canada / Europe)
+Compensation: $195,000 - $245,000 USD + Equity + Comprehensive Benefits
+
+About CloudScale Infrastructure:
+CloudScale builds the next-generation global edge compute and event streaming platform, powering mission-critical
+infrastructure for over 4,000 technology enterprises worldwide. Our edge network processes over 200 billion
+requests every single day.
+
+The Role & What You'll Build:
+We are seeking a Staff Distributed Systems Engineer to lead the architecture of our core event broker and real-time
+ingestion pipeline. You will be responsible for designing high-throughput, low-latency microservices that ingest,
+replicate, and dispatch real-time events across multi-region clusters.
+
+Key Responsibilities:
+- Design, build, and operate distributed event ingestion engines capable of sustained 50,000+ operations per second.
+- Implement robust fault-tolerant consensus and partition recovery protocols across global Kafka and PostgreSQL clusters.
+- Collaborate with infrastructure and security teams to maintain 99.99% availability SLAs and sub-20ms p99 latencies.
+- Mentor senior engineers, establish architectural guidelines, and drive system design reviews across the platform team.
+
+Required Qualifications & Hard Prerequisites:
+- 7+ years of professional backend software engineering experience with distributed systems in production.
+- Deep hands-on expertise with Python (FastAPI/asyncio) and Go for high-concurrency networked services.
+- Expert-level mastery of PostgreSQL (schema design, query optimization, connection pooling, and replication).
+- Extensive production experience with distributed messaging systems (Kafka, RabbitMQ) and caching layers (Redis).
+- Proven experience operating containerized workloads on Kubernetes in cloud environments (AWS/GCP).
+- Excellent technical communication skills in English with experience working in high-trust remote teams.
+
+Preferred & Bonus Qualifications:
+- Experience with pgvector, vector search indices, or embedding pipelines.
+- Familiarity with Rust or C++ performance profiling and memory layout optimization.
+- Active contributions to open-source systems software or developer tooling.
+"""
 
 
 DEFAULT_PROMPTS = {
@@ -111,19 +366,23 @@ DEFAULT_PROMPTS = {
         "   - 75–89% (Competitive Fit): Primary tech stack & seniority match; missing only 1-2 minor secondary tools.\n"
         "   - 50–74% (Stretch / Partial Fit): Missing 1 core stack requirement OR verified seniority is >= 2 years below requirement.\n"
         "   - < 50% (Underqualified / Poor Fit): Missing fundamental primary stack or severe domain mismatch.\n"
-        "   Anchor the score around the programmatic baseline: {programmatic_baseline}%. Never award 85%+ if primary prerequisites are missing.\n"
+        "   Anchor the score around the programmatic match baseline provided in the target job workload section below. Never award 85%+ if primary prerequisites are missing.\n"
         "6. Spoken Language Audit (language_match): Verify required spoken languages against candidate languages. If any mandatory language is missing, set is_matched=False, populate missing_mandatory, and explain the mismatch.\n"
         "7. Terminology Gap Analysis & Tailoring: Identify specific phrasing in the CV that can be translated to match ATS keywords from the JD without exaggerating experience, and provide actionable bullet reframing.\n\n"
         "--------------------------------------------------\n"
-        "INPUT DATA\n"
+        "CANDIDATE MASTER PROFILE & VERIFIED DOSSIER (GROUND TRUTH)\n"
         "--------------------------------------------------\n"
-        "[JOB DESCRIPTION]:\n<untrusted_job_description>\n{job_description}\n</untrusted_job_description>\n\n"
         "[AUTHORITATIVE CANDIDATE PROFILE (USER VERIFIED)]:\n"
         "- Total Verified Professional Experience: {candidate_years_of_experience}\n"
         "- Verified Technical Skills: {candidate_skills}\n"
         "- Active Domain Experience & Years: {candidate_domain_breakdown}\n"
         "- Spoken Languages: {candidate_spoken_languages}\n\n"
-        "[CANDIDATE CV / RESUME CONTEXT]:\n<untrusted_candidate_cv>\n{candidate_cv}\n</untrusted_candidate_cv>\n"
+        "[CANDIDATE CV / RESUME CONTEXT]:\n<untrusted_candidate_cv>\n{candidate_cv}\n</untrusted_candidate_cv>\n\n"
+        "--------------------------------------------------\n"
+        "TARGET JOB WORKLOAD TAIL\n"
+        "--------------------------------------------------\n"
+        "Programmatic Match Baseline: {programmatic_baseline}%\n\n"
+        "[TARGET JOB DESCRIPTION]:\n<untrusted_job_description>\n{job_description}\n</untrusted_job_description>\n"
     ),
     "cv_anonymization": (
         "You are an expert resume privacy officer and talent analyst.\n\n"
@@ -194,8 +453,7 @@ DEFAULT_PROMPTS = {
         "- STRICT FACTUAL GROUNDING & ZERO INVENTIONS: Every project, achievement, skill, metric, tool, degree, and employer MUST come directly from <untrusted_candidate_cv>. NEVER invent past initiatives, certifications, or statistics (e.g. dollar amounts, performance percentages, team sizes).\n"
         "- MISSING REQUIREMENTS: If the job requires skills absent from the CV, do not claim production experience with them. Instead, highlight documented adjacent competencies and genuine transferrable engineering strengths.\n"
         "- COMPANY RESEARCH: Use only verified company facts connecting directly to the role and CV; ignore speculative reviews or low-confidence claims.\n"
-        "- Tone & Length Constraints: Tone: {tone}. Adhere strictly to the requested length: {length}.\n"
-        "{custom_instructions}\n\n"
+        "- Constraints: Adhere strictly to the requested tone, target length, and custom instructions specified in the workload tail below.\n\n"
         "--------------------------------------------------\n"
         "COMMUNICATION & STYLE RULES\n"
         "--------------------------------------------------\n"
@@ -203,24 +461,29 @@ DEFAULT_PROMPTS = {
         "- High Signal, Zero Fluff: Avoid generic corporate clichés and hyperbolic buzzwords ('thrilled to apply', 'synergy', 'rockstar', 'think outside the box').\n"
         "- Structure: Begin directly with a professional salutation and conclude with a formal sign-off. Do not output markdown code fences, meta commentary, preambles, or postscript notes.\n\n"
         "--------------------------------------------------\n"
-        "INPUT DATA\n"
+        "CANDIDATE MASTER PROFILE (GROUND TRUTH)\n"
+        "--------------------------------------------------\n"
+        "<untrusted_candidate_cv>\n{candidate_cv}\n</untrusted_candidate_cv>\n\n"
+        "--------------------------------------------------\n"
+        "TARGET OPPORTUNITY & WORKLOAD TAIL\n"
         "--------------------------------------------------\n"
         "Target Company: {company_name}\n"
         "Position: {position}\n"
-        "Job Description / Details:\n<untrusted_job_description>\n{job_description}\n</untrusted_job_description>\n\n"
-        "Candidate CV / Profile:\n<untrusted_candidate_cv>\n{candidate_cv}\n</untrusted_candidate_cv>\n"
+        "Tone: {tone}\n"
+        "Target Length: {length}\n"
+        "{custom_instructions}\n\n"
+        "Job Description / Details:\n<untrusted_job_description>\n{job_description}\n</untrusted_job_description>\n"
     ),
     "application_qa": (
         "You are an expert executive career strategist and technical recruiter.\n\n"
-        "Your task is to write compelling, concise, and professional answers to specific application form questions for a candidate applying to {company_name} for the position '{position}'.\n\n"
+        "Your task is to write compelling, concise, and professional answers to specific application form questions for a candidate applying to the target company and role specified in the workload tail below.\n\n"
         "--------------------------------------------------\n"
         "STRICT BOUNDARIES & ZERO-HALLUCINATION RULES\n"
         "--------------------------------------------------\n"
         "- STRICT FACTUAL GROUNDING & ZERO INVENTIONS: Every project, achievement, technology, metric, team size, and role mentioned MUST come directly from <untrusted_candidate_cv>. Never invent tools, projects, certifications, or performance metrics.\n"
         "- HONEST SKILL GAP HANDLING: If a question asks about experience absent from the candidate's CV, do not fabricate it. State documented competencies honestly, highlight transferable engineering foundations, and explain how they enable rapid ramp-up.\n"
-        "- COMPANY MOTIVATION GROUNDING: For questions asking why the candidate wants to join {company_name}, ground responses in verified company mission, technical challenges, and culture mapped to the candidate's actual trajectory.\n"
-        "- Constraints: Tone: {tone}. Strictly respect any word or character limits specified per question.\n"
-        "{custom_instructions}\n\n"
+        "- COMPANY MOTIVATION GROUNDING: For questions asking why the candidate wants to join the employer, ground responses in verified company mission, technical challenges, and culture mapped to the candidate's actual trajectory.\n"
+        "- Constraints: Strictly respect any tone preferences, custom instructions, and word or character limits specified per question or in the workload tail below.\n\n"
         "--------------------------------------------------\n"
         "OUTPUT FORMAT (STRICT JSON ONLY)\n"
         "--------------------------------------------------\n"
@@ -233,13 +496,18 @@ DEFAULT_PROMPTS = {
         "  }}\n"
         "]\n\n"
         "--------------------------------------------------\n"
-        "INPUT DATA\n"
+        "CANDIDATE MASTER PROFILE (GROUND TRUTH)\n"
+        "--------------------------------------------------\n"
+        "<untrusted_candidate_cv>\n{candidate_cv}\n</untrusted_candidate_cv>\n\n"
+        "--------------------------------------------------\n"
+        "TARGET OPPORTUNITY & WORKLOAD TAIL\n"
         "--------------------------------------------------\n"
         "Target Company: {company_name}\n"
         "Position: {position}\n"
+        "Tone: {tone}\n"
+        "{custom_instructions}\n"
         "{company_research_context}\n"
         "Job Description / Details:\n<untrusted_job_description>\n{job_description}\n</untrusted_job_description>\n\n"
-        "Candidate CV / Profile:\n<untrusted_candidate_cv>\n{candidate_cv}\n</untrusted_candidate_cv>\n\n"
         "Application Questions to Answer:\n{questions_json}\n"
     ),
     "interview_guide": (
@@ -248,7 +516,7 @@ DEFAULT_PROMPTS = {
         "--------------------------------------------------\n"
         "CORE DIRECTIVES & LANGUAGE RULES\n"
         "--------------------------------------------------\n"
-        "- MANDATORY LANGUAGE ADHERENCE: All generated content (every heading, question, talking point, STAR story, and checklist item) MUST be written entirely in {language}. Never output in English when {language} is requested, except for standard technical proper nouns (e.g. Python, AWS, Docker).\n"
+        "- MANDATORY LANGUAGE ADHERENCE: All generated content (every heading, question, talking point, STAR story, and checklist item) MUST be written entirely in the requested target language specified below. Never output in English when a non-English language is requested, except for standard technical proper nouns (e.g. Python, AWS, Docker).\n"
         "- Cross-reference the candidate's actual documented projects, achievements, and metrics against the job description.\n"
         "- Address skill gaps proactively with strategic framing and pivot talking points.\n"
         "- Be highly specific, direct, and actionable — zero generic fluff.\n"
@@ -260,14 +528,18 @@ DEFAULT_PROMPTS = {
         "- Output ONLY clean, semantic HTML elements (<h2>, <h3>, <p>, <strong>, <em>, <ul>, <li>, <div>, <blockquote>).\n"
         "- Start directly with the first HTML tag without markdown code fences (```html) or preamble/postamble text.\n\n"
         "--------------------------------------------------\n"
-        "CONTEXT & INPUTS\n"
+        "CANDIDATE CV & EXPERIENCE (GROUND TRUTH)\n"
         "--------------------------------------------------\n"
+        "<untrusted_candidate_cv>\n{cv_text}\n</untrusted_candidate_cv>\n\n"
+        "--------------------------------------------------\n"
+        "TARGET OPPORTUNITY & WORKLOAD CONTEXT\n"
+        "--------------------------------------------------\n"
+        "Target Language: {language}\n"
         "Target Company: {company_name}\n"
         "Position: {position}\n"
         "Company Context & Research: {company_context}\n"
         "Job Description:\n<untrusted_job_description>\n{jd_text}\n</untrusted_job_description>\n\n"
-        "Candidate CV & Experience:\n<untrusted_candidate_cv>\n{cv_text}\n</untrusted_candidate_cv>\n\n"
-        "Requested Section: {target_section}"
+        "Requested Section:\n{target_section}"
     ),
     "role_alignment_dossier": (
         "You are an elite Executive Career Strategist and Technical Recruiter specializing in tech role positioning, ATS resume optimization, and high-stakes interview preparation.\n\n"
@@ -324,10 +596,13 @@ DEFAULT_PROMPTS = {
         "  ]\n"
         "}}\n\n"
         "--------------------------------------------------\n"
-        "INPUT CONTEXT\n"
+        "CANDIDATE CV PROFILE (GROUND TRUTH)\n"
+        "--------------------------------------------------\n"
+        "<untrusted_candidate_cv>\n{candidate_cv}\n</untrusted_candidate_cv>\n\n"
+        "--------------------------------------------------\n"
+        "TARGET ROLE TRACK & MARKET INTELLIGENCE\n"
         "--------------------------------------------------\n"
         "Target Role Track: {role_track}\n\n"
-        "Candidate CV Profile:\n<untrusted_candidate_cv>\n{candidate_cv}\n</untrusted_candidate_cv>\n\n"
         "Market Intelligence & Track Requirements:\n{market_context}\n"
     ),
     "interview_star_eval": (
@@ -438,7 +713,7 @@ DEFAULT_PROMPTS = {
     ),
     "company_research": (
         "You are an expert corporate intelligence analyst and tech researcher.\n\n"
-        "Your task is to analyze web search results and official corporate webpage data about '{company_name}' (domain: '{company_domain}') "
+        "Your task is to analyze web search results and official corporate webpage data for a target company "
         "and synthesize accurate, evidence-grounded company intelligence.\n\n"
         "--------------------------------------------------\n"
         "SYNTHESIS GUIDELINES\n"
@@ -448,11 +723,8 @@ DEFAULT_PROMPTS = {
         "- Deduce 2-3 strategic candidate_alignment_angles connecting company values with engineering best practices.\n"
         "- For profile_links: extract Glassdoor, LinkedIn, Indeed, Comparably, or Trustpilot URLs only if present in snippets. Extract numeric rating scores if stated (e.g. 4.1), else null.\n\n"
         "--------------------------------------------------\n"
-        "INPUT WEB SEARCH & SCRAPED SNIPPETS\n"
+        "OUTPUT FORMAT (STRICT JSON ONLY)\n"
         "--------------------------------------------------\n"
-        "<search_data>\n"
-        "{raw_webpage_data}\n"
-        "</search_data>\n\n"
         "Respond ONLY with a valid JSON object matching this exact schema (no markdown fences or prose):\n"
         "{{\n"
         '  "summary": "<1-2 evidence-grounded sentences describing what the company builds, its core platform, and who it serves>",\n'
@@ -470,7 +742,15 @@ DEFAULT_PROMPTS = {
         "  ],\n"
         '  "sources": ["<List of relevant URLs from the snippets>"],\n'
         '  "evidence_quality": "high|medium|low"\n'
-        "}}\n"
+        "}}\n\n"
+        "--------------------------------------------------\n"
+        "TARGET COMPANY & SCRAPED SEARCH DATA\n"
+        "--------------------------------------------------\n"
+        "Target Company: {company_name}\n"
+        "Official Domain: {company_domain}\n\n"
+        "<search_data>\n"
+        "{raw_webpage_data}\n"
+        "</search_data>\n"
     ),
 }
 
@@ -503,16 +783,26 @@ async def seed_default_prompts(session: AsyncSession) -> None:
         elif prompt_name == "cover_letter" and (
             "ZERO-HALLUCINATION RULES" not in (existing.template or "")
             or "STRICT FACTUAL GROUNDING" not in (existing.template or "")
+            or "CANDIDATE MASTER PROFILE (GROUND TRUTH)"
+            not in (existing.template or "")
         ):
             existing.template = default_template
         elif prompt_name == "application_qa" and (
             "HONEST SKILL GAP HANDLING" not in (existing.template or "")
             or "STRICT FACTUAL GROUNDING" not in (existing.template or "")
             or "{{" not in (existing.template or "")
+            or "CANDIDATE MASTER PROFILE (GROUND TRUTH)"
+            not in (existing.template or "")
         ):
             existing.template = default_template
         elif prompt_name == "interview_guide" and (
             "MANDATORY LANGUAGE ADHERENCE" not in (existing.template or "")
+            or "CANDIDATE CV & EXPERIENCE (GROUND TRUTH)"
+            not in (existing.template or "")
+        ):
+            existing.template = default_template
+        elif prompt_name == "role_alignment_dossier" and (
+            "CANDIDATE CV PROFILE (GROUND TRUTH)" not in (existing.template or "")
         ):
             existing.template = default_template
         elif prompt_name == "assessment" and (
@@ -520,10 +810,13 @@ async def seed_default_prompts(session: AsyncSession) -> None:
             or "critical_risks" not in (existing.template or "")
             or "Bar Raiser" not in (existing.template or "")
             or "Unstated Seniority" not in (existing.template or "")
+            or "CANDIDATE MASTER PROFILE & VERIFIED DOSSIER"
+            not in (existing.template or "")
         ):
             existing.template = default_template
         elif prompt_name == "company_research" and (
             "profile_links" not in (existing.template or "")
+            or "TARGET COMPANY & SCRAPED SEARCH DATA" not in (existing.template or "")
         ):
             existing.template = default_template
 
@@ -557,17 +850,36 @@ async def get_prompt_template(
             "If email_type is NOT JOB_APPLICATION, return company=null" in template
         ):
             res_template = DEFAULT_PROMPTS["email_extraction"]
+        elif prompt_name == "cover_letter" and (
+            "CANDIDATE MASTER PROFILE (GROUND TRUTH)" not in template
+        ):
+            res_template = DEFAULT_PROMPTS["cover_letter"]
         elif prompt_name == "application_qa" and (
-            "{{" not in template or "HONEST SKILL GAP HANDLING" not in template
+            "{{" not in template
+            or "HONEST SKILL GAP HANDLING" not in template
+            or "CANDIDATE MASTER PROFILE (GROUND TRUTH)" not in template
         ):
             res_template = DEFAULT_PROMPTS["application_qa"]
+        elif prompt_name == "interview_guide" and (
+            "CANDIDATE CV & EXPERIENCE (GROUND TRUTH)" not in template
+        ):
+            res_template = DEFAULT_PROMPTS["interview_guide"]
+        elif prompt_name == "role_alignment_dossier" and (
+            "CANDIDATE CV PROFILE (GROUND TRUTH)" not in template
+        ):
+            res_template = DEFAULT_PROMPTS["role_alignment_dossier"]
         elif prompt_name == "assessment" and (
             "AUTHORITATIVE CANDIDATE PROFILE" not in template
             or "critical_risks" not in template
             or "Bar Raiser" not in template
             or "Unstated Seniority" not in template
+            or "CANDIDATE MASTER PROFILE & VERIFIED DOSSIER" not in template
         ):
             res_template = DEFAULT_PROMPTS["assessment"]
+        elif prompt_name == "company_research" and (
+            "TARGET COMPANY & SCRAPED SEARCH DATA" not in template
+        ):
+            res_template = DEFAULT_PROMPTS["company_research"]
         else:
             res_template = template
     elif prompt_name in DEFAULT_PROMPTS:

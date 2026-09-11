@@ -59,16 +59,57 @@ import {
   ArrowUp,
   BarChart3,
   Search,
+  Moon,
+  ZapOff,
+  Gauge,
+  Terminal,
 } from 'lucide-vue-next'
+import { useAIStore } from '../stores/aiStore'
 
 const route = useRoute()
 const uiStore = useUIStore()
+const aiStore = useAIStore()
 
 const activeTab = ref(route.query.tab || 'studio') // 'studio' | 'providers' | 'email_accounts' | 'profile' | 'preferences'
 
 watch(() => route.query.tab, (newTab) => {
   if (newTab) activeTab.value = newTab
 })
+
+const HARDWARE_PRESETS = [
+  {
+    label: '8GB VRAM (Safe)',
+    value: 1,
+    description: '1 parallel slot. Maximum safety for entry-level GPUs with zero VRAM pressure.',
+    isRecommended: false,
+  },
+  {
+    label: '12GB VRAM (Recommended)',
+    value: 2,
+    description: '2 parallel slots. Hardware sweet spot for parallel assessments + background queue.',
+    isRecommended: true,
+  },
+  {
+    label: '16–24GB VRAM (Pro)',
+    value: 4,
+    description: '4 parallel slots. Multi-stream throughput for RTX 3090, 4080, 4090, or Apple M-series.',
+    isRecommended: false,
+  },
+  {
+    label: 'Cloud Provider',
+    value: 5,
+    description: '5 parallel slots. Scalable hosted concurrency for OpenAI, Anthropic, or Gemini.',
+    isRecommended: false,
+  },
+]
+
+function getHardwarePresetLabel(concurrency) {
+  if (concurrency === 1) return '8GB Safe (1 slot)'
+  if (concurrency === 2) return '12GB Sweet Spot (2 slots)'
+  if (concurrency === 4) return '16–24GB Pro (4 slots)'
+  if (concurrency >= 5) return `Cloud (${concurrency} slots)`
+  return `${concurrency} slots`
+}
 
 // AI Providers state
 const providers = ref([])
@@ -82,11 +123,101 @@ const providerForm = ref({
   provider_type: 'openai',
   base_url: 'http://192.168.1.187:1234/v1',
   api_key: '',
-  max_concurrency: 1,
+  max_concurrency: 2,
+  auto_release_vram_minutes: 10,
   is_active: true,
   input_cost_per_million: 0.15,
   output_cost_per_million: 0.60,
 })
+
+// VRAM Booster & Setup Guide active tab
+const vramBoosterTab = ref('lmstudio_gui')
+const isVramBoosterOpen = ref(true)
+const copiedCodeKey = ref(null)
+
+function copyCode(key, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    copiedCodeKey.value = key
+    uiStore.showToast('Snippet copied to clipboard!', 'info')
+    setTimeout(() => {
+      copiedCodeKey.value = null
+    }, 2000)
+  })
+}
+
+// Benchmark Probe Dialog State
+const isBenchmarkModalOpen = ref(false)
+const benchmarkProvider = ref(null)
+const isBenchmarking = ref(false)
+const benchmarkMode = ref('quick')
+const benchmarkResult = ref(null)
+const customBenchmarkJd = ref('')
+const showCustomJdInput = ref(false)
+const isApplyingConcurrency = ref(false)
+
+async function openBenchmarkModal(p) {
+  benchmarkProvider.value = p
+  benchmarkMode.value = 'quick'
+  benchmarkResult.value = null
+  customBenchmarkJd.value = ''
+  showCustomJdInput.value = false
+  isBenchmarkModalOpen.value = true
+}
+
+async function runBenchmarkProbe() {
+  if (!benchmarkProvider.value) return
+  isBenchmarking.value = true
+  benchmarkResult.value = null
+  try {
+    const payload = {
+      custom_job_description: customBenchmarkJd.value.trim() || null,
+      mode: benchmarkMode.value,
+    }
+    const res = await AIConfigAPI.runBenchmark(benchmarkProvider.value.id, payload)
+    benchmarkResult.value = res.data
+    uiStore.showToast('Capacity benchmark completed successfully!', 'success')
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Capacity benchmark probe failed', 'error')
+  } finally {
+    isBenchmarking.value = false
+  }
+}
+
+async function applyRecommendedConcurrency() {
+  if (!benchmarkProvider.value || !benchmarkResult.value) return
+  isApplyingConcurrency.value = true
+  try {
+    const rec = benchmarkResult.value.recommended_max_concurrency
+    await AIConfigAPI.updateProvider(benchmarkProvider.value.id, {
+      max_concurrency: rec,
+    })
+    uiStore.showToast(`Applied recommended concurrency (${rec} slots) to ${benchmarkProvider.value.name}`, 'success')
+    await loadProviders()
+    isBenchmarkModalOpen.value = false
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to update concurrency', 'error')
+  } finally {
+    isApplyingConcurrency.value = false
+  }
+}
+
+const releasingVramProviderId = ref(null)
+
+async function releaseVramDirect(p) {
+  releasingVramProviderId.value = p.id
+  try {
+    const res = await AIConfigAPI.releaseVRAM(p.id)
+    uiStore.showToast(res.data?.message || `VRAM released for ${p.name}`, 'success')
+    if (aiStore.vramStatus.provider_id === p.id) {
+      aiStore.vramStatus.status = 'SLEEPING'
+      aiStore.vramStatus.is_loaded = false
+    }
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to release VRAM', 'error')
+  } finally {
+    releasingVramProviderId.value = null
+  }
+}
 
 // Token Usage & What-If Provider Cost Comparison
 const usageOverview = ref({
@@ -939,7 +1070,7 @@ const TASKS = [
     icon: Briefcase,
     recommendedTemp: 0.0,
     recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
+    recommendedMaxTokens: 2048,
     reasoningTip: '💡 Local & Cloud: None (Fast) — Schema fact extraction runs 10x faster without reasoning tokens.',
     hasPrompt: true,
     desc: 'Extracts structured job title, company, salary, and requirements from scraped web HTML / markdown.',
@@ -953,7 +1084,7 @@ const TASKS = [
     icon: Mail,
     recommendedTemp: 0.0,
     recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
+    recommendedMaxTokens: 2048,
     reasoningTip: '💡 Local & Cloud: None (Fast) — Deterministic parsing of email dates, companies, and interview stages.',
     hasPrompt: true,
     desc: 'Parses recruiter correspondence, interview invites, and application status updates.',
@@ -967,7 +1098,7 @@ const TASKS = [
     icon: ShieldCheck,
     recommendedTemp: 0.0,
     recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
+    recommendedMaxTokens: 2500,
     reasoningTip: '💡 Local & Cloud: None (Fast) — Strips PII and parses canonical skill taxonomy directly.',
     hasPrompt: true,
     desc: 'Replaces personal identifiers with scale tags, transforms dates into durations, and extracts canonical technical skills.',
@@ -981,7 +1112,7 @@ const TASKS = [
     icon: Building2,
     recommendedTemp: 0.1,
     recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
+    recommendedMaxTokens: 2048,
     reasoningTip: '💡 Local & Cloud: None (Fast) — Deterministic synthesis of scraped web snippets and company facts.',
     hasPrompt: true,
     desc: 'Extracts company mission, tech culture, and recent initiatives from live web search snippets and caches results on employer entities.',
@@ -997,7 +1128,7 @@ const TASKS = [
     icon: Sparkles,
     recommendedTemp: 0.1,
     recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
+    recommendedMaxTokens: 4096,
     reasoningTip: '💡 Local: None (~35s intake) | Cloud: None or Low/Medium on Claude 3.7 / o3-mini for nuanced strategic gap analysis.',
     hasPrompt: true,
     desc: 'Computes deep semantic fit score, keyword matches/gaps, and strategic resume improvement suggestions.',
@@ -1013,7 +1144,7 @@ const TASKS = [
     icon: FileText,
     recommendedTemp: 0.15,
     recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
+    recommendedMaxTokens: 2048,
     reasoningTip: '💡 Local & Cloud: Low Temperature (0.15) — Ensures zero-hallucination factual grounding on candidate CV.',
     hasPrompt: true,
     desc: 'Generates tailored cover letters referencing candidate experiences against target role and company requirements.',
@@ -1027,7 +1158,7 @@ const TASKS = [
     icon: HelpCircle,
     recommendedTemp: 0.15,
     recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
+    recommendedMaxTokens: 2048,
     reasoningTip: '💡 Local & Cloud: Low Temperature (0.15) — Grounded synthesis for employer portal questions without inventing stories.',
     hasPrompt: true,
     desc: 'Synthesizes grounded answers to bespoke employer application form questions with strict anti-hallucination boundaries.',
@@ -1041,7 +1172,7 @@ const TASKS = [
     icon: BarChart3,
     recommendedTemp: 0.2,
     recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
+    recommendedMaxTokens: 4096,
     reasoningTip: '💡 Local & Cloud: Low (0.2) — Synthesizes executive positioning, bullet rewrites, talking points, and skill bridge roadmaps.',
     hasPrompt: true,
     desc: 'Synthesizes executive market positioning, quantified bullet rewrites, strategic interview talking points, and skill bridge roadmaps.',
@@ -1057,7 +1188,7 @@ const TASKS = [
     icon: BookOpen,
     recommendedTemp: 0.3,
     recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
+    recommendedMaxTokens: 2500,
     reasoningTip: '💡 Local: None (~25s) | Cloud: Medium/High on Claude 3.7 / o3-mini for deeper strategic STAR scenario planning.',
     hasPrompt: true,
     desc: 'Generates tailored interview preparation guides, STAR stories, and strategic question defenses in the requested language.',
@@ -1071,7 +1202,7 @@ const TASKS = [
     icon: Bot,
     recommendedTemp: 0.3,
     recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
+    recommendedMaxTokens: 4096,
     reasoningTip: '💡 Local & Cloud: None (<3s message turn latency) | Cloud: Low if executing complex multi-agent planning.',
     hasPrompt: true,
     desc: 'Core system prompt powering conversational navigation, application query assistance, and interview practice.',
@@ -1085,7 +1216,7 @@ const TASKS = [
     icon: CheckCircle,
     recommendedTemp: 0.1,
     recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
+    recommendedMaxTokens: 2048,
     reasoningTip: '💡 Local & Cloud: None (Fast) — Scrutinizes Situation, Task, Action, Result elements and scores candidate responses.',
     hasPrompt: true,
     desc: 'Evaluates candidate interview responses in real time across Situation, Task, Action, and Result dimensions.',
@@ -1099,7 +1230,7 @@ const TASKS = [
     icon: Layers,
     recommendedTemp: 0.2,
     recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
+    recommendedMaxTokens: 2048,
     reasoningTip: '💡 Local & Cloud: Low (0.2) — Generates objective 4-option architectural and technical interview scenarios.',
     hasPrompt: true,
     desc: 'Generates high-stakes technical and architectural multiple-choice challenges based on role requirements.',
@@ -1113,7 +1244,7 @@ const TASKS = [
     icon: CheckCircle2,
     recommendedTemp: 0.1,
     recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
+    recommendedMaxTokens: 1500,
     reasoningTip: '💡 Local & Cloud: Low (0.1) — Evaluates multiple choice selection correctness and explains core architectural tradeoffs.',
     hasPrompt: true,
     desc: 'Evaluates candidate multiple choice selection and explains why chosen option is optimal or suboptimal.',
@@ -1127,7 +1258,7 @@ const TASKS = [
     icon: RotateCcw,
     recommendedTemp: 0.2,
     recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
+    recommendedMaxTokens: 2048,
     reasoningTip: '💡 Local & Cloud: Low (0.2) — Formulates targeted follow-up questions probing gaps identified in previous turns.',
     hasPrompt: true,
     desc: 'Adaptive drill-down question generator that probes candidate response weaknesses, tradeoffs, and edge cases.',
@@ -1141,11 +1272,11 @@ const TASKS = [
     icon: HelpCircle,
     recommendedTemp: 0.2,
     recommendedReasoning: 'none',
-    recommendedMaxTokens: null,
+    recommendedMaxTokens: 2048,
     reasoningTip: '💡 Local & Cloud: Low (0.2) — Generates tailored opening and progression interview challenges aligned with interviewer persona.',
     hasPrompt: true,
-    desc: 'Generates persona-tailored interview challenges testing position competencies and candidate background.',
-    variables: ['{persona_instruction}', '{position}', '{company_name}', '{job_spec}', '{cv_summary}', '{turns_summary}', '{persona_name}'],
+    desc: 'Generates tailored opening and progression interview challenges aligned with interviewer persona and candidate background.',
+    variables: ['{persona_instruction}', '{position}', '{company_name}', '{job_spec}', '{cv_summary}'],
   },
 ]
 
@@ -1291,7 +1422,11 @@ function syncStudioForm() {
   studioForm.value.reasoning_effort = existingBinding?.reasoning_effort || existingBinding?.extra_kwargs?.reasoning_effort || taskDef.recommendedReasoning || 'none'
   const customExtra = existingBinding?.custom_extra_body || existingBinding?.extra_kwargs?.custom_extra_body || null
   studioForm.value.custom_extra_body_json = customExtra ? JSON.stringify(customExtra, null, 2) : ''
-  studioForm.value.max_tokens = existingBinding?.max_tokens || null
+  const isReasoningActive = studioForm.value.reasoning_effort && studioForm.value.reasoning_effort !== 'none'
+  studioForm.value.max_tokens =
+    existingBinding?.max_tokens !== undefined && existingBinding?.max_tokens !== null
+      ? existingBinding.max_tokens
+      : (isReasoningActive ? 8192 : (taskDef.recommendedMaxTokens || 2048))
 
   // 2. Find prompt template if task supports prompts
   if (taskDef.promptKey) {
@@ -1348,6 +1483,18 @@ function selectStudioSuggestedModel(modelId) {
 
 function setStudioReasoningEffort(effort) {
   studioForm.value.reasoning_effort = effort
+  const taskDef = activeTaskDef.value
+  if (effort && effort !== 'none') {
+    // Elevate to recommended reasoning token limit (8,192 tokens)
+    if (!studioForm.value.max_tokens || studioForm.value.max_tokens < 8192) {
+      studioForm.value.max_tokens = 8192
+    }
+  } else {
+    // When returning to none, restore the task's recommended non-reasoning default cap
+    if (studioForm.value.max_tokens === 8192) {
+      studioForm.value.max_tokens = taskDef?.recommendedMaxTokens || 2048
+    }
+  }
   scheduleStudioAutoSave(50)
 }
 
@@ -1525,7 +1672,8 @@ function openCreateProvider() {
     provider_type: 'openai',
     base_url: 'http://192.168.1.187:1234/v1',
     api_key: '',
-    max_concurrency: 1,
+    max_concurrency: 2,
+    auto_release_vram_minutes: 10,
     is_active: true,
     input_cost_per_million: 0.15,
     output_cost_per_million: 0.60,
@@ -1541,7 +1689,8 @@ function openEditProvider(p) {
     provider_type: p.provider_type,
     base_url: p.base_url || '',
     api_key: '',
-    max_concurrency: p.max_concurrency || 1,
+    max_concurrency: p.max_concurrency || 2,
+    auto_release_vram_minutes: p.auto_release_vram_minutes !== undefined && p.auto_release_vram_minutes !== null ? p.auto_release_vram_minutes : 10,
     is_active: p.is_active,
     input_cost_per_million: p.input_cost_per_million !== undefined && p.input_cost_per_million !== null ? p.input_cost_per_million : 0.0,
     output_cost_per_million: p.output_cost_per_million !== undefined && p.output_cost_per_million !== null ? p.output_cost_per_million : 0.0,
@@ -1563,8 +1712,14 @@ async function saveProvider() {
         ? 0.0
         : Math.max(0, Number(rawOut))
 
+    const autoVram = providerForm.value.auto_release_vram_minutes !== null && providerForm.value.auto_release_vram_minutes !== undefined && providerForm.value.auto_release_vram_minutes !== ''
+      ? Number(providerForm.value.auto_release_vram_minutes)
+      : null
+
     const payload = {
       ...providerForm.value,
+      max_concurrency: Math.max(1, Number(providerForm.value.max_concurrency) || 1),
+      auto_release_vram_minutes: autoVram,
       input_cost_per_million: parsedIn,
       output_cost_per_million: parsedOut,
     }
@@ -2630,10 +2785,22 @@ onUnmounted(() => {
                   step="256"
                   min="256"
                   max="64000"
-                  placeholder="Optional (Default unconstrained)"
+                  :placeholder="`Recommended: ${activeTaskDef?.recommendedMaxTokens || 2048}`"
                   class="form-input font-mono"
                   @input="scheduleStudioAutoSave(600)"
                 />
+                <div
+                  v-if="studioForm.reasoning_effort && studioForm.reasoning_effort !== 'none'"
+                  class="reasoning-task-guidance mt-2 animate-fade-in"
+                >
+                  <span class="font-mono text-xs text-primary font-semibold">⚡ Elevated for reasoning headroom (8k tokens)</span>
+                </div>
+                <div
+                  v-else-if="activeTaskDef?.recommendedMaxTokens"
+                  class="reasoning-task-guidance mt-2 animate-fade-in"
+                >
+                  <span>💡 Recommended default: <strong class="font-mono">{{ activeTaskDef.recommendedMaxTokens }}</strong> tokens for this task.</span>
+                </div>
               </div>
             </div>
 
@@ -3162,29 +3329,37 @@ onUnmounted(() => {
                 </span>
               </div>
               <div class="meta-row">
+                <span class="meta-k">Hardware Tier:</span>
+                <span class="badge badge-purple font-mono text-[10px]">{{ getHardwarePresetLabel(p.max_concurrency) }}</span>
+              </div>
+              <div class="meta-row">
                 <span class="meta-k">Max Concurrency:</span>
-                <span class="meta-v font-mono font-semibold">{{ p.max_concurrency || 1 }} parallel</span>
+                <span class="meta-v font-mono font-semibold">{{ p.max_concurrency || 2 }} parallel slots</span>
+              </div>
+              <div class="meta-row" v-if="aiStore.isProviderLocal(p)">
+                <span class="meta-k">Auto-Release Idle:</span>
+                <span class="meta-v font-mono text-xs">
+                  {{ p.auto_release_vram_minutes ? `${p.auto_release_vram_minutes} min inactivity` : 'Never (Always Warm)' }}
+                </span>
               </div>
             </div>
 
             <div class="provider-actions">
               <button
-                class="btn btn-secondary btn-sm"
-                :disabled="testingProviderId === p.id"
-                @click="testProviderDirect(p)"
-                title="Ping endpoint to verify connectivity"
+                class="btn btn-secondary btn-sm flex-1 flex items-center justify-center gap-1.5"
+                @click="openBenchmarkModal(p)"
+                title="Run 1-click capacity benchmark probe to test parallel throughput & quality"
               >
-                <Loader2 v-if="testingProviderId === p.id" class="animate-spin" :size="14" />
-                <Zap v-else :size="14" />
-                <span>Ping Provider</span>
+                <Gauge :size="14" class="text-primary" />
+                <span>Benchmark</span>
               </button>
 
-              <button class="btn btn-secondary btn-sm" @click="openEditProvider(p)">
+              <button class="btn btn-secondary btn-sm flex items-center gap-1.5" @click="openEditProvider(p)" title="Edit Provider">
                 <Edit3 :size="14" />
                 <span>Edit</span>
               </button>
 
-              <button class="btn btn-danger btn-sm" @click="deleteProvider(p.id)">
+              <button class="btn btn-danger btn-sm btn-icon-only" @click="deleteProvider(p.id)" title="Delete Provider">
                 <Trash2 :size="14" />
               </button>
             </div>
@@ -3204,6 +3379,374 @@ onUnmounted(() => {
 
           <div v-if="providers.length === 0" class="empty-state">
             No AI providers configured in DB. System using `.env` fallback.
+          </div>
+        </div>
+      </div>
+
+      <!-- VRAM BOOSTER & SETUP GUIDE CARD -->
+      <div class="section-card vram-booster-card mt-4">
+        <div class="vram-booster-header" @click="isVramBoosterOpen = !isVramBoosterOpen">
+          <div class="vram-header-left">
+            <div class="vram-header-title-row">
+              <div class="vram-header-icon">
+                <Cpu :size="18" />
+              </div>
+              <h3 class="vram-header-title">VRAM Booster &amp; Server Setup Guides</h3>
+              <span class="badge badge-applied font-mono text-[10px]">16k Context • Q8_0 KV Cache</span>
+            </div>
+            <p class="vram-header-subtitle">
+              Tested launch recipes for maximum local inference throughput, prefix-stabilized prompt caching, and auto-sleep lifecycle management.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="vram-collapse-btn"
+            :title="isVramBoosterOpen ? 'Collapse setup guides' : 'Expand setup guides'"
+          >
+            <ChevronDown :size="18" class="vram-chevron" :class="{ 'is-collapsed': !isVramBoosterOpen }" />
+          </button>
+        </div>
+
+        <div v-show="isVramBoosterOpen" class="vram-booster-body animate-fade-in">
+          <!-- Setup Guide Tabs -->
+          <div class="vram-tabs-nav">
+            <button
+              class="vram-tab-btn"
+              :class="{ active: vramBoosterTab === 'lmstudio_gui' }"
+              @click="vramBoosterTab = 'lmstudio_gui'"
+            >
+              <Server :size="13" />
+              <span>LM Studio GUI</span>
+            </button>
+            <button
+              class="vram-tab-btn"
+              :class="{ active: vramBoosterTab === 'lmstudio_cli' }"
+              @click="vramBoosterTab = 'lmstudio_cli'"
+            >
+              <Terminal :size="13" />
+              <span>LM Studio CLI</span>
+            </button>
+            <button
+              class="vram-tab-btn"
+              :class="{ active: vramBoosterTab === 'ollama' }"
+              @click="vramBoosterTab = 'ollama'"
+            >
+              <Zap :size="13" />
+              <span>Ollama</span>
+            </button>
+            <button
+              class="vram-tab-btn"
+              :class="{ active: vramBoosterTab === 'sglang' }"
+              @click="vramBoosterTab = 'sglang'"
+            >
+              <Layers :size="13" />
+              <span>SGLang (Docker)</span>
+            </button>
+            <button
+              class="vram-tab-btn"
+              :class="{ active: vramBoosterTab === 'vllm' }"
+              @click="vramBoosterTab = 'vllm'"
+            >
+              <Activity :size="13" />
+              <span>vLLM (Docker)</span>
+            </button>
+            <button
+              class="vram-tab-btn"
+              :class="{ active: vramBoosterTab === 'llama_server' }"
+              @click="vramBoosterTab = 'llama_server'"
+            >
+              <FileCode :size="13" />
+              <span>llama-server</span>
+            </button>
+          </div>
+
+          <!-- Tab Content -->
+          <div class="vram-tab-pane">
+            <!-- 1. LM Studio GUI -->
+            <div v-if="vramBoosterTab === 'lmstudio_gui'" class="vram-guide-content">
+              <div class="vram-guide-intro">
+                <span class="font-semibold text-xs text-main">Recommended LM Studio GUI Settings (Optimal for 12GB VRAM &amp; 16k context):</span>
+              </div>
+              <div class="vram-config-cards">
+                <div class="vram-param-card">
+                  <div class="vram-param-top">
+                    <div class="vram-param-label">
+                      <CheckCircle2 :size="14" class="text-primary flex-shrink-0" />
+                      <span>Context Length</span>
+                    </div>
+                    <span class="badge badge-applied font-mono text-xs">16384 (or 32768 for 4 slots)</span>
+                  </div>
+                  <p class="vram-param-detail">
+                    LM Studio divides total context across slots. 16k allows 2 slots @ 8k or 4 slots @ 4k. Avoid &le;8k when using 4 slots (which forces 2k per slot).
+                  </p>
+                </div>
+
+                <div class="vram-param-card">
+                  <div class="vram-param-top">
+                    <div class="vram-param-label">
+                      <CheckCircle2 :size="14" class="text-primary flex-shrink-0" />
+                      <span>KV Cache Quantization</span>
+                    </div>
+                    <span class="badge badge-applied font-mono text-xs">Q8_0 (Recommended)</span>
+                  </div>
+                  <p class="vram-param-detail">
+                    Cuts KV cache VRAM by 50% with near-zero perplexity loss, allowing 2 parallel slots to fit in 12GB VRAM.
+                  </p>
+                </div>
+
+                <div class="vram-param-card">
+                  <div class="vram-param-top">
+                    <div class="vram-param-label">
+                      <CheckCircle2 :size="14" class="text-primary flex-shrink-0" />
+                      <span>Parallel Request Slots</span>
+                    </div>
+                    <span class="badge badge-applied font-mono text-xs">2 Slots (or 4 on 16–24GB)</span>
+                  </div>
+                  <p class="vram-param-detail">
+                    Enables simultaneous interactive chat &amp; background evaluations without pipeline starvation.
+                  </p>
+                </div>
+
+                <div class="vram-param-card">
+                  <div class="vram-param-top">
+                    <div class="vram-param-label">
+                      <CheckCircle2 :size="14" class="text-primary flex-shrink-0" />
+                      <span>Flash Attention</span>
+                    </div>
+                    <span class="badge badge-applied font-mono text-xs">Enabled</span>
+                  </div>
+                  <p class="vram-param-detail">
+                    Toggle on in LM Studio Developer settings for hardware-accelerated prompt prefill and lower latency.
+                  </p>
+                </div>
+
+                <div class="vram-param-card vram-param-card-full">
+                  <div class="vram-param-top">
+                    <div class="vram-param-label">
+                      <CheckCircle2 :size="14" class="text-primary flex-shrink-0" />
+                      <span>Auto-Sleep &amp; VRAM Release</span>
+                    </div>
+                    <span class="badge badge-success font-mono text-xs">Automated (10 min idle)</span>
+                  </div>
+                  <p class="vram-param-detail">
+                    Job Tracker monitors queue inactivity and calls <code>/api/v0/models/unload</code> to reclaim 100% GPU VRAM for your desktop.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- 2. LM Studio CLI -->
+            <div v-else-if="vramBoosterTab === 'lmstudio_cli'" class="vram-guide-content">
+              <div class="vram-snippet-card">
+                <div class="vram-snippet-header">
+                  <span class="vram-snippet-title">1-Line CLI Launch Command (Headless / Terminal):</span>
+                  <button
+                    class="btn btn-secondary btn-xs flex items-center gap-1"
+                    @click="copyCode('lms_cli', 'lms load qwen/qwen3.5-9b --context-length 16384 --parallel 2 --gpu max')"
+                  >
+                    <Check v-if="copiedCodeKey === 'lms_cli'" :size="12" class="text-success" />
+                    <Copy v-else :size="12" />
+                    <span>{{ copiedCodeKey === 'lms_cli' ? 'Copied' : 'Copy Command' }}</span>
+                  </button>
+                </div>
+                <pre class="vram-code-block font-mono"><code>lms load qwen/qwen3.5-9b --context-length 16384 --parallel 2 --gpu max</code></pre>
+                <div class="vram-snippet-footer">
+                  <span>💡 Loads Qwen 3.5 9B with 16k context, 2 parallel execution slots, and full GPU offloading.</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3. Ollama -->
+            <div v-else-if="vramBoosterTab === 'ollama'" class="vram-guide-content">
+              <div class="vram-snippet-card mb-3">
+                <div class="vram-snippet-header">
+                  <span class="vram-snippet-title">Option A: Environment Variables Launch:</span>
+                  <button
+                    class="btn btn-secondary btn-xs flex items-center gap-1"
+                    @click="copyCode('ollama_env', 'OLLAMA_NUM_PARALLEL=2 OLLAMA_FLASH_ATTENTION=1 ollama serve')"
+                  >
+                    <Check v-if="copiedCodeKey === 'ollama_env'" :size="12" class="text-success" />
+                    <Copy v-else :size="12" />
+                    <span>{{ copiedCodeKey === 'ollama_env' ? 'Copied' : 'Copy Command' }}</span>
+                  </button>
+                </div>
+                <pre class="vram-code-block font-mono"><code>OLLAMA_NUM_PARALLEL=2 OLLAMA_FLASH_ATTENTION=1 ollama serve</code></pre>
+              </div>
+
+              <div class="vram-snippet-card">
+                <div class="vram-snippet-header">
+                  <span class="vram-snippet-title">Option B: Dedicated Modelfile with 16k context &amp; Q8_0 KV Cache:</span>
+                  <button
+                    class="btn btn-secondary btn-xs flex items-center gap-1"
+                    @click="copyCode('ollama_modelfile', 'FROM qwen3.5:9b\nPARAMETER num_parallel 2\nPARAMETER num_ctx 16384\nPARAMETER cache_type_k q8_0\nPARAMETER cache_type_v q8_0')"
+                  >
+                    <Check v-if="copiedCodeKey === 'ollama_modelfile'" :size="12" class="text-success" />
+                    <Copy v-else :size="12" />
+                    <span>{{ copiedCodeKey === 'ollama_modelfile' ? 'Copied' : 'Copy Modelfile' }}</span>
+                  </button>
+                </div>
+                <pre class="vram-code-block font-mono"><code>FROM qwen3.5:9b
+PARAMETER num_parallel 2
+PARAMETER num_ctx 16384
+PARAMETER cache_type_k q8_0
+PARAMETER cache_type_v q8_0</code></pre>
+              </div>
+            </div>
+
+            <!-- 4. SGLang (Docker Compose) -->
+            <div v-else-if="vramBoosterTab === 'sglang'" class="vram-guide-content">
+              <div class="vram-snippet-card">
+                <div class="vram-snippet-header">
+                  <span class="vram-snippet-title">Persistent SGLang Docker Compose (with Memory Saver):</span>
+                  <button
+                    class="btn btn-secondary btn-xs flex items-center gap-1"
+                    @click="copyCode('sglang_compose', `services:
+  sglang:
+    image: lmsysorg/sglang:latest
+    container_name: sglang-server
+    restart: unless-stopped
+    ports:
+      - &quot;30000:30000&quot;
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    entrypoint: python3 -m sglang.launch_server
+    command: >
+      --model-path Qwen/Qwen3.5-9B
+      --context-length 16384
+      --kv-cache-dtype fp8_e5m2
+      --port 30000
+      --host 0.0.0.0
+      --enable-memory-saver`)"
+                  >
+                    <Check v-if="copiedCodeKey === 'sglang_compose'" :size="12" class="text-success" />
+                    <Copy v-else :size="12" />
+                    <span>{{ copiedCodeKey === 'sglang_compose' ? 'Copied' : 'Copy YAML' }}</span>
+                  </button>
+                </div>
+                <pre class="vram-code-block font-mono"><code>services:
+  sglang:
+    image: lmsysorg/sglang:latest
+    container_name: sglang-server
+    restart: unless-stopped
+    ports:
+      - "30000:30000"
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    entrypoint: python3 -m sglang.launch_server
+    command: >
+      --model-path Qwen/Qwen3.5-9B
+      --context-length 16384
+      --kv-cache-dtype fp8_e5m2
+      --port 30000
+      --host 0.0.0.0
+      --enable-memory-saver</code></pre>
+                <div class="vram-snippet-footer">
+                  <span>💡 Runs 24/7. When idle, Job Tracker calls <code>POST /release_memory</code> to drop VRAM footprint to 0 MB.</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 5. vLLM (Docker Compose) -->
+            <div v-else-if="vramBoosterTab === 'vllm'" class="vram-guide-content">
+              <div class="vram-snippet-card">
+                <div class="vram-snippet-header">
+                  <span class="vram-snippet-title">Persistent vLLM Docker Compose (with Sleep Mode):</span>
+                  <button
+                    class="btn btn-secondary btn-xs flex items-center gap-1"
+                    @click="copyCode('vllm_compose', `services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-server
+    restart: unless-stopped
+    ports:
+      - &quot;8000:8000&quot;
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      --model Qwen/Qwen3.5-9B
+      --port 8000
+      --max-model-len 16384
+      --max-num-seqs 2
+      --kv-cache-dtype fp8
+      --enable-prefix-caching
+      --enable-sleep-mode`)"
+                  >
+                    <Check v-if="copiedCodeKey === 'vllm_compose'" :size="12" class="text-success" />
+                    <Copy v-else :size="12" />
+                    <span>{{ copiedCodeKey === 'vllm_compose' ? 'Copied' : 'Copy YAML' }}</span>
+                  </button>
+                </div>
+                <pre class="vram-code-block font-mono"><code>services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      --model Qwen/Qwen3.5-9B
+      --port 8000
+      --max-model-len 16384
+      --max-num-seqs 2
+      --kv-cache-dtype fp8
+      --enable-prefix-caching
+      --enable-sleep-mode</code></pre>
+                <div class="vram-snippet-footer">
+                  <span>💡 Offloads weights to system RAM during idle periods via <code>POST /sleep</code>, freeing 95%+ GPU VRAM.</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 6. llama-server -->
+            <div v-else-if="vramBoosterTab === 'llama_server'" class="vram-guide-content">
+              <div class="vram-snippet-card">
+                <div class="vram-snippet-header">
+                  <span class="vram-snippet-title">llama.cpp server CLI command:</span>
+                  <button
+                    class="btn btn-secondary btn-xs flex items-center gap-1"
+                    @click="copyCode('llama_server', 'llama-server -m models/qwen3.5-9b.gguf --ctx-size 16384 --slots 2 --cache-type-k q8_0 -fa')"
+                  >
+                    <Check v-if="copiedCodeKey === 'llama_server'" :size="12" class="text-success" />
+                    <Copy v-else :size="12" />
+                    <span>{{ copiedCodeKey === 'llama_server' ? 'Copied' : 'Copy Command' }}</span>
+                  </button>
+                </div>
+                <pre class="vram-code-block font-mono"><code>llama-server -m models/qwen3.5-9b.gguf --ctx-size 16384 --slots 2 --cache-type-k q8_0 -fa</code></pre>
+                <div class="vram-snippet-footer">
+                  <span>💡 Runs native llama.cpp HTTP server with 16k context, 2 parallel slot workers, and Q8_0 KV quantization.</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -3703,143 +4246,346 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- PROVIDER MODAL -->
-    <div v-if="isProviderModalOpen" class="modal-backdrop" @click.self="isProviderModalOpen = false">
-      <div class="modal-card animate-fade-in">
-        <div class="modal-header">
-          <h3 class="modal-title">{{ editingProvider ? 'Edit Provider: ' + editingProvider.name : 'Add AI Provider' }}</h3>
-          <button class="btn-close" @click="isProviderModalOpen = false">×</button>
-        </div>
-
-        <div class="modal-body">
-          <div class="input-group">
-            <label class="input-label">Provider Name *</label>
-            <input v-model="providerForm.name" type="text" placeholder="e.g. Local LM Studio, Anthropic Work" class="form-input" required />
-          </div>
-
-          <div class="input-group">
-            <label class="input-label">Provider Type *</label>
-            <select v-model="providerForm.provider_type" class="form-input" @change="onProviderTypeChange">
-              <option value="openai">OpenAI / LM Studio / vLLM (OpenAI-compatible)</option>
-              <option value="anthropic">Anthropic (Claude)</option>
-              <option value="ollama">Ollama</option>
-              <option value="google_genai">Google Gemini (GenAI)</option>
-              <option value="openrouter">OpenRouter</option>
-              <option value="deepseek">DeepSeek</option>
-              <option value="custom">Custom Endpoint</option>
-            </select>
-          </div>
-
-          <div class="input-group">
-            <label class="input-label">Base URL</label>
-            <input v-model="providerForm.base_url" type="text" placeholder="http://192.168.1.187:1234/v1" class="form-input" />
-          </div>
-
-          <div class="input-group">
-            <label class="input-label">{{ editingProvider ? 'New API Key (Leave blank to keep unchanged)' : 'API Key (Optional for local)' }}</label>
-            <input v-model="providerForm.api_key" type="password" placeholder="lm-studio / sk-..." class="form-input" />
-          </div>
-
-          <div class="input-row-2col">
-            <div class="input-group">
-              <label class="input-label">Input Cost ($ / 1M)</label>
-              <div class="rate-input-wrap">
-                <span class="rate-prefix">$</span>
-                <input
-                  v-model.number="providerForm.input_cost_per_million"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
-                  class="form-input rate-input font-mono"
-                />
+    <!-- PROVIDER MODAL (Compact 4-Row 2-Column Design) -->
+    <Transition name="fade">
+      <div v-if="isProviderModalOpen" class="provider-modal-backdrop" @click.self="isProviderModalOpen = false">
+        <div class="provider-modal-box animate-fade-in">
+          <!-- Header -->
+          <div class="modal-header">
+            <div class="modal-title-group">
+              <div class="modal-icon">
+                <Cpu :size="20" class="text-primary" />
+              </div>
+              <div>
+                <h3 class="modal-title">{{ editingProvider ? 'Edit Provider: ' + editingProvider.name : 'Add AI Provider' }}</h3>
+                <p class="modal-subtitle">
+                  {{ editingProvider ? 'Configure endpoint connection, parallel capacity, and billing rates' : 'Register a new local LLM engine or cloud API provider' }}
+                </p>
               </div>
             </div>
-
-            <div class="input-group">
-              <label class="input-label">Output Cost ($ / 1M)</label>
-              <div class="rate-input-wrap">
-                <span class="rate-prefix">$</span>
-                <input
-                  v-model.number="providerForm.output_cost_per_million"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
-                  class="form-input rate-input font-mono"
-                />
-              </div>
-            </div>
-          </div>
-
-          <!-- Collapsible Standard Model Rates Guide -->
-          <div class="rate-guide-accordion mb-3">
-            <button
-              type="button"
-              class="rate-guide-toggle-btn"
-              @click="isRateGuideOpen = !isRateGuideOpen"
-            >
-              <div class="flex items-center gap-1.5 text-xs text-primary font-medium">
-                <Sparkles :size="13" />
-                <span>Standard Model Rates Reference Guide</span>
-              </div>
-              <ChevronUp v-if="isRateGuideOpen" :size="13" class="text-muted" />
-              <ChevronDown v-else :size="13" class="text-muted" />
+            <button class="btn-close" @click="isProviderModalOpen = false" title="Close modal">
+              <X :size="18" />
             </button>
+          </div>
 
-            <div v-if="isRateGuideOpen" class="rate-guide-content animate-fade-in mt-2">
-              <div class="rate-guide-filter-row mb-2 flex items-center justify-between">
-                <span class="text-[11px] text-muted">Click any preset to apply $/1M rates:</span>
-                <label class="show-all-toggle text-[11px] text-muted flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" v-model="showAllRateGuideProviders" />
-                  <span>Show all providers</span>
-                </label>
+          <!-- Body: Compact 4-Row 2-Column Grid -->
+          <div class="modal-body compact-provider-modal-body">
+            <div class="compact-provider-grid">
+              <!-- Row 1: Name & Type -->
+              <div class="input-group">
+                <label class="input-label">Provider Name *</label>
+                <input v-model="providerForm.name" type="text" placeholder="e.g. Local LM Studio" class="form-input" required />
+              </div>
+              <div class="input-group">
+                <label class="input-label">Provider Type *</label>
+                <select v-model="providerForm.provider_type" class="form-input" @change="onProviderTypeChange">
+                  <option value="openai">OpenAI / LM Studio / vLLM (OpenAI-compatible)</option>
+                  <option value="anthropic">Anthropic (Claude)</option>
+                  <option value="ollama">Ollama</option>
+                  <option value="google_genai">Google Gemini (GenAI)</option>
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="custom">Custom Endpoint</option>
+                </select>
               </div>
 
-              <div class="rate-presets-list">
-                <div
-                  v-for="(preset, pIdx) in filteredRateGuidePresets"
-                  :key="pIdx"
-                  class="rate-preset-card"
-                  @click="applyRateGuidePreset(preset)"
+              <!-- Row 2: Base URL & API Key -->
+              <div class="input-group">
+                <label class="input-label">Base URL</label>
+                <input v-model="providerForm.base_url" type="text" placeholder="http://192.168.1.187:1234/v1" class="form-input font-mono text-xs" />
+              </div>
+              <div class="input-group">
+                <label class="input-label">{{ editingProvider ? 'New API Key (Leave blank to keep)' : 'API Key (Optional for local)' }}</label>
+                <input v-model="providerForm.api_key" type="password" placeholder="lm-studio / sk-..." class="form-input font-mono text-xs" />
+              </div>
+
+              <!-- Row 3: Input Cost & Output Cost Side-by-Side -->
+              <div class="input-group">
+                <label class="input-label">Input Cost ($ / 1M)</label>
+                <div class="rate-input-wrap">
+                  <span class="rate-prefix">$</span>
+                  <input
+                    v-model.number="providerForm.input_cost_per_million"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    class="form-input rate-input font-mono text-xs"
+                  />
+                </div>
+              </div>
+              <div class="input-group">
+                <label class="input-label">Output Cost ($ / 1M)</label>
+                <div class="rate-input-wrap">
+                  <span class="rate-prefix">$</span>
+                  <input
+                    v-model.number="providerForm.output_cost_per_million"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    class="form-input rate-input font-mono text-xs"
+                  />
+                </div>
+              </div>
+
+              <!-- Row 4: Concurrency Slots & Idle VRAM Release Side-by-Side -->
+              <div class="input-group">
+                <div class="flex items-center justify-between">
+                  <label class="input-label">Parallel Concurrency Slots *</label>
+                  <span class="provider-range-hint font-mono">1 – 50</span>
+                </div>
+                <input
+                  v-model.number="providerForm.max_concurrency"
+                  type="number"
+                  min="1"
+                  max="50"
+                  placeholder="2"
+                  class="form-input font-mono text-xs"
+                  required
+                />
+                <span class="provider-field-subtext">
+                  Run Benchmark above to find optimal slots for your VRAM
+                </span>
+              </div>
+              <div class="input-group">
+                <label class="input-label">Idle VRAM Release</label>
+                <select
+                  v-model="providerForm.auto_release_vram_minutes"
+                  class="form-input font-mono text-xs"
                 >
-                  <div class="preset-top">
-                    <span class="preset-name font-semibold">{{ preset.name }}</span>
-                    <span class="badge badge-applied font-mono text-[10px]">{{ preset.provider }}</span>
+                  <option :value="null">Never (Keep warm in GPU VRAM)</option>
+                  <option :value="5">5 min of inactivity</option>
+                  <option :value="10">10 min (Recommended)</option>
+                  <option :value="15">15 min of inactivity</option>
+                  <option :value="30">30 min of inactivity</option>
+                  <option :value="60">60 min of inactivity</option>
+                </select>
+                <span class="provider-field-subtext">
+                  Unload model weights after queue inactivity
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="modal-footer">
+            <button class="btn btn-secondary" @click="isProviderModalOpen = false">Cancel</button>
+            <button class="btn btn-primary flex items-center gap-1.5" @click="saveProvider">
+              <Check :size="15" />
+              <span>{{ editingProvider ? 'Update Provider' : 'Save Provider' }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- HARDWARE CAPACITY BENCHMARK PROBE MODAL -->
+    <Transition name="fade">
+      <div v-if="isBenchmarkModalOpen" class="benchmark-modal-backdrop" @click.self="isBenchmarkModalOpen = false">
+        <div class="benchmark-modal-box animate-fade-in">
+          <!-- Header -->
+          <div class="modal-header">
+            <div class="modal-title-group">
+              <div class="modal-icon">
+                <Gauge :size="20" class="text-primary" />
+              </div>
+              <div>
+                <h3 class="modal-title">Hardware Capacity Benchmark</h3>
+                <p class="modal-subtitle">
+                  {{ benchmarkProvider?.name || 'Local AI Provider' }} • {{ benchmarkProvider?.provider_type || 'Engine' }}
+                </p>
+              </div>
+            </div>
+            <button class="btn-close" @click="isBenchmarkModalOpen = false" title="Close modal">
+              <X :size="18" />
+            </button>
+          </div>
+
+          <!-- Body: Scrollable & Well Spaced -->
+          <div class="modal-body compact-benchmark-modal-body">
+            <div class="modal-content-layout">
+              <!-- Sleek Workload Badge & Segmented Precision Toggle Row -->
+              <div class="benchmark-config-row mb-2">
+                <div class="benchmark-workload-badge">
+                  <Sparkles :size="13" class="text-primary flex-shrink-0" />
+                  <span>Standard Workload • Senior Systems Engineer (6.6k token envelope)</span>
+                </div>
+
+                <div class="benchmark-mode-toggle">
+                  <button
+                    type="button"
+                    class="benchmark-mode-btn"
+                    :class="{ active: benchmarkMode === 'quick' }"
+                    :disabled="isBenchmarking"
+                    @click="benchmarkMode = 'quick'"
+                    title="1-pass sequential ramping (~15–25s)"
+                  >
+                    Quick (1-Pass)
+                  </button>
+                  <button
+                    type="button"
+                    class="benchmark-mode-btn"
+                    :class="{ active: benchmarkMode === 'calibrated' }"
+                    :disabled="isBenchmarking"
+                    @click="benchmarkMode = 'calibrated'"
+                    title="Warmup + 3-pass average per tier (~45–60s)"
+                  >
+                    Calibrated (3-Pass)
+                  </button>
+                </div>
+              </div>
+
+              <!-- Benchmark Execution Action Button with Breathing Room -->
+              <div class="benchmark-run-bar mb-3">
+                <button
+                  class="btn btn-primary w-full py-2 flex items-center justify-center gap-2 font-medium"
+                  :disabled="isBenchmarking"
+                  @click="runBenchmarkProbe"
+                >
+                  <Loader2 v-if="isBenchmarking" class="animate-spin" :size="15" />
+                  <Gauge v-else :size="15" />
+                  <span>
+                    {{ isBenchmarking
+                      ? (benchmarkMode === 'calibrated' ? 'Running 3-Pass Calibrated Probe (40–60s)...' : 'Running Capacity Benchmark Probe (10–25s)...')
+                      : (benchmarkMode === 'calibrated' ? 'Run Calibrated 3-Pass Benchmark' : 'Run 1-Click Capacity Benchmark')
+                    }}
+                  </span>
+                </button>
+              </div>
+
+              <!-- Running Loading State Stepper -->
+              <div v-if="isBenchmarking" class="benchmark-running-state animate-fade-in">
+                <div class="pulse-ring mb-3">
+                  <Gauge :size="28" class="text-primary animate-pulse" />
+                </div>
+                <h4 class="text-sm font-semibold text-main mb-3">Probing Hardware Concurrency</h4>
+                <div class="benchmark-stepper-list">
+                  <div class="benchmark-step-line">
+                    <Loader2 :size="14" class="animate-spin text-primary flex-shrink-0" />
+                    <span class="text-xs text-secondary font-medium">Measuring single-stream baseline TTFT &amp; token velocity...</span>
                   </div>
-                  <div class="preset-bottom font-mono text-xs">
-                    <span class="text-primary">${{ preset.inCost.toFixed(2) }} in</span>
-                    <span class="text-muted">/</span>
-                    <span class="text-primary">${{ preset.outCost.toFixed(2) }} out</span>
+                  <div class="benchmark-step-line">
+                    <Cpu :size="14" class="text-primary flex-shrink-0" />
+                    <span class="text-xs text-secondary">Ramping parallel slots (N=2…5) until throughput plateaus...</span>
                   </div>
+                  <div class="benchmark-step-line">
+                    <ShieldCheck :size="14" class="text-primary flex-shrink-0" />
+                    <span class="text-xs text-secondary">Checking JSON schema fidelity, loop detection, and factual grounding...</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Results Card -->
+              <div v-if="benchmarkResult && !isBenchmarking" class="benchmark-results-box animate-fade-in">
+                <div class="benchmark-results-header">
+                  <div class="flex items-center gap-1.5">
+                    <Gauge :size="15" class="text-primary" />
+                    <span class="font-bold text-xs text-main">Probe Telemetry &amp; Recommendation</span>
+                  </div>
+                  <span
+                    class="badge flex items-center gap-1 font-mono text-[10px]"
+                    :class="benchmarkResult.quality_gate_passed ? 'badge-success' : 'badge-warning'"
+                  >
+                    <Check v-if="benchmarkResult.quality_gate_passed" :size="11" />
+                    <AlertCircle v-else :size="11" />
+                    <span>{{ benchmarkResult.quality_gate_passed ? 'Quality Gate Passed' : 'Quality Gate Warning' }}</span>
+                  </span>
+                </div>
+
+                <div class="benchmark-metrics-grid">
+                  <div class="benchmark-metric-card">
+                    <span class="benchmark-metric-label">Single Stream TPS</span>
+                    <span class="benchmark-metric-val font-mono text-primary font-bold">
+                      {{ benchmarkResult.single_stream_tps }} <small class="text-[11px] text-muted font-normal">tok/s</small>
+                    </span>
+                    <span class="benchmark-metric-sub">Single-slot baseline</span>
+                  </div>
+                  <div class="benchmark-metric-card">
+                    <span class="benchmark-metric-label">Peak Aggregate TPS</span>
+                    <span
+                      class="benchmark-metric-val font-mono font-bold"
+                      :class="(benchmarkResult.peak_aggregate_tps || benchmarkResult.dual_stream_tps) >= benchmarkResult.single_stream_tps ? 'text-success' : 'text-warning'"
+                    >
+                      {{ benchmarkResult.peak_aggregate_tps || benchmarkResult.dual_stream_tps }} <small class="text-[11px] text-muted font-normal">tok/s</small>
+                    </span>
+                    <span class="benchmark-metric-sub">Max parallel velocity</span>
+                  </div>
+                  <div class="benchmark-metric-card">
+                    <span class="benchmark-metric-label">Parallel Scaling</span>
+                    <span
+                      class="benchmark-metric-val font-bold text-xs"
+                      :class="benchmarkResult.is_parallel_verified ? 'text-success' : 'text-danger'"
+                    >
+                      {{ benchmarkResult.is_parallel_verified ? 'YES (Concurrent)' : 'NO (Serialized)' }}
+                    </span>
+                    <span class="benchmark-metric-sub">Multi-slot verified</span>
+                  </div>
+                  <div class="benchmark-metric-card highlight-card">
+                    <span class="benchmark-metric-label">Recommended Concurrency</span>
+                    <span class="benchmark-metric-val font-mono text-primary font-bold">
+                      {{ benchmarkResult.recommended_max_concurrency }} <small class="text-[11px] text-secondary font-normal">slots</small>
+                    </span>
+                    <span class="benchmark-metric-sub">Optimal queue capacity</span>
+                  </div>
+                </div>
+
+                <!-- Slot Tier Progression List -->
+                <div v-if="benchmarkResult.tested_slots && benchmarkResult.tested_slots.length > 0" class="benchmark-tier-list">
+                  <div class="benchmark-tier-title">Slot Concurrency Scaling Tiers</div>
+                  <div
+                    v-for="tier in benchmarkResult.tested_slots"
+                    :key="tier.slots"
+                    class="benchmark-tier-row"
+                    :class="{ 'tier-recommended': tier.slots === benchmarkResult.recommended_max_concurrency }"
+                  >
+                    <div class="tier-left">
+                      <span class="tier-badge font-mono">{{ tier.slots }} slot{{ tier.slots > 1 ? 's' : '' }}</span>
+                      <span class="tier-speed font-mono font-bold">{{ tier.aggregate_tps }} tok/s</span>
+                      <span
+                        class="tier-gain text-xs"
+                        :class="tier.scaling_gain_pct >= 10 ? 'text-success' : 'text-muted'"
+                      >
+                        {{ tier.slots === 1 ? 'Baseline (TTFT ' + tier.avg_ttft + 's)' : (tier.scaling_gain_pct >= 0 ? '+' : '') + tier.scaling_gain_pct + '% gain' }}
+                      </span>
+                    </div>
+                    <div class="tier-right">
+                      <span
+                        class="badge font-mono text-[10px]"
+                        :class="tier.status === 'SCALING_VERIFIED' || tier.status === 'BASELINE' ? 'badge-success' : (tier.status === 'PLATEAU_REACHED' ? 'badge-applied' : 'badge-warning')"
+                      >
+                        {{ tier.status.replace(/_/g, ' ') }}
+                      </span>
+                      <span v-if="tier.slots === benchmarkResult.recommended_max_concurrency" class="badge badge-primary font-mono text-[9px] uppercase">
+                        Recommended
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="benchmark-details-box font-mono text-xs">
+                  {{ benchmarkResult.details }}
+                </div>
+
+                <div class="benchmark-footer-actions">
+                  <span class="text-[11px] text-muted font-mono">
+                    Completed in {{ benchmarkResult.execution_time_seconds ? benchmarkResult.execution_time_seconds.toFixed(2) + 's' : 'done' }}
+                  </span>
+                  <button
+                    class="btn btn-primary btn-sm flex items-center gap-1.5"
+                    :disabled="isApplyingConcurrency"
+                    @click="applyRecommendedConcurrency"
+                  >
+                    <Check :size="14" />
+                    <span>Apply Recommended Concurrency ({{ benchmarkResult.recommended_max_concurrency }} slots)</span>
+                  </button>
                 </div>
               </div>
             </div>
           </div>
-
-          <div class="input-group">
-            <div class="label-with-hint">
-              <label class="input-label">Max Concurrency Limit</label>
-              <span class="text-xs text-muted">Local: 1 | Cloud: 5-10</span>
-            </div>
-            <input
-              v-model.number="providerForm.max_concurrency"
-              type="number"
-              min="1"
-              max="50"
-              placeholder="1"
-              class="form-input font-mono"
-              required
-            />
-          </div>
-
-          <div class="modal-actions">
-            <button class="btn btn-secondary" @click="isProviderModalOpen = false">Cancel</button>
-            <button class="btn btn-primary" @click="saveProvider">{{ editingProvider ? 'Update Provider' : 'Save Provider' }}</button>
-          </div>
         </div>
       </div>
-    </div>
+    </Transition>
 
     <!-- MODEL PRICING & BENCHMARK RATES MODAL -->
     <div v-if="isPricingModalOpen" class="modal-backdrop" @click.self="isPricingModalOpen = false">
@@ -5002,7 +5748,7 @@ onUnmounted(() => {
 
 .reasoning-pill.active {
   background-color: var(--primary);
-  color: #fff;
+  color: var(--primary-contrast, #fff);
   font-weight: 600;
 }
 
@@ -5010,13 +5756,14 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  background-color: rgba(59, 130, 246, 0.06);
-  border: 1px solid rgba(59, 130, 246, 0.15);
+  background-color: var(--primary-subtle);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xs, 4px);
   padding: 6px 10px;
   font-size: 11px;
   color: var(--text-secondary);
   line-height: 1.4;
+  min-height: 32px;
 }
 
 .reasoning-info-callout {
@@ -5212,7 +5959,7 @@ onUnmounted(() => {
 
 .providers-grid, .accounts-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
   gap: 16px;
 }
 
@@ -5224,6 +5971,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .account-card {
@@ -5261,8 +6010,8 @@ onUnmounted(() => {
   width: 28px;
   height: 28px;
   border-radius: var(--radius-sm);
-  background-color: rgba(59, 130, 246, 0.08);
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  background-color: var(--primary-subtle);
+  border: 1px solid var(--primary-glow);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -5324,7 +6073,33 @@ onUnmounted(() => {
   max-width: 200px;
 }
 
-.provider-actions, .account-actions {
+.provider-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  width: 100%;
+}
+
+.provider-actions-primary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.provider-actions-secondary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.account-actions {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -7167,5 +7942,643 @@ input:checked + .slider:before {
 
 .searxng-test-status {
   line-height: 1.3;
+}
+
+/* VRAM Booster & Capacity Benchmark Styles */
+.vram-booster-card {
+  margin-top: 1.5rem;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  padding: 0;
+}
+
+.vram-booster-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  cursor: pointer;
+  user-select: none;
+  background-color: var(--bg-card);
+  transition: background-color var(--transition-fast);
+}
+
+.vram-booster-header:hover {
+  background-color: var(--bg-surface-hover);
+}
+
+.vram-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+}
+
+.vram-header-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.vram-header-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-subtle);
+  color: var(--primary);
+  flex-shrink: 0;
+  border: 1px solid var(--primary-glow);
+}
+
+.vram-header-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+  line-height: 1.2;
+}
+
+.vram-header-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.vram-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+  padding: 0;
+}
+
+.vram-collapse-btn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-main);
+  border-color: var(--border-color);
+}
+
+.vram-chevron {
+  transition: transform var(--transition-fast);
+}
+
+.vram-chevron.is-collapsed {
+  transform: rotate(-90deg);
+}
+
+.vram-booster-body {
+  padding: 0 20px 20px 20px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.vram-tabs-nav {
+  display: flex;
+  gap: 6px;
+  padding-top: 14px;
+  padding-bottom: 12px;
+  overflow-x: auto;
+}
+
+.vram-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+}
+
+.vram-tab-btn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-main);
+}
+
+.vram-tab-btn.active {
+  background: var(--primary-subtle);
+  color: var(--primary);
+  border-color: var(--primary);
+  font-weight: 600;
+}
+
+.vram-tab-pane {
+  margin-top: 6px;
+}
+
+.vram-guide-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vram-guide-intro {
+  margin-bottom: 2px;
+}
+
+.vram-config-cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 768px) {
+  .vram-config-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.vram-param-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color var(--transition-fast);
+}
+
+.vram-param-card:hover {
+  border-color: var(--border-color);
+}
+
+.vram-param-card-full {
+  grid-column: 1 / -1;
+}
+
+.vram-param-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.vram-param-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.vram-param-detail {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.vram-snippet-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vram-snippet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.vram-snippet-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.vram-code-block {
+  background-color: var(--bg-main);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 10px 12px;
+  margin: 0;
+  overflow-x: auto;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--primary);
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.vram-snippet-footer {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+
+/* Modal Hardware Presets */
+.hardware-presets-grid-modal {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.hw-preset-pill-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.hw-preset-pill-btn:hover {
+  border-color: var(--primary);
+  background: var(--bg-surface-hover);
+}
+
+.hw-preset-pill-btn.active {
+  border-color: var(--primary);
+  background: var(--primary-subtle);
+}
+
+.hw-preset-pill-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.hw-preset-pill-desc {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+/* Capacity Benchmark Modal (Design Token Compliant) */
+.benchmark-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 600;
+  background-color: var(--bg-backdrop);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.benchmark-modal-box {
+  width: 100%;
+  max-width: 680px;
+  max-height: 88vh;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.compact-benchmark-modal-body {
+  max-height: calc(88vh - 70px);
+  overflow-y: auto;
+  padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.benchmark-config-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.benchmark-workload-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex: 1;
+  min-width: 220px;
+}
+
+.benchmark-mode-toggle {
+  display: flex;
+  align-items: center;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+}
+
+.benchmark-mode-btn {
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius-xs);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.benchmark-mode-btn:hover:not(:disabled) {
+  color: var(--text-main);
+}
+
+.benchmark-mode-btn.active {
+  background-color: var(--primary);
+  color: var(--primary-contrast);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+.benchmark-mode-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.benchmark-run-bar {
+  width: 100%;
+}
+
+.benchmark-running-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 20px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.benchmark-stepper-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 440px;
+  text-align: left;
+}
+
+.benchmark-step-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.benchmark-results-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.benchmark-results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.benchmark-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.benchmark-metric-card {
+  padding: 8px 12px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.benchmark-metric-card.highlight-card {
+  border-color: var(--primary-glow);
+  background-color: var(--primary-subtle);
+}
+
+.benchmark-metric-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.benchmark-metric-val {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-main);
+  line-height: 1.2;
+}
+
+.benchmark-metric-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* Slot Tier Progression List */
+.benchmark-tier-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.benchmark-tier-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.benchmark-tier-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  transition: border-color var(--transition-fast);
+}
+
+.benchmark-tier-row.tier-recommended {
+  border-color: var(--primary);
+  background-color: var(--primary-subtle);
+}
+
+.tier-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tier-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.tier-speed {
+  font-size: 11px;
+  color: var(--primary);
+}
+
+.tier-gain {
+  font-size: 10px;
+}
+
+.tier-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.benchmark-details-box {
+  padding: 8px 10px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.benchmark-footer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 2px;
+}
+
+/* Provider Edit/Add Modal (Compact Design Token Compliant) */
+.provider-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 600;
+  background-color: var(--bg-backdrop);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.provider-modal-box {
+  width: 100%;
+  max-width: 620px;
+  max-height: 90vh;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.compact-provider-modal-body {
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 18px 20px;
+}
+
+.compact-provider-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 16px;
+}
+
+.provider-field-subtext {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.35;
+  margin-top: 2px;
+  display: block;
+}
+
+.provider-range-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+@media (max-width: 600px) {
+  .compact-provider-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-sidebar);
 }
 </style>

@@ -6,6 +6,7 @@ import { useQueueStore } from '../../stores/queueStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
 import { StagingAPI, ActionItemsAPI, SystemAPI } from '../../api/endpoints'
 import ThemePalettePopover from './ThemePalettePopover.vue'
+import { useAIStore } from '../../stores/aiStore'
 import {
   Briefcase,
   Building2,
@@ -27,6 +28,9 @@ import {
   AlertTriangle,
   Menu,
   X,
+  Moon,
+  ZapOff,
+  Loader2,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -34,6 +38,7 @@ const route = useRoute()
 const uiStore = useUIStore()
 const queueStore = useQueueStore()
 const appStore = useApplicationsStore()
+const aiStore = useAIStore()
 
 const pendingStagingCount = computed(() => uiStore.pendingStagingCount)
 const pendingTasksCount = ref(0)
@@ -72,6 +77,20 @@ const pillTitle = computed(() => {
   if (uiStore.aiStatus === 'offline') return `AI Provider Offline: ${uiStore.aiErrorMessage || 'Unreachable'}`
   return 'No AI Provider Configured'
 })
+
+const localModelTooltip = computed(() => {
+  if (aiStore.localModelStatus === 'WAKING') {
+    return 'Waking up local model & loading weights to GPU (3–5s)...'
+  }
+  if (aiStore.localModelStatus === 'SLEEPING') {
+    return 'Local model is sleeping (0 GB VRAM). Will automatically wake on next inference request.'
+  }
+  return 'Local model is warm and ready in GPU VRAM. Click "Release VRAM" to unload.'
+})
+
+async function handleReleaseVRAM() {
+  await aiStore.releaseVRAM()
+}
 
 async function handlePingNow() {
   await uiStore.checkAIHealth()
@@ -322,6 +341,39 @@ onUnmounted(() => {
         <span>DEMO MODE</span>
       </button>
 
+      <!-- Live Local Model Status Chip (When Local Provider is active) -->
+      <div v-if="aiStore.isLocalActive" class="local-model-chip-wrap">
+        <div
+          class="local-model-chip"
+          :class="`chip-${aiStore.localModelStatus.toLowerCase()}`"
+          :title="localModelTooltip"
+        >
+          <template v-if="aiStore.localModelStatus === 'WAKING'">
+            <Loader2 :size="12" class="spin text-primary" />
+            <span class="chip-label">⏳ Waking...</span>
+          </template>
+          <template v-else-if="aiStore.localModelStatus === 'SLEEPING'">
+            <Moon :size="12" class="text-secondary" />
+            <span class="chip-label">🌙 Model Sleeping</span>
+          </template>
+          <template v-else>
+            <span class="chip-dot-active"></span>
+            <span class="chip-label">🟢 Model Ready</span>
+            <button
+              type="button"
+              class="btn-release-chip"
+              :disabled="aiStore.isReleasingVRAM"
+              @click.stop="handleReleaseVRAM"
+              title="Release GPU VRAM (Unload Model / Sleep Mode)"
+            >
+              <Loader2 v-if="aiStore.isReleasingVRAM" :size="10" class="spin" />
+              <ZapOff v-else :size="10" />
+              <span>Release VRAM</span>
+            </button>
+          </template>
+        </div>
+      </div>
+
       <!-- AI Health Monitoring Pill & Diagnostic Popover -->
       <div class="health-pill-container" ref="popoverContainerRef">
         <button
@@ -362,6 +414,14 @@ onUnmounted(() => {
               <span class="info-label">Latency</span>
               <span class="info-value font-mono">{{ uiStore.aiLatencyMs > 0 ? `${Math.round(uiStore.aiLatencyMs)} ms` : 'N/A' }}</span>
             </div>
+            <div class="info-row" v-if="aiStore.isLocalActive">
+              <span class="info-label">VRAM State</span>
+              <span class="info-value font-mono">
+                <span v-if="aiStore.localModelStatus === 'ACTIVE'" class="text-success font-semibold">🟢 Active in VRAM</span>
+                <span v-else-if="aiStore.localModelStatus === 'SLEEPING'" class="text-secondary font-semibold">🌙 Sleeping (0 GB)</span>
+                <span v-else class="text-primary font-semibold">⏳ Waking Up...</span>
+              </span>
+            </div>
             <div class="info-row highlight-row">
               <span class="info-label">Auto-Failover Target</span>
               <span class="info-value text-primary font-medium">
@@ -375,6 +435,17 @@ onUnmounted(() => {
           </div>
 
           <div class="popover-footer">
+            <button
+              v-if="aiStore.isLocalActive && aiStore.localModelStatus === 'ACTIVE'"
+              class="btn btn-sm btn-secondary"
+              @click="handleReleaseVRAM"
+              :disabled="aiStore.isReleasingVRAM"
+              title="Unload model and free GPU memory immediately"
+            >
+              <Loader2 v-if="aiStore.isReleasingVRAM" :size="13" class="spin" />
+              <ZapOff v-else :size="13" />
+              <span>Release VRAM</span>
+            </button>
             <button
               class="btn btn-sm btn-secondary"
               @click="handlePingNow"
@@ -1093,5 +1164,78 @@ onUnmounted(() => {
 .drawer-slide-left-enter-from,
 .drawer-slide-left-leave-to {
   transform: translateX(-100%);
+}
+
+/* Local Model VRAM Status Chip */
+.local-model-chip-wrap {
+  display: flex;
+  align-items: center;
+}
+
+.local-model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: var(--radius-full, 9999px);
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  transition: all var(--transition-fast);
+}
+
+.local-model-chip.chip-active {
+  border-color: var(--primary-glow);
+  background-color: var(--primary-subtle);
+  color: var(--text-main);
+}
+
+.local-model-chip.chip-sleeping {
+  border-color: var(--border-subtle);
+  background-color: var(--bg-card);
+  color: var(--text-secondary);
+}
+
+.local-model-chip.chip-waking {
+  border-color: var(--border-focus);
+  background-color: var(--primary-subtle);
+  color: var(--text-primary);
+}
+
+.chip-dot-active {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full, 9999px);
+  background-color: var(--text-success, var(--primary));
+  box-shadow: 0 0 6px var(--primary-glow);
+}
+
+.btn-release-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 2px;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs, 2px);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-release-chip:hover:not(:disabled) {
+  background-color: var(--bg-surface-hover);
+  color: var(--text-main);
+  border-color: var(--border-color);
+}
+
+.btn-release-chip:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>

@@ -4,6 +4,7 @@ import { useApplicationsStore } from '../stores/applicationsStore'
 import { useUIStore } from '../stores/uiStore'
 import DateTimePicker from '../components/common/DateTimePicker.vue'
 import InterviewReaderModal from '../components/modals/InterviewReaderModal.vue'
+import InterviewGuideModal from '../components/modals/InterviewGuideModal.vue'
 import MatchAnalysisModal from '../components/modals/MatchAnalysisModal.vue'
 import LogActivityModal from '../components/modals/LogActivityModal.vue'
 import PostHireModal from '../components/modals/PostHireModal.vue'
@@ -149,10 +150,17 @@ function scrollToColumn(index) {
   }
 }
 
-const activeGuideAppId = ref(null)
+const isGuideModalOpen = ref(false)
+const guideAppId = ref(null)
+const guidePosition = ref('')
+const guideCompanyName = ref('')
 
 function openInterviewGuide(appId) {
-  uiStore.openDetail(appId, 'guide')
+  const app = appStore.applications.find((a) => a.id === appId)
+  guideAppId.value = appId
+  guidePosition.value = app?.position || ''
+  guideCompanyName.value = app?.company?.name || ''
+  isGuideModalOpen.value = true
 }
 
 
@@ -1792,6 +1800,15 @@ async function confirmDelete() {
       :is-open="isReaderModalOpen"
       :application-id="readerAppId"
       @close="isReaderModalOpen = false"
+    />
+
+    <InterviewGuideModal
+      :is-open="isGuideModalOpen"
+      :application-id="guideAppId"
+      :position="guidePosition"
+      :company-name="guideCompanyName"
+      @close="isGuideModalOpen = false"
+      @generated="appStore.fetchApplications()"
     />
 
     <MatchAnalysisModal

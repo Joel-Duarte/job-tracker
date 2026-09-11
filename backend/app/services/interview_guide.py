@@ -284,10 +284,17 @@ async def generate_interview_guide_stream(
             if isinstance(state_update, dict) and "completed_sections" in state_update:
                 completed_sections = state_update["completed_sections"]
 
+            completed_count = len(completed_sections)
+            total_count = len(request.selected_sections)
+            percent = round((completed_count / max(1, total_count)) * 100)
             event_payload = {
+                "type": "progress",
                 "step": node_name,
-                "completed_sections_count": len(completed_sections),
-                "total_target_sections": len(request.selected_sections),
+                "completed": completed_count,
+                "total": total_count,
+                "percent": percent,
+                "completed_sections_count": completed_count,
+                "total_target_sections": total_count,
                 "latest_section": completed_sections[-1]
                 if completed_sections
                 else None,

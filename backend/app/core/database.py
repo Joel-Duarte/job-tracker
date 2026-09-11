@@ -190,6 +190,12 @@ async def ensure_db_schema() -> None:
                             "ALTER TABLE ai_providers ADD COLUMN output_cost_per_million DOUBLE PRECISION DEFAULT 0.0;"
                         )
                     )
+                if "auto_release_vram_minutes" not in cols:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE ai_providers ADD COLUMN auto_release_vram_minutes INTEGER DEFAULT 10;"
+                        )
+                    )
             if "candidate_cvs" in table_names:
                 cols = [c["name"] for c in inspector.get_columns("candidate_cvs")]
                 if "spoken_languages" not in cols:

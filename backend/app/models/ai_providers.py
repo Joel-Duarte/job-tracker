@@ -37,6 +37,9 @@ class AIProviderModel(Base):
     output_cost_per_million: Mapped[float] = mapped_column(
         Float, default=0.0, server_default=text("0.0"), nullable=True
     )
+    auto_release_vram_minutes: Mapped[int | None] = mapped_column(
+        Integer, default=10, server_default=text("10"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

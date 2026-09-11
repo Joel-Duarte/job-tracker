@@ -434,78 +434,87 @@ TASK_RECOMMENDED_DEFAULTS = {
     "JD_EXTRACTION": {
         "temperature": 0.0,
         "reasoning_effort": "none",
-        "max_tokens": None,
+        "max_tokens": 2048,
     },
     "EXTRACTION": {
         "temperature": 0.0,
         "reasoning_effort": "none",
-        "max_tokens": None,
+        "max_tokens": 2048,
     },
     "CV_ANONYMIZATION": {
         "temperature": 0.0,
         "reasoning_effort": "none",
-        "max_tokens": None,
+        "max_tokens": 2500,
     },
     "cv_anonymization": {
         "temperature": 0.0,
         "reasoning_effort": "none",
-        "max_tokens": None,
+        "max_tokens": 2500,
+    },
+    "COMPANY_RESEARCH": {
+        "temperature": 0.1,
+        "reasoning_effort": "none",
+        "max_tokens": 2048,
     },
     "ASSESSMENT": {
         "temperature": 0.1,
         "reasoning_effort": "none",
-        "max_tokens": None,
+        "max_tokens": 2048,
     },
     "INTERVIEW_GUIDE": {
         "temperature": 0.3,
         "reasoning_effort": "none",
-        "max_tokens": None,
+        "max_tokens": 2500,
     },
     "COVER_LETTER": {
         "temperature": 0.15,
         "reasoning_effort": "none",
-        "max_tokens": None,
+        "max_tokens": 2048,
     },
     "APPLICATION_QA": {
         "temperature": 0.15,
         "reasoning_effort": "none",
-        "max_tokens": None,
+        "max_tokens": 2048,
     },
     "ROLE_ALIGNMENT_DOSSIER": {
         "temperature": 0.2,
         "reasoning_effort": "none",
-        "max_tokens": None,
+        "max_tokens": 4096,
     },
-    "AGENT": {"temperature": 0.3, "reasoning_effort": "none", "max_tokens": None},
+    "AGENT": {
+        "temperature": 0.3,
+        "reasoning_effort": "none",
+        "max_tokens": 2048,
+    },
     "AGENT_REASONING": {
         "temperature": 0.3,
         "reasoning_effort": "none",
-        "max_tokens": None,
+        "max_tokens": 4096,
     },
     "INTERVIEW_STAR_EVAL": {
         "temperature": 0.1,
         "reasoning_effort": "none",
-        "max_tokens": None,
+        "max_tokens": 2048,
     },
     "INTERVIEW_MC_GENERATOR": {
         "temperature": 0.2,
         "reasoning_effort": "none",
-        "max_tokens": None,
+        "max_tokens": 2048,
     },
     "INTERVIEW_MC_EVAL": {
         "temperature": 0.1,
         "reasoning_effort": "none",
-        "max_tokens": None,
+        "max_tokens": 1500,
     },
     "INTERVIEW_DRILLDOWN": {
         "temperature": 0.2,
         "reasoning_effort": "none",
-        "max_tokens": None,
+        "max_tokens": 2048,
     },
     "INTERVIEW_QUESTION_GEN": {
         "temperature": 0.2,
         "reasoning_effort": "none",
-        "max_tokens": None,
+        "max_tokens": 2048,
     },
 }
 
@@ -696,6 +705,19 @@ async def get_task_chat_model(
                         init_kwargs.setdefault("extra_body", {})["thinking_config"] = {
                             "thinking_budget": budget
                         }
+
+                    # Ensure thinking/reasoning models receive dynamic max_tokens headroom
+                    # (4,096 tokens) so internal thought tokens do not starve JSON output
+                    current_max = (
+                        init_kwargs.get("max_tokens")
+                        or override_kwargs.get("max_tokens")
+                        or max_tokens
+                        or 0
+                    )
+                    if current_max < 4096:
+                        init_kwargs["max_tokens"] = 4096
+                        if "max_tokens" in override_kwargs:
+                            override_kwargs["max_tokens"] = 4096
 
                 clean_overrides = {
                     k: v

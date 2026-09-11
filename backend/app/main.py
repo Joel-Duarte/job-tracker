@@ -64,10 +64,14 @@ async def lifespan(app: FastAPI):
         # Start the background worker for staleness archiver
         import asyncio
 
+        from app.core.ai_queue import idle_vram_watcher_loop
         from app.services.staleness_archiver import staleness_archiver_worker
 
         app.state.archiver_task = asyncio.create_task(
             staleness_archiver_worker(AsyncSessionLocal)
+        )
+        app.state.vram_watcher_task = asyncio.create_task(
+            idle_vram_watcher_loop(AsyncSessionLocal)
         )
     else:
         print("\n==================================================")
@@ -82,6 +86,9 @@ async def lifespan(app: FastAPI):
     archiver_task = getattr(app.state, "archiver_task", None)
     if archiver_task:
         archiver_task.cancel()
+    vram_task = getattr(app.state, "vram_watcher_task", None)
+    if vram_task:
+        vram_task.cancel()
 
     from app.core.database import checkpointer_pool, engine
 

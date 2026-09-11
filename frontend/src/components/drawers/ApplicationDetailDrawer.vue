@@ -573,6 +573,11 @@ const isGenerating = ref(false)
 const showConfigPanel = ref(false)
 const showAdvanced = ref(false)
 
+const progressCompleted = ref(0)
+const progressTotal = ref(6)
+const progressPercent = ref(0)
+const currentStepName = ref('')
+
 const selectedLanguage = ref('en')
 const recursionLimit = ref(25)
 const selectedSections = ref([
@@ -681,16 +686,82 @@ async function handleGenerateGuide() {
   }
 
   isGenerating.value = true
+  progressCompleted.value = 0
+  progressTotal.value = selectedSections.value.length
+  progressPercent.value = 0
+  currentStepName.value = 'Starting interview guide synthesis...'
+
+  const payload = {
+    language: selectedLanguage.value,
+    selected_sections: selectedSections.value,
+    recursion_limit: Number(recursionLimit.value) || 25,
+    include_company_research: includeCompanyResearch.value,
+    company_research: includeCompanyResearch.value ? companyResearch.value : null,
+  }
+
   try {
-    const payload = {
-      language: selectedLanguage.value,
-      selected_sections: selectedSections.value,
-      recursion_limit: Number(recursionLimit.value) || 25,
-      include_company_research: includeCompanyResearch.value,
-      company_research: includeCompanyResearch.value ? companyResearch.value : null,
+    const response = await fetch(`/api/v1/applications/${appStore.selectedApplication.id}/interview-guide/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    if (!response.ok) {
+      const errJson = await response.json().catch(() => null)
+      throw new Error(errJson?.detail || errJson?.error || `HTTP ${response.status} error`)
     }
-    const res = await ApplicationsAPI.generateInterviewGuide(appStore.selectedApplication.id, payload)
-    appStore.selectedApplication = res.data
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop()
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (trimmed.startsWith('data:')) {
+          const rawData = trimmed.slice(5).trim()
+          if (!rawData) continue
+          try {
+            const data = JSON.parse(rawData)
+            if (data.type === 'progress') {
+              if (data.completed !== undefined) progressCompleted.value = Number(data.completed)
+              if (data.total !== undefined) progressTotal.value = Number(data.total)
+              if (data.percent !== undefined) progressPercent.value = Number(data.percent)
+              if (data.step) {
+                if (data.step === 'extract_baseline') currentStepName.value = 'Extracting candidate & role baseline...'
+                else if (data.step === 'gather_company_intelligence') currentStepName.value = 'Compiling company intelligence...'
+                else if (data.step === 'generate_section_node') currentStepName.value = `Drafting section ${progressCompleted.value + 1} of ${progressTotal.value}...`
+                else if (data.step === 'finalize_guide') currentStepName.value = 'Finalizing interview guide...'
+                else currentStepName.value = `Processing: ${data.step}`
+              }
+            } else if (data.type === 'complete') {
+              progressCompleted.value = progressTotal.value
+              progressPercent.value = 100
+              if (data.interview_guide_html) {
+                appStore.selectedApplication.interview_guide_html = data.interview_guide_html
+                appStore.selectedApplication.interview_guide_language = data.interview_guide_language || selectedLanguage.value
+                appStore.selectedApplication.interview_guide_generated_at = data.interview_guide_generated_at
+              }
+            } else if (data.error) {
+              throw new Error(data.error)
+            }
+          } catch (e) {
+            if (e.message && e.message !== rawData) throw e
+          }
+        }
+      }
+    }
+
+    // Refresh application from database
+    const refreshed = await ApplicationsAPI.get(appStore.selectedApplication.id)
+    appStore.selectedApplication = refreshed.data
     showConfigPanel.value = false
     uiStore.showToast('Interview Preparation Guide generated successfully!', 'success')
     appStore.fetchApplications()
@@ -1993,27 +2064,23 @@ function formatDate(isoStr) {
             <!-- 4. INTERVIEW PREPARATION GUIDE TAB -->
             <div v-if="activeTab === 'guide'" class="guide-tab-panel animate-fade-in">
 
-              <!-- GENERATION RUNNING STATE -->
+              <!-- GENERATION RUNNING STATE (AGGREGATE PROGRESS BAR) -->
               <div v-if="isGenerating" class="state-container generating-state">
                 <div class="pulse-glow-ring">
                   <Sparkles :size="36" class="text-primary animate-pulse" />
                 </div>
-                <h3 class="generating-title">Synthesizing Interview Guide</h3>
+                <h3 class="generating-title">
+                  Generating interview guide: {{ progressCompleted }} of {{ progressTotal }} sections completed ({{ progressPercent }}%)
+                </h3>
                 <p class="generating-desc">
-                  LangGraph agent is cross-referencing your CV skills, analyzing job requirements, and formulating tailored STAR defenses...
+                  {{ currentStepName || 'LangGraph agent is cross-referencing your CV skills and formulating tailored STAR defenses...' }}
                 </p>
-                <div class="generating-steps">
-                  <div class="gen-step complete">
-                    <Check :size="14" />
-                    <span>Extracted role &amp; candidate baseline</span>
-                  </div>
-                  <div class="gen-step active">
-                    <Loader2 :size="14" class="animate-spin" />
-                    <span>Compiling company signals &amp; domain questions</span>
-                  </div>
-                  <div class="gen-step pending">
-                    <Layers :size="14" />
-                    <span>Drafting STAR story blueprints &amp; checklist</span>
+                <div class="guide-aggregate-progress-wrap">
+                  <div class="progress-bar-track">
+                    <div
+                      class="progress-bar-fill"
+                      :style="{ width: `${Math.min(100, Math.max(5, progressPercent))}%` }"
+                    ></div>
                   </div>
                 </div>
               </div>
@@ -5202,5 +5269,27 @@ function formatDate(isoStr) {
     max-width: 100vw;
     margin: 0 8px;
   }
+}
+
+.guide-aggregate-progress-wrap {
+  width: 100%;
+  max-width: 460px;
+  margin-top: 1rem;
+}
+
+.progress-bar-track {
+  width: 100%;
+  height: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: var(--radius-xs);
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 </style>

@@ -1118,14 +1118,16 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
     stats["staging_items"] = 4
 
     # -------------------------------------------------------------------------
-    # 6. AI Providers & Task Bindings (Local LM Studio Default)
+    # 6. AI Providers & Task Bindings (Local LM Studio Default - 12GB Sweet Spot)
+    # Recommended setup: 12GB VRAM (RTX 3060), 2 parallel slots, auto-sleep 10 min
     # -------------------------------------------------------------------------
     provider_local = AIProviderModel(
         name="Local LM studio",
         provider_type="openai",
         base_url="http://192.168.1.187:1234/v1",
         api_key="",
-        max_concurrency=1,
+        max_concurrency=2,
+        auto_release_vram_minutes=10,
         is_active=True,
     )
     session.add(provider_local)
@@ -1136,6 +1138,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         provider_id=provider_local.id,
         model_name="qwen/qwen3.5-9b",
         temperature=0.2,
+        max_tokens=4096,
         extra_kwargs={"reasoning_effort": "none"},
         is_active=True,
     )
@@ -1144,6 +1147,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         provider_id=provider_local.id,
         model_name="qwen/qwen3.5-9b",
         temperature=0.1,
+        max_tokens=4096,
         extra_kwargs={"reasoning_effort": "none"},
         is_active=True,
     )
@@ -1152,6 +1156,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         provider_id=provider_local.id,
         model_name="qwen/qwen3.5-9b",
         temperature=0.0,
+        max_tokens=2048,
         extra_kwargs={"reasoning_effort": "none"},
         is_active=True,
     )
@@ -1160,6 +1165,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         provider_id=provider_local.id,
         model_name="qwen/qwen3.5-9b",
         temperature=0.3,
+        max_tokens=2500,
         extra_kwargs={"reasoning_effort": "none"},
         is_active=True,
     )
@@ -1168,6 +1174,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         provider_id=provider_local.id,
         model_name="qwen/qwen3.5-9b",
         temperature=0.0,
+        max_tokens=2048,
         extra_kwargs={"reasoning_effort": "none"},
         is_active=True,
     )
@@ -1176,6 +1183,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         provider_id=provider_local.id,
         model_name="qwen/qwen3.5-9b",
         temperature=0.3,
+        max_tokens=2048,
         extra_kwargs={"reasoning_effort": "none"},
         is_active=True,
     )
@@ -1184,6 +1192,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         provider_id=provider_local.id,
         model_name="qwen/qwen3.5-9b",
         temperature=0.2,
+        max_tokens=4096,
         extra_kwargs={"reasoning_effort": "none"},
         is_active=True,
     )
@@ -1192,6 +1201,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         provider_id=provider_local.id,
         model_name="qwen/qwen3.5-9b",
         temperature=0.15,
+        max_tokens=2048,
         extra_kwargs={"reasoning_effort": "none"},
         is_active=True,
     )

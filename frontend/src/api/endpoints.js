@@ -118,6 +118,9 @@ export const AIConfigAPI = {
   getPricingRates: () => apiClient.get('/ai/pricing-rates'),
   updatePricingRates: (rates) => apiClient.put('/ai/pricing-rates', { rates }),
   resetPricingRates: () => apiClient.post('/ai/pricing-rates/reset'),
+  runBenchmark: (providerId, data = {}) => apiClient.post(`/ai/providers/${providerId}/benchmark`, data),
+  releaseVRAM: (providerId) => apiClient.post(`/ai/providers/${providerId}/release-vram`),
+  getVRAMStatus: (providerId) => apiClient.get(`/ai/providers/${providerId}/vram-status`),
 }
 
 

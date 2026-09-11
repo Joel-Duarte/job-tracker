@@ -54,3 +54,38 @@ def test_assessment_prompt_seniority_directives():
     assert "Staff / Principal / Architect: 8+ years" in template
     assert "1-Year Tolerance Buffer" in template
     assert "Permissive Overqualification" in template
+
+
+def test_is_context_size_error():
+    """Verify context size exceeded error detection matches various engine error payloads."""
+    from app.services.llm import is_context_size_error
+
+    err1 = Exception(
+        'Engine protocol predict stream returned an error: {"code":500,"message":"Context size has been exceeded.","type":"server_error"}'
+    )
+    assert is_context_size_error(err1) is True
+
+    err2 = Exception("Error: context length exceeded: max 4096 tokens")
+    assert is_context_size_error(err2) is True
+
+    err3 = Exception("BadRequestError: maximum context length is 8192 tokens")
+    assert is_context_size_error(err3) is True
+
+    err4 = Exception("Connection refused: 127.0.0.1:1234")
+    assert is_context_size_error(err4) is False
+
+
+def test_sanitize_and_cap_jd_ceiling():
+    """Verify sanitize_and_cap_jd strictly enforces character and token ceilings."""
+    from app.core.prompts import sanitize_and_cap_jd
+
+    huge_text = "Software Engineer with distributed systems experience.\n" * 500
+    assert len(huge_text) > 25000
+
+    capped = sanitize_and_cap_jd(huge_text, max_tokens=1500)
+    # 1500 tokens * 4 = 6000 chars + truncation marker
+    assert len(capped) <= 6100
+    assert "[Job posting truncated to fit context window]" in capped
+
+    short_text = "Senior Python Developer at TechCorp."
+    assert sanitize_and_cap_jd(short_text, max_tokens=1500) == short_text

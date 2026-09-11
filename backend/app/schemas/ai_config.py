@@ -38,6 +38,12 @@ class AIProviderCreate(BaseModel):
     output_cost_per_million: float | None = Field(
         default=0.0, ge=0.0, description="Cost in USD per 1M output tokens"
     )
+    auto_release_vram_minutes: int | None = Field(
+        default=10,
+        ge=1,
+        le=1440,
+        description="Minutes of queue inactivity before releasing GPU VRAM",
+    )
 
 
 class AIProviderUpdate(BaseModel):
@@ -50,6 +56,7 @@ class AIProviderUpdate(BaseModel):
     is_fallback: bool | None = None
     input_cost_per_million: float | None = Field(default=None, ge=0.0)
     output_cost_per_million: float | None = Field(default=None, ge=0.0)
+    auto_release_vram_minutes: int | None = Field(default=None, ge=1, le=1440)
 
 
 class AIProviderRead(BaseModel):
@@ -63,6 +70,7 @@ class AIProviderRead(BaseModel):
     is_fallback: bool = False
     input_cost_per_million: float | None = 0.0
     output_cost_per_million: float | None = 0.0
+    auto_release_vram_minutes: int | None = 10
     created_at: datetime
     updated_at: datetime
 
@@ -224,3 +232,65 @@ class UsageOverviewRead(BaseModel):
     avg_cost_per_assessment: float = 0.0
     task_breakdown: dict[str, dict[str, Any]] = Field(default_factory=dict)
     comparative_costs: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class HardwarePresetEnum(int):
+    SAFE_8GB = 1
+    SWEET_SPOT_12GB = 2
+    PRO_16_24GB = 4
+    CLOUD_SCALABLE = 5
+
+
+class BenchmarkRequestSchema(BaseModel):
+    custom_job_description: str | None = Field(
+        default=None,
+        description="Optional custom job description to use for capacity probe",
+    )
+    is_reasoning_model: bool | None = Field(
+        default=None,
+        description="Whether the model being tested has reasoning/thinking tokens enabled (auto-detected if omitted)",
+    )
+    mode: str = Field(
+        default="quick",
+        description="Benchmark mode: 'quick' (1-pass) or 'calibrated' (3-pass average)",
+    )
+
+
+class BenchmarkSlotResultSchema(BaseModel):
+    slots: int
+    aggregate_tps: float
+    avg_ttft: float
+    scaling_gain_pct: float
+    quality_passed: bool
+    status: str  # "BASELINE" | "SCALING_VERIFIED" | "DIMINISHING_RETURNS" | "QUALITY_DEGRADED"
+
+
+class BenchmarkResponseSchema(BaseModel):
+    provider_id: int
+    provider_name: str
+    model_name: str
+    single_stream_tps: float
+    dual_stream_tps: float
+    peak_aggregate_tps: float = 0.0
+    tested_slots: list[BenchmarkSlotResultSchema] = Field(default_factory=list)
+    is_parallel_verified: bool
+    quality_gate_passed: bool
+    recommended_max_concurrency: int
+    details: str
+    execution_time_seconds: float = 0.0
+
+
+class VRAMReleaseResponseSchema(BaseModel):
+    success: bool
+    engine: str
+    message: str
+
+
+class VRAMStatusResponseSchema(BaseModel):
+    provider_id: int
+    provider_name: str
+    engine: str
+    status: str  # "ACTIVE" | "SLEEPING" | "UNKNOWN"
+    is_loaded: bool
+    vram_allocated_mb: int = 0
+    message: str | None = None

@@ -35,11 +35,15 @@ import {
   HelpCircle,
   Copy,
   Check,
+  Moon,
+  ZapOff,
 } from 'lucide-vue-next'
+import { useAIStore } from '../stores/aiStore'
 
 const router = useRouter()
 const uiStore = useUIStore()
 const queueStore = useQueueStore()
+const aiStore = useAIStore()
 
 const isClearing = ref(false)
 const retryingTaskIds = ref(new Set())
@@ -113,6 +117,30 @@ function copyTaskQA(task) {
 
 const tasks = computed(() => queueStore.tasks)
 const loading = computed(() => queueStore.loading)
+
+const maxConcurrency = computed(() => {
+  return aiStore.activeLocalProvider?.max_concurrency || 2
+})
+
+const activeSlotSaturation = computed(() => {
+  const running = queueStore.runningCount
+  const max = Math.max(1, maxConcurrency.value)
+  const pct = Math.min(100, Math.round((running / max) * 100))
+  return {
+    running,
+    max,
+    pct,
+    isFullySaturated: running >= max,
+  }
+})
+
+const isQueueIdle = computed(() => {
+  return queueStore.runningCount === 0 && queueStore.pendingCount === 0
+})
+
+async function handleReleaseVRAM() {
+  await aiStore.releaseVRAM()
+}
 
 const filteredTasks = computed(() => {
   return tasks.value.filter((t) => {
@@ -534,8 +562,40 @@ onMounted(() => {
           </button>
         </div>
 
-        <!-- Actions: Search, Refresh, Clear Completed -->
+        <!-- Actions: Slot Saturation, VRAM Release, Search, Refresh, Clear Completed -->
         <div class="header-actions-row">
+          <!-- Active Slot Saturation Indicator -->
+          <div
+            class="slot-saturation-badge"
+            :title="`Parallel Concurrency: ${activeSlotSaturation.running} of ${activeSlotSaturation.max} slots active in use (${activeSlotSaturation.pct}% saturation)`"
+          >
+            <Cpu :size="13" class="text-primary flex-shrink-0" />
+            <span class="slot-text font-mono">
+              Slots: <strong>{{ activeSlotSaturation.running }}</strong>/{{ activeSlotSaturation.max }}
+            </span>
+            <div class="slot-dots">
+              <span
+                v-for="idx in activeSlotSaturation.max"
+                :key="idx"
+                class="slot-dot"
+                :class="{ filled: idx <= activeSlotSaturation.running }"
+              ></span>
+            </div>
+          </div>
+
+          <!-- 1-Click Release VRAM Button (When Queue is Idle and Local Model is active) -->
+          <button
+            v-if="aiStore.isLocalActive && isQueueIdle && aiStore.localModelStatus === 'ACTIVE'"
+            class="btn btn-secondary btn-sm btn-release-vram-queue"
+            :disabled="aiStore.isReleasingVRAM"
+            @click="handleReleaseVRAM"
+            title="Queue is idle. Unload model and free GPU VRAM immediately."
+          >
+            <Loader2 v-if="aiStore.isReleasingVRAM" class="animate-spin" :size="13" />
+            <Moon v-else :size="13" class="text-secondary" />
+            <span>Release VRAM</span>
+          </button>
+
           <div class="search-input-box">
             <Search :size="13" class="search-icon text-muted" />
             <input
@@ -2571,6 +2631,49 @@ onMounted(() => {
   0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.8); }
   70% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(255, 255, 255, 0); }
   100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.8); }
+}
+
+.slot-saturation-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.slot-saturation-badge .slot-text strong {
+  color: var(--text-main);
+}
+
+.slot-dots {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.slot-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--border-subtle);
+  transition: all var(--transition-fast);
+}
+
+.slot-dot.filled {
+  background-color: var(--primary);
+  box-shadow: 0 0 4px var(--primary-glow);
+}
+
+.btn-release-vram-queue {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
 }
 
 @media (max-width: 1023px) {

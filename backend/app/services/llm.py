@@ -17,7 +17,7 @@ from app.core.llm_factory import (
     get_task_embeddings_model,
     strip_reasoning_tags,
 )
-from app.core.prompts import get_prompt_template
+from app.core.prompts import get_prompt_template, sanitize_and_cap_jd
 from app.models.applications import ApplicationEmbeddingModel, ApplicationModel
 from app.schemas.candidate_profile import CVAnonymizationResult
 from app.schemas.llm import (
@@ -29,6 +29,22 @@ from app.services.postgres_tracer import PostgresTracer
 from app.services.telemetry import trace_operation
 
 logger = logging.getLogger(__name__)
+
+
+def is_context_size_error(exc: Exception) -> bool:
+    """Checks if an exception indicates LLM context length / window was exceeded."""
+    err_str = str(exc).lower()
+    return any(
+        kw in err_str
+        for kw in (
+            "context size has been exceeded",
+            "context length exceeded",
+            "maximum context length",
+            "context window",
+            "context_length_exceeded",
+            "too many tokens",
+        )
+    ) or ("context" in err_str and "exceeded" in err_str)
 
 
 def split_text_semantically(
@@ -48,7 +64,7 @@ def split_text_semantically(
     return splitter.split_text(text)
 
 
-def truncate_text_semantically(text: str, max_chars: int = 12000) -> str:
+def truncate_text_semantically(text: str, max_chars: int = 8000) -> str:
     """
     Cleans raw text (normalizes whitespace, strips noise) and semantically bounds/truncates
     the text along sentence and Markdown section boundaries while preserving essential content.
@@ -113,13 +129,30 @@ async def extract_job_spec(
         )
 
         chain = prompt | structured_llm
-        result = await chain.ainvoke(
-            {
-                "raw_webpage_data": cleaned_data,
-                "email_content": cleaned_data,
-            },
-            config={"callbacks": [PostgresTracer()]},
-        )
+        try:
+            result = await chain.ainvoke(
+                {
+                    "raw_webpage_data": cleaned_data,
+                    "email_content": cleaned_data,
+                },
+                config={"callbacks": [PostgresTracer()]},
+            )
+        except Exception as exc:
+            if is_context_size_error(exc):
+                logger.warning(
+                    "Context size exceeded during extract_job_spec (%d chars). Retrying with compact fallback (3,500 chars)...",
+                    len(cleaned_data),
+                )
+                compact_data = truncate_text_semantically(cleaned_data, max_chars=3500)
+                result = await chain.ainvoke(
+                    {
+                        "raw_webpage_data": compact_data,
+                        "email_content": compact_data,
+                    },
+                    config={"callbacks": [PostgresTracer()]},
+                )
+            else:
+                raise
 
         if not isinstance(result, ExtractedJobSpec):
             result = ExtractedJobSpec.model_validate(result)
@@ -274,23 +307,61 @@ async def assess_job_posting(
         if candidate_years_of_experience is not None
         else "Not explicitly verified"
     )
-    cv_text = candidate_cv or "No CV provided"
+    capped_jd = sanitize_and_cap_jd(job_description, max_tokens=1500)
+    capped_cv = (
+        truncate_text_semantically(candidate_cv, max_chars=5000)
+        if candidate_cv
+        else "No CV provided"
+    )
+    cv_text = capped_cv
 
     chain = prompt | structured_llm
-    result = await chain.ainvoke(
-        {
-            "job_description": job_description,
-            "candidate_cv": cv_text,
-            "candidate_domain_breakdown": domain_text,
-            "candidate_spoken_languages": spoken_langs_text,
-            "candidate_years_of_experience": years_exp_text,
-            "candidate_skills": skills_text,
-            "programmatic_baseline": str(
-                programmatic_baseline if programmatic_baseline is not None else 0
-            ),
-        },
-        config={"callbacks": [PostgresTracer()]},
-    )
+    try:
+        result = await chain.ainvoke(
+            {
+                "job_description": capped_jd,
+                "candidate_cv": cv_text,
+                "candidate_domain_breakdown": domain_text,
+                "candidate_spoken_languages": spoken_langs_text,
+                "candidate_years_of_experience": years_exp_text,
+                "candidate_skills": skills_text,
+                "programmatic_baseline": str(
+                    programmatic_baseline if programmatic_baseline is not None else 0
+                ),
+            },
+            config={"callbacks": [PostgresTracer()]},
+        )
+    except Exception as exc:
+        if is_context_size_error(exc):
+            logger.warning(
+                "Context size exceeded during assess_job_posting (JD: %d chars, CV: %d chars). Retrying with emergency compact payload...",
+                len(capped_jd),
+                len(cv_text),
+            )
+            emergency_jd = sanitize_and_cap_jd(job_description, max_tokens=750)
+            emergency_cv = (
+                truncate_text_semantically(candidate_cv, max_chars=2500)
+                if candidate_cv
+                else "No CV provided"
+            )
+            result = await chain.ainvoke(
+                {
+                    "job_description": emergency_jd,
+                    "candidate_cv": emergency_cv,
+                    "candidate_domain_breakdown": domain_text,
+                    "candidate_spoken_languages": spoken_langs_text,
+                    "candidate_years_of_experience": years_exp_text,
+                    "candidate_skills": skills_text,
+                    "programmatic_baseline": str(
+                        programmatic_baseline
+                        if programmatic_baseline is not None
+                        else 0
+                    ),
+                },
+                config={"callbacks": [PostgresTracer()]},
+            )
+        else:
+            raise
 
     if not isinstance(result, JobAssessmentResult):
         result = JobAssessmentResult.model_validate(result)

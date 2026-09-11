@@ -31,12 +31,16 @@ from app.schemas.ai_config import (
     AITaskBindingCreate,
     AITaskBindingRead,
     AITaskTestResponse,
+    BenchmarkRequestSchema,
+    BenchmarkResponseSchema,
     DiscoveredModel,
     ModelProbeRequest,
     ModelProbeResponse,
     PricingRateBatchUpdate,
     PricingRateRead,
     UsageOverviewRead,
+    VRAMReleaseResponseSchema,
+    VRAMStatusResponseSchema,
     mask_secret,
 )
 from app.schemas.global_settings import GlobalSettingsRead, GlobalSettingsUpdate
@@ -446,6 +450,7 @@ def _to_provider_read(p: AIProviderModel) -> AIProviderRead:
         is_fallback=getattr(p, "is_fallback", False) or False,
         input_cost_per_million=getattr(p, "input_cost_per_million", 0.0) or 0.0,
         output_cost_per_million=getattr(p, "output_cost_per_million", 0.0) or 0.0,
+        auto_release_vram_minutes=getattr(p, "auto_release_vram_minutes", 10),
         created_at=p.created_at,
         updated_at=p.updated_at,
     )
@@ -513,6 +518,9 @@ async def create_ai_provider(
         is_fallback=payload.is_fallback,
         input_cost_per_million=payload.input_cost_per_million or 0.0,
         output_cost_per_million=payload.output_cost_per_million or 0.0,
+        auto_release_vram_minutes=payload.auto_release_vram_minutes
+        if payload.auto_release_vram_minutes is not None
+        else 10,
     )
     db.add(provider)
     await db.commit()
@@ -1292,3 +1300,65 @@ async def get_usage_overview_endpoint(
         task_breakdown=task_breakdown,
         comparative_costs=comparative,
     )
+
+
+@router.post(
+    "/providers/{provider_id}/benchmark",
+    response_model=BenchmarkResponseSchema,
+)
+async def benchmark_provider_capacity(
+    provider_id: int,
+    payload: BenchmarkRequestSchema,
+    db: AsyncSession = Depends(get_db),
+) -> BenchmarkResponseSchema:
+    """
+    Executes a multi-factor quality-gated capacity benchmark probe against the provider.
+    Evaluates single-stream TPS, dual-stream parallel TPS, schema validation, loop detection,
+    and factual grounding. Supports quick (1-pass) and calibrated (3-pass average).
+    """
+    from app.services.benchmark_service import run_capacity_benchmark
+
+    res = await run_capacity_benchmark(
+        provider_id=provider_id,
+        db=db,
+        custom_jd=payload.custom_job_description,
+        is_reasoning=payload.is_reasoning_model,
+        mode=payload.mode,
+    )
+    return BenchmarkResponseSchema(**res)
+
+
+@router.post(
+    "/providers/{provider_id}/release-vram",
+    response_model=VRAMReleaseResponseSchema,
+)
+async def release_provider_vram_endpoint(
+    provider_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> VRAMReleaseResponseSchema:
+    """
+    Triggers immediate VRAM unload / sleep mode dispatch for the target local engine
+    (LM Studio, Ollama, vLLM, or SGLang).
+    """
+    from app.services.provider_lifecycle_service import release_provider_vram
+
+    res = await release_provider_vram(provider_id=provider_id, db=db)
+    return VRAMReleaseResponseSchema(**res)
+
+
+@router.get(
+    "/providers/{provider_id}/vram-status",
+    response_model=VRAMStatusResponseSchema,
+)
+async def get_provider_vram_status_endpoint(
+    provider_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> VRAMStatusResponseSchema:
+    """
+    Probes the provider engine to check whether models are actively loaded into GPU VRAM
+    or sleeping/unloaded.
+    """
+    from app.services.provider_lifecycle_service import get_provider_vram_status
+
+    res = await get_provider_vram_status(provider_id=provider_id, db=db)
+    return VRAMStatusResponseSchema(**res)

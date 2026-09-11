@@ -58,6 +58,34 @@ const isPrivacyExpanded = ref(false)
 const providerSubStep = ref(1) // 1: Select Preset Card, 2: Configure Endpoint & Verify
 const hasFetchedModels = ref(false)
 const selectedPresetKey = ref('lmstudio') // 'lmstudio' | 'ollama' | 'openai' | 'anthropic' | 'google' | 'openrouter' | 'custom'
+
+const HARDWARE_PRESETS = [
+  {
+    label: '8GB VRAM (Safe)',
+    value: 1,
+    description: '1 parallel slot. Maximum safety for entry-level GPUs with zero VRAM pressure.',
+    isRecommended: false,
+  },
+  {
+    label: '12GB VRAM (Recommended)',
+    value: 2,
+    description: '2 parallel slots. Hardware sweet spot for parallel assessments + background queue.',
+    isRecommended: true,
+  },
+  {
+    label: '16–24GB VRAM (Pro)',
+    value: 4,
+    description: '4 parallel slots. Multi-stream throughput for RTX 3090, 4080, 4090, or Apple M-series.',
+    isRecommended: false,
+  },
+  {
+    label: 'Cloud Provider',
+    value: 5,
+    description: '5 parallel slots. Scalable hosted concurrency for OpenAI, Anthropic, or Gemini.',
+    isRecommended: false,
+  },
+]
+
 const providerForm = ref({
   id: null,
   name: 'Local LM Studio',
@@ -65,7 +93,8 @@ const providerForm = ref({
   base_url: 'http://192.168.1.187:1234/v1',
   api_key: '',
   model_name: 'qwen/qwen3.5-9b',
-  max_concurrency: 1,
+  max_concurrency: 2,
+  auto_release_vram_minutes: 10,
   input_cost_per_million: 0.0,
   output_cost_per_million: 0.0,
 })
@@ -211,6 +240,11 @@ function selectPreset(preset, autoAdvance = true) {
   providerForm.value.model_name = preset.defaultModel
   providerForm.value.input_cost_per_million = preset.defaultInputCost !== undefined ? preset.defaultInputCost : 0.0
   providerForm.value.output_cost_per_million = preset.defaultOutputCost !== undefined ? preset.defaultOutputCost : 0.0
+  if (['lmstudio', 'ollama'].includes(preset.key)) {
+    providerForm.value.max_concurrency = 2
+  } else if (['openai', 'anthropic', 'google', 'openrouter'].includes(preset.key)) {
+    providerForm.value.max_concurrency = 5
+  }
   availableModels.value = []
   customModelMode.value = false
   hasFetchedModels.value = false
@@ -231,7 +265,8 @@ async function testConnection() {
         provider_type: providerForm.value.provider_type,
         base_url: providerForm.value.base_url,
         api_key: providerForm.value.api_key || undefined,
-        max_concurrency: providerForm.value.max_concurrency || 1,
+        max_concurrency: providerForm.value.max_concurrency || 2,
+        auto_release_vram_minutes: providerForm.value.auto_release_vram_minutes || 10,
         is_active: true,
       })
       activeProviderId = res.data.id
@@ -242,7 +277,8 @@ async function testConnection() {
         provider_type: providerForm.value.provider_type,
         base_url: providerForm.value.base_url,
         api_key: providerForm.value.api_key || undefined,
-        max_concurrency: providerForm.value.max_concurrency || 1,
+        max_concurrency: providerForm.value.max_concurrency || 2,
+        auto_release_vram_minutes: providerForm.value.auto_release_vram_minutes || 10,
         is_active: true,
       })
     }
@@ -308,7 +344,8 @@ async function handleStep1Next() {
         provider_type: providerForm.value.provider_type,
         base_url: providerForm.value.base_url,
         api_key: providerForm.value.api_key || undefined,
-        max_concurrency: providerForm.value.max_concurrency || 1,
+        max_concurrency: providerForm.value.max_concurrency || 2,
+        auto_release_vram_minutes: providerForm.value.auto_release_vram_minutes || 10,
         input_cost_per_million: parsedIn,
         output_cost_per_million: parsedOut,
         is_active: true,
@@ -321,7 +358,8 @@ async function handleStep1Next() {
         provider_type: providerForm.value.provider_type,
         base_url: providerForm.value.base_url,
         api_key: providerForm.value.api_key || undefined,
-        max_concurrency: providerForm.value.max_concurrency || 1,
+        max_concurrency: providerForm.value.max_concurrency || 2,
+        auto_release_vram_minutes: providerForm.value.auto_release_vram_minutes || 10,
         input_cost_per_million: parsedIn,
         output_cost_per_million: parsedOut,
         is_active: true,
@@ -1414,6 +1452,51 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
                     <CheckCircle2 v-if="providerTestResult.status === 'success'" :size="14" />
                     <Info v-else :size="14" />
                     <span>{{ providerTestResult.message }}</span>
+                  </div>
+                </div>
+
+                <!-- Hardware Preset & Concurrency Selector -->
+                <div class="hardware-preset-box">
+                  <div class="preset-box-header">
+                    <div class="flex items-center gap-1.5">
+                      <Cpu :size="15" class="text-primary" />
+                      <span class="font-bold text-xs text-main">Hardware Preset &amp; Parallel Slot Concurrency</span>
+                    </div>
+                    <span class="font-mono text-xs text-primary font-semibold">
+                      {{ providerForm.max_concurrency }} parallel slot{{ providerForm.max_concurrency > 1 ? 's' : '' }}
+                    </span>
+                  </div>
+
+                  <p class="text-xs text-muted mb-2">
+                    Select your local GPU memory tier or cloud concurrency. Job Tracker's hardware-aware scheduler enforces priority preemption and queue headroom to avoid out-of-memory crashes.
+                  </p>
+
+                  <div class="hardware-presets-grid">
+                    <div
+                      v-for="hp in HARDWARE_PRESETS"
+                      :key="hp.value"
+                      class="hardware-preset-card"
+                      :class="{ selected: providerForm.max_concurrency === hp.value }"
+                      @click="providerForm.max_concurrency = hp.value"
+                    >
+                      <div class="hp-header">
+                        <span class="hp-name font-semibold">{{ hp.label }}</span>
+                        <span v-if="hp.isRecommended" class="badge badge-recommended">Recommended</span>
+                      </div>
+                      <div class="hp-slots font-mono text-xs text-primary font-bold">
+                        {{ hp.value }} Parallel Slot{{ hp.value > 1 ? 's' : '' }}
+                      </div>
+                      <div class="hp-desc text-muted text-[11px]">
+                        {{ hp.description }}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="hardware-guidance-box mt-2">
+                    <Info :size="13" class="text-primary flex-shrink-0 mt-0.5" />
+                    <span class="text-xs text-muted">
+                      <strong>Server Configuration:</strong> For your local LM Studio server, set <em>Parallel Request Slots</em> in Developer settings to match your selected preset (<strong>2 slots</strong> recommended for 12GB VRAM). For Ollama, launch with <code>OLLAMA_NUM_PARALLEL={{ providerForm.max_concurrency }}</code>.
+                    </span>
                   </div>
                 </div>
               </div>
@@ -2698,6 +2781,101 @@ watch(() => uiStore.isOnboardingWizardOpen, (isOpen) => {
 .test-result-badge.is-error {
   background-color: rgba(239, 68, 68, 0.12);
   color: var(--danger, #ef4444);
+}
+
+.hardware-preset-box {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.preset-box-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hardware-presets-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .hardware-presets-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.hardware-preset-card {
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: all var(--transition-fast);
+}
+
+.hardware-preset-card:hover {
+  background-color: var(--bg-surface-hover);
+  border-color: var(--border-color);
+}
+
+.hardware-preset-card.selected {
+  border-color: var(--primary);
+  background-color: var(--primary-subtle);
+  box-shadow: 0 0 0 1px var(--primary-glow);
+}
+
+.hp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.hp-name {
+  font-size: 12px;
+  color: var(--text-main);
+}
+
+.badge-recommended {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  background-color: var(--primary);
+  color: var(--primary-contrast, #0a0d14);
+}
+
+.hardware-guidance-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  line-height: 1.4;
+}
+
+.hardware-guidance-box code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 1px 4px;
+  background-color: var(--bg-input);
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
 }
 
 .privacy-collapsible-card {

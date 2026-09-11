@@ -42,7 +42,8 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - `staleness_archiver`: Background lifecycle job that sweeps across all 4 active application stages (`APPLIED`, `ONLINE_ASSESSMENT`, `TECHNICAL_INTERVIEW`, `OFFER`) and transitions inactive applications to `ARCHIVED` (rather than `REJECTED`), leaving all terminal statuses untouched.
   - `pricing_service.py`: Computes token consumption, dollar costs, and local LLM cloud savings using configurable model rates and extraction from diagnostic telemetry traces.
   - `agent_tools.py`: Comprehensive LangChain tool execution suite powering `AgentChatView`, providing 23+ database query, vector search, status mutation, and async queueing tools spanning pipeline tracking, company intelligence dossiers, mock interview practice, cover letter drafting, application form Q&A, role alignment career roadmaps, and live web research.
-  - `role_alignment_dossier_service.py`: Synthesizes high-impact career track dossiers (executive market positioning, quantified bullet rewrites, strategic interview talking points, and skill bridge roadmaps) persisted in `role_alignment_dossiers`.
+  - `benchmark_service.py`: Hardware-aware LLM capacity probe service verifying single/dual-stream throughput, n-gram degenerative loop detection, and grounded skill checks with optimal concurrency recommendations.
+  - `provider_lifecycle_service.py`: VRAM and engine sleep/unload lifecycle adapter supporting LM Studio, Ollama, vLLM, and SGLang.
   - `web_limiter.py`: Shared token bucket rate limiter and provider-specific concurrency ceilings (DDGS, SearXNG, Camofox).
   - `web_search.py`: Multi-provider search engine supporting DuckDuckGo (`ddgs`) and self-hosted `SearXNG` with automatic health fallback, token-bucket throttling, and Camofox webpage scraping.
   - `company_research.py`: Domain-anchored query builder and AI relevance guardrail engine synthesizing corporate mission, tech culture, and public ratings with entity caching on `CompanyModel`.
@@ -58,13 +59,14 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - 8 Application Timeline Events and 5 Action Items with varying deadlines/urgencies
   - 3 Staging Queue items for triage
   - 3 Intake AI evaluation tasks: 2 `COMPLETED` tasks with full match dossiers and 1 retryable `FAILED` task (with simulated network error) for testing UI retry functionality
-  - 1 Active AI Provider: `Local LM studio` (`openai` provider type, `http://192.168.1.187:1234/v1`, max concurrency `1`, empty key)
+  - 1 Active AI Provider: `Local LM studio` (`openai` provider type, `http://192.168.1.187:1234/v1`, max concurrency `2`, auto_release_vram_minutes `10`, empty key)
   - 5 AI Task Bindings (`GLOBAL_DEFAULT`, `JOB_ASSESSMENT`, `EMAIL_EXTRACTION`, `INTERVIEW_GUIDE`, `JD_EXTRACTION`) bound to `Local LM studio`
   - 2 Connected Email Accounts
 - **Dynamic Local LLM Mock Data Generator:** Run `./jt seed` (or `uv run python -m app.services.mock_generator --seed-db`) to query your local LM Studio instance and synthesize fresh, domain-accurate tech job leads, dossiers, and timeline events for testing new fields.
 - **Production Mode:** Run `./jt` or `./jt start` (using `docker-compose.yml` with `ENVIRONMENT=production`). All services run permanently in the background with `restart: unless-stopped`, meaning they automatically auto-start on PC/system boot whenever the Docker daemon starts and only stop when explicitly taken down (`./jt stop`). Seed data is strictly skipped in production.
 
 ## Core Domains & Data Models
+- **AI Providers & Capacity Lifecycle:** `AIProviderModel` manages LLM providers, model bindings, cost rates, concurrency ceilings (`max_concurrency`), priority preemption with interactive headroom, automated idle VRAM unloading (`auto_release_vram_minutes`), and hardware benchmark verification.
 - **Companies & Employer Directory:** `CompanyModel` manages employer entities, corporate domain, candidate notes (`notes`), pros (`pros` JSONB), red flags (`red_flags` JSONB), and live synthesized intelligence (`company_research` JSONB, `researched_at`). Supported by CRUD (including `POST /api/v1/companies` with optional immediate web intelligence queueing), explicit company deletion with optional linked-application deletion, live web research refresh, and deduplication merge endpoints (`POST /api/v1/companies/merge`).
 - **Applications:** `ApplicationModel` linked to `CompanyModel` (persisting canonical corporate `domain`). Persists cover letters (`cover_letter_text`, `cover_letter_status`), application form Q&A pairs (`application_questions` JSONB), and durable assessment identity (`is_assessment`) so archived assessment dossiers remain independent of queue task status.
   - **Statuses (`AllowedApplicationStatus`):**

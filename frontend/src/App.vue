@@ -2,6 +2,7 @@
 import { onMounted } from 'vue'
 import { AIConfigAPI } from './api/endpoints'
 import { useUIStore } from './stores/uiStore'
+import { useAIStore } from './stores/aiStore'
 import AppNavbar from './components/layout/AppNavbar.vue'
 import ApplicationDetailDrawer from './components/drawers/ApplicationDetailDrawer.vue'
 import CompanyDetailDrawer from './components/drawers/CompanyDetailDrawer.vue'
@@ -17,10 +18,12 @@ import FloatingAgentChatWidget from './components/agent/FloatingAgentChatWidget.
 import ToastNotification from './components/common/ToastNotification.vue'
 
 const uiStore = useUIStore()
+const aiStore = useAIStore()
 
 onMounted(async () => {
   try {
     await uiStore.fetchSystemSettings()
+    await aiStore.fetchProviders()
     const provRes = await AIConfigAPI.listProviders()
     const providers = provRes.data || []
 

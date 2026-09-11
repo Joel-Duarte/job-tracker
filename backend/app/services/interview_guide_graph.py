@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Any, TypedDict
 
@@ -131,6 +132,121 @@ async def web_researcher_node(
     return {"company_context": [f"Company overview based on job spec for {company}."]}
 
 
+async def generate_single_section(
+    section_key: str,
+    state: dict[str, Any],
+    db: Any | None = None,
+    provider_id: int | None = None,
+    max_concurrency: int = 1,
+) -> str:
+    """Generates the HTML for a single interview guide section, acquiring concurrency slot with priority=1."""
+    from app.core.ai_queue import concurrency_manager
+
+    section_desc = SECTION_DESCRIPTIONS.get(section_key, f"Section: {section_key}")
+    language_code = (state.get("language") or "en").strip()
+    language_name = LANGUAGE_DISPLAY_NAMES.get(language_code.lower(), language_code)
+    company_name = state.get("company_name", "Target Company")
+    position = state.get("position", "Target Role")
+    company_context = "\n".join(state.get("company_context", []))
+    jd_text = state.get("jd_text", "")
+    cv_text = state.get("cv_text", "")
+
+    async with concurrency_manager.acquire(provider_id, max_concurrency, priority=1):
+        try:
+            if db:
+                llm = await get_task_chat_model(
+                    db, task_type="INTERVIEW_GUIDE", temperature=0.4
+                )
+                template_str = await get_prompt_template(db, "interview_guide")
+
+                prompt = ChatPromptTemplate.from_messages(
+                    [
+                        ("system", template_str),
+                        (
+                            "human",
+                            (
+                                f"Generate the following section entirely in {language_name}:\n\n"
+                                f"{section_desc}\n\n"
+                                f"CRITICAL LANGUAGE DIRECTIVE: Every single heading, interview question, response, talking point, and checklist item MUST be written in {language_name}. "
+                                f"Do NOT leave questions or checklist items in English unless {language_name} is English. "
+                                "Output ONLY valid, clean HTML tags (e.g. <h2>, <h3>, <p>, <strong>, <ul>, <li>, <blockquote>) with zero markdown code blocks or wrapper backticks."
+                            ),
+                        ),
+                    ]
+                )
+
+                chain = prompt | llm
+                res = await chain.ainvoke(
+                    {
+                        "language": language_name,
+                        "company_name": company_name,
+                        "position": position,
+                        "company_context": company_context,
+                        "jd_text": jd_text[:4000],
+                        "cv_text": cv_text[:4000],
+                        "target_section": section_desc,
+                    },
+                    config={"callbacks": [PostgresTracer()]},
+                )
+
+                content = res.content if hasattr(res, "content") else res
+                raw_html = content if isinstance(content, str) else str(content)
+                clean_html = raw_html.strip()
+                if clean_html.startswith("```html"):
+                    clean_html = clean_html[7:]
+                elif clean_html.startswith("```"):
+                    clean_html = clean_html[3:]
+                clean_html = clean_html.removesuffix("```")
+                return clean_html.strip()
+            else:
+                return f"<div class='guide-section'><h2>{section_desc.splitlines()[0]}</h2><p>Tailored preparation for {company_name} - {position}.</p></div>"
+        except Exception as exc:
+            logger.error(
+                "Error generating section %s: %s", section_key, exc, exc_info=True
+            )
+            return f"<div class='guide-section'><h2>{section_desc.splitlines()[0]}</h2><p>Section generated based on profile for {position} at {company_name}.</p></div>"
+
+
+async def generate_all_sections_parallel(
+    sections: list[str],
+    state: dict[str, Any] | None = None,
+    db: Any | None = None,
+    provider_id: int | None = None,
+    max_concurrency: int = 1,
+    progress_callback: Any | None = None,
+) -> list[str]:
+    """
+    Executes section generation concurrently via asyncio.gather while respecting provider concurrency limits.
+    Calls progress_callback(completed_count, total_count) after each section finishes.
+    """
+    if state is None:
+        state = {}
+    completed_count = 0
+    total_count = len(sections)
+    results = [None] * total_count
+
+    async def _worker(idx: int, sec: str):
+        nonlocal completed_count
+        html = await generate_single_section(
+            sec,
+            state=state,
+            db=db,
+            provider_id=provider_id,
+            max_concurrency=max_concurrency,
+        )
+        results[idx] = html
+        completed_count += 1
+        if progress_callback:
+            if asyncio.iscoroutinefunction(progress_callback):
+                await progress_callback(completed_count, total_count)
+            else:
+                progress_callback(completed_count, total_count)
+
+    tasks = [_worker(i, sec) for i, sec in enumerate(sections)]
+    await asyncio.gather(*tasks)
+    return results
+
+
 async def section_generator_node(
     state: InterviewGuideState, config: RunnableConfig | None = None
 ) -> dict[str, Any]:
@@ -150,74 +266,13 @@ async def section_generator_node(
         }
 
     section_key = target_sections[idx]
-    section_desc = SECTION_DESCRIPTIONS.get(section_key, f"Section: {section_key}")
-    language_code = (state.get("language") or "en").strip()
-    language_name = LANGUAGE_DISPLAY_NAMES.get(language_code.lower(), language_code)
-    company_name = state.get("company_name", "Target Company")
-    position = state.get("position", "Target Role")
-    company_context = "\n".join(state.get("company_context", []))
-    jd_text = state.get("jd_text", "")
-    cv_text = state.get("cv_text", "")
     db = (
         config.get("configurable", {}).get("db")
         if config and "configurable" in config
         else None
     )
 
-    section_html = ""
-    try:
-        if db:
-            llm = await get_task_chat_model(
-                db, task_type="INTERVIEW_GUIDE", temperature=0.4
-            )
-            template_str = await get_prompt_template(db, "interview_guide")
-
-            prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", template_str),
-                    (
-                        "human",
-                        (
-                            f"Generate the following section entirely in {language_name}:\n\n"
-                            f"{section_desc}\n\n"
-                            f"CRITICAL LANGUAGE DIRECTIVE: Every single heading, interview question, response, talking point, and checklist item MUST be written in {language_name}. "
-                            f"Do NOT leave questions or checklist items in English unless {language_name} is English. "
-                            "Output ONLY valid, clean HTML tags (e.g. <h2>, <h3>, <p>, <strong>, <ul>, <li>, <blockquote>) with zero markdown code blocks or wrapper backticks."
-                        ),
-                    ),
-                ]
-            )
-
-            chain = prompt | llm
-            res = await chain.ainvoke(
-                {
-                    "language": language_name,
-                    "company_name": company_name,
-                    "position": position,
-                    "company_context": company_context,
-                    "jd_text": jd_text[:4000],
-                    "cv_text": cv_text[:4000],
-                    "target_section": section_desc,
-                },
-                config={"callbacks": [PostgresTracer()]},
-            )
-
-            content = res.content if hasattr(res, "content") else res
-            raw_html = content if isinstance(content, str) else str(content)
-            # Strip accidental ```html wrappers if model produced them
-            clean_html = raw_html.strip()
-            if clean_html.startswith("```html"):
-                clean_html = clean_html[7:]
-            elif clean_html.startswith("```"):
-                clean_html = clean_html[3:]
-            clean_html = clean_html.removesuffix("```")
-            section_html = clean_html.strip()
-        else:
-            section_html = f"<div class='guide-section'><h2>{section_desc.splitlines()[0]}</h2><p>Tailored preparation for {company_name} - {position}.</p></div>"
-    except Exception as exc:
-        logger.error("Error generating section %s: %s", section_key, exc, exc_info=True)
-        section_html = f"<div class='guide-section'><h2>{section_desc.splitlines()[0]}</h2><p>Section generated based on profile for {position} at {company_name}.</p></div>"
-
+    section_html = await generate_single_section(section_key, state=state, db=db)
     completed.append(str(section_html))
     return {
         "completed_sections": completed,

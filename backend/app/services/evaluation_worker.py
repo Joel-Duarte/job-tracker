@@ -1171,9 +1171,39 @@ async def _execute_evaluation_steps(
             task.stage = "ASSESSING"
             await db.commit()
 
+            # Prefer high-signal distilled job spec from Stage 2 over raw webpage HTML/markdown
+            assessment_jd_input = content
+            if spec_dict and (
+                spec_dict.get("responsibilities") or spec_dict.get("requirements")
+            ):
+                distilled_parts = []
+                if spec_dict.get("position"):
+                    distilled_parts.append(f"Position: {spec_dict['position']}")
+                if spec_dict.get("company"):
+                    distilled_parts.append(f"Company: {spec_dict['company']}")
+                if spec_dict.get("location"):
+                    distilled_parts.append(f"Location: {spec_dict['location']}")
+                if spec_dict.get("extracted_skills"):
+                    distilled_parts.append(
+                        f"Core ATS Skills: {', '.join(spec_dict['extracted_skills'])}"
+                    )
+                if spec_dict.get("responsibilities"):
+                    distilled_parts.append(
+                        "Key Responsibilities:\n"
+                        + "\n".join(f"- {r}" for r in spec_dict["responsibilities"])
+                    )
+                if spec_dict.get("requirements"):
+                    distilled_parts.append(
+                        "Role Requirements:\n"
+                        + "\n".join(f"- {r}" for r in spec_dict["requirements"])
+                    )
+                distilled_text = "\n\n".join(distilled_parts)
+                if len(distilled_text.strip()) > 100:
+                    assessment_jd_input = distilled_text
+
             assessment = await assess_job_posting(
                 db,
-                content,
+                assessment_jd_input,
                 candidate_skills=candidate_skills,
                 candidate_cv=candidate_cv_text,
                 candidate_domain_breakdown=active_domains_str,
@@ -1428,7 +1458,9 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
             provider_id = selected_row[1].id if selected_row else None
             max_concurrency = selected_row[1].max_concurrency if selected_row else 1
 
-            async with concurrency_manager.acquire(provider_id, max_concurrency):
+            async with concurrency_manager.acquire(
+                provider_id, max_concurrency, priority=1
+            ):
                 task.status = "PROCESSING"
                 if not task.stage or task.stage in ["QUEUED", "FAILED", "CANCELLED"]:
                     task.stage = (
@@ -1506,7 +1538,9 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
             max_concurrency = selected_row[1].max_concurrency if selected_row else 1
 
         # 2. Acquire Provider Semaphore to strictly gate task execution based on provider's max concurrency setting
-        async with concurrency_manager.acquire(provider_id, max_concurrency):
+        async with concurrency_manager.acquire(
+            provider_id, max_concurrency, priority=1
+        ):
             async with db_module.AsyncSessionLocal() as session:
                 task = await session.get(IntakeEvaluationTaskModel, task_id)
                 if not task or task.status == "CANCELLED":
