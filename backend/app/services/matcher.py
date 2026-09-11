@@ -2,6 +2,12 @@ import re
 
 from rapidfuzz import fuzz
 
+from app.services.skill_normalizer import (
+    extract_skills_from_text,
+    normalize_skill,
+    normalize_skills_list,
+)
+
 SKILL_ALIASES = {
     "k8s": "kubernetes",
     "postgres": "postgresql",
@@ -46,6 +52,86 @@ def _normalize_token(token: str) -> str:
     return SKILL_ALIASES.get(cleaned, cleaned)
 
 
+def _canonicalize_skill(skill: str) -> str:
+    """Returns canonical taxonomy skill name, or stripped string if not in taxonomy."""
+    if not skill or not isinstance(skill, str):
+        return ""
+    norm = normalize_skill(skill)
+    return norm if norm else skill.strip()
+
+
+# Conceptual and domain equivalence clusters (e.g. Vector DBs, Generative AI / LLMs, AI / ML)
+SKILL_EQUIVALENCE_CLUSTERS: list[set[str]] = [
+    # Vector search & vector databases / stores
+    {
+        "vector search",
+        "vector databases",
+        "vector database",
+        "vector stores",
+        "vector store",
+        "pgvector",
+        "pinecone",
+        "weaviate",
+        "qdrant",
+        "chromadb",
+        "chroma",
+        "milvus",
+        "faiss",
+    },
+    # Semantic Search & Information Retrieval
+    {
+        "semantic search",
+        "neural search",
+        "information retrieval",
+    },
+    # Generative AI, Large Language Models, GenAI & Prompt Engineering
+    {
+        "generative ai",
+        "genai",
+        "large language models",
+        "large language models (llm)",
+        "large language model",
+        "llm",
+        "llms",
+        "prompt engineering",
+        "prompt",
+    },
+    # Artificial Intelligence, Machine Learning & Deep Learning
+    {
+        "artificial intelligence",
+        "artificial intelligence (ai)",
+        "ai",
+        "machine learning",
+        "ml",
+        "deep learning",
+    },
+    # Cloud Providers & Ecosystems
+    {
+        "google cloud platform (gcp)",
+        "google cloud",
+        "google cloud platform",
+        "gcp",
+    },
+    {
+        "microsoft azure",
+        "azure",
+        "azure cloud",
+    },
+    {
+        "amazon web services",
+        "aws",
+    },
+    # CI/CD & Automation
+    {
+        "ci/cd",
+        "cicd",
+        "continuous integration",
+        "continuous deployment",
+        "continuous delivery",
+    },
+]
+
+
 # Unrelated technical skills that must NEVER match via substring containment or token overlap
 UNRELATED_SKILL_PAIRS = {
     ("java", "javascript"),
@@ -67,6 +153,28 @@ def _are_unrelated_skills(skill_a: str, skill_b: str) -> bool:
     ) in UNRELATED_SKILL_PAIRS
 
 
+def _are_equivalent_skills(skill_a: str, skill_b: str) -> bool:
+    """Checks whether two skills belong to the same conceptual or domain family."""
+    if not skill_a or not skill_b:
+        return False
+    canon_a = _canonicalize_skill(skill_a).lower()
+    canon_b = _canonicalize_skill(skill_b).lower()
+    if canon_a and canon_b and canon_a == canon_b:
+        return True
+
+    raw_a = skill_a.lower().strip()
+    raw_b = skill_b.lower().strip()
+    if raw_a == raw_b:
+        return True
+
+    terms_a = {raw_a, canon_a}
+    terms_b = {raw_b, canon_b}
+    for cluster in SKILL_EQUIVALENCE_CLUSTERS:
+        if any(t in cluster for t in terms_a) and any(t in cluster for t in terms_b):
+            return True
+    return False
+
+
 def _find_matched_candidate_skill(
     jd_skill: str,
     normalized_candidate: dict[str, str],
@@ -75,15 +183,29 @@ def _find_matched_candidate_skill(
     """Finds and returns the candidate's matching skill name, guarding against false substring matches."""
     norm_jd = _normalize_token(jd_skill)
     jd_clean = jd_skill.lower().strip()
+    canon_jd = _canonicalize_skill(jd_skill).lower()
 
-    # Pass 1: Exact normalized token or exact string match
+    # Pass 1: Exact canonical match, exact normalized token, or exact string match
     for cand_orig, cand_norm in normalized_candidate.items():
         if not cand_norm:
             continue
-        if norm_jd == cand_norm or jd_clean == cand_orig.lower().strip():
+        cand_clean = cand_orig.lower().strip()
+        cand_canon = _canonicalize_skill(cand_orig).lower()
+        if (
+            (canon_jd and cand_canon and canon_jd == cand_canon)
+            or norm_jd == cand_norm
+            or jd_clean == cand_clean
+        ):
             return cand_orig
 
-    # Pass 2: Substring / phrase containment for multi-word or compound skills (excluding unrelated pairs)
+    # Pass 2: Equivalence cluster match (e.g. GenAI <-> LLM, ML <-> AI, Vector DBs <-> Vector Search)
+    for cand_orig in normalized_candidate:
+        if _are_unrelated_skills(jd_clean, cand_orig):
+            continue
+        if _are_equivalent_skills(jd_skill, cand_orig):
+            return cand_orig
+
+    # Pass 3: Substring / phrase containment for multi-word or compound skills (excluding unrelated pairs)
     for cand_orig, cand_norm in normalized_candidate.items():
         if (
             not cand_norm
@@ -95,7 +217,7 @@ def _find_matched_candidate_skill(
             if norm_jd in cand_norm or cand_norm in norm_jd:
                 return cand_orig
 
-    # Pass 3: RapidFuzz token matching
+    # Pass 4: RapidFuzz token matching
     for cand_orig, cand_norm in normalized_candidate.items():
         if (
             not cand_norm
@@ -151,25 +273,16 @@ def compute_programmatic_skill_match(
     }
 
     # 1. Determine target JD skills list (combining explicit JD skills and taxonomy extraction)
-    target_jd_skills: list[str] = []
-    seen = set()
-
+    raw_jd_skills: list[str] = []
     if jd_required_skills:
-        for s in jd_required_skills:
-            clean = s.strip()
-            if clean and clean.lower() not in seen:
-                seen.add(clean.lower())
-                target_jd_skills.append(clean)
+        raw_jd_skills.extend(jd_required_skills)
 
     if jd_text:
         # Deterministic regex taxonomy scan to supplement or identify skills
-        from app.services.skill_normalizer import extract_skills_from_text
+        raw_jd_skills.extend(extract_skills_from_text(jd_text))
 
-        for s in extract_skills_from_text(jd_text):
-            clean = s.strip()
-            if clean and clean.lower() not in seen:
-                seen.add(clean.lower())
-                target_jd_skills.append(clean)
+    # Normalize, split compounds, and deduplicate JD skills
+    target_jd_skills = normalize_skills_list(raw_jd_skills)
 
     # 2. Fallback: Only if NO skills were identified in the JD text via taxonomy,
     # scan if any candidate skills appear as distinct whole words in the JD
@@ -192,7 +305,7 @@ def compute_programmatic_skill_match(
                 pattern = r"\b" + re.escape(norm_skill) + r"\b"
                 if re.search(pattern, jd_text, re.IGNORECASE):
                     found_in_jd.append(orig_skill)
-        target_jd_skills = found_in_jd
+        target_jd_skills = normalize_skills_list(found_in_jd)
 
     # If no required skills identified in JD even after fallback
     if not target_jd_skills:
@@ -208,13 +321,36 @@ def compute_programmatic_skill_match(
     # 3. Partition into matching and missing JD skills
     matching_skills: list[str] = []
     missing_skills: list[str] = []
+    seen_matching: set[str] = set()
 
     for jd_skill in target_jd_skills:
         matched_cand = _find_matched_candidate_skill(
             jd_skill, normalized_candidate, fuzzy_threshold=fuzzy_threshold
         )
         if matched_cand:
-            matching_skills.append(matched_cand)
+            # If candidate skill name matches jd_skill directly or as direct alias,
+            # prefer matched_cand (candidate's own term).
+            # If matched via broader equivalence cluster (e.g. GenAI matched by LLM),
+            # prefer jd_skill so distinct JD requirements aren't collapsed into duplicate candidate names.
+            cand_canon = _canonicalize_skill(matched_cand).lower()
+            jd_canon = _canonicalize_skill(jd_skill).lower()
+            if cand_canon == jd_canon or _normalize_token(
+                matched_cand
+            ) == _normalize_token(jd_skill):
+                skill_label = matched_cand
+            else:
+                skill_label = jd_skill
+
+            # Ensure strict uniqueness in matching_skills
+            if skill_label.lower() not in seen_matching:
+                seen_matching.add(skill_label.lower())
+                matching_skills.append(skill_label)
+            elif jd_skill.lower() not in seen_matching:
+                seen_matching.add(jd_skill.lower())
+                matching_skills.append(jd_skill)
+            elif matched_cand.lower() not in seen_matching:
+                seen_matching.add(matched_cand.lower())
+                matching_skills.append(matched_cand)
         else:
             missing_skills.append(jd_skill)
 

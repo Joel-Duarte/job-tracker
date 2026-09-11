@@ -100,6 +100,126 @@ def test_programmatic_skill_matcher_zero_skills_edge_case():
     assert result["total_required_count"] == 0
 
 
+def test_programmatic_skill_matcher_equivalence_clusters_and_deduplication():
+    """Verify that conceptual equivalents match (Vector DB <-> Vector Search, GenAI <-> LLM, ML <-> AI)
+    and that JD synonyms (GCP / Google Cloud, Azure / Microsoft Azure) deduplicate cleanly without duplicates."""
+    candidate_skills = [
+        "Vector Search",
+        "Large Language Models (LLM)",
+        "Artificial Intelligence (AI)",
+        "Python",
+    ]
+    jd_required_skills = [
+        "Vector Databases",  # Equivalence with Vector Search
+        "Generative AI",  # Equivalence with Large Language Models (LLM)
+        "Machine Learning",  # Equivalence with Artificial Intelligence (AI)
+        "Python",
+        "GCP",  # Should deduplicate with Google Cloud Platform (GCP)
+        "Google Cloud Platform (GCP)",
+        "Azure",  # Should deduplicate with Microsoft Azure
+        "Microsoft Azure",
+    ]
+
+    result = compute_programmatic_skill_match(
+        candidate_skills=candidate_skills,
+        jd_text="",
+        jd_required_skills=jd_required_skills,
+    )
+
+    # 1. Deduplicated JD skills: GCP and Google Cloud Platform collapse to 1, Azure and MS Azure collapse to 1
+    # Total unique required skills: Vector Search (from Vector Databases), Generative AI, Machine Learning, Python, Google Cloud Platform (GCP), Microsoft Azure = 6
+    assert result["total_required_count"] == 6
+
+    # 2. Candidate matches Vector Databases, Generative AI, Machine Learning, and Python
+    assert result["matched_count"] == 4
+    assert result["programmatic_score"] == 67  # 4 / 6 = 66.6% -> 67%
+
+    # 3. Matching skills must have NO duplicates
+    assert len(result["matching_skills"]) == len(set(result["matching_skills"]))
+    assert "Vector Search" in result["matching_skills"]
+    assert "Python" in result["matching_skills"]
+
+    # 4. Missing skills must have NO duplicates and NO GCP/Azure repeated
+    assert len(result["missing_skills"]) == 2
+    assert "Google Cloud Platform (GCP)" in result["missing_skills"]
+    assert "Microsoft Azure" in result["missing_skills"]
+    assert "GCP" not in result["missing_skills"]
+    assert "Azure" not in result["missing_skills"]
+    assert "Vector Databases" not in result["missing_skills"]
+    assert "Generative AI" not in result["missing_skills"]
+    assert "Machine Learning" not in result["missing_skills"]
+
+
+def test_programmatic_skill_matcher_user_reported_scenario():
+    """Verify that the exact user scenario resolves without duplicate lines or false missing gaps."""
+    candidate_skills = [
+        "Agentic",
+        "Artificial Intelligence (AI)",
+        "CI/CD",
+        "LangChain",
+        "Large Language Models (LLM)",
+        "MLOps",
+        "Prompt",
+        "Python",
+        "Retrieval-Augmented Generation (RAG)",
+        "Semantic Search",
+        "Vector Search",
+    ]
+    jd_skills = [
+        # Missing candidate skills
+        "AI Safety",
+        "AWS",
+        "Azure",
+        "GCP",
+        "Generative AI",
+        "Google Cloud Platform (GCP)",
+        "LlamaIndex",
+        "Machine Learning",
+        "Microsoft Azure",
+        "Orchestration Patterns",
+        "Tool Calling",
+        "Vector Databases",
+        # Matching candidate skills
+        "Large Language Models (LLM)",
+        "Retrieval-Augmented Generation (RAG)",
+        "Python",
+        "CI/CD",
+        "LangChain",
+        "MLOps",
+        "Semantic Search",
+        "Agentic",
+    ]
+
+    result = compute_programmatic_skill_match(
+        candidate_skills=candidate_skills,
+        jd_text="",
+        jd_required_skills=jd_skills,
+    )
+
+    # 1. Zero duplicates anywhere in matching or missing skills
+    assert len(result["matching_skills"]) == len(set(result["matching_skills"]))
+    assert len(result["missing_skills"]) == len(set(result["missing_skills"]))
+
+    # 2. Neither LLM nor RAG appear twice
+    assert result["matching_skills"].count("Large Language Models (LLM)") <= 1
+    assert result["matching_skills"].count("Retrieval-Augmented Generation (RAG)") <= 1
+
+    # 3. Vector Databases is matched by Vector Search (not missing)
+    assert "Vector Databases" not in result["missing_skills"]
+
+    # 4. Generative AI is matched by Large Language Models (LLM) (not missing)
+    assert "Generative AI" not in result["missing_skills"]
+
+    # 5. Machine Learning is matched by Artificial Intelligence (AI) (not missing)
+    assert "Machine Learning" not in result["missing_skills"]
+
+    # 6. GCP and Azure appear at most once each in missing skills under their canonical name
+    assert result["missing_skills"].count("Google Cloud Platform (GCP)") == 1
+    assert result["missing_skills"].count("Microsoft Azure") == 1
+    assert "GCP" not in result["missing_skills"]
+    assert "Azure" not in result["missing_skills"]
+
+
 @pytest.mark.asyncio
 async def test_candidate_profile_crud_and_anonymization(db_session: AsyncSession):
     app.dependency_overrides[get_db] = lambda: db_session
