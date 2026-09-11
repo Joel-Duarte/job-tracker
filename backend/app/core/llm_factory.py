@@ -457,7 +457,12 @@ TASK_RECOMMENDED_DEFAULTS = {
         "max_tokens": 2048,
     },
     "ASSESSMENT": {
-        "temperature": 0.1,
+        "temperature": 0.0,
+        "reasoning_effort": "none",
+        "max_tokens": 2048,
+    },
+    "JOB_ASSESSMENT": {
+        "temperature": 0.0,
         "reasoning_effort": "none",
         "max_tokens": 2048,
     },

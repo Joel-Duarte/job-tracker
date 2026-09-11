@@ -158,7 +158,7 @@ class ExtractedJobSpec(BaseModel):
 class VocabularyTranslationItem(BaseModel):
     jd_term: str = Field(description="Exact terminology or phrase required by the JD")
     cv_term: str = Field(
-        description="Equivalent terminology currently used in the candidate CV"
+        description="Exact alias or lexical synonym currently used in the candidate CV (e.g. Postgres vs PostgreSQL; never disparate technologies)"
     )
     replacement_guidance: str = Field(
         description="Specific instructions for swapping the term"
@@ -168,7 +168,7 @@ class VocabularyTranslationItem(BaseModel):
 class ImpactReframingItem(BaseModel):
     bullet_point: str = Field(description="Original bullet point from the CV")
     suggested_rewrite: str = Field(
-        description="Reframed bullet point aligning with JD action verbs and metrics"
+        description="Reframed bullet point aligning with JD action verbs using ONLY documented facts without inventing any unverified metrics or numbers"
     )
     reason: str = Field(
         description="Rationale for how this reframe improves ATS rank / recruiter appeal"
@@ -197,7 +197,7 @@ class OptimizationGaps(BaseModel):
     )
     vocabulary_mismatches: list[str] = Field(
         default_factory=list,
-        description="Skills present in CV under a different term (e.g. Node vs Node.js, Postgres vs PostgreSQL)",
+        description="Skills present in CV under a different lexical term (e.g. Node vs Node.js, Postgres vs PostgreSQL; never different tools)",
     )
     experience_mismatch: str | None = Field(
         default=None, description="Years of experience or seniority level delta if any"
@@ -236,7 +236,7 @@ class JobAssessmentResult(BaseModel):
     )
     match_summary: str = Field(
         default="",
-        description="2-sentence overview defining the profile-to-JD delta gap",
+        description="Objective, skeptical 2-sentence overview defining the profile-to-JD delta gap and verified missing prerequisites (no sugarcoating or speculative praise)",
     )
     hard_matches: HardMatches | None = Field(
         default=None, description="Core hard keyword matches and top aligned skills"
@@ -257,10 +257,12 @@ class JobAssessmentResult(BaseModel):
         default_factory=list, description="List of missing skills or requirements"
     )
     pros: list[str] = Field(
-        default_factory=list, description="Key advantages / pros of this role"
+        default_factory=list,
+        description="Concrete technical advantages and verified CV strengths directly matching the JD (strictly no generic workplace or culture praise)",
     )
     cons: list[str] = Field(
-        default_factory=list, description="Potential caveats or drawbacks"
+        default_factory=list,
+        description="Concrete missing technical prerequisites and qualification gaps (strictly no speculative workplace warnings)",
     )
     critical_risks: list[str] = Field(
         default_factory=list,

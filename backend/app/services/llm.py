@@ -257,47 +257,62 @@ def calibrate_assessment_score_and_recommendation(
 ) -> tuple[int, str]:
     """
     Applies mathematical bounding and recommendation synchronization to eliminate
-    AI grade inflation:
-    1. Base window: [max(10, baseline - 15), min(100, baseline + 15)].
+    AI grade inflation while ensuring smooth, deterministic stability:
+    1. Base window anchored to programmatic baseline: [max(10, baseline - 15), min(100, baseline + 15)].
     2. Seniority bonus: Up to +25% boost ONLY if candidate verified seniority matches/exceeds
        requirements (seniority_fit in ('MATCHES', 'OVERQUALIFIED')) and 0 critical risks.
-    3. Underqualified / critical risks ceiling clamp: If seniority_fit is 'UNDERQUALIFIED'
-       or critical_risks >= 2, ceiling is clamped to min(65, baseline + 5) and score capped at 65.
-    4. If programmatic_baseline is None: Caps score at max 70 (or 65 if underqualified/risks).
-    5. Synchronizes recommendation:
-       - APPLY_STRONGLY: fit_score >= 85 and 0 critical risks and seniority_fit != 'UNDERQUALIFIED'
-       - APPLY_MODERATELY: fit_score >= 70 and len(critical_risks) <= 1 and seniority_fit != 'UNDERQUALIFIED'
-       - STRETCH_ROLE: fit_score >= 50 (or has critical risks / seniority deficit)
+    3. Factual underqualification penalty: If seniority_fit is 'UNDERQUALIFIED',
+       the ceiling is strictly capped at min(65, baseline + 5) and score capped at 65.
+    4. Proportional risk handling:
+       - If programmatic_baseline < 75 and critical_risks >= 2: ceiling is clamped to min(65, baseline + 5).
+       - If programmatic_baseline >= 75: candidate has strong verified overlap, so multiple minor risks
+         dampen the ceiling smoothly (deducting 3 points per risk) rather than triggering a cliff-edge drop to 65.
+    5. If programmatic_baseline is None: Caps score at max 70 (or 65 if underqualified/risks >= 2).
+    6. Synchronizes recommendation:
+       - APPLY_STRONGLY: fit_score >= 85 and len(critical_risks) <= 1 and not is_underqualified
+       - APPLY_MODERATELY: fit_score >= 70 and not is_underqualified and not has_hard_ceiling
+       - STRETCH_ROLE: fit_score >= 50
        - DO_NOT_APPLY: fit_score < 50
     """
     seniority_upper = (seniority_fit or "").strip().upper()
     is_strong_seniority = seniority_upper in ("MATCHES", "OVERQUALIFIED")
     is_underqualified = seniority_upper == "UNDERQUALIFIED"
     num_risks = len(critical_risks or [])
-    has_critical_penalty = is_underqualified or num_risks >= 2
+
+    # True disqualifier penalty: underqualified, or multiple critical risks on a candidate without a strong baseline (<75%)
+    has_hard_ceiling = is_underqualified or (
+        num_risks >= 2 and (programmatic_baseline is None or programmatic_baseline < 75)
+    )
 
     # 1. Mathematical clamp
     if programmatic_baseline is not None:
         min_bound = max(10, programmatic_baseline - 15)
-        if is_strong_seniority and num_risks == 0:
-            max_bound = min(100, programmatic_baseline + 25)
-        elif has_critical_penalty:
+        if has_hard_ceiling:
             max_bound = min(65, programmatic_baseline + 5)
+        elif is_strong_seniority and num_risks == 0:
+            max_bound = min(100, programmatic_baseline + 25)
+        elif num_risks >= 2:
+            # High baseline (>=75%) with multiple risks: dampen ceiling smoothly so it never drops below min_bound or 65
+            max_bound = max(65, min(100, programmatic_baseline + 15 - (num_risks * 3)))
         else:
             max_bound = min(100, programmatic_baseline + 15)
 
-        clamped_score = max(min_bound, min(max_bound, raw_fit_score))
+        if has_hard_ceiling:
+            clamped_score = min(max_bound, raw_fit_score)
+        else:
+            clamped_score = max(min_bound, min(max_bound, raw_fit_score))
     else:
-        clamped_score = min(70, max(10, raw_fit_score))
+        max_bound = 65 if has_hard_ceiling else 70
+        clamped_score = min(max_bound, max(10, raw_fit_score))
 
-    # 2. Hard ceiling clamp for underqualified or high critical risks
-    if has_critical_penalty:
+    # 2. Hard ceiling clamp strictly for verified disqualification
+    if has_hard_ceiling:
         clamped_score = min(65, clamped_score)
 
     # 3. Synchronize recommendation tier
-    if clamped_score >= 85 and num_risks == 0 and not is_underqualified:
+    if clamped_score >= 85 and num_risks <= 1 and not is_underqualified:
         rec = "APPLY_STRONGLY"
-    elif clamped_score >= 70 and num_risks <= 1 and not is_underqualified:
+    elif clamped_score >= 70 and not is_underqualified and not has_hard_ceiling:
         rec = "APPLY_MODERATELY"
     elif clamped_score >= 50:
         rec = "STRETCH_ROLE"
@@ -325,7 +340,7 @@ async def assess_job_posting(
     Evaluates a job posting / JD against candidate CV for pre-application qualification,
     strict terminology gap mapping, spoken language compatibility audit, and granular resume tailoring strategy.
     """
-    llm = await get_task_chat_model(db, task_type="ASSESSMENT", temperature=0.2)
+    llm = await get_task_chat_model(db, task_type="ASSESSMENT", temperature=0.0)
     structured_llm = llm.with_structured_output(
         JobAssessmentResult, method="json_schema"
     )

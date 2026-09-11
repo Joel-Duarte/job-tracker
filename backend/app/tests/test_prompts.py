@@ -56,6 +56,96 @@ def test_assessment_prompt_seniority_directives():
     assert "Permissive Overqualification" in template
 
 
+def test_assessment_prompt_factual_grounding_directives():
+    """Verify assessment prompt contains anti-stretching, zero-metric hallucination, and factual pros/cons directives."""
+    template = DEFAULT_PROMPTS["assessment"]
+    assert "ZERO-METRIC HALLUCINATION" in template
+    assert "FACTUAL STRATEGIC PROS (pros)" in template
+    assert "FACTUAL GAP CAVEATS (cons)" in template
+    assert "OBJECTIVE MATCH SUMMARY (match_summary)" in template
+    assert (
+        "FACTUAL TAILORING STRATEGY & VOCABULARY MAPPING (tailoring_strategy)"
+        in template
+    )
+
+
+def test_jd_extraction_factual_grounding_directives():
+    """Verify jd_extraction prompt forbids speculating or guessing why_hiring and what_you_will_build."""
+    template = DEFAULT_PROMPTS["jd_extraction"]
+    assert "MUST be null unless explicitly stated under a clear heading" in template
+    assert "Strictly forbid inferring, guessing, or summarizing reasons" in template
+
+
+def test_previous_assessment_payload_backward_compatibility():
+    """Verify that existing stored assessment payloads deserialize into JobAssessmentResult with zero breakage."""
+    from app.schemas.llm import JobAssessmentResult
+
+    # Simulate an assessment stored prior to these changes
+    legacy_assessment_json = {
+        "company": "Legacy Corp",
+        "company_url": "legacy.com",
+        "position": "Backend Engineer",
+        "fit_score": 78,
+        "programmatic_match_score": 75,
+        "matched_skills_count": 6,
+        "total_required_skills_count": 8,
+        "match_summary": "Candidate matches primary stack with slight gaps.",
+        "matching_skills": ["Python", "PostgreSQL", "Docker", "FastAPI"],
+        "missing_skills": ["Kubernetes", "Kafka"],
+        "pros": ["Strong Python experience", "Great culture fit"],
+        "cons": ["Missing Kafka"],
+        "critical_risks": [],
+        "seniority_fit": "MATCHES",
+        "salary_min": 120000.0,
+        "salary_max": 140000.0,
+        "currency": "USD",
+        "salary_period": "YEARLY",
+        "location": "Remote",
+        "work_model": "Remote",
+        "recommendation": "APPLY_MODERATELY",
+        "hard_matches": {
+            "keyword_match_rate": "4/6",
+            "top_alignment": ["Python", "FastAPI"],
+        },
+        "optimization_gaps": {
+            "missing_completely": ["Kafka"],
+            "vocabulary_mismatches": ["Postgres vs PostgreSQL"],
+            "experience_mismatch": None,
+        },
+        "tailoring_strategy": {
+            "vocabulary_translation": [
+                {
+                    "jd_term": "PostgreSQL",
+                    "cv_term": "Postgres",
+                    "replacement_guidance": "Use official term",
+                }
+            ],
+            "impact_reframing": [
+                {
+                    "bullet_point": "Built an API",
+                    "suggested_rewrite": "Engineered high-throughput API with FastAPI",
+                    "reason": "Aligns with JD verbs",
+                }
+            ],
+            "structural_adjustments": ["Highlight backend section"],
+        },
+        "markdown_report": "# Job Match Analysis: 78%\n\nLegacy report text.",
+        "summary": "Legacy summary string",
+    }
+
+    parsed = JobAssessmentResult.model_validate(legacy_assessment_json)
+    assert parsed.company == "Legacy Corp"
+    assert parsed.fit_score == 78
+    assert parsed.pros == ["Strong Python experience", "Great culture fit"]
+    assert len(parsed.matching_skills) == 4
+    assert parsed.tailoring_strategy is not None
+    assert len(parsed.tailoring_strategy.impact_reframing) == 1
+    # Verify dumping to dict works identically
+    dumped = parsed.model_dump()
+    assert dumped["company"] == "Legacy Corp"
+    assert dumped["fit_score"] == 78
+
+
 def test_is_context_size_error():
     """Verify context size exceeded error detection matches various engine error payloads."""
     from app.services.llm import is_context_size_error
@@ -89,3 +179,64 @@ def test_sanitize_and_cap_jd_ceiling():
 
     short_text = "Senior Python Developer at TechCorp."
     assert sanitize_and_cap_jd(short_text, max_tokens=1500) == short_text
+
+
+def test_calibrate_assessment_score_prevents_arbitrary_risk_cliff_drop():
+    """Verify that multiple critical risks do NOT artificially slam a high-matching candidate to 65%."""
+    from app.services.llm import calibrate_assessment_score_and_recommendation
+
+    # 1. 91% baseline with 1 risk
+    score_1_risk, rec_1 = calibrate_assessment_score_and_recommendation(
+        raw_fit_score=82,
+        programmatic_baseline=91,
+        critical_risks=["Missing Computer Vision"],
+        seniority_fit="MATCHES",
+    )
+    assert score_1_risk == 82
+    assert rec_1 == "APPLY_MODERATELY"
+
+    # Score >= 85 with <= 1 risk yields APPLY_STRONGLY
+    score_strong, rec_strong = calibrate_assessment_score_and_recommendation(
+        raw_fit_score=88,
+        programmatic_baseline=91,
+        critical_risks=["Missing Computer Vision"],
+        seniority_fit="MATCHES",
+    )
+    assert score_strong >= 85
+    assert rec_strong == "APPLY_STRONGLY"
+
+    # 2. 91% baseline with 3 risks (previously caused cliff-drop to 65%)
+    score_3_risks, rec_3 = calibrate_assessment_score_and_recommendation(
+        raw_fit_score=82,
+        programmatic_baseline=91,
+        critical_risks=[
+            "Missing Computer Vision",
+            "Compliance specifics (ISO 27001/GDPR)",
+            "AI Coding Tools proficiency",
+        ],
+        seniority_fit="MATCHES",
+    )
+    # The score must remain stable at 82 instead of dropping to 65!
+    assert score_3_risks == 82
+    assert rec_3 == "APPLY_MODERATELY"
+
+    # 3. True underqualified candidate is strictly clamped to <= 65%
+    underqualified_score, underqualified_rec = (
+        calibrate_assessment_score_and_recommendation(
+            raw_fit_score=85,
+            programmatic_baseline=91,
+            critical_risks=["Seniority deficit: 4 yrs vs 8+ yrs Staff requirement"],
+            seniority_fit="UNDERQUALIFIED",
+        )
+    )
+    assert underqualified_score <= 65
+    assert underqualified_rec == "STRETCH_ROLE"
+
+    # 4. Low programmatic baseline (35%) prevents grade inflation (clamped to <= 60 with +25% seniority bonus)
+    low_match_score, _ = calibrate_assessment_score_and_recommendation(
+        raw_fit_score=85,
+        programmatic_baseline=35,
+        critical_risks=[],
+        seniority_fit="MATCHES",
+    )
+    assert low_match_score <= 60
