@@ -60,7 +60,7 @@ const queueStore = useQueueStore()
 
 function formatTaskSalary(result) {
   if (!result) return null
-  return formatSalaryRange(result.salary_min, result.salary_max, result.currency || uiStore.defaultCurrency)
+  return formatSalaryRange(result.salary_min, result.salary_max, result.currency || uiStore.defaultCurrency, result.salary_period)
 }
 
 // Active Tab

@@ -4,6 +4,7 @@ import { ApplicationsAPI } from '../../api/endpoints'
 import { useUIStore } from '../../stores/uiStore'
 import CompanyLogo from '../common/CompanyLogo.vue'
 import { getFitScores } from '../../utils/fitScores'
+import { formatSalaryRange } from '../../utils/formatters'
 import {
   X,
   Sparkles,
@@ -163,13 +164,9 @@ const computedRatioText = computed(() => {
 const compensationText = computed(() => {
   const min = application.value?.salary_min ?? analysisData.value?.salary_min
   const max = application.value?.salary_max ?? analysisData.value?.salary_max
-  const curr = application.value?.currency ?? analysisData.value?.currency ?? 'USD'
-  if (min && max) {
-    return `$${Math.round(min / 1000)}k - $${Math.round(max / 1000)}k ${curr}`
-  }
-  if (min) return `From $${Math.round(min / 1000)}k ${curr}`
-  if (max) return `Up to $${Math.round(max / 1000)}k ${curr}`
-  return null
+  const curr = application.value?.currency ?? analysisData.value?.currency ?? uiStore.defaultCurrency ?? 'USD'
+  const period = application.value?.salary_period ?? analysisData.value?.salary_period ?? null
+  return formatSalaryRange(min, max, curr, period)
 })
 
 const locationText = computed(() => {

@@ -1108,9 +1108,9 @@ async def _execute_evaluation_steps(
                 active_cv = cv_res.scalars().first()
                 candidate_skills = active_cv.extracted_skills if active_cv else []
 
-                jd_req_skills = spec_dict.get("extracted_skills") if spec_dict else None
+                # Deterministically compute skills and overlap using taxonomy regex & candidate mentions
                 match_info = compute_programmatic_skill_match(
-                    candidate_skills, content, jd_required_skills=jd_req_skills
+                    candidate_skills, content, jd_required_skills=None
                 )
 
                 active_domains_str = None
@@ -1214,6 +1214,8 @@ async def _execute_evaluation_steps(
                 programmatic_baseline=match_info.get("programmatic_score"),
                 matched_skills_count=match_info.get("matched_count"),
                 total_required_skills_count=match_info.get("total_required_count"),
+                matching_skills=match_info.get("matching_skills"),
+                missing_skills=match_info.get("missing_skills"),
             )
 
             task.stage = "SAVING"

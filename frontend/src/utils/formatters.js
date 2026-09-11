@@ -104,22 +104,36 @@ export function getCurrencySymbol(curr = 'USD') {
  * - (150000, null, 'USD') -> "From $150k"
  * - (null, 200000, 'EUR') -> "Up to €200k"
  */
-export function formatSalaryRange(min, max, currency = 'USD') {
+export function formatSalaryRange(min, max, currency = 'USD', period = null) {
   const numMin = min !== null && min !== undefined ? Number(min) : null
   const numMax = max !== null && max !== undefined ? Number(max) : null
 
   const sym = getCurrencySymbol(currency)
 
+  let suffix = ''
+  if (period === 'YEARLY') suffix = ' / yr'
+  else if (period === 'MONTHLY') suffix = ' / mo'
+  else if (period === 'HOURLY') suffix = ' / hr'
+
   if (numMin && numMax) {
+    if (numMax < 1000) {
+      return `${sym}${numMin}–${sym}${numMax}${suffix}`
+    }
     const minK = Math.round(numMin / 1000)
     const maxK = Math.round(numMax / 1000)
-    return `${sym}${minK}k–${sym}${maxK}k`
+    return `${sym}${minK}k–${sym}${maxK}k${suffix}`
   }
   if (numMin) {
-    return `From ${sym}${Math.round(numMin / 1000)}k`
+    if (numMin < 1000) {
+      return `From ${sym}${numMin}${suffix}`
+    }
+    return `From ${sym}${Math.round(numMin / 1000)}k${suffix}`
   }
   if (numMax) {
-    return `Up to ${sym}${Math.round(numMax / 1000)}k`
+    if (numMax < 1000) {
+      return `Up to ${sym}${numMax}${suffix}`
+    }
+    return `Up to ${sym}${Math.round(numMax / 1000)}k${suffix}`
   }
   return null
 }

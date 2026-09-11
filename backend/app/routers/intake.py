@@ -443,7 +443,6 @@ async def assess_job_lead(
     from app.services.llm import extract_job_spec
 
     spec_dict = None
-    jd_req_skills = None
     try:
         extracted_spec_obj = await extract_job_spec(db, content)
         if extracted_spec_obj:
@@ -452,12 +451,12 @@ async def assess_job_lead(
                 if hasattr(extracted_spec_obj, "model_dump")
                 else extracted_spec_obj
             )
-            jd_req_skills = getattr(extracted_spec_obj, "extracted_skills", None)
     except Exception as spec_err:
         logger.warning("Optional job spec extraction skipped/failed: %s", spec_err)
 
+    # Deterministically compute skills and overlap using taxonomy regex & candidate mentions
     match_info = compute_programmatic_skill_match(
-        candidate_skills, content, jd_required_skills=jd_req_skills
+        candidate_skills, content, jd_required_skills=None
     )
 
     active_domains_str = None
@@ -501,6 +500,8 @@ async def assess_job_lead(
         programmatic_baseline=match_info.get("programmatic_score"),
         matched_skills_count=match_info.get("matched_count"),
         total_required_skills_count=match_info.get("total_required_count"),
+        matching_skills=match_info.get("matching_skills"),
+        missing_skills=match_info.get("missing_skills"),
     )
 
     # Automatically persist to database or stage if duplicate

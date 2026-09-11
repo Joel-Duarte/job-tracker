@@ -157,10 +157,27 @@ async def extract_job_spec(
         if not isinstance(result, ExtractedJobSpec):
             result = ExtractedJobSpec.model_validate(result)
 
+        from app.services.compensation_parser import parse_compensation_text
         from app.services.domain_resolver import clean_company_name
 
         if result.company:
             result.company = clean_company_name(result.company)
+
+        # Parse compensation text into structured fields if available
+        if result.compensation_text:
+            parsed_comp = parse_compensation_text(result.compensation_text)
+            if result.salary_min is None and parsed_comp.get("salary_min") is not None:
+                result.salary_min = parsed_comp["salary_min"]
+            if result.salary_max is None and parsed_comp.get("salary_max") is not None:
+                result.salary_max = parsed_comp["salary_max"]
+            if (not result.currency or result.currency == "USD") and parsed_comp.get(
+                "currency"
+            ):
+                result.currency = parsed_comp["currency"]
+            if (
+                not result.salary_period or result.salary_period == "NOT_SPECIFIED"
+            ) and parsed_comp.get("salary_period"):
+                result.salary_period = parsed_comp["salary_period"]
 
         trace_ctx["outputs"] = {
             "job_found": result.job_found,
@@ -169,6 +186,10 @@ async def extract_job_spec(
             "responsibilities_count": len(result.responsibilities),
             "requirements_count": len(result.requirements),
             "extracted_skills": result.extracted_skills,
+            "salary_min": result.salary_min,
+            "salary_max": result.salary_max,
+            "currency": result.currency,
+            "salary_period": result.salary_period,
         }
 
         return result
@@ -237,32 +258,43 @@ def calibrate_assessment_score_and_recommendation(
     """
     Applies mathematical bounding and recommendation synchronization to eliminate
     AI grade inflation:
-    1. If programmatic_baseline is present: Clamps AI fit score to [max(10, baseline - 25), min(100, baseline + 25)].
-    2. If programmatic_baseline is None (0 JD skills extractable): Caps score at max 70.
-    3. If seniority_fit is UNDERQUALIFIED: Caps score at max 65.
-    4. Synchronizes recommendation:
+    1. Base window: [max(10, baseline - 15), min(100, baseline + 15)].
+    2. Seniority bonus: Up to +25% boost ONLY if candidate verified seniority matches/exceeds
+       requirements (seniority_fit in ('MATCHES', 'OVERQUALIFIED')) and 0 critical risks.
+    3. Underqualified / critical risks ceiling clamp: If seniority_fit is 'UNDERQUALIFIED'
+       or critical_risks >= 2, ceiling is clamped to min(65, baseline + 5) and score capped at 65.
+    4. If programmatic_baseline is None: Caps score at max 70 (or 65 if underqualified/risks).
+    5. Synchronizes recommendation:
        - APPLY_STRONGLY: fit_score >= 85 and 0 critical risks and seniority_fit != 'UNDERQUALIFIED'
        - APPLY_MODERATELY: fit_score >= 70 and len(critical_risks) <= 1 and seniority_fit != 'UNDERQUALIFIED'
        - STRETCH_ROLE: fit_score >= 50 (or has critical risks / seniority deficit)
        - DO_NOT_APPLY: fit_score < 50
     """
+    seniority_upper = (seniority_fit or "").strip().upper()
+    is_strong_seniority = seniority_upper in ("MATCHES", "OVERQUALIFIED")
+    is_underqualified = seniority_upper == "UNDERQUALIFIED"
+    num_risks = len(critical_risks or [])
+    has_critical_penalty = is_underqualified or num_risks >= 2
+
     # 1. Mathematical clamp
     if programmatic_baseline is not None:
-        min_bound = max(10, programmatic_baseline - 25)
-        max_bound = min(100, programmatic_baseline + 25)
+        min_bound = max(10, programmatic_baseline - 15)
+        if is_strong_seniority and num_risks == 0:
+            max_bound = min(100, programmatic_baseline + 25)
+        elif has_critical_penalty:
+            max_bound = min(65, programmatic_baseline + 5)
+        else:
+            max_bound = min(100, programmatic_baseline + 15)
+
         clamped_score = max(min_bound, min(max_bound, raw_fit_score))
     else:
         clamped_score = min(70, max(10, raw_fit_score))
 
-    # 2. Hard penalty for seniority gap
-    if seniority_fit and seniority_fit.upper() == "UNDERQUALIFIED":
+    # 2. Hard ceiling clamp for underqualified or high critical risks
+    if has_critical_penalty:
         clamped_score = min(65, clamped_score)
 
     # 3. Synchronize recommendation tier
-    num_risks = len(critical_risks or [])
-    is_underqualified = bool(
-        seniority_fit and seniority_fit.upper() == "UNDERQUALIFIED"
-    )
     if clamped_score >= 85 and num_risks == 0 and not is_underqualified:
         rec = "APPLY_STRONGLY"
     elif clamped_score >= 70 and num_risks <= 1 and not is_underqualified:
@@ -286,6 +318,8 @@ async def assess_job_posting(
     programmatic_baseline: int | None = None,
     matched_skills_count: int | None = None,
     total_required_skills_count: int | None = None,
+    matching_skills: list[str] | None = None,
+    missing_skills: list[str] | None = None,
 ) -> JobAssessmentResult:
     """
     Evaluates a job posting / JD against candidate CV for pre-application qualification,
@@ -300,6 +334,12 @@ async def assess_job_posting(
     prompt = ChatPromptTemplate.from_template(template_str)
 
     skills_text = ", ".join(candidate_skills) if candidate_skills else "None provided"
+    matching_skills_text = (
+        ", ".join(matching_skills) if matching_skills else "None explicitly matched"
+    )
+    missing_skills_text = (
+        ", ".join(missing_skills) if missing_skills else "None identified"
+    )
     domain_text = candidate_domain_breakdown or "None provided"
     spoken_langs_text = candidate_spoken_languages or "English (Fluent)"
     years_exp_text = (
@@ -328,6 +368,8 @@ async def assess_job_posting(
                 "programmatic_baseline": str(
                     programmatic_baseline if programmatic_baseline is not None else 0
                 ),
+                "candidate_matching_skills": matching_skills_text,
+                "candidate_missing_skills": missing_skills_text,
             },
             config={"callbacks": [PostgresTracer()]},
         )
@@ -357,6 +399,8 @@ async def assess_job_posting(
                         if programmatic_baseline is not None
                         else 0
                     ),
+                    "candidate_matching_skills": matching_skills_text,
+                    "candidate_missing_skills": missing_skills_text,
                 },
                 config={"callbacks": [PostgresTracer()]},
             )
@@ -367,20 +411,41 @@ async def assess_job_posting(
         result = JobAssessmentResult.model_validate(result)
 
     # 1. Synchronize curated skills counts and calculate exact algorithmic coverage
-    curated_matched = len(result.matching_skills) if result.matching_skills else 0
-    curated_missing = len(result.missing_skills) if result.missing_skills else 0
-    curated_total = curated_matched + curated_missing
-
-    if curated_total > 0:
-        result.matched_skills_count = curated_matched
-        result.total_required_skills_count = curated_total
-        effective_baseline = int(round((curated_matched / curated_total) * 100))
-        result.programmatic_match_score = effective_baseline
-    else:
+    if matching_skills is not None or missing_skills is not None:
+        result.matching_skills = matching_skills or []
+        result.missing_skills = missing_skills or []
+        result.matched_skills_count = (
+            matched_skills_count
+            if matched_skills_count is not None
+            else len(result.matching_skills)
+        )
+        result.total_required_skills_count = (
+            total_required_skills_count
+            if total_required_skills_count is not None
+            else (len(result.matching_skills) + len(result.missing_skills))
+        )
+        result.programmatic_match_score = programmatic_baseline
+        effective_baseline = programmatic_baseline
+    elif programmatic_baseline is not None:
         result.programmatic_match_score = programmatic_baseline
         result.matched_skills_count = matched_skills_count
         result.total_required_skills_count = total_required_skills_count
         effective_baseline = programmatic_baseline
+    else:
+        curated_matched = len(result.matching_skills) if result.matching_skills else 0
+        curated_missing = len(result.missing_skills) if result.missing_skills else 0
+        curated_total = curated_matched + curated_missing
+
+        if curated_total > 0:
+            result.matched_skills_count = curated_matched
+            result.total_required_skills_count = curated_total
+            effective_baseline = int(round((curated_matched / curated_total) * 100))
+            result.programmatic_match_score = effective_baseline
+        else:
+            result.programmatic_match_score = None
+            result.matched_skills_count = None
+            result.total_required_skills_count = None
+            effective_baseline = None
 
     # 2. Auto-guard critical risks for underqualification or significant missing skills
     if result.critical_risks is None:
@@ -494,6 +559,23 @@ async def assess_job_posting(
                 for sa in result.tailoring_strategy.structural_adjustments:
                     report_lines.append(f"* {sa}")
         result.markdown_report = "\n".join(report_lines)
+
+    # Ensure salary fields and salary_period are populated
+    from app.services.compensation_parser import _detect_period, parse_compensation_text
+
+    if result.salary_min is None and result.salary_max is None:
+        parsed_comp = parse_compensation_text(job_description)
+        if parsed_comp.get("salary_min") or parsed_comp.get("salary_max"):
+            result.salary_min = parsed_comp.get("salary_min")
+            result.salary_max = parsed_comp.get("salary_max")
+            if parsed_comp.get("currency"):
+                result.currency = parsed_comp["currency"]
+            if parsed_comp.get("salary_period") != "NOT_SPECIFIED":
+                result.salary_period = parsed_comp["salary_period"]
+    elif not result.salary_period or result.salary_period == "NOT_SPECIFIED":
+        result.salary_period = _detect_period(
+            job_description, num_sample=result.salary_max or result.salary_min
+        )
 
     return result
 

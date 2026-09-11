@@ -270,21 +270,28 @@ async function saveEditHeader() {
 function formatJobSpecCompensation(app) {
   const jp = app?.job_posting
   const spec = structuredSpec.value
-  if (!jp && !spec?.compensation_text) return 'Not Specified'
+  const matchPayload = app?.match_analysis_payload
+  if (!jp && !spec?.compensation_text && !matchPayload?.salary_min && !matchPayload?.salary_max) return 'Not Specified'
 
-  const min = jp?.salary_min
-  const max = jp?.salary_max
-  const curr = jp?.currency || uiStore.defaultCurrency || 'USD'
+  const min = jp?.salary_min ?? spec?.salary_min ?? matchPayload?.salary_min
+  const max = jp?.salary_max ?? spec?.salary_max ?? matchPayload?.salary_max
+  const curr = jp?.currency || spec?.currency || matchPayload?.currency || uiStore.defaultCurrency || 'USD'
   const sym = getCurrencySymbol(curr)
 
+  const period = spec?.salary_period || matchPayload?.salary_period || jp?.salary_period || ''
+  let suffix = ''
+  if (period === 'YEARLY') suffix = ' / yr'
+  else if (period === 'MONTHLY') suffix = ' / mo'
+  else if (period === 'HOURLY') suffix = ' / hr'
+
   if (min !== null && min !== undefined && max !== null && max !== undefined) {
-    return `${sym}${Number(min).toLocaleString()} – ${sym}${Number(max).toLocaleString()}`
+    return `${sym}${Number(min).toLocaleString()} – ${sym}${Number(max).toLocaleString()}${suffix}`
   }
   if (min !== null && min !== undefined) {
-    return `From ${sym}${Number(min).toLocaleString()}`
+    return `From ${sym}${Number(min).toLocaleString()}${suffix}`
   }
   if (max !== null && max !== undefined) {
-    return `Up to ${sym}${Number(max).toLocaleString()}`
+    return `Up to ${sym}${Number(max).toLocaleString()}${suffix}`
   }
   if (spec?.compensation_text) {
     return spec.compensation_text
@@ -317,10 +324,12 @@ const compEditForm = ref({
 
 function startEditComp() {
   const jp = appStore.selectedApplication?.job_posting
+  const spec = structuredSpec.value
+  const matchPayload = appStore.selectedApplication?.match_analysis_payload
   compEditForm.value = {
-    salary_min: jp?.salary_min ?? null,
-    salary_max: jp?.salary_max ?? null,
-    currency: jp?.currency || uiStore.defaultCurrency || 'USD',
+    salary_min: jp?.salary_min ?? spec?.salary_min ?? matchPayload?.salary_min ?? null,
+    salary_max: jp?.salary_max ?? spec?.salary_max ?? matchPayload?.salary_max ?? null,
+    currency: jp?.currency || spec?.currency || matchPayload?.currency || uiStore.defaultCurrency || 'USD',
   }
   isEditingComp.value = true
 }

@@ -37,11 +37,19 @@ NOISE_SUFFIXES = {
 _SORTED_TAXONOMY_KEYS = sorted(CANONICAL_SKILL_TAXONOMY.keys(), key=len, reverse=True)
 _SKILL_PATTERNS: list[tuple[re.Pattern, str]] = []
 
+# Single-letter or common-verb programming language keys that must be matched case-sensitively
+_CASE_SENSITIVE_KEYS = {"c": "C", "r": "R", "go": "Go"}
+
 for _key in _SORTED_TAXONOMY_KEYS:
-    _escaped_key = re.escape(_key)
     _prefix = r"(?<![a-zA-Z0-9])" if _key[0].isalnum() else r"(?<!\S)"
     _suffix = r"(?![a-zA-Z0-9])"
-    _pattern = re.compile(_prefix + _escaped_key + _suffix, re.IGNORECASE)
+    if _key in _CASE_SENSITIVE_KEYS:
+        # Require exact casing (e.g. 'Go', 'C', 'R') to avoid matching English verbs or letters
+        _target_word = _CASE_SENSITIVE_KEYS[_key]
+        _pattern = re.compile(_prefix + re.escape(_target_word) + _suffix)
+    else:
+        _escaped_key = re.escape(_key)
+        _pattern = re.compile(_prefix + _escaped_key + _suffix, re.IGNORECASE)
     _SKILL_PATTERNS.append((_pattern, CANONICAL_SKILL_TAXONOMY[_key]))
 
 # List of taxonomy keys for RapidFuzz matching

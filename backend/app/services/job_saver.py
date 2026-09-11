@@ -88,6 +88,62 @@ async def persist_or_stage_job_assessment(
         + (assessment.missing_skills or []),
     )
 
+    from app.services.compensation_parser import parse_compensation_text
+
+    effective_salary_min = assessment.salary_min
+    effective_salary_max = assessment.salary_max
+    effective_period = (
+        getattr(assessment, "salary_period", "NOT_SPECIFIED") or "NOT_SPECIFIED"
+    )
+
+    if structured_spec:
+        if (
+            effective_salary_min is None
+            and structured_spec.get("salary_min") is not None
+        ):
+            effective_salary_min = structured_spec["salary_min"]
+        if (
+            effective_salary_max is None
+            and structured_spec.get("salary_max") is not None
+        ):
+            effective_salary_max = structured_spec["salary_max"]
+        if effective_period == "NOT_SPECIFIED" and structured_spec.get("salary_period"):
+            effective_period = structured_spec["salary_period"]
+        if structured_spec.get("compensation_text") and (
+            effective_salary_min is None or effective_salary_max is None
+        ):
+            parsed_comp = parse_compensation_text(structured_spec["compensation_text"])
+            if effective_salary_min is None:
+                effective_salary_min = parsed_comp.get("salary_min")
+            if effective_salary_max is None:
+                effective_salary_max = parsed_comp.get("salary_max")
+            if (
+                effective_period == "NOT_SPECIFIED"
+                and parsed_comp.get("salary_period") != "NOT_SPECIFIED"
+            ):
+                effective_period = parsed_comp["salary_period"]
+            if detected_currency in ("USD", None) and parsed_comp.get("currency"):
+                detected_currency = parsed_comp["currency"]
+
+    if effective_salary_min is not None:
+        assessment.salary_min = effective_salary_min
+    if effective_salary_max is not None:
+        assessment.salary_max = effective_salary_max
+    if effective_period != "NOT_SPECIFIED":
+        assessment.salary_period = effective_period
+    if detected_currency:
+        assessment.currency = detected_currency
+
+    if structured_spec:
+        if effective_salary_min is not None:
+            structured_spec["salary_min"] = effective_salary_min
+        if effective_salary_max is not None:
+            structured_spec["salary_max"] = effective_salary_max
+        if effective_period != "NOT_SPECIFIED":
+            structured_spec["salary_period"] = effective_period
+        if detected_currency:
+            structured_spec["currency"] = detected_currency
+
     # 1. Update Existing Target Application (if specified)
     if target_application_id:
         app_stmt = select(ApplicationModel).where(
@@ -116,8 +172,8 @@ async def persist_or_stage_job_assessment(
                     application_id=app_record.id,
                     job_url=clean_url or f"lead-{uuid.uuid4().hex[:8]}",
                     description_markdown=raw_text or assessment.summary,
-                    salary_min=assessment.salary_min,
-                    salary_max=assessment.salary_max,
+                    salary_min=effective_salary_min,
+                    salary_max=effective_salary_max,
                     currency=detected_currency,
                     location=assessment.location,
                     work_model=assessment.work_model,
@@ -130,10 +186,10 @@ async def persist_or_stage_job_assessment(
                     job_posting.description_markdown = raw_text or assessment.summary
                 if clean_url:
                     job_posting.job_url = clean_url
-                if assessment.salary_min is not None:
-                    job_posting.salary_min = assessment.salary_min
-                if assessment.salary_max is not None:
-                    job_posting.salary_max = assessment.salary_max
+                if effective_salary_min is not None:
+                    job_posting.salary_min = effective_salary_min
+                if effective_salary_max is not None:
+                    job_posting.salary_max = effective_salary_max
                 job_posting.currency = detected_currency
                 if assessment.location:
                     job_posting.location = assessment.location

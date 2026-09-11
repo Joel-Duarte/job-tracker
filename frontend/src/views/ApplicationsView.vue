@@ -498,7 +498,8 @@ function getScheduleUrgencyClass(app) {
 
 function formatAppSalary(app) {
   if (!app) return null
-  return formatSalaryRange(app.salary_min, app.salary_max, app.currency)
+  const period = app.salary_period || app.job_posting?.structured_spec?.salary_period || null
+  return formatSalaryRange(app.salary_min, app.salary_max, app.currency, period)
 }
 
 function getDueDateStr(app) {

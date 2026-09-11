@@ -6,6 +6,7 @@ import { useApplicationsStore } from '../stores/applicationsStore'
 import { useQueueStore } from '../stores/queueStore'
 import { IntakeAPI } from '../api/endpoints'
 import { getFitScores } from '../utils/fitScores'
+import { formatSalaryRange } from '../utils/formatters'
 import {
   Sparkles,
   Link as LinkIcon,
@@ -600,7 +601,7 @@ onUnmounted(() => {
                   <div class="metric-k">Compensation</div>
                   <div class="metric-v">
                     <span v-if="task.result_json.salary_min || task.result_json.salary_max">
-                      ${{ task.result_json.salary_min?.toLocaleString() }} - ${{ task.result_json.salary_max?.toLocaleString() }} {{ task.result_json.currency || 'USD' }}
+                      {{ formatSalaryRange(task.result_json.salary_min, task.result_json.salary_max, task.result_json.currency || 'USD', task.result_json.salary_period) }}
                     </span>
                     <span v-else class="text-muted">Not specified</span>
                   </div>

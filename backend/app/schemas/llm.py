@@ -126,6 +126,22 @@ class ExtractedJobSpec(BaseModel):
         default=None,
         description="Formatted salary or rate range string e.g. '$195,000 - $245,000 USD'.",
     )
+    salary_min: float | None = Field(
+        default=None,
+        description="Minimum parsed numerical compensation.",
+    )
+    salary_max: float | None = Field(
+        default=None,
+        description="Maximum parsed numerical compensation.",
+    )
+    currency: str | None = Field(
+        default=None,
+        description="Salary currency code (e.g. 'EUR', 'USD', 'GBP').",
+    )
+    salary_period: str | None = Field(
+        default="NOT_SPECIFIED",
+        description="Payment period: 'YEARLY', 'MONTHLY', 'HOURLY', or 'NOT_SPECIFIED'.",
+    )
     location_text: str | None = Field(
         default=None,
         description="Clean city and country string e.g. 'San Francisco, CA'.",
@@ -261,6 +277,10 @@ class JobAssessmentResult(BaseModel):
         default=None, description="Maximum compensation if mentioned"
     )
     currency: str | None = Field(default="USD", description="Salary currency")
+    salary_period: str | None = Field(
+        default="NOT_SPECIFIED",
+        description="Payment period: 'YEARLY', 'MONTHLY', 'HOURLY', or 'NOT_SPECIFIED'.",
+    )
     location: str | None = Field(default=None, description="Job location")
     work_model: str | None = Field(
         default=None, description="Remote, Hybrid, or Onsite"

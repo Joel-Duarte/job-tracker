@@ -293,7 +293,11 @@ DEFAULT_PROMPTS = {
         "- responsibilities: Clean, itemized action items (e.g. 'Design distributed data pipelines'). Strip company-specific introductory phrases ('In this role, you will...').\n"
         "- requirements: Clean, itemized hard prerequisites, years of experience, and qualifications.\n"
         "- extracted_skills: Array of atomic technical skills, libraries, frameworks, tools, and competencies (e.g. 'CI/CD', 'AWS', 'Docker', 'PostgreSQL' rather than compound phrases). Exclude parenthetical descriptions and seniority prefixes.\n"
-        "- compensation_text: Formatted salary or rate range string (e.g. '$195,000 - $245,000 USD' or '$80/hr'). Null if not stated.\n"
+        "- compensation_text: Formatted salary or rate range string (e.g. '€66,500 – €88,000 per year', '$195,000 - $245,000 USD', or '$80/hr'). Null if not stated.\n"
+        "- salary_min: Minimum parsed numerical compensation number (e.g. 66500.0, 150000.0, 80.0). Null if not stated.\n"
+        "- salary_max: Maximum parsed numerical compensation number (e.g. 88000.0, 200000.0, 100.0). Null if not stated.\n"
+        "- currency: ISO 3-letter currency code (e.g. 'EUR', 'USD', 'GBP'). Null if not stated.\n"
+        "- salary_period: Pay interval strictly one of: 'YEARLY', 'MONTHLY', 'HOURLY', or 'NOT_SPECIFIED'.\n"
         "- location_text: Clean city and country string (e.g. 'San Francisco, CA' or 'London, UK'). Null if not stated.\n"
         "- workplace_type: Strictly one of 'Remote', 'Hybrid', 'On-site', or null.\n\n"
         "Raw Webpage / Job Data:\n<untrusted_job_data>\n{raw_webpage_data}\n</untrusted_job_data>"
@@ -381,7 +385,10 @@ DEFAULT_PROMPTS = {
         "--------------------------------------------------\n"
         "TARGET JOB WORKLOAD TAIL\n"
         "--------------------------------------------------\n"
-        "Programmatic Match Baseline: {programmatic_baseline}%\n\n"
+        "Programmatic Match Baseline: {programmatic_baseline}%\n"
+        "- Verified Matching Skills: {candidate_matching_skills}\n"
+        "- Verified Missing Skills: {candidate_missing_skills}\n\n"
+        "Ground Truth Rule: Treat the verified matching skills and missing skills above as immutable baseline truth when generating the match summary, tailoring strategy, and audit report.\n\n"
         "[TARGET JOB DESCRIPTION]:\n<untrusted_job_description>\n{job_description}\n</untrusted_job_description>\n"
     ),
     "cv_anonymization": (
@@ -812,6 +819,7 @@ async def seed_default_prompts(session: AsyncSession) -> None:
             or "Unstated Seniority" not in (existing.template or "")
             or "CANDIDATE MASTER PROFILE & VERIFIED DOSSIER"
             not in (existing.template or "")
+            or "Verified Matching Skills" not in (existing.template or "")
         ):
             existing.template = default_template
         elif prompt_name == "company_research" and (
@@ -874,6 +882,7 @@ async def get_prompt_template(
             or "Bar Raiser" not in template
             or "Unstated Seniority" not in template
             or "CANDIDATE MASTER PROFILE & VERIFIED DOSSIER" not in template
+            or "Verified Matching Skills" not in template
         ):
             res_template = DEFAULT_PROMPTS["assessment"]
         elif prompt_name == "company_research" and (
