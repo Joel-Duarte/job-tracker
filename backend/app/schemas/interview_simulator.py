@@ -31,6 +31,27 @@ class StarPresence(BaseModel):
     result: bool = False
 
 
+class RubricScores(BaseModel):
+    situation: float = Field(
+        ..., ge=0, le=20, description="Situation clarity and stakes (max 20)"
+    )
+    task: float = Field(
+        ..., ge=0, le=20, description="Task ownership and challenge (max 20)"
+    )
+    action: float = Field(
+        ...,
+        ge=0,
+        le=35,
+        description="Action depth, technical decisions, trade-offs (max 35)",
+    )
+    result: float = Field(
+        ...,
+        ge=0,
+        le=25,
+        description="Result impact, metrics, postmortem learnings (max 25)",
+    )
+
+
 class QuestionOption(BaseModel):
     key: str
     text: str
@@ -40,6 +61,10 @@ class QuestionOption(BaseModel):
 class TurnEvaluation(BaseModel):
     score: float = Field(..., ge=0, le=100)
     star_presence: StarPresence
+    rubric_scores: RubricScores | None = Field(
+        default=None,
+        description="Explicit point breakdown across STAR components (situation:20, task:20, action:35, result:25)",
+    )
     strengths: list[str] = Field(default_factory=list)
     missing_gaps: list[str] = Field(default_factory=list)
     constructive_critique: str

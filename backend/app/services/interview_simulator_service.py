@@ -114,9 +114,42 @@ Context (Target Role / JD / Question):
 Question Asked: {question_asked}
 Candidate's Answer: {user_answer}
 
+--------------------------------------------------
+DETERMINISTIC STAR RUBRIC POINT DECOMPOSITION (100 TOTAL POINTS):
+--------------------------------------------------
+1. situation (0 to 20 points):
+   - 18-20: Exceptional context, concrete business stakes, architectural scale, clear system constraints.
+   - 12-17: Clear scenario context and problem definition, minor omissions on stakes or constraints.
+   - 5-11: Vague or generic situation without specific business or systems context.
+   - 0-4: Missing situation or irrelevant context.
+
+2. task (0 to 20 points):
+   - 18-20: Unambiguous personal ownership, technical objective, explicit success criteria, and constraints.
+   - 12-17: Clear ownership and goal, but success criteria or constraints are partially implicit.
+   - 5-11: Ambiguous personal role (unclear what candidate owned vs what team did).
+   - 0-4: Missing task or candidate objective.
+
+3. action (0 to 35 points - Core Depth):
+   - 31-35: Deep technical explanation of decisions, protocols, trade-offs, alternative approaches considered, and tools used.
+   - 22-30: Solid action description with good technical specifics, but light on trade-off reasoning or edge-case handling.
+   - 10-21: High-level or passive action description ('we worked on', 'meetings were held') lacking deep individual engineering decisions.
+   - 0-9: Superficial or non-existent action details.
+
+4. result (0 to 25 points):
+   - 22-25: Concrete business or system impact, verified metrics or clear qualitative resolution, and engineering postmortem learnings.
+   - 15-21: Positive outcome clearly stated, but lacks metrics or reflection on lessons learned.
+   - 5-14: Vague or presumed success ('everything worked well') without concrete evidence or impact.
+   - 0-4: No outcome or result provided.
+
 Respond ONLY with a valid JSON object matching this exact schema:
 {{
-  "score": <number between 0 and 100>,
+  "rubric_scores": {{
+    "situation": <number between 0 and 20>,
+    "task": <number between 0 and 20>,
+    "action": <number between 0 and 35>,
+    "result": <number between 0 and 25>
+  }},
+  "score": <sum of situation + task + action + result, between 0 and 100>,
   "star_presence": {{
     "situation": <true|false>,
     "task": <true|false>,
@@ -346,17 +379,41 @@ def _normalize_mc_options(raw_options: Any) -> list[dict[str, Any]]:
 def _normalize_evaluation_data(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raw = {}
-    score_raw = raw.get("score")
-    try:
-        if isinstance(score_raw, str):
-            score_clean = score_raw.split("/")[0].strip()
-            score = float(score_clean)
-        elif score_raw is not None:
-            score = float(score_raw)
-        else:
+
+    # Extract and validate rubric scores if provided
+    rubric_scores = None
+    rubric_raw = raw.get("rubric_scores")
+    calculated_score = None
+    if isinstance(rubric_raw, dict):
+        try:
+            s_sit = max(0.0, min(20.0, float(rubric_raw.get("situation", 0.0))))
+            s_task = max(0.0, min(20.0, float(rubric_raw.get("task", 0.0))))
+            s_act = max(0.0, min(35.0, float(rubric_raw.get("action", 0.0))))
+            s_res = max(0.0, min(25.0, float(rubric_raw.get("result", 0.0))))
+            rubric_scores = {
+                "situation": s_sit,
+                "task": s_task,
+                "action": s_act,
+                "result": s_res,
+            }
+            calculated_score = round(s_sit + s_task + s_act + s_res, 1)
+        except (ValueError, TypeError):
+            rubric_scores = None
+
+    if calculated_score is not None:
+        score = calculated_score
+    else:
+        score_raw = raw.get("score")
+        try:
+            if isinstance(score_raw, str):
+                score_clean = score_raw.split("/")[0].strip()
+                score = float(score_clean)
+            elif score_raw is not None:
+                score = float(score_raw)
+            else:
+                score = 75.0
+        except (ValueError, TypeError):
             score = 75.0
-    except (ValueError, TypeError):
-        score = 75.0
 
     star_raw = raw.get("star_presence")
     if not isinstance(star_raw, dict):
@@ -394,7 +451,7 @@ def _normalize_evaluation_data(raw: Any) -> dict[str, Any]:
         or "Comprehensive response with clear architecture and tradeoff reasoning."
     )
 
-    return {
+    result_dict: dict[str, Any] = {
         "score": max(0.0, min(100.0, score)),
         "star_presence": star_presence,
         "strengths": [str(s) for s in strengths],
@@ -402,6 +459,10 @@ def _normalize_evaluation_data(raw: Any) -> dict[str, Any]:
         "constructive_critique": str(critique),
         "exemplar_rewrite": str(exemplar),
     }
+    if rubric_scores is not None:
+        result_dict["rubric_scores"] = rubric_scores
+
+    return result_dict
 
 
 class InterviewSimulatorService:

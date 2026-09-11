@@ -806,9 +806,7 @@ async def generate_application_answers(
         },
         db=db,
     ) as trace_ctx:
-        llm = await get_task_chat_model(
-            db, task_type="APPLICATION_QA", temperature=0.15
-        )
+        llm = await get_task_chat_model(db, task_type="APPLICATION_QA", temperature=0.0)
         template_str = await get_prompt_template(db, "application_qa")
 
         prompt = ChatPromptTemplate.from_messages(

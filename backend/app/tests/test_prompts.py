@@ -240,3 +240,86 @@ def test_calibrate_assessment_score_prevents_arbitrary_risk_cliff_drop():
         seniority_fit="MATCHES",
     )
     assert low_match_score <= 60
+
+
+def test_interview_star_eval_rubric_point_decomposition():
+    """Verify interview_star_eval prompt includes deterministic point decomposition rubric and score calculation."""
+    from app.services.interview_simulator_service import _normalize_evaluation_data
+
+    template = DEFAULT_PROMPTS["interview_star_eval"]
+    assert (
+        "DETERMINISTIC STAR RUBRIC POINT DECOMPOSITION (100 TOTAL POINTS):" in template
+    )
+    assert "situation (0 to 20 points):" in template
+    assert "task (0 to 20 points):" in template
+    assert "action (0 to 35 points - Core Depth):" in template
+    assert "result (0 to 25 points):" in template
+    assert '"rubric_scores"' in template
+
+    # Verify normalization with explicit rubric scores calculates sum
+    raw_with_rubric = {
+        "rubric_scores": {
+            "situation": 18,
+            "task": 17,
+            "action": 32,
+            "result": 21,
+        },
+        "score": 50,  # Model output drifted score, normalization must override with exact sum!
+        "star_presence": {
+            "situation": True,
+            "task": True,
+            "action": True,
+            "result": True,
+        },
+        "strengths": ["Clear metrics"],
+        "missing_gaps": [],
+        "constructive_critique": "Solid answer",
+        "exemplar_rewrite": "Exemplar...",
+    }
+    normalized = _normalize_evaluation_data(raw_with_rubric)
+    assert normalized["score"] == 88.0  # 18 + 17 + 32 + 21 = 88
+    assert normalized["rubric_scores"] == {
+        "situation": 18.0,
+        "task": 17.0,
+        "action": 32.0,
+        "result": 21.0,
+    }
+
+    # Verify backward compatibility with legacy evaluation without rubric_scores
+    raw_legacy = {
+        "score": 79.5,
+        "star_presence": {
+            "situation": True,
+            "task": True,
+            "action": True,
+            "result": False,
+        },
+        "strengths": ["Good start"],
+        "missing_gaps": ["No result"],
+    }
+    norm_legacy = _normalize_evaluation_data(raw_legacy)
+    assert norm_legacy["score"] == 79.5
+    assert "rubric_scores" not in norm_legacy
+
+
+def test_role_alignment_dossier_metric_fabrication_rules():
+    """Verify role_alignment_dossier prompt strictly bans fake metrics and anchors rewrites in architectural scope."""
+    template = DEFAULT_PROMPTS["role_alignment_dossier"]
+    assert "ZERO-METRIC FABRICATION" in template
+    assert "NEVER invent synthetic numbers, percentages" in template
+    assert "ARCHITECTURAL & MECHANISM GROUNDING" in template
+    assert (
+        "elevate them strictly through technical mechanism, architectural scope"
+        in template
+    )
+
+
+def test_application_qa_behavioral_grounding_rules():
+    """Verify application_qa prompt strictly bans fake behavioral stories and grounds in real technical methodology."""
+    template = DEFAULT_PROMPTS["application_qa"]
+    assert "HONEST BEHAVIORAL & METHODOLOGY GROUNDING" in template
+    assert (
+        "STRICTLY FORBID fabricating fictional past stories, imaginary employers, or synthetic crises"
+        in template
+    )
+    assert "verified engineering principles, architectural methodologies" in template

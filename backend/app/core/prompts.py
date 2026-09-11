@@ -494,7 +494,8 @@ DEFAULT_PROMPTS = {
         "STRICT BOUNDARIES & ZERO-HALLUCINATION RULES\n"
         "--------------------------------------------------\n"
         "- STRICT FACTUAL GROUNDING & ZERO INVENTIONS: Every project, achievement, technology, metric, team size, and role mentioned MUST come directly from <untrusted_candidate_cv>. Never invent tools, projects, certifications, or performance metrics.\n"
-        "- HONEST SKILL GAP HANDLING: If a question asks about experience absent from the candidate's CV, do not fabricate it. State documented competencies honestly, highlight transferable engineering foundations, and explain how they enable rapid ramp-up.\n"
+        "- HONEST BEHAVIORAL & METHODOLOGY GROUNDING: If an application question asks for a specific behavioral scenario, dispute, or anecdotal incident that is absent from <untrusted_candidate_cv>, STRICTLY FORBID fabricating fictional past stories, imaginary employers, or synthetic crises. Instead, structure the answer around the candidate's verified engineering principles, architectural methodologies, and risk/consensus frameworks (e.g. 'While my background focuses primarily on X, my approach to resolving this scenario centers on Y protocol and Z consensus mechanism...'), grounding the answer directly in their authentic technical domain.\n"
+        "- HONEST SKILL GAP HANDLING: If a question asks about technical skills or tools absent from the candidate's CV, do not fabricate hands-on production experience. State documented competencies honestly, highlight transferable engineering foundations, and explain how they enable rapid ramp-up.\n"
         "- COMPANY MOTIVATION GROUNDING: For questions asking why the candidate wants to join the employer, ground responses in verified company mission, technical challenges, and culture mapped to the candidate's actual trajectory.\n"
         "- Constraints: Strictly respect any tone preferences, custom instructions, and word or character limits specified per question or in the workload tail below.\n\n"
         "--------------------------------------------------\n"
@@ -560,8 +561,10 @@ DEFAULT_PROMPTS = {
         "--------------------------------------------------\n"
         "STRICT GROUNDING & ZERO-HALLUCINATION RULES\n"
         "--------------------------------------------------\n"
-        "- STRICT FACTUAL GROUNDING: Every quantified achievement, technical project, and competency MUST come directly from <untrusted_candidate_cv>. Do not invent past job titles, employers, degrees, or tools.\n"
-        "- BULLET REWRITES: Elevate the candidate's real documented impact using active power verbs and target track terminology.\n\n"
+        "- STRICT FACTUAL GROUNDING: Every project, technical skill, domain, and accomplishment MUST come directly from <untrusted_candidate_cv>. Do not invent past job titles, employers, degrees, tools, or responsibilities.\n"
+        "- ZERO-METRIC FABRICATION: NEVER invent synthetic numbers, percentages (e.g. 'reduced latency by 42%'), dollar amounts, team sizes, or volume stats. Only include a numerical metric in a rewrite if that exact metric already appears verbatim in <untrusted_candidate_cv>.\n"
+        "- ARCHITECTURAL & MECHANISM GROUNDING: When rewriting bullets that lack quantified metrics, elevate them strictly through technical mechanism, architectural scope, systems trade-offs, and operational protocols (e.g. state what consensus mechanism, caching layer, replication model, or concurrency pattern was introduced) rather than fabricating fake numbers.\n"
+        "- BULLET REWRITES: Elevate the candidate's real documented impact using active power verbs and target track terminology that cleanly replaces the entire original block.\n\n"
         "--------------------------------------------------\n"
         "OUTPUT FORMAT (STRICT JSON ONLY)\n"
         "--------------------------------------------------\n"
@@ -583,9 +586,9 @@ DEFAULT_PROMPTS = {
         '  "bullet_rewrites": [\n'
         "    {{\n"
         '      "original_bullet": "Full standalone CV bullet point or cohesive experience block.",\n'
-        '      "rewritten_bullet": "Consolidated, punchy rewrite elevating the entire entry using active power verbs, target track terminology, and quantified impact metrics.",\n'
+        '      "rewritten_bullet": "Consolidated, punchy rewrite elevating the entire entry using active power verbs, target track terminology, and architectural mechanisms.",\n'
         '      "target_competency": "e.g. Distributed Consensus / Real-Time Data Pipeline / Microservice Resilience",\n'
-        '      "impact_quantification": "e.g. Highlighted 40% latency reduction and scale metrics"\n'
+        '      "impact_quantification": "e.g. Architectural scope: introduced Kafka partition rebalancing and Redis pipelining (or verbatim CV metrics if present)"\n'
         "    }}\n"
         "  ],\n"
         '  "talking_points": [\n'
@@ -601,10 +604,14 @@ DEFAULT_PROMPTS = {
         "  ],\n"
         '  "skill_bridge_roadmap": [\n'
         "    {{\n"
-        '      "skill_or_domain": "Target Skill Name",\n'
-        '      "current_cv_signal": "STRONG_EVIDENCE",\n'
-        '      "market_importance": "CRITICAL",\n'
-        '      "framing_strategy": "Concrete advice on how the candidate should frame or bridge this skill in technical interviews"\n'
+        '      "skill_or_tool": "e.g. Kafka / gRPC / Terraform / Kubernetes",\n'
+        '      "category": "Core Infrastructure / Architecture / Cloud / Tooling",\n'
+        '      "rationale": "Why this skill bridges the gap for this specific track based on market demand",\n'
+        '      "learning_priority": "HIGH",\n'
+        '      "recommended_actions": [\n'
+        '        "Concrete action 1: e.g. Build a hands-on event-driven prototype",\n'
+        '        "Concrete action 2: e.g. Review official architectural best practices"\n'
+        "      ]\n"
         "    }}\n"
         "  ]\n"
         "}}\n\n"
@@ -625,9 +632,38 @@ DEFAULT_PROMPTS = {
         "Target Company: {company_name}\n"
         "Context (Target Role / JD / Question):\n{question_context}\n\n"
         "Candidate's Answer:\n{candidate_response}\n\n"
+        "--------------------------------------------------\n"
+        "DETERMINISTIC STAR RUBRIC POINT DECOMPOSITION (100 TOTAL POINTS):\n"
+        "--------------------------------------------------\n"
+        "1. situation (0 to 20 points):\n"
+        "   - 18-20: Exceptional context, concrete business stakes, architectural scale, clear system constraints.\n"
+        "   - 12-17: Clear scenario context and problem definition, minor omissions on stakes or constraints.\n"
+        "   - 5-11: Vague or generic situation without specific business or systems context.\n"
+        "   - 0-4: Missing situation or irrelevant context.\n\n"
+        "2. task (0 to 20 points):\n"
+        "   - 18-20: Unambiguous personal ownership, technical objective, explicit success criteria, and constraints.\n"
+        "   - 12-17: Clear ownership and goal, but success criteria or constraints are partially implicit.\n"
+        "   - 5-11: Ambiguous personal role (unclear what candidate owned vs what team did).\n"
+        "   - 0-4: Missing task or candidate objective.\n\n"
+        "3. action (0 to 35 points - Core Depth):\n"
+        "   - 31-35: Deep technical explanation of decisions, protocols, trade-offs, alternative approaches considered, and tools used.\n"
+        "   - 22-30: Solid action description with good technical specifics, but light on trade-off reasoning or edge-case handling.\n"
+        "   - 10-21: High-level or passive action description ('we worked on', 'meetings were held') lacking deep individual engineering decisions.\n"
+        "   - 0-9: Superficial or non-existent action details.\n\n"
+        "4. result (0 to 25 points):\n"
+        "   - 22-25: Concrete business or system impact, verified metrics or clear qualitative resolution, and engineering postmortem learnings.\n"
+        "   - 15-21: Positive outcome clearly stated, but lacks metrics or reflection on lessons learned.\n"
+        "   - 5-14: Vague or presumed success ('everything worked well') without concrete evidence or impact.\n"
+        "   - 0-4: No outcome or result provided.\n\n"
         "Respond ONLY with a valid JSON object matching this exact schema:\n"
         "{{\n"
-        '  "score": 85,\n'
+        '  "rubric_scores": {{\n'
+        '    "situation": 18,\n'
+        '    "task": 18,\n'
+        '    "action": 30,\n'
+        '    "result": 20\n'
+        "  }},\n"
+        '  "score": 86,\n'
         '  "star_presence": {{\n'
         '    "situation": true,\n'
         '    "task": true,\n'
@@ -802,6 +838,8 @@ async def seed_default_prompts(session: AsyncSession) -> None:
             existing.template = default_template
         elif prompt_name == "application_qa" and (
             "HONEST SKILL GAP HANDLING" not in (existing.template or "")
+            or "HONEST BEHAVIORAL & METHODOLOGY GROUNDING"
+            not in (existing.template or "")
             or "STRICT FACTUAL GROUNDING" not in (existing.template or "")
             or "{{" not in (existing.template or "")
             or "CANDIDATE MASTER PROFILE (GROUND TRUTH)"
@@ -816,6 +854,14 @@ async def seed_default_prompts(session: AsyncSession) -> None:
             existing.template = default_template
         elif prompt_name == "role_alignment_dossier" and (
             "CANDIDATE CV PROFILE (GROUND TRUTH)" not in (existing.template or "")
+            or "ZERO-METRIC FABRICATION" not in (existing.template or "")
+            or "ARCHITECTURAL & MECHANISM GROUNDING" not in (existing.template or "")
+        ):
+            existing.template = default_template
+        elif prompt_name == "interview_star_eval" and (
+            "DETERMINISTIC STAR RUBRIC POINT DECOMPOSITION"
+            not in (existing.template or "")
+            or "rubric_scores" not in (existing.template or "")
         ):
             existing.template = default_template
         elif prompt_name == "jd_extraction" and (
@@ -885,6 +931,7 @@ async def get_prompt_template(
         elif prompt_name == "application_qa" and (
             "{{" not in template
             or "HONEST SKILL GAP HANDLING" not in template
+            or "HONEST BEHAVIORAL & METHODOLOGY GROUNDING" not in template
             or "CANDIDATE MASTER PROFILE (GROUND TRUTH)" not in template
         ):
             res_template = DEFAULT_PROMPTS["application_qa"]
@@ -894,8 +941,15 @@ async def get_prompt_template(
             res_template = DEFAULT_PROMPTS["interview_guide"]
         elif prompt_name == "role_alignment_dossier" and (
             "CANDIDATE CV PROFILE (GROUND TRUTH)" not in template
+            or "ZERO-METRIC FABRICATION" not in template
+            or "ARCHITECTURAL & MECHANISM GROUNDING" not in template
         ):
             res_template = DEFAULT_PROMPTS["role_alignment_dossier"]
+        elif prompt_name == "interview_star_eval" and (
+            "DETERMINISTIC STAR RUBRIC POINT DECOMPOSITION" not in template
+            or "rubric_scores" not in template
+        ):
+            res_template = DEFAULT_PROMPTS["interview_star_eval"]
         elif prompt_name == "assessment" and (
             "AUTHORITATIVE CANDIDATE PROFILE" not in template
             or "critical_risks" not in template

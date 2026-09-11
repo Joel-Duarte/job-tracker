@@ -477,12 +477,12 @@ TASK_RECOMMENDED_DEFAULTS = {
         "max_tokens": 2048,
     },
     "APPLICATION_QA": {
-        "temperature": 0.15,
+        "temperature": 0.0,
         "reasoning_effort": "none",
         "max_tokens": 2048,
     },
     "ROLE_ALIGNMENT_DOSSIER": {
-        "temperature": 0.2,
+        "temperature": 0.0,
         "reasoning_effort": "none",
         "max_tokens": 4096,
     },
@@ -497,7 +497,7 @@ TASK_RECOMMENDED_DEFAULTS = {
         "max_tokens": 4096,
     },
     "INTERVIEW_STAR_EVAL": {
-        "temperature": 0.1,
+        "temperature": 0.0,
         "reasoning_effort": "none",
         "max_tokens": 2048,
     },
