@@ -395,28 +395,38 @@ def test_calibrate_assessment_score_and_recommendation_bounds():
     assert score == 95
     assert rec == "APPLY_STRONGLY"
 
-    # 3. Baseline 80%, raw AI 95%, 2 critical risks -> 95%, but downgraded to STRETCH_ROLE
+    # 3. Baseline 80%, raw AI 95%, 2 critical risks -> Dampened to 89% (baseline+15 - 6pts), downgraded from STRONGLY to APPLY_MODERATELY
     score, rec = calibrate_assessment_score_and_recommendation(
         raw_fit_score=95,
         programmatic_baseline=80,
         critical_risks=["Missing Kubernetes in production", "Seniority gap"],
     )
-    assert score == 95
-    assert rec == "STRETCH_ROLE"
+    assert score == 89
+    assert rec == "APPLY_MODERATELY"
 
-    # 4. Baseline 80%, raw AI 30% -> Clamped to min 80 - 25 = 55% (STRETCH_ROLE)
+    # 4. Baseline 80%, raw AI 30% -> Clamped to min 80 - 15 = 65% (STRETCH_ROLE)
     score, rec = calibrate_assessment_score_and_recommendation(
         raw_fit_score=30, programmatic_baseline=80, critical_risks=[]
     )
-    assert score == 55
+    assert score == 65
     assert rec == "STRETCH_ROLE"
 
-    # 5. Baseline None (0 JD skills), raw AI 90% -> Capped at 70% (APPLY_MODERATELY)
+    # 5. Baseline None (0 JD skills), raw AI 90%, no seniority specified -> Capped at 75%
     score, rec = calibrate_assessment_score_and_recommendation(
         raw_fit_score=90, programmatic_baseline=None, critical_risks=[]
     )
-    assert score == 70
+    assert score == 75
     assert rec == "APPLY_MODERATELY"
+
+    # 5b. Baseline None (0 JD skills), raw AI 90%, seniority MATCHES -> Bounded up to 90%
+    score_strong, rec_strong = calibrate_assessment_score_and_recommendation(
+        raw_fit_score=90,
+        programmatic_baseline=None,
+        critical_risks=[],
+        seniority_fit="MATCHES",
+    )
+    assert score_strong == 90
+    assert rec_strong == "APPLY_STRONGLY"
 
     # 6. Baseline 90%, raw AI 95%, but UNDERQUALIFIED seniority -> Capped at 65% (STRETCH_ROLE)
     score, rec = calibrate_assessment_score_and_recommendation(

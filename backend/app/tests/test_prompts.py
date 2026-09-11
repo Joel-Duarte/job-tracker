@@ -232,14 +232,39 @@ def test_calibrate_assessment_score_prevents_arbitrary_risk_cliff_drop():
     assert underqualified_score <= 65
     assert underqualified_rec == "STRETCH_ROLE"
 
-    # 4. Low programmatic baseline (35%) prevents grade inflation (clamped to <= 60 with +25% seniority bonus)
+    # 4. Low programmatic baseline (35% on N=10 skills) prevents grade inflation (clamped to <= 60 with +25% seniority bonus)
     low_match_score, _ = calibrate_assessment_score_and_recommendation(
         raw_fit_score=85,
         programmatic_baseline=35,
         critical_risks=[],
         seniority_fit="MATCHES",
+        total_required_skills=10,
     )
     assert low_match_score <= 60
+
+    # 5. Sparse keywords (1 of 2 matched = 50% baseline, but N=2 total skills)
+    # Blended baseline: 0.70 * 85 + 0.30 * 50 = 60 + 15 = 75. Candidate matches seniority and 0 risks -> score reaches 85!
+    sparse_score, sparse_rec = calibrate_assessment_score_and_recommendation(
+        raw_fit_score=85,
+        programmatic_baseline=50,
+        critical_risks=[],
+        seniority_fit="MATCHES",
+        total_required_skills=2,
+    )
+    assert sparse_score == 85
+    assert sparse_rec == "APPLY_STRONGLY"
+
+    # 6. Zero keywords extracted (N=0, baseline None, raw AI score 88, seniority MATCHES)
+    # Bounded up to 90%, not artificially crushed to 70%!
+    zero_kw_score, zero_kw_rec = calibrate_assessment_score_and_recommendation(
+        raw_fit_score=88,
+        programmatic_baseline=None,
+        critical_risks=[],
+        seniority_fit="MATCHES",
+        total_required_skills=0,
+    )
+    assert zero_kw_score == 88
+    assert zero_kw_rec == "APPLY_STRONGLY"
 
 
 def test_interview_star_eval_rubric_point_decomposition():

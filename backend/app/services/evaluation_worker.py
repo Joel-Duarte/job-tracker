@@ -1109,8 +1109,11 @@ async def _execute_evaluation_steps(
                 candidate_skills = active_cv.extracted_skills if active_cv else []
 
                 # Deterministically compute skills and overlap using taxonomy regex & candidate mentions
+                jd_skills_from_spec = (
+                    spec_dict.get("extracted_skills") if spec_dict else None
+                )
                 match_info = compute_programmatic_skill_match(
-                    candidate_skills, content, jd_required_skills=None
+                    candidate_skills, content, jd_required_skills=jd_skills_from_spec
                 )
 
                 active_domains_str = None

@@ -150,7 +150,7 @@ def compute_programmatic_skill_match(
         s: _normalize_token(s) for s in cand_skills if s and s.strip()
     }
 
-    # 1. Determine target JD skills list
+    # 1. Determine target JD skills list (combining explicit JD skills and taxonomy extraction)
     target_jd_skills: list[str] = []
     seen = set()
 
@@ -160,8 +160,9 @@ def compute_programmatic_skill_match(
             if clean and clean.lower() not in seen:
                 seen.add(clean.lower())
                 target_jd_skills.append(clean)
-    elif jd_text:
-        # Deterministic regex taxonomy scan
+
+    if jd_text:
+        # Deterministic regex taxonomy scan to supplement or identify skills
         from app.services.skill_normalizer import extract_skills_from_text
 
         for s in extract_skills_from_text(jd_text):

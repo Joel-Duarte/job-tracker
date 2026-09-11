@@ -371,6 +371,7 @@ DEFAULT_PROMPTS = {
         "   - 75–89% (Competitive Fit): Primary tech stack & seniority match; missing only 1-2 minor secondary tools.\n"
         "   - 50–74% (Stretch / Partial Fit): Missing 1 core stack requirement OR verified seniority is >= 2 years below requirement.\n"
         "   - < 50% (Underqualified / Poor Fit): Missing fundamental primary stack or severe domain mismatch.\n"
+        "   - Low-Keyword Postings: When a job description lists few or no explicit tooling keywords (< 4), evaluate fit primarily on architectural alignment with stated responsibilities, domain experience, and seniority match. Do not penalize the candidate for missing unstated tools.\n"
         "   Anchor the score around the programmatic match baseline provided in the target job workload section below. Never award 85%+ if primary prerequisites are missing.\n"
         "6. Spoken Language Audit (language_match): Verify required spoken languages against candidate languages. If any mandatory language is missing, set is_matched=False, populate missing_mandatory, and explain the mismatch.\n"
         "7. FACTUAL STRATEGIC PROS (pros): Every item MUST cite an explicit, documented technical skill, verified accomplishment, or domain experience present in <untrusted_candidate_cv> that directly satisfies a requirement in <untrusted_job_description>. STRICTLY FORBID generic workplace praise, speculative culture claims, or ungrounded compliments (e.g. NEVER output 'Collaborative environment', 'High growth potential', 'Strong leadership opportunities', or 'Exciting modern tech stack'). If there are no clear technical advantages, return direct factual skill alignments.\n"
@@ -881,6 +882,7 @@ async def seed_default_prompts(session: AsyncSession) -> None:
             or "FACTUAL STRATEGIC PROS" not in (existing.template or "")
             or "Return critical risks ONLY for true deal-breakers"
             not in (existing.template or "")
+            or "Low-Keyword Postings" not in (existing.template or "")
         ):
             existing.template = default_template
         elif prompt_name == "company_research" and (
@@ -960,6 +962,7 @@ async def get_prompt_template(
             or "ZERO-METRIC HALLUCINATION" not in template
             or "FACTUAL STRATEGIC PROS" not in template
             or "Return critical risks ONLY for true deal-breakers" not in template
+            or "Low-Keyword Postings" not in template
         ):
             res_template = DEFAULT_PROMPTS["assessment"]
         elif prompt_name == "company_research" and (
