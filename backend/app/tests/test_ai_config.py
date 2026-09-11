@@ -81,12 +81,14 @@ async def test_ai_provider_crud_and_masking(db_session: AsyncSession):
                 "provider_type": "openai",
                 "base_url": "http://192.168.1.187:1234/v1",
                 "api_key": "secret-api-key-12345",
+                "engine_type": "lmstudio",
                 "is_active": True,
             },
         )
         assert create_res.status_code == 201
         created = create_res.json()
         assert created["name"] == "Local LM Studio"
+        assert created["engine_type"] == "lmstudio"
         assert created["api_key_masked"] == "sec...345"
         provider_id = created["id"]
 
@@ -95,15 +97,18 @@ async def test_ai_provider_crud_and_masking(db_session: AsyncSession):
         assert list_res.status_code == 200
         providers = list_res.json()
         assert len(providers) >= 1
-        assert any(p["id"] == provider_id for p in providers)
+        assert any(
+            p["id"] == provider_id and p["engine_type"] == "lmstudio" for p in providers
+        )
 
         # 3. Patch Provider
         patch_res = await ac.patch(
             f"/api/v1/ai/providers/{provider_id}",
-            json={"name": "Local LM Studio Updated"},
+            json={"name": "Local LM Studio Updated", "engine_type": "vllm"},
         )
         assert patch_res.status_code == 200
         assert patch_res.json()["name"] == "Local LM Studio Updated"
+        assert patch_res.json()["engine_type"] == "vllm"
 
         # 4. List Models for Provider (Hybrid Discovery / Curated Fallback)
         models_res = await ac.get(f"/api/v1/ai/providers/{provider_id}/models")
@@ -123,6 +128,49 @@ async def test_ai_provider_crud_and_masking(db_session: AsyncSession):
             assert "OK" in probe_data["response"]
 
     app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_detect_provider_engine_hierarchy():
+    from app.services.provider_lifecycle_service import detect_provider_engine
+
+    # 1. Explicit engine_type takes precedence
+    assert detect_provider_engine("http://any-domain.com", "openai", "vllm") == "vllm"
+    assert (
+        detect_provider_engine("http://localhost:1234/v1", "custom", "sglang")
+        == "sglang"
+    )
+    assert (
+        detect_provider_engine("http://localhost:1234/v1", "openai", "cloud") == "cloud"
+    )
+
+    # 2. Auto detection with server header
+    assert (
+        detect_provider_engine(
+            "http://ai.example.com", "openai", "auto", {"server": "lmstudio 0.4.0"}
+        )
+        == "lmstudio"
+    )
+    assert (
+        detect_provider_engine(
+            "http://ai.example.com", "openai", "auto", {"server": "ollama/0.1.30"}
+        )
+        == "ollama"
+    )
+
+    # 3. Auto detection fallback to local/LAN heuristics
+    assert (
+        detect_provider_engine("http://192.168.1.187:1234/v1", "openai", "auto")
+        == "lmstudio"
+    )
+    assert (
+        detect_provider_engine("http://localhost:11434/v1", "openai", "auto")
+        == "ollama"
+    )
+    assert (
+        detect_provider_engine("https://api.openai.com/v1", "openai", "auto")
+        == "generic"
+    )
 
 
 @pytest.mark.asyncio

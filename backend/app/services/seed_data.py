@@ -1128,6 +1128,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
         api_key="",
         max_concurrency=2,
         auto_release_vram_minutes=10,
+        engine_type="lmstudio",
         is_active=True,
     )
     session.add(provider_local)

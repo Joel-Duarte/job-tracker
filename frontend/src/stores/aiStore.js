@@ -6,17 +6,48 @@ import { useUIStore } from './uiStore'
 export const useAIStore = defineStore('ai', () => {
   const uiStore = useUIStore()
 
+  const STORAGE_KEY = 'job_tracker_local_model_status'
+
+  function getStoredVRAMStatus() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        return {
+          provider_id: parsed.provider_id || null,
+          provider_name: parsed.provider_name || '',
+          engine: parsed.engine || '',
+          status: parsed.status || 'UNKNOWN',
+          is_loaded: Boolean(parsed.is_loaded),
+          vram_allocated_mb: parsed.vram_allocated_mb || 0,
+          message: parsed.message || '',
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    return {
+      provider_id: null,
+      provider_name: '',
+      engine: '',
+      status: 'UNKNOWN', // 'ACTIVE' | 'SLEEPING' | 'UNKNOWN'
+      is_loaded: false,
+      vram_allocated_mb: 0,
+      message: '',
+    }
+  }
+
+  function saveStoredVRAMStatus(val) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(val))
+    } catch (e) {
+      // ignore
+    }
+  }
+
   const providers = ref([])
   const loadingProviders = ref(false)
-  const vramStatus = ref({
-    provider_id: null,
-    provider_name: '',
-    engine: '',
-    status: 'UNKNOWN', // 'ACTIVE' | 'SLEEPING' | 'UNKNOWN'
-    is_loaded: false,
-    vram_allocated_mb: 0,
-    message: '',
-  })
+  const vramStatus = ref(getStoredVRAMStatus())
   const isReleasingVRAM = ref(false)
   const isBenchmarking = ref(false)
   const benchmarkResult = ref(null)
@@ -25,6 +56,10 @@ export const useAIStore = defineStore('ai', () => {
   // Determine if a provider is local / private
   function isProviderLocal(provider) {
     if (!provider) return false
+    const engine = (provider.engine_type || '').toLowerCase()
+    if (['lmstudio', 'ollama', 'vllm', 'sglang'].includes(engine)) return true
+    if (engine === 'generic') return false
+
     const type = (provider.provider_type || '').toLowerCase()
     if (type === 'ollama' || type === 'local') return true
     const url = (provider.base_url || '').toLowerCase()
@@ -57,14 +92,35 @@ export const useAIStore = defineStore('ai', () => {
 
   const localModelStatus = computed(() => {
     if (isWakingUp.value) return 'WAKING'
-    if (vramStatus.value.status === 'SLEEPING' || (!vramStatus.value.is_loaded && vramStatus.value.status !== 'ACTIVE')) {
-      return 'SLEEPING'
-    }
-    if (vramStatus.value.status === 'ACTIVE' || vramStatus.value.is_loaded) {
+    if (vramStatus.value.status === 'ACTIVE' && vramStatus.value.is_loaded) {
       return 'ACTIVE'
     }
-    return 'UNKNOWN'
+    if (vramStatus.value.status === 'SLEEPING' || (!vramStatus.value.is_loaded && vramStatus.value.status !== 'UNKNOWN')) {
+      return 'SLEEPING'
+    }
+    if (vramStatus.value.is_loaded) {
+      return 'ACTIVE'
+    }
+    return vramStatus.value.status || 'UNKNOWN'
   })
+
+  function updateVRAMStatusFromHealth(healthData) {
+    if (!healthData) return
+    const isLocal = Boolean(healthData.is_local_engine)
+    if (!isLocal) return
+
+    const newStatus = {
+      provider_id: healthData.provider_id,
+      provider_name: healthData.provider_name || '',
+      engine: healthData.provider_type || '',
+      status: healthData.model_loaded_status || (healthData.is_model_loaded ? 'ACTIVE' : 'SLEEPING'),
+      is_loaded: Boolean(healthData.is_model_loaded),
+      vram_allocated_mb: healthData.vram_allocated_mb || 0,
+      message: healthData.error_message || '',
+    }
+    vramStatus.value = newStatus
+    saveStoredVRAMStatus(newStatus)
+  }
 
   async function fetchProviders() {
     loadingProviders.value = true
@@ -88,7 +144,7 @@ export const useAIStore = defineStore('ai', () => {
     try {
       const res = await AIConfigAPI.getVRAMStatus(targetId)
       if (res.data) {
-        vramStatus.value = {
+        const nextStatus = {
           provider_id: res.data.provider_id,
           provider_name: res.data.provider_name,
           engine: res.data.engine,
@@ -97,6 +153,8 @@ export const useAIStore = defineStore('ai', () => {
           vram_allocated_mb: res.data.vram_allocated_mb || 0,
           message: res.data.message || '',
         }
+        vramStatus.value = nextStatus
+        saveStoredVRAMStatus(nextStatus)
       }
     } catch (err) {
       console.warn('Failed to fetch VRAM status for provider', targetId, err)
@@ -113,12 +171,14 @@ export const useAIStore = defineStore('ai', () => {
     isReleasingVRAM.value = true
     try {
       const res = await AIConfigAPI.releaseVRAM(targetId)
-      vramStatus.value = {
+      const sleepingStatus = {
         ...vramStatus.value,
         status: 'SLEEPING',
         is_loaded: false,
         vram_allocated_mb: 0,
       }
+      vramStatus.value = sleepingStatus
+      saveStoredVRAMStatus(sleepingStatus)
       uiStore.showToast(res.data?.message || 'Model unloaded. GPU VRAM released successfully.', 'success')
       return true
     } catch (err) {
@@ -173,6 +233,7 @@ export const useAIStore = defineStore('ai', () => {
     isProviderLocal,
     fetchProviders,
     fetchVRAMStatus,
+    updateVRAMStatusFromHealth,
     releaseVRAM,
     triggerWakeUpNotification,
     runCapacityBenchmark,

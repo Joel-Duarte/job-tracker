@@ -1,6 +1,7 @@
 import logging
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -288,6 +289,7 @@ async def check_ai_provider_health(db: AsyncSession) -> AIHealthStatusRead:
     status_str = "offline"
     latency_ms = 0.0
     error_message = None
+    resp = None
 
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
@@ -296,7 +298,7 @@ async def check_ai_provider_health(db: AsyncSession) -> AIHealthStatusRead:
                 headers["Authorization"] = f"Bearer {api_key}"
 
             probe_url = None
-            if p_type == "ollama":
+            if p_type == "ollama" or getattr(provider, "engine_type", None) == "ollama":
                 probe_url = (
                     f"{base_url}/api/tags"
                     if base_url and not base_url.endswith("/api")
@@ -306,6 +308,16 @@ async def check_ai_provider_health(db: AsyncSession) -> AIHealthStatusRead:
                         else "http://localhost:11434/api/tags"
                     )
                 )
+            elif getattr(provider, "engine_type", None) == "lmstudio" or (
+                base_url and ":1234" in base_url
+            ):
+                parsed_u = urlparse(_clean_base_url(base_url) or "")
+                root_u = (
+                    f"{parsed_u.scheme}://{parsed_u.netloc}"
+                    if parsed_u.netloc
+                    else base_url
+                )
+                probe_url = f"{root_u}/api/v0/models"
             elif base_url:
                 probe_url = (
                     f"{base_url}/models"
@@ -343,6 +355,69 @@ async def check_ai_provider_health(db: AsyncSession) -> AIHealthStatusRead:
         status_str = "offline"
         error_message = str(err)
 
+    # 4. Local Engine VRAM & Model Loading Status Detection
+    is_local_engine = False
+    is_model_loaded = False
+    model_loaded_status = "UNKNOWN"
+    vram_allocated_mb = 0
+
+    from app.services.provider_lifecycle_service import detect_provider_engine
+
+    engine = detect_provider_engine(
+        base_url,
+        provider.provider_type,
+        getattr(provider, "engine_type", None),
+        response_headers=resp.headers if resp is not None else None,
+    )
+    if engine != "generic":
+        is_local_engine = True
+        if status_str in ("healthy", "degraded") and resp is not None:
+            try:
+                payload = resp.json()
+                if isinstance(payload, dict):
+                    if engine == "lmstudio":
+                        items = payload.get("data") or []
+                        loaded = any(
+                            it.get("state") == "loaded"
+                            for it in items
+                            if isinstance(it, dict)
+                        )
+                        is_model_loaded = loaded
+                        model_loaded_status = "ACTIVE" if loaded else "SLEEPING"
+                        vram_allocated_mb = 4096 if loaded else 0
+                    elif "data" in payload and isinstance(payload["data"], list):
+                        loaded = len(payload["data"]) > 0
+                        is_model_loaded = loaded
+                        model_loaded_status = "ACTIVE" if loaded else "SLEEPING"
+                        vram_allocated_mb = 4096 if loaded else 0
+                    elif "models" in payload and isinstance(payload["models"], list):
+                        loaded = len(payload["models"]) > 0
+                        is_model_loaded = loaded
+                        model_loaded_status = "ACTIVE" if loaded else "SLEEPING"
+                        vram_allocated_mb = 4096 if loaded else 0
+                    else:
+                        is_model_loaded = True
+                        model_loaded_status = "ACTIVE"
+                        vram_allocated_mb = 4096
+                else:
+                    is_model_loaded = True
+                    model_loaded_status = "ACTIVE"
+            except Exception as v_err:
+                logger.debug(
+                    "Failed parsing model payload during health ping for provider %d: %s",
+                    provider.id,
+                    v_err,
+                )
+                model_loaded_status = "UNKNOWN"
+        else:
+            # When provider is offline, the local model is considered sleeping/unreachable
+            model_loaded_status = "SLEEPING"
+    else:
+        is_local_engine = False
+        is_model_loaded = True
+        model_loaded_status = "ACTIVE"
+        vram_allocated_mb = 0
+
     res_status = AIHealthStatusRead(
         status=status_str,
         provider_id=provider.id,
@@ -354,6 +429,10 @@ async def check_ai_provider_health(db: AsyncSession) -> AIHealthStatusRead:
         error_message=error_message,
         fallback_provider_id=fallback_provider_id,
         fallback_provider_name=fallback_provider_name,
+        is_local_engine=is_local_engine,
+        is_model_loaded=is_model_loaded,
+        model_loaded_status=model_loaded_status,
+        vram_allocated_mb=vram_allocated_mb,
     )
     _HEALTH_CACHE = (time.monotonic(), res_status)
     return res_status
@@ -451,6 +530,7 @@ def _to_provider_read(p: AIProviderModel) -> AIProviderRead:
         input_cost_per_million=getattr(p, "input_cost_per_million", 0.0) or 0.0,
         output_cost_per_million=getattr(p, "output_cost_per_million", 0.0) or 0.0,
         auto_release_vram_minutes=getattr(p, "auto_release_vram_minutes", 10),
+        engine_type=getattr(p, "engine_type", "auto") or "auto",
         created_at=p.created_at,
         updated_at=p.updated_at,
     )
@@ -521,6 +601,9 @@ async def create_ai_provider(
         auto_release_vram_minutes=payload.auto_release_vram_minutes
         if payload.auto_release_vram_minutes is not None
         else 10,
+        engine_type=payload.engine_type.strip().lower()
+        if payload.engine_type
+        else "auto",
     )
     db.add(provider)
     await db.commit()
@@ -1334,6 +1417,7 @@ async def benchmark_provider_capacity(
 )
 async def release_provider_vram_endpoint(
     provider_id: int,
+    model_name: str | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> VRAMReleaseResponseSchema:
     """
@@ -1342,7 +1426,9 @@ async def release_provider_vram_endpoint(
     """
     from app.services.provider_lifecycle_service import release_provider_vram
 
-    res = await release_provider_vram(provider_id=provider_id, db=db)
+    res = await release_provider_vram(
+        provider_id=provider_id, db=db, model_name=model_name
+    )
     return VRAMReleaseResponseSchema(**res)
 
 

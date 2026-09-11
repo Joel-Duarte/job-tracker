@@ -58,6 +58,14 @@ function closeMobileMenu() {
 }
 
 const pillLabel = computed(() => {
+  if (aiStore.isLocalActive) {
+    if (aiStore.localModelStatus === 'WAKING') {
+      return `${uiStore.aiActiveProviderName || 'Local Engine'} (Waking...)`
+    }
+    if (aiStore.localModelStatus === 'SLEEPING') {
+      return `${uiStore.aiActiveProviderName || 'Local Engine'} (Sleeping)`
+    }
+  }
   switch (uiStore.aiStatus) {
     case 'healthy':
       return `${uiStore.aiActiveProviderName || 'AI Online'} • ${Math.round(uiStore.aiLatencyMs)}ms`
@@ -72,20 +80,21 @@ const pillLabel = computed(() => {
 })
 
 const pillTitle = computed(() => {
+  if (aiStore.isLocalActive) {
+    if (aiStore.localModelStatus === 'WAKING') {
+      return `${uiStore.aiActiveProviderName || 'Local Engine'} - Waking up local model & loading weights to GPU...`
+    }
+    if (aiStore.localModelStatus === 'SLEEPING') {
+      return `${uiStore.aiActiveProviderName || 'Local Engine'} - Sleeping (0 GB VRAM). Click to inspect health.`
+    }
+    if (aiStore.localModelStatus === 'ACTIVE') {
+      return `${uiStore.aiActiveProviderName || 'Local Engine'} (${Math.round(uiStore.aiLatencyMs)}ms) - Active in GPU VRAM. Click to inspect health.`
+    }
+  }
   if (uiStore.aiStatus === 'healthy') return `AI Provider ${uiStore.aiActiveProviderName} is Healthy (${Math.round(uiStore.aiLatencyMs)}ms)`
   if (uiStore.aiStatus === 'degraded') return `AI Provider ${uiStore.aiActiveProviderName} is Degraded (${Math.round(uiStore.aiLatencyMs)}ms)`
   if (uiStore.aiStatus === 'offline') return `AI Provider Offline: ${uiStore.aiErrorMessage || 'Unreachable'}`
   return 'No AI Provider Configured'
-})
-
-const localModelTooltip = computed(() => {
-  if (aiStore.localModelStatus === 'WAKING') {
-    return 'Waking up local model & loading weights to GPU (3–5s)...'
-  }
-  if (aiStore.localModelStatus === 'SLEEPING') {
-    return 'Local model is sleeping (0 GB VRAM). Will automatically wake on next inference request.'
-  }
-  return 'Local model is warm and ready in GPU VRAM. Click "Release VRAM" to unload.'
 })
 
 async function handleReleaseVRAM() {
@@ -341,50 +350,54 @@ onUnmounted(() => {
         <span>DEMO MODE</span>
       </button>
 
-      <!-- Live Local Model Status Chip (When Local Provider is active) -->
-      <div v-if="aiStore.isLocalActive" class="local-model-chip-wrap">
-        <div
-          class="local-model-chip"
-          :class="`chip-${aiStore.localModelStatus.toLowerCase()}`"
-          :title="localModelTooltip"
-        >
-          <template v-if="aiStore.localModelStatus === 'WAKING'">
-            <Loader2 :size="12" class="spin text-primary" />
-            <span class="chip-label">⏳ Waking...</span>
-          </template>
-          <template v-else-if="aiStore.localModelStatus === 'SLEEPING'">
-            <Moon :size="12" class="text-secondary" />
-            <span class="chip-label">🌙 Model Sleeping</span>
-          </template>
-          <template v-else>
-            <span class="chip-dot-active"></span>
-            <span class="chip-label">🟢 Model Ready</span>
-            <button
-              type="button"
-              class="btn-release-chip"
-              :disabled="aiStore.isReleasingVRAM"
-              @click.stop="handleReleaseVRAM"
-              title="Release GPU VRAM (Unload Model / Sleep Mode)"
-            >
-              <Loader2 v-if="aiStore.isReleasingVRAM" :size="10" class="spin" />
-              <ZapOff v-else :size="10" />
-              <span>Release VRAM</span>
-            </button>
-          </template>
-        </div>
-      </div>
-
       <!-- AI Health Monitoring Pill & Diagnostic Popover -->
       <div class="health-pill-container" ref="popoverContainerRef">
-        <button
+        <div
           class="health-pill"
-          :class="`status-${uiStore.aiStatus}`"
+          :class="[
+            `status-${uiStore.aiStatus}`,
+            {
+              'has-local-engine': aiStore.isLocalActive,
+              'model-sleeping': aiStore.isLocalActive && aiStore.localModelStatus === 'SLEEPING',
+              'model-waking': aiStore.isLocalActive && aiStore.localModelStatus === 'WAKING',
+              'model-active': aiStore.isLocalActive && aiStore.localModelStatus === 'ACTIVE'
+            }
+          ]"
           @click.stop="isHealthPopoverOpen = !isHealthPopoverOpen"
           :title="pillTitle"
+          role="button"
+          tabindex="0"
+          @keydown.enter.stop="isHealthPopoverOpen = !isHealthPopoverOpen"
         >
-          <span class="status-dot"></span>
+          <!-- Left Status Indicator -->
+          <Loader2
+            v-if="aiStore.isLocalActive && aiStore.localModelStatus === 'WAKING'"
+            :size="11"
+            class="spin text-primary flex-shrink-0"
+          />
+          <Moon
+            v-else-if="aiStore.isLocalActive && aiStore.localModelStatus === 'SLEEPING'"
+            :size="11"
+            class="text-secondary flex-shrink-0"
+          />
+          <span v-else class="status-dot"></span>
+
+          <!-- Status Label -->
           <span class="pill-text">{{ pillLabel }}</span>
-        </button>
+
+          <!-- Inline Quick-Action: Release VRAM (only when local model is active in VRAM) -->
+          <button
+            v-if="aiStore.isLocalActive && aiStore.localModelStatus === 'ACTIVE'"
+            type="button"
+            class="btn-inline-release"
+            :disabled="aiStore.isReleasingVRAM"
+            @click.stop="handleReleaseVRAM"
+            title="Release GPU VRAM (Unload Model)"
+          >
+            <Loader2 v-if="aiStore.isReleasingVRAM" :size="10" class="spin" />
+            <ZapOff v-else :size="10" />
+          </button>
+        </div>
 
         <div v-if="isHealthPopoverOpen" class="ai-health-popover" @click.stop>
           <div class="popover-header">
@@ -417,9 +430,9 @@ onUnmounted(() => {
             <div class="info-row" v-if="aiStore.isLocalActive">
               <span class="info-label">VRAM State</span>
               <span class="info-value font-mono">
-                <span v-if="aiStore.localModelStatus === 'ACTIVE'" class="text-success font-semibold">🟢 Active in VRAM</span>
-                <span v-else-if="aiStore.localModelStatus === 'SLEEPING'" class="text-secondary font-semibold">🌙 Sleeping (0 GB)</span>
-                <span v-else class="text-primary font-semibold">⏳ Waking Up...</span>
+                <span v-if="aiStore.localModelStatus === 'ACTIVE'" class="text-success font-semibold">Active in VRAM</span>
+                <span v-else-if="aiStore.localModelStatus === 'SLEEPING'" class="text-secondary font-semibold">Sleeping (0 GB)</span>
+                <span v-else class="text-primary font-semibold">Waking Up...</span>
               </span>
             </div>
             <div class="info-row highlight-row">
@@ -435,31 +448,37 @@ onUnmounted(() => {
           </div>
 
           <div class="popover-footer">
+            <div class="footer-actions-left">
+              <button
+                v-if="aiStore.isLocalActive && aiStore.localModelStatus === 'ACTIVE'"
+                type="button"
+                class="btn-footer-action"
+                @click="handleReleaseVRAM"
+                :disabled="aiStore.isReleasingVRAM"
+                title="Unload model and free GPU memory immediately"
+              >
+                <Loader2 v-if="aiStore.isReleasingVRAM" :size="12" class="spin" />
+                <ZapOff v-else :size="12" />
+                <span>Release VRAM</span>
+              </button>
+              <button
+                type="button"
+                class="btn-footer-action"
+                @click="handlePingNow"
+                :disabled="uiStore.isCheckingAIHealth"
+                title="Test AI connection and latency"
+              >
+                <RefreshCw :size="12" :class="{ 'spin': uiStore.isCheckingAIHealth }" />
+                <span>{{ uiStore.isCheckingAIHealth ? 'Testing...' : 'Ping Now' }}</span>
+              </button>
+            </div>
             <button
-              v-if="aiStore.isLocalActive && aiStore.localModelStatus === 'ACTIVE'"
-              class="btn btn-sm btn-secondary"
-              @click="handleReleaseVRAM"
-              :disabled="aiStore.isReleasingVRAM"
-              title="Unload model and free GPU memory immediately"
-            >
-              <Loader2 v-if="aiStore.isReleasingVRAM" :size="13" class="spin" />
-              <ZapOff v-else :size="13" />
-              <span>Release VRAM</span>
-            </button>
-            <button
-              class="btn btn-sm btn-secondary"
-              @click="handlePingNow"
-              :disabled="uiStore.isCheckingAIHealth"
-            >
-              <RefreshCw :size="13" :class="{ 'spin': uiStore.isCheckingAIHealth }" />
-              <span>{{ uiStore.isCheckingAIHealth ? 'Testing...' : 'Ping Now' }}</span>
-            </button>
-            <button
-              class="btn btn-sm btn-outline"
+              type="button"
+              class="btn-footer-icon"
               @click="goToAISettings"
+              title="Configure in Settings"
             >
-              <Settings :size="13" />
-              <span>Configure in Settings</span>
+              <Settings :size="14" />
             </button>
           </div>
         </div>
@@ -836,12 +855,19 @@ onUnmounted(() => {
   cursor: pointer;
   transition: all var(--transition-fast);
   white-space: nowrap;
+  user-select: none;
 }
 
-.health-pill:hover {
+.health-pill.model-active {
+  padding-right: 4px;
+}
+
+.health-pill:hover,
+.health-pill:focus-visible {
   background-color: var(--bg-surface-hover);
   color: var(--text-main);
   border-color: var(--border-focus, var(--primary));
+  outline: none;
 }
 
 .status-dot {
@@ -1166,76 +1192,88 @@ onUnmounted(() => {
   transform: translateX(-100%);
 }
 
-/* Local Model VRAM Status Chip */
-.local-model-chip-wrap {
-  display: flex;
-  align-items: center;
-}
-
-.local-model-chip {
+/* Unified Inline Release Action */
+.btn-inline-release {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border-radius: var(--radius-full, 9999px);
-  font-size: 11px;
-  font-weight: 600;
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-surface);
-  color: var(--text-main);
-  transition: all var(--transition-fast);
-}
-
-.local-model-chip.chip-active {
-  border-color: var(--primary-glow);
-  background-color: var(--primary-subtle);
-  color: var(--text-main);
-}
-
-.local-model-chip.chip-sleeping {
-  border-color: var(--border-subtle);
-  background-color: var(--bg-card);
-  color: var(--text-secondary);
-}
-
-.local-model-chip.chip-waking {
-  border-color: var(--border-focus);
-  background-color: var(--primary-subtle);
-  color: var(--text-primary);
-}
-
-.chip-dot-active {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-full, 9999px);
-  background-color: var(--text-success, var(--primary));
-  box-shadow: 0 0 6px var(--primary-glow);
-}
-
-.btn-release-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
   margin-left: 2px;
-  padding: 1px 6px;
-  border-radius: var(--radius-xs, 2px);
+  border-radius: var(--radius-full, 9999px);
   border: 1px solid var(--border-subtle);
   background-color: var(--bg-elevated);
   color: var(--text-secondary);
-  font-size: 10px;
-  font-weight: 500;
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
-.btn-release-chip:hover:not(:disabled) {
+.btn-inline-release:hover:not(:disabled) {
+  background-color: var(--bg-surface-hover);
+  color: var(--primary);
+  border-color: var(--primary-glow);
+}
+
+.btn-inline-release:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Compact Popover Footer Action Bar */
+.footer-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-footer-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.btn-footer-action:hover:not(:disabled) {
   background-color: var(--bg-surface-hover);
   color: var(--text-main);
   border-color: var(--border-color);
 }
 
-.btn-release-chip:disabled {
+.btn-footer-action:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.btn-footer-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.btn-footer-icon:hover {
+  background-color: var(--bg-surface-hover);
+  color: var(--text-main);
+  border-color: var(--border-color);
 }
 </style>

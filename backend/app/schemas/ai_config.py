@@ -44,6 +44,10 @@ class AIProviderCreate(BaseModel):
         le=1440,
         description="Minutes of queue inactivity before releasing GPU VRAM",
     )
+    engine_type: str | None = Field(
+        default="auto",
+        description="Local engine type: 'auto', 'lmstudio', 'ollama', 'vllm', 'sglang', 'generic'",
+    )
 
 
 class AIProviderUpdate(BaseModel):
@@ -57,6 +61,7 @@ class AIProviderUpdate(BaseModel):
     input_cost_per_million: float | None = Field(default=None, ge=0.0)
     output_cost_per_million: float | None = Field(default=None, ge=0.0)
     auto_release_vram_minutes: int | None = Field(default=None, ge=1, le=1440)
+    engine_type: str | None = None
 
 
 class AIProviderRead(BaseModel):
@@ -71,6 +76,7 @@ class AIProviderRead(BaseModel):
     input_cost_per_million: float | None = 0.0
     output_cost_per_million: float | None = 0.0
     auto_release_vram_minutes: int | None = 10
+    engine_type: str | None = "auto"
     created_at: datetime
     updated_at: datetime
 
@@ -199,6 +205,10 @@ class AIHealthStatusRead(BaseModel):
     error_message: str | None = None
     fallback_provider_id: int | None = None
     fallback_provider_name: str | None = None
+    is_local_engine: bool = False
+    is_model_loaded: bool = False
+    model_loaded_status: str = "UNKNOWN"
+    vram_allocated_mb: int = 0
 
 
 class PricingRateRead(BaseModel):

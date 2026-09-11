@@ -323,8 +323,23 @@ def test_factual_grounding_check():
 async def test_lm_studio_unload_dispatch():
     from app.services.provider_lifecycle_service import release_engine_vram
 
-    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-        mock_post.return_value.status_code = 200
+    mock_get_resp = MagicMock()
+    mock_get_resp.status_code = 200
+    mock_get_resp.json.return_value = {
+        "models": [{"id": "qwen3.5:9b", "instance_id": "qwen3.5-inst-1"}]
+    }
+
+    mock_post_resp = MagicMock()
+    mock_post_resp.status_code = 200
+    mock_post_resp.text = '{"instance_id": "qwen3.5-inst-1"}'
+
+    with (
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get,
+        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+    ):
+        mock_get.return_value = mock_get_resp
+        mock_post.return_value = mock_post_resp
+
         res = await release_engine_vram(
             base_url="http://localhost:1234/v1",
             model_name="qwen3.5:9b",
@@ -332,7 +347,8 @@ async def test_lm_studio_unload_dispatch():
         assert res["success"] is True
         assert res["engine"] == "lmstudio"
         mock_post.assert_called_once()
-        assert "/api/v0/models/unload" in str(mock_post.call_args[0][0])
+        assert "/api/v1/models/unload" in str(mock_post.call_args[0][0])
+        assert mock_post.call_args[1]["json"] == {"instance_id": "qwen3.5-inst-1"}
 
 
 @pytest.mark.asyncio
@@ -348,6 +364,78 @@ async def test_vllm_sleep_dispatch():
         assert res["success"] is True
         assert res["engine"] == "vllm"
         assert "/sleep" in str(mock_post.call_args[0][0])
+
+
+@pytest.mark.asyncio
+async def test_ollama_unload_dispatch():
+    from app.services.provider_lifecycle_service import release_engine_vram
+
+    mock_get_resp = MagicMock()
+    mock_get_resp.status_code = 200
+    mock_get_resp.json.return_value = {
+        "models": [{"name": "llama3.1:latest", "size_vram": 4000000000}]
+    }
+
+    mock_post_resp = MagicMock()
+    mock_post_resp.status_code = 200
+    mock_post_resp.json.return_value = {"done": True}
+
+    with (
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get,
+        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
+    ):
+        mock_get.return_value = mock_get_resp
+        mock_post.return_value = mock_post_resp
+
+        res = await release_engine_vram(
+            base_url="http://localhost:11434",
+            provider_type="ollama",
+            model_name="llama3.1",
+        )
+        assert res["success"] is True
+        assert res["engine"] == "ollama"
+        assert "unloaded from Ollama VRAM" in res["message"]
+        mock_post.assert_called_once()
+        assert "/api/generate" in str(mock_post.call_args[0][0])
+        assert mock_post.call_args[1]["json"] == {
+            "model": "llama3.1:latest",
+            "keep_alive": 0,
+        }
+
+
+@pytest.mark.asyncio
+async def test_ollama_already_clear():
+    from app.services.provider_lifecycle_service import release_engine_vram
+
+    mock_get_resp = MagicMock()
+    mock_get_resp.status_code = 200
+    mock_get_resp.json.return_value = {"models": []}
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_get_resp
+
+        res = await release_engine_vram(
+            base_url="http://localhost:11434",
+            provider_type="ollama",
+        )
+        assert res["success"] is True
+        assert res["engine"] == "ollama"
+        assert "already clear" in res["message"]
+
+
+@pytest.mark.asyncio
+async def test_sglang_release_dispatch():
+    from app.services.provider_lifecycle_service import release_engine_vram
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value.status_code = 200
+        res = await release_engine_vram(
+            base_url="http://localhost:30000/v1",
+            engine_type="sglang",
+        )
+        assert res["success"] is True
+        assert res["engine"] == "sglang"
+        assert "/release_memory" in str(mock_post.call_args[0][0])
 
 
 @pytest.mark.asyncio

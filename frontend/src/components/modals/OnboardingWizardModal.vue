@@ -95,6 +95,7 @@ const providerForm = ref({
   model_name: 'qwen/qwen3.5-9b',
   max_concurrency: 2,
   auto_release_vram_minutes: 10,
+  engine_type: 'auto',
   input_cost_per_million: 0.0,
   output_cost_per_million: 0.0,
 })
@@ -267,6 +268,7 @@ async function testConnection() {
         api_key: providerForm.value.api_key || undefined,
         max_concurrency: providerForm.value.max_concurrency || 2,
         auto_release_vram_minutes: providerForm.value.auto_release_vram_minutes || 10,
+        engine_type: providerForm.value.engine_type || 'auto',
         is_active: true,
       })
       activeProviderId = res.data.id
@@ -279,6 +281,7 @@ async function testConnection() {
         api_key: providerForm.value.api_key || undefined,
         max_concurrency: providerForm.value.max_concurrency || 2,
         auto_release_vram_minutes: providerForm.value.auto_release_vram_minutes || 10,
+        engine_type: providerForm.value.engine_type || 'auto',
         is_active: true,
       })
     }
@@ -346,6 +349,7 @@ async function handleStep1Next() {
         api_key: providerForm.value.api_key || undefined,
         max_concurrency: providerForm.value.max_concurrency || 2,
         auto_release_vram_minutes: providerForm.value.auto_release_vram_minutes || 10,
+        engine_type: providerForm.value.engine_type || 'auto',
         input_cost_per_million: parsedIn,
         output_cost_per_million: parsedOut,
         is_active: true,
@@ -360,6 +364,7 @@ async function handleStep1Next() {
         api_key: providerForm.value.api_key || undefined,
         max_concurrency: providerForm.value.max_concurrency || 2,
         auto_release_vram_minutes: providerForm.value.auto_release_vram_minutes || 10,
+        engine_type: providerForm.value.engine_type || 'auto',
         input_cost_per_million: parsedIn,
         output_cost_per_million: parsedOut,
         is_active: true,

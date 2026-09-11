@@ -4,6 +4,7 @@ import { SystemSettingsAPI, AIConfigAPI, StagingAPI } from '../api/endpoints'
 import { isDemoModeEnabled, setDemoModeEnabled, resetDemoDb } from '../demo/demoStorage'
 import { useApplicationsStore } from './applicationsStore'
 import { useAgentChatStore } from './agentChatStore'
+import { useAIStore } from './aiStore'
 
 export const useUIStore = defineStore('ui', () => {
   const isDemoMode = ref(isDemoModeEnabled())
@@ -470,6 +471,15 @@ export const useUIStore = defineStore('ui', () => {
       aiProviderId.value = data.provider_id || null
       aiFallbackProviderId.value = data.fallback_provider_id || null
 
+      if (data && (data.is_local_engine !== undefined || data.model_loaded_status !== undefined)) {
+        try {
+          const aiStore = useAIStore()
+          aiStore.updateVRAMStatusFromHealth(data)
+        } catch (e) {
+          // ignore
+        }
+      }
+
       if (aiStatus.value === 'healthy') {
         consecutiveHealthyChecks.value += 1
       } else {
@@ -479,6 +489,17 @@ export const useUIStore = defineStore('ui', () => {
       aiStatus.value = 'offline'
       aiErrorMessage.value = err?.response?.data?.detail || err?.message || 'Connection failed'
       consecutiveHealthyChecks.value = 0
+      try {
+        const aiStore = useAIStore()
+        aiStore.updateVRAMStatusFromHealth({
+          is_local_engine: true,
+          is_model_loaded: false,
+          model_loaded_status: 'SLEEPING',
+          error_message: aiErrorMessage.value,
+        })
+      } catch (e) {
+        // ignore
+      }
     } finally {
       lastHealthCheckTimestamp.value = Date.now()
       isCheckingAIHealth.value = false

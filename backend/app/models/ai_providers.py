@@ -40,6 +40,9 @@ class AIProviderModel(Base):
     auto_release_vram_minutes: Mapped[int | None] = mapped_column(
         Integer, default=10, server_default=text("10"), nullable=True
     )
+    engine_type: Mapped[str | None] = mapped_column(
+        Text, default="auto", server_default=text("'auto'"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

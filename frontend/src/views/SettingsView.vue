@@ -125,9 +125,16 @@ const providerForm = ref({
   api_key: '',
   max_concurrency: 2,
   auto_release_vram_minutes: 10,
+  engine_type: 'auto',
   is_active: true,
   input_cost_per_million: 0.15,
   output_cost_per_million: 0.60,
+})
+
+const isLocalEngineApplicable = computed(() => {
+  const type = (providerForm.value.provider_type || '').toLowerCase()
+  const url = (providerForm.value.base_url || '').trim()
+  return Boolean(url) || ['openai', 'custom', 'ollama', 'local'].includes(type)
 })
 
 // VRAM Booster & Setup Guide active tab
@@ -1674,6 +1681,7 @@ function openCreateProvider() {
     api_key: '',
     max_concurrency: 2,
     auto_release_vram_minutes: 10,
+    engine_type: 'auto',
     is_active: true,
     input_cost_per_million: 0.15,
     output_cost_per_million: 0.60,
@@ -1691,6 +1699,7 @@ function openEditProvider(p) {
     api_key: '',
     max_concurrency: p.max_concurrency || 2,
     auto_release_vram_minutes: p.auto_release_vram_minutes !== undefined && p.auto_release_vram_minutes !== null ? p.auto_release_vram_minutes : 10,
+    engine_type: p.engine_type || 'auto',
     is_active: p.is_active,
     input_cost_per_million: p.input_cost_per_million !== undefined && p.input_cost_per_million !== null ? p.input_cost_per_million : 0.0,
     output_cost_per_million: p.output_cost_per_million !== undefined && p.output_cost_per_million !== null ? p.output_cost_per_million : 0.0,
@@ -3307,7 +3316,10 @@ onUnmounted(() => {
                 <Server :size="16" class="text-primary" />
                 <span class="provider-name">{{ p.name }}</span>
               </div>
-              <span class="badge badge-applied font-mono">{{ p.provider_type }}</span>
+              <div class="flex items-center gap-1.5">
+                <span v-if="p.engine_type && p.engine_type !== 'generic' && p.engine_type !== 'auto'" class="badge badge-subtle font-mono text-xs">{{ p.engine_type.toUpperCase() }}</span>
+                <span class="badge badge-applied font-mono">{{ p.provider_type }}</span>
+              </div>
             </div>
 
             <div class="provider-body">
@@ -4297,6 +4309,25 @@ PARAMETER cache_type_v q8_0</code></pre>
               <div class="input-group">
                 <label class="input-label">{{ editingProvider ? 'New API Key (Leave blank to keep)' : 'API Key (Optional for local)' }}</label>
                 <input v-model="providerForm.api_key" type="password" placeholder="lm-studio / sk-..." class="form-input font-mono text-xs" />
+              </div>
+
+              <!-- Row 2.5: Local Lifecycle Engine (Contextual) -->
+              <div v-if="isLocalEngineApplicable" class="input-group full-span">
+                <div class="flex items-center justify-between">
+                  <label class="input-label">Engine / Local Lifecycle *</label>
+                  <span class="provider-range-hint">Sleep Mode & VRAM Control</span>
+                </div>
+                <select v-model="providerForm.engine_type" class="form-input">
+                  <option value="auto">Auto-Detect Engine (Recommended)</option>
+                  <option value="lmstudio">LM Studio (Local / Private)</option>
+                  <option value="ollama">Ollama (Local / Private)</option>
+                  <option value="vllm">vLLM (Local / Server)</option>
+                  <option value="sglang">SGLang (Local / Server)</option>
+                  <option value="generic">Cloud / Generic (No VRAM release)</option>
+                </select>
+                <span class="provider-field-subtext">
+                  Specifies the backend engine powering this endpoint for idle VRAM release, sleep mode, and model unloading.
+                </span>
               </div>
 
               <!-- Row 3: Input Cost & Output Cost Side-by-Side -->
@@ -8551,6 +8582,10 @@ input:checked + .slider:before {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px 16px;
+}
+
+.full-span {
+  grid-column: 1 / -1;
 }
 
 .provider-field-subtext {
