@@ -3,6 +3,7 @@ import { ref, watch, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useUIStore } from '../../stores/uiStore'
 import { useApplicationsStore } from '../../stores/applicationsStore'
+import { useQueueStore } from '../../stores/queueStore'
 import { CompaniesAPI } from '../../api/endpoints'
 import CompanyLogo from '../common/CompanyLogo.vue'
 import {
@@ -196,13 +197,31 @@ const filteredMergeCompanies = computed(() => {
   })
 })
 
+const queueStore = useQueueStore()
+
 const isResearchActive = computed(() => {
   if (isRefreshing.value) return true
   const st = (company.value?.research_status || '').toUpperCase()
-  return st === 'QUEUED' || st === 'IN_PROGRESS'
+  if (st === 'QUEUED' || st === 'IN_PROGRESS') return true
+
+  // Also check if there is an active COMPANY_RESEARCH task in the AI queue for this company
+  const compId = company.value?.id || selectedCompanyId.value
+  if (compId && queueStore.activeTasks?.length) {
+    const hasActiveTask = queueStore.activeTasks.some((t) => {
+      if (t.task_type !== 'COMPANY_RESEARCH') return false
+      const tid = t.result_json?.company_id || (t.raw_text ? Number(t.raw_text) : null)
+      return String(tid) === String(compId)
+    })
+    if (hasActiveTask) return true
+  }
+
+  return false
 })
 
 const displayResearchStatus = computed(() => {
+  if (isResearchActive.value && (!company.value?.research_status || company.value.research_status === 'NONE')) {
+    return 'IN_PROGRESS'
+  }
   return company.value?.research_status || 'NONE'
 })
 
@@ -322,8 +341,7 @@ let drawerPollInterval = null
 
 function checkAndStartDrawerPolling() {
   if (drawerPollInterval) return
-  const st = (company.value?.research_status || '').toUpperCase()
-  if (!selectedCompanyId.value || !isCompanyDrawerOpen.value || (st !== 'QUEUED' && st !== 'IN_PROGRESS')) {
+  if (!selectedCompanyId.value || !isCompanyDrawerOpen.value || !isResearchActive.value) {
     return
   }
 
@@ -344,7 +362,8 @@ function checkAndStartDrawerPolling() {
         }
         window.dispatchEvent(new CustomEvent('company:updated', { detail: res.data }))
 
-        if (newStatus !== 'QUEUED' && newStatus !== 'IN_PROGRESS') {
+        // Check if research is no longer active
+        if (!isResearchActive.value) {
           stopDrawerPolling()
           if (prevStatus === 'QUEUED' || prevStatus === 'IN_PROGRESS') {
             if (newStatus === 'COMPLETED') {
@@ -370,45 +389,48 @@ function stopDrawerPolling() {
 
 // Reactively start/stop drawer polling whenever the research status is active and drawer is open
 watch(
-  [() => company.value?.research_status, isCompanyDrawerOpen],
-  ([status, isOpen]) => {
-    const st = (status || '').toUpperCase()
-    if (isOpen && (st === 'QUEUED' || st === 'IN_PROGRESS')) {
+  [isResearchActive, isCompanyDrawerOpen],
+  ([isActive, isOpen]) => {
+    if (isOpen && isActive) {
       checkAndStartDrawerPolling()
-    } else if (!isOpen || (st !== 'QUEUED' && st !== 'IN_PROGRESS')) {
+    } else if (!isOpen || !isActive) {
       stopDrawerPolling()
     }
   },
   { immediate: true }
 )
 
-watch(selectedCompanyId, async (newId) => {
-  if (newId && isCompanyDrawerOpen.value) {
-    activeTab.value = uiStore.companyDrawerInitialTab || 'intel'
-    await fetchCompany(newId)
-    if (activeTab.value === 'merge') {
-      await loadAllCompaniesForMerge()
+watch(
+  [selectedCompanyId, isCompanyDrawerOpen],
+  async ([newId, isOpen], [oldId, oldOpen]) => {
+    if (isOpen && newId) {
+      activeTab.value = uiStore.companyDrawerInitialTab || 'intel'
+      // If we switched to a different company, clear the old one first
+      if (company.value && String(company.value.id) !== String(newId)) {
+        company.value = null
+      }
+      await fetchCompany(newId)
+      if (activeTab.value === 'merge') {
+        await loadAllCompaniesForMerge()
+      }
+    } else if (!isOpen) {
+      stopDrawerPolling()
+      // Keep company.value around temporarily for smooth slide-out transition without resetting to null abruptly
+      setTimeout(() => {
+        if (!isCompanyDrawerOpen.value) {
+          company.value = null
+        }
+      }, 300)
     }
-  } else {
-    company.value = null
-    stopDrawerPolling()
-  }
-})
-
-watch(isCompanyDrawerOpen, async (isOpen) => {
-  if (isOpen && selectedCompanyId.value) {
-    activeTab.value = uiStore.companyDrawerInitialTab || 'intel'
-    await fetchCompany(selectedCompanyId.value)
-    if (activeTab.value === 'merge') {
-      await loadAllCompaniesForMerge()
-    }
-  } else {
-    stopDrawerPolling()
-  }
-})
+  },
+  { immediate: true }
+)
 
 async function fetchCompany(id) {
-  isLoading.value = true
+  // If we already have this company loaded, do a silent background reload to avoid layout jumping
+  if (!company.value || String(company.value.id) !== String(id)) {
+    isLoading.value = true
+  }
   try {
     const res = await CompaniesAPI.get(id)
     company.value = res.data

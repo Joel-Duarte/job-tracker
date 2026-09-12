@@ -250,6 +250,7 @@ function refreshCompaniesFromEvent(event) {
         active_applications_count: updatedCompany.active_applications_count ?? companies.value[idx].active_applications_count,
       }
       persistCompanyCache()
+      checkAndStartActiveResearchPolling()
     }
   }
 
@@ -632,6 +633,26 @@ function openCompanyDrawerWithMerge(companyId) {
             </div>
           </div>
 
+          <!-- Research Status Badge -->
+          <div v-if="company.research_status && company.research_status !== 'NONE'" class="company-card-research-badge">
+            <span
+              v-if="company.research_status === 'QUEUED' || company.research_status === 'IN_PROGRESS'"
+              class="badge-research-progress"
+              title="Intelligence research is in progress"
+            >
+              <Loader2 :size="10" class="animate-spin" />
+              <span>Researching</span>
+            </span>
+            <span
+              v-else-if="company.research_status === 'FAILED'"
+              class="badge-research-failed"
+              title="Research failed. Click to retry"
+              @click.stop="retryCompanyResearch(company)"
+            >
+              <TriangleAlert :size="10" />
+              <span>Retry</span>
+            </span>
+          </div>
         </div>
 
         <!-- Mission / Notes Snippet -->
