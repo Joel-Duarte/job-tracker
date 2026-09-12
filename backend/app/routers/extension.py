@@ -151,11 +151,24 @@ async def clip_job_pre_extracted(
     position_norm = payload.position.strip().lower()
     clean_url = normalize_job_url(payload.url)
 
+    from app.services.domain_resolver import resolve_company_domain_and_about
+
+    resolved_domain, discovered_about = await resolve_company_domain_and_about(
+        company_name=payload.company,
+        source_url=clean_url,
+        allow_network=True,
+        db=db,
+    )
+
     # Find or create Company
     company, _ = await resolve_or_create_company(
         db=db,
         company_name=payload.company,
+        domain=resolved_domain,
     )
+    if discovered_about and not company.about_url:
+        company.about_url = discovered_about
+        await db.flush()
 
     # Find or create Application
     app_stmt = select(ApplicationModel).where(

@@ -15,7 +15,6 @@ from app.models.applications import (
 )
 from app.schemas.llm import JobAssessmentResult
 from app.services.company_resolver import resolve_or_create_company
-from app.services.domain_resolver import resolve_company_domain
 from app.services.skill_normalizer import hybrid_extract_skills
 
 logger = logging.getLogger(__name__)
@@ -74,6 +73,19 @@ async def persist_or_stage_job_assessment(
     Otherwise creates a new application in target_status.
     """
     company_name = (assessment.company or "Unknown Company").strip()
+    if structured_spec and structured_spec.get("company"):
+        spec_comp = str(structured_spec["company"]).strip()
+        if (
+            not company_name
+            or company_name.lower() in {"unknown company", "unknown", "not specified"}
+            or (
+                spec_comp
+                and spec_comp.lower() not in {"unknown", "not specified"}
+                and len(spec_comp) > len(company_name)
+            )
+        ):
+            company_name = spec_comp
+
     position_name = (assessment.position or "Unspecified Position").strip()
     position_norm = position_name.lower()
     clean_url = normalize_job_url(job_url)
@@ -236,9 +248,20 @@ async def persist_or_stage_job_assessment(
     from app.services.domain_resolver import (
         clean_company_name,
         extract_organization_from_ats_url,
+        resolve_company_domain_and_about,
     )
 
     clean_name = clean_company_name(company_name)
+    if not clean_name or clean_name.lower() in {
+        "unknown",
+        "careers",
+        "team",
+        "engineering",
+        "not specified",
+    }:
+        if structured_spec and structured_spec.get("company"):
+            clean_name = clean_company_name(structured_spec["company"])
+
     if not clean_name or clean_name.lower() in {
         "unknown",
         "careers",
@@ -250,10 +273,15 @@ async def persist_or_stage_job_assessment(
         if ats_slug:
             clean_name = ats_slug.title()
 
-    resolved_domain = await resolve_company_domain(
+    effective_ai_domain = assessment.company_url or (
+        structured_spec.get("company_url") if structured_spec else None
+    )
+
+    resolved_domain, discovered_about = await resolve_company_domain_and_about(
         company_name=clean_name or company_name,
         source_url=clean_url,
-        ai_domain=assessment.company_url,
+        ai_domain=effective_ai_domain,
+        allow_network=True,
         db=db,
     )
 
@@ -262,6 +290,9 @@ async def persist_or_stage_job_assessment(
         company_name=clean_name or company_name,
         domain=resolved_domain,
     )
+    if discovered_about and not company.about_url:
+        company.about_url = discovered_about
+        await db.flush()
 
     # 3. Create Application
     app_record = ApplicationModel(

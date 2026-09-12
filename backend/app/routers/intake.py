@@ -50,7 +50,6 @@ from app.schemas.intake import (
 )
 from app.schemas.llm import JobAssessmentResult
 from app.services.company_resolver import resolve_or_create_company
-from app.services.domain_resolver import resolve_company_domain
 from app.services.email_fetcher import fetch_emails_from_account
 from app.services.evaluation_worker import process_evaluation_task
 from app.services.file_parser import parse_uploaded_file
@@ -549,6 +548,7 @@ async def confirm_job_assessment(
         from app.services.domain_resolver import (
             clean_company_name,
             extract_organization_from_ats_url,
+            resolve_company_domain_and_about,
         )
 
         clean_name = clean_company_name(payload.company.strip())
@@ -569,11 +569,11 @@ async def confirm_job_assessment(
                 "company_url"
             ) or payload.match_analysis_payload.get("company_domain")
 
-        resolved_domain = await resolve_company_domain(
+        resolved_domain, discovered_about = await resolve_company_domain_and_about(
             company_name=clean_name or payload.company.strip(),
             source_url=clean_job_url,
             ai_domain=ai_domain,
-            allow_network=False,
+            allow_network=True,
             db=db,
         )
         company, _ = await resolve_or_create_company(
@@ -581,6 +581,9 @@ async def confirm_job_assessment(
             company_name=clean_name or payload.company.strip(),
             domain=resolved_domain,
         )
+        if discovered_about and not company.about_url:
+            company.about_url = discovered_about
+            await db.flush()
 
     if not app_record and not payload.force_new:
         app_stmt = select(ApplicationModel).where(

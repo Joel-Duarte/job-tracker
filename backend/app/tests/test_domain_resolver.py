@@ -6,7 +6,9 @@ from app.services.domain_resolver import (
     clean_domain,
     extract_domain_from_url,
     is_ats_hostname,
+    is_domain_match_for_company,
     resolve_company_domain,
+    resolve_company_domain_and_about,
 )
 
 
@@ -106,24 +108,58 @@ async def test_resolve_company_domain_direct_url():
 
 
 @pytest.mark.asyncio
-async def test_resolve_company_domain_clearbit_fallback():
-    with (
-        patch(
-            "app.services.domain_resolver.search_company_domain_and_about",
-            new=AsyncMock(return_value=(None, None)),
-        ),
-        patch(
-            "app.services.domain_resolver.query_clearbit_autocomplete",
-            new=AsyncMock(return_value="segment.com"),
-        ),
+async def test_resolve_company_domain_ai_search_consensus():
+    # If AI extracted segment.com and search confirms it, consensus resolves to segment.com
+    mock_search_results = [
+        {"title": "Segment | Customer Data Platform", "url": "https://segment.com"},
+        {"title": "About Segment", "url": "https://segment.com/about"},
+    ]
+    with patch(
+        "app.services.web_search.search_web",
+        new=AsyncMock(return_value=mock_search_results),
     ):
-        domain = await resolve_company_domain(
+        domain, about = await resolve_company_domain_and_about(
             company_name="Segment",
             source_url=None,
-            ai_domain=None,
+            ai_domain="segment.com",
             allow_network=True,
         )
         assert domain == "segment.com"
+        assert about == "https://segment.com/about"
+
+
+def test_is_domain_match_for_company():
+    assert is_domain_match_for_company("stripe.com", "Stripe") is True
+    assert is_domain_match_for_company("datadoghq.com", "Datadog") is True
+    assert is_domain_match_for_company("linear.app", "Linear") is True
+    assert (
+        is_domain_match_for_company("thebrowsercompany.com", "The Browser Company")
+        is True
+    )
+    # Aggregator / job board hosts should NEVER match unrelated company
+    assert is_domain_match_for_company("remoteok.com", "Acme") is False
+    assert is_domain_match_for_company("cord.co", "Monzo") is False
+    assert is_domain_match_for_company("weworkremotely.com", "Automattic") is False
+
+
+def test_extract_domain_from_url_rejects_aggregators():
+    # Unknown job board / aggregator URLs must NOT be treated as company domain
+    assert (
+        extract_domain_from_url(
+            "https://remoteok.com/remote-jobs/123", company_name="Acme"
+        )
+        is None
+    )
+    assert (
+        extract_domain_from_url(
+            "https://weworkremotely.com/jobs/456", company_name="Linear"
+        )
+        is None
+    )
+    assert (
+        extract_domain_from_url("https://cord.co/company/monzo", company_name="Monzo")
+        is None
+    )
 
 
 def test_clean_company_name():

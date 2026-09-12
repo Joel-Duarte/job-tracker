@@ -679,10 +679,23 @@ async def db_commit_node(
     company_name = state.get("company_name") or extracted.get("company", "Unknown")
 
     if not company_id:
+        from app.services.domain_resolver import resolve_company_domain_and_about
+
+        raw_job_url = extracted.get("job_url") or state.get("job_url")
+        resolved_domain, discovered_about = await resolve_company_domain_and_about(
+            company_name=company_name,
+            source_url=raw_job_url,
+            allow_network=True,
+            db=db,
+        )
         company, _ = await resolve_or_create_company(
             db=db,
             company_name=company_name,
+            domain=resolved_domain,
         )
+        if discovered_about and not company.about_url:
+            company.about_url = discovered_about
+            await db.flush()
         company_id = company.id
 
     application_id = state.get("application_id")

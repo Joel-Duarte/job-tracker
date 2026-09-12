@@ -11,7 +11,6 @@ import logging
 import re
 from urllib.parse import urlparse
 
-import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -64,6 +63,31 @@ KNOWN_AGGREGATOR_DOMAINS = KNOWN_ATS_DOMAINS | {
     "ycombinator.com",
     "businessinsider.com",
     "techcrunch.com",
+    "remoteok.com",
+    "weworkremotely.com",
+    "cord.co",
+    "workingnomads.com",
+    "startup.jobs",
+    "remotive.com",
+    "techstars.com",
+    "join.com",
+    "jobgether.com",
+    "hired.com",
+    "dice.com",
+    "joinhandshake.com",
+    "handshake.com",
+    "themuse.com",
+    "careerbuilder.com",
+    "simplyhired.com",
+    "snagajob.com",
+    "adzuna.com",
+    "stepstone.de",
+    "totaljobs.com",
+    "reed.co.uk",
+    "jobsite.co.uk",
+    "infojobs.net",
+    "github.com",
+    "reddit.com",
 }
 
 # Mapping of canonical ATS vendor domain to set of normalized vendor name identifiers/aliases
@@ -180,12 +204,7 @@ def is_ats_vendor_match(company_name: str | None, domain_or_host: str | None) ->
 
 
 def is_ats_hostname(hostname: str, company_name: str | None = None) -> bool:
-    """Checks if a given hostname belongs to a known ATS or job board.
-
-    If company_name is provided and the company itself is the ATS vendor
-    (e.g., 'Ashby' applying on 'jobs.ashbyhq.com'), returns False so the
-    vendor's domain is not filtered out.
-    """
+    """Checks if a given hostname belongs to a known ATS or job board."""
     if not hostname:
         return False
 
@@ -203,10 +222,87 @@ def is_ats_hostname(hostname: str, company_name: str | None = None) -> bool:
     return False
 
 
+def is_aggregator_hostname(hostname: str, company_name: str | None = None) -> bool:
+    """Checks if a given hostname belongs to a known ATS, aggregator, job board, media, or social platform."""
+    if not hostname:
+        return False
+
+    clean_host = clean_domain(hostname)
+    if not clean_host:
+        return False
+
+    if company_name and is_ats_vendor_match(company_name, clean_host):
+        return False
+
+    for agg in KNOWN_AGGREGATOR_DOMAINS:
+        if clean_host == agg or clean_host.endswith(f".{agg}"):
+            return True
+
+    return False
+
+
+def is_domain_match_for_company(domain: str | None, company_name: str | None) -> bool:
+    """Checks whether a domain root or host plausibly matches a company name/slug,
+    preventing job board or aggregator hostnames from being attributed to employers.
+    """
+    if not domain or not company_name:
+        return False
+    clean_d = clean_domain(domain)
+    if not clean_d:
+        return False
+
+    # Extract primary label before first dot (e.g. 'stripe.com' -> 'stripe', 'datadoghq.com' -> 'datadoghq')
+    domain_base = clean_d.split(".")[0].lower()
+    norm_company = re.sub(r"[^a-z0-9]", "", company_name.lower())
+    if not norm_company or not domain_base:
+        return False
+
+    # Exact or substring containment
+    if norm_company in domain_base or domain_base in norm_company:
+        return True
+
+    # Token overlap for multi-word company names (e.g. "The Browser Company" -> "browser")
+    company_tokens = [
+        t
+        for t in re.split(r"[^a-z0-9]+", company_name.lower())
+        if len(t) >= 3
+        and t
+        not in {
+            "the",
+            "and",
+            "inc",
+            "llc",
+            "ltd",
+            "corp",
+            "corporation",
+            "group",
+            "holdings",
+            "company",
+            "technologies",
+            "technology",
+            "tech",
+            "labs",
+            "software",
+            "systems",
+            "solutions",
+            "global",
+        }
+    ]
+    if any(token in domain_base for token in company_tokens):
+        return True
+
+    import difflib
+
+    if difflib.SequenceMatcher(None, norm_company, domain_base).ratio() >= 0.7:
+        return True
+
+    return False
+
+
 def extract_domain_from_url(
     url: str | None, company_name: str | None = None
 ) -> str | None:
-    """Extracts the company domain from a job posting URL if it is not an ATS (or if the company is the ATS vendor)."""
+    """Extracts the company domain from a job posting URL if it is not an ATS or aggregator (or if the company is the ATS vendor)."""
     if not url:
         return None
 
@@ -236,12 +332,13 @@ def extract_domain_from_url(
                 # It's an ATS for a third-party company
                 return None
 
-        # If it's a known ATS or job board not caught above
-        if is_ats_hostname(cleaned, company_name=company_name):
+        # If it's a known ATS or job aggregator not caught above
+        if is_aggregator_hostname(cleaned, company_name=company_name):
             return None
 
         # Strip standard subdomains like careers., jobs., info., app.
         parts = cleaned.split(".")
+        candidate = cleaned
         if len(parts) > 2:
             subdomain = parts[0]
             if subdomain in {
@@ -255,9 +352,13 @@ def extract_domain_from_url(
                 "join",
                 "app",
             }:
-                return ".".join(parts[1:])
+                candidate = ".".join(parts[1:])
 
-        return cleaned
+        # If company_name is provided, ensure domain actually matches company
+        if company_name and not is_domain_match_for_company(candidate, company_name):
+            return None
+
+        return candidate
     except Exception as e:
         logger.debug(f"Failed to parse domain from URL {url}: {e}")
         return None
@@ -356,10 +457,11 @@ def extract_organization_from_ats_url(url: str | None) -> str | None:
 
 async def search_company_domain_and_about(
     company_name: str,
+    ai_domain: str | None = None,
     db: AsyncSession | None = None,
 ) -> tuple[str | None, str | None]:
-    """Searches for the company's official website using the configured search provider.
-    Filters out aggregators, job boards, and social media.
+    """Searches for the company's official website using the configured search provider (SearXNG or DDGS).
+    Cross-verifies with AI-extracted domain for high-confidence consensus and filters aggregators.
     Returns: (canonical_domain, discovered_about_url)
     """
     from app.services.web_search import search_web
@@ -368,41 +470,72 @@ async def search_company_domain_and_about(
     if not clean_name or len(clean_name) < 2:
         return None, None
 
-    query = f"{clean_name} official website"
+    clean_ai = clean_domain(ai_domain) if ai_domain else None
+    if clean_ai and is_aggregator_hostname(clean_ai, company_name=clean_name):
+        clean_ai = None
+
+    query = f'"{clean_name}" official website'
     try:
-        results = await search_web(query, max_results=7, db=db)
+        results = await search_web(query, max_results=3, db=db)
     except Exception as e:
         logger.debug("Web search query failed for '%s': %s", clean_name, e)
-        return None, None
+        return clean_ai, None
 
     if not results:
-        return None, None
+        return clean_ai, None
 
     canonical_domain = None
     about_url = None
 
+    # Pass 1: Check if any top search result confirms the AI domain
+    if clean_ai:
+        for res in results:
+            r_url = res.get("url") or ""
+            try:
+                parsed = urlparse(r_url)
+                r_host = clean_domain(parsed.netloc) or ""
+                if (
+                    r_host == clean_ai
+                    or r_host.endswith(f".{clean_ai}")
+                    or clean_ai.endswith(f".{r_host}")
+                ):
+                    canonical_domain = clean_ai
+                    path = parsed.path.lower()
+                    if any(
+                        x in path
+                        for x in (
+                            "/about",
+                            "/about-us",
+                            "/company",
+                            "/our-story",
+                            "/who-we-are",
+                        )
+                    ) or r_host.startswith("about."):
+                        about_url = r_url
+                    break
+            except Exception:
+                continue
+
+    # Pass 2: If no AI consensus, take top non-aggregator matching result
     for res in results:
         r_url = res.get("url") or ""
         try:
             parsed = urlparse(r_url)
-            r_host = parsed.netloc.lower()
-            if r_host.startswith("www."):
-                r_host = r_host[4:]
-
-            # Check if host is an aggregator or ATS
-            is_vendor = is_ats_vendor_match(clean_name, r_host)
-            is_aggregator = (not is_vendor) and any(
-                r_host == agg or r_host.endswith("." + agg)
-                for agg in KNOWN_AGGREGATOR_DOMAINS
-            )
-            if is_aggregator:
+            r_host = clean_domain(parsed.netloc) or ""
+            if not r_host:
                 continue
 
-            # First non-aggregator domain is our canonical corporate domain
+            # Check if host is an aggregator or ATS
+            if is_aggregator_hostname(r_host, company_name=clean_name):
+                continue
+
+            # Check semantic match with company name
+            if not is_domain_match_for_company(r_host, clean_name):
+                continue
+
             if not canonical_domain:
                 canonical_domain = r_host
 
-            # Check if this or subsequent result is an about page on the canonical domain
             if canonical_domain and (
                 r_host == canonical_domain
                 or r_host.endswith("." + canonical_domain)
@@ -421,39 +554,82 @@ async def search_company_domain_and_about(
                 ) or r_host.startswith("about."):
                     if not about_url:
                         about_url = r_url
-
         except Exception:
             continue
+
+    if (
+        not canonical_domain
+        and clean_ai
+        and is_domain_match_for_company(clean_ai, clean_name)
+    ):
+        canonical_domain = clean_ai
 
     return canonical_domain, about_url
 
 
 async def query_clearbit_autocomplete(company_name: str) -> str | None:
-    """Queries Clearbit's public autocomplete API to find the company's official domain."""
-    clean_name = clean_company_name(company_name)
-    if not clean_name or len(clean_name) < 2:
-        return None
-
-    try:
-        async with httpx.AsyncClient(timeout=1.5) as client:
-            resp = await client.get(
-                "https://autocomplete.clearbit.com/v1/companies/suggest",
-                params={"query": clean_name},
-                headers={"User-Agent": "JobTracker/1.0"},
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                if isinstance(data, list) and len(data) > 0:
-                    first_match = data[0]
-                    domain = first_match.get("domain")
-                    if domain:
-                        return clean_domain(domain)
-    except Exception as e:
-        logger.debug(
-            f"Clearbit autocomplete lookup skipped/failed for '{company_name}': {e}"
-        )
-
+    """Deprecated: Clearbit free autocomplete has been shut down / rate limited.
+    Retained for signature compatibility; returns None.
+    """
     return None
+
+
+async def resolve_company_domain_and_about(
+    company_name: str,
+    source_url: str | None = None,
+    ai_domain: str | None = None,
+    allow_network: bool = True,
+    db: AsyncSession | None = None,
+) -> tuple[str | None, str | None]:
+    """Resolves the official company domain and optional about_url using a prioritized multi-stage heuristic:
+
+    1. Static known overrides (e.g. 'Linear' -> 'linear.app', 'Datadog' -> 'datadoghq.com', 'Ashby' -> 'ashbyhq.com')
+    2. Direct URL extraction (if source URL is hosted directly on company site or is an ATS vendor posting for itself)
+    3. Fast Web Search Verification + AI Consensus (searches via SearXNG/DDG, filtering aggregators)
+    4. Validated ai_domain (if valid domain, not an aggregator, and matches company)
+    5. Fallback clean slug domain (e.g. '{company_slug}.com')
+    """
+    if not company_name:
+        return None, None
+
+    cleaned_name = clean_company_name(company_name)
+    norm_name = re.sub(r"[^a-z0-9]", "", cleaned_name.lower())
+    if norm_name in KNOWN_COMPANY_OVERRIDES:
+        return KNOWN_COMPANY_OVERRIDES[norm_name], None
+
+    # Stage 1: Check direct URL if present, semantically matching, and not ATS/aggregator
+    if source_url:
+        direct_domain = extract_domain_from_url(source_url, company_name=cleaned_name)
+        if direct_domain:
+            return direct_domain, None
+
+    # Stage 2: Web Search Verification + AI Consensus
+    if allow_network:
+        try:
+            search_domain, about_url = await search_company_domain_and_about(
+                cleaned_name, ai_domain=ai_domain, db=db
+            )
+            if search_domain:
+                return search_domain, about_url
+        except Exception as e:
+            logger.debug(
+                "Web search domain resolution failed for '%s': %s", cleaned_name, e
+            )
+
+    # Stage 3: Validate AI-extracted domain (only if not an aggregator and network search didn't find anything)
+    if ai_domain:
+        cleaned_ai = clean_domain(ai_domain)
+        if cleaned_ai and not is_aggregator_hostname(
+            cleaned_ai, company_name=cleaned_name
+        ):
+            if is_domain_match_for_company(cleaned_ai, cleaned_name):
+                return cleaned_ai, None
+
+    # Stage 4: Simple clean slug fallback
+    if norm_name and len(norm_name) >= 2:
+        return f"{norm_name}.com", None
+
+    return None, None
 
 
 async def resolve_company_domain(
@@ -463,55 +639,12 @@ async def resolve_company_domain(
     allow_network: bool = True,
     db: AsyncSession | None = None,
 ) -> str | None:
-    """Resolves the official company domain using a prioritized multi-stage heuristic:
-
-    1. Static known overrides (e.g. 'Linear' -> 'linear.app', 'Datadog' -> 'datadoghq.com', 'Ashby' -> 'ashbyhq.com')
-    2. Direct URL extraction (if source URL is hosted directly on company site or is an ATS vendor posting for itself)
-    3. Web Search Verification (searches for company official website via SearXNG/DDG, filtering aggregators)
-    4. Clearbit autocomplete lookup (fallback)
-    5. Validated ai_domain (if valid domain and not an ATS host unless company is the ATS vendor)
-    6. Fallback clean slug domain (e.g. '{company_slug}.com')
-    """
-    if not company_name:
-        return None
-
-    cleaned_name = clean_company_name(company_name)
-    norm_name = re.sub(r"[^a-z0-9]", "", cleaned_name.lower())
-    if norm_name in KNOWN_COMPANY_OVERRIDES:
-        return KNOWN_COMPANY_OVERRIDES[norm_name]
-
-    # Stage 1: Check direct URL if present and not ATS (or if ATS is the employer)
-    if source_url:
-        direct_domain = extract_domain_from_url(source_url, company_name=cleaned_name)
-        if direct_domain:
-            return direct_domain
-
-    # Stage 2: Web Search Verification (searches for company official website)
-    if allow_network:
-        try:
-            search_domain, _ = await search_company_domain_and_about(
-                cleaned_name, db=db
-            )
-            if search_domain:
-                return search_domain
-        except Exception as e:
-            logger.debug(
-                "Web search domain resolution failed for '%s': %s", cleaned_name, e
-            )
-
-        # Stage 3: Clearbit Autocomplete lookup
-        clearbit_domain = await query_clearbit_autocomplete(cleaned_name)
-        if clearbit_domain:
-            return clearbit_domain
-
-    # Stage 4: Validate AI-extracted domain (only if not an ATS and network search didn't find anything)
-    if ai_domain:
-        cleaned_ai = clean_domain(ai_domain)
-        if cleaned_ai and not is_ats_hostname(cleaned_ai, company_name=cleaned_name):
-            return cleaned_ai
-
-    # Stage 5: Simple clean slug fallback
-    if norm_name and len(norm_name) >= 2:
-        return f"{norm_name}.com"
-
-    return None
+    """Resolves the official company domain using a prioritized multi-stage heuristic."""
+    domain, _ = await resolve_company_domain_and_about(
+        company_name=company_name,
+        source_url=source_url,
+        ai_domain=ai_domain,
+        allow_network=allow_network,
+        db=db,
+    )
+    return domain
