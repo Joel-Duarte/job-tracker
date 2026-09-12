@@ -25,6 +25,8 @@ import {
   Calendar,
   ChevronDown,
   Share2,
+  Clock,
+  Sparkles,
 } from 'lucide-vue-next'
 import CompanyIntelModal from '../modals/CompanyIntelModal.vue'
 import { formatRelativeDate } from '../../utils/formatters'
@@ -194,12 +196,14 @@ const filteredMergeCompanies = computed(() => {
   })
 })
 
+const isResearchActive = computed(() => {
+  if (isRefreshing.value) return true
+  const st = (company.value?.research_status || '').toUpperCase()
+  return st === 'QUEUED' || st === 'IN_PROGRESS'
+})
+
 const displayResearchStatus = computed(() => {
-  const s = company.value?.research_status || 'NONE'
-  if (s === 'QUEUED' && (company.value?.company_research?.summary || researchSummary.value) && !isRefreshing.value) {
-    return 'COMPLETED'
-  }
-  return s
+  return company.value?.research_status || 'NONE'
 })
 
 function normalizeText(val) {
@@ -317,34 +321,44 @@ async function addIntelField(key) {
 let drawerPollInterval = null
 
 function checkAndStartDrawerPolling() {
-  if (
-    company.value &&
-    (company.value.research_status === 'QUEUED' || company.value.research_status === 'IN_PROGRESS') &&
-    !drawerPollInterval
-  ) {
-    drawerPollInterval = setInterval(async () => {
-      if (!selectedCompanyId.value || !isCompanyDrawerOpen.value) {
-        stopDrawerPolling()
-        return
-      }
-      try {
-        const res = await CompaniesAPI.get(selectedCompanyId.value)
-        if (res.data) {
-          company.value = res.data
-          if (res.data.company_research) {
-            syncResearchState(res.data.company_research)
-          }
-          window.dispatchEvent(new CustomEvent('company:updated', { detail: res.data }))
+  if (drawerPollInterval) return
+  const st = (company.value?.research_status || '').toUpperCase()
+  if (!selectedCompanyId.value || !isCompanyDrawerOpen.value || (st !== 'QUEUED' && st !== 'IN_PROGRESS')) {
+    return
+  }
 
-          if (res.data.research_status !== 'QUEUED' && res.data.research_status !== 'IN_PROGRESS') {
-            stopDrawerPolling()
+  drawerPollInterval = setInterval(async () => {
+    if (!selectedCompanyId.value || !isCompanyDrawerOpen.value) {
+      stopDrawerPolling()
+      return
+    }
+    try {
+      const res = await CompaniesAPI.get(selectedCompanyId.value)
+      if (res.data) {
+        const prevStatus = (company.value?.research_status || '').toUpperCase()
+        const newStatus = (res.data.research_status || '').toUpperCase()
+
+        company.value = res.data
+        if (res.data.company_research) {
+          syncResearchState(res.data.company_research)
+        }
+        window.dispatchEvent(new CustomEvent('company:updated', { detail: res.data }))
+
+        if (newStatus !== 'QUEUED' && newStatus !== 'IN_PROGRESS') {
+          stopDrawerPolling()
+          if (prevStatus === 'QUEUED' || prevStatus === 'IN_PROGRESS') {
+            if (newStatus === 'COMPLETED') {
+              uiStore.showToast(`Company intelligence updated for "${res.data.name}"!`, 'success')
+            } else if (newStatus === 'FAILED') {
+              uiStore.showToast(`Company intelligence research failed for "${res.data.name}".`, 'error')
+            }
           }
         }
-      } catch (e) {
-        // silent background poll
       }
-    }, 2500)
-  }
+    } catch (e) {
+      // silent background poll
+    }
+  }, 2000)
 }
 
 function stopDrawerPolling() {
@@ -353,6 +367,20 @@ function stopDrawerPolling() {
     drawerPollInterval = null
   }
 }
+
+// Reactively start/stop drawer polling whenever the research status is active and drawer is open
+watch(
+  [() => company.value?.research_status, isCompanyDrawerOpen],
+  ([status, isOpen]) => {
+    const st = (status || '').toUpperCase()
+    if (isOpen && (st === 'QUEUED' || st === 'IN_PROGRESS')) {
+      checkAndStartDrawerPolling()
+    } else if (!isOpen || (st !== 'QUEUED' && st !== 'IN_PROGRESS')) {
+      stopDrawerPolling()
+    }
+  },
+  { immediate: true }
+)
 
 watch(selectedCompanyId, async (newId) => {
   if (newId && isCompanyDrawerOpen.value) {
@@ -510,20 +538,51 @@ function onApplicationDeleted(event) {
   }
 }
 
-function handleDocumentClick(e) {
-  if (addIntelDropdownRef.value && !addIntelDropdownRef.value.contains(e.target)) {
-    isAddIntelDropdownOpen.value = false
+function onCompanyUpdated(event) {
+  const updated = event?.detail?.company || event?.detail
+  if (!updated || !company.value || String(updated.id) !== String(company.value.id)) return
+
+  const prevStatus = (company.value?.research_status || '').toUpperCase()
+  const newStatus = (updated.research_status || '').toUpperCase()
+
+  company.value = {
+    ...company.value,
+    ...updated,
+  }
+
+  if (updated.notes !== undefined && !notes.value) {
+    notes.value = updated.notes || ''
+  }
+  if (updated.pros && (!pros.value || pros.value.length === 0)) {
+    pros.value = [...(updated.pros || [])]
+  }
+  if (updated.red_flags && (!redFlags.value || redFlags.value.length === 0)) {
+    redFlags.value = [...(updated.red_flags || [])]
+  }
+
+  if (updated.company_research) {
+    syncResearchState(updated.company_research)
+  }
+
+  if (prevStatus !== newStatus) {
+    if (newStatus === 'QUEUED' || newStatus === 'IN_PROGRESS') {
+      checkAndStartDrawerPolling()
+    } else {
+      stopDrawerPolling()
+    }
   }
 }
 
 onMounted(() => {
   window.addEventListener('application:deleted', onApplicationDeleted)
+  window.addEventListener('company:updated', onCompanyUpdated)
   document.addEventListener('click', handleDocumentClick)
 })
 
 onUnmounted(() => {
   stopDrawerPolling()
   window.removeEventListener('application:deleted', onApplicationDeleted)
+  window.removeEventListener('company:updated', onCompanyUpdated)
   document.removeEventListener('click', handleDocumentClick)
 })
 
@@ -543,6 +602,28 @@ function safeTrim(val) {
   if (val == null) return ''
   return typeof val === 'string' ? val.trim() : normalizeText(val).trim()
 }
+
+const drawerCompanyForIntel = computed(() => {
+  if (!company.value) return null
+  return {
+    ...company.value,
+    notes: notes.value,
+    pros: [...pros.value],
+    red_flags: [...redFlags.value],
+    company_research: {
+      ...(company.value.company_research || {}),
+      summary: researchSummary.value ? safeTrim(researchSummary.value) : (company.value.company_research?.summary || ''),
+      company_mission_and_customer: researchMissionAndCustomer.value ? safeTrim(researchMissionAndCustomer.value) : (company.value.company_research?.company_mission_and_customer || ''),
+      engineering_culture: researchCulture.value ? safeTrim(researchCulture.value) : (company.value.company_research?.engineering_culture || ''),
+      recent_initiatives: researchInitiatives.value ? safeTrim(researchInitiatives.value) : (company.value.company_research?.recent_initiatives || ''),
+      products_and_technical_domain: (researchProducts.value && researchProducts.value.length > 0) ? normalizeList(researchProducts.value) : (company.value.company_research?.products_and_technical_domain || []),
+      strategic_priorities: (researchPriorities.value && researchPriorities.value.length > 0) ? normalizeList(researchPriorities.value) : (company.value.company_research?.strategic_priorities || []),
+      language_to_mirror: (researchLanguage.value && researchLanguage.value.length > 0) ? normalizeList(researchLanguage.value) : (company.value.company_research?.language_to_mirror || []),
+      candidate_alignment_angles: (researchAlignmentAngles.value && researchAlignmentAngles.value.length > 0) ? normalizeList(researchAlignmentAngles.value) : (company.value.company_research?.candidate_alignment_angles || []),
+      verified_facts: company.value.company_research?.verified_facts || [],
+    },
+  }
+})
 
 async function saveAllDetails() {
   if (!company.value) return
@@ -604,11 +685,17 @@ async function handleRefreshResearch() {
   isRefreshing.value = true
   try {
     const res = await CompaniesAPI.refreshResearch(company.value.id)
-    if (res.data?.queued || res.data?.status?.toUpperCase() === 'QUEUED') {
+    const st = (res.data?.status || '').toUpperCase()
+    if (res.data?.queued || st === 'QUEUED' || st === 'ALREADY_QUEUED') {
       company.value.research_status = 'QUEUED'
       window.dispatchEvent(new CustomEvent('company:updated', { detail: company.value }))
       checkAndStartDrawerPolling()
-      uiStore.showToast('Company intelligence research queued', 'success')
+      uiStore.showToast(
+        st === 'ALREADY_QUEUED'
+          ? 'Company intelligence research is already running in AI queue'
+          : 'Company intelligence research queued',
+        'success'
+      )
     } else if (res.data?.company_research) {
       company.value.company_research = res.data.company_research
       company.value.research_status = 'COMPLETED'
@@ -963,17 +1050,34 @@ function getPositionTextColorClass(app) {
           <div class="intel-header-row">
             <h4 class="pane-title">Company Intelligence</h4>
             <span :class="['research-status-badge', `research-status-${displayResearchStatus.toLowerCase()}`]">
+              <Loader2 v-if="isResearchActive" :size="12" class="animate-spin mr-1" />
               {{ displayResearchStatus }}
             </span>
             <button
               class="btn btn-secondary btn-sm"
-              :disabled="isRefreshing"
+              :disabled="isResearchActive"
               @click="handleRefreshResearch"
             >
-              <Loader2 v-if="isRefreshing" :size="12" class="animate-spin" />
+              <Loader2 v-if="isResearchActive" :size="12" class="animate-spin" />
               <RefreshCw v-else :size="12" />
-              <span>{{ isRefreshing ? 'Searching...' : 'Refresh from Web' }}</span>
+              <span>{{ isResearchActive ? 'Researching...' : 'Refresh from Web' }}</span>
             </button>
+          </div>
+
+          <!-- Active Research Banner -->
+          <div v-if="isResearchActive" class="research-active-banner">
+            <div class="banner-top">
+              <div class="banner-pulse-icon">
+                <Sparkles :size="14" class="text-primary animate-pulse" />
+              </div>
+              <div class="banner-text">
+                <span class="banner-title">Live Web Intelligence in Progress</span>
+                <span class="banner-sub">Gathering verified facts, culture signals, and tech stack details...</span>
+              </div>
+            </div>
+            <div class="research-progress-bar">
+              <div class="research-progress-indeterminate"></div>
+            </div>
           </div>
 
           <div v-if="displayResearchStatus === 'FAILED'" class="research-failed-callout">
@@ -982,12 +1086,25 @@ function getPositionTextColorClass(app) {
             <button
               type="button"
               class="btn btn-secondary btn-xs"
-              :disabled="isRefreshing"
+              :disabled="isResearchActive"
               @click="handleRefreshResearch"
             >
               <RefreshCw :size="11" />
               <span>Retry</span>
             </button>
+          </div>
+
+          <!-- Active Research Skeleton (when no sections are populated yet) -->
+          <div v-if="isResearchActive && !hasAnyVisibleIntelSection" class="research-skeleton-wrap mt-3">
+            <div class="skeleton-card">
+              <div class="skeleton-line skeleton-title"></div>
+              <div class="skeleton-line skeleton-body"></div>
+              <div class="skeleton-line skeleton-body short"></div>
+            </div>
+            <div class="skeleton-card">
+              <div class="skeleton-line skeleton-title"></div>
+              <div class="skeleton-line skeleton-body"></div>
+            </div>
           </div>
 
           <!-- 1. Mission & Core Products (Textarea) -->
@@ -1219,7 +1336,7 @@ function getPositionTextColorClass(app) {
           </div>
 
           <!-- Empty State -->
-          <div v-if="!hasAnyVisibleIntelSection" class="empty-intel-box mt-3">
+          <div v-if="!hasAnyVisibleIntelSection && !isResearchActive" class="empty-intel-box mt-3">
             <p class="text-xs text-muted">No intelligence recorded for this company yet.</p>
           </div>
 
@@ -1519,7 +1636,7 @@ function getPositionTextColorClass(app) {
   <!-- Company Intelligence Export/Import Modal -->
   <CompanyIntelModal
     v-model="isIntelModalOpen"
-    :company="company"
+    :company="drawerCompanyForIntel || company"
     :initial-tab="intelModalInitialTab"
     @imported="onResearchImported"
   />
@@ -2474,5 +2591,136 @@ textarea.edit-input-field {
   align-items: center;
   gap: 6px;
   margin-right: auto;
+}
+
+/* Active Research UI */
+.research-active-banner {
+  margin-top: 12px;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-sm, 6px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.banner-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.banner-pulse-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.banner-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.banner-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.research-progress-bar {
+  width: 100%;
+  height: 3px;
+  background: var(--bg-card, rgba(255, 255, 255, 0.05));
+  border-radius: 9999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.research-progress-indeterminate {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--primary);
+  border-radius: 9999px;
+  width: 40%;
+  animation: research-slide 1.6s ease-in-out infinite;
+}
+
+@keyframes research-slide {
+  0% {
+    left: -40%;
+    width: 40%;
+  }
+  50% {
+    left: 40%;
+    width: 60%;
+  }
+  100% {
+    left: 100%;
+    width: 40%;
+  }
+}
+
+/* Skeleton Loading Cards */
+.research-skeleton-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skeleton-card {
+  padding: 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle, var(--border-color));
+  border-radius: var(--radius-sm, 6px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skeleton-line {
+  height: 12px;
+  background: linear-gradient(
+    90deg,
+    var(--bg-elevated, rgba(255, 255, 255, 0.04)) 25%,
+    var(--bg-surface-hover, rgba(255, 255, 255, 0.08)) 50%,
+    var(--bg-elevated, rgba(255, 255, 255, 0.04)) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-pulse 1.8s ease-in-out infinite;
+  border-radius: 4px;
+}
+
+.skeleton-title {
+  width: 40%;
+  height: 14px;
+}
+
+.skeleton-body {
+  width: 100%;
+}
+
+.skeleton-body.short {
+  width: 70%;
+}
+
+@keyframes skeleton-pulse {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 </style>

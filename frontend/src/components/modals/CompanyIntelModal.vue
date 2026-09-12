@@ -43,10 +43,27 @@ const importJsonText = ref('')
 const isSubmittingImport = ref(false)
 const importTextareaRef = ref(null)
 
+// Retain last known non-null company so closing the background drawer does not wipe the modal
+const activeCompany = ref(props.company)
+watch(
+  () => props.company,
+  (newCompany) => {
+    if (newCompany) {
+      activeCompany.value = newCompany
+    }
+  },
+  { immediate: true }
+)
+
+const currentCompany = computed(() => activeCompany.value || props.company)
+
 watch(
   () => props.modelValue,
   (isOpen) => {
     if (isOpen) {
+      if (props.company) {
+        activeCompany.value = props.company
+      }
       activeTab.value = props.initialTab || 'export'
       copiedMarkdown.value = false
       copiedPrompt.value = false
@@ -74,14 +91,76 @@ function closeModal() {
   emit('close')
 }
 
-// Helper: Normalize list field
-function toList(val) {
-  if (!val) return []
-  if (Array.isArray(val)) {
-    return val.map((x) => (typeof x === 'string' ? x.trim() : String(x))).filter(Boolean)
+// --------------------------------------------------------------------------
+// Safe Data Normalization Helpers
+// --------------------------------------------------------------------------
+function getSafeResearch(comp) {
+  if (!comp) return {}
+  let cr = comp.company_research || {}
+  if (typeof cr === 'string') {
+    try {
+      cr = JSON.parse(cr)
+    } catch {
+      cr = {}
+    }
   }
-  if (typeof val === 'string' && val.trim()) {
-    return [val.trim()]
+  return typeof cr === 'object' && cr !== null ? cr : {}
+}
+
+function normalizeText(val) {
+  if (val == null) return ''
+  if (Array.isArray(val)) {
+    return val
+      .map((item) => {
+        if (item == null) return ''
+        if (typeof item === 'string') return item.trim()
+        if (typeof item === 'object') {
+          if (item.fact) {
+            return item.source_url ? `${item.fact} (${item.source_url})` : item.fact
+          }
+          return JSON.stringify(item)
+        }
+        return String(item).trim()
+      })
+      .filter(Boolean)
+      .join('\n')
+  }
+  if (typeof val === 'object') {
+    return JSON.stringify(val, null, 2)
+  }
+  return String(val).trim()
+}
+
+function toList(val) {
+  if (val == null) return []
+  if (Array.isArray(val)) {
+    return val
+      .map((x) => {
+        if (x == null) return ''
+        if (typeof x === 'string') return x.trim()
+        if (typeof x === 'object') {
+          if (x.fact) {
+            return x.source_url ? `${x.fact} (${x.source_url})` : x.fact
+          }
+          if (x.name) return String(x.name).trim()
+          if (x.title) return String(x.title).trim()
+          if (x.label && x.url) return `${x.label}: ${x.url}`
+          return JSON.stringify(x)
+        }
+        return String(x).trim()
+      })
+      .filter(Boolean)
+  }
+  if (typeof val === 'string') {
+    const trimmed = val.trim()
+    if (!trimmed) return []
+    if (trimmed.includes('\n')) {
+      return trimmed
+        .split('\n')
+        .map((s) => s.replace(/^[-*•]\s*/, '').trim())
+        .filter(Boolean)
+    }
+    return [trimmed]
   }
   return []
 }
@@ -90,32 +169,35 @@ function toList(val) {
 // Tab 1: Formatted Markdown Dossier
 // --------------------------------------------------------------------------
 const markdownDossier = computed(() => {
-  if (!props.company) return ''
-  const c = props.company
-  const cr = c.company_research || {}
+  const c = currentCompany.value
+  if (!c) return ''
+  const cr = getSafeResearch(c)
 
   const lines = []
-  lines.push(`# Company Intelligence Dossier: ${c.name}`)
+  lines.push(`# Company Intelligence Dossier: ${c.name || 'Company'}`)
   if (c.domain) lines.push(`- **Website / Domain:** https://${c.domain}`)
   if (c.about_url) lines.push(`- **About Page:** ${c.about_url}`)
   lines.push('')
 
   // 1. Mission & Core Products
+  const summaryText = normalizeText(cr.summary)
   lines.push('## 1. Mission & Core Products')
-  lines.push(cr.summary ? cr.summary.trim() : '_Not yet researched._')
+  lines.push(summaryText || '_Not yet researched._')
   lines.push('')
 
   // 2. Customers & Problem Space
-  if (cr.company_mission_and_customer) {
+  const missionText = normalizeText(cr.company_mission_and_customer)
+  if (missionText) {
     lines.push('## 2. Customers & Problem Space')
-    lines.push(cr.company_mission_and_customer.trim())
+    lines.push(missionText)
     lines.push('')
   }
 
   // 3. Engineering Culture & Tech Stack
-  if (cr.engineering_culture) {
+  const cultureText = normalizeText(cr.engineering_culture)
+  if (cultureText) {
     lines.push('## 3. Engineering Culture & Tech Stack')
-    lines.push(cr.engineering_culture.trim())
+    lines.push(cultureText)
     lines.push('')
   }
 
@@ -128,9 +210,14 @@ const markdownDossier = computed(() => {
   }
 
   // 5. Recent Initiatives & Milestones
-  if (cr.recent_initiatives) {
+  const initiatives = toList(cr.recent_initiatives)
+  if (initiatives.length > 0) {
     lines.push('## 5. Recent Initiatives & Milestones')
-    lines.push(cr.recent_initiatives.trim())
+    if (Array.isArray(cr.recent_initiatives)) {
+      initiatives.forEach((i) => lines.push(`- ${i}`))
+    } else {
+      lines.push(normalizeText(cr.recent_initiatives))
+    }
     lines.push('')
   }
 
@@ -168,7 +255,7 @@ const markdownDossier = computed(() => {
 
   // Optional candidate notes, pros, and red flags
   if (includeNotes.value) {
-    const hasNotes = Boolean(c.notes && c.notes.trim())
+    const hasNotes = Boolean(c.notes && typeof c.notes === 'string' && c.notes.trim())
     const pros = toList(c.pros)
     const flags = toList(c.red_flags)
 
@@ -214,21 +301,24 @@ async function copyMarkdown() {
 // Tab 2: AI Prompt to Fill Missing Info
 // --------------------------------------------------------------------------
 const llmPrompt = computed(() => {
-  if (!props.company) return ''
-  const c = props.company
-  const cr = c.company_research || {}
+  const c = currentCompany.value
+  if (!c) return ''
+  const cr = getSafeResearch(c)
 
   const knownSections = []
-  if (cr.summary) knownSections.push(`- Summary: ${cr.summary.slice(0, 180)}...`)
-  if (cr.engineering_culture) knownSections.push(`- Culture & Tech Stack: ${cr.engineering_culture.slice(0, 180)}...`)
+  const summaryText = normalizeText(cr.summary)
+  if (summaryText) knownSections.push(`- Summary: ${summaryText.slice(0, 180)}...`)
+  const cultureText = normalizeText(cr.engineering_culture)
+  if (cultureText) knownSections.push(`- Culture & Tech Stack: ${cultureText.slice(0, 180)}...`)
   const products = toList(cr.products_and_technical_domain)
   if (products.length) knownSections.push(`- Known Products: ${products.slice(0, 4).join(', ')}`)
 
   const missingFields = []
-  if (!cr.summary) missingFields.push('- `summary`: Executive overview of the company, mission, and industry positioning.')
-  if (!cr.company_mission_and_customer) missingFields.push('- `company_mission_and_customer`: Core mission statement, target customers (B2B/B2C/Enterprise), and problem space.')
-  if (!cr.engineering_culture) missingFields.push('- `engineering_culture`: Engineering culture, development methodology, architecture, and technology stack.')
-  if (!cr.recent_initiatives) missingFields.push('- `recent_initiatives`: Major recent product launches, engineering milestones, or business changes.')
+  if (!summaryText) missingFields.push('- `summary`: Executive overview of the company, mission, and industry positioning.')
+  if (!normalizeText(cr.company_mission_and_customer)) missingFields.push('- `company_mission_and_customer`: Core mission statement, target customers (B2B/B2C/Enterprise), and problem space.')
+  if (!cultureText) missingFields.push('- `engineering_culture`: Engineering culture, development methodology, architecture, and technology stack.')
+  const initiatives = toList(cr.recent_initiatives)
+  if (!initiatives.length) missingFields.push('- `recent_initiatives`: Major recent product launches, engineering milestones, or business changes.')
   if (!products.length) missingFields.push('- `products_and_technical_domain`: Array of core products, platforms, and technical domain specializations.')
   const priorities = toList(cr.strategic_priorities)
   if (!priorities.length) missingFields.push('- `strategic_priorities`: Array of current strategic business and tech priorities.')
@@ -238,10 +328,10 @@ const llmPrompt = computed(() => {
   if (!angles.length) missingFields.push('- `candidate_alignment_angles`: Array of strategic positioning angles for candidates interviewing here.')
 
   return `You are an expert tech company researcher and career strategist.
-I need comprehensive, up-to-date intelligence on "${c.name}"${c.domain ? ` (Domain: ${c.domain})` : ''} to prepare for job applications and technical interviews.
+I need comprehensive, up-to-date intelligence on "${c.name || 'Company'}"${c.domain ? ` (Domain: ${c.domain})` : ''} to prepare for job applications and technical interviews.
 
 ### EXISTING KNOWN CONTEXT:
-- Company Name: ${c.name}
+- Company Name: ${c.name || 'Unknown'}
 - Domain: ${c.domain || 'Not specified'}
 ${c.about_url ? `- About URL: ${c.about_url}` : ''}
 ${knownSections.length ? knownSections.join('\n') : '- No previous research recorded.'}
@@ -345,7 +435,7 @@ const validationResult = computed(() => {
     { key: 'summary', label: 'Summary', type: 'text' },
     { key: 'company_mission_and_customer', label: 'Mission & Customer', type: 'text' },
     { key: 'engineering_culture', label: 'Culture & Tech Stack', type: 'text' },
-    { key: 'recent_initiatives', label: 'Recent Initiatives', type: 'text' },
+    { key: 'recent_initiatives', label: 'Recent Initiatives', type: 'flexible' },
     { key: 'products_and_technical_domain', label: 'Products', type: 'list' },
     { key: 'strategic_priorities', label: 'Priorities', type: 'list' },
     { key: 'language_to_mirror', label: 'Language to Mirror', type: 'list' },
@@ -358,15 +448,23 @@ const validationResult = computed(() => {
     const val = parsed[f.key]
     if (val != null) {
       if (f.type === 'text') {
-        const str = typeof val === 'string' ? val.trim() : String(val).trim()
+        const str = normalizeText(val)
         if (str) {
           detected.push({ key: f.key, label: f.label, count: str.length, isList: false })
         }
       } else if (f.type === 'list') {
+        const list = toList(val)
+        if (list.length > 0) {
+          detected.push({ key: f.key, label: f.label, count: list.length, isList: true })
+        }
+      } else if (f.type === 'flexible') {
         if (Array.isArray(val) && val.length > 0) {
           detected.push({ key: f.key, label: f.label, count: val.length, isList: true })
-        } else if (typeof val === 'string' && val.trim()) {
-          detected.push({ key: f.key, label: f.label, count: 1, isList: true })
+        } else {
+          const str = normalizeText(val)
+          if (str) {
+            detected.push({ key: f.key, label: f.label, count: str.length, isList: false })
+          }
         }
       }
     }
@@ -392,23 +490,29 @@ const validationResult = computed(() => {
 })
 
 async function handleApplyImport() {
-  if (!validationResult.value.isValid || !props.company) return
+  const c = currentCompany.value
+  if (!validationResult.value.isValid || !c) return
   isSubmittingImport.value = true
   try {
     const data = validationResult.value.parsed
+    const existingResearch = getSafeResearch(c)
     const cleanedResearch = {
-      ...(props.company.company_research || {}),
-      summary: data.summary != null ? String(data.summary).trim() : '',
-      company_mission_and_customer: data.company_mission_and_customer != null ? String(data.company_mission_and_customer).trim() : '',
-      engineering_culture: data.engineering_culture != null ? String(data.engineering_culture).trim() : '',
-      recent_initiatives: data.recent_initiatives != null ? String(data.recent_initiatives).trim() : '',
+      ...existingResearch,
+      summary: normalizeText(data.summary),
+      company_mission_and_customer: normalizeText(data.company_mission_and_customer),
+      engineering_culture: normalizeText(data.engineering_culture),
+      recent_initiatives: Array.isArray(data.recent_initiatives)
+        ? toList(data.recent_initiatives)
+        : normalizeText(data.recent_initiatives),
       products_and_technical_domain: toList(data.products_and_technical_domain),
       strategic_priorities: toList(data.strategic_priorities),
       language_to_mirror: toList(data.language_to_mirror),
       candidate_alignment_angles: toList(data.candidate_alignment_angles),
     }
     if (data.verified_facts) {
-      cleanedResearch.verified_facts = toList(data.verified_facts)
+      cleanedResearch.verified_facts = Array.isArray(data.verified_facts)
+        ? data.verified_facts
+        : toList(data.verified_facts)
     }
 
     const payload = {
@@ -416,8 +520,9 @@ async function handleApplyImport() {
       research_status: 'COMPLETED',
     }
 
-    const res = await CompaniesAPI.update(props.company.id, payload)
-    uiStore.showToast(`Company intelligence updated for "${props.company.name}"!`, 'success')
+    const res = await CompaniesAPI.update(c.id, payload)
+    activeCompany.value = res.data
+    uiStore.showToast(`Company intelligence updated for "${c.name}"!`, 'success')
     emit('imported', res.data)
     closeModal()
   } catch (err) {
@@ -449,7 +554,7 @@ async function handleApplyImport() {
               <div>
                 <h3 class="modal-title">Company Intelligence Hub</h3>
                 <p class="modal-subtitle">
-                  {{ company?.name || 'Company' }} — Export for external AI models or import verified research
+                  {{ currentCompany?.name || 'Company' }} — Export for external AI models or import verified research
                 </p>
               </div>
             </div>
@@ -534,7 +639,7 @@ async function handleApplyImport() {
               <div class="tab-explainer-banner">
                 <Sparkles :size="16" class="icon-primary flex-shrink-0" />
                 <p class="text-xs">
-                  Copy this prompt into Claude, ChatGPT, or Gemini. It lists what is currently known about <strong>{{ company?.name }}</strong>, highlights missing fields, and specifies the exact JSON schema to return.
+                  Copy this prompt into Claude, ChatGPT, or Gemini. It lists what is currently known about <strong>{{ currentCompany?.name || 'this company' }}</strong>, highlights missing fields, and specifies the exact JSON schema to return.
                 </p>
               </div>
 
@@ -631,7 +736,7 @@ async function handleApplyImport() {
               <div v-if="validationResult.isValid" class="overwrite-warning-banner">
                 <AlertTriangle :size="14" class="warning-icon" />
                 <span>
-                  Note: Applying will replace the current intelligence profile for <strong>{{ company?.name }}</strong>.
+                  Note: Applying will replace the current intelligence profile for <strong>{{ currentCompany?.name || 'this company' }}</strong>.
                 </span>
               </div>
             </div>

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { IntakeAPI } from '../api/endpoints'
+import { IntakeAPI, CompaniesAPI } from '../api/endpoints'
 import { useUIStore } from './uiStore'
 import { useApplicationsStore } from './applicationsStore'
 
@@ -159,6 +159,28 @@ export const useQueueStore = defineStore('queue', () => {
             await uiStore.fetchPendingStagingCount()
           } catch (stagingErr) {
             console.warn('Failed to refresh staging count after email task completion:', stagingErr)
+          }
+        }
+
+        // Auto-synchronize company intel when a COMPANY_RESEARCH task finishes
+        const completedCompanyTasks = newlyCompletedTasks.filter(
+          (t) => t.task_type === 'COMPANY_RESEARCH'
+        )
+        if (completedCompanyTasks.length > 0 && typeof window !== 'undefined') {
+          for (const task of completedCompanyTasks) {
+            const companyId = task.result_json?.company_id || (task.raw_text ? Number(task.raw_text) : null)
+            if (companyId) {
+              try {
+                const cRes = await CompaniesAPI.get(companyId)
+                if (cRes?.data) {
+                  window.dispatchEvent(
+                    new CustomEvent('company:updated', { detail: cRes.data })
+                  )
+                }
+              } catch (cErr) {
+                console.warn(`Failed to auto-refetch company ${companyId} on research complete:`, cErr)
+              }
+            }
           }
         }
       }
