@@ -307,3 +307,41 @@ async def test_historical_rejection_attaches_to_terminal_application(db_session)
     # 3. Verify Staging queue is empty
     staged = (await db_session.execute(select(StagingItemModel))).scalars().all()
     assert len(staged) == 0
+
+
+def test_parse_email_date_floating_wall_clock():
+    """Verify that email dates preserve literal wall-clock face-value hours and do not shift across timezones."""
+    from app.services.graph_nodes import _parse_email_date
+
+    # Portuguese format: 17-09-2026 pelas 11h00
+    dt_pt = _parse_email_date("17-09-2026 11h00")
+    assert dt_pt.year == 2026
+    assert dt_pt.month == 9
+    assert dt_pt.day == 17
+    assert dt_pt.hour == 11
+    assert dt_pt.minute == 0
+
+    # 12-hour AM/PM with WEST timezone abbreviation: 4:30 PM WEST
+    dt_west = _parse_email_date("2026-09-14 4:30 PM WEST")
+    assert dt_west.year == 2026
+    assert dt_west.month == 9
+    assert dt_west.day == 14
+    assert dt_west.hour == 16
+    assert dt_west.minute == 30
+
+    # ISO format with offset: should retain face-value time without shifting
+    dt_iso = _parse_email_date("2026-09-14T16:30:00-07:00")
+    assert dt_iso.hour == 16
+    assert dt_iso.minute == 30
+
+    # UTC offset +00:00
+    dt_utc = _parse_email_date("2024-01-14T10:00:00+00:00")
+    assert dt_utc.day == 14
+    assert dt_utc.hour == 10
+
+    # Date-only format
+    dt_date_only = _parse_email_date("2026-09-17")
+    assert dt_date_only.year == 2026
+    assert dt_date_only.month == 9
+    assert dt_date_only.day == 17
+    assert dt_date_only.hour == 0

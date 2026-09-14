@@ -12,6 +12,7 @@ import PostHireModal from '../modals/PostHireModal.vue'
 import MatchAnalysisModal from '../modals/MatchAnalysisModal.vue'
 import CompanyLogo from '../common/CompanyLogo.vue'
 import CompanyPickerDropdown from '../common/CompanyPickerDropdown.vue'
+import { toLocalDatetimeString } from '../../utils/formatters'
 
 import {
   X, Check, Edit2,
@@ -1010,7 +1011,7 @@ function openEditModal() {
 
   transitionForm.value = {
     interview_stage: existingPayload.interview_stage || 'Interview Requested / Scheduling',
-    scheduled_at: existingPayload.scheduled_at ? existingPayload.scheduled_at.substring(0, 16) : '',
+    scheduled_at: existingPayload.scheduled_at ? toLocalDatetimeString(existingPayload.scheduled_at) : '',
     offered_salary: existingPayload.offered_salary || app.job_posting?.salary_max || app.job_posting?.salary_min || null,
     currency: initialCurrency,
     offer_received_date: existingPayload.offer_received_date || today,
@@ -1054,7 +1055,7 @@ async function confirmTransitionSubmit() {
     if (transitionTargetStatus.value === 'TECHNICAL_INTERVIEW') {
       payload.interview_stage = transitionForm.value.interview_stage
       payload.scheduled_at = transitionForm.value.scheduled_at
-        ? new Date(transitionForm.value.scheduled_at).toISOString()
+        ? (transitionForm.value.scheduled_at.length === 16 ? `${transitionForm.value.scheduled_at}:00` : transitionForm.value.scheduled_at)
         : undefined
     } else if (transitionTargetStatus.value === 'OFFER') {
       payload.offered_salary = transitionForm.value.offered_salary ? Number(transitionForm.value.offered_salary) : undefined

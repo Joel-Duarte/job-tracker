@@ -36,6 +36,7 @@ import DateTimePicker from '../components/common/DateTimePicker.vue'
 import CompanyLogo from '../components/common/CompanyLogo.vue'
 import { renderEmailBody } from '../utils/emailRenderer'
 import { fuzzyFilterApplications, scoreApplicationMatch } from '../utils/fuzzyMatch'
+import { toLocalDatetimeString } from '../utils/formatters'
 
 const uiStore = useUIStore()
 const appStore = useApplicationsStore()
@@ -362,17 +363,7 @@ function selectItem(item, fromUserClick = false) {
   const autoStatus = getAutoDetectedStatus(item)
   const eventType = getDetectedEventType(item)
 
-  let extractedDueDate = ''
-  if (extracted.due_date) {
-    try {
-      const parsed = new Date(extracted.due_date)
-      if (!isNaN(parsed.getTime())) {
-        extractedDueDate = parsed.toISOString().split('T')[0]
-      }
-    } catch {
-      // ignore
-    }
-  }
+  const extractedDueDate = extracted.due_date ? toLocalDatetimeString(extracted.due_date) : ''
 
   resolveForm.value = {
     company: getItemCompany(item),
@@ -703,7 +694,9 @@ async function submitResolution() {
       urgency: resolveForm.value.action_required ? computedUrgency.value : null,
       due_date:
         resolveForm.value.action_required && resolveForm.value.due_date
-          ? new Date(resolveForm.value.due_date).toISOString()
+          ? (resolveForm.value.due_date.includes('T')
+              ? (resolveForm.value.due_date.length === 16 ? `${resolveForm.value.due_date}:00` : resolveForm.value.due_date)
+              : `${resolveForm.value.due_date}T00:00:00`)
           : null,
       job_url: resolveForm.value.job_url.trim() || null,
       description_markdown: resolveForm.value.description_markdown.trim() || null,
@@ -1368,7 +1361,7 @@ function formatRelativeTime(isoStr) {
                       <label class="form-label">Due Date & Urgency: <span class="text-primary">{{ computedUrgencyLabel }}</span></label>
                       <DateTimePicker
                         v-model="resolveForm.due_date"
-                        type="date"
+                        type="datetime"
                         placeholder="Select deadline..."
                       />
                     </div>

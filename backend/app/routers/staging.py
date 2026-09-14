@@ -361,6 +361,13 @@ async def resolve_staging_item(
         application.last_activity_at = event_time
         application.updated_at = datetime.now(UTC)
 
+        # Prepare raw_payload preserving scheduled_at and interview_stage for Application badges
+        event_raw_payload = dict(extracted) if isinstance(extracted, dict) else {}
+        if payload.due_date:
+            event_raw_payload["scheduled_at"] = payload.due_date.isoformat()
+        if payload.event_type:
+            event_raw_payload["interview_stage"] = payload.event_type
+
         event = ApplicationEventModel(
             email_application_id=application.id,
             email_message_id=staged_item.email_message_id,
@@ -376,7 +383,7 @@ async def resolve_staging_item(
             email_action_required=payload.action_required,
             email_action=payload.action,
             email_raw_body=staged_item.email_raw_body,
-            raw_payload=extracted if isinstance(extracted, dict) else None,
+            raw_payload=event_raw_payload or None,
             source_channel="STAGING",
         )
         db.add(event)
@@ -391,14 +398,14 @@ async def resolve_staging_item(
         if (
             payload.action_required or extracted.get("action_required")
         ) and action_text:
-            if payload.due_date:
+            parsed_due = (
+                payload.due_date.replace(tzinfo=None).replace(tzinfo=UTC)
+                if payload.due_date
+                else None
+            )
+            if parsed_due:
                 now_utc = datetime.now(UTC)
-                due_dt = (
-                    payload.due_date
-                    if payload.due_date.tzinfo
-                    else payload.due_date.replace(tzinfo=UTC)
-                )
-                diff = (due_dt - now_utc).total_seconds()
+                diff = (parsed_due - now_utc).total_seconds()
                 if diff <= 48 * 3600:
                     urgency_val = "HIGH"
                 elif diff <= 7 * 24 * 3600:
@@ -427,7 +434,7 @@ async def resolve_staging_item(
                 title=str(action_text)[:250],
                 status="PENDING",
                 urgency=urgency_val,
-                due_date=payload.due_date,
+                due_date=parsed_due,
             )
             db.add(action_item)
 

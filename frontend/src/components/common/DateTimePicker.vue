@@ -21,7 +21,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['update:modelValue', 'change'])
+const emit = defineEmits(['update:modelValue', 'change', 'confirm'])
 
 const isOpen = ref(false)
 const containerRef = ref(null)
@@ -265,6 +265,21 @@ function confirmSelection() {
 
   emit('update:modelValue', formattedValue)
   emit('change', formattedValue)
+  emit('confirm', formattedValue)
+  isOpen.value = false
+}
+
+function open() {
+  if (props.disabled) return
+  isOpen.value = true
+  if (!selectedDate.value) {
+    selectedDate.value = new Date()
+    viewYear.value = selectedDate.value.getFullYear()
+    viewMonth.value = selectedDate.value.getMonth()
+  }
+}
+
+function close() {
   isOpen.value = false
 }
 
@@ -290,6 +305,13 @@ function handleClickOutside(e) {
   }
 }
 
+defineExpose({
+  open,
+  close,
+  toggleOpen,
+  isOpen,
+})
+
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
 })
@@ -303,23 +325,36 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="containerRef" class="custom-datepicker-container" :class="{ disabled }">
-    <!-- Trigger Input Box -->
-    <div class="datepicker-input-wrapper" @click="toggleOpen">
-      <Calendar :size="14" class="input-icon" />
-      <span v-if="displayText" class="input-value">{{ displayText }}</span>
-      <span v-else class="input-placeholder">{{ placeholder }}</span>
+  <div
+    ref="containerRef"
+    class="custom-datepicker-container"
+    :class="{ disabled, 'is-trigger-slot': $slots.trigger }"
+  >
+    <!-- Slot trigger or Default Input Box -->
+    <slot
+      name="trigger"
+      :toggle="toggleOpen"
+      :open="open"
+      :close="close"
+      :is-open="isOpen"
+      :display-text="displayText"
+    >
+      <div class="datepicker-input-wrapper" @click="toggleOpen">
+        <Calendar :size="14" class="input-icon" />
+        <span v-if="displayText" class="input-value">{{ displayText }}</span>
+        <span v-else class="input-placeholder">{{ placeholder }}</span>
 
-      <button
-        v-if="modelValue && !disabled"
-        class="btn-clear"
-        type="button"
-        title="Clear date"
-        @click="clearValue"
-      >
-        <X :size="13" />
-      </button>
-    </div>
+        <button
+          v-if="modelValue && !disabled"
+          class="btn-clear"
+          type="button"
+          title="Clear date"
+          @click="clearValue"
+        >
+          <X :size="13" />
+        </button>
+      </div>
+    </slot>
 
     <!-- Teleported Popover Dropdown (Side-by-Side when type === 'datetime') -->
     <Teleport to="body">
@@ -455,6 +490,12 @@ onBeforeUnmount(() => {
   position: relative;
   width: 100%;
   box-sizing: border-box;
+}
+
+.custom-datepicker-container.is-trigger-slot {
+  display: inline-flex;
+  width: auto;
+  vertical-align: middle;
 }
 
 .datepicker-input-wrapper {

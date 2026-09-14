@@ -13,6 +13,8 @@ import {
   formatRelativeDate,
   normalizeWorkModel,
   formatSalaryRange,
+  toLocalDatetimeString,
+  formatDate24h,
 } from '../utils/formatters'
 import { getFitScores } from '../utils/fitScores'
 import {
@@ -625,7 +627,7 @@ function openTransitionModal(app, colKey) {
 
   transitionForm.value = {
     interview_stage: existingPayload.interview_stage || 'Interview Requested / Scheduling',
-    scheduled_at: existingPayload.scheduled_at ? existingPayload.scheduled_at.substring(0, 16) : '',
+    scheduled_at: existingPayload.scheduled_at ? toLocalDatetimeString(existingPayload.scheduled_at) : '',
     offered_salary: existingPayload.offered_salary || app.job_posting?.salary_max || app.job_posting?.salary_min || null,
     currency: initialCurrency,
     offer_received_date: existingPayload.offer_received_date || today,
@@ -635,6 +637,20 @@ function openTransitionModal(app, colKey) {
     notes: '',
   }
   showTransitionModal.value = true
+}
+
+async function handleQuickUpdateInterviewDate(app, newVal) {
+  if (!newVal) return
+  const formatted = newVal.length === 16 ? `${newVal}:00` : newVal
+  try {
+    await appStore.transitionApplication(app.id, {
+      status: app.status,
+      scheduled_at: formatted,
+    })
+    uiStore.showToast('Interview date updated', 'success')
+  } catch (err) {
+    uiStore.showToast('Failed to update interview date', 'error')
+  }
 }
 
 function getTransitionModalTitle() {
@@ -682,7 +698,7 @@ async function submitTransitionModal() {
     if (targetStatus.value === 'TECHNICAL_INTERVIEW') {
       payload.interview_stage = transitionForm.value.interview_stage
       payload.scheduled_at = transitionForm.value.scheduled_at
-        ? new Date(transitionForm.value.scheduled_at).toISOString()
+        ? (transitionForm.value.scheduled_at.length === 16 ? `${transitionForm.value.scheduled_at}:00` : transitionForm.value.scheduled_at)
         : undefined
     } else if (targetStatus.value === 'OFFER') {
       payload.offered_salary = transitionForm.value.offered_salary ? Number(transitionForm.value.offered_salary) : undefined
@@ -1280,15 +1296,24 @@ async function confirmDelete() {
                 </button>
 
                 <!-- Show Interview Scheduled Date if it exists -->
-                <div
+                <DateTimePicker
                   v-if="getScheduledInterviewDate(app)"
-                  class="interview-scheduled-badge"
-                  :class="getScheduleUrgencyClass(app)"
-                  title="Scheduled Interview Date & Time"
+                  :model-value="toLocalDatetimeString(getScheduledInterviewDate(app))"
+                  type="datetime"
+                  @confirm="(val) => handleQuickUpdateInterviewDate(app, val)"
                 >
-                  <Calendar :size="11" />
-                  <span>{{ formatScheduledDateFriendly(app) }}</span>
-                </div>
+                  <template #trigger="{ toggle }">
+                    <div
+                      class="interview-scheduled-badge clickable-interview-badge"
+                      :class="getScheduleUrgencyClass(app)"
+                      title="Click to quickly change interview date & time"
+                      @click.stop="toggle"
+                    >
+                      <Calendar :size="11" />
+                      <span>{{ formatScheduledDateFriendly(app) }}</span>
+                    </div>
+                  </template>
+                </DateTimePicker>
 
                 <!-- Show Awaiting Response badge if task was completed -->
                 <div
@@ -1485,15 +1510,24 @@ async function confirmDelete() {
                       <SlidersHorizontal :size="11" class="phase-icon" />
                     </button>
 
-                    <div
+                    <DateTimePicker
                       v-if="getScheduledInterviewDate(app)"
-                      class="interview-scheduled-badge"
-                      :class="getScheduleUrgencyClass(app)"
-                      title="Scheduled Interview Date & Time"
+                      :model-value="toLocalDatetimeString(getScheduledInterviewDate(app))"
+                      type="datetime"
+                      @confirm="(val) => handleQuickUpdateInterviewDate(app, val)"
                     >
-                      <Calendar :size="11" />
-                      <span>{{ formatScheduledDateFriendly(app) }}</span>
-                    </div>
+                      <template #trigger="{ toggle }">
+                        <div
+                          class="interview-scheduled-badge clickable-interview-badge"
+                          :class="getScheduleUrgencyClass(app)"
+                          title="Click to quickly change interview date & time"
+                          @click.stop="toggle"
+                        >
+                          <Calendar :size="11" />
+                          <span>{{ formatScheduledDateFriendly(app) }}</span>
+                        </div>
+                      </template>
+                    </DateTimePicker>
 
                     <div
                       v-else-if="app.status === 'TECHNICAL_INTERVIEW' && getAppSubPhaseLabel(app) === 'Task Completed / Awaiting Response'"
@@ -3634,6 +3668,16 @@ async function confirmDelete() {
   border-radius: 4px;
   font-family: var(--font-mono);
   user-select: none;
+}
+
+.interview-scheduled-badge.clickable-interview-badge {
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.interview-scheduled-badge.clickable-interview-badge:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.15);
 }
 
 .interview-scheduled-badge.date-green {

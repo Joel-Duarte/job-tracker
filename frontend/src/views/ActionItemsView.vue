@@ -4,6 +4,7 @@ import { ActionItemsAPI, ApplicationsAPI } from '../api/endpoints'
 import { useUIStore } from '../stores/uiStore'
 import DateTimePicker from '../components/common/DateTimePicker.vue'
 import PageHeader from '../components/common/PageHeader.vue'
+import { toLocalDatetimeString, formatDate24h } from '../utils/formatters'
 import {
   CheckSquare,
   Square,
@@ -126,7 +127,7 @@ function openEditModal(item) {
   taskForm.value = {
     application_id: item.application_id,
     title: item.title,
-    due_date: item.due_date ? item.due_date.substring(0, 16) : '',
+    due_date: item.due_date ? toLocalDatetimeString(item.due_date) : '',
     urgency: item.urgency || 'MEDIUM',
     status: item.status || 'PENDING',
     action_url: item.action_url || '',
@@ -142,10 +143,14 @@ async function handleSaveTask() {
 
   isSubmitting.value = true
   try {
+    const formattedDue = taskForm.value.due_date
+      ? (taskForm.value.due_date.length === 16 ? `${taskForm.value.due_date}:00` : taskForm.value.due_date)
+      : null
+
     if (isEditing.value) {
       await ActionItemsAPI.update(currentEditId.value, {
         title: taskForm.value.title.trim(),
-        due_date: taskForm.value.due_date ? new Date(taskForm.value.due_date).toISOString() : null,
+        due_date: formattedDue,
         urgency: taskForm.value.urgency,
         status: taskForm.value.status,
         action_url: taskForm.value.action_url ? taskForm.value.action_url.trim() : null,
@@ -155,7 +160,7 @@ async function handleSaveTask() {
       await ActionItemsAPI.create({
         application_id: taskForm.value.application_id,
         title: taskForm.value.title.trim(),
-        due_date: taskForm.value.due_date ? new Date(taskForm.value.due_date).toISOString() : null,
+        due_date: formattedDue,
         urgency: taskForm.value.urgency,
         status: taskForm.value.status,
         action_url: taskForm.value.action_url ? taskForm.value.action_url.trim() : null,
@@ -207,17 +212,20 @@ function openApplicationDrawer(appId) {
 }
 
 function formatDate(isoStr) {
-  if (!isoStr) return null
+  return formatDate24h(isoStr)
+}
+
+async function handleQuickUpdateDueDate(item, newVal) {
+  if (!newVal) return
+  const formatted = newVal.length === 16 ? `${newVal}:00` : newVal
+  const prevDate = item.due_date
+  item.due_date = formatted
   try {
-    const d = new Date(isoStr)
-    return d.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    })
-  } catch {
-    return isoStr
+    await ActionItemsAPI.update(item.id, { due_date: formatted })
+    uiStore.showToast('Due date updated', 'success')
+  } catch (err) {
+    item.due_date = prevDate
+    uiStore.showToast(err.message || 'Failed to update due date', 'error')
   }
 }
 
@@ -546,15 +554,45 @@ onUnmounted(() => {
                 <ExternalLink :size="11" class="ml-1 opacity-70" />
               </button>
 
-              <!-- Due Date Pill -->
-              <div
+              <!-- Due Date Pill with 1-click inline DateTimePicker quick-editor -->
+              <DateTimePicker
                 v-if="item.due_date"
-                class="due-date-pill"
-                :class="{ overdue: isOverdue(item.due_date, item.status) }"
+                :model-value="toLocalDatetimeString(item.due_date)"
+                type="datetime"
+                @confirm="(val) => handleQuickUpdateDueDate(item, val)"
               >
-                <Calendar :size="12" />
-                <span>{{ isOverdue(item.due_date, item.status) ? 'Overdue: ' : 'Due: ' }}{{ formatDate(item.due_date) }}</span>
-              </div>
+                <template #trigger="{ toggle }">
+                  <div
+                    class="due-date-pill clickable-date-pill"
+                    :class="{ overdue: isOverdue(item.due_date, item.status) }"
+                    title="Click to quickly change due date & time"
+                    @click.stop="toggle"
+                  >
+                    <Calendar :size="12" />
+                    <span>{{ isOverdue(item.due_date, item.status) ? 'Overdue: ' : 'Due: ' }}{{ formatDate(item.due_date) }}</span>
+                  </div>
+                </template>
+              </DateTimePicker>
+
+              <!-- Quick Add Deadline button if no due date yet -->
+              <DateTimePicker
+                v-else-if="item.status !== 'COMPLETED'"
+                type="datetime"
+                placeholder="Set deadline..."
+                @confirm="(val) => handleQuickUpdateDueDate(item, val)"
+              >
+                <template #trigger="{ toggle }">
+                  <button
+                    class="btn-add-due-date"
+                    type="button"
+                    title="Click to set a deadline & time"
+                    @click.stop="toggle"
+                  >
+                    <Clock :size="11" />
+                    <span>+ Deadline</span>
+                  </button>
+                </template>
+              </DateTimePicker>
 
               <!-- Action Link -->
               <a
@@ -1141,10 +1179,43 @@ onUnmounted(() => {
   font-family: var(--font-mono);
 }
 
+.due-date-pill.clickable-date-pill {
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.due-date-pill.clickable-date-pill:hover {
+  border-color: var(--primary);
+  background-color: var(--bg-surface-hover);
+  color: var(--text-main);
+  transform: translateY(-1px);
+}
+
 .due-date-pill.overdue {
   background-color: var(--status-rejected-bg);
   color: var(--status-rejected-text);
   border-color: var(--status-rejected-border);
+}
+
+.btn-add-due-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  background-color: transparent;
+  border: 1px dashed var(--border-color);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-add-due-date:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background-color: var(--bg-surface-hover);
 }
 
 .external-action-link {

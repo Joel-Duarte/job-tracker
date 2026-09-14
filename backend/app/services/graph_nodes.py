@@ -40,7 +40,8 @@ def _parse_email_date(date_val: str | datetime | None) -> datetime | None:
     if not date_val:
         return None
     if isinstance(date_val, datetime):
-        return date_val if date_val.tzinfo else date_val.replace(tzinfo=UTC)
+        # Keep literal face-value date and time without shifting
+        return date_val.replace(tzinfo=None).replace(tzinfo=UTC)
     if not isinstance(date_val, str):
         return None
 
@@ -48,28 +49,63 @@ def _parse_email_date(date_val: str | datetime | None) -> datetime | None:
     if not val:
         return None
 
-    # Normalize common GMT/UTC offset notations, e.g. "GMT+1" -> "+01:00", "UTC-5" -> "-05:00"
-    m_offset = re.search(
-        r"(?:GMT|UTC)\s*([+-])\s*(\d{1,2})(?::?(\d{2}))?", val, re.IGNORECASE
+    # 1. Normalize European date format DD-MM-YYYY or DD/MM/YYYY -> YYYY-MM-DD
+    val = re.sub(r"\b(\d{2})[-/](\d{2})[-/](\d{4})\b", r"\3-\2-\1", val)
+
+    # 2. Normalize European time notations: e.g. "11h00" -> "11:00", "16h30" -> "16:30", "11h" -> "11:00"
+    val = re.sub(r"\b(\d{1,2})h(\d{2})\b", r"\1:\2", val, flags=re.IGNORECASE)
+    val = re.sub(r"\b(\d{1,2})h\b", r"\1:00", val, flags=re.IGNORECASE)
+
+    # 3. Strip timezone words and abbreviations (WEST, WET, CEST, CET, BST, PDT, PST, EDT, EST, UTC, GMT, etc.)
+    # to preserve face-value wall-clock time
+    val = re.sub(
+        r"\b(?:WEST|WET|CEST|CET|BST|EEST|EET|PDT|PST|EDT|EST|CDT|CST|MDT|MST)\b",
+        "",
+        val,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    # Strip explicit GMT/UTC prefixes with optional offset, e.g. "GMT+1", "UTC-5", "GMT", "UTC"
+    val = re.sub(
+        r"\b(?:GMT|UTC)\s*(?:[+-]\s*\d{1,2}(?::?\d{2})?)?\b",
+        "",
+        val,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    # Strip trailing ISO offset after time component e.g. "+00:00", "-07:00", "+0100", "+01", "Z"
+    val = re.sub(r"(?<=\d{2}:\d{2})[+-]\d{2}(?::?\d{2})?$", "", val).strip()
+    val = re.sub(r"(?<=\d{2}:\d{2}:\d{2})[+-]\d{2}(?::?\d{2})?$", "", val).strip()
+    val = re.sub(r"Z$", "", val).strip()
+
+    # 4. Handle 12-hour AM/PM notation if present (e.g. "4:30 PM", "10:00 AM")
+    m_ampm = re.search(
+        r"(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)\b", val, re.IGNORECASE
     )
-    if m_offset:
-        sign = m_offset.group(1)
-        hours = int(m_offset.group(2))
-        mins = int(m_offset.group(3) or 0)
-        offset_str = f"{sign}{hours:02d}:{mins:02d}"
-        val = val[: m_offset.start()] + offset_str + val[m_offset.end() :]
+    if m_ampm:
+        hr = int(m_ampm.group(1))
+        mn = m_ampm.group(2)
+        sc = m_ampm.group(3) or "00"
+        ampm = m_ampm.group(4).upper()
+        if ampm == "PM" and hr < 12:
+            hr += 12
+        elif ampm == "AM" and hr == 12:
+            hr = 0
+        time_24 = f"{hr:02d}:{mn}:{sc}"
+        val = val[: m_ampm.start()] + time_24 + val[m_ampm.end() :]
         val = val.strip()
 
-    # Replace standalone GMT or UTC with +00:00
-    val = re.sub(r"\b(?:GMT|UTC)\b", "+00:00", val, flags=re.IGNORECASE).strip()
-    # Replace single trailing Z with +00:00
-    val = re.sub(r"Z$", "+00:00", val)
-    # Convert space between date and time to 'T': '2026-09-14 15:15:00' -> '2026-09-14T15:15:00'
+    # 5. Convert space between date and time to 'T': '2026-09-14 15:15:00' -> '2026-09-14T15:15:00'
     val = re.sub(r"^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)", r"\1T\2", val)
+
+    # 6. Date-only format fallback: '2026-09-14' -> '2026-09-14T00:00:00'
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", val):
+        val = f"{val}T00:00:00"
 
     try:
         dt = datetime.fromisoformat(val)
-        return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+        # Store as UTC without offset shifting (floating wall-clock time)
+        return dt.replace(tzinfo=None).replace(tzinfo=UTC)
     except Exception:
         logger.warning("Failed to parse date '%s', falling back to UTC now", date_val)
         return datetime.now(UTC)

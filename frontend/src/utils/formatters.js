@@ -138,18 +138,92 @@ export function formatSalaryRange(min, max, currency = 'USD', period = null) {
   return null
 }
 
+const MONTH_SHORT = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+]
+
 /**
- * Friendly relative date formatting:
- * - "Today, 4:15 PM"
- * - "Tomorrow, 2:00 PM"
- * - "Yesterday, 10:30 AM"
- * - "Due in 2 days"
+ * Extracts floating wall-clock datetime string (YYYY-MM-DDTHH:mm or YYYY-MM-DD)
+ * without applying timezone conversion or offset shifting.
+ */
+export function toLocalDatetimeString(dateStr) {
+  if (!dateStr) return ''
+  const str = String(dateStr).trim()
+  const m = str.match(/^(\d{4}-\d{2}-\d{2})(?:[T\s](\d{2}:\d{2}))?/)
+  if (m) {
+    return m[2] ? `${m[1]}T${m[2]}` : m[1]
+  }
+  try {
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) return ''
+    const y = d.getFullYear()
+    const mo = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mm = String(d.getMinutes()).padStart(2, '0')
+    return `${y}-${mo}-${day}T${hh}:${mm}`
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Formats a date string in clean 24h format:
+ * - With time: "17 Sep, 11:00" or "14 Sep, 16:30"
+ * - Date-only (or midnight without explicit time): "17 Sep"
+ */
+export function formatDate24h(dateStr) {
+  if (!dateStr) return ''
+  const str = String(dateStr).trim()
+  const m = str.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2}))?/)
+  const currentYear = new Date().getFullYear()
+
+  if (m) {
+    const year = parseInt(m[1], 10)
+    const month = MONTH_SHORT[parseInt(m[2], 10) - 1] || m[2]
+    const day = parseInt(m[3], 10)
+    const yearPart = year !== currentYear ? ` ${year}` : ''
+
+    const isDateOnly =
+      !m[4] ||
+      (m[4] === '00' && m[5] === '00' && (str.endsWith('00:00:00') || str.endsWith('00:00:00Z') || str.endsWith('00:00:00+00:00')))
+
+    if (isDateOnly) {
+      return `${day} ${month}${yearPart}`
+    }
+    return `${day} ${month}${yearPart}, ${m[4]}:${m[5]}`
+  }
+
+  try {
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) return String(dateStr)
+    const day = d.getDate()
+    const month = MONTH_SHORT[d.getMonth()]
+    const yearPart = d.getFullYear() !== currentYear ? ` ${d.getFullYear()}` : ''
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mm = String(d.getMinutes()).padStart(2, '0')
+    return `${day} ${month}${yearPart}, ${hh}:${mm}`
+  } catch {
+    return String(dateStr)
+  }
+}
+
+/**
+ * Friendly relative date formatting with 24-hour time:
+ * - "Today, 16:15"
+ * - "Tomorrow, 14:00"
+ * - "Yesterday, 10:30"
+ * - "In 2 days, 11:00"
  * - "Overdue by 1 day"
- * - "May 14, 2026"
+ * - "14 May, 16:30" / "14 May"
  */
 export function formatRelativeDate(dateStr, includeTime = false) {
   if (!dateStr) return ''
   try {
+    const rawStr = typeof dateStr === 'string' ? dateStr.trim() : ''
+    const m = rawStr.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2}))?/)
+
     const target = new Date(dateStr)
     if (isNaN(target.getTime())) return String(dateStr)
 
@@ -159,21 +233,13 @@ export function formatRelativeDate(dateStr, includeTime = false) {
 
     const diffDays = Math.round((targetMidnight - nowMidnight) / (1000 * 60 * 60 * 24))
 
-    // Check if the input is a date-only string (e.g. "2026-09-14") or midnight UTC fallback
-    const rawStr = typeof dateStr === 'string' ? dateStr.trim() : ''
     const isDateOnly =
       /^\d{4}-\d{2}-\d{2}$/.test(rawStr) ||
-      (rawStr.includes('T00:00:00') &&
-        !rawStr.includes('T00:00:00.') &&
-        target.getUTCHours() === 0 &&
-        target.getUTCMinutes() === 0 &&
-        target.getUTCSeconds() === 0)
+      !m?.[4] ||
+      (m?.[4] === '00' && m?.[5] === '00' && (rawStr.endsWith('00:00:00') || rawStr.endsWith('00:00:00Z') || rawStr.endsWith('00:00:00+00:00')))
 
     const shouldShowTime = includeTime && !isDateOnly
-    const timeStr = target.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-    })
+    const timeStr = m?.[4] && m?.[5] ? `${m[4]}:${m[5]}` : target.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
 
     if (diffDays === 0) {
       return shouldShowTime ? `Today, ${timeStr}` : 'Today'
@@ -191,11 +257,10 @@ export function formatRelativeDate(dateStr, includeTime = false) {
       return `${Math.abs(diffDays)} days ago`
     }
 
-    const dateFormatted = target.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: target.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
-    })
+    const day = target.getDate()
+    const month = MONTH_SHORT[target.getMonth()]
+    const yearPart = target.getFullYear() !== now.getFullYear() ? ` ${target.getFullYear()}` : ''
+    const dateFormatted = `${day} ${month}${yearPart}`
 
     return shouldShowTime ? `${dateFormatted}, ${timeStr}` : dateFormatted
   } catch {

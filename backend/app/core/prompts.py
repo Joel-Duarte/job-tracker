@@ -322,7 +322,7 @@ DEFAULT_PROMPTS = {
         "- status: One of: 'APPLIED', 'RECRUITER_CONTACT', 'PHONE_SCREEN', 'ONLINE_ASSESSMENT', 'TECHNICAL_INTERVIEW', 'BEHAVIORAL_INTERVIEW', 'ONSITE_INTERVIEW', 'FINAL_INTERVIEW', 'OFFER', 'REJECTED', 'WITHDRAWN', 'OTHER'.\n"
         "- action_required: boolean. True if candidate action is needed (scheduling a call, coding assessment, submitting documents, replying with availability).\n"
         "- action: Concise description of the action and deadline if mentioned (e.g. 'Schedule phone screen via Calendly link', 'Complete HackerRank assessment'), else null.\n"
-        "- due_date: Explicit deadline or scheduled interview date/time in ISO 8601 format. If an exact meeting hour or timezone is stated (e.g. 'September 14th at 3:15pm GMT+1'), extract full ISO with offset: 'YYYY-MM-DDTHH:MM:SS±HH:MM' (e.g. '2026-09-14T15:15:00+01:00'). If only a date/deadline is mentioned, use 'YYYY-MM-DD'. If none, null.\n"
+        "- due_date: Explicit deadline or scheduled interview date/time in local wall-clock ISO 8601 format ('YYYY-MM-DDTHH:MM:SS'). Extract the exact face-value date and hour as stated in the email (e.g. '11h00' -> '11:00:00', '16h30' / '4:30 PM' -> '16:30:00', '10:30am' -> '10:30:00'). DO NOT convert or shift hours to UTC or other timezones—preserve the exact hour stated. European timezones: 'WEST' is Western European Summer Time (Portugal, UK BST), NEVER confuse with US West Coast! If only a calendar date/deadline is mentioned without an hour, output date-only 'YYYY-MM-DD'. If none, null.\n"
         "- summary: Concise 1-2 sentence summary, max 25 words, describing the exact milestone or update.\n\n"
         "--------------------------------------------------\n"
         "STATUS & EVENT TYPE MAPPING REFERENCE\n"
@@ -827,8 +827,9 @@ async def seed_default_prompts(session: AsyncSession) -> None:
         elif prompt_name == "email_extraction" and (
             "If email_type is NOT JOB_APPLICATION, return company=null"
             in (existing.template or "")
+            or "local wall-clock ISO 8601" not in (existing.template or "")
         ):
-            # Auto-heal legacy restrictive prompt that blanks company/position
+            # Auto-heal legacy restrictive prompt that blanks company/position or has outdated due_date rule
             existing.template = default_template
         elif prompt_name == "cover_letter" and (
             "ZERO-HALLUCINATION RULES" not in (existing.template or "")
@@ -925,6 +926,7 @@ async def get_prompt_template(
             res_template = DEFAULT_PROMPTS["jd_extraction"]
         elif prompt_name == "email_extraction" and (
             "If email_type is NOT JOB_APPLICATION, return company=null" in template
+            or "local wall-clock ISO 8601" not in template
         ):
             res_template = DEFAULT_PROMPTS["email_extraction"]
         elif prompt_name == "cover_letter" and (

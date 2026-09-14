@@ -21,9 +21,9 @@ class EmailExtractionResult(BaseModel):
     due_date: str | None = Field(
         default=None,
         description=(
-            "Explicit deadline date or scheduled interview date/time in ISO format. "
-            "Use 'YYYY-MM-DDTHH:MM:SS±HH:MM' (or with Z) when an explicit meeting time/timezone is mentioned "
-            "(e.g. '2026-09-14T15:15:00+01:00'); use date-only 'YYYY-MM-DD' if only a calendar date is specified."
+            "Explicit deadline date or scheduled interview date/time in local wall-clock ISO 8601 format. "
+            "Use 'YYYY-MM-DDTHH:MM:SS' for exact meeting times as written (e.g. '2026-09-14T16:30:00' or '2026-09-17T11:00:00'); "
+            "use date-only 'YYYY-MM-DD' if only a calendar date is specified."
         ),
     )
     summary: str = Field(description="Brief summary of the email body")
