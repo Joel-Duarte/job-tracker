@@ -666,6 +666,16 @@ async def update_application(
         app.position_normalized = pos.lower()
         if app.job_posting:
             app.job_posting.title = pos
+            if app.job_posting.structured_spec and isinstance(
+                app.job_posting.structured_spec, dict
+            ):
+                spec = dict(app.job_posting.structured_spec)
+                spec["position"] = pos
+                app.job_posting.structured_spec = spec
+        if app.match_analysis_payload and isinstance(app.match_analysis_payload, dict):
+            updated_payload = dict(app.match_analysis_payload)
+            updated_payload["position"] = pos
+            app.match_analysis_payload = updated_payload
 
     cleaned_domain = None
     if "company_domain" in update_data and update_data["company_domain"] is not None:

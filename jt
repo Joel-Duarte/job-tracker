@@ -147,7 +147,7 @@ show_help() {
   echo -e "  ${GREEN}logs${NC}            View and follow live container logs (Ctrl+C to exit)"
   echo -e "  ${GREEN}open${NC}            Open Web Application (http://localhost:4173) in default browser"
   echo -e "  ${GREEN}backup, db-backup${NC} Save snapshot of current PostgreSQL database to backups/"
-  echo -e "  ${GREEN}update${NC}          Backup database to backups/, pull latest images, rebuild, and apply migrations"
+  echo -e "  ${GREEN}update${NC}          Backup DB, rebuild containers, and apply migrations (pass ${CYAN}--pull${NC} to update Camofox/Postgres)"
   echo -e "  ${GREEN}reset, clean${NC}    Wipe database & data volumes after user confirmation (or pass -y)"
   echo -e "  ${GREEN}seed${NC}            Run dynamic local LLM mock generator to synthesize fresh tech leads"
   echo -e "  ${GREEN}help, -h${NC}        Show this help message"
@@ -284,17 +284,38 @@ case "$COMMAND" in
     shift || true
     check_docker
     ensure_env
+
+    PULL_IMAGES=false
+    PASSTHROUGH_ARGS=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --pull|--pull-images|-p)
+          PULL_IMAGES=true
+          shift
+          ;;
+        *)
+          PASSTHROUGH_ARGS+=("$1")
+          shift
+          ;;
+      esac
+    done
+
     echo -e "${CYAN}🔄 Updating Job Tracker...${NC}"
     echo ">> 1. Saving current database backup..."
     backup_database
 
-    echo ""
-    echo ">> 2. Pulling upstream base images..."
-    docker compose pull 2>/dev/null || true
+    if [ "$PULL_IMAGES" = true ]; then
+      echo ""
+      echo ">> 2. Pulling upstream base images (Postgres & Camofox)..."
+      docker compose pull "${PASSTHROUGH_ARGS[@]}" || true
+    else
+      echo ""
+      echo -e ">> 2. Skipping base image pull (using cached images). Pass ${CYAN}--pull${NC} to refresh Camofox/Postgres."
+    fi
 
     echo ""
     echo ">> 3. Rebuilding and starting containers..."
-    docker compose up -d --build "$@"
+    docker compose up -d --build "${PASSTHROUGH_ARGS[@]}"
 
     echo ""
     echo ">> 4. Applying database migrations (Alembic)..."

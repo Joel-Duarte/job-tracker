@@ -56,7 +56,7 @@ export async function testConnection(customAppUrl) {
 
 /**
  * Enqueues a job for AI fit assessment.
- * @param {{ text?: string; url?: string; title_hint?: string }} payload
+ * @param {{ text?: string; url?: string; title_hint?: string; page_title?: string }} payload
  * @returns {Promise<any>}
  */
 export async function enqueueAssessment(payload) {

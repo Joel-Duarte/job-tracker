@@ -322,3 +322,56 @@ def test_filter_non_technical_open_ended_skills_from_matrix():
     ]:
         assert non_skill not in res["missing_skills"]
         assert non_skill not in res["matching_skills"]
+
+
+@pytest.mark.asyncio
+async def test_extract_job_spec_context_anchors_injection():
+    """Verify that extract_job_spec enriches raw webpage data with Context Anchors when hints are provided."""
+    from unittest.mock import AsyncMock
+
+    from app.schemas.llm import ExtractedJobSpec
+    from app.services.llm import extract_job_spec
+
+    mock_session = AsyncMock()
+    captured_prompt_inputs = []
+
+    def mock_invoke(inputs, config=None):
+        captured_prompt_inputs.append(inputs)
+        return ExtractedJobSpec(
+            job_found=True,
+            company="Anthropic",
+            position="Senior AI Engineer",
+            detected_language="English",
+            extracted_skills=["Python", "PyTorch"],
+        )
+
+    mock_runnable = RunnableLambda(mock_invoke)
+
+    with (
+        patch("app.services.llm.get_task_chat_model") as mock_get_model,
+        patch(
+            "app.services.llm.get_prompt_template",
+            return_value="System prompt:\n{raw_webpage_data}",
+        ),
+    ):
+        mock_model = MagicMock()
+        mock_model.with_structured_output.return_value = mock_runnable
+        mock_get_model.return_value = mock_model
+
+        res = await extract_job_spec(
+            mock_session,
+            raw_webpage_data="We are looking for an engineer to join our team...",
+            title_hint="Anthropic - Senior AI Engineer",
+            page_title="Senior AI Engineer | Anthropic Careers",
+        )
+
+        assert res.position == "Senior AI Engineer"
+        assert len(captured_prompt_inputs) == 1
+        prompt_val = captured_prompt_inputs[0]
+        prompt_text = str(prompt_val)
+        assert "Context Anchors (External Metadata):" in prompt_text
+        assert "Title / Role Hint: Anthropic - Senior AI Engineer" in prompt_text
+        assert (
+            "Candidate Page Title: Senior AI Engineer | Anthropic Careers"
+            in prompt_text
+        )

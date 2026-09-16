@@ -1067,7 +1067,12 @@ async def _execute_evaluation_steps(
                 task.stage = "EXTRACTING"
                 await db.commit()
 
-                job_spec = await extract_job_spec(db, content)
+                job_spec = await extract_job_spec(
+                    db,
+                    content,
+                    title_hint=task.title_hint,
+                    page_title=current_json.get("page_title"),
+                )
                 if not job_spec.job_found:
                     task.status = "FAILED"
                     task.stage = "FAILED"

@@ -92,18 +92,41 @@ async def get_active_llm_config(db: AsyncSession) -> dict[str, Any]:
 async def extract_job_spec(
     db: AsyncSession,
     raw_webpage_data: str,
+    title_hint: str | None = None,
+    page_title: str | None = None,
 ) -> ExtractedJobSpec:
     """
     Stage 1: Extracts structured job specs, responsibilities, requirements, and ATS keywords from raw webpage data.
     Uses JD_EXTRACTION task binding with temperature=0.0 and reasoning disabled.
     """
-    cleaned_data = truncate_text_semantically(raw_webpage_data)
+    context_anchors = []
+    if (
+        title_hint
+        and title_hint.strip()
+        and title_hint.strip().lower() not in {"job lead", "pasted job description"}
+    ):
+        context_anchors.append(f"- Title / Role Hint: {title_hint.strip()}")
+    if page_title and page_title.strip():
+        context_anchors.append(f"- Candidate Page Title: {page_title.strip()}")
+
+    anchor_block = ""
+    if context_anchors:
+        anchor_block = (
+            "Context Anchors (External Metadata):\n"
+            + "\n".join(context_anchors)
+            + "\n\n"
+        )
+
+    enriched_data = anchor_block + raw_webpage_data
+    cleaned_data = truncate_text_semantically(enriched_data)
     async with trace_operation(
         category="llm",
         name="extract_job_spec",
         inputs={
             "char_count": len(cleaned_data),
             "sample": cleaned_data[:200],
+            "has_title_hint": bool(title_hint),
+            "has_page_title": bool(page_title),
         },
         db=db,
     ) as trace_ctx:

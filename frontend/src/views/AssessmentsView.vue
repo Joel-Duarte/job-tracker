@@ -43,6 +43,7 @@ import {
   RotateCcw,
   CheckSquare,
   HelpCircle,
+  Pencil,
 } from 'lucide-vue-next'
 import PageHeader from '../components/common/PageHeader.vue'
 import CompanyLogo from '../components/common/CompanyLogo.vue'
@@ -556,6 +557,75 @@ async function handleChangeTaskCompany(task, company) {
   }
 }
 
+// Inline Job Title Editing State & Actions
+const editingTaskId = ref(null)
+const editingRoleTitle = ref('')
+
+function startEditingRole(task) {
+  editingTaskId.value = task.id
+  editingRoleTitle.value = task.result_json?.position || 'Software Engineer'
+  nextTick(() => {
+    const inputEl = document.querySelector(`.role-edit-input[data-task-id="${task.id}"]`)
+    if (inputEl) {
+      inputEl.focus()
+      inputEl.select()
+    }
+  })
+}
+
+function cancelEditingRole() {
+  editingTaskId.value = null
+  editingRoleTitle.value = ''
+}
+
+async function saveEditingRole(task) {
+  if (editingTaskId.value !== task.id) return
+  const newTitle = editingRoleTitle.value.trim()
+  const oldTitle = task.result_json?.position || ''
+
+  if (!newTitle) {
+    uiStore.showToast('Job title cannot be empty', 'warning')
+    cancelEditingRole()
+    return
+  }
+
+  if (newTitle === oldTitle) {
+    cancelEditingRole()
+    return
+  }
+
+  const appId = task.result_json?.application_id
+  if (!appId) {
+    // Local in-memory task update (e.g. queued task without an application record yet)
+    if (task.result_json) {
+      task.result_json.position = newTitle
+    }
+    cancelEditingRole()
+    uiStore.showToast('Job title updated locally', 'info')
+    return
+  }
+
+  try {
+    await ApplicationsAPI.update(appId, { position: newTitle })
+    uiStore.showToast(`Updated job title to "${newTitle}"`, 'success')
+
+    // Optimistically update local task state
+    if (task.result_json) {
+      task.result_json.position = newTitle
+    }
+    const compName = task.result_json?.company || task.title_hint?.split(' - ')[0] || ''
+    if (compName) {
+      task.title_hint = `${compName} - ${newTitle}`
+    }
+
+    cancelEditingRole()
+    await appStore.fetchApplications()
+  } catch (err) {
+    uiStore.showToast(err.response?.data?.detail || err.message || 'Failed to update job title', 'error')
+    cancelEditingRole()
+  }
+}
+
 async function passAndArchive(task) {
   const appId = task.result_json?.application_id
   if (appId) await IntakeAPI.dismissAssessment(appId)
@@ -946,7 +1016,29 @@ onUnmounted(() => {
                     </a>
                   </span>
                 </div>
-                <h2 class="eval-role">{{ task.result_json?.position || 'Software Engineer' }}</h2>
+                <div class="eval-role-row">
+                  <div v-if="editingTaskId === task.id" class="eval-role-edit-box">
+                    <input
+                      type="text"
+                      class="role-edit-input"
+                      :data-task-id="task.id"
+                      v-model="editingRoleTitle"
+                      @keydown.enter.prevent="saveEditingRole(task)"
+                      @keydown.esc.prevent="cancelEditingRole"
+                      @blur="saveEditingRole(task)"
+                      placeholder="Enter job title..."
+                    />
+                  </div>
+                  <h2
+                    v-else
+                    class="eval-role clickable"
+                    @click="startEditingRole(task)"
+                    title="Click to edit job title"
+                  >
+                    <span>{{ task.result_json?.position || 'Software Engineer' }}</span>
+                    <Pencil :size="13" class="edit-role-icon" />
+                  </h2>
+                </div>
               </div>
             </div>
 
@@ -1349,7 +1441,29 @@ onUnmounted(() => {
                     </a>
                   </span>
                 </div>
-                <h2 class="eval-role">{{ task.result_json?.position || 'Software Engineer' }}</h2>
+                <div class="eval-role-row">
+                  <div v-if="editingTaskId === task.id" class="eval-role-edit-box">
+                    <input
+                      type="text"
+                      class="role-edit-input"
+                      :data-task-id="task.id"
+                      v-model="editingRoleTitle"
+                      @keydown.enter.prevent="saveEditingRole(task)"
+                      @keydown.esc.prevent="cancelEditingRole"
+                      @blur="saveEditingRole(task)"
+                      placeholder="Enter job title..."
+                    />
+                  </div>
+                  <h2
+                    v-else
+                    class="eval-role clickable"
+                    @click="startEditingRole(task)"
+                    title="Click to edit job title"
+                  >
+                    <span>{{ task.result_json?.position || 'Software Engineer' }}</span>
+                    <Pencil :size="13" class="edit-role-icon" />
+                  </h2>
+                </div>
               </div>
             </div>
 
@@ -1918,10 +2032,69 @@ onUnmounted(() => {
   text-decoration: none;
 }
 
+.eval-role-row {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+}
+
 .eval-role {
   font-size: 17px;
   font-weight: 700;
   color: var(--text-main);
+  margin: 0;
+}
+
+.eval-role.clickable {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius-xs);
+  padding: 2px 6px;
+  margin-left: -6px;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.eval-role.clickable:hover {
+  background-color: var(--bg-elevated);
+  color: var(--primary);
+}
+
+.edit-role-icon {
+  opacity: 0;
+  color: var(--text-muted);
+  transition: opacity var(--transition-fast), color var(--transition-fast);
+}
+
+.eval-role.clickable:hover .edit-role-icon {
+  opacity: 1;
+  color: var(--primary);
+}
+
+.eval-role-edit-box {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.role-edit-input {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-focus);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  outline: none;
+  min-width: 260px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition-fast);
+}
+
+.role-edit-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-subtle);
 }
 
 .scores-side-by-side {

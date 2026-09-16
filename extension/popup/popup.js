@@ -522,9 +522,15 @@ async function handleCaptureSubmit() {
       targetUrl: `${appUrl}/assessments`
     });
 
-    const titleHint = (company && position)
-      ? `${company} - ${position}`
-      : (extractedData?.title || 'Job Lead');
+    const cleanTitle = (position && position !== 'Unknown Position')
+      ? position
+      : (liveData?.title || extractedData?.title || '');
+    const cleanComp = (company && company !== 'Job Posting')
+      ? company
+      : (liveData?.company || extractedData?.company || '');
+    const titleHint = (cleanComp && cleanTitle)
+      ? `${cleanComp} - ${cleanTitle}`
+      : (cleanTitle || liveData?.page_title || extractedData?.page_title || 'Job Lead');
 
     chrome.runtime.sendMessage(
       {
@@ -532,7 +538,8 @@ async function handleCaptureSubmit() {
         payload: {
           text: rawText,
           url: jobUrl,
-          title_hint: titleHint.slice(0, 80)
+          title_hint: titleHint.slice(0, 100),
+          page_title: liveData?.page_title || extractedData?.page_title || document.title || ''
         }
       },
       (res) => {

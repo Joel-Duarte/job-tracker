@@ -120,6 +120,12 @@ class AssessJobRequest(BaseModel):
     raw_html: str | None = Field(
         default=None, description="Optional raw HTML DOM captured by browser extension"
     )
+    title_hint: str | None = Field(
+        default=None, description="Optional title or role hint"
+    )
+    page_title: str | None = Field(
+        default=None, description="Optional page document title"
+    )
 
 
 class ConfirmAssessmentRequest(BaseModel):
@@ -171,6 +177,9 @@ class EnqueueAssessmentRequest(BaseModel):
     text: str | None = Field(default=None, description="Pasted job description text")
     title_hint: str | None = Field(
         default=None, description="Optional title or company hint"
+    )
+    page_title: str | None = Field(
+        default=None, description="Optional browser tab / document title"
     )
 
 

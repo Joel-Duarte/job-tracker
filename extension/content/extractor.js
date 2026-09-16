@@ -469,6 +469,9 @@
 
     const work_model = detectWorkModel(`${location} ${description_text}`);
 
+    const pageTitle = (document.title || '').trim();
+    const ogTitle = (document.querySelector('meta[property="og:title"]')?.content || '').trim();
+
     return {
       url,
       title,
@@ -476,6 +479,8 @@
       location,
       salary,
       work_model,
+      page_title: pageTitle,
+      og_title: ogTitle,
       description_text: description_text.substring(0, 30000),
       raw_html_snippet: raw_html_snippet ? raw_html_snippet.substring(0, 15000) : '',
       site_type,

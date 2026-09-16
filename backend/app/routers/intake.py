@@ -115,7 +115,11 @@ async def intake_extension_url(
     """Receives URL directly from browser extension send-url button and triggers AI assessment with fallback to Staging."""
     clean_url = normalize_job_url(payload.url)
     try:
-        assess_req = AssessJobRequest(url=clean_url, text=payload.title)
+        assess_req = AssessJobRequest(
+            url=clean_url,
+            title_hint=payload.title,
+            page_title=payload.title,
+        )
         return await assess_job_lead(assess_req, db=db)
     except Exception as err:
         logger.warning(
@@ -443,7 +447,12 @@ async def assess_job_lead(
 
     spec_dict = None
     try:
-        extracted_spec_obj = await extract_job_spec(db, content)
+        extracted_spec_obj = await extract_job_spec(
+            db,
+            content,
+            title_hint=payload.title_hint,
+            page_title=payload.page_title,
+        )
         if extracted_spec_obj:
             spec_dict = (
                 extracted_spec_obj.model_dump()
@@ -1024,7 +1033,9 @@ async def enqueue_job_assessment(
 
     # Derive title hint from payload
     if payload.title_hint and payload.title_hint.strip():
-        title_hint = payload.title_hint.strip()[:80]
+        title_hint = payload.title_hint.strip()[:100]
+    elif payload.page_title and payload.page_title.strip():
+        title_hint = payload.page_title.strip()[:100]
     elif url_clean:
         try:
             parsed = urlparse(url_clean)
@@ -1044,12 +1055,17 @@ async def enqueue_job_assessment(
         first_line = text_clean.splitlines()[0] if text_clean else "Job Lead"
         title_hint = first_line[:60]
 
+    initial_result_json = {}
+    if payload.page_title and payload.page_title.strip():
+        initial_result_json["page_title"] = payload.page_title.strip()
+
     task_record = IntakeEvaluationTaskModel(
         job_url=url_clean,
         raw_text=text_clean,
         title_hint=title_hint,
         status="QUEUED",
         stage="FETCHING",
+        result_json=initial_result_json or None,
     )
     db.add(task_record)
     await db.commit()

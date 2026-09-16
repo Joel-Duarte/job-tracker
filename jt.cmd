@@ -188,13 +188,35 @@ exit /b 0
 :handle_update
 call :ensure_env
 shift
+set "PULL_IMAGES=false"
+set "PASSTHROUGH_ARGS="
+
+:update_parse_loop
+if "%~1"=="" goto update_parse_done
+if /i "%~1"=="--pull" (
+    set "PULL_IMAGES=true"
+) else if /i "%~1"=="--pull-images" (
+    set "PULL_IMAGES=true"
+) else if /i "%~1"=="-p" (
+    set "PULL_IMAGES=true"
+) else (
+    set "PASSTHROUGH_ARGS=!PASSTHROUGH_ARGS! %1"
+)
+shift
+goto update_parse_loop
+
+:update_parse_done
 echo [INFO] Updating Job Tracker...
 echo 1. Saving current database backup...
 call :handle_backup
-echo 2. Pulling latest base images...
-docker compose pull
+if /i "!PULL_IMAGES!"=="true" (
+    echo 2. Pulling latest base images (Postgres ^& Camofox)...
+    docker compose pull !PASSTHROUGH_ARGS!
+) else (
+    echo 2. Skipping base image pull (using cached images). Pass --pull to refresh Camofox/Postgres.
+)
 echo 3. Rebuilding and starting containers...
-docker compose up -d --build %1 %2 %3 %4 %5 %6 %7 %8 %9
+docker compose up -d --build !PASSTHROUGH_ARGS!
 echo 4. Applying database migrations (Alembic)...
 docker compose exec -T backend alembic upgrade head || docker compose exec -T backend python -m alembic upgrade head || echo [WARN] Migration step skipped or failed.
 echo.

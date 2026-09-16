@@ -283,7 +283,7 @@ DEFAULT_PROMPTS = {
         "--------------------------------------------------\n"
         "EXTRACTION RULES\n"
         "--------------------------------------------------\n"
-        "- position: Extract the exact position title (e.g. 'Staff Backend Engineer').\n"
+        "- position: Extract the exact, specific position title (e.g. 'Senior AI Engineer', 'Staff Distributed Systems Engineer'). If a Candidate Page Title or Title Hint is provided in the Context Anchors below, treat it as a strong authoritative anchor: verify whether it accurately reflects the vacancy and adopt or refine it, rather than substituting an unrelated generic title (e.g. 'Full Stack Software Engineer') found in body boilerplate.\n"
         "- company: Extract strictly the clean canonical hiring employer name (e.g. 'Stripe', 'Linear', 'Datadog'). Strip corporate suffixes ('Inc.', 'LLC', 'Ltd') and portal wrappers (' - Careers', 'Job Opening at...'). Never return ATS platforms (Greenhouse, Lever, Ashby, Workday) or job boards / aggregators (LinkedIn, Indeed, RemoteOK, WeWorkRemotely, YCombinator, Cord).\n"
         "- company_url: The official corporate website root domain of the employer (e.g. 'stripe.com', 'linear.app', 'anthropic.com', 'datadoghq.com'). You may draw on explicit text links or high-confidence knowledge of canonical tech employers. Strip protocols (https://), www, and subpaths. If unknown or an obscure entity without a clear canonical domain, set to null; never guess random domains.\n"
         "- detected_language: Primary natural/spoken language of the posting (e.g. 'English', 'German', 'French', 'Portuguese', 'Spanish').\n"
