@@ -38,7 +38,7 @@ _SORTED_TAXONOMY_KEYS = sorted(CANONICAL_SKILL_TAXONOMY.keys(), key=len, reverse
 _SKILL_PATTERNS: list[tuple[re.Pattern, str]] = []
 
 # Single-letter or common-verb programming language keys that must be matched case-sensitively
-_CASE_SENSITIVE_KEYS = {"c": "C", "r": "R", "go": "Go"}
+_CASE_SENSITIVE_KEYS = {"c": "C", "r": "R", "go": "Go", "rest": "REST"}
 
 for _key in _SORTED_TAXONOMY_KEYS:
     _prefix = r"(?<![a-zA-Z0-9])" if _key[0].isalnum() else r"(?<!\S)"
@@ -192,3 +192,39 @@ def hybrid_extract_skills(
     regex_skills = extract_skills_from_text(raw_text)
     combined = regex_skills + (llm_skills or [])
     return normalize_skills_list(combined)
+
+
+def is_known_taxonomy_skill(skill: str) -> bool:
+    """Returns True strictly if the skill maps to a recognized technical entry in CANONICAL_SKILL_TAXONOMY."""
+    if not skill or not isinstance(skill, str):
+        return False
+    raw_trimmed = skill.strip()
+    if not raw_trimmed:
+        return False
+
+    lookup_key = raw_trimmed.lower()
+    if lookup_key in CANONICAL_SKILL_TAXONOMY:
+        return True
+
+    # Parenthetical stripping
+    no_parens = re.sub(r"\(.*?\)", "", raw_trimmed).strip().lower()
+    if no_parens and no_parens in CANONICAL_SKILL_TAXONOMY:
+        return True
+
+    # Noise suffix stripping
+    words = (no_parens or raw_trimmed).split()
+    while len(words) > 1 and words[-1].lower() in NOISE_SUFFIXES:
+        words.pop()
+        stem_key = " ".join(words).strip().lower()
+        if stem_key in CANONICAL_SKILL_TAXONOMY:
+            return True
+
+    # RapidFuzz typo match with high confidence (>= 88.0)
+    if len(lookup_key) >= 3:
+        fuzz_match = process.extractOne(lookup_key, _TAXONOMY_KEYS, scorer=fuzz.WRatio)
+        if fuzz_match:
+            best_key, score, _ = fuzz_match
+            if score >= 88.0 and abs(len(lookup_key) - len(best_key)) <= 2:
+                return True
+
+    return False

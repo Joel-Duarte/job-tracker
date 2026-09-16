@@ -299,24 +299,21 @@ def calibrate_assessment_score_and_recommendation(
     total_required_skills: int | None = None,
 ) -> tuple[int, str]:
     """
-    Applies mathematical bounding and recommendation synchronization to eliminate
-    AI grade inflation while ensuring smooth, deterministic stability:
-    1. Confidence-weighted baseline:
-       - High keyword count (total_required_skills >= 4): Standard strict programmatic baseline window
-         [max(10, baseline - 15), min(100, baseline + 15)].
-       - Sparse keyword count (1 <= total_required_skills <= 3): Programmatic baseline is based on a very
-         small sample. Calculates a blended baseline: round(0.70 * raw_fit_score + 0.30 * baseline),
-         allowing qualified candidates who match stated narrative responsibilities to reach 85-90%.
-       - Zero keywords (total_required_skills is None or 0 or baseline is None): Scores are evaluated on
-         narrative responsibilities and bounded by Seniority Fit (up to 85-90% if MATCHES with <=1 risk).
-    2. Seniority bonus: Up to +25% boost ONLY if candidate verified seniority matches/exceeds
-       requirements (seniority_fit in ('MATCHES', 'OVERQUALIFIED')) and 0 critical risks.
-    3. Factual underqualification penalty: If seniority_fit is 'UNDERQUALIFIED',
-       the ceiling is strictly capped at min(65, baseline + 5) and score capped at 65.
-    4. Proportional risk handling:
-       - If programmatic_baseline < 75 and critical_risks >= 2: ceiling is clamped to min(65, baseline + 5).
-       - If programmatic_baseline >= 75: candidate has strong verified overlap, so multiple minor risks
-         dampen the ceiling smoothly (deducting 3 points per risk) rather than triggering a cliff-edge drop to 65.
+    Applies safety bounding and recommendation synchronization to preserve AI-first
+    semantic scoring while enforcing hard ceilings strictly for verified deal-breakers:
+    1. AI-First Semantic Scoring:
+       - The LLM's raw fit score serves as the primary measure of candidate fit.
+       - The programmatic baseline is preserved as an informational reference, rather
+         than mechanically clamping the score to a narrow [baseline - 15, baseline + 15] window
+         which breaks down when extracted skill counts explode with descriptive terminology.
+    2. Factual Underqualification Penalty:
+       - If seniority_fit is 'UNDERQUALIFIED' (verified deficit >= 2 years), score is strictly capped at 65%.
+    3. Critical Risks & Deal-Breakers:
+       - If there are >= 2 critical risks (e.g. missing mandatory language, core stack absence),
+         ceiling is capped at min(65, raw_fit_score).
+       - If there is 1 critical risk, score is capped at 85% (preventing unhedged APPLY_STRONGLY).
+    4. Bounding:
+       - Ensures the score is within [10, 100].
     5. Synchronizes recommendation:
        - APPLY_STRONGLY: fit_score >= 85 and len(critical_risks) <= 1 and not is_underqualified
        - APPLY_MODERATELY: fit_score >= 70 and not is_underqualified and not has_hard_ceiling
@@ -325,8 +322,6 @@ def calibrate_assessment_score_and_recommendation(
     """
     seniority_upper = (seniority_fit or "").strip().upper()
     is_underqualified = seniority_upper == "UNDERQUALIFIED"
-    has_explicit_seniority = bool(seniority_upper)
-    is_strong_seniority = seniority_upper in ("MATCHES", "OVERQUALIFIED")
     sanitized_risks = _sanitize_critical_risks(critical_risks)
     num_risks = len(sanitized_risks)
 
@@ -335,55 +330,20 @@ def calibrate_assessment_score_and_recommendation(
         num_risks >= 2 and (programmatic_baseline is None or programmatic_baseline < 75)
     )
 
-    # 1. Determine effective baseline and sample confidence
-    is_sparse_sample = (
-        total_required_skills is not None
-        and 1 <= total_required_skills <= 3
-        and programmatic_baseline is not None
-    )
+    # Start with the model's holistic semantic fit evaluation
+    clamped_score = max(10, min(100, int(raw_fit_score)))
 
-    if is_sparse_sample:
-        # Low keyword count: blend AI's semantic evaluation (70%) with sparse keyword match (30%)
-        effective_baseline = int(
-            round((0.70 * raw_fit_score) + (0.30 * programmatic_baseline))
-        )
-    else:
-        effective_baseline = programmatic_baseline
-
-    # 2. Mathematical clamp
-    if effective_baseline is not None:
-        min_bound = max(10, effective_baseline - 15)
-        if has_hard_ceiling:
-            max_bound = min(65, effective_baseline + 5)
-        elif (is_strong_seniority or not has_explicit_seniority) and num_risks == 0:
-            max_bound = min(100, effective_baseline + 25)
-        elif num_risks >= 2:
-            # High baseline with multiple risks: dampen ceiling smoothly so it never drops below min_bound or 65
-            max_bound = max(65, min(100, effective_baseline + 15 - (num_risks * 3)))
-        else:
-            max_bound = min(100, effective_baseline + 15)
-
-        if has_hard_ceiling:
-            clamped_score = min(max_bound, raw_fit_score)
-        else:
-            clamped_score = max(min_bound, min(max_bound, raw_fit_score))
-    else:
-        # Zero keywords extracted: bound by explicit seniority and risks, allowing strong candidates to reach 85-90%
-        if has_hard_ceiling:
-            max_bound = 65
-        elif is_strong_seniority and num_risks == 0:
-            max_bound = 90
-        elif is_strong_seniority and num_risks <= 1:
-            max_bound = 85
-        else:
-            max_bound = 75
-        clamped_score = min(max_bound, max(10, raw_fit_score))
-
-    # 3. Hard ceiling clamp strictly for verified disqualification
+    # Apply safety ceilings strictly for verified disqualifiers
     if has_hard_ceiling:
         clamped_score = min(65, clamped_score)
+    elif num_risks >= 2:
+        # Candidate has multiple minor risks: dampen ceiling smoothly (3 pts per risk)
+        max_bound = max(65, min(100, 100 - (num_risks * 3)))
+        clamped_score = min(max_bound, clamped_score)
+    elif num_risks == 1:
+        clamped_score = min(85, clamped_score)
 
-    # 4. Synchronize recommendation tier
+    # Synchronize recommendation tier
     if clamped_score >= 85 and num_risks <= 1 and not is_underqualified:
         rec = "APPLY_STRONGLY"
     elif clamped_score >= 70 and not is_underqualified and not has_hard_ceiling:

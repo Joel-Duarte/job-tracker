@@ -4,6 +4,7 @@ from rapidfuzz import fuzz
 
 from app.services.skill_normalizer import (
     extract_skills_from_text,
+    is_known_taxonomy_skill,
     normalize_skill,
     normalize_skills_list,
 )
@@ -129,7 +130,53 @@ SKILL_EQUIVALENCE_CLUSTERS: list[set[str]] = [
         "continuous deployment",
         "continuous delivery",
     },
+    # Containers & Orchestration Subsumption
+    {
+        "containers",
+        "container",
+        "containerization",
+        "docker",
+        "kubernetes",
+        "k8s",
+        "podman",
+    },
+    # Databases & Storage Subsumption
+    {
+        "databases",
+        "database",
+        "relational databases",
+        "sql",
+        "nosql",
+        "postgresql",
+        "postgres",
+        "mysql",
+        "mongodb",
+        "redis",
+        "dynamodb",
+    },
+    # Concurrency & Distributed Processing Subsumption
+    {
+        "concurrency",
+        "distributed systems",
+        "multithreading",
+        "asynchronous",
+        "asynchronous processing",
+    },
 ]
+
+_ALL_EQUIVALENCE_TERMS = {
+    term.lower() for cluster in SKILL_EQUIVALENCE_CLUSTERS for term in cluster
+}
+
+
+def is_recognized_technical_skill(skill: str) -> bool:
+    """Checks if a skill is in the curated technical taxonomy or equivalence clusters."""
+    if not skill or not isinstance(skill, str):
+        return False
+    clean = skill.strip().lower()
+    if clean in _ALL_EQUIVALENCE_TERMS:
+        return True
+    return is_known_taxonomy_skill(skill)
 
 
 # Unrelated technical skills that must NEVER match via substring containment or token overlap
@@ -272,17 +319,28 @@ def compute_programmatic_skill_match(
         s: _normalize_token(s) for s in cand_skills if s and s.strip()
     }
 
-    # 1. Determine target JD skills list (combining explicit JD skills and taxonomy extraction)
+    # 1. Determine target JD skills list strictly from the curated technical taxonomy:
+    # Always scan the JD text using the deterministic taxonomy regex scanner.
+    # If explicit jd_required_skills are passed (e.g. from ATS/LLM), only retain skills
+    # that map to recognized entries in CANONICAL_SKILL_TAXONOMY or SKILL_EQUIVALENCE_CLUSTERS,
+    # strictly preventing arbitrary nouns, operational duties, and hallucinated concepts from polluting the matrix.
     raw_jd_skills: list[str] = []
-    if jd_required_skills:
-        raw_jd_skills.extend(jd_required_skills)
 
+    # Deterministic regex taxonomy scan of the actual job description text
     if jd_text:
-        # Deterministic regex taxonomy scan to supplement or identify skills
         raw_jd_skills.extend(extract_skills_from_text(jd_text))
 
-    # Normalize, split compounds, and deduplicate JD skills
-    target_jd_skills = normalize_skills_list(raw_jd_skills)
+    # Incorporate explicit JD skills only if they match known technical taxonomy/clusters
+    if jd_required_skills:
+        for s in jd_required_skills:
+            if is_recognized_technical_skill(s):
+                raw_jd_skills.append(s)
+
+    # Normalize, split compounds, and deduplicate JD skills, filtering strictly to recognized technical skills
+    normalized_skills = normalize_skills_list(raw_jd_skills)
+    target_jd_skills = [
+        s for s in normalized_skills if is_recognized_technical_skill(s)
+    ]
 
     # 2. Fallback: Only if NO skills were identified in the JD text via taxonomy,
     # scan if any candidate skills appear as distinct whole words in the JD

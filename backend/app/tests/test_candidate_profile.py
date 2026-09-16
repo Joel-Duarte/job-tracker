@@ -501,12 +501,12 @@ async def test_assess_job_posting_forwards_authoritative_candidate_profile(
 def test_calibrate_assessment_score_and_recommendation_bounds():
     from app.services.llm import calibrate_assessment_score_and_recommendation
 
-    # 1. Baseline 40%, raw AI 95% -> Clamped to max 40 + 25 = 65% (STRETCH_ROLE)
+    # 1. AI-First semantic fit: Baseline 40%, raw AI 95%, 0 risks -> Respects AI score 95% (APPLY_STRONGLY)
     score, rec = calibrate_assessment_score_and_recommendation(
         raw_fit_score=95, programmatic_baseline=40, critical_risks=[]
     )
-    assert score == 65
-    assert rec == "STRETCH_ROLE"
+    assert score == 95
+    assert rec == "APPLY_STRONGLY"
 
     # 2. Baseline 80%, raw AI 95%, 0 risks -> 95% (APPLY_STRONGLY)
     score, rec = calibrate_assessment_score_and_recommendation(
@@ -515,28 +515,28 @@ def test_calibrate_assessment_score_and_recommendation_bounds():
     assert score == 95
     assert rec == "APPLY_STRONGLY"
 
-    # 3. Baseline 80%, raw AI 95%, 2 critical risks -> Dampened to 89% (baseline+15 - 6pts), downgraded from STRONGLY to APPLY_MODERATELY
+    # 3. Baseline 80%, raw AI 95%, 2 critical risks -> Dampened to 94% (deducting 3pts per risk), downgraded to APPLY_MODERATELY
     score, rec = calibrate_assessment_score_and_recommendation(
         raw_fit_score=95,
         programmatic_baseline=80,
         critical_risks=["Missing Kubernetes in production", "Seniority gap"],
     )
-    assert score == 89
+    assert score == 94
     assert rec == "APPLY_MODERATELY"
 
-    # 4. Baseline 80%, raw AI 30% -> Clamped to min 80 - 15 = 65% (STRETCH_ROLE)
+    # 4. Low AI score: Baseline 80%, raw AI 30% -> Respects AI score 30% (DO_NOT_APPLY, no artificial inflation)
     score, rec = calibrate_assessment_score_and_recommendation(
         raw_fit_score=30, programmatic_baseline=80, critical_risks=[]
     )
-    assert score == 65
-    assert rec == "STRETCH_ROLE"
+    assert score == 30
+    assert rec == "DO_NOT_APPLY"
 
-    # 5. Baseline None (0 JD skills), raw AI 90%, no seniority specified -> Capped at 75%
+    # 5. Baseline None (0 JD skills), raw AI 90%, no seniority specified -> 90%
     score, rec = calibrate_assessment_score_and_recommendation(
         raw_fit_score=90, programmatic_baseline=None, critical_risks=[]
     )
-    assert score == 75
-    assert rec == "APPLY_MODERATELY"
+    assert score == 90
+    assert rec == "APPLY_STRONGLY"
 
     # 5b. Baseline None (0 JD skills), raw AI 90%, seniority MATCHES -> Bounded up to 90%
     score_strong, rec_strong = calibrate_assessment_score_and_recommendation(

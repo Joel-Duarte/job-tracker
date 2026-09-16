@@ -291,8 +291,16 @@ DEFAULT_PROMPTS = {
         "- why_hiring: Explicit company expansion, scaling, or team creation reasons. MUST be null unless explicitly stated under a clear heading or sentence in the JD. Strictly forbid inferring, guessing, or summarizing reasons from general 'About Us' company marketing or growth boilerplate.\n"
         "- what_you_will_build: Concrete deliverables, systems, or product architecture explicitly described. MUST be null if not explicitly mentioned in the text. Strictly forbid summarizing generic day-to-day duties as systems to build.\n"
         "- responsibilities: Clean, itemized action items (e.g. 'Design distributed data pipelines'). Strip company-specific introductory phrases ('In this role, you will...').\n"
-        "- requirements: Clean, itemized hard prerequisites, years of experience, and qualifications.\n"
-        "- extracted_skills: Array of atomic technical skills, libraries, frameworks, tools, and competencies (e.g. 'CI/CD', 'AWS', 'Docker', 'PostgreSQL' rather than compound phrases). Exclude soft skills, buzzwords ('problem solver', 'team player'), parenthetical descriptions, and seniority prefixes.\n"
+        "- extracted_skills: Array of atomic technical tools, programming languages, databases, cloud platforms, and engineering frameworks (e.g. 'CI/CD', 'AWS', 'Docker', 'PostgreSQL', 'Python', 'React').\n"
+        "  * STRICT EXCLUSIONS: Strictly forbid job roles/titles (e.g. 'Developer', 'Engineer'), operational duties, design qualities, and system tasks (e.g. 'Safe Deployments', 'Quotas', 'Access Revocation', 'Incident Investigation', 'Job Submission', 'Deterministic Systems', 'Probabilistic Thinking', 'Detection', 'Monitoring').\n"
+        "  * Contrastive Example 1:\n"
+        "    - Excerpt: 'Looking for a Senior Developer to manage access revocation, quotas, and safe deployments in our Kubernetes and PostgreSQL stack on AWS.'\n"
+        "    - extracted_skills: ['Kubernetes', 'PostgreSQL', 'AWS']\n"
+        "    - (Omitted: 'Senior Developer', 'Access Revocation', 'Quotas', 'Safe Deployments' because they are roles, system tasks, or operational duties).\n"
+        "  * Contrastive Example 2:\n"
+        "    - Excerpt: 'Build high-throughput inference engines with deterministic systems and probabilistic models using PyTorch, Rust, and Docker.'\n"
+        "    - extracted_skills: ['PyTorch', 'Rust', 'Docker']\n"
+        "    - (Omitted: 'Inference Engines', 'Deterministic Systems', 'Probabilistic Models' because they are architecture concepts and responsibilities).\n"
         "- compensation_text: Formatted salary or rate range string (e.g. '€66,500 – €88,000 per year', '$195,000 - $245,000 USD', or '$80/hr'). Null if not stated.\n"
         "- salary_min: Minimum parsed numerical compensation number (e.g. 66500.0, 150000.0, 80.0). Null if not stated.\n"
         "- salary_max: Maximum parsed numerical compensation number (e.g. 88000.0, 200000.0, 100.0). Null if not stated.\n"
@@ -372,7 +380,7 @@ DEFAULT_PROMPTS = {
         "   - 50–74% (Stretch / Partial Fit): Missing 1 core stack requirement OR verified seniority is >= 2 years below requirement.\n"
         "   - < 50% (Underqualified / Poor Fit): Missing fundamental primary stack or severe domain mismatch.\n"
         "   - Low-Keyword Postings: When a job description lists few or no explicit tooling keywords (< 4), evaluate fit primarily on architectural alignment with stated responsibilities, domain experience, and seniority match. Do not penalize the candidate for missing unstated tools.\n"
-        "   Anchor the score around the programmatic match baseline provided in the target job workload section below. Never award 85%+ if primary prerequisites are missing.\n"
+        "   - Scoring Guidance: Use the programmatic match baseline as informative reference. If the candidate clearly demonstrates deep competency, system design expertise, or equivalent tech stack in <untrusted_candidate_cv> that satisfies the role's responsibilities, award an honest qualitative fit score reflecting their true capabilities. Never award 85%+ if fundamental primary tech stack prerequisites or mandatory languages are completely missing.\n"
         "6. Spoken Language Audit (language_match): Verify required spoken languages against candidate languages. If any mandatory language is missing, set is_matched=False, populate missing_mandatory, and explain the mismatch. If all spoken languages match or the JD does not require specific languages, do NOT add any language entries to critical_risks.\n"
         "7. FACTUAL STRATEGIC PROS (pros): Every item MUST cite an explicit, documented technical skill, verified accomplishment, or domain experience present in <untrusted_candidate_cv> that directly satisfies a requirement in <untrusted_job_description>. STRICTLY FORBID generic workplace praise, speculative culture claims, or ungrounded compliments (e.g. NEVER output 'Collaborative environment', 'High growth potential', 'Strong leadership opportunities', or 'Exciting modern tech stack'). If there are no clear technical advantages, return direct factual skill alignments.\n"
         "8. FACTUAL GAP CAVEATS (cons): Every item MUST cite an explicit requirement, tool, or qualification from <untrusted_job_description> that is demonstrably absent from <untrusted_candidate_cv>. STRICTLY FORBID speculative workplace warnings, assumptions about work-life balance, or soft-skill guesses (e.g. NEVER output 'Fast-paced environment', 'Potential high pressure', or 'Ambiguous role scope').\n"
@@ -395,7 +403,7 @@ DEFAULT_PROMPTS = {
         "Programmatic Match Baseline: {programmatic_baseline}%\n"
         "- Verified Matching Skills: {candidate_matching_skills}\n"
         "- Verified Missing Skills: {candidate_missing_skills}\n\n"
-        "Ground Truth Rule: Treat the verified matching skills and missing skills above as immutable baseline truth when generating the match summary, tailoring strategy, and audit report.\n\n"
+        "Ground Truth Rule: Use the verified matching skills and missing skills above as high-signal reference when generating the match summary, tailoring strategy, and audit report, while prioritizing holistic CV experience over mechanical keyword gaps.\n\n"
         "[TARGET JOB DESCRIPTION]:\n<untrusted_job_description>\n{job_description}\n</untrusted_job_description>\n"
     ),
     "cv_anonymization": (
@@ -922,6 +930,7 @@ async def get_prompt_template(
         elif prompt_name == "jd_extraction" and (
             "MUST be null unless explicitly stated under a clear heading"
             not in template
+            or "STRICT EXCLUSIONS: Strictly forbid" not in template
         ):
             res_template = DEFAULT_PROMPTS["jd_extraction"]
         elif prompt_name == "email_extraction" and (
@@ -967,6 +976,8 @@ async def get_prompt_template(
             or "Return critical risks ONLY for true deal-breakers" not in template
             or "Low-Keyword Postings" not in template
             or "STRICT BAN ON PSEUDO-RISKS" not in template
+            or "Scoring Guidance: Use the programmatic match baseline as informative reference"
+            not in template
         ):
             res_template = DEFAULT_PROMPTS["assessment"]
         elif prompt_name == "company_research" and (

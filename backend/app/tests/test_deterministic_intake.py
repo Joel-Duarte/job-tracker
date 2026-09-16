@@ -152,41 +152,40 @@ def test_compute_programmatic_skill_match_no_false_positive_substrings():
 
 
 def test_calibration_window_gap():
-    """Verify asymmetric condition-driven calibration window."""
+    """Verify AI-first condition-driven calibration and deal-breaker safety ceilings."""
     from app.services.llm import calibrate_assessment_score_and_recommendation
 
-    # 1. Base window (+/- 15%) when baseline is 60 and no special conditions
-    # raw score 90 clamped to 60 + 15 = 75 with 1 risk
+    # 1. 1 minor caveat / risk caps score at 85% (APPLY_STRONGLY)
     score, rec = calibrate_assessment_score_and_recommendation(
         raw_fit_score=90,
         programmatic_baseline=60,
         critical_risks=["Minor caveat"],
         seniority_fit="MATCHES",
     )
-    assert score == 75
-    assert rec == "APPLY_MODERATELY"
+    assert score == 85
+    assert rec == "APPLY_STRONGLY"
 
-    # raw score 30 clamped to 60 - 15 = 45
+    # raw score 30 respects low AI score (no artificial inflation)
     score_low, rec_low = calibrate_assessment_score_and_recommendation(
         raw_fit_score=30,
         programmatic_baseline=60,
         critical_risks=[],
         seniority_fit=None,
     )
-    assert score_low == 45
+    assert score_low == 30
     assert rec_low == "DO_NOT_APPLY"
 
-    # 2. Seniority boost (+25%) when verified seniority matches/exceeds and 0 critical risks
+    # 2. Strong candidate (0 risks, matches seniority) reaches full AI evaluated score 95%
     score_boost, rec_boost = calibrate_assessment_score_and_recommendation(
         raw_fit_score=95,
         programmatic_baseline=60,
         critical_risks=[],
         seniority_fit="MATCHES",
     )
-    assert score_boost == 85  # 60 + 25
+    assert score_boost == 95
     assert rec_boost == "APPLY_STRONGLY"
 
-    # 3. Underqualified penalty clamp: ceiling clamped to min(65, baseline + 5)
+    # 3. Underqualified penalty clamp: ceiling strictly clamped to 65% (STRETCH_ROLE)
     score_under, rec_under = calibrate_assessment_score_and_recommendation(
         raw_fit_score=90,
         programmatic_baseline=70,
@@ -196,12 +195,130 @@ def test_calibration_window_gap():
     assert score_under == 65
     assert rec_under == "STRETCH_ROLE"
 
-    # 4. Critical risks >= 2 penalty clamp
+    # 4. Critical risks >= 2 without strong baseline (<75%) strictly clamped to 65%
     score_risks, rec_risks = calibrate_assessment_score_and_recommendation(
         raw_fit_score=90,
         programmatic_baseline=50,
         critical_risks=["Risk 1", "Risk 2"],
         seniority_fit="MATCHES",
     )
-    assert score_risks == 55  # 50 + 5
+    assert score_risks == 65
     assert rec_risks == "STRETCH_ROLE"
+
+
+def test_regex_false_positives_eliminated():
+    """Verify common English phrases do not trigger false positive skills (Less, Next.js, REST)."""
+    from app.services.skill_normalizer import extract_skills_from_text
+
+    noisy_jd_text = (
+        "Join our team to build our next generation platform with less overhead and downtime. "
+        "The rest of the company relies on this infrastructure."
+    )
+    extracted = extract_skills_from_text(noisy_jd_text)
+    assert "Less" not in extracted
+    assert "Next.js" not in extracted
+    assert "REST API" not in extracted
+
+    # Legitimate mentions of Next.js and REST APIs must still be extracted
+    legit_jd_text = (
+        "We require experience with Next.js, React, and REST APIs, along with Python."
+    )
+    legit_extracted = extract_skills_from_text(legit_jd_text)
+    assert "Next.js" in legit_extracted
+    assert "REST API" in legit_extracted
+    assert "Python" in legit_extracted
+    assert "React" in legit_extracted
+
+
+def test_concept_subsumption_and_conditional_fallback():
+    """Verify concept subsumption (Containers, Databases, Concurrency) and regex fallback."""
+    from app.services.matcher import compute_programmatic_skill_match
+
+    # Subsumption: Docker satisfies Containers, PostgreSQL satisfies Databases, Distributed Systems satisfies Concurrency
+    candidate_skills = ["Python", "Docker", "PostgreSQL", "Distributed Systems"]
+    jd_skills = ["Containers", "Databases", "Concurrency", "Python"]
+
+    res = compute_programmatic_skill_match(
+        candidate_skills=candidate_skills,
+        jd_text="Some random text with less downtime",
+        jd_required_skills=jd_skills,
+    )
+    # All 4 skills should match due to subsumption clusters
+    assert len(res["missing_skills"]) == 0
+    assert len(res["matching_skills"]) == 4
+    assert res["programmatic_score"] == 100
+
+    # Fallback verification: When jd_required_skills is empty, fallback to text regex scanning
+    res_fallback = compute_programmatic_skill_match(
+        candidate_skills=["Python"],
+        jd_text="Senior engineer with deep Python expertise.",
+        jd_required_skills=None,
+    )
+    assert "Python" in res_fallback["matching_skills"]
+
+
+def test_ai_first_scoring_with_noisy_denominators():
+    """Verify that a noisy 17% baseline from 59 extra non-skills does not crush an 88% AI fit score."""
+    from app.services.llm import calibrate_assessment_score_and_recommendation
+
+    score, rec = calibrate_assessment_score_and_recommendation(
+        raw_fit_score=88,
+        programmatic_baseline=17,
+        critical_risks=[],
+        seniority_fit="MATCHES",
+        total_required_skills=71,
+    )
+    # Under AI-First semantic scoring, score is preserved at 88% rather than clamped to 32%
+    assert score == 88
+    assert rec == "APPLY_STRONGLY"
+
+
+def test_filter_non_technical_open_ended_skills_from_matrix():
+    """Verify that open-ended LLM concepts (Safe Deployments, Quotas, Access Revocation) are rejected from the skills matrix."""
+    from app.services.matcher import compute_programmatic_skill_match
+
+    candidate_skills = ["Python", "Rust", "C", "TypeScript", "Linux", "Docker"]
+    # 5 real skills + 10 open-ended duties/nouns from an unconstrained LLM
+    noisy_llm_jd_skills = [
+        "Python",
+        "Rust",
+        "PyTorch",
+        "React",
+        "Tauri",
+        "Safe Deployments",
+        "Access Revocation",
+        "Quotas",
+        "Incident Investigation",
+        "Driver Compatibility",
+        "Result Retrieval",
+        "Workload Isolation",
+        "Desktop Packaging",
+        "Developer",
+        "Deterministic Systems",
+    ]
+
+    res = compute_programmatic_skill_match(
+        candidate_skills=candidate_skills,
+        jd_text="Engineering role requirements...",
+        jd_required_skills=noisy_llm_jd_skills,
+    )
+
+    # Only the 5 recognized tools (Python, Rust, PyTorch, React, Tauri) should be in target skills
+    assert res["total_required_count"] == 5
+    assert set(res["matching_skills"]) == {"Python", "Rust"}
+    assert set(res["missing_skills"]) == {"PyTorch", "React", "Tauri"}
+    # Non-skills must be completely excluded
+    for non_skill in [
+        "Safe Deployments",
+        "Access Revocation",
+        "Quotas",
+        "Incident Investigation",
+        "Driver Compatibility",
+        "Result Retrieval",
+        "Workload Isolation",
+        "Desktop Packaging",
+        "Developer",
+        "Deterministic Systems",
+    ]:
+        assert non_skill not in res["missing_skills"]
+        assert non_skill not in res["matching_skills"]
