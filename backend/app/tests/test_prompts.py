@@ -13,7 +13,7 @@ from app.core.prompts import (
 def test_all_default_prompts_compile_and_have_valid_syntax():
     """Verify every prompt in DEFAULT_PROMPTS compiles cleanly with LangChain without unescaped brace errors."""
     assert "extraction" not in DEFAULT_PROMPTS
-    assert len(DEFAULT_PROMPTS) == 15
+    assert len(DEFAULT_PROMPTS) == 16
 
     for _prompt_name, template_str in DEFAULT_PROMPTS.items():
         assert isinstance(template_str, str)

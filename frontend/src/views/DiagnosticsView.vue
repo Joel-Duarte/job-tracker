@@ -1,31 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { DiagnosticsAPI } from '../api/endpoints'
-import {
-  Activity,
-  AlertCircle,
-  CheckCircle,
-  TerminalSquare,
-  ChevronRight,
-  X,
-  Sparkles,
-  Globe,
-  Mail,
-  Cpu,
-  Database,
-  Trash2,
-  Clock,
-  Code,
-  Layers,
-  Copy,
-  Check,
-  DollarSign,
-  Zap,
-  TrendingUp,
-  ChevronDown,
-  ChevronUp,
-  BarChart3,
-} from 'lucide-vue-next'
+import { Activity, Clock, Cpu, Database, Server, Zap, DollarSign, ShieldCheck, AlertTriangle, RefreshCw } from 'lucide-vue-next'
 
 function formatTokens(val) {
   if (!val) return '0'
@@ -1323,3 +1299,21 @@ input:checked + .slider:before {
   }
 }
 </style>
+
+.claims-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.claim-pill {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

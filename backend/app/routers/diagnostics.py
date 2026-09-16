@@ -276,3 +276,50 @@ async def purge_traces(db: AsyncSession = Depends(get_db)):
     await db.execute(delete(TraceEventModel))
     await db.commit()
     return {"message": "All diagnostic traces purged successfully."}
+
+
+@router.get("/quality")
+async def get_quality_stats(db: AsyncSession = Depends(get_db)):
+    stmt = (
+        select(TraceEventModel)
+        .where(TraceEventModel.event_type == "llm_judge_audit")
+        .order_by(TraceEventModel.timestamp.desc())
+    )
+    res = await db.execute(stmt)
+    events = res.scalars().all()
+
+    total_audits = len(events)
+    passed_audits = sum(1 for e in events if e.payload and e.payload.get("passed"))
+    flagged_audits = total_audits - passed_audits
+    grounding_rate_pct = (
+        round((passed_audits / total_audits * 100), 1) if total_audits > 0 else 100.0
+    )
+
+    total_hallucinations_detected = sum(
+        len(e.payload.get("unverified_claims", [])) for e in events if e.payload
+    )
+    # Estimate auto-rewrites if event says it was flagged but there's a subsequent one for same task
+    auto_rewrites_triggered = 0
+
+    recent_audits = []
+    for e in events[:50]:
+        recent_audits.append(
+            {
+                "run_id": e.run_id,
+                "task_type": e.payload.get("task_type", "UNKNOWN"),
+                "passed": e.payload.get("passed", False),
+                "unverified_claims": e.payload.get("unverified_claims", []),
+                "critique": e.payload.get("critique", ""),
+                "timestamp": e.timestamp.isoformat() if e.timestamp else None,
+            }
+        )
+
+    return {
+        "total_audits": total_audits,
+        "passed_audits": passed_audits,
+        "flagged_audits": flagged_audits,
+        "grounding_rate_pct": grounding_rate_pct,
+        "total_hallucinations_detected": total_hallucinations_detected,
+        "auto_rewrites_triggered": auto_rewrites_triggered,
+        "recent_audits": recent_audits,
+    }

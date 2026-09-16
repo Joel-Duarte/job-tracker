@@ -13,6 +13,12 @@ class SystemSettingsRead(BaseModel):
     agent_chat_retention_days: int = 7
     search_provider: str = "automatic"
     searxng_url: str | None = None
+    enable_llm_judge: bool = False
+    llm_judge_audit_cover_letter: bool = True
+    llm_judge_audit_application_qa: bool = True
+    llm_judge_audit_interview_guide: bool = False
+    llm_judge_action: str = "auto_rewrite"
+    llm_judge_max_retries: int = 1
 
 
 class SystemSettingsUpdate(BaseModel):
@@ -27,6 +33,12 @@ class SystemSettingsUpdate(BaseModel):
     agent_chat_retention_days: int | None = None
     search_provider: str | None = None
     searxng_url: str | None = None
+    enable_llm_judge: bool | None = None
+    llm_judge_audit_cover_letter: bool | None = None
+    llm_judge_audit_application_qa: bool | None = None
+    llm_judge_audit_interview_guide: bool | None = None
+    llm_judge_action: str | None = None
+    llm_judge_max_retries: int | None = None
 
 
 class GlobalSettingsUpdate(BaseModel):
@@ -41,6 +53,12 @@ class GlobalSettingsUpdate(BaseModel):
     HAS_COMPLETED_ONBOARDING: bool | None = None
     SEARCH_PROVIDER: str | None = None
     SEARXNG_URL: str | None = None
+    ENABLE_LLM_JUDGE: bool | None = None
+    LLM_JUDGE_AUDIT_COVER_LETTER: bool | None = None
+    LLM_JUDGE_AUDIT_APPLICATION_QA: bool | None = None
+    LLM_JUDGE_AUDIT_INTERVIEW_GUIDE: bool | None = None
+    LLM_JUDGE_ACTION: str | None = None
+    LLM_JUDGE_MAX_RETRIES: int | None = None
 
 
 class GlobalSettingsRead(BaseModel):
@@ -55,6 +73,12 @@ class GlobalSettingsRead(BaseModel):
     HAS_COMPLETED_ONBOARDING: bool = False
     SEARCH_PROVIDER: str = "automatic"
     SEARXNG_URL: str | None = None
+    ENABLE_LLM_JUDGE: bool = False
+    LLM_JUDGE_AUDIT_COVER_LETTER: bool = True
+    LLM_JUDGE_AUDIT_APPLICATION_QA: bool = True
+    LLM_JUDGE_AUDIT_INTERVIEW_GUIDE: bool = False
+    LLM_JUDGE_ACTION: str = "auto_rewrite"
+    LLM_JUDGE_MAX_RETRIES: int = 1
 
 
 class TestSearchProviderRequest(BaseModel):

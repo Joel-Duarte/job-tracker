@@ -21,6 +21,7 @@ from app.models.ai_providers import AIProviderModel, AITaskBindingModel
 from app.models.applications import ApplicationModel
 from app.models.candidate_profile import CandidateCVModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
+from app.models.system_settings import SystemSettingsModel
 from app.schemas.llm import ExtractedJobSpec, JobAssessmentResult
 from app.services.company_research import research_company_context
 from app.services.job_saver import persist_or_stage_job_assessment
@@ -31,6 +32,7 @@ from app.services.llm import (
     generate_application_answers,
     generate_cover_letter,
 )
+from app.services.llm_judge import audit_generation_grounding
 from app.services.matcher import compute_programmatic_skill_match
 from app.services.scraper import scrape_job_url, validate_job_content
 from app.services.skill_normalizer import hybrid_extract_skills
@@ -144,6 +146,66 @@ async def _execute_application_qa_steps(
             company_research=company_research,
         )
 
+        sys_res = await db.execute(
+            select(SystemSettingsModel).where(SystemSettingsModel.id == 1)
+        )
+        settings = sys_res.scalar_one_or_none()
+        audit_summary = None
+
+        if (
+            settings
+            and settings.enable_llm_judge
+            and settings.llm_judge_audit_application_qa
+        ):
+            retries = 0
+            while True:
+                joined_text = "\n".join(
+                    [
+                        f"Q: {q.get('question', '')}\nA: {q.get('answer', '')}"
+                        for q in generated_qa
+                    ]
+                )
+                audit = await audit_generation_grounding(
+                    db,
+                    candidate_cv=cv_text,
+                    generated_text=joined_text,
+                    context_label=f"Application QA for {company_name}",
+                    task_type="APPLICATION_QA",
+                )
+                audit_summary = audit.model_dump()
+
+                if (
+                    audit.passed
+                    or settings.llm_judge_action != "auto_rewrite"
+                    or retries >= settings.llm_judge_max_retries
+                ):
+                    break
+
+                retries += 1
+                feedback = (
+                    f"PREVIOUS ATTEMPT FAILED GROUNDING AUDIT.\n"
+                    f"Critique: {audit.critique}\n"
+                    f"Unverified Claims to Fix/Remove: {', '.join(audit.unverified_claims)}\n"
+                    f"Please rewrite the answers ensuring strict factual grounding against the CV."
+                )
+                new_instructions = (
+                    (instructions_val + "\n\n" + feedback)
+                    if instructions_val
+                    else feedback
+                )
+
+                generated_qa = await generate_application_answers(
+                    db,
+                    company_name=company_name,
+                    position=position_name,
+                    job_description=job_desc,
+                    candidate_cv=cv_text,
+                    questions=questions_payload,
+                    tone=tone_val,
+                    custom_instructions=new_instructions,
+                    company_research=company_research,
+                )
+
         app.application_questions = generated_qa
 
         task.status = "COMPLETED"
@@ -156,6 +218,7 @@ async def _execute_application_qa_steps(
             "include_company_research": include_research,
             "company_research": company_research,
             "questions": generated_qa,
+            "audit_summary": audit_summary,
         }
         task.completed_at = datetime.now(UTC)
         await db.commit()
@@ -288,6 +351,60 @@ async def _execute_cover_letter_steps(
             company_research=company_research,
         )
 
+        sys_res = await db.execute(
+            select(SystemSettingsModel).where(SystemSettingsModel.id == 1)
+        )
+        settings = sys_res.scalar_one_or_none()
+        audit_summary = None
+
+        if (
+            settings
+            and settings.enable_llm_judge
+            and settings.llm_judge_audit_cover_letter
+        ):
+            retries = 0
+            while True:
+                audit = await audit_generation_grounding(
+                    db,
+                    candidate_cv=cv_text,
+                    generated_text=cl_text,
+                    context_label=f"Cover Letter for {company_name}",
+                    task_type="COVER_LETTER",
+                )
+                audit_summary = audit.model_dump()
+
+                if (
+                    audit.passed
+                    or settings.llm_judge_action != "auto_rewrite"
+                    or retries >= settings.llm_judge_max_retries
+                ):
+                    break
+
+                retries += 1
+                feedback = (
+                    f"PREVIOUS ATTEMPT FAILED GROUNDING AUDIT.\n"
+                    f"Critique: {audit.critique}\n"
+                    f"Unverified Claims to Fix/Remove: {', '.join(audit.unverified_claims)}\n"
+                    f"You MUST rewrite the cover letter and strictly remove or correct these hallucinated claims to match the candidate's CV."
+                )
+                new_instructions = (
+                    (instructions_val + "\n\n" + feedback)
+                    if instructions_val
+                    else feedback
+                )
+
+                cl_text = await generate_cover_letter(
+                    db,
+                    company_name=company_name,
+                    position=position_name,
+                    job_description=job_desc,
+                    candidate_cv=cv_text,
+                    tone=tone_val,
+                    length=length_val,
+                    custom_instructions=new_instructions,
+                    company_research=company_research,
+                )
+
         app.cover_letter_text = cl_text
         app.cover_letter_status = "GENERATED"
         app.cover_letter_generated_at = datetime.now(UTC)
@@ -304,6 +421,7 @@ async def _execute_cover_letter_steps(
             "company_research": company_research,
             "tone": tone_val,
             "length": length_val,
+            "audit_summary": audit_summary,
         }
         task.completed_at = datetime.now(UTC)
 

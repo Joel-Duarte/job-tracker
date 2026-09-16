@@ -521,6 +521,11 @@ TASK_RECOMMENDED_DEFAULTS = {
         "reasoning_effort": "none",
         "max_tokens": 2048,
     },
+    "LLM_JUDGE": {
+        "temperature": 0.0,
+        "reasoning_effort": "none",
+        "max_tokens": 1500,
+    },
 }
 
 

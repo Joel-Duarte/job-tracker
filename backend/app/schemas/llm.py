@@ -35,6 +35,20 @@ class ApplicationSummaryResult(BaseModel):
     next_action: str | None = Field(default=None, description="Next action item if any")
 
 
+class HallucinationAuditResult(BaseModel):
+    passed: bool = Field(
+        description="True if generation contains zero ungrounded claims or invented facts"
+    )
+    confidence_score: float = Field(default=1.0, ge=0.0, le=1.0)
+    unverified_claims: list[str] = Field(
+        default_factory=list,
+        description="List of specific claims, tools, or metrics absent from candidate CV",
+    )
+    critique: str = Field(
+        default="", description="Brief evaluation rationale from the judge"
+    )
+
+
 class SpokenLanguageRequirement(BaseModel):
     language: str = Field(
         ...,

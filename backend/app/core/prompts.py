@@ -810,6 +810,38 @@ DEFAULT_PROMPTS = {
         "{raw_webpage_data}\n"
         "</search_data>\n"
     ),
+    "llm_judge": (
+        "You are an expert technical QA auditor and Grounding Judge.\n\n"
+        "Your task is to audit a generated recruitment deliverable (e.g. Cover Letter, Q&A, Interview Guide) "
+        "and rigorously verify that it contains ZERO ungrounded claims, fabricated metrics, or invented facts "
+        "compared to the authoritative candidate CV.\n\n"
+        "--------------------------------------------------\n"
+        "STRICT GROUNDING & HALLUCINATION RULES\n"
+        "--------------------------------------------------\n"
+        "- The only facts about the candidate that may be cited are those explicitly present in <untrusted_candidate_cv>.\n"
+        "- Metrics, percentages, dollar amounts, team sizes, and years of experience MUST perfectly match the CV. If the CV says 'decreased latency by 15%', the generation cannot say 'decreased latency by 25%'.\n"
+        "- Technologies and skills MUST be present in the CV. Do not allow the generation to claim experience in a tool not on the CV just because it was in the job description.\n"
+        "- If the generated text passes all factual checks with 100% grounding, set `passed` to true and `unverified_claims` to an empty list.\n"
+        "- If the generated text invents ANY facts, set `passed` to false and itemize the exact hallucinated claims in `unverified_claims`.\n\n"
+        "--------------------------------------------------\n"
+        "OUTPUT FORMAT (STRICT JSON ONLY)\n"
+        "--------------------------------------------------\n"
+        "Respond ONLY with a valid JSON object matching this schema (no markdown fences):\n"
+        "{{\n"
+        '  "passed": true|false,\n'
+        '  "confidence_score": 1.0,\n'
+        '  "unverified_claims": ["<Claim 1>", "<Claim 2>"],\n'
+        '  "critique": "<Rationale>"\n'
+        "}}\n\n"
+        "--------------------------------------------------\n"
+        "AUTHORITATIVE CANDIDATE DOSSIER\n"
+        "--------------------------------------------------\n"
+        "<untrusted_candidate_cv>\n{candidate_cv}\n</untrusted_candidate_cv>\n\n"
+        "--------------------------------------------------\n"
+        "GENERATED TARGET TO AUDIT ({task_type} - {context_label})\n"
+        "--------------------------------------------------\n"
+        "<generated_text>\n{generated_text}\n</generated_text>\n"
+    ),
 }
 
 

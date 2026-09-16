@@ -809,6 +809,53 @@ const coverLetterLength = ref('standard')
 const coverLetterTone = ref('professional')
 const isUpdatingCoverLetterSettings = ref(false)
 
+// LLM Quality & Grounding Judge Settings State
+const enableLlmJudge = ref(false)
+const llmJudgeAuditCoverLetter = ref(true)
+const llmJudgeAuditApplicationQa = ref(true)
+const llmJudgeAuditInterviewGuide = ref(false)
+const llmJudgeAction = ref('auto_rewrite')
+const llmJudgeMaxRetries = ref(1)
+const isUpdatingJudgeSettings = ref(false)
+
+async function toggleLlmJudge() {
+  isUpdatingJudgeSettings.value = true
+  try {
+    const newVal = !enableLlmJudge.value
+    const res = await AIConfigAPI.updateGlobalSettings({ ENABLE_LLM_JUDGE: newVal })
+    enableLlmJudge.value = res.data.ENABLE_LLM_JUDGE
+    uiStore.showToast(
+      enableLlmJudge.value
+        ? 'LLM Quality & Grounding Judge enabled.'
+        : 'LLM Quality & Grounding Judge disabled.',
+      'success'
+    )
+  } catch (err) {
+    uiStore.showToast('Failed to update LLM judge setting', 'error')
+  } finally {
+    isUpdatingJudgeSettings.value = false
+  }
+}
+
+async function updateLlmJudgeParam(paramKey, val) {
+  isUpdatingJudgeSettings.value = true
+  try {
+    const payload = {}
+    payload[paramKey] = val
+    const res = await AIConfigAPI.updateGlobalSettings(payload)
+    if (paramKey === 'LLM_JUDGE_AUDIT_COVER_LETTER') llmJudgeAuditCoverLetter.value = res.data.LLM_JUDGE_AUDIT_COVER_LETTER
+    if (paramKey === 'LLM_JUDGE_AUDIT_APPLICATION_QA') llmJudgeAuditApplicationQa.value = res.data.LLM_JUDGE_AUDIT_APPLICATION_QA
+    if (paramKey === 'LLM_JUDGE_AUDIT_INTERVIEW_GUIDE') llmJudgeAuditInterviewGuide.value = res.data.LLM_JUDGE_AUDIT_INTERVIEW_GUIDE
+    if (paramKey === 'LLM_JUDGE_ACTION') llmJudgeAction.value = res.data.LLM_JUDGE_ACTION
+    if (paramKey === 'LLM_JUDGE_MAX_RETRIES') llmJudgeMaxRetries.value = res.data.LLM_JUDGE_MAX_RETRIES
+    uiStore.showToast('LLM Judge preference updated.', 'success')
+  } catch (err) {
+    uiStore.showToast('Failed to update LLM judge option', 'error')
+  } finally {
+    isUpdatingJudgeSettings.value = false
+  }
+}
+
 // Web Search & Provider Settings State
 const enableWebSearch = ref(false)
 const isUpdatingWebSearch = ref(false)
@@ -904,6 +951,13 @@ async function loadGlobalSettings() {
     uiStore.coverLetterMatchThreshold = coverLetterMatchThreshold.value
     uiStore.coverLetterLength = coverLetterLength.value
     uiStore.coverLetterTone = coverLetterTone.value
+
+    enableLlmJudge.value = res.data.ENABLE_LLM_JUDGE ?? false
+    llmJudgeAuditCoverLetter.value = res.data.LLM_JUDGE_AUDIT_COVER_LETTER ?? true
+    llmJudgeAuditApplicationQa.value = res.data.LLM_JUDGE_AUDIT_APPLICATION_QA ?? true
+    llmJudgeAuditInterviewGuide.value = res.data.LLM_JUDGE_AUDIT_INTERVIEW_GUIDE ?? false
+    llmJudgeAction.value = res.data.LLM_JUDGE_ACTION || 'auto_rewrite'
+    llmJudgeMaxRetries.value = res.data.LLM_JUDGE_MAX_RETRIES ?? 1
   } catch (err) {
     console.error('Failed to load global settings', err)
   }
@@ -1142,6 +1196,20 @@ const TASKS = [
     hasPrompt: true,
     desc: 'Computes deep semantic fit score, keyword matches/gaps, and strategic resume improvement suggestions.',
     variables: ['{job_description}', '{candidate_cv}', '{programmatic_baseline}'],
+  },
+  {
+    category: 'evaluation',
+    key: 'LLM_JUDGE',
+    promptKey: 'llm_judge',
+    label: 'Grounding & Hallucination Judge',
+    icon: ShieldCheck,
+    recommendedTemp: 0.0,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: 1500,
+    reasoningTip: '💡 Local & Cloud: Zero Temperature (0.0) — Strict factual audit against candidate CV.',
+    hasPrompt: true,
+    desc: 'Audits cover letters, application form Q&A, and interview guides against candidate CV to detect and flag ungrounded claims or hallucinations.',
+    variables: ['{candidate_cv}', '{task_type}', '{context_label}', '{generated_text}'],
   },
 
   // --- Category: Application & Dossier Studio ---
@@ -4140,6 +4208,116 @@ PARAMETER cache_type_v q8_0</code></pre>
                   </select>
                   <span class="preference-field-hint">
                     Stylistic framing for drafts.
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2.5 LLM Quality & Grounding Judge Card -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <ShieldCheck :size="18" />
+              </div>
+              <div class="preference-header-text">
+                <div class="preference-header-between">
+                  <h4 class="preference-title">LLM Quality &amp; Grounding Judge</h4>
+                  <label class="switch-toggle" title="Toggle LLM Quality & Grounding Audits">
+                    <input
+                      type="checkbox"
+                      :checked="enableLlmJudge"
+                      :disabled="isUpdatingJudgeSettings"
+                      @change="toggleLlmJudge"
+                    />
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+                <p class="preference-desc">Automated zero-hallucination auditor validating generated drafts against candidate CV facts.</p>
+              </div>
+            </div>
+
+            <div class="preference-body" :class="{ 'is-disabled': !enableLlmJudge }">
+              <div class="cover-letter-pref-grid">
+                <!-- Action Mode -->
+                <div class="input-group">
+                  <div class="label-with-hint">
+                    <label class="input-label">Audit Action</label>
+                  </div>
+                  <select
+                    :value="llmJudgeAction"
+                    :disabled="!enableLlmJudge || isUpdatingJudgeSettings"
+                    class="form-input"
+                    @change="updateLlmJudgeParam('LLM_JUDGE_ACTION', $event.target.value)"
+                  >
+                    <option value="auto_rewrite">Auto-Rewrite with Feedback</option>
+                    <option value="flag_warn">Flag &amp; Warn Only</option>
+                  </select>
+                  <span class="preference-field-hint">
+                    Behavior when unverified claims are detected.
+                  </span>
+                </div>
+
+                <!-- Max Rewrites -->
+                <div class="input-group match-threshold-group">
+                  <div class="label-with-hint">
+                    <label class="input-label">Max Rewrite Attempts</label>
+                  </div>
+                  <div class="threshold-slider-control">
+                    <input
+                      type="range"
+                      min="1"
+                      max="3"
+                      step="1"
+                      :value="llmJudgeMaxRetries"
+                      :disabled="!enableLlmJudge || llmJudgeAction !== 'auto_rewrite' || isUpdatingJudgeSettings"
+                      class="form-range cover-letter-slider"
+                      @input="llmJudgeMaxRetries = Number($event.target.value)"
+                      @change="updateLlmJudgeParam('LLM_JUDGE_MAX_RETRIES', Number($event.target.value))"
+                    />
+                    <span class="threshold-badge">{{ llmJudgeMaxRetries }} {{ llmJudgeMaxRetries === 1 ? 'retry' : 'retries' }}</span>
+                  </div>
+                  <span class="preference-field-hint">
+                    Recursion limit for self-correcting drafts.
+                  </span>
+                </div>
+
+                <!-- Tasks To Audit -->
+                <div class="input-group" style="grid-column: span 2;">
+                  <div class="label-with-hint">
+                    <label class="input-label">Pipelines to Audit</label>
+                  </div>
+                  <div class="flex items-center gap-4 mt-2 flex-wrap">
+                    <label class="flex items-center gap-2 cursor-pointer text-xs">
+                      <input
+                        type="checkbox"
+                        :checked="llmJudgeAuditCoverLetter"
+                        :disabled="!enableLlmJudge || isUpdatingJudgeSettings"
+                        @change="updateLlmJudgeParam('LLM_JUDGE_AUDIT_COVER_LETTER', $event.target.checked)"
+                      />
+                      <span>Cover Letters</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer text-xs">
+                      <input
+                        type="checkbox"
+                        :checked="llmJudgeAuditApplicationQa"
+                        :disabled="!enableLlmJudge || isUpdatingJudgeSettings"
+                        @change="updateLlmJudgeParam('LLM_JUDGE_AUDIT_APPLICATION_QA', $event.target.checked)"
+                      />
+                      <span>Application Q&amp;A</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer text-xs">
+                      <input
+                        type="checkbox"
+                        :checked="llmJudgeAuditInterviewGuide"
+                        :disabled="!enableLlmJudge || isUpdatingJudgeSettings"
+                        @change="updateLlmJudgeParam('LLM_JUDGE_AUDIT_INTERVIEW_GUIDE', $event.target.checked)"
+                      />
+                      <span>Interview Guides</span>
+                    </label>
+                  </div>
+                  <span class="preference-field-hint mt-1">
+                    Select which generation tasks should trigger grounding verification.
                   </span>
                 </div>
               </div>
