@@ -470,6 +470,12 @@ async def get_global_settings(
         HAS_COMPLETED_ONBOARDING=settings.get("has_completed_onboarding", False),
         SEARCH_PROVIDER=settings.get("search_provider", "automatic"),
         SEARXNG_URL=settings.get("searxng_url", None),
+        ENABLE_LLM_JUDGE=settings.get("enable_llm_judge", False),
+        LLM_JUDGE_AUDIT_COVER_LETTER=settings.get("llm_judge_audit_cover_letter", True),
+        LLM_JUDGE_AUDIT_APPLICATION_QA=settings.get("llm_judge_audit_application_qa", True),
+        LLM_JUDGE_AUDIT_INTERVIEW_GUIDE=settings.get("llm_judge_audit_interview_guide", False),
+        LLM_JUDGE_ACTION=settings.get("llm_judge_action", "auto_rewrite"),
+        LLM_JUDGE_MAX_RETRIES=settings.get("llm_judge_max_retries", 1),
     )
 
 
@@ -501,6 +507,18 @@ async def update_global_settings(
         settings["search_provider"] = payload.SEARCH_PROVIDER
     if payload.SEARXNG_URL is not None or "SEARXNG_URL" in payload.model_fields_set:
         settings["searxng_url"] = payload.SEARXNG_URL
+    if payload.ENABLE_LLM_JUDGE is not None:
+        settings["enable_llm_judge"] = payload.ENABLE_LLM_JUDGE
+    if payload.LLM_JUDGE_AUDIT_COVER_LETTER is not None:
+        settings["llm_judge_audit_cover_letter"] = payload.LLM_JUDGE_AUDIT_COVER_LETTER
+    if payload.LLM_JUDGE_AUDIT_APPLICATION_QA is not None:
+        settings["llm_judge_audit_application_qa"] = payload.LLM_JUDGE_AUDIT_APPLICATION_QA
+    if payload.LLM_JUDGE_AUDIT_INTERVIEW_GUIDE is not None:
+        settings["llm_judge_audit_interview_guide"] = payload.LLM_JUDGE_AUDIT_INTERVIEW_GUIDE
+    if payload.LLM_JUDGE_ACTION is not None:
+        settings["llm_judge_action"] = payload.LLM_JUDGE_ACTION
+    if payload.LLM_JUDGE_MAX_RETRIES is not None:
+        settings["llm_judge_max_retries"] = payload.LLM_JUDGE_MAX_RETRIES
     await save_settings(settings, db)
     return GlobalSettingsRead(
         ENABLE_EMBEDDINGS=settings.get("enable_embeddings", False),
@@ -514,6 +532,12 @@ async def update_global_settings(
         HAS_COMPLETED_ONBOARDING=settings.get("has_completed_onboarding", False),
         SEARCH_PROVIDER=settings.get("search_provider", "automatic"),
         SEARXNG_URL=settings.get("searxng_url", None),
+        ENABLE_LLM_JUDGE=settings.get("enable_llm_judge", False),
+        LLM_JUDGE_AUDIT_COVER_LETTER=settings.get("llm_judge_audit_cover_letter", True),
+        LLM_JUDGE_AUDIT_APPLICATION_QA=settings.get("llm_judge_audit_application_qa", True),
+        LLM_JUDGE_AUDIT_INTERVIEW_GUIDE=settings.get("llm_judge_audit_interview_guide", False),
+        LLM_JUDGE_ACTION=settings.get("llm_judge_action", "auto_rewrite"),
+        LLM_JUDGE_MAX_RETRIES=settings.get("llm_judge_max_retries", 1),
     )
 
 

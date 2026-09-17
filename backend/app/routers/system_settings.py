@@ -40,6 +40,12 @@ async def get_system_settings(
         agent_chat_retention_days=settings.get("agent_chat_retention_days", 7),
         search_provider=settings.get("search_provider", "automatic"),
         searxng_url=settings.get("searxng_url", None),
+        enable_llm_judge=settings.get("enable_llm_judge", False),
+        llm_judge_audit_cover_letter=settings.get("llm_judge_audit_cover_letter", True),
+        llm_judge_audit_application_qa=settings.get("llm_judge_audit_application_qa", True),
+        llm_judge_audit_interview_guide=settings.get("llm_judge_audit_interview_guide", False),
+        llm_judge_action=settings.get("llm_judge_action", "auto_rewrite"),
+        llm_judge_max_retries=settings.get("llm_judge_max_retries", 1),
     )
 
 
@@ -66,6 +72,12 @@ async def update_system_settings(
         agent_chat_retention_days=settings.get("agent_chat_retention_days", 7),
         search_provider=settings.get("search_provider", "automatic"),
         searxng_url=settings.get("searxng_url", None),
+        enable_llm_judge=settings.get("enable_llm_judge", False),
+        llm_judge_audit_cover_letter=settings.get("llm_judge_audit_cover_letter", True),
+        llm_judge_audit_application_qa=settings.get("llm_judge_audit_application_qa", True),
+        llm_judge_audit_interview_guide=settings.get("llm_judge_audit_interview_guide", False),
+        llm_judge_action=settings.get("llm_judge_action", "auto_rewrite"),
+        llm_judge_max_retries=settings.get("llm_judge_max_retries", 1),
     )
 
 

@@ -67,6 +67,12 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
         )
         search_provider = getattr(model, "search_provider", "automatic") or "automatic"
         searxng_url = getattr(model, "searxng_url", None)
+        enable_llm_judge = getattr(model, "enable_llm_judge", False)
+        llm_judge_audit_cover_letter = getattr(model, "llm_judge_audit_cover_letter", True)
+        llm_judge_audit_application_qa = getattr(model, "llm_judge_audit_application_qa", True)
+        llm_judge_audit_interview_guide = getattr(model, "llm_judge_audit_interview_guide", False)
+        llm_judge_action = getattr(model, "llm_judge_action", "auto_rewrite") or "auto_rewrite"
+        llm_judge_max_retries = getattr(model, "llm_judge_max_retries", 1)
 
         return {
             "has_completed_onboarding": has_completed_onboarding,
@@ -80,6 +86,12 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
             "cover_letter_tone": cover_letter_tone,
             "search_provider": search_provider,
             "searxng_url": searxng_url,
+            "enable_llm_judge": enable_llm_judge,
+            "llm_judge_audit_cover_letter": llm_judge_audit_cover_letter,
+            "llm_judge_audit_application_qa": llm_judge_audit_application_qa,
+            "llm_judge_audit_interview_guide": llm_judge_audit_interview_guide,
+            "llm_judge_action": llm_judge_action,
+            "llm_judge_max_retries": llm_judge_max_retries,
             # Backward compatibility uppercase keys
             "HAS_COMPLETED_ONBOARDING": has_completed_onboarding,
             "ENABLE_EMAIL_INTAKE": enable_email_intake,
@@ -92,6 +104,12 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
             "COVER_LETTER_TONE": cover_letter_tone,
             "SEARCH_PROVIDER": search_provider,
             "SEARXNG_URL": searxng_url,
+            "ENABLE_LLM_JUDGE": enable_llm_judge,
+            "LLM_JUDGE_AUDIT_COVER_LETTER": llm_judge_audit_cover_letter,
+            "LLM_JUDGE_AUDIT_APPLICATION_QA": llm_judge_audit_application_qa,
+            "LLM_JUDGE_AUDIT_INTERVIEW_GUIDE": llm_judge_audit_interview_guide,
+            "LLM_JUDGE_ACTION": llm_judge_action,
+            "LLM_JUDGE_MAX_RETRIES": llm_judge_max_retries,
         }
     except Exception as e:
         logger.error(f"Failed to load global settings from DB: {e}")
@@ -107,6 +125,12 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
             "cover_letter_tone": "professional",
             "search_provider": "automatic",
             "searxng_url": None,
+            "enable_llm_judge": False,
+            "llm_judge_audit_cover_letter": True,
+            "llm_judge_audit_application_qa": True,
+            "llm_judge_audit_interview_guide": False,
+            "llm_judge_action": "auto_rewrite",
+            "llm_judge_max_retries": 1,
             "HAS_COMPLETED_ONBOARDING": False,
             "ENABLE_EMAIL_INTAKE": True,
             "ENABLE_EMBEDDINGS": False,
@@ -118,6 +142,12 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
             "COVER_LETTER_TONE": "professional",
             "SEARCH_PROVIDER": "automatic",
             "SEARXNG_URL": None,
+            "ENABLE_LLM_JUDGE": False,
+            "LLM_JUDGE_AUDIT_COVER_LETTER": True,
+            "LLM_JUDGE_AUDIT_APPLICATION_QA": True,
+            "LLM_JUDGE_AUDIT_INTERVIEW_GUIDE": False,
+            "LLM_JUDGE_ACTION": "auto_rewrite",
+            "LLM_JUDGE_MAX_RETRIES": 1,
         }
 
 
@@ -217,6 +247,54 @@ async def save_settings(
             model.searxng_url = (
                 str(val_searxng_url).strip() if val_searxng_url else None
             )
+
+        val_llm_judge = (
+            settings.get("enable_llm_judge")
+            if "enable_llm_judge" in settings
+            else settings.get("ENABLE_LLM_JUDGE")
+        )
+        if val_llm_judge is not None:
+            model.enable_llm_judge = bool(val_llm_judge)
+
+        val_judge_cl = (
+            settings.get("llm_judge_audit_cover_letter")
+            if "llm_judge_audit_cover_letter" in settings
+            else settings.get("LLM_JUDGE_AUDIT_COVER_LETTER")
+        )
+        if val_judge_cl is not None:
+            model.llm_judge_audit_cover_letter = bool(val_judge_cl)
+
+        val_judge_qa = (
+            settings.get("llm_judge_audit_application_qa")
+            if "llm_judge_audit_application_qa" in settings
+            else settings.get("LLM_JUDGE_AUDIT_APPLICATION_QA")
+        )
+        if val_judge_qa is not None:
+            model.llm_judge_audit_application_qa = bool(val_judge_qa)
+
+        val_judge_ig = (
+            settings.get("llm_judge_audit_interview_guide")
+            if "llm_judge_audit_interview_guide" in settings
+            else settings.get("LLM_JUDGE_AUDIT_INTERVIEW_GUIDE")
+        )
+        if val_judge_ig is not None:
+            model.llm_judge_audit_interview_guide = bool(val_judge_ig)
+
+        val_judge_action = (
+            settings.get("llm_judge_action")
+            if "llm_judge_action" in settings
+            else settings.get("LLM_JUDGE_ACTION")
+        )
+        if val_judge_action is not None:
+            model.llm_judge_action = str(val_judge_action).strip().lower()
+
+        val_judge_retries = (
+            settings.get("llm_judge_max_retries")
+            if "llm_judge_max_retries" in settings
+            else settings.get("LLM_JUDGE_MAX_RETRIES")
+        )
+        if val_judge_retries is not None:
+            model.llm_judge_max_retries = int(val_judge_retries)
 
         await session.commit()
 

@@ -1,7 +1,32 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { DiagnosticsAPI } from '../api/endpoints'
-import { Activity, Clock, Cpu, Database, Server, Zap, DollarSign, ShieldCheck, AlertTriangle, RefreshCw } from 'lucide-vue-next'
+import {
+  Activity,
+  AlertCircle,
+  CheckCircle,
+  TerminalSquare,
+  ChevronRight,
+  X,
+  Sparkles,
+  Globe,
+  Mail,
+  Cpu,
+  Database,
+  Trash2,
+  Clock,
+  Code,
+  Layers,
+  Copy,
+  Check,
+  DollarSign,
+  Zap,
+  TrendingUp,
+  ChevronDown,
+  ChevronUp,
+  BarChart3,
+  ShieldCheck,
+} from 'lucide-vue-next'
 
 function formatTokens(val) {
   if (!val) return '0'
@@ -11,11 +36,13 @@ function formatTokens(val) {
 }
 
 const stats = ref(null)
+const qualityStats = ref(null)
 const traces = ref([])
 const loading = ref(true)
 const loadingTraces = ref(false)
+const loadingQuality = ref(false)
 const showErrorsOnly = ref(false)
-const currentView = ref('telemetry') // 'telemetry' | 'costs'
+const currentView = ref('telemetry') // 'telemetry' | 'costs' | 'quality'
 const activeCategory = ref('all')
 const selectedStatus = ref('all') // 'all' | 'success' | 'error'
 const selectedTrace = ref(null)
@@ -26,6 +53,23 @@ const copied = ref(false)
 function onTelemetryClick() {
   currentView.value = 'telemetry'
   loadData()
+}
+
+async function onQualityClick() {
+  currentView.value = 'quality'
+  await loadQualityData()
+}
+
+async function loadQualityData() {
+  loadingQuality.value = true
+  try {
+    const res = await DiagnosticsAPI.getQualityStats()
+    qualityStats.value = res.data
+  } catch (err) {
+    console.error("Failed to load quality stats", err)
+  } finally {
+    loadingQuality.value = false
+  }
 }
 
 const categories = [
@@ -201,6 +245,15 @@ onMounted(() => {
           <BarChart3 :size="15" />
           <span>Detailed Costs</span>
         </button>
+        <button
+          class="btn"
+          :class="currentView === 'quality' ? 'btn-primary' : 'btn-outline'"
+          @click="onQualityClick"
+          title="View LLM quality, grounding, and hallucination audits"
+        >
+          <ShieldCheck :size="15" />
+          <span>Quality &amp; Grounding</span>
+        </button>
       </div>
     </div>
 
@@ -288,6 +341,123 @@ onMounted(() => {
                   <span v-else class="text-muted font-medium">$0.0000</span>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIEW 3: QUALITY & GROUNDING AUDITS -->
+        <div v-else-if="currentView === 'quality'" class="section-card animate-fade-in">
+          <div class="task-distribution-header">
+            <div class="task-distribution-title">
+              <ShieldCheck :size="16" class="text-primary flex-shrink-0" />
+              <span class="task-header-heading">LLM Quality &amp; Grounding Audits</span>
+            </div>
+            <span class="text-xs text-muted font-mono">
+              {{ qualityStats?.total_audits || 0 }} Audits Recorded
+            </span>
+          </div>
+
+          <div v-if="loadingQuality" class="py-8 flex flex-center">
+            <div class="spinner"></div>
+            <span class="mt-2 text-secondary text-sm">Loading quality audits...</span>
+          </div>
+
+          <div v-else class="quality-view-body p-4">
+            <!-- Quality KPI mini-cards -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <div class="p-3 bg-surface border border-border-color rounded-lg">
+                <div class="text-xs text-secondary font-medium">Grounding Pass Rate</div>
+                <div class="text-xl font-bold font-mono mt-1 text-main">
+                  {{ qualityStats?.grounding_rate_pct ?? 100 }}%
+                </div>
+                <div class="text-[11px] text-muted mt-1">{{ qualityStats?.passed_audits || 0 }} / {{ qualityStats?.total_audits || 0 }} passed</div>
+              </div>
+
+              <div class="p-3 bg-surface border border-border-color rounded-lg">
+                <div class="text-xs text-secondary font-medium">Flagged Hallucinations</div>
+                <div class="text-xl font-bold font-mono mt-1 text-danger">
+                  {{ qualityStats?.flagged_audits || 0 }}
+                </div>
+                <div class="text-[11px] text-muted mt-1">{{ qualityStats?.total_hallucinations_detected || 0 }} unverified claims</div>
+              </div>
+
+              <div class="p-3 bg-surface border border-border-color rounded-lg">
+                <div class="text-xs text-secondary font-medium">Auto-Rewrites Done</div>
+                <div class="text-xl font-bold font-mono mt-1 text-primary">
+                  {{ qualityStats?.auto_rewrites_triggered || 0 }}
+                </div>
+                <div class="text-[11px] text-muted mt-1">Autonomous self-corrections</div>
+              </div>
+
+              <div class="p-3 bg-surface border border-border-color rounded-lg">
+                <div class="text-xs text-secondary font-medium">Total Audited Tasks</div>
+                <div class="text-xl font-bold font-mono mt-1 text-main">
+                  {{ qualityStats?.total_audits || 0 }}
+                </div>
+                <div class="text-[11px] text-muted mt-1">Cover Letters, Q&amp;A, Guides</div>
+              </div>
+            </div>
+
+            <!-- Recent Audits Table -->
+            <div v-if="!qualityStats?.recent_audits || qualityStats.recent_audits.length === 0" class="empty-state py-8 text-center">
+              <ShieldCheck :size="32" class="text-secondary mb-2 mx-auto opacity-70" />
+              <h4>No Quality Audits Yet</h4>
+              <p class="text-secondary text-sm mt-1">
+                Audits run automatically when cover letters, application answers, or interview guides are generated with LLM Judge enabled.
+              </p>
+            </div>
+
+            <div v-else class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th width="18%">Timestamp</th>
+                    <th width="20%">Pipeline / Task</th>
+                    <th width="14%">Verdict</th>
+                    <th width="48%">Unverified Claims / Critique</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="audit in qualityStats.recent_audits" :key="audit.run_id" class="trace-row">
+                    <td class="text-secondary text-xs">
+                      <span class="font-medium text-main">{{ audit.timestamp ? new Date(audit.timestamp).toLocaleTimeString() : '--' }}</span>
+                      <br />
+                      <span class="opacity-75">{{ audit.timestamp ? new Date(audit.timestamp).toLocaleDateString() : '' }}</span>
+                    </td>
+                    <td>
+                      <span class="category-badge badge-cat-llm">
+                        <Sparkles :size="12" />
+                        {{ audit.task_type }}
+                      </span>
+                    </td>
+                    <td>
+                      <div v-if="audit.passed" class="status-indicator success">
+                        <span class="dot"></span> Grounded
+                      </div>
+                      <div v-else class="status-indicator error">
+                        <span class="dot"></span> Flagged
+                      </div>
+                    </td>
+                    <td>
+                      <div v-if="audit.unverified_claims && audit.unverified_claims.length > 0" class="flex flex-wrap gap-1 mb-1">
+                        <span
+                          v-for="(claim, cIdx) in audit.unverified_claims"
+                          :key="cIdx"
+                          class="badge badge-warning text-[10px] font-mono"
+                        >
+                          {{ claim }}
+                        </span>
+                      </div>
+                      <p v-if="audit.critique" class="text-xs text-secondary italic">
+                        "{{ audit.critique }}"
+                      </p>
+                      <span v-else-if="audit.passed" class="text-xs text-muted">
+                        Zero hallucinated facts detected. All claims grounded in CV.
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -1299,21 +1469,3 @@ input:checked + .slider:before {
   }
 }
 </style>
-
-.claims-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.claim-pill {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  color: var(--text-main);
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  font-size: 0.8rem;
-  max-width: 200px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}

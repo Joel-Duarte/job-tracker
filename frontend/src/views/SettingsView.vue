@@ -820,10 +820,11 @@ const isUpdatingJudgeSettings = ref(false)
 
 async function toggleLlmJudge() {
   isUpdatingJudgeSettings.value = true
+  const prev = enableLlmJudge.value
   try {
-    const newVal = !enableLlmJudge.value
+    const newVal = !prev
     const res = await AIConfigAPI.updateGlobalSettings({ ENABLE_LLM_JUDGE: newVal })
-    enableLlmJudge.value = res.data.ENABLE_LLM_JUDGE
+    enableLlmJudge.value = res.data?.ENABLE_LLM_JUDGE ?? newVal
     uiStore.showToast(
       enableLlmJudge.value
         ? 'LLM Quality & Grounding Judge enabled.'
@@ -831,6 +832,7 @@ async function toggleLlmJudge() {
       'success'
     )
   } catch (err) {
+    enableLlmJudge.value = prev
     uiStore.showToast('Failed to update LLM judge setting', 'error')
   } finally {
     isUpdatingJudgeSettings.value = false
@@ -843,11 +845,21 @@ async function updateLlmJudgeParam(paramKey, val) {
     const payload = {}
     payload[paramKey] = val
     const res = await AIConfigAPI.updateGlobalSettings(payload)
-    if (paramKey === 'LLM_JUDGE_AUDIT_COVER_LETTER') llmJudgeAuditCoverLetter.value = res.data.LLM_JUDGE_AUDIT_COVER_LETTER
-    if (paramKey === 'LLM_JUDGE_AUDIT_APPLICATION_QA') llmJudgeAuditApplicationQa.value = res.data.LLM_JUDGE_AUDIT_APPLICATION_QA
-    if (paramKey === 'LLM_JUDGE_AUDIT_INTERVIEW_GUIDE') llmJudgeAuditInterviewGuide.value = res.data.LLM_JUDGE_AUDIT_INTERVIEW_GUIDE
-    if (paramKey === 'LLM_JUDGE_ACTION') llmJudgeAction.value = res.data.LLM_JUDGE_ACTION
-    if (paramKey === 'LLM_JUDGE_MAX_RETRIES') llmJudgeMaxRetries.value = res.data.LLM_JUDGE_MAX_RETRIES
+    if (paramKey === 'LLM_JUDGE_AUDIT_COVER_LETTER') {
+      llmJudgeAuditCoverLetter.value = res.data?.LLM_JUDGE_AUDIT_COVER_LETTER ?? val
+    }
+    if (paramKey === 'LLM_JUDGE_AUDIT_APPLICATION_QA') {
+      llmJudgeAuditApplicationQa.value = res.data?.LLM_JUDGE_AUDIT_APPLICATION_QA ?? val
+    }
+    if (paramKey === 'LLM_JUDGE_AUDIT_INTERVIEW_GUIDE') {
+      llmJudgeAuditInterviewGuide.value = res.data?.LLM_JUDGE_AUDIT_INTERVIEW_GUIDE ?? val
+    }
+    if (paramKey === 'LLM_JUDGE_ACTION') {
+      llmJudgeAction.value = res.data?.LLM_JUDGE_ACTION ?? val
+    }
+    if (paramKey === 'LLM_JUDGE_MAX_RETRIES') {
+      llmJudgeMaxRetries.value = res.data?.LLM_JUDGE_MAX_RETRIES ?? val
+    }
     uiStore.showToast('LLM Judge preference updated.', 'success')
   } catch (err) {
     uiStore.showToast('Failed to update LLM judge option', 'error')
@@ -4259,65 +4271,102 @@ PARAMETER cache_type_v q8_0</code></pre>
                 </div>
 
                 <!-- Max Rewrites -->
-                <div class="input-group match-threshold-group">
+                <div class="input-group">
                   <div class="label-with-hint">
                     <label class="input-label">Max Rewrite Attempts</label>
                   </div>
-                  <div class="threshold-slider-control">
-                    <input
-                      type="range"
-                      min="1"
-                      max="3"
-                      step="1"
-                      :value="llmJudgeMaxRetries"
-                      :disabled="!enableLlmJudge || llmJudgeAction !== 'auto_rewrite' || isUpdatingJudgeSettings"
-                      class="form-range cover-letter-slider"
-                      @input="llmJudgeMaxRetries = Number($event.target.value)"
-                      @change="updateLlmJudgeParam('LLM_JUDGE_MAX_RETRIES', Number($event.target.value))"
-                    />
-                    <span class="threshold-badge">{{ llmJudgeMaxRetries }} {{ llmJudgeMaxRetries === 1 ? 'retry' : 'retries' }}</span>
-                  </div>
+                  <select
+                    :value="llmJudgeMaxRetries"
+                    :disabled="!enableLlmJudge || llmJudgeAction !== 'auto_rewrite' || isUpdatingJudgeSettings"
+                    class="form-input"
+                    @change="updateLlmJudgeParam('LLM_JUDGE_MAX_RETRIES', Number($event.target.value))"
+                  >
+                    <option :value="1">1 attempt</option>
+                    <option :value="2">2 attempts</option>
+                    <option :value="3">3 attempts</option>
+                  </select>
                   <span class="preference-field-hint">
                     Recursion limit for self-correcting drafts.
                   </span>
                 </div>
 
-                <!-- Tasks To Audit -->
-                <div class="input-group" style="grid-column: span 2;">
+                <!-- Pipelines To Audit -->
+                <div class="input-group" style="grid-column: 1 / -1;">
                   <div class="label-with-hint">
                     <label class="input-label">Pipelines to Audit</label>
                   </div>
-                  <div class="flex items-center gap-4 mt-2 flex-wrap">
-                    <label class="flex items-center gap-2 cursor-pointer text-xs">
+                  <div class="judge-pipelines-grid">
+                    <label
+                      class="judge-pipeline-pill"
+                      :class="{
+                        'is-active': llmJudgeAuditCoverLetter,
+                        'is-disabled': !enableLlmJudge || isUpdatingJudgeSettings
+                      }"
+                    >
                       <input
                         type="checkbox"
+                        class="sr-only"
                         :checked="llmJudgeAuditCoverLetter"
                         :disabled="!enableLlmJudge || isUpdatingJudgeSettings"
                         @change="updateLlmJudgeParam('LLM_JUDGE_AUDIT_COVER_LETTER', $event.target.checked)"
                       />
-                      <span>Cover Letters</span>
+                      <div class="judge-pill-check">
+                        <Check v-if="llmJudgeAuditCoverLetter" :size="12" />
+                      </div>
+                      <div class="judge-pill-text">
+                        <span class="judge-pill-title">Cover Letters</span>
+                        <span class="judge-pill-desc">Grounded against CV skills &amp; roles</span>
+                      </div>
                     </label>
-                    <label class="flex items-center gap-2 cursor-pointer text-xs">
+
+                    <label
+                      class="judge-pipeline-pill"
+                      :class="{
+                        'is-active': llmJudgeAuditApplicationQa,
+                        'is-disabled': !enableLlmJudge || isUpdatingJudgeSettings
+                      }"
+                    >
                       <input
                         type="checkbox"
+                        class="sr-only"
                         :checked="llmJudgeAuditApplicationQa"
                         :disabled="!enableLlmJudge || isUpdatingJudgeSettings"
                         @change="updateLlmJudgeParam('LLM_JUDGE_AUDIT_APPLICATION_QA', $event.target.checked)"
                       />
-                      <span>Application Q&amp;A</span>
+                      <div class="judge-pill-check">
+                        <Check v-if="llmJudgeAuditApplicationQa" :size="12" />
+                      </div>
+                      <div class="judge-pill-text">
+                        <span class="judge-pill-title">Application Q&amp;A</span>
+                        <span class="judge-pill-desc">Validates screening form answers</span>
+                      </div>
                     </label>
-                    <label class="flex items-center gap-2 cursor-pointer text-xs">
+
+                    <label
+                      class="judge-pipeline-pill"
+                      :class="{
+                        'is-active': llmJudgeAuditInterviewGuide,
+                        'is-disabled': !enableLlmJudge || isUpdatingJudgeSettings
+                      }"
+                    >
                       <input
                         type="checkbox"
+                        class="sr-only"
                         :checked="llmJudgeAuditInterviewGuide"
                         :disabled="!enableLlmJudge || isUpdatingJudgeSettings"
                         @change="updateLlmJudgeParam('LLM_JUDGE_AUDIT_INTERVIEW_GUIDE', $event.target.checked)"
                       />
-                      <span>Interview Guides</span>
+                      <div class="judge-pill-check">
+                        <Check v-if="llmJudgeAuditInterviewGuide" :size="12" />
+                      </div>
+                      <div class="judge-pill-text">
+                        <span class="judge-pill-title">Interview Guides</span>
+                        <span class="judge-pill-desc">Audits candidate cheat sheets</span>
+                      </div>
                     </label>
                   </div>
-                  <span class="preference-field-hint mt-1">
-                    Select which generation tasks should trigger grounding verification.
+                  <span class="preference-field-hint">
+                    Select which generation pipelines trigger grounding verification.
                   </span>
                 </div>
               </div>
@@ -6525,6 +6574,86 @@ PARAMETER cache_type_v q8_0</code></pre>
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+.judge-pipelines-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 6px;
+}
+
+@media (max-width: 768px) {
+  .judge-pipelines-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.judge-pipeline-pill {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.judge-pipeline-pill:hover:not(.is-disabled) {
+  border-color: var(--border-focus);
+  background-color: var(--bg-surface-hover);
+}
+
+.judge-pipeline-pill.is-active {
+  border-color: var(--primary);
+  background-color: var(--primary-subtle);
+}
+
+.judge-pill-check {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--primary-contrast);
+  transition: all var(--transition-fast);
+}
+
+.judge-pipeline-pill.is-active .judge-pill-check {
+  border-color: var(--primary);
+  background-color: var(--primary);
+}
+
+.judge-pill-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.judge-pill-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  line-height: 1.2;
+}
+
+.judge-pipeline-pill.is-active .judge-pill-title {
+  color: var(--text-main);
+}
+
+.judge-pill-desc {
+  font-size: 10px;
+  color: var(--text-secondary);
+  line-height: 1.3;
 }
 
 .match-threshold-group {

@@ -615,24 +615,24 @@ def test_parse_email_date_timezones_and_formats():
     assert dt_date.hour == 0 and dt_date.minute == 0
     assert dt_date.tzinfo is not None
 
-    # ISO with offset +01:00
+    # ISO with offset +01:00 (stripped to preserve wall-clock time in UTC)
     dt_offset = _parse_email_date("2026-09-14T15:15:00+01:00")
     assert dt_offset is not None
     assert dt_offset.year == 2026 and dt_offset.month == 9 and dt_offset.day == 14
     assert dt_offset.hour == 15 and dt_offset.minute == 15
-    assert dt_offset.utcoffset().total_seconds() == 3600
+    assert dt_offset.utcoffset().total_seconds() == 0
 
-    # Human-like GMT+1 offset format
+    # Human-like GMT+1 offset format (stripped to preserve wall-clock time in UTC)
     dt_gmt = _parse_email_date("2026-09-14 15:15:00 GMT+1")
     assert dt_gmt is not None
     assert dt_gmt.year == 2026 and dt_gmt.month == 9 and dt_gmt.day == 14
     assert dt_gmt.hour == 15 and dt_gmt.minute == 15
-    assert dt_gmt.utcoffset().total_seconds() == 3600
+    assert dt_gmt.utcoffset().total_seconds() == 0
 
-    # Human-like UTC+1 offset format
+    # Human-like UTC+1 offset format (stripped to preserve wall-clock time in UTC)
     dt_utc = _parse_email_date("2026-09-14 15:15:00 UTC+1")
     assert dt_utc is not None
-    assert dt_utc.utcoffset().total_seconds() == 3600
+    assert dt_utc.utcoffset().total_seconds() == 0
 
     # UTC with Z
     dt_z = _parse_email_date("2026-09-14T14:15:00Z")
