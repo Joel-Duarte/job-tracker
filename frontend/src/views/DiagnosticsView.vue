@@ -26,6 +26,8 @@ import {
   ChevronUp,
   BarChart3,
   ShieldCheck,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-vue-next'
 
 function formatTokens(val) {
@@ -346,118 +348,156 @@ onMounted(() => {
         </div>
 
         <!-- VIEW 3: QUALITY & GROUNDING AUDITS -->
-        <div v-else-if="currentView === 'quality'" class="section-card animate-fade-in">
+        <div v-else-if="currentView === 'quality'" class="section-card task-distribution-card animate-fade-in">
           <div class="task-distribution-header">
             <div class="task-distribution-title">
               <ShieldCheck :size="16" class="text-primary flex-shrink-0" />
               <span class="task-header-heading">LLM Quality &amp; Grounding Audits</span>
             </div>
-            <span class="text-xs text-muted font-mono">
-              {{ qualityStats?.total_audits || 0 }} Audits Recorded
-            </span>
+            <div class="flex items-center gap-3">
+              <span class="text-xs text-muted font-mono">
+                {{ qualityStats?.total_audits || 0 }} Audits Recorded
+              </span>
+              <button class="btn-icon-refresh" @click="loadQualityData" :disabled="loadingQuality" title="Refresh quality metrics">
+                <RefreshCw :size="13" :class="{ 'animate-spin': loadingQuality }" />
+              </button>
+            </div>
           </div>
 
-          <div v-if="loadingQuality" class="py-8 flex flex-center">
+          <div v-if="loadingQuality" class="py-12 flex flex-center flex-column">
             <div class="spinner"></div>
             <span class="mt-2 text-secondary text-sm">Loading quality audits...</span>
           </div>
 
-          <div v-else class="quality-view-body p-4">
+          <div v-else class="quality-view-body">
             <!-- Quality KPI mini-cards -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-              <div class="p-3 bg-surface border border-border-color rounded-lg">
-                <div class="text-xs text-secondary font-medium">Grounding Pass Rate</div>
-                <div class="text-xl font-bold font-mono mt-1 text-main">
-                  {{ qualityStats?.grounding_rate_pct ?? 100 }}%
+            <div class="quality-kpi-grid">
+              <div class="quality-metric-card">
+                <div class="quality-metric-icon success">
+                  <CheckCircle :size="18" />
                 </div>
-                <div class="text-[11px] text-muted mt-1">{{ qualityStats?.passed_audits || 0 }} / {{ qualityStats?.total_audits || 0 }} passed</div>
+                <div class="quality-metric-content">
+                  <div class="quality-metric-label">Grounding Pass Rate</div>
+                  <div class="quality-metric-value font-mono">
+                    {{ qualityStats?.grounding_rate_pct ?? 100 }}%
+                  </div>
+                  <div class="quality-metric-subtext">
+                    {{ qualityStats?.passed_audits || 0 }} / {{ qualityStats?.total_audits || 0 }} passed
+                  </div>
+                </div>
               </div>
 
-              <div class="p-3 bg-surface border border-border-color rounded-lg">
-                <div class="text-xs text-secondary font-medium">Flagged Hallucinations</div>
-                <div class="text-xl font-bold font-mono mt-1 text-danger">
-                  {{ qualityStats?.flagged_audits || 0 }}
+              <div class="quality-metric-card">
+                <div class="quality-metric-icon danger">
+                  <AlertTriangle :size="18" />
                 </div>
-                <div class="text-[11px] text-muted mt-1">{{ qualityStats?.total_hallucinations_detected || 0 }} unverified claims</div>
+                <div class="quality-metric-content">
+                  <div class="quality-metric-label">Flagged Hallucinations</div>
+                  <div class="quality-metric-value font-mono text-danger">
+                    {{ qualityStats?.flagged_audits || 0 }}
+                  </div>
+                  <div class="quality-metric-subtext">
+                    {{ qualityStats?.total_hallucinations_detected || 0 }} unverified claims
+                  </div>
+                </div>
               </div>
 
-              <div class="p-3 bg-surface border border-border-color rounded-lg">
-                <div class="text-xs text-secondary font-medium">Auto-Rewrites Done</div>
-                <div class="text-xl font-bold font-mono mt-1 text-primary">
-                  {{ qualityStats?.auto_rewrites_triggered || 0 }}
+              <div class="quality-metric-card">
+                <div class="quality-metric-icon primary">
+                  <RefreshCw :size="18" />
                 </div>
-                <div class="text-[11px] text-muted mt-1">Autonomous self-corrections</div>
+                <div class="quality-metric-content">
+                  <div class="quality-metric-label">Auto-Rewrites Done</div>
+                  <div class="quality-metric-value font-mono text-primary">
+                    {{ qualityStats?.auto_rewrites_triggered || 0 }}
+                  </div>
+                  <div class="quality-metric-subtext">Autonomous self-corrections</div>
+                </div>
               </div>
 
-              <div class="p-3 bg-surface border border-border-color rounded-lg">
-                <div class="text-xs text-secondary font-medium">Total Audited Tasks</div>
-                <div class="text-xl font-bold font-mono mt-1 text-main">
-                  {{ qualityStats?.total_audits || 0 }}
+              <div class="quality-metric-card">
+                <div class="quality-metric-icon default">
+                  <ShieldCheck :size="18" />
                 </div>
-                <div class="text-[11px] text-muted mt-1">Cover Letters, Q&amp;A, Guides</div>
+                <div class="quality-metric-content">
+                  <div class="quality-metric-label">Total Audited Tasks</div>
+                  <div class="quality-metric-value font-mono">
+                    {{ qualityStats?.total_audits || 0 }}
+                  </div>
+                  <div class="quality-metric-subtext">Cover Letters, Q&amp;A, Guides</div>
+                </div>
               </div>
             </div>
 
-            <!-- Recent Audits Table -->
-            <div v-if="!qualityStats?.recent_audits || qualityStats.recent_audits.length === 0" class="empty-state py-8 text-center">
-              <ShieldCheck :size="32" class="text-secondary mb-2 mx-auto opacity-70" />
-              <h4>No Quality Audits Yet</h4>
-              <p class="text-secondary text-sm mt-1">
-                Audits run automatically when cover letters, application answers, or interview guides are generated with LLM Judge enabled.
-              </p>
-            </div>
+            <!-- Recent Audits Table or Empty State -->
+            <div class="quality-table-wrapper">
+              <div class="quality-table-header">
+                <h4 class="quality-table-title">Recent Grounding Audits</h4>
+                <span class="text-xs text-secondary font-mono">
+                  {{ qualityStats?.recent_audits?.length || 0 }} audits logged
+                </span>
+              </div>
 
-            <div v-else class="table-responsive">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th width="18%">Timestamp</th>
-                    <th width="20%">Pipeline / Task</th>
-                    <th width="14%">Verdict</th>
-                    <th width="48%">Unverified Claims / Critique</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="audit in qualityStats.recent_audits" :key="audit.run_id" class="trace-row">
-                    <td class="text-secondary text-xs">
-                      <span class="font-medium text-main">{{ audit.timestamp ? new Date(audit.timestamp).toLocaleTimeString() : '--' }}</span>
-                      <br />
-                      <span class="opacity-75">{{ audit.timestamp ? new Date(audit.timestamp).toLocaleDateString() : '' }}</span>
-                    </td>
-                    <td>
-                      <span class="category-badge badge-cat-llm">
-                        <Sparkles :size="12" />
-                        {{ audit.task_type }}
-                      </span>
-                    </td>
-                    <td>
-                      <div v-if="audit.passed" class="status-indicator success">
-                        <span class="dot"></span> Grounded
-                      </div>
-                      <div v-else class="status-indicator error">
-                        <span class="dot"></span> Flagged
-                      </div>
-                    </td>
-                    <td>
-                      <div v-if="audit.unverified_claims && audit.unverified_claims.length > 0" class="flex flex-wrap gap-1 mb-1">
-                        <span
-                          v-for="(claim, cIdx) in audit.unverified_claims"
-                          :key="cIdx"
-                          class="badge badge-warning text-[10px] font-mono"
-                        >
-                          {{ claim }}
+              <div v-if="!qualityStats?.recent_audits || qualityStats.recent_audits.length === 0" class="empty-state py-12 text-center">
+                <ShieldCheck :size="36" class="text-secondary mb-3 mx-auto opacity-70" />
+                <h4>No Quality Audits Yet</h4>
+                <p class="text-secondary text-sm mt-1 max-w-md mx-auto">
+                  Audits run automatically in the background when cover letters, application answers, or interview guides are generated with LLM Judge enabled.
+                </p>
+              </div>
+
+              <div v-else class="table-responsive">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th width="16%">Timestamp</th>
+                      <th width="18%">Pipeline / Task</th>
+                      <th width="14%">Verdict</th>
+                      <th width="52%">Unverified Claims / Grounding Critique</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="audit in qualityStats.recent_audits" :key="audit.run_id" class="trace-row">
+                      <td class="text-secondary text-xs">
+                        <span class="font-medium text-main">{{ audit.timestamp ? new Date(audit.timestamp).toLocaleTimeString() : '--' }}</span>
+                        <br />
+                        <span class="opacity-75">{{ audit.timestamp ? new Date(audit.timestamp).toLocaleDateString() : '' }}</span>
+                      </td>
+                      <td>
+                        <span class="category-badge badge-cat-llm">
+                          <Sparkles :size="12" />
+                          {{ audit.task_type }}
                         </span>
-                      </div>
-                      <p v-if="audit.critique" class="text-xs text-secondary italic">
-                        "{{ audit.critique }}"
-                      </p>
-                      <span v-else-if="audit.passed" class="text-xs text-muted">
-                        Zero hallucinated facts detected. All claims grounded in CV.
-                      </span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+                      </td>
+                      <td>
+                        <div v-if="audit.passed" class="status-indicator success">
+                          <span class="dot"></span> Grounded
+                        </div>
+                        <div v-else class="status-indicator error">
+                          <span class="dot"></span> Flagged
+                        </div>
+                      </td>
+                      <td>
+                        <div v-if="audit.unverified_claims && audit.unverified_claims.length > 0" class="flex flex-wrap gap-1 mb-1.5">
+                          <span
+                            v-for="(claim, cIdx) in audit.unverified_claims"
+                            :key="cIdx"
+                            class="badge badge-warning text-[10px] font-mono"
+                          >
+                            {{ claim }}
+                          </span>
+                        </div>
+                        <p v-if="audit.critique" class="text-xs text-secondary italic">
+                          "{{ audit.critique }}"
+                        </p>
+                        <span v-else-if="audit.passed" class="text-xs text-muted">
+                          Zero hallucinated facts detected. All claims grounded in verified candidate CV.
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -908,6 +948,123 @@ onMounted(() => {
 .token-count {
   font-size: 0.78rem;
   letter-spacing: -0.01em;
+}
+
+/* Quality View Styles */
+.quality-view-body {
+  padding: 20px;
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.quality-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.quality-metric-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.quality-metric-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.quality-metric-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.quality-metric-icon.success { background: rgba(34, 197, 94, 0.12); color: #22c55e; }
+.quality-metric-icon.danger { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
+.quality-metric-icon.primary { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
+.quality-metric-icon.default { background: rgba(99, 102, 241, 0.12); color: #6366f1; }
+
+.quality-metric-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.quality-metric-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 2px;
+}
+
+.quality-metric-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-main);
+  line-height: 1.2;
+}
+
+.quality-metric-subtext {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+.quality-table-wrapper {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.quality-table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-sidebar);
+}
+
+.quality-table-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.btn-icon-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-icon-refresh:hover:not(:disabled) {
+  color: var(--primary);
+  border-color: var(--border-focus);
+  background: var(--bg-surface-hover);
 }
 
 /* Section Card */

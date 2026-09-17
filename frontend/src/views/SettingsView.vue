@@ -4295,9 +4295,9 @@ PARAMETER cache_type_v q8_0</code></pre>
                   <div class="label-with-hint">
                     <label class="input-label">Pipelines to Audit</label>
                   </div>
-                  <div class="judge-pipelines-grid">
+                  <div class="judge-pipelines-compact-row">
                     <label
-                      class="judge-pipeline-pill"
+                      class="judge-compact-pill"
                       :class="{
                         'is-active': llmJudgeAuditCoverLetter,
                         'is-disabled': !enableLlmJudge || isUpdatingJudgeSettings
@@ -4310,17 +4310,14 @@ PARAMETER cache_type_v q8_0</code></pre>
                         :disabled="!enableLlmJudge || isUpdatingJudgeSettings"
                         @change="updateLlmJudgeParam('LLM_JUDGE_AUDIT_COVER_LETTER', $event.target.checked)"
                       />
-                      <div class="judge-pill-check">
-                        <Check v-if="llmJudgeAuditCoverLetter" :size="12" />
+                      <div class="judge-pill-indicator">
+                        <Check v-if="llmJudgeAuditCoverLetter" :size="11" />
                       </div>
-                      <div class="judge-pill-text">
-                        <span class="judge-pill-title">Cover Letters</span>
-                        <span class="judge-pill-desc">Grounded against CV skills &amp; roles</span>
-                      </div>
+                      <span class="judge-compact-pill-label">Cover Letters</span>
                     </label>
 
                     <label
-                      class="judge-pipeline-pill"
+                      class="judge-compact-pill"
                       :class="{
                         'is-active': llmJudgeAuditApplicationQa,
                         'is-disabled': !enableLlmJudge || isUpdatingJudgeSettings
@@ -4333,17 +4330,14 @@ PARAMETER cache_type_v q8_0</code></pre>
                         :disabled="!enableLlmJudge || isUpdatingJudgeSettings"
                         @change="updateLlmJudgeParam('LLM_JUDGE_AUDIT_APPLICATION_QA', $event.target.checked)"
                       />
-                      <div class="judge-pill-check">
-                        <Check v-if="llmJudgeAuditApplicationQa" :size="12" />
+                      <div class="judge-pill-indicator">
+                        <Check v-if="llmJudgeAuditApplicationQa" :size="11" />
                       </div>
-                      <div class="judge-pill-text">
-                        <span class="judge-pill-title">Application Q&amp;A</span>
-                        <span class="judge-pill-desc">Validates screening form answers</span>
-                      </div>
+                      <span class="judge-compact-pill-label">Application Q&amp;A</span>
                     </label>
 
                     <label
-                      class="judge-pipeline-pill"
+                      class="judge-compact-pill"
                       :class="{
                         'is-active': llmJudgeAuditInterviewGuide,
                         'is-disabled': !enableLlmJudge || isUpdatingJudgeSettings
@@ -4356,13 +4350,10 @@ PARAMETER cache_type_v q8_0</code></pre>
                         :disabled="!enableLlmJudge || isUpdatingJudgeSettings"
                         @change="updateLlmJudgeParam('LLM_JUDGE_AUDIT_INTERVIEW_GUIDE', $event.target.checked)"
                       />
-                      <div class="judge-pill-check">
-                        <Check v-if="llmJudgeAuditInterviewGuide" :size="12" />
+                      <div class="judge-pill-indicator">
+                        <Check v-if="llmJudgeAuditInterviewGuide" :size="11" />
                       </div>
-                      <div class="judge-pill-text">
-                        <span class="judge-pill-title">Interview Guides</span>
-                        <span class="judge-pill-desc">Audits candidate cheat sheets</span>
-                      </div>
+                      <span class="judge-compact-pill-label">Interview Guides</span>
                     </label>
                   </div>
                   <span class="preference-field-hint">
@@ -6576,24 +6567,19 @@ PARAMETER cache_type_v q8_0</code></pre>
   gap: 12px;
 }
 
-.judge-pipelines-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+.judge-pipelines-compact-row {
+  display: flex;
+  align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
   margin-top: 6px;
 }
 
-@media (max-width: 768px) {
-  .judge-pipelines-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.judge-pipeline-pill {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px 12px;
+.judge-compact-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
   border-radius: var(--radius-sm);
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
@@ -6602,58 +6588,44 @@ PARAMETER cache_type_v q8_0</code></pre>
   user-select: none;
 }
 
-.judge-pipeline-pill:hover:not(.is-disabled) {
+.judge-compact-pill:hover:not(.is-disabled) {
   border-color: var(--border-focus);
   background-color: var(--bg-surface-hover);
 }
 
-.judge-pipeline-pill.is-active {
+.judge-compact-pill.is-active {
   border-color: var(--primary);
   background-color: var(--primary-subtle);
 }
 
-.judge-pill-check {
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
+.judge-pill-indicator {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
   border: 1px solid var(--border-color);
   background-color: var(--bg-surface);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  margin-top: 2px;
   color: var(--primary-contrast);
   transition: all var(--transition-fast);
 }
 
-.judge-pipeline-pill.is-active .judge-pill-check {
+.judge-compact-pill.is-active .judge-pill-indicator {
   border-color: var(--primary);
   background-color: var(--primary);
 }
 
-.judge-pill-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.judge-pill-title {
+.judge-compact-pill-label {
   font-size: 12px;
+  font-weight: 500;
+  color: var(--text-main);
+  line-height: 1;
+}
+
+.judge-compact-pill.is-active .judge-compact-pill-label {
   font-weight: 600;
-  color: var(--text-main);
-  line-height: 1.2;
-}
-
-.judge-pipeline-pill.is-active .judge-pill-title {
-  color: var(--text-main);
-}
-
-.judge-pill-desc {
-  font-size: 10px;
-  color: var(--text-secondary);
-  line-height: 1.3;
 }
 
 .match-threshold-group {
