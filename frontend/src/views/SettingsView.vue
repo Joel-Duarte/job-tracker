@@ -1779,6 +1779,7 @@ function openEditProvider(p) {
     provider_type: p.provider_type,
     base_url: p.base_url || '',
     api_key: '',
+    clear_api_key: false,
     max_concurrency: p.max_concurrency || 2,
     auto_release_vram_minutes: p.auto_release_vram_minutes !== undefined && p.auto_release_vram_minutes !== null ? p.auto_release_vram_minutes : 10,
     engine_type: p.engine_type || 'auto',
@@ -1816,6 +1817,9 @@ async function saveProvider() {
     }
 
     if (editingProvider.value) {
+      if (!payload.clear_api_key && (!payload.api_key || !payload.api_key.trim())) {
+        delete payload.api_key
+      }
       await AIConfigAPI.updateProvider(editingProvider.value.id, payload)
       uiStore.showToast('Provider updated successfully', 'success')
     } else {
@@ -4528,8 +4532,28 @@ PARAMETER cache_type_v q8_0</code></pre>
                 <input v-model="providerForm.base_url" type="text" placeholder="http://192.168.1.187:1234/v1" class="form-input font-mono text-xs" />
               </div>
               <div class="input-group">
-                <label class="input-label">{{ editingProvider ? 'New API Key (Leave blank to keep)' : 'API Key (Optional for local)' }}</label>
-                <input v-model="providerForm.api_key" type="password" placeholder="lm-studio / sk-..." class="form-input font-mono text-xs" />
+                <div class="flex items-center justify-between">
+                  <label class="input-label">{{ editingProvider ? 'API Key' : 'API Key (Optional for local)' }}</label>
+                  <button
+                    v-if="editingProvider && editingProvider.api_key_masked && !providerForm.clear_api_key"
+                    type="button"
+                    class="text-xs text-danger hover:underline cursor-pointer bg-transparent border-0 p-0"
+                    @click="providerForm.clear_api_key = true; providerForm.api_key = ''"
+                  >
+                    Remove Key
+                  </button>
+                  <span v-else-if="providerForm.clear_api_key" class="text-xs text-warning">
+                    Will be cleared
+                    <button type="button" class="text-xs underline ml-1 cursor-pointer bg-transparent border-0 text-warning" @click="providerForm.clear_api_key = false">Undo</button>
+                  </span>
+                </div>
+                <input
+                  v-model="providerForm.api_key"
+                  type="password"
+                  :placeholder="providerForm.clear_api_key ? 'Key marked for removal' : (editingProvider?.api_key_masked ? editingProvider.api_key_masked + ' (Leave blank to keep)' : 'lm-studio / sk-...')"
+                  class="form-input font-mono text-xs"
+                  :disabled="providerForm.clear_api_key"
+                />
               </div>
 
               <!-- Row 2.5: Local Lifecycle Engine (Contextual) -->

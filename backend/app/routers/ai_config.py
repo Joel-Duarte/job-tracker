@@ -472,8 +472,12 @@ async def get_global_settings(
         SEARXNG_URL=settings.get("searxng_url", None),
         ENABLE_LLM_JUDGE=settings.get("enable_llm_judge", False),
         LLM_JUDGE_AUDIT_COVER_LETTER=settings.get("llm_judge_audit_cover_letter", True),
-        LLM_JUDGE_AUDIT_APPLICATION_QA=settings.get("llm_judge_audit_application_qa", True),
-        LLM_JUDGE_AUDIT_INTERVIEW_GUIDE=settings.get("llm_judge_audit_interview_guide", False),
+        LLM_JUDGE_AUDIT_APPLICATION_QA=settings.get(
+            "llm_judge_audit_application_qa", True
+        ),
+        LLM_JUDGE_AUDIT_INTERVIEW_GUIDE=settings.get(
+            "llm_judge_audit_interview_guide", False
+        ),
         LLM_JUDGE_ACTION=settings.get("llm_judge_action", "auto_rewrite"),
         LLM_JUDGE_MAX_RETRIES=settings.get("llm_judge_max_retries", 1),
     )
@@ -512,9 +516,13 @@ async def update_global_settings(
     if payload.LLM_JUDGE_AUDIT_COVER_LETTER is not None:
         settings["llm_judge_audit_cover_letter"] = payload.LLM_JUDGE_AUDIT_COVER_LETTER
     if payload.LLM_JUDGE_AUDIT_APPLICATION_QA is not None:
-        settings["llm_judge_audit_application_qa"] = payload.LLM_JUDGE_AUDIT_APPLICATION_QA
+        settings["llm_judge_audit_application_qa"] = (
+            payload.LLM_JUDGE_AUDIT_APPLICATION_QA
+        )
     if payload.LLM_JUDGE_AUDIT_INTERVIEW_GUIDE is not None:
-        settings["llm_judge_audit_interview_guide"] = payload.LLM_JUDGE_AUDIT_INTERVIEW_GUIDE
+        settings["llm_judge_audit_interview_guide"] = (
+            payload.LLM_JUDGE_AUDIT_INTERVIEW_GUIDE
+        )
     if payload.LLM_JUDGE_ACTION is not None:
         settings["llm_judge_action"] = payload.LLM_JUDGE_ACTION
     if payload.LLM_JUDGE_MAX_RETRIES is not None:
@@ -534,8 +542,12 @@ async def update_global_settings(
         SEARXNG_URL=settings.get("searxng_url", None),
         ENABLE_LLM_JUDGE=settings.get("enable_llm_judge", False),
         LLM_JUDGE_AUDIT_COVER_LETTER=settings.get("llm_judge_audit_cover_letter", True),
-        LLM_JUDGE_AUDIT_APPLICATION_QA=settings.get("llm_judge_audit_application_qa", True),
-        LLM_JUDGE_AUDIT_INTERVIEW_GUIDE=settings.get("llm_judge_audit_interview_guide", False),
+        LLM_JUDGE_AUDIT_APPLICATION_QA=settings.get(
+            "llm_judge_audit_application_qa", True
+        ),
+        LLM_JUDGE_AUDIT_INTERVIEW_GUIDE=settings.get(
+            "llm_judge_audit_interview_guide", False
+        ),
         LLM_JUDGE_ACTION=settings.get("llm_judge_action", "auto_rewrite"),
         LLM_JUDGE_MAX_RETRIES=settings.get("llm_judge_max_retries", 1),
     )
@@ -662,10 +674,26 @@ async def update_ai_provider(
             ef.is_fallback = False
 
     data = payload.model_dump(exclude_unset=True)
-    for field, val in data.items():
-        if field in ("name", "provider_type", "base_url", "api_key") and isinstance(
-            val, str
+    if payload.clear_api_key is True:
+        provider.api_key = None
+    elif "api_key" in data:
+        val = data["api_key"]
+        if (
+            isinstance(val, str)
+            and val.strip()
+            and not (
+                val.strip().startswith("sk-...")
+                or "..." in val
+                or "***" in val
+                or "••••" in val
+            )
         ):
+            provider.api_key = val.strip()
+
+    for field, val in data.items():
+        if field in ("api_key", "clear_api_key"):
+            continue
+        if field in ("name", "provider_type", "base_url") and isinstance(val, str):
             val = val.strip() or None
         setattr(provider, field, val)
 

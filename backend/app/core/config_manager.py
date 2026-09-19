@@ -68,10 +68,18 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
         search_provider = getattr(model, "search_provider", "automatic") or "automatic"
         searxng_url = getattr(model, "searxng_url", None)
         enable_llm_judge = getattr(model, "enable_llm_judge", False)
-        llm_judge_audit_cover_letter = getattr(model, "llm_judge_audit_cover_letter", True)
-        llm_judge_audit_application_qa = getattr(model, "llm_judge_audit_application_qa", True)
-        llm_judge_audit_interview_guide = getattr(model, "llm_judge_audit_interview_guide", False)
-        llm_judge_action = getattr(model, "llm_judge_action", "auto_rewrite") or "auto_rewrite"
+        llm_judge_audit_cover_letter = getattr(
+            model, "llm_judge_audit_cover_letter", True
+        )
+        llm_judge_audit_application_qa = getattr(
+            model, "llm_judge_audit_application_qa", True
+        )
+        llm_judge_audit_interview_guide = getattr(
+            model, "llm_judge_audit_interview_guide", False
+        )
+        llm_judge_action = (
+            getattr(model, "llm_judge_action", "auto_rewrite") or "auto_rewrite"
+        )
         llm_judge_max_retries = getattr(model, "llm_judge_max_retries", 1)
 
         return {

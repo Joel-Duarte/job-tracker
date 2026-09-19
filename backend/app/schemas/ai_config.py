@@ -9,6 +9,8 @@ def mask_secret(secret: str | None) -> str | None:
         return None
     if len(secret) <= 6:
         return "***"
+    if secret.startswith("sk-"):
+        return f"sk-...{secret[-4:]}"
     return f"{secret[:3]}...{secret[-3:]}"
 
 
@@ -55,6 +57,7 @@ class AIProviderUpdate(BaseModel):
     provider_type: str | None = None
     base_url: str | None = None
     api_key: str | None = None
+    clear_api_key: bool | None = None
     max_concurrency: int | None = Field(default=None, ge=1, le=50)
     is_active: bool | None = None
     is_fallback: bool | None = None

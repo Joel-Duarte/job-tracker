@@ -451,3 +451,66 @@ async def test_pricing_rates_endpoints(db_session: AsyncSession):
         assert "task_breakdown" in usage
 
     app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_ai_provider_key_encryption_and_preservation(db_session: AsyncSession):
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # 1. Create a provider with a secret API key
+        create_res = await ac.post(
+            "/api/v1/ai/providers",
+            json={
+                "name": "Cloud Security Test",
+                "provider_type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-proj-supersecretkey123456789",
+                "max_concurrency": 2,
+            },
+        )
+        assert create_res.status_code == 201
+        created = create_res.json()
+        prov_id = created["id"]
+        # API must return masked key only, never raw key
+        assert created["api_key_masked"] == "sk-...6789"
+        assert "api_key" not in created or created.get("api_key") is None
+
+        # 2. Verify in DB that it is stored encrypted (not plaintext)
+        stmt = select(AIProviderModel).where(AIProviderModel.id == prov_id)
+        res = await db_session.execute(stmt)
+        db_provider = res.scalar_one_or_none()
+        assert db_provider is not None
+        # Raw column in DB must not contain plaintext
+        assert db_provider._api_key != "sk-proj-supersecretkey123456789"
+        # Accessing property decrypts back to original plaintext
+        assert db_provider.api_key == "sk-proj-supersecretkey123456789"
+
+        # 3. Update provider without passing api_key (leave blank to keep)
+        patch_res = await ac.patch(
+            f"/api/v1/ai/providers/{prov_id}",
+            json={"name": "Cloud Security Renamed", "api_key": ""},
+        )
+        assert patch_res.status_code == 200
+        patched = patch_res.json()
+        assert patched["name"] == "Cloud Security Renamed"
+        assert patched["api_key_masked"] == "sk-...6789"
+
+        # DB must still have the original encrypted key
+        await db_session.refresh(db_provider)
+        assert db_provider.api_key == "sk-proj-supersecretkey123456789"
+
+        # 4. Explicitly clear key using clear_api_key
+        clear_res = await ac.patch(
+            f"/api/v1/ai/providers/{prov_id}",
+            json={"clear_api_key": True},
+        )
+        assert clear_res.status_code == 200
+        cleared = clear_res.json()
+        assert cleared["api_key_masked"] is None
+
+        await db_session.refresh(db_provider)
+        assert db_provider.api_key is None
+
+    app.dependency_overrides.clear()
