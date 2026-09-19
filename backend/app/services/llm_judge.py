@@ -35,7 +35,12 @@ async def audit_generation_grounding(
     start_time = time.time()
 
     prompt_template_str = await get_prompt_template(db, "llm_judge")
-    chat_prompt = ChatPromptTemplate.from_messages([("system", prompt_template_str)])
+    chat_prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", "You are an expert technical QA auditor and Grounding Judge."),
+            ("human", prompt_template_str),
+        ]
+    )
 
     try:
         model = await get_task_chat_model(db, task_type="LLM_JUDGE")
@@ -85,11 +90,34 @@ async def audit_generation_grounding(
             },
         )
         db.add(trace)
+        await db.commit()
 
         return result
 
     except Exception as e:
         logger.error(f"Error during LLM Judge audit: {e}")
+        try:
+            latency = (time.time() - start_time) * 1000
+            err_trace = TraceEventModel(
+                run_id=f"judge_{uuid.uuid4().hex[:12]}",
+                category="eval",
+                event_type="llm_judge_audit",
+                payload={
+                    "status": "error",
+                    "latency_ms": latency,
+                    "task_type": task_type,
+                    "context_label": context_label,
+                    "passed": False,
+                    "confidence_score": 0.0,
+                    "unverified_claims": [f"Judge execution error: {e}"],
+                    "critique": f"Error executing judge: {e}",
+                },
+            )
+            db.add(err_trace)
+            await db.commit()
+        except Exception as log_err:
+            logger.warning(f"Failed to record LLM judge error trace: {log_err}")
+
         return HallucinationAuditResult(
             passed=True,
             confidence_score=0.0,
