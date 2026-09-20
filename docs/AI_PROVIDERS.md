@@ -226,7 +226,7 @@ Job Tracker enforces strict parameter isolation across all tasks:
 | **`JD_EXTRACTION`** | Web Scrape Parser | `temp: 0.0, reasoning: none` | `temp: 0.0, reasoning: none` | Deterministic schema parsing; runs **10x faster** without thinking tokens (~7s vs 120s). |
 | **`EMAIL_EXTRACTION`** | Recruitment Email Parser | `temp: 0.0, reasoning: none` | `temp: 0.0, reasoning: none` | High-precision extraction of dates, senders, interview stages, and to-do deadlines. |
 | **`JOB_ASSESSMENT`** | Fit Score & Gap Audit | `temp: 0.1, reasoning: none` | `temp: 0.1, reasoning: low/med` | Fast local intake (~35s vs 145s); programmatic baseline already guides scoring. Cloud reasoning enables deep career transition analysis. |
-| **`cv_anonymization`** | CV De-Identification | `temp: 0.0, reasoning: none` | `temp: 0.0, reasoning: none` | Strict PII redaction and standardized technical skill taxonomy extraction. |
+| **`CV_EXTRACTION`** | CV De-Identification | `temp: 0.0, reasoning: none` | `temp: 0.0, reasoning: none` | Strict PII redaction and standardized technical skill taxonomy extraction. |
 | **`COVER_LETTER`** | Cover Letter Composition | `temp: 0.3, reasoning: none` | `temp: 0.3, reasoning: none` | Strict factual grounding; direct instruction produces fluid, persuasive prose without hallucinated achievements. |
 | **`APPLICATION_QA`** | Application Form Answers | `temp: 0.2, reasoning: none` | `temp: 0.2, reasoning: low` | Factual Q&A answers derived directly from verified candidate profile and job requirements. |
 | **`ROLE_ALIGNMENT_DOSSIER`** | Career Intelligence Dossier | `temp: 0.2, reasoning: none` | `temp: 0.2, reasoning: medium` | Executive market positioning, quantified bullet rewrites, talking points, and skill bridge roadmaps. |
@@ -260,7 +260,7 @@ When a task has reasoning set to **`none` (Fast)** in the UI:
 2. **`JD_EXTRACTION`**: Parses raw web HTML/markdown from job postings into structured JSON schemas (title, company, salary ranges, technical skill lists).
 3. **`EMAIL_EXTRACTION`**: Scans recruitment emails to extract sender details, interview dates, rejection notices, and pending action items.
 4. **`JOB_ASSESSMENT`**: Performs a comprehensive audit comparing your candidate CV against the job description, computing fit percentages, match rationales, and strategic gap-closing tips.
-5. **`cv_anonymization`**: De-identifies resumes for PII protection and extracts standardized skill taxonomies.
+5. **`CV_EXTRACTION`**: De-identifies resumes for PII protection and extracts standardized skill taxonomies.
 6. **`COVER_LETTER`**: Drafts personalized, high-impact cover letters referencing your real past achievements against company values without hallucinating unverified experience.
 7. **`APPLICATION_QA`**: Generates honest, grounded answers for ATS application form questionnaires using verified CV facts.
 8. **`ROLE_ALIGNMENT_DOSSIER`**: Synthesizes career positioning dossiers (executive summary, quantified resume bullets, interview hooks, skill bridges) for a selected role track.

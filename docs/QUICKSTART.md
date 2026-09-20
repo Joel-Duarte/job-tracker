@@ -73,15 +73,15 @@ jt.cmd dev
 
 ## 🧙 First-Time In-App Onboarding Wizard
 
-When you open the web UI for the first time, Job Tracker automatically launches the **5-Step Onboarding Wizard** to configure your workspace in under two minutes:
+When you open the web UI for the first time, Job Tracker automatically launches the **Onboarding Wizard** to configure your workspace in under two minutes:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
 │                        Job Tracker Setup Wizard                        │
 │                                                                        │
-│  [1] AI Provider  ➜  [2] Candidate CV  ➜  [3] Preferences  ➜  [4] Sync  │
+│  [1] AI Provider  ➜  [2] Candidate CV  ➜  [3] Feature Toggles           │
 │                                                                        │
-│                      ➜  [5] Launch Workspace 🚀                       │
+│                      ➜  [4] Launch Workspace 🚀                       │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -100,22 +100,14 @@ Job Tracker is model-agnostic. Choose your preferred AI engine:
 2. **Built-in PII Anonymizer:** Review how Job Tracker automatically scrubs personal identifying information (phone numbers, personal emails, physical addresses) before LLM prompt injection while preserving your core technical competencies, years of experience, and project achievements.
 3. Click **Save & Proceed** (or Skip to add later via Profile settings).
 
-### Step 3: Configure Workspace Preferences
+### Step 3: Configure Feature Toggles & Preferences
 - **Default Currency:** Select USD (`$`), EUR (`€`), GBP (`£`), CAD (`$`), AUD (`$`), or JPY (`¥`) for salary tracking.
-- **pgvector Embedding Search:** Enable dense semantic similarity search across applications and job descriptions.
-- **Auto Cover Letter Synthesis:** Toggle automatic cover letter generation with custom fit threshold percentages (e.g., auto-generate when job fit score $\ge$ 70%).
+- **Email Auto-Sync:** Toggle automated email fetching and recruitment timeline updates. If enabled, an inline email account setup step is provided.
+- **Cover Letters:** Toggle automatic cover letter generation with custom fit threshold percentages (e.g., auto-generate when job fit score $\ge$ 70%).
+- **Vector Knowledge & Embeddings:** Toggle dense semantic similarity search across applications and job descriptions using pgvector.
 
-### Step 4: (Optional) Connect Email Sync
-Automate interview invites, online assessments, and recruiter update tracking:
-- **Google / Gmail:** Secure OAuth2 authorization or App Password.
-- **Microsoft Outlook / 365:** Microsoft Graph OAuth2 or App Password.
-- **Apple iCloud / Fastmail / Yahoo / Custom IMAP:** Direct IMAP connection over SSL (Port 993).
-- Choose your recruitment folder (e.g., `INBOX`, `Jobs`, `Recruitment`) and sync schedule.
-
-> For complete step-by-step instructions with Cloud Console / Azure setup and App Password generation, see the [OAuth & Mailbox Setup Guide](file:///home/joel/Projects/job-tracker/docs/OAUTH_SETUP.md).
-
-### Step 5: Launch!
-Click **"Launch Job Tracker"** to enter your workspace. Your background evaluation worker starts immediately, ready to triage and assess leads.
+### Step 4: Launch!
+Click **"Launch Workspace"** to enter your job search hub. Your background evaluation worker starts immediately, ready to triage and assess leads.
 
 ---
 
