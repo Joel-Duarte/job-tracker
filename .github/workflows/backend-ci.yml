@@ -32,6 +32,9 @@ jobs:
       with:
         python-version: "3.12"
 
+    - name: Test Jules automation
+      run: python -m unittest discover -s ../scripts -p 'test_jules_*.py'
+
     - name: Install uv
       uses: astral-sh/setup-uv@v5
       with:

@@ -52,6 +52,9 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
 
 ### Infrastructure & Development Startup
 - **Unified Daily-Driver CLI Launcher (`jt`):** Run `./jt` on Linux/macOS or `jt.cmd` / `jt` on Windows. Includes `jt update` (automatically saves a pre-update PostgreSQL database snapshot to `backups/` before pulling and migrating) and standalone `jt backup`.
+- **GitHub Issue Automation:** The Jules workflow validates new `bug` issues, then starts a separate fix task only when Jules reports reproduction evidence. Maintainers can use `/jules validate` or `/jules fix` on an issue; configure the Jules GitHub App and `JULES_API_KEY` repository secret. Unverified and unfixable issues receive comments rather than diagnostic PRs.
+- **Security CI:** CodeQL scans Python, JavaScript, and Actions; dependency review blocks new high-severity vulnerable packages; zizmor checks workflows; scheduled npm and uv audits report existing lockfile findings. Maintainers can manually launch a review-only Jules task for open CodeQL or Dependabot alerts on `master`.
+- **UI QA CI:** Playwright runs demo-mode browser tests on desktop and mobile Chromium for all top-level routes, core interactions, accessibility, and visual regression. Maintainers can start a review-only Jules UI QA task for a same-repository PR. `docs/UI_QA.md` tracks the coverage contract and merge-gate setup.
 - **Local Development:** Run `./jt dev` (or `./jt dev --reset` to wipe and restart). This spins up `db` (PostgreSQL), `scraper` (Camofox), `backend` (FastAPI), and `frontend` (Vite dev server) using `docker-compose.dev.yml`.
 - **Automatic Mock Dataset Seeding:** When `./jt dev` or a clean database boots in development mode (`ENVIRONMENT=development` or `SEED_DEV_DATA=true`), the backend automatically populates a comprehensive, domain-tailored mock dataset:
   - 1 Active Candidate CV profile (Staff Distributed Systems Engineer)
@@ -140,14 +143,16 @@ When creating or modifying Vue components, layouts, stores, or styling:
    - Use browser / Chrome DevTools tools (or take screenshots) to verify UI elements, layout responsiveness, modal interactions, and Pinia store reactivity against `http://localhost:5173`.
    - Check browser console logs for any Vue reactivity warnings or runtime errors.
 
-3. **Compilation & Type Check (Post-Edit Only):**
+3. **UI QA Coverage (Mandatory for UI Changes):** Every new or changed user-visible behavior in Vue views, components, stores, routes, or styling must add or update a Playwright test in `frontend/tests/e2e/` that asserts the user outcome. CI requires a test-file change alongside frontend source changes. Test desktop and mobile when layouts differ, both themes when colors or surfaces change, and accessible names/keyboard behavior for new controls. Keep demo-mode API behavior sufficient to exercise the feature. Run `npm run test:e2e` in `frontend/` after editing. See `docs/UI_QA.md` for the coverage inventory and CI artifact workflow.
+
+4. **Compilation & Type Check (Post-Edit Only):**
    Only after modifying frontend code, in `frontend/`, run:
    ```bash
    npm run build
    ```
    This compiles all Vue SFC templates and TypeScript/JavaScript to ensure zero bundling errors or broken imports. Do NOT run this if no frontend changes were made.
 
-4. **No-Docker UI Fallback:**
+5. **No-Docker UI Fallback:**
    If Docker is unavailable, agents run `npm run build` after editing for structural validation and may run `npm run dev` locally.
 
 ### 3. General Development Rules
@@ -272,7 +277,8 @@ Before committing or completing tasks, agents and developers must execute and pa
 #### Frontend Checks (Run in `frontend/`)
 1. **Build Check:** `npm run build` (Ensures TypeScript types, templates, and bundling compile without errors)
 2. **Lint Check:** `npm run lint --if-present`
-3. **Front end visual checks:** `VITE_DEMO_MODE=true npm run dev` (Use this always when having to test changes or additions to frontend)
+3. **Browser QA:** `npm run test:e2e` (Playwright starts `VITE_DEMO_MODE=true npm run dev` and checks desktop/mobile behavior.)
+4. **Front end visual checks:** `VITE_DEMO_MODE=true npm run dev` when manual visual review is needed.
 ---
 
 ## Workflow Execution (For Automated Agents)
@@ -283,5 +289,6 @@ Before committing or completing tasks, agents and developers must execute and pa
    - Run `ripwire . --situ` to inspect uncommitted changes, assess blast radius, and identify affected test suites.
    - For backend changes: Run the targeted test suite (e.g. `uv run pytest backend/app/tests/test_specific.py`). Full suite `uv run pytest` is only needed during final pre-commit or when shared/database core code changes.
    - For frontend changes: Run `npm run build` in `frontend/` to confirm template/TypeScript compilation.
+   - For frontend changes: Run `npm run test:e2e` in `frontend/` to verify user behavior in demo mode.
    - Do NOT run frontend builds if only backend code was modified, and vice-versa.
 5. **Pre-Commit Verification:** Ensure `uv run ruff format --check .` and `uv run ruff check .` pass with 0 errors before completing.

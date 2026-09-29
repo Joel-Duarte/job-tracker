@@ -1,0 +1,32 @@
+name: Jules UI QA review
+
+on:
+  workflow_dispatch:
+    inputs:
+      pull_number:
+        description: Open same-repository UI pull request number
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Start a Jules UI review
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PULL_NUMBER: ${{ inputs.pull_number }}
+        run: python scripts/jules_ui_qa.py

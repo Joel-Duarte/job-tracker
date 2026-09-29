@@ -19,6 +19,7 @@ import {
   Layers,
   Sparkles,
   ArrowUpRight,
+  ArrowRight,
   ArrowDownRight,
   Filter,
   PieChart,
@@ -4448,4 +4449,3 @@ const maxCohortVolume = computed(() => {
   }
 }
 </style>
-

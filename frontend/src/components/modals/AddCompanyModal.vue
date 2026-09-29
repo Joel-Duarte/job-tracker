@@ -82,6 +82,7 @@ async function handleCreate(queueResearch = false) {
     )
 
     emit('created', createdCompany)
+    isSubmitting.value = false
     closeModal()
   } catch (err) {
     const errorMsg = err.response?.data?.detail || err.message || 'Failed to create company'
@@ -100,14 +101,14 @@ async function handleCreate(queueResearch = false) {
         class="modal-backdrop"
         @click.self="closeModal"
       >
-        <div class="modal-card animate-fade-in add-company-modal">
+        <div class="modal-card animate-fade-in add-company-modal" role="dialog" aria-modal="true" aria-labelledby="add-company-title">
           <div class="modal-header">
             <div class="modal-header-title-wrap">
               <div class="modal-header-icon-wrap">
                 <Building2 :size="18" class="text-primary" />
               </div>
               <div>
-                <h3 class="modal-title">Add Company</h3>
+                <h3 id="add-company-title" class="modal-title">Add Company</h3>
                 <p class="modal-subtitle">Create an employer entity to track applications and live intelligence.</p>
               </div>
             </div>
@@ -124,8 +125,9 @@ async function handleCreate(queueResearch = false) {
 
           <div class="modal-body">
             <div class="form-group">
-              <label class="form-label required">Company Name</label>
+              <label for="new-company-name" class="form-label required">Company Name</label>
               <input
+                id="new-company-name"
                 ref="nameInputRef"
                 v-model="companyName"
                 type="text"
@@ -137,13 +139,14 @@ async function handleCreate(queueResearch = false) {
             </div>
 
             <div class="form-group">
-              <label class="form-label">
+              <label for="new-company-url" class="form-label">
                 <span>Website or Careers URL</span>
                 <span class="text-muted font-normal">(Optional)</span>
               </label>
               <div class="input-with-icon">
                 <Globe :size="15" class="input-icon text-muted" />
                 <input
+                  id="new-company-url"
                   v-model="companyUrl"
                   type="text"
                   class="form-input"
@@ -158,11 +161,12 @@ async function handleCreate(queueResearch = false) {
             </div>
 
             <div class="form-group">
-              <label class="form-label">
+              <label for="new-company-about-url" class="form-label">
                 <span>"About Us" or Info Page URL</span>
                 <span class="text-muted font-normal">(Optional)</span>
               </label>
               <input
+                id="new-company-about-url"
                 v-model="companyAboutUrl"
                 type="text"
                 class="form-input"
@@ -179,7 +183,7 @@ async function handleCreate(queueResearch = false) {
                 <Sparkles :size="18" class="text-primary" />
               </div>
               <div class="box-content">
-                <h5 class="box-title">AI Live Web Intelligence</h5>
+                <h4 class="box-title">AI Live Web Intelligence</h4>
                 <p class="box-desc">
                   Queueing web research will search DuckDuckGo/SearXNG and synthesize corporate culture, public reviews, and strategic overview in the background AI Queue.
                 </p>
@@ -395,7 +399,7 @@ async function handleCreate(queueResearch = false) {
 
 .form-hint {
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   margin: 2px 0 0 0;
   line-height: 1.4;
 }

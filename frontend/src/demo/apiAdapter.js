@@ -1990,7 +1990,37 @@ export async function handleDemoRequest(config) {
     })
   }
 
+  if (urlPath === '/prompts' && method === 'get') {
+    return ok([])
+  }
+
   // 11. COMPANIES ENDPOINTS
+  if (urlPath === '/companies' && method === 'post') {
+    const name = data.name?.trim()
+    if (!name) {
+      return { status: 400, data: { detail: 'Company name is required' } }
+    }
+    const company = {
+      id: `comp_demo_${Date.now()}`,
+      name,
+      name_normalized: name.toLowerCase(),
+      domain: data.domain?.trim() || null,
+      about_url: data.about_url?.trim() || null,
+      rating: null,
+      notes: '',
+      pros: [],
+      red_flags: [],
+      company_research: null,
+      researched_at: null,
+      research_status: data.queue_research ? 'QUEUED' : 'NONE',
+      application_count: 0,
+      active_applications_count: 0,
+    }
+    db.companies = [...(db.companies || []), company]
+    saveDemoDb(db)
+    return ok(company)
+  }
+
   if (urlPath === '/companies' && method === 'get') {
     let items = [...(db.companies || [])]
     if (params.q) {

@@ -128,6 +128,8 @@ pnpm-debug.log*
 
 # Vue / Vite / Webpack test artifacts
 coverage/
+playwright-report/
+test-results/
 
 TODO.md
 .agent

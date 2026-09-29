@@ -1,0 +1,39 @@
+name: Jules security fix
+
+on:
+  workflow_dispatch:
+    inputs:
+      alert_type:
+        description: Security alert source
+        required: true
+        type: choice
+        options: [codeql, dependabot]
+      alert_number:
+        description: Alert number from the repository Security tab
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  security-events: read
+  vulnerability-alerts: read
+
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Start a private Jules session
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ALERT_TYPE: ${{ inputs.alert_type }}
+          ALERT_NUMBER: ${{ inputs.alert_number }}
+        run: python scripts/jules_security.py

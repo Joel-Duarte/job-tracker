@@ -595,6 +595,12 @@ function onCompanyUpdated(event) {
   }
 }
 
+function handleDocumentClick(event) {
+  if (addIntelDropdownRef.value && !addIntelDropdownRef.value.contains(event.target)) {
+    isAddIntelDropdownOpen.value = false
+  }
+}
+
 onMounted(() => {
   window.addEventListener('application:deleted', onApplicationDeleted)
   window.addEventListener('company:updated', onCompanyUpdated)
