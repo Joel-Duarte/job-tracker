@@ -616,15 +616,16 @@ async def _scrape_via_http_fallback(
     url: str, timeout_seconds: float = 15.0
 ) -> ScrapedJobContent:
     """Fallback HTTP scraper using realistic Firefox desktop headers and BeautifulSoup cleaning."""
+    safe_url = validate_target_url(url)
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
     }
     async with httpx.AsyncClient(
-        timeout=timeout_seconds, follow_redirects=True
+        timeout=timeout_seconds, follow_redirects=False
     ) as client:
-        resp = await client.get(url, headers=headers)
+        resp = await client.get(safe_url, headers=headers)
         if resp.status_code >= 400:
             raise httpx.HTTPError(f"HTTP fetch failed with status {resp.status_code}")
 
@@ -648,13 +649,13 @@ async def _scrape_via_http_fallback(
 
         logger.info(
             "Successfully scraped %s via HTTP fallback (%d chars)",
-            url,
+            safe_url,
             len(cleaned_text),
         )
         return ScrapedJobContent(
             title=title or "",
             text=cleaned_text,
-            source_url=url,
+            source_url=safe_url,
             scraped_via="http_fallback",
         )
 
