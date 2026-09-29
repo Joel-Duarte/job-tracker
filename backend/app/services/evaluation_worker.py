@@ -1192,14 +1192,23 @@ async def _execute_evaluation_steps(
                     page_title=current_json.get("page_title"),
                 )
                 if not job_spec.job_found:
-                    task.status = "FAILED"
-                    task.stage = "FAILED"
-                    task.error_message = "NO_JOB_FOUND: The scraped page or input text did not contain an active job description or vacancy."
-                    task.completed_at = datetime.now(UTC)
-                    await db.commit()
-                    ctx["error"] = task.error_message
-                    ctx["outputs"] = {"status": task.status, "stage": task.stage}
-                    return
+                    if is_user_provided_text:
+                        # User explicitly pasted the text — trust their input and proceed
+                        # even if the LLM didn't recognise it as a job posting.
+                        logger.warning(
+                            "Task %s: LLM returned job_found=False for user-provided text. "
+                            "Trusting user input and proceeding with extraction.",
+                            task.id,
+                        )
+                    else:
+                        task.status = "FAILED"
+                        task.stage = "FAILED"
+                        task.error_message = "NO_JOB_FOUND: The scraped page or input text did not contain an active job description or vacancy."
+                        task.completed_at = datetime.now(UTC)
+                        await db.commit()
+                        ctx["error"] = task.error_message
+                        ctx["outputs"] = {"status": task.status, "stage": task.stage}
+                        return
 
                 if isinstance(job_spec, ExtractedJobSpec):
                     spec_dict = job_spec.model_dump()
