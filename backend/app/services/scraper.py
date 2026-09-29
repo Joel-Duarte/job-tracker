@@ -141,7 +141,19 @@ def validate_target_url(url: str) -> str:
     if not hostname:
         raise ValueError("Invalid URL: missing hostname")
 
-    hostname_lower = hostname.lower()
+    hostname_lower = hostname.lower().rstrip(".")
+
+    allowed_hosts = getattr(settings, "SCRAPER_ALLOWED_HOSTS", []) or []
+    normalized_allowed_hosts = [h.lower().rstrip(".") for h in allowed_hosts if h]
+    if not normalized_allowed_hosts:
+        raise ValueError("No allowed scraper hosts configured.")
+
+    if not any(
+        hostname_lower == allowed or hostname_lower.endswith(f".{allowed}")
+        for allowed in normalized_allowed_hosts
+    ):
+        raise ValueError(f"Host '{hostname_lower}' is not in the scraper allowlist.")
+
     if hostname_lower in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
         raise ValueError("Targeting private IP or loopback addresses is forbidden.")
 
