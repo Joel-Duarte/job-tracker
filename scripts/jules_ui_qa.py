@@ -1,4 +1,4 @@
-"""Start a review-only Jules QA session for a maintainer-selected UI PR."""
+"""Review a selected UI PR or repair reproducible default-branch QA failures."""
 
 import os
 import sys
@@ -6,7 +6,39 @@ import sys
 from jules_issues import ApiError, Client, source_for_repo
 
 
-def start_ui_qa_task(client, pull_number):
+def start_ui_qa_task(client, pull_number=""):
+    if pull_number is None or (
+        isinstance(pull_number, str) and not pull_number.strip()
+    ):
+        source = source_for_repo(client)
+        branch = source["githubRepo"]["defaultBranch"]["displayName"]
+        prompt = (
+            "Run the frontend Playwright QA suite on this repository's default branch "
+            "with npm run test:e2e in frontend/. Reproduce any failure before editing. "
+            "Diagnose the actual cause using Playwright traces and browser output when "
+            "available. Fix a reproducible product or test defect with the smallest "
+            "appropriate change, then rerun the failing tests and relevant QA suite. "
+            "Preserve meaningful assertions; do not delete tests, weaken assertions, "
+            "or update screenshot baselines merely to make a failure disappear. "
+            "Create a PR only for a verified fix, with reproduction evidence and test "
+            "results. If all tests pass or a failure cannot be reproduced, make no "
+            "repository changes or PR; explain the results and likely next steps."
+        )
+        return client.jules(
+            "POST",
+            "/sessions",
+            {
+                "title": "Fix reproducible Playwright QA failures",
+                "prompt": prompt,
+                "sourceContext": {
+                    "source": source["name"],
+                    "githubRepoContext": {"startingBranch": branch},
+                },
+                "requirePlanApproval": False,
+                "automationMode": "AUTO_CREATE_PR",
+            },
+        )
+
     try:
         number = int(pull_number)
     except (TypeError, ValueError):
@@ -57,7 +89,7 @@ def start_ui_qa_task(client, pull_number):
 
 
 def main():
-    required = ("GITHUB_REPOSITORY", "GITHUB_TOKEN", "JULES_API_KEY", "PULL_NUMBER")
+    required = ("GITHUB_REPOSITORY", "GITHUB_TOKEN", "JULES_API_KEY")
     missing = [name for name in required if not os.environ.get(name)]
     if missing:
         raise ApiError("Missing required environment variables: " + ", ".join(missing))
@@ -66,12 +98,12 @@ def main():
         os.environ["GITHUB_TOKEN"],
         os.environ["JULES_API_KEY"],
     )
-    session = start_ui_qa_task(client, os.environ["PULL_NUMBER"])
+    session = start_ui_qa_task(client, os.environ.get("PULL_NUMBER", ""))
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as output:
-            output.write(f"Jules UI QA review: {session['url']}\n")
-    print("Jules UI QA task created; open the job summary to review it.")
+            output.write(f"Jules UI QA session: {session['url']}\n")
+    print("Jules UI QA session created; open the job summary to review it.")
 
 
 if __name__ == "__main__":

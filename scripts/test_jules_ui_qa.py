@@ -6,10 +6,29 @@ from unittest.mock import Mock, patch
 import jules_ui_qa
 from jules_issues import ApiError
 
-SOURCE = {"name": "sources/github-owner-repo"}
+SOURCE = {
+    "name": "sources/github-owner-repo",
+    "githubRepo": {"defaultBranch": {"displayName": "master"}},
+}
 
 
 class UITaskTests(unittest.TestCase):
+    @patch.object(jules_ui_qa, "source_for_repo", return_value=SOURCE)
+    def test_blank_pr_starts_default_branch_repair_task(self, _source):
+        client = Mock(repo="owner/repo")
+        for value in ("", "   ", None):
+            with self.subTest(value=value):
+                jules_ui_qa.start_ui_qa_task(client, value)
+                payload = client.jules.call_args.args[2]
+                self.assertEqual(payload["automationMode"], "AUTO_CREATE_PR")
+                self.assertEqual(
+                    payload["sourceContext"]["githubRepoContext"]["startingBranch"],
+                    "master",
+                )
+                self.assertIn("npm run test:e2e", payload["prompt"])
+                self.assertIn("If all tests pass", payload["prompt"])
+        client.gh.assert_not_called()
+
     @patch.object(jules_ui_qa, "source_for_repo", return_value=SOURCE)
     def test_same_repo_ui_pr_starts_review_without_auto_pr(self, _source):
         client = Mock(repo="owner/repo")
@@ -50,7 +69,7 @@ class UITaskTests(unittest.TestCase):
 
     def test_rejects_invalid_number(self):
         client = Mock()
-        for value in (0, "abc", None):
+        for value in (0, "abc", "-1"):
             with self.assertRaisesRegex(ApiError, "positive integer"):
                 jules_ui_qa.start_ui_qa_task(client, value)
         client.gh.assert_not_called()
