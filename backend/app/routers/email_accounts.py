@@ -316,6 +316,25 @@ async def oauth_callback(
             )
 
         prov = provider.lower().strip()
+        allowed_providers = {"google", "microsoft", "outlook"}
+        if prov not in allowed_providers:
+            response = Response(
+                content="""
+                <html>
+                    <body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: #f8fafc;">
+                        <div style="text-align: center; background: #1e293b; padding: 32px 48px; border-radius: 12px; border: 1px solid #ef4444;">
+                            <h2 style="color: #ef4444; margin-bottom: 8px;">OAuth Authorization Failed</h2>
+                            <p style="color: #94a3b8; font-size: 14px;">Unsupported OAuth provider.</p>
+                        </div>
+                    </body>
+                </html>
+                """,
+                media_type="text/html",
+                status_code=400,
+            )
+            response.delete_cookie(_STATE_COOKIE_NAME, path="/")
+            return response
+        payload_provider = "microsoft" if prov in {"microsoft", "outlook"} else "google"
         state_client_id = _oauth_state_client_id(state)
         auth_type = "GMAIL_OAUTH" if prov == "google" else "MS_GRAPH_OAUTH"
         configured_account = None
@@ -458,7 +477,7 @@ async def oauth_callback(
                         <h2 style="color: #10b981; margin-bottom: 8px;">✓ Mailbox Connected Successfully!</h2>
                         <p style="color: #94a3b8; font-size: 14px;">Sync authorization established. Closing window...</p>
                         <script>
-                            const payload = {{ type: 'oauth_success', provider: {json.dumps(prov)}, timestamp: Date.now() }};
+                            const payload = {{ type: 'oauth_success', provider: {json.dumps(payload_provider)}, timestamp: Date.now() }};
 
                             // 1. PostMessage to opener window (if opener exists and is reachable)
                             if (window.opener) {{
