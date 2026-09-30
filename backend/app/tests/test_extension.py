@@ -14,6 +14,7 @@ from app.models.applications import (
 )
 from app.schemas.intake import ExtractedEmailInfo
 from app.schemas.llm import JobAssessmentResult
+from app.services.scraper import ScrapedJobContent
 
 
 @pytest.mark.asyncio
@@ -144,10 +145,23 @@ async def test_extension_intake_url_and_jd_routes(db_session: AsyncSession):
         summary="Strong profile match for distributed systems.",
     )
 
-    with patch(
-        "app.routers.intake.assess_job_posting", new_callable=AsyncMock
-    ) as mock_assess:
+    with (
+        patch(
+            "app.routers.intake.assess_job_posting", new_callable=AsyncMock
+        ) as mock_assess,
+        patch(
+            "app.routers.intake.scrape_job_url", new_callable=AsyncMock
+        ) as mock_scrape,
+        patch("app.services.llm.extract_job_spec", new_callable=AsyncMock) as mock_spec,
+    ):
         mock_assess.return_value = mock_assessment
+        mock_scrape.return_value = ScrapedJobContent(
+            title="Datadog - Senior Systems Engineer",
+            text="Datadog is seeking Senior Systems Engineers with Python, Go, and Docker experience.",
+            source_url="https://boards.greenhouse.io/datadog/jobs/123",
+            scraped_via="camofox",
+        )
+        mock_spec.return_value = None
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -163,6 +177,9 @@ async def test_extension_intake_url_and_jd_routes(db_session: AsyncSession):
             assert url_res.status_code == 200
             assert url_res.json()["company"] == "Datadog"
             assert url_res.json()["fit_score"] == 88
+            mock_scrape.assert_awaited_once_with(
+                "https://boards.greenhouse.io/datadog/jobs/123"
+            )
 
             # 2. Test POST /api/v1/intake/jd (from extension elements selection send-btn)
             jd_res = await ac.post(

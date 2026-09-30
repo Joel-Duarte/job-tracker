@@ -80,6 +80,8 @@ test('company form keeps its desktop layout', async ({ page, isMobile }) => {
   await page.getByRole('button', { name: 'Add Company' }).click()
   const modal = page.locator('.add-company-modal')
   await expect(modal).toBeVisible()
+  await page.addStyleTag({ content: '.add-company-modal, .add-company-modal * { font-family: "DejaVu Sans", sans-serif !important; }' })
+  await expect(modal).toHaveCSS('width', '520px')
   await expect(modal).toHaveScreenshot('add-company-form.png', { animations: 'disabled', maxDiffPixelRatio: 0.02 })
 })
 
