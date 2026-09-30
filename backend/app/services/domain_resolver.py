@@ -90,6 +90,13 @@ KNOWN_AGGREGATOR_DOMAINS = KNOWN_ATS_DOMAINS | {
     "reddit.com",
 }
 
+
+def _host_matches_domain(host: str, domain: str) -> bool:
+    """Match an exact domain or one of its subdomains, never a lookalike suffix."""
+    host = host.lower().rstrip(".")
+    return host == domain or host.endswith(f".{domain}")
+
+
 # Mapping of canonical ATS vendor domain to set of normalized vendor name identifiers/aliases
 ATS_VENDOR_DOMAINS: dict[str, set[str]] = {
     "ashbyhq.com": {"ashby", "ashbyhq", "ashbytechnologies"},
@@ -371,7 +378,8 @@ def clean_company_name(raw_name: str | None) -> str:
     if not raw_name:
         return ""
 
-    name = raw_name.strip()
+    # Company labels are short; cap regex work on malformed extracted content.
+    name = raw_name.strip()[:512]
     # Remove quotes, backticks, and brackets
     name = re.sub(r"^[\"\'`\(\[\{]+|[\"\'`\)\]\}]+$", "", name).strip()
 
@@ -396,7 +404,7 @@ def clean_company_name(raw_name: str | None) -> str:
 
     # Clean trailing punctuation
     name = re.sub(r"[,.\-:–—]+$", "", name).strip()
-    return name or raw_name.strip()
+    return name or raw_name.strip()[:512]
 
 
 def extract_organization_from_ats_url(url: str | None) -> str | None:
@@ -409,13 +417,13 @@ def extract_organization_from_ats_url(url: str | None) -> str | None:
 
     try:
         parsed = urlparse(url)
-        host = parsed.netloc.lower()
+        host = (parsed.hostname or "").lower()
         path = parsed.path.strip("/")
         parts = path.split("/") if path else []
 
         # Path-based org slug ATSs
         if any(
-            ats in host
+            _host_matches_domain(host, ats)
             for ats in (
                 "greenhouse.io",
                 "lever.co",
@@ -439,12 +447,12 @@ def extract_organization_from_ats_url(url: str | None) -> str | None:
             "recruitee.com",
             "jobvite.com",
         ):
-            if ats_suffix in host:
+            if _host_matches_domain(host, ats_suffix):
                 sub = host.split("." + ats_suffix)[0]
                 if sub and sub not in {"jobs", "careers", "apply", "www"}:
                     return sub.split(".")[-1].lower()
 
-        if "jobvite.com" in host and parts and parts[0]:
+        if _host_matches_domain(host, "jobvite.com") and parts and parts[0]:
             slug = parts[0].lower()
             if slug not in {"jobs", "careers"}:
                 return slug

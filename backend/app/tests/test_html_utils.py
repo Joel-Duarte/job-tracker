@@ -52,3 +52,8 @@ def test_clean_html_text_decodes_entities_and_formats_breaks():
     assert "<div" not in result
     assert "<li" not in result
     assert "&nbsp;" not in result
+
+
+def test_clean_html_text_handles_many_unclosed_script_openers():
+    raw = "<script>" * 2000 + "private script content"
+    assert clean_html_text(raw) == ""

@@ -623,7 +623,10 @@ async def _scrape_via_http_fallback(
         "Accept-Language": "en-US,en;q=0.9",
     }
     async with httpx.AsyncClient(
-        timeout=timeout_seconds, follow_redirects=False
+        timeout=timeout_seconds,
+        follow_redirects=False,
+        proxy=settings.SCRAPER_EGRESS_PROXY or None,
+        trust_env=not bool(settings.SCRAPER_EGRESS_PROXY),
     ) as client:
         resp = await client.get(safe_url, headers=headers)
         if resp.status_code >= 400:

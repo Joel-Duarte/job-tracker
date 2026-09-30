@@ -46,7 +46,7 @@ Job Tracker operates on a **closed-by-default, single-port ingress architecture*
 - **🌐 Web Application UI:** [`http://localhost:4173`](http://localhost:4173) *(Production)* or [`http://localhost:5173`](http://localhost:5173) *(Development)*
 - **📚 Interactive API Docs (Swagger UI):** [`http://localhost:4173/api/docs`](http://localhost:4173/api/docs) *(Production)* or [`http://localhost:5173/api/docs`](http://localhost:5173/api/docs) *(Development)*
 - **📖 ReDoc API Reference:** [`http://localhost:4173/api/redoc`](http://localhost:4173/api/redoc) *(Production)* or [`http://localhost:5173/api/redoc`](http://localhost:5173/api/redoc) *(Development)*
-- **🔒 Internal Services:** The FastAPI backend (`backend:8000`), PostgreSQL (`db:5432`), and Camofox scraper (`scraper:9377`) remain sealed within the private Docker network, eliminating external host port collisions.
+- **🔒 Local Services:** Published frontend, backend, and database ports bind to `127.0.0.1` by default. Bundled Camofox has no published host port and uses a guarded proxy for outbound pages.
 
 > [!TIP]
 > **Production Boot Persistence:**
@@ -185,7 +185,7 @@ ENVIRONMENT=production
 FRONTEND_PORT=4173       # Production Web UI port (http://localhost:4173)
 BACKEND_PORT=8008        # FastAPI REST API port (http://localhost:8008)
 POSTGRES_PORT=54320      # PostgreSQL host port (localhost:54320)
-CAMOUFOX_PORT=9377       # Camofox Scraper port (http://localhost:9377)
+BIND_HOST=127.0.0.1      # Bind published ports to this machine by default
 
 # PostgreSQL Database Credentials
 POSTGRES_USER=postgres
@@ -202,7 +202,7 @@ PUBLIC_API_URL=
 PUBLIC_FRONTEND_URL=
 
 # Scraper Internal Network Endpoint
-CAMOUFOX_ENDPOINT=http://scraper:9377
+CAMOUFOX_ENDPOINT=http://scraper-api:9377
 
 # Logging Level ('DEBUG', 'INFO', 'WARNING', 'ERROR')
 LOG_LEVEL=INFO

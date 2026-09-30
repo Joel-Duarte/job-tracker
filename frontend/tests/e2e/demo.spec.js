@@ -1,6 +1,21 @@
 import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 
+test('LinkedIn advisory only appears for LinkedIn hostnames', async ({ page, isMobile }) => {
+  await page.goto('/')
+  if (isMobile) {
+    await page.getByRole('button', { name: 'Toggle navigation menu' }).click()
+    await page.getByRole('button', { name: 'Job Intake' }).last().click()
+  } else {
+    await page.getByRole('button', { name: 'Job Intake' }).first().click()
+  }
+  const urlInput = page.getByPlaceholder(/https:\/\/jobs\.lever\.co/)
+  await urlInput.fill('https://linkedin.com.attacker.example/jobs/123')
+  await expect(page.getByText('LinkedIn Anti-Bot Protection')).toBeHidden()
+  await urlInput.fill('https://www.linkedin.com/jobs/view/123')
+  await expect(page.getByText('LinkedIn Anti-Bot Protection')).toBeVisible()
+})
+
 test('demo pipeline search and archive work', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByText('DEMO MODE')).toBeVisible()

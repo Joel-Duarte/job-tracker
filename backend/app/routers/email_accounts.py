@@ -498,14 +498,14 @@ async def oauth_callback(
         response.delete_cookie(_STATE_COOKIE_NAME, path="/")
         return response
     except Exception as err:
-        logger.error("OAuth callback exchange failed: %s", err, exc_info=True)
+        logger.error("OAuth callback exchange failed (%s)", type(err).__name__)
         return Response(
-            content=f"""
+            content="""
             <html>
                 <body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: #f8fafc;">
                     <div style="text-align: center; background: #1e293b; padding: 32px 48px; border-radius: 12px; border: 1px solid #ef4444;">
                         <h2 style="color: #ef4444; margin-bottom: 8px;">OAuth Exchange Failed</h2>
-                        <p style="color: #94a3b8; font-size: 14px;">{html.escape(str(err))}</p>
+                        <p style="color: #94a3b8; font-size: 14px;">Please retry or check the server logs.</p>
                     </div>
                 </body>
             </html>

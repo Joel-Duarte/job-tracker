@@ -15,7 +15,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
     command: ["postgres", "-c", "max_connections=200"]
     ports:
-      - "${POSTGRES_PORT:-54320}:5432"
+      - "${BIND_HOST:-127.0.0.1}:${POSTGRES_PORT:-54320}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -34,8 +34,12 @@ services:
     image: ghcr.io/jo-inc/camofox-browser:latest
     container_name: job-tracker-scraper
     restart: unless-stopped
-    ports:
-      - "${CAMOUFOX_PORT:-9377}:9377"
+    environment:
+      PROXY_HOST: scraper-egress
+      PROXY_PORT: 3128
+      CAMOFOX_DISABLE_DEFAULT_ADDONS: "1"
+    depends_on:
+      - scraper-egress
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:9377/health || exit 1"]
       interval: 10s
@@ -43,6 +47,27 @@ services:
       retries: 3
       start_period: 10s
     networks:
+      - scraper-isolated-net
+
+  scraper-egress:
+    image: python:3.12-alpine
+    restart: unless-stopped
+    command: ["python", "/app/scraper_egress_proxy.py"]
+    volumes:
+      - ./scripts/scraper_egress_proxy.py:/app/scraper_egress_proxy.py:ro
+    networks:
+      - scraper-isolated-net
+      - job-tracker-net
+
+  scraper-api:
+    image: nginx:alpine
+    restart: unless-stopped
+    depends_on:
+      - scraper
+    volumes:
+      - ./scripts/scraper_api.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - scraper-isolated-net
       - job-tracker-net
 
   # ============================================================================
@@ -56,11 +81,11 @@ services:
     restart: unless-stopped
     stop_grace_period: 15s
     ports:
-      - "${BACKEND_PORT:-8008}:8000"
+      - "${BIND_HOST:-127.0.0.1}:${BACKEND_PORT:-8008}:8000"
     depends_on:
       db:
         condition: service_healthy
-      scraper:
+      scraper-api:
         condition: service_started
     environment:
       ENVIRONMENT: "production"
@@ -74,7 +99,8 @@ services:
       ADMIN_SECRET: ${ADMIN_SECRET:-}
       PUBLIC_API_URL: ${PUBLIC_API_URL:-}
       PUBLIC_FRONTEND_URL: ${PUBLIC_FRONTEND_URL:-}
-      CAMOUFOX_ENDPOINT: http://scraper:9377
+      CAMOUFOX_ENDPOINT: http://scraper-api:9377
+      SCRAPER_EGRESS_PROXY: http://scraper-egress:3128
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -96,7 +122,7 @@ services:
     container_name: job-tracker-frontend
     restart: unless-stopped
     ports:
-      - "${FRONTEND_PORT:-4173}:80"
+      - "${BIND_HOST:-127.0.0.1}:${FRONTEND_PORT:-4173}:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -120,3 +146,6 @@ networks:
   job-tracker-net:
     name: job_tracker_network
     driver: bridge
+  scraper-isolated-net:
+    driver: bridge
+    internal: true

@@ -87,12 +87,14 @@ import { recordPageView } from '../utils/beacon'
 router.afterEach((to) => {
   if (
     isDemoModeEnabled() ||
-    (typeof window !== 'undefined' && window.location.hostname.includes('github.io'))
+    (typeof window !== 'undefined' && (
+      window.location.hostname === 'github.io' ||
+      window.location.hostname.endsWith('.github.io')
+    ))
   ) {
     recordPageView(to.fullPath)
   }
 })
 
 export default router
-
 

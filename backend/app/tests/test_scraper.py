@@ -177,6 +177,23 @@ async def test_scrape_via_http_fallback():
 
 
 @pytest.mark.asyncio
+async def test_http_fallback_uses_guarded_proxy_when_configured():
+    with (
+        patch(
+            "app.services.scraper.settings.SCRAPER_EGRESS_PROXY", "http://proxy:3128"
+        ),
+        patch("app.services.scraper.httpx.AsyncClient") as client_class,
+    ):
+        client_class.return_value.__aenter__.return_value.get.side_effect = (
+            httpx.HTTPError("test failure")
+        )
+        with pytest.raises(httpx.HTTPError):
+            await _scrape_via_http_fallback("https://example.com/job")
+        assert client_class.call_args.kwargs["proxy"] == "http://proxy:3128"
+        assert client_class.call_args.kwargs["trust_env"] is False
+
+
+@pytest.mark.asyncio
 async def test_scrape_job_url_normalizes_url_scheme():
     with patch("app.services.scraper._scrape_via_camofox") as mock_camofox:
         mock_camofox.return_value = ScrapedJobContent(

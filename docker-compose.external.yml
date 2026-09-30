@@ -27,6 +27,12 @@ services:
   scraper:
     profiles: ["disabled"]
 
+  scraper-egress:
+    profiles: ["disabled"]
+
+  scraper-api:
+    profiles: ["disabled"]
+
   # ----------------------------------------------------------------------------
   # Backend API & Workers: Reconfigured for External Database & Scraper
   # ----------------------------------------------------------------------------
@@ -39,5 +45,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
       CAMOUFOX_ENDPOINT: ${CAMOUFOX_ENDPOINT:-http://host.docker.internal:9377}
+      SCRAPER_EGRESS_PROXY: ${SCRAPER_EGRESS_PROXY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"

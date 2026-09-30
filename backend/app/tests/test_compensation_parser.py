@@ -89,3 +89,10 @@ def test_parse_compensation_unspecified():
     res_none = parse_compensation_text(None)
     assert res_none["salary_min"] is None
     assert res_none["salary_period"] == "NOT_SPECIFIED"
+
+
+def test_parse_compensation_bounds_regex_work_but_keeps_original_text():
+    raw = "x" * 100_000 + "$120k - $150k"
+    result = parse_compensation_text(raw)
+    assert result["salary_min"] is None
+    assert result["compensation_text"] == raw.strip()

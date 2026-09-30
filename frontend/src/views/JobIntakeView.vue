@@ -6,6 +6,7 @@ import { useApplicationsStore } from '../stores/applicationsStore'
 import { useQueueStore } from '../stores/queueStore'
 import { IntakeAPI } from '../api/endpoints'
 import { getFitScores } from '../utils/fitScores'
+import { isLinkedInUrl as isLinkedInJobUrl } from '../utils/jobUrl'
 import { formatSalaryRange } from '../utils/formatters'
 import {
   Sparkles,
@@ -52,7 +53,7 @@ const dismissedLinkedInUrl = ref('')
 const isLinkedInUrl = computed(() => {
   if (!jobUrl.value) return false
   const trimmed = jobUrl.value.trim().toLowerCase()
-  return trimmed.includes('linkedin.com') && dismissedLinkedInUrl.value !== trimmed
+  return isLinkedInJobUrl(trimmed) && dismissedLinkedInUrl.value !== trimmed
 })
 
 function dismissLinkedInWarning() {

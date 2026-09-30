@@ -204,7 +204,9 @@ def parse_compensation_text(raw_text: str | None) -> dict[str, Any]:
         return default_result
 
     clean_text = raw_text.strip()
-    detected_currency = _detect_currency(clean_text)
+    # Salary mentions are short. Bound regex work without truncating the returned text.
+    scan_text = clean_text[:2048]
+    detected_currency = _detect_currency(scan_text)
 
     # Match numeric ranges: e.g.
     # '€66,500 – €88,000'
@@ -217,7 +219,7 @@ def parse_compensation_text(raw_text: str | None) -> dict[str, Any]:
         re.IGNORECASE,
     )
 
-    match = range_pattern.search(clean_text)
+    match = range_pattern.search(scan_text)
     if match:
         min_str = match.group(1).strip()
         max_str = match.group(2).strip()
@@ -239,7 +241,7 @@ def parse_compensation_text(raw_text: str | None) -> dict[str, Any]:
         if val_min and val_max and val_min > val_max:
             val_min, val_max = val_max, val_min
 
-        period = _detect_period(clean_text, num_sample=val_max or val_min)
+        period = _detect_period(scan_text, num_sample=val_max or val_min)
 
         return {
             "salary_min": val_min,
@@ -255,20 +257,20 @@ def parse_compensation_text(raw_text: str | None) -> dict[str, Any]:
         re.IGNORECASE,
     )
 
-    single_match = single_num_pattern.search(clean_text)
+    single_match = single_num_pattern.search(scan_text)
     if not single_match:
         # Fallback single number followed by currency or period
         fallback_pattern = re.compile(
             r"(\d[\d,\.]*\s*[kmKM]?)\s*(?:eur|usd|gbp|chf|sek|cad|aud|\/|per\s*(?:year|month|hour|annum))",
             re.IGNORECASE,
         )
-        single_match = fallback_pattern.search(clean_text)
+        single_match = fallback_pattern.search(scan_text)
 
     if single_match:
         num_str = single_match.group(1).strip()
         val = _clean_number(num_str)
         if val:
-            period = _detect_period(clean_text, num_sample=val)
+            period = _detect_period(scan_text, num_sample=val)
             text_lower = clean_text.lower()
             if any(
                 prefix in text_lower for prefix in ["up to", "max", "maximum", "upto"]

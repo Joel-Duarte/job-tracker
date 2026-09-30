@@ -31,6 +31,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
 - **AI & LLM Orchestration:** LangChain and LangGraph for workflows (e.g., job evaluation, interview guide generation).
 - **Runtime Configuration:** AI providers, model bindings, OAuth client credentials, and email credentials are configured through the Settings UI and stored in PostgreSQL; deployment environment variables provide only bootstrap, infrastructure, and encryption settings.
 - **Stealth Scraper:** `camofox` running as a separate service for browser automation and anti-bot bypass.
+- **Scraper Egress Guard:** Bundled Camofox runs on an internal Docker network with default add-ons disabled so it can start without direct network downloads. Its forward proxy resolves each browser destination, rejects non-public IPs, and connects to the checked address. The backend HTTP fallback uses the same proxy. `scraper-api` relays backend control requests into the isolated network.
 - **Key Services:**
   - `scraper.py`: Extracts job descriptions from URLs, bypassing cookie banners and "show more" toggles via Camofox Javascript evaluation.
   - `domain_resolver.py`: Multi-tier company domain extraction engine (direct URL parsing, 20+ ATS host filtering, AI domain extraction, and Clearbit autocomplete fallback) ensuring accurate `CompanyModel.domain` and favicon resolution.

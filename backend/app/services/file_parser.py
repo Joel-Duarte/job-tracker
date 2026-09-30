@@ -230,6 +230,12 @@ def normalize_resume_text(text: str) -> str:
     # 1. Normalize line endings and non-breaking spaces
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = text.replace("\xa0", " ").replace("\u200b", "").replace("\ufeff", "")
+    # Keep each regex search bounded even for a malformed single-line document.
+    text = "\n".join(
+        line[offset : offset + 1024]
+        for line in text.split("\n")
+        for offset in range(0, max(1, len(line)), 1024)
+    )
 
     # 2. Normalize bullet points in middle of text (ensure bullets start on new lines)
     for b in ("●", "•", "▪", "▫", "◆", "◦"):

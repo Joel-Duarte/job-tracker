@@ -56,6 +56,28 @@ for _key in _SORTED_TAXONOMY_KEYS:
 _TAXONOMY_KEYS = list(CANONICAL_SKILL_TAXONOMY.keys())
 
 
+def _without_parentheticals(value: str) -> str:
+    """Remove balanced parenthesized spans in one pass."""
+    result = []
+    pending = []
+    depth = 0
+    for char in value:
+        if char == "(":
+            depth += 1
+            pending.append(char)
+        elif char == ")" and depth:
+            pending.append(char)
+            depth -= 1
+            if depth == 0:
+                pending.clear()
+        elif depth:
+            pending.append(char)
+        elif depth == 0:
+            result.append(char)
+    result.extend(pending)
+    return "".join(result)
+
+
 def normalize_skill(skill: str) -> str:
     """
     Normalizes a single skill string using a 5-stage pipeline:
@@ -78,7 +100,7 @@ def normalize_skill(skill: str) -> str:
         return CANONICAL_SKILL_TAXONOMY[lookup_key]
 
     # Stage 3: Parenthetical Stripping
-    no_parens = re.sub(r"\(.*?\)", "", raw_trimmed).strip()
+    no_parens = _without_parentheticals(raw_trimmed).strip()
     no_parens_key = no_parens.lower()
     if no_parens_key and no_parens_key in CANONICAL_SKILL_TAXONOMY:
         return CANONICAL_SKILL_TAXONOMY[no_parens_key]
@@ -129,12 +151,23 @@ def _split_compound_skill(skill: str) -> list[str]:
     if lower_val in PROTECTED_COMPOUNDS or lower_val in CANONICAL_SKILL_TAXONOMY:
         return [trimmed]
 
-    no_parens = re.sub(r"\(.*?\)", "", trimmed).strip().lower()
+    no_parens = _without_parentheticals(trimmed).strip().lower()
     if no_parens in PROTECTED_COMPOUNDS or no_parens in CANONICAL_SKILL_TAXONOMY:
         return [trimmed]
 
     # Stage 2: Compound Term Splitting
-    parts = re.split(r"\s+/\s+|\s+&\s+|\s+\+\s+", trimmed)
+    parts = []
+    start = 0
+    for index, char in enumerate(trimmed):
+        if (
+            char in "/&+"
+            and 0 < index < len(trimmed) - 1
+            and trimmed[index - 1].isspace()
+            and trimmed[index + 1].isspace()
+        ):
+            parts.append(trimmed[start:index].strip())
+            start = index + 1
+    parts.append(trimmed[start:].strip())
     return [p.strip() for p in parts if p.strip()]
 
 
@@ -207,7 +240,7 @@ def is_known_taxonomy_skill(skill: str) -> bool:
         return True
 
     # Parenthetical stripping
-    no_parens = re.sub(r"\(.*?\)", "", raw_trimmed).strip().lower()
+    no_parens = _without_parentheticals(raw_trimmed).strip().lower()
     if no_parens and no_parens in CANONICAL_SKILL_TAXONOMY:
         return True
 

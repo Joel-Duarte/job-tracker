@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useUIStore } from '../../stores/uiStore'
 import { useQueueStore } from '../../stores/queueStore'
 import { IntakeAPI } from '../../api/endpoints'
+import { isLinkedInUrl as isLinkedInJobUrl } from '../../utils/jobUrl'
 import {
   Sparkles,
   Link as LinkIcon,
@@ -45,7 +46,7 @@ function handleBulkPromptDecision(skipLinkedIn) {
   let urlsToProcess = [...parsedBulkUrls.value]
 
   if (skipLinkedIn) {
-    urlsToProcess = urlsToProcess.filter(u => !u.toLowerCase().includes('linkedin.com'))
+    urlsToProcess = urlsToProcess.filter(u => !isLinkedInJobUrl(u))
     const liText = linkedInUrlsInBulk.value.join('\n')
     navigator.clipboard.writeText(liText)
     uiStore.showToast(`${linkedInUrlsInBulk.value.length} LinkedIn URLs copied to clipboard!`, 'info')
@@ -97,7 +98,7 @@ const dismissedLinkedInUrl = ref('')
 const isLinkedInUrl = computed(() => {
   if (!jobUrl.value) return false
   const trimmed = jobUrl.value.trim().toLowerCase()
-  return trimmed.includes('linkedin.com') && dismissedLinkedInUrl.value !== trimmed
+  return isLinkedInJobUrl(trimmed) && dismissedLinkedInUrl.value !== trimmed
 })
 
 function dismissLinkedInWarning() {
@@ -160,7 +161,7 @@ async function submitJobIntake() {
 
     if (urls.length > 1) {
       // Bulk submission logic
-      const liUrls = urls.filter(u => u.toLowerCase().includes('linkedin.com'))
+      const liUrls = urls.filter(isLinkedInJobUrl)
       if (liUrls.length > 0) {
         parsedBulkUrls.value = urls
         linkedInUrlsInBulk.value = liUrls

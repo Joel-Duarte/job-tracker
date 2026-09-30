@@ -36,7 +36,7 @@ def _sync_ddgs_text(query: str, max_results: int = 5) -> list[dict[str, str]]:
                     )
             return sanitized
     except Exception as err:
-        logger.warning("DuckDuckGo search query '%s' failed: %s", query, err)
+        logger.warning("DuckDuckGo search failed (%s)", type(err).__name__)
         return []
 
 
@@ -161,7 +161,8 @@ async def resolve_search_provider_settings(
             return "ddgs", None
     except Exception as err:
         logger.debug(
-            "Could not load search provider settings, defaulting to ddgs: %s", err
+            "Could not load search provider settings, defaulting to ddgs (%s)",
+            type(err).__name__,
         )
         return "ddgs", None
 
@@ -186,7 +187,7 @@ async def search_web(
         category="scraper",
         name="search_web",
         inputs={
-            "query": clean_query,
+            "query_length": len(clean_query),
             "max_results": max_results,
             "configured_provider": target_provider,
         },
@@ -206,16 +207,14 @@ async def search_web(
                     provider_used = "searxng"
                 else:
                     logger.info(
-                        "SearXNG returned 0 results for '%s'; falling back to DuckDuckGo",
-                        clean_query,
+                        "SearXNG returned 0 results; falling back to DuckDuckGo",
                     )
                     fallback_occurred = True
                     provider_used = "ddgs"
             except Exception as searx_err:
                 logger.warning(
-                    "SearXNG query failed (%s); falling back to DuckDuckGo for '%s'",
-                    searx_err,
-                    clean_query,
+                    "SearXNG query failed (%s); falling back to DuckDuckGo",
+                    type(searx_err).__name__,
                 )
                 fallback_occurred = True
                 provider_used = "ddgs"
@@ -229,11 +228,13 @@ async def search_web(
                     )
                 provider_used = "ddgs"
             except TimeoutError:
-                logger.warning("DuckDuckGo search timed out for query: %s", clean_query)
+                logger.warning("DuckDuckGo search timed out")
                 ctx["error"] = "Search query timed out"
             except Exception as err:
-                logger.error("DuckDuckGo search failed unexpectedly: %s", err)
-                ctx["error"] = str(err)
+                logger.error(
+                    "DuckDuckGo search failed unexpectedly (%s)", type(err).__name__
+                )
+                ctx["error"] = "DuckDuckGo search failed"
 
         ctx["outputs"] = {
             "result_count": len(results),
@@ -261,7 +262,7 @@ async def fetch_webpage_content(
     async with trace_operation(
         category="scraper",
         name="fetch_webpage_content",
-        inputs={"url": clean_url, "max_chars": max_chars},
+        inputs={"max_chars": max_chars},
         db=db,
     ) as ctx:
         try:
@@ -280,6 +281,6 @@ async def fetch_webpage_content(
             }
             return text_content
         except Exception as err:
-            logger.warning("Failed to fetch webpage content for %s: %s", clean_url, err)
-            ctx["error"] = str(err)
+            logger.warning("Failed to fetch webpage content (%s)", type(err).__name__)
+            ctx["error"] = "Failed to fetch webpage content"
             return ""

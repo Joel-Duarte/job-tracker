@@ -26,9 +26,19 @@
     return true;
   }
 
+  function hostMatchesDomain(host, domain) {
+    const normalized = host.toLowerCase().replace(/\.$/, '');
+    return normalized === domain || normalized.endsWith(`.${domain}`);
+  }
+
   function extractJobData(customUrl) {
     const rawUrl = customUrl || window.location.href;
-    const host = window.location.hostname.toLowerCase();
+    let host = window.location.hostname.toLowerCase();
+    try {
+      host = new URL(rawUrl).hostname.toLowerCase();
+    } catch (error) {
+      // Keep the live page hostname for malformed custom URLs.
+    }
     const url = resolveCanonicalJobUrl(host, rawUrl);
 
     function queryFirst(selectors) {
@@ -160,7 +170,7 @@
     // --- Tier 1: Site-Specific High Precision Extraction Rules ---
 
     // 1. Glassdoor (Wildcard Header Scoping + Star Rating Cleanup)
-    if (host.includes('glassdoor.com') || host.includes('glassdoor.co.uk')) {
+    if (hostMatchesDomain(host, 'glassdoor.com') || hostMatchesDomain(host, 'glassdoor.co.uk')) {
       site_type = 'GLASSDOOR';
       const descContainer = document.querySelector('#JobDescriptionContainer');
       const detailPane = descContainer?.closest('[class*="JobDetails"], [data-test="job-details"], article, main') ||
@@ -232,7 +242,7 @@
     }
 
     // 2. Indeed (Scoped strictly inside view pane)
-    else if (host.includes('indeed.com')) {
+    else if (hostMatchesDomain(host, 'indeed.com')) {
       site_type = 'INDEED';
       const pane = queryFirst(['#jobsearch-ViewjobPaneWrapper', '.jobsearch-JobComponent', 'main']) || document;
       title = getTextIn(pane, ['h1.jobsearch-JobInfoHeader-title', '[data-testid="simpler-jobTitle"]', '[data-testid="jobsearch-JobInfoHeader-title"]', 'h1']);
@@ -259,7 +269,7 @@
     }
 
     // 3. LinkedIn (Topcard Heading Exclusion & Notification Filter)
-    else if (host.includes('linkedin.com')) {
+    else if (hostMatchesDomain(host, 'linkedin.com')) {
       site_type = 'LINKEDIN';
       const pane = queryFirst([
         '.job-view-layout',
@@ -356,7 +366,7 @@
     }
 
     // 4. Greenhouse
-    else if (host.includes('greenhouse.io') || host.includes('boards.greenhouse.io')) {
+    else if (hostMatchesDomain(host, 'greenhouse.io') || hostMatchesDomain(host, 'boards.greenhouse.io')) {
       site_type = 'GREENHOUSE';
       title = getText(['.app-title', '#header .title', 'h1.heading', 'h1']);
       company = getText(['.company-name', '#header .company-name']);
@@ -370,7 +380,7 @@
     }
 
     // 5. Lever
-    else if (host.includes('lever.co') || host.includes('jobs.lever.co')) {
+    else if (hostMatchesDomain(host, 'lever.co') || hostMatchesDomain(host, 'jobs.lever.co')) {
       site_type = 'LEVER';
       title = getText(['.posting-headline h2', '.posting-header h2', 'h2']);
       company = document.querySelector('.main-header-logo img')?.getAttribute('alt') || deriveCompanyFromTitle();
@@ -384,7 +394,7 @@
     }
 
     // 6. Workday
-    else if (host.includes('myworkdayjobs.com') || host.includes('workday.com')) {
+    else if (hostMatchesDomain(host, 'myworkdayjobs.com') || hostMatchesDomain(host, 'workday.com')) {
       site_type = 'WORKDAY';
       title = getText(['[data-automation-id="jobPostingHeader"]', 'h2[data-automation-id="jobTitle"]', 'h1']);
       company = getText(['[data-automation-id="companyName"]']) || deriveCompanyFromTitle();
@@ -398,7 +408,7 @@
     }
 
     // 7. Ashby
-    else if (host.includes('ashbyhq.com') || host.includes('jobs.ashbyhq.com')) {
+    else if (hostMatchesDomain(host, 'ashbyhq.com') || hostMatchesDomain(host, 'jobs.ashbyhq.com')) {
       site_type = 'ASHBY';
       title = getText(['h1', '[class*="heading"]']);
       company = getText(['[class*="company"]']) || deriveCompanyFromTitle();
@@ -496,7 +506,7 @@
       const urlObj = new URL(rawUrl);
 
       // 1. LinkedIn
-      if (host.includes('linkedin.com')) {
+      if (hostMatchesDomain(host, 'linkedin.com')) {
         const jobIdQuery = urlObj.searchParams.get('currentJobId');
         if (jobIdQuery && /^\d+$/.test(jobIdQuery)) {
           return `https://www.linkedin.com/jobs/view/${jobIdQuery}/`;
@@ -525,7 +535,7 @@
       }
 
       // 2. Indeed
-      else if (host.includes('indeed.com')) {
+      else if (hostMatchesDomain(host, 'indeed.com')) {
         const vjk = urlObj.searchParams.get('vjk') || urlObj.searchParams.get('jk');
         if (vjk) {
           return `https://www.indeed.com/viewjob?jk=${encodeURIComponent(vjk)}`;
@@ -547,7 +557,7 @@
       }
 
       // 3. Glassdoor
-      else if (host.includes('glassdoor.com') || host.includes('glassdoor.co.uk')) {
+      else if (hostMatchesDomain(host, 'glassdoor.com') || hostMatchesDomain(host, 'glassdoor.co.uk')) {
         const jl = urlObj.searchParams.get('jl') || urlObj.searchParams.get('jobListingId');
         if (jl && /^\d+$/.test(jl)) {
           return `https://www.glassdoor.com/job-listing/?jl=${jl}`;

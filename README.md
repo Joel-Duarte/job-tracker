@@ -87,7 +87,7 @@ Job Tracker is designed with a **closed-by-default, single-port ingress architec
 - **Interactive API Docs (Swagger UI):** [http://localhost:4173/api/docs](http://localhost:4173/api/docs) *(Production)* or [http://localhost:5173/api/docs](http://localhost:5173/api/docs) *(Development)*
 - **ReDoc Documentation:** [http://localhost:4173/api/redoc](http://localhost:4173/api/redoc) *(Production)* or [http://localhost:5173/api/redoc](http://localhost:5173/api/redoc) *(Development)*
 - **API Endpoints:** `http://localhost:4173/api/v1/...` *(proxied internally to FastAPI)*
-- **Internal Services (Sealed in Docker Network):** Backend (`backend:8000`), Database (`db:5432`), and Camofox Scraper (`scraper:9377`) are protected and not exposed to the host.
+- **Local Services:** Frontend, backend, and database host ports bind to `127.0.0.1` by default. Bundled Camofox is reachable by the backend through `scraper-api` inside Docker and has no published host port.
 
 ---
 

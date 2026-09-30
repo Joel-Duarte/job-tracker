@@ -172,6 +172,7 @@ def test_clean_company_name():
     assert clean_company_name("  'Figma'  ") == "Figma"
     assert clean_company_name("TechCorp GmbH") == "TechCorp"
     assert clean_company_name(None) == ""
+    assert len(clean_company_name("A" * 100_000)) == 512
 
 
 def test_extract_organization_from_ats_url():
@@ -204,6 +205,12 @@ def test_extract_organization_from_ats_url():
         == "warp"
     )
     assert extract_organization_from_ats_url("https://stripe.com/jobs/123") is None
+    assert (
+        extract_organization_from_ats_url(
+            "https://jobs.greenhouse.io.attacker.example/stripe/jobs/123"
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio

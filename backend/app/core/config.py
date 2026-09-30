@@ -33,6 +33,7 @@ class Settings(BaseSettings):
 
     # Camofox Browser Automation Server URL
     CAMOUFOX_ENDPOINT: str = "http://localhost:9377"
+    SCRAPER_EGRESS_PROXY: str = ""
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",

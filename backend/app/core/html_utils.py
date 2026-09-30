@@ -1,19 +1,62 @@
 import html
 import re
+from html.parser import HTMLParser
 
-# Regex patterns for stripping non-content blocks and tags
-_STYLE_SCRIPT_PATTERN = re.compile(
-    r"<(script|style|head|svg|noscript)[^>]*>.*?</\1>",
-    re.IGNORECASE | re.DOTALL,
-)
-_COMMENT_PATTERN = re.compile(r"<!--.*?-->", re.DOTALL)
-_BLOCK_BREAK_PATTERN = re.compile(
-    r"</?(?:p|div|tr|li|h[1-6]|blockquote|pre|hr|br|table|thead|tbody|tfoot|article|section|header|footer)[^>]*>",
-    re.IGNORECASE,
-)
-_TAG_PATTERN = re.compile(r"<[^>]+>")
 _MULTIPLE_NEWLINES_PATTERN = re.compile(r"\n{3,}")
 _SPACES_PATTERN = re.compile(r"[ \t]+")
+_SKIP_TAGS = {"script", "style", "head", "svg", "noscript"}
+_BREAK_TAGS = {
+    "p",
+    "div",
+    "tr",
+    "li",
+    "blockquote",
+    "pre",
+    "hr",
+    "br",
+    "table",
+    "thead",
+    "tbody",
+    "tfoot",
+    "article",
+    "section",
+    "header",
+    "footer",
+    *(f"h{level}" for level in range(1, 7)),
+}
+
+
+class _PlainTextParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self.skipped: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self.skipped:
+            if tag in _SKIP_TAGS:
+                self.skipped.append(tag)
+            return
+        if tag in _SKIP_TAGS:
+            self.skipped.append(tag)
+        elif tag in _BREAK_TAGS:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if self.skipped:
+            if tag == self.skipped[-1]:
+                self.skipped.pop()
+            return
+        if tag in _BREAK_TAGS:
+            self.parts.append("\n")
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if not self.skipped and tag in _BREAK_TAGS:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self.skipped:
+            self.parts.append(data)
 
 
 def clean_html_text(raw_text: str | None) -> str:
@@ -40,14 +83,10 @@ def clean_html_text(raw_text: str | None) -> str:
 
     # Check if text contains any HTML tags
     if "<" in text and ">" in text:
-        # 1. Remove style, script, head, svg, noscript
-        text = _STYLE_SCRIPT_PATTERN.sub("", text)
-        # 2. Remove comments
-        text = _COMMENT_PATTERN.sub("", text)
-        # 3. Replace block tags and <br> with newlines
-        text = _BLOCK_BREAK_PATTERN.sub("\n", text)
-        # 4. Remove all remaining inline tags
-        text = _TAG_PATTERN.sub("", text)
+        parser = _PlainTextParser()
+        parser.feed(text)
+        parser.close()
+        text = "".join(parser.parts)
 
     # 5. Decode HTML entities (&nbsp;, &amp;, &#39;, &quot;, &lt;, &gt;, etc.)
     text = html.unescape(text)

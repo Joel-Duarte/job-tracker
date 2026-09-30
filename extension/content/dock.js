@@ -47,6 +47,11 @@
     'vaga', 'vagas', 'empleo', 'trabajo', 'postulate'
   ];
 
+  function hostMatchesDomain(host, domain) {
+    const normalized = host.toLowerCase().replace(/\.$/, '');
+    return normalized === domain || normalized.endsWith(`.${domain}`);
+  }
+
   function shouldMountDock(mode) {
     if (mode === 'OFF') return false;
     if (mode === 'ALL_PAGES') return true;
@@ -54,7 +59,7 @@
     const host = window.location.hostname.toLowerCase();
     const href = window.location.href.toLowerCase();
 
-    const isAtsHost = ATS_HOSTS.some((ats) => host.includes(ats));
+    const isAtsHost = ATS_HOSTS.some((ats) => hostMatchesDomain(host, ats));
     if (isAtsHost) return true;
 
     const hasJobKeyword = MULTI_LANG_JOB_KEYWORDS.some((kw) => href.includes(kw));
@@ -811,7 +816,7 @@
     setInterval(handleLocationOrJobChange, 500);
 
     const host = window.location.hostname.toLowerCase();
-    if (host.includes('glassdoor.com') || host.includes('glassdoor.co.uk') || host.includes('indeed.com')) {
+    if (hostMatchesDomain(host, 'glassdoor.com') || hostMatchesDomain(host, 'glassdoor.co.uk') || hostMatchesDomain(host, 'indeed.com')) {
       const targetContainer = document.querySelector('#JobDescriptionContainer, #jobsearch-ViewjobPaneWrapper, body');
       if (targetContainer) {
         glassdoorObserver = new MutationObserver(() => {
