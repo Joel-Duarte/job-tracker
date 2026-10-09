@@ -17,6 +17,12 @@
 
 > 🎮 **Live Interactive Demo:** Try Job Tracker directly in your browser without installing anything: **[https://joel-duarte.github.io/job-tracker/](https://joel-duarte.github.io/job-tracker/?ref=github)** (runs 100% client-side with full mock dataset & simulated AI workflows).
 
+
+
+https://github.com/user-attachments/assets/e76d9693-f1d6-463e-b726-821fe8df0942
+
+
+
 ```
  ┌─────────────────────────────────────────────────────────────────────────────┐
  │                                                                             │
