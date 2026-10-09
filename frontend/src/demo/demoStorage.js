@@ -1,3 +1,5 @@
+import { getDemoAgentReply } from './agentReplies.js'
+import { createDemoQualityAudits } from './qualityAudits.js'
 import { INITIAL_MOCK_DATA } from './mockData.js'
 
 const DEMO_STORAGE_KEY = 'jt_demo_db_v1'
@@ -30,6 +32,10 @@ export function getDemoDb() {
   try {
     const parsed = JSON.parse(dataStr)
     let modified = false
+    if (!Array.isArray(parsed.quality_audits)) {
+      parsed.quality_audits = createDemoQualityAudits()
+      modified = true
+    }
     if (!Array.isArray(parsed.companies) || !parsed.companies.length) {
       parsed.companies = JSON.parse(JSON.stringify(INITIAL_MOCK_DATA.companies || []))
       modified = true
@@ -178,6 +184,8 @@ function adjustRelativeDates(db) {
 
 export function initDemoDb() {
   const initial = adjustRelativeDates(JSON.parse(JSON.stringify(INITIAL_MOCK_DATA)))
+  initial.quality_audits = createDemoQualityAudits()
+  initial.agent_chats[0].messages[1].content = getDemoAgentReply(initial, 'Summarize my active pipeline')
   saveDemoDb(initial)
   return initial
 }

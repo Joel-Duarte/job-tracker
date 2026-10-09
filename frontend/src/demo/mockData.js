@@ -1693,6 +1693,7 @@ export const INITIAL_MOCK_DATA = {
     enable_email_intake: true,
     enable_embeddings: false,
     enable_auto_cover_letter: true,
+    enable_llm_judge: true,
     cover_letter_match_threshold: 70,
     cover_letter_length: "standard",
     cover_letter_tone: "professional",
@@ -1750,7 +1751,7 @@ export const INITIAL_MOCK_DATA = {
         {
           id: "msg_2",
           role: "assistant",
-          content: "Here is your active pipeline breakdown:\n\n- **Stripe** (Offer Received): $265k Base offer package. Action item due in 3 days.\n- **Linear** (Technical Interview): System Architecture screen scheduled in 2 days.\n- **Datadog** (Online Assessment): Take-home telemetry challenge due tomorrow.\n- **Figma** (Applied): Application submitted 8 days ago."
+          content: "Here is your active pipeline breakdown:\n\n- **Stripe** (Offer Received): $265k Base offer package. Action item due in 3 days.\n- **Linear** (Technical Interview): Technical interview stage; awaiting scheduling.\n- **Datadog** (Online Assessment): Take-home telemetry challenge due tomorrow.\n- **Figma** (Applied): Application submitted; awaiting recruiter response."
         }
       ]
     }

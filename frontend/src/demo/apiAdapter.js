@@ -1,4 +1,14 @@
+import { getDemoAgentReply } from './agentReplies.js'
+import { getDemoQualityStats } from './qualityAudits.js'
 import { getDemoDb, saveDemoDb } from './demoStorage.js'
+
+function filterDemoTraces(traces, params) {
+  return traces.filter(t =>
+    (!params.category || params.category === 'all' || t.category === params.category) &&
+    (!params.status || params.status === 'all' || t.status === params.status) &&
+    (!(params.errors_only === true || params.errors_only === 'true') || t.status === 'error')
+  ).slice(0, params.limit || 100)
+}
 
 function delay(ms = null) {
   const actualMs = ms !== null ? ms : Math.floor(Math.random() * 500) + 500
@@ -1091,6 +1101,10 @@ export async function handleDemoRequest(config) {
   }
 
   // 6. DIAGNOSTICS & TELEMETRY
+  if (urlPath === '/diagnostics/quality' && method === 'get') {
+    return ok(getDemoQualityStats(db.quality_audits || []))
+  }
+
   if (urlPath === '/diagnostics/stats' && method === 'get') {
     const traces = db.diagnostics_traces || []
     let totalTokens = 0
@@ -1124,28 +1138,21 @@ export async function handleDemoRequest(config) {
       success_count: traces.filter((t) => t.status === 'success').length,
       error_count: traces.filter((t) => t.status === 'error').length,
       success_rate: traces.length > 0 ? Math.round((traces.filter((t) => t.status === 'success').length / traces.length) * 100) : 100,
-      total_tokens: totalTokens || 142800,
+      total_tokens: totalTokens,
       total_spend_usd: totalSpend,
-      total_savings_usd: totalSavings || 14.28,
-      task_token_breakdown: Object.keys(taskBreakdown).length > 0 ? taskBreakdown : {
-        "JOB_ASSESSMENT": { calls: 24, tokens: 98400, cost_usd: 0.0, savings_usd: 9.84 },
-        "COVER_LETTER": { calls: 8, tokens: 26400, cost_usd: 0.0, savings_usd: 2.64 },
-        "INTERVIEW_SIMULATION": { calls: 6, tokens: 18000, cost_usd: 0.0, savings_usd: 1.80 }
-      },
+      total_savings_usd: totalSavings,
+      task_token_breakdown: taskBreakdown,
       avg_latency_ms: 850,
     })
   }
 
   if (urlPath === '/diagnostics/traces' && method === 'get') {
-    let traces = db.diagnostics_traces || []
-    if (params.category && params.category !== 'all') {
-      traces = traces.filter((t) => t.category === params.category)
-    }
-    return ok(traces)
+    return ok(filterDemoTraces(db.diagnostics_traces || [], params))
   }
 
   if (urlPath === '/diagnostics/purge' && method === 'delete') {
     db.diagnostics_traces = []
+    db.quality_audits = []
     saveDemoDb(db)
     return ok({ message: 'Traces purged' })
   }
@@ -1554,7 +1561,6 @@ export async function handleDemoRequest(config) {
   if (urlPath === '/agent/chat' && method === 'post') {
     const messages = data.messages || []
     const lastUserMsg = messages[messages.length - 1]?.content || 'Hello'
-    const lowerMsg = lastUserMsg.toLowerCase()
     let chatId = data.chat_id
     let chat = (db.agent_chats || []).find((c) => c.id === chatId)
 
@@ -1569,18 +1575,7 @@ export async function handleDemoRequest(config) {
       db.agent_chats = [chat, ...(db.agent_chats || [])]
     }
 
-    let replyText = `Here is advice regarding "${lastUserMsg}":\n\n1. Focus on core architectural principles.\n2. Quantify achievements with metrics.\n3. Prepare concrete STAR examples for your interview rounds.`
-
-    if (
-      lowerMsg.includes('tool') ||
-      lowerMsg.includes('can you do') ||
-      lowerMsg.includes('what can you') ||
-      lowerMsg.includes('available tools') ||
-      lowerMsg.includes('capabilities') ||
-      lowerMsg.includes('engine')
-    ) {
-      replyText = `I have access to the following backend tools and subsystem engines to power your job search:\n\n1. Recruitment Mailbox Synchronization Engine: Automatic IMAP/OAuth email fetcher and deduplicating intake scanner.\n2. Camofox Stealth Scraper: Multi-engine web scraper for extracting job postings, role specs, and requirements.\n3. LangGraph Intake Pipeline: Stateful multi-step graph workflow for job lead qualification and candidate match scoring.\n4. pgvector/pgtrgm Search: High-performance hybrid semantic vector cosine similarity and trigram database search engine.\n5. AI Task Studio: Task-bound prompt engineering and customizable system prompt template configuration environment.\n6. Interactive Mock Interview Simulator: Real-time multi-turn behavioral & technical interview practice engine with STAR scoring and debrief scorecards.\n7. Staleness Archiver Worker: Automated inactivity tracking and stalled application follow-up detector.`
-    }
+    const replyText = getDemoAgentReply(db, lastUserMsg)
 
     const assistantMsg = {
       id: `msg_${Date.now()}`,
