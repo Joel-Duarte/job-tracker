@@ -152,3 +152,6 @@ graphify-out/
 
 skills-lock.json
 .agents/skills
+
+# Local product showcase workspace (source, captures, audio, and exports)
+/product-video/
