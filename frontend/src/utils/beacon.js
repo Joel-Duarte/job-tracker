@@ -16,6 +16,18 @@ export function recordPageView(path) {
     const title = document.title || ''
     const screenWidth = window.screen?.width || 0
 
+    // Get or create a persistent session-stable visitor ID
+    let visitorId = ''
+    try {
+      visitorId = sessionStorage.getItem('jt_visitor_id')
+      if (!visitorId) {
+        visitorId = Math.random().toString(36).substring(2) + Date.now().toString(36)
+        sessionStorage.setItem('jt_visitor_id', visitorId)
+      }
+    } catch {
+      visitorId = 'fallback-id'
+    }
+
     // Extract ?ref=, ?utm_source=, or ?source= from URL search params (or persisted session)
     let refTag = ''
     try {
@@ -49,6 +61,7 @@ export function recordPageView(path) {
       campaign: refTag,
       title,
       width: screenWidth,
+      visitorId: visitorId,
       timestamp: new Date().toISOString(),
     })
 
@@ -64,6 +77,4 @@ export function recordPageView(path) {
     // Silent error containment
   }
 }
-
-
 
