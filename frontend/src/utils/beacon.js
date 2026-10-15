@@ -1,58 +1,97 @@
 /**
  * Client beacon utility for tracking GitHub Pages demo visits.
- * Uses CORS-free image pixel GET + silent no-cors fetch to ensure
- * zero console warnings or CORS preflight failures across all browsers.
+ * Persists visitor ID and campaign tags across tabs using localStorage
+ * with sessionStorage fallback.
  */
+
+function getStorageItem(key) {
+  try {
+    return localStorage.getItem(key) || sessionStorage.getItem(key) || ''
+  } catch {
+    return ''
+  }
+}
+
+function setStorageItem(key, value) {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // ignore localStorage error
+  }
+  try {
+    sessionStorage.setItem(key, value)
+  } catch {
+    // ignore sessionStorage error
+  }
+}
+
+function extractRefFromUrlString(urlStr) {
+  if (!urlStr) return ''
+  try {
+    const qIndex = urlStr.indexOf('?')
+    if (qIndex === -1) return ''
+    const params = new URLSearchParams(urlStr.slice(qIndex))
+    return (
+      params.get('ref') ||
+      params.get('utm_source') ||
+      params.get('source') ||
+      ''
+    )
+  } catch {
+    return ''
+  }
+}
 
 export function recordPageView(path) {
   if (typeof window === 'undefined') return
   try {
-    // Ignore automated headless test runners
+    // Ignore automated headless webdriver flags
     if (navigator.webdriver || window.callPhantom || window._phantom) return
 
     const endpoint = 'https://floral-pine-7c5e.joel-t-f82.workers.dev/api/ping'
     const currentPath = path || (location.pathname + location.search) || '/'
-    const referrer = document.referrer || ''
+    const rawReferrer = document.referrer || ''
     const title = document.title || ''
     const screenWidth = window.screen?.width || 0
 
-    // Get or create a persistent session-stable visitor ID
-    let visitorId = ''
-    try {
-      visitorId = sessionStorage.getItem('jt_visitor_id')
-      if (!visitorId) {
-        visitorId = Math.random().toString(36).substring(2) + Date.now().toString(36)
-        sessionStorage.setItem('jt_visitor_id', visitorId)
-      }
-    } catch {
-      visitorId = 'fallback-id'
+    // 1. Get or create a cross-tab visitor ID
+    let visitorId = getStorageItem('jt_visitor_id')
+    if (!visitorId) {
+      visitorId =
+        Math.random().toString(36).substring(2, 10) +
+        Date.now().toString(36)
+      setStorageItem('jt_visitor_id', visitorId)
     }
 
-    // Extract ?ref=, ?utm_source=, or ?source= from URL search params (or persisted session)
+    // 2. Extract campaign tag from current URL, passed path, referrer URL, or storage
+    const queryRef =
+      extractRefFromUrlString(window.location.search) ||
+      extractRefFromUrlString(currentPath) ||
+      extractRefFromUrlString(rawReferrer)
+
     let refTag = ''
-    try {
-      const urlParams = new URLSearchParams(window.location.search)
-      const queryRef =
-        urlParams.get('ref') ||
-        urlParams.get('utm_source') ||
-        urlParams.get('source')
-
-      if (queryRef) {
-        refTag = queryRef
-        try {
-          sessionStorage.setItem('jt_campaign_ref', queryRef)
-        } catch {
-          // ignore storage error
-        }
-      } else {
-        refTag = sessionStorage.getItem('jt_campaign_ref') || ''
-      }
-    } catch {
-      // fallback
+    if (queryRef) {
+      refTag = queryRef
+      setStorageItem('jt_campaign_ref', queryRef)
+    } else {
+      refTag = getStorageItem('jt_campaign_ref')
     }
 
-    // Set effective referrer (giving priority to explicit ?ref= / campaign tag)
-    const effectiveReferrer = refTag || referrer || ''
+    // Filter out internal same-site URLs from raw referrer so internal navigation
+    // doesn't overwrite campaign/referrer tracking
+    let externalReferrer = rawReferrer
+    try {
+      if (rawReferrer) {
+        const refUrl = new URL(rawReferrer)
+        if (refUrl.hostname === window.location.hostname) {
+          externalReferrer = ''
+        }
+      }
+    } catch {
+      externalReferrer = ''
+    }
+
+    const effectiveReferrer = refTag || externalReferrer || ''
 
     const payload = JSON.stringify({
       path: currentPath,
@@ -61,11 +100,10 @@ export function recordPageView(path) {
       campaign: refTag,
       title,
       width: screenWidth,
-      visitorId: visitorId,
+      visitorId,
       timestamp: new Date().toISOString(),
     })
 
-    // Dispatch POST request (works with 200 OK across all desktop & mobile browsers)
     fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
@@ -77,4 +115,3 @@ export function recordPageView(path) {
     // Silent error containment
   }
 }
-
