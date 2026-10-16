@@ -1,7 +1,7 @@
 /**
- * Client beacon utility for tracking GitHub Pages demo visits.
- * Persists visitor ID and campaign tags across tabs using localStorage
- * with sessionStorage fallback.
+ * Lightweight client beacon utility for GitHub Pages.
+ * Persists campaign references across navigation and sends events
+ * directly to the Cloudflare Worker D1 pipeline.
  */
 
 function getStorageItem(key) {
@@ -16,12 +16,12 @@ function setStorageItem(key, value) {
   try {
     localStorage.setItem(key, value)
   } catch {
-    // ignore localStorage error
+    // ignore storage error
   }
   try {
     sessionStorage.setItem(key, value)
   } catch {
-    // ignore sessionStorage error
+    // ignore storage error
   }
 }
 
@@ -45,25 +45,14 @@ function extractRefFromUrlString(urlStr) {
 export function recordPageView(path) {
   if (typeof window === 'undefined') return
   try {
-    // Ignore automated headless webdriver flags
+    // Prevent automated headless scrapers from triggering pageviews
     if (navigator.webdriver || window.callPhantom || window._phantom) return
 
     const endpoint = 'https://floral-pine-7c5e.joel-t-f82.workers.dev/api/ping'
     const currentPath = path || (location.pathname + location.search) || '/'
     const rawReferrer = document.referrer || ''
-    const title = document.title || ''
-    const screenWidth = window.screen?.width || 0
 
-    // 1. Get or create a cross-tab visitor ID
-    let visitorId = getStorageItem('jt_visitor_id')
-    if (!visitorId) {
-      visitorId =
-        Math.random().toString(36).substring(2, 10) +
-        Date.now().toString(36)
-      setStorageItem('jt_visitor_id', visitorId)
-    }
-
-    // 2. Extract campaign tag from current URL, passed path, referrer URL, or storage
+    // Detect campaign parameter across current URL, supplied path, or incoming referrer
     const queryRef =
       extractRefFromUrlString(window.location.search) ||
       extractRefFromUrlString(currentPath) ||
@@ -77,8 +66,7 @@ export function recordPageView(path) {
       refTag = getStorageItem('jt_campaign_ref')
     }
 
-    // Filter out internal same-site URLs from raw referrer so internal navigation
-    // doesn't overwrite campaign/referrer tracking
+    // Suppress internal domain referrer to preserve external referrer integrity
     let externalReferrer = rawReferrer
     try {
       if (rawReferrer) {
@@ -91,16 +79,10 @@ export function recordPageView(path) {
       externalReferrer = ''
     }
 
-    const effectiveReferrer = refTag || externalReferrer || ''
-
     const payload = JSON.stringify({
       path: currentPath,
-      referrer: effectiveReferrer,
-      ref: effectiveReferrer,
+      referrer: externalReferrer,
       campaign: refTag,
-      title,
-      width: screenWidth,
-      visitorId,
       timestamp: new Date().toISOString(),
     })
 
