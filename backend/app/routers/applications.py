@@ -824,6 +824,18 @@ async def update_application(
         } and hasattr(app, key):
             setattr(app, key, value)
 
+    if "job_url" in update_data:
+        clean_url = update_data["job_url"].strip() if update_data["job_url"] else None
+        app.job_url = clean_url
+        if app.job_posting and clean_url:
+            app.job_posting.job_url = clean_url
+        if app.match_analysis_payload and isinstance(app.match_analysis_payload, dict):
+            updated_payload = dict(app.match_analysis_payload)
+            updated_payload["job_url"] = clean_url
+            app.match_analysis_payload = updated_payload
+
+    app.last_activity_at = datetime.now(UTC)
+
     await db.commit()
 
     # Enqueue non-blocking background embedding generation (only if active stage, not ASSESSMENT)

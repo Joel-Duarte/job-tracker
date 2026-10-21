@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { ActionItemsAPI, ApplicationsAPI } from '../api/endpoints'
 import { useUIStore } from '../stores/uiStore'
+import { useApplicationsStore } from '../stores/applicationsStore'
 import DateTimePicker from '../components/common/DateTimePicker.vue'
 import PageHeader from '../components/common/PageHeader.vue'
 import { toLocalDatetimeString, formatDate24h } from '../utils/formatters'
@@ -27,6 +28,7 @@ import {
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
+const appStore = useApplicationsStore()
 
 const isLoading = ref(true)
 const actionItems = ref([])
@@ -168,7 +170,10 @@ async function handleSaveTask() {
       uiStore.showToast('Action item created', 'success')
     }
     showModal.value = false
-    await fetchActionItems()
+    await Promise.all([
+      fetchActionItems(),
+      appStore.fetchApplications(true),
+    ])
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to save action item', 'error')
   } finally {
@@ -184,9 +189,10 @@ async function toggleTaskStatus(item) {
   try {
     await ActionItemsAPI.update(item.id, { status: nextStatus })
     uiStore.showToast(nextStatus === 'COMPLETED' ? 'Task marked as completed! 🎉' : 'Task moved back to Pending', 'info')
-    if (filterTab.value !== 'ALL') {
-      await fetchActionItems()
-    }
+    await Promise.all([
+      filterTab.value !== 'ALL' ? fetchActionItems() : Promise.resolve(),
+      appStore.fetchApplications(true),
+    ])
   } catch (err) {
     item.status = prevStatus
     uiStore.showToast('Failed to update task status', 'error')
@@ -199,7 +205,10 @@ async function deleteTask(item) {
   try {
     await ActionItemsAPI.delete(item.id)
     uiStore.showToast('Task deleted', 'info')
-    await fetchActionItems()
+    await Promise.all([
+      fetchActionItems(),
+      appStore.fetchApplications(true),
+    ])
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to delete task', 'error')
   }

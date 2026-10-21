@@ -1,8 +1,27 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { ApplicationsAPI } from '../api/endpoints'
 import { useUIStore } from './uiStore'
 import { getDemoDb } from '../demo/demoStorage'
+
+const VALID_DATE_RANGES = ['all', '7d', '30d', '90d', 'custom']
+
+function loadSavedDateRange() {
+  try {
+    const saved = localStorage.getItem('jobtracker_apps_date_range')
+    return VALID_DATE_RANGES.includes(saved) ? saved : 'all'
+  } catch {
+    return 'all'
+  }
+}
+
+function loadSavedDateBound(key) {
+  try {
+    return localStorage.getItem(key) || ''
+  } catch {
+    return ''
+  }
+}
 
 export const useApplicationsStore = defineStore('applications', () => {
   const uiStore = useUIStore()
@@ -16,11 +35,21 @@ export const useApplicationsStore = defineStore('applications', () => {
   const actionRequiredOnly = ref(false)
   const minMatchScore = ref(null)
   const selectedWorkModel = ref('') // '' | 'Remote' | 'Hybrid' | 'On-site'
-  const selectedDateRange = ref('all') // 'all' | '7d' | '30d' | '90d' | 'custom'
-  const customDateStart = ref('')
-  const customDateEnd = ref('')
+  const selectedDateRange = ref(loadSavedDateRange()) // 'all' | '7d' | '30d' | '90d' | 'custom'
+  const customDateStart = ref(loadSavedDateBound('jobtracker_apps_custom_date_start'))
+  const customDateEnd = ref(loadSavedDateBound('jobtracker_apps_custom_date_end'))
   const selectedApplication = ref(null)
   const loadingDetail = ref(false)
+
+  watch([selectedDateRange, customDateStart, customDateEnd], ([range, start, end]) => {
+    try {
+      localStorage.setItem('jobtracker_apps_date_range', range || 'all')
+      localStorage.setItem('jobtracker_apps_custom_date_start', start || '')
+      localStorage.setItem('jobtracker_apps_custom_date_end', end || '')
+    } catch {
+      // ignore storage errors
+    }
+  })
 
   const pipelineViewMode = ref('active') // 'active' | 'archive' | 'hired'
   const lastFetchedAt = ref(null)

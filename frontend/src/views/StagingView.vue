@@ -745,7 +745,7 @@ async function submitResolution() {
 
     // Refresh data
     await fetchStagingItems(true)
-    appStore.fetchApplications()
+    await appStore.fetchApplications(true)
 
     // Auto-advance to next item in queue
     const remainingItems = filteredAndSortedItems.value

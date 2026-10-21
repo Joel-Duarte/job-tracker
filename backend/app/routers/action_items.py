@@ -216,6 +216,7 @@ async def create_action_item(
         company_name = app.company.name if app.company else None
         position = app.position
         app_status = app.status
+        app.last_activity_at = datetime.now(UTC)
 
     action_item = ActionItemModel(
         application_id=payload.application_id,
@@ -293,6 +294,8 @@ async def update_action_item(
             setattr(item, key, value)
 
     new_status = item.status
+    if item.application:
+        item.application.last_activity_at = datetime.now(UTC)
 
     # If marked as COMPLETED and linked to an application, record timeline event
     if new_status == "COMPLETED" and old_status != "COMPLETED" and item.application_id:
@@ -438,6 +441,10 @@ async def delete_action_item(
         )
 
     app_id = item.application_id
+    if app_id:
+        parent_app = await db.get(ApplicationModel, app_id)
+        if parent_app:
+            parent_app.last_activity_at = datetime.now(UTC)
     await db.delete(item)
     await db.commit()
 

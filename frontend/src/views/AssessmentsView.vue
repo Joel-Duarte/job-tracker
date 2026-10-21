@@ -183,7 +183,7 @@ async function bulkMarkAsApplied() {
   localStorage.setItem('job_tracker_passed_assessments', JSON.stringify(Array.from(passedTaskIds.value)))
   uiStore.showToast(`Successfully moved ${successCount} leads to Applications (Applied)`, 'success')
   selectedTaskIds.value.clear()
-  appStore.fetchApplications()
+  await appStore.fetchApplications(true)
   await loadEvaluations(true)
 }
 
@@ -465,7 +465,6 @@ async function markAsApplied(task) {
     })
 
     uiStore.showToast(`'${res.data.company}' successfully added to Applications (Applied)!`, 'success')
-    appStore.fetchApplications()
 
     // Dismiss from assessments immediately
     const appId = result.application_id || task.id
@@ -474,7 +473,7 @@ async function markAsApplied(task) {
 
     await IntakeAPI.dismissAssessment(appId)
     await Promise.all([
-      appStore.fetchApplications(),
+      appStore.fetchApplications(true),
       loadEvaluations(true),
       queueStore.fetchTasks(true),
     ])

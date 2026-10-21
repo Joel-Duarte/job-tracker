@@ -1116,7 +1116,10 @@ async function handleCreateDrawerTask() {
     uiStore.showToast('Action item added', 'success')
     newDrawerTask.value = { title: '', urgency: 'MEDIUM', due_date: '' }
     showNewTaskForm.value = false
-    await appStore.fetchApplicationDetail(appStore.selectedApplication.id)
+    await Promise.all([
+      appStore.fetchApplicationDetail(appStore.selectedApplication.id),
+      appStore.fetchApplications(true),
+    ])
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to create action item', 'error')
   } finally {
@@ -1131,7 +1134,10 @@ async function handleToggleDrawerTask(action) {
     await ActionItemsAPI.update(action.id, { status: newStatus })
     uiStore.showToast(newStatus === 'COMPLETED' ? 'Task completed' : 'Task marked pending', 'info')
     if (appStore.selectedApplication?.id) {
-      await appStore.fetchApplicationDetail(appStore.selectedApplication.id)
+      await Promise.all([
+        appStore.fetchApplicationDetail(appStore.selectedApplication.id),
+        appStore.fetchApplications(true),
+      ])
     }
   } catch (err) {
     action.status = newStatus === 'COMPLETED' ? 'PENDING' : 'COMPLETED'
@@ -1143,7 +1149,10 @@ async function handleDeleteDrawerTask(actionId) {
   try {
     await ActionItemsAPI.delete(actionId)
     uiStore.showToast('Task removed', 'info')
-    await appStore.fetchApplicationDetail(appStore.selectedApplication.id)
+    await Promise.all([
+      appStore.fetchApplicationDetail(appStore.selectedApplication.id),
+      appStore.fetchApplications(true),
+    ])
   } catch (err) {
     uiStore.showToast('Failed to delete task', 'error')
   }
