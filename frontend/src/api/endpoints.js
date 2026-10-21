@@ -178,6 +178,7 @@ export const InterviewSimulatorAPI = {
 }
 
 export const EventsAPI = {
+  update: (id, data) => apiClient.patch(`/events/${id}`, data),
   delete: (id, source = 'application') => apiClient.delete(`/events/${id}`, { params: { source } }),
   moveToStaging: (id) => apiClient.post(`/events/${id}/move-to-staging`),
 }

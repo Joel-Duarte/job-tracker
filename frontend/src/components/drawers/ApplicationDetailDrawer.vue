@@ -68,6 +68,73 @@ const showRawDescription = ref(false)
 const isArchiving = ref(false)
 const deletingEventId = ref(null)
 
+// Inline Timeline Note Editing State
+const editingNoteEventId = ref(null)
+const editingNoteText = ref('')
+const isSavingNote = ref(false)
+
+function shouldShowEventSummary(event) {
+  if (!event?.email_summary) return false
+  const summary = String(event.email_summary).trim()
+  if (!summary) return false
+  const note = String(event.raw_payload?.notes || '').trim()
+  if (!note) return true
+  if (event.email_event_type === 'CUSTOM_NOTE') return false
+  const normalizedSummary = summary.replace(/^Notes:\s*/i, '').trim()
+  return normalizedSummary !== note
+}
+
+function getCleanedEventSummary(event) {
+  if (!event?.email_summary) return ''
+  const summary = String(event.email_summary).trim()
+  const note = String(event.raw_payload?.notes || '').trim()
+  if (note && summary.includes(`Notes: ${note}`)) {
+    return summary.replace(`Notes: ${note}`, '').trim()
+  }
+  return summary
+}
+
+function startEditingEventNote(event) {
+  editingNoteEventId.value = event.id
+  editingNoteText.value = event.raw_payload?.notes || ''
+}
+
+function cancelEditingEventNote() {
+  editingNoteEventId.value = null
+  editingNoteText.value = ''
+}
+
+async function saveEditingEventNote(event) {
+  if (!event?.id || isSavingNote.value) return
+  const trimmed = editingNoteText.value.trim()
+  if (!trimmed) {
+    uiStore.showToast('Note cannot be empty', 'warning')
+    return
+  }
+  isSavingNote.value = true
+  try {
+    await EventsAPI.update(event.id, { notes: trimmed })
+    if (!event.raw_payload) event.raw_payload = {}
+    event.raw_payload.notes = trimmed
+    if (event.email_event_type === 'CUSTOM_NOTE') {
+      event.email_summary = trimmed
+    }
+    editingNoteEventId.value = null
+    editingNoteText.value = ''
+    uiStore.showToast('Note updated', 'success')
+    if (appStore.selectedApplication?.id) {
+      await Promise.all([
+        appStore.fetchApplicationDetail(appStore.selectedApplication.id),
+        appStore.fetchApplications(true),
+      ])
+    }
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to update note', 'error')
+  } finally {
+    isSavingNote.value = false
+  }
+}
+
 // Timeline Event / Email Viewer Modal State
 const viewingEmailEvent = ref(null)
 const emailModalViewMode = ref('formatted') // 'formatted' | 'raw'
@@ -1506,17 +1573,60 @@ function formatDate(isoStr) {
                       {{ event.email_subject }}
                     </div>
 
-                    <div v-if="event.email_summary" class="event-summary">
-                      {{ event.email_summary }}
+                    <div v-if="shouldShowEventSummary(event) && getCleanedEventSummary(event)" class="event-summary">
+                      {{ getCleanedEventSummary(event) }}
                     </div>
 
                     <!-- Recorded Notes Pill / Card -->
                     <div v-if="event.raw_payload?.notes" class="event-notes-card">
                       <div class="notes-header">
-                        <FileText :size="12" class="text-primary" />
-                        <span>Note / Context</span>
+                        <div class="notes-header-left">
+                          <FileText :size="12" class="text-primary" />
+                          <span>Note / Context</span>
+                        </div>
+                        <button
+                          v-if="editingNoteEventId !== event.id"
+                          type="button"
+                          class="btn-edit-note"
+                          title="Edit note"
+                          @click.stop="startEditingEventNote(event)"
+                        >
+                          <Edit2 :size="11" />
+                        </button>
                       </div>
-                      <div class="notes-body">{{ event.raw_payload.notes }}</div>
+                      <div v-if="editingNoteEventId === event.id" class="note-inline-editor">
+                        <textarea
+                          v-model="editingNoteText"
+                          rows="3"
+                          class="note-edit-textarea"
+                          placeholder="Update note..."
+                          @keydown.esc.stop="cancelEditingEventNote"
+                          @keydown.ctrl.enter.stop="saveEditingEventNote(event)"
+                          @keydown.meta.enter.stop="saveEditingEventNote(event)"
+                        ></textarea>
+                        <div class="note-edit-actions">
+                          <button
+                            type="button"
+                            class="btn btn-primary btn-xs"
+                            :disabled="isSavingNote"
+                            @click.stop="saveEditingEventNote(event)"
+                          >
+                            <Loader2 v-if="isSavingNote" :size="11" class="animate-spin" />
+                            <Check v-else :size="11" />
+                            <span>Save</span>
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-secondary btn-xs"
+                            :disabled="isSavingNote"
+                            @click.stop="cancelEditingEventNote"
+                          >
+                            <X :size="11" />
+                            <span>Cancel</span>
+                          </button>
+                        </div>
+                      </div>
+                      <div v-else class="notes-body">{{ event.raw_payload.notes }}</div>
                     </div>
 
                     <div v-if="event.email_action_required" class="event-action-required">
@@ -4126,11 +4236,72 @@ function formatDate(isoStr) {
 .event-notes-card .notes-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 5px;
   font-size: 10px;
   font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
+}
+
+.notes-header-left {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.btn-edit-note {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0.65;
+  transition: all var(--transition-fast);
+}
+
+.event-notes-card:hover .btn-edit-note,
+.btn-edit-note:hover {
+  opacity: 1;
+  color: var(--primary);
+  background-color: var(--primary-subtle);
+}
+
+.note-inline-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.note-edit-textarea {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-main);
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  resize: vertical;
+  outline: none;
+}
+
+.note-edit-textarea:focus {
+  border-color: var(--primary);
+}
+
+.note-edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .event-notes-card .notes-body {

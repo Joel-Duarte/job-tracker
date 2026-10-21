@@ -209,8 +209,8 @@ async def list_applications(
         for evt in sorted_events:
             if evt.raw_payload and isinstance(evt.raw_payload, dict):
                 if (
-                    "interview_stage" in evt.raw_payload
-                    or "scheduled_at" in evt.raw_payload
+                    evt.raw_payload.get("interview_stage")
+                    or evt.raw_payload.get("scheduled_at")
                 ):
                     latest_interview_evt = evt
                     break
@@ -476,8 +476,8 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
     for evt in sorted_events:
         if evt.raw_payload and isinstance(evt.raw_payload, dict):
             if (
-                "interview_stage" in evt.raw_payload
-                or "scheduled_at" in evt.raw_payload
+                evt.raw_payload.get("interview_stage")
+                or evt.raw_payload.get("scheduled_at")
             ):
                 latest_interview_evt = evt
                 break
@@ -914,6 +914,23 @@ async def transition_application(
         "STATUS_CHANGE" if old_status != new_status else "CUSTOM_NOTE"
     )
 
+    # Preserve existing interview_stage when logging activity/notes without changing status or stage
+    preserved_interview_stage = None
+    if old_status == new_status and not payload.interview_stage:
+        sorted_existing = sorted(
+            app.events or [],
+            key=lambda e: _to_utc(e.email_received_at)
+            or _to_utc(e.created_at)
+            or datetime.min.replace(tzinfo=UTC),
+            reverse=True,
+        )
+        for existing_evt in sorted_existing:
+            if existing_evt.raw_payload and isinstance(existing_evt.raw_payload, dict):
+                stage_val = existing_evt.raw_payload.get("interview_stage")
+                if stage_val:
+                    preserved_interview_stage = stage_val
+                    break
+
     summary_parts = []
     if old_status != new_status:
         summary_parts.append(f"Status changed from {old_status} to {new_status}.")
@@ -997,9 +1014,16 @@ async def transition_application(
     if payload.rejection_reason:
         summary_parts.append(f"Rejection Reason: {payload.rejection_reason}.")
     if payload.notes:
-        summary_parts.append(f"Notes: {payload.notes.strip()}")
+        if summary_parts:
+            summary_parts.append(f"Notes: {payload.notes.strip()}")
+        else:
+            summary_parts.append(payload.notes.strip())
 
     summary_str = " ".join(summary_parts)
+
+    event_payload = payload.model_dump(mode="json")
+    if preserved_interview_stage and not event_payload.get("interview_stage"):
+        event_payload["interview_stage"] = preserved_interview_stage
 
     # Record programmatic timeline event
     event = ApplicationEventModel(
@@ -1010,7 +1034,7 @@ async def transition_application(
         email_summary=summary_str,
         email_received_at=event_time,
         source_channel="MANUAL",
-        raw_payload=payload.model_dump(mode="json"),
+        raw_payload=event_payload,
     )
     db.add(event)
     await db.commit()

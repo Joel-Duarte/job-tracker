@@ -297,8 +297,7 @@ export const useApplicationsStore = defineStore('applications', () => {
       }
       const raw =
         app.scheduled_interview_at ||
-        app.latest_event?.raw_payload?.scheduled_at ||
-        app.events?.find((e) => e.raw_payload?.scheduled_at)?.raw_payload?.scheduled_at
+        app.latest_event?.raw_payload?.scheduled_at
       if (!raw) return null
       const ts = new Date(raw).getTime()
       return isNaN(ts) ? null : ts
@@ -307,8 +306,7 @@ export const useApplicationsStore = defineStore('applications', () => {
     function getAppOfferDeadlineTimestamp(app) {
       const raw =
         app.nearest_due_date ||
-        app.latest_event?.raw_payload?.decision_deadline ||
-        app.events?.find((e) => e.raw_payload?.decision_deadline)?.raw_payload?.decision_deadline
+        app.latest_event?.raw_payload?.decision_deadline
       if (!raw) return null
       const ts = new Date(raw).getTime()
       return isNaN(ts) ? null : ts
@@ -538,6 +536,19 @@ export const useApplicationsStore = defineStore('applications', () => {
     }
   }
 
+  function mergeDetailIntoListItem(existingItem, detailData) {
+    if (!detailData) return existingItem
+    const { events, action_items, ...rest } = detailData
+    const merged = {
+      ...existingItem,
+      ...rest,
+      latest_event: detailData.latest_event || events?.[0] || existingItem?.latest_event || null,
+    }
+    delete merged.events
+    delete merged.action_items
+    return merged
+  }
+
   // Optimistic transitionApplication
   async function transitionApplication(applicationId, transitionData) {
     const appsSnapshot = JSON.parse(JSON.stringify(applications.value))
@@ -556,7 +567,7 @@ export const useApplicationsStore = defineStore('applications', () => {
       const res = await ApplicationsAPI.transition(applicationId, transitionData)
       const updated = res.data
       if (idx !== -1) {
-        applications.value[idx] = { ...applications.value[idx], ...updated }
+        applications.value[idx] = mergeDetailIntoListItem(applications.value[idx], updated)
       }
       if (selectedApplication.value && selectedApplication.value.id === applicationId) {
         selectedApplication.value = { ...selectedApplication.value, ...updated }
@@ -698,10 +709,7 @@ export const useApplicationsStore = defineStore('applications', () => {
       selectedApplication.value = res.data
       const idx = applications.value.findIndex((a) => String(a.id) === String(applicationId))
       if (idx !== -1) {
-        applications.value[idx] = {
-          ...applications.value[idx],
-          ...res.data,
-        }
+        applications.value[idx] = mergeDetailIntoListItem(applications.value[idx], res.data)
       }
       return res.data
     } catch (err) {

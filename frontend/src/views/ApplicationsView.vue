@@ -336,7 +336,9 @@ function getAppSubPhaseLabel(app) {
   const payload = app.latest_event?.raw_payload || {}
 
   if (status === 'TECHNICAL_INTERVIEW') {
-    return payload.interview_stage || 'Interview Requested / Scheduling'
+    if (payload.interview_stage) return payload.interview_stage
+    const evtWithStage = (app.events || []).find((e) => e.raw_payload?.interview_stage)
+    return evtWithStage?.raw_payload?.interview_stage || 'Interview Requested / Scheduling'
   }
   if (status === 'OFFER') {
     const sal = payload.offered_salary || app.job_posting?.salary_max || app.job_posting?.salary_min
@@ -350,15 +352,31 @@ function getAppSubPhaseLabel(app) {
   return 'Applied'
 }
 
+function formatCardEventTypeLabel(eventType) {
+  if (!eventType) return 'Update'
+  if (eventType === 'CUSTOM_NOTE') return 'Note'
+  if (eventType === 'ACTION_ITEM_COMPLETED') return 'Task Completed'
+  if (eventType === 'STATUS_CHANGE') return 'Stage Update'
+  return String(eventType).replace(/_/g, ' ')
+}
+
+function formatCardEventSummary(latestEvent) {
+  if (!latestEvent) return ''
+  const raw = latestEvent.email_summary || latestEvent.raw_payload?.notes || ''
+  return String(raw).replace(/^Notes:\s*/i, '').trim()
+}
+
 function getScheduledInterviewDate(app) {
   if (!app) return null
+  const stage = getAppSubPhaseLabel(app)
+  if (stage === 'Task Completed / Awaiting Response') return null
   if (app.scheduled_interview_at) return app.scheduled_interview_at
   const payload = app.latest_event?.raw_payload || {}
   if (payload.scheduled_at) return payload.scheduled_at
   if (app.status === 'TECHNICAL_INTERVIEW') {
     if (app.nearest_due_date) return app.nearest_due_date
     for (const act of app.action_items || []) {
-      if (act.due_date && String(act.title).toLowerCase().includes('interview')) {
+      if (act.status === 'PENDING' && act.due_date && String(act.title).toLowerCase().includes('interview')) {
         return act.due_date
       }
     }
@@ -1349,9 +1367,9 @@ async function confirmDelete() {
               </div>
 
               <!-- Latest Event Summary Note (Compact) -->
-              <div v-if="app.latest_event?.email_summary" class="card-summary">
-                <span class="summary-prefix">{{ app.latest_event.email_event_type }}:</span>
-                {{ app.latest_event.email_summary }}
+              <div v-if="formatCardEventSummary(app.latest_event)" class="card-summary">
+                <span class="summary-prefix">{{ formatCardEventTypeLabel(app.latest_event.email_event_type) }}:</span>
+                {{ formatCardEventSummary(app.latest_event) }}
               </div>
 
               <!-- Offer Actions (Hired / Withdrawn) -->

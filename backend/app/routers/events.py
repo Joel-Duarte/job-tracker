@@ -1,7 +1,10 @@
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.database import get_db
 from app.models.applications import (
@@ -13,7 +16,12 @@ from app.models.applications import (
 )
 from app.models.staging import StagingItemModel
 from app.schemas.applications import ApplicationEventDetail
-from app.schemas.events import ActionItemSummary, OtherEventDetail, ResolveActionRequest
+from app.schemas.events import (
+    ActionItemSummary,
+    EventUpdateRequest,
+    OtherEventDetail,
+    ResolveActionRequest,
+)
 
 router = APIRouter(prefix="/events", tags=["Events"])
 
@@ -120,6 +128,58 @@ async def list_other_events(
     )
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+@router.patch(
+    "/{event_id}",
+    response_model=ApplicationEventDetail,
+    summary="Update an application timeline event's note or summary",
+)
+async def update_event(
+    event_id: int,
+    payload: EventUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Updates the note or summary text on an application timeline event."""
+    stmt = (
+        select(ApplicationEventModel)
+        .where(ApplicationEventModel.id == event_id)
+        .options(selectinload(ApplicationEventModel.application))
+    )
+    result = await db.execute(stmt)
+    event = result.scalars().first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Application event not found")
+
+    raw_payload = dict(event.raw_payload or {})
+    old_notes = raw_payload.get("notes")
+
+    if payload.notes is not None:
+        cleaned_notes = payload.notes.strip()
+        raw_payload["notes"] = cleaned_notes
+        event.raw_payload = raw_payload
+        flag_modified(event, "raw_payload")
+
+        if event.email_event_type == "CUSTOM_NOTE":
+            event.email_summary = cleaned_notes
+        elif event.email_summary and old_notes:
+            if f"Notes: {old_notes}" in event.email_summary:
+                event.email_summary = event.email_summary.replace(
+                    f"Notes: {old_notes}",
+                    f"Notes: {cleaned_notes}" if cleaned_notes else "",
+                ).strip()
+            elif event.email_summary.strip() == old_notes.strip():
+                event.email_summary = cleaned_notes
+
+    if payload.email_summary is not None:
+        event.email_summary = payload.email_summary.strip()
+
+    if event.application:
+        event.application.last_activity_at = datetime.now(UTC)
+
+    await db.commit()
+    await db.refresh(event)
+    return event
 
 
 @router.patch(

@@ -158,17 +158,40 @@ export async function handleDemoRequest(config) {
     const eventType = isSameStatus ? (data.event_type || 'CUSTOM_NOTE') : `STAGE_CHANGE_${newStatus}`
     const eventTitle = isSameStatus ? (data.notes ? 'Activity / Note Logged' : 'Timeline Event Recorded') : `Transitioned to ${newStatus}`
 
+    let preservedInterviewStage = data.interview_stage
+    if (isSameStatus && !preservedInterviewStage) {
+      for (const evt of app.events || []) {
+        if (evt.raw_payload?.interview_stage) {
+          preservedInterviewStage = evt.raw_payload.interview_stage
+          break
+        }
+      }
+    }
+
+    const rawPayload = {
+      ...data,
+      ...(preservedInterviewStage ? { interview_stage: preservedInterviewStage } : {}),
+    }
+
     const newEvent = {
       id: `evt_${Date.now()}`,
       application_id: appId,
+      email_event_type: eventType,
       event_type: eventType,
       title: eventTitle,
+      email_summary: data.notes ? data.notes.trim() : `Moved application from ${oldStatus} to ${newStatus}`,
       description: data.notes || `Moved application from ${oldStatus} to ${newStatus}`,
       created_at: new Date().toISOString(),
-      raw_payload: data,
+      raw_payload: rawPayload,
     }
 
     app.events = [newEvent, ...(app.events || [])]
+    app.latest_event = newEvent
+    if (preservedInterviewStage === 'Task Completed / Awaiting Response') {
+      app.scheduled_interview_at = null
+    } else if (data.scheduled_at) {
+      app.scheduled_interview_at = data.scheduled_at
+    }
     saveDemoDb(db)
     return ok(app)
   }
@@ -834,7 +857,45 @@ export async function handleDemoRequest(config) {
 
     if (method === 'patch' || method === 'put') {
       if (itemIndex !== -1) {
+        const oldStatus = db.action_items[itemIndex].status
         db.action_items[itemIndex] = { ...db.action_items[itemIndex], ...data }
+        const item = db.action_items[itemIndex]
+        if (item.application_id) {
+          const parentApp = (db.applications || []).find((a) => String(a.id) === String(item.application_id))
+          if (parentApp) {
+            parentApp.last_activity_at = new Date().toISOString()
+            const hasPending = (db.action_items || []).some(
+              (a) => String(a.application_id) === String(parentApp.id) && a.status === 'PENDING'
+            )
+            parentApp.has_action_required = hasPending
+            if (item.status === 'COMPLETED' && oldStatus !== 'COMPLETED') {
+              const compEvt = {
+                id: `evt_comp_${Date.now()}`,
+                application_id: parentApp.id,
+                email_event_type: 'ACTION_ITEM_COMPLETED',
+                event_type: 'ACTION_ITEM_COMPLETED',
+                title: 'Completed Action Item',
+                email_summary: `Completed action item: ${item.title}. Awaiting response.`,
+                description: `Completed action item: ${item.title}. Awaiting response.`,
+                created_at: new Date().toISOString(),
+                raw_payload: {
+                  action_item_id: item.id,
+                  title: item.title,
+                  urgency: item.urgency,
+                  completed_at: new Date().toISOString(),
+                  ...(parentApp.status === 'TECHNICAL_INTERVIEW'
+                    ? { interview_stage: 'Task Completed / Awaiting Response' }
+                    : {}),
+                },
+              }
+              parentApp.events = [compEvt, ...(parentApp.events || [])]
+              parentApp.latest_event = compEvt
+              if (parentApp.status === 'TECHNICAL_INTERVIEW') {
+                parentApp.scheduled_interview_at = null
+              }
+            }
+          }
+        }
         saveDemoDb(db)
       }
       return ok(db.action_items[itemIndex] || {})
@@ -1087,6 +1148,36 @@ export async function handleDemoRequest(config) {
       staging_item_id: staged.id,
       application_id: parentApp?.id,
     })
+  }
+
+  const eventItemMatch = urlPath.match(/^\/events\/([^/]+)$/)
+  if (eventItemMatch && method === 'patch') {
+    const eventId = eventItemMatch[1]
+    let updatedEvt = null
+    for (const app of db.applications || []) {
+      const evt = (app.events || []).find((e) => String(e.id) === String(eventId))
+      if (evt) {
+        if (!evt.raw_payload) evt.raw_payload = {}
+        if (data.notes !== undefined) {
+          evt.raw_payload.notes = data.notes.trim()
+          if (evt.email_event_type === 'CUSTOM_NOTE' || evt.event_type === 'CUSTOM_NOTE') {
+            evt.email_summary = data.notes.trim()
+            evt.description = data.notes.trim()
+          }
+        }
+        if (data.email_summary !== undefined) {
+          evt.email_summary = data.email_summary.trim()
+        }
+        if (app.latest_event && String(app.latest_event.id) === String(eventId)) {
+          app.latest_event = { ...evt }
+        }
+        app.last_activity_at = new Date().toISOString()
+        updatedEvt = evt
+        break
+      }
+    }
+    saveDemoDb(db)
+    return ok(updatedEvt || { id: eventId })
   }
 
   const eventDeleteMatch = urlPath.match(/^\/events\/([^/]+)$/)

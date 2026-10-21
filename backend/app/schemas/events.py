@@ -39,3 +39,8 @@ class ActionItemSummary(BaseModel):
 
 class ResolveActionRequest(BaseModel):
     action_required: bool = False
+
+
+class EventUpdateRequest(BaseModel):
+    notes: str | None = None
+    email_summary: str | None = None
