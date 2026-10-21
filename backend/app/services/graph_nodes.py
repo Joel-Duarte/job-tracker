@@ -12,7 +12,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 import app.services.llm as llm_service
 from app.core.config_manager import get_setting
-from app.core.html_utils import clean_html_text
+from app.core.html_utils import clean_html_text, split_latest_email_message
 from app.core.url_utils import normalize_job_url
 from app.models.applications import (
     ActionItemModel,
@@ -287,7 +287,16 @@ async def extraction_node(
     state: JobTrackerState, config: RunnableConfig
 ) -> dict[str, Any]:
     db = _get_db(config)
-    body = state.get("body", "")
+    raw_body = state.get("body", "")
+    latest_body, quoted_history = split_latest_email_message(raw_body)
+    body = latest_body
+    if quoted_history:
+        # Provide truncated thread context strictly labeled for company/position fallback only
+        body = (
+            f"{latest_body}\n\n"
+            f"[QUOTED EARLIER THREAD CONTEXT - USE ONLY FOR COMPANY/POSITION IDENTIFICATION, IGNORE OLD ACTIONS/DEADLINES]:\n"
+            f"{quoted_history[:1200]}"
+        )
 
     # Resolve extract_email_info dynamically so module mocks in tests are respected
     import app.services.intake as intake_mod
@@ -846,7 +855,7 @@ async def db_commit_node(
     db.add(event)
     await db.flush()
 
-    # Automatically create pending ActionItemModel if action is required
+    # Automatically create pending ActionItemModel if action is required (with thread deduplication)
     if extracted.get("action_required") and extracted.get("action"):
         action_text = str(extracted.get("action")).strip()
         if action_text:
@@ -882,15 +891,64 @@ async def db_commit_node(
                     )
                     else "MEDIUM"
                 )
-            action_item = ActionItemModel(
-                application_id=application_id,
-                event_id=event.id,
-                title=action_text[:500],
-                urgency=urgency,
-                due_date=parsed_due,
-                status="PENDING",
+
+            existing_acts_res = await db.execute(
+                select(ActionItemModel)
+                .where(ActionItemModel.application_id == application_id)
+                .order_by(ActionItemModel.created_at.desc())
             )
-            db.add(action_item)
+            existing_acts = existing_acts_res.scalars().all()
+            action_norm = action_text[:500].strip().lower()
+
+            skip_completed_dup = False
+            matched_pending: ActionItemModel | None = None
+            for ex_act in existing_acts:
+                ex_norm = (ex_act.title or "").strip().lower()
+                if not ex_norm:
+                    continue
+                sim = fuzz.token_sort_ratio(action_norm, ex_norm)
+                if ex_act.status in ("COMPLETED", "DISMISSED") and sim >= 85:
+                    # Do not re-create an identical task that the user already completed earlier in the thread
+                    skip_completed_dup = True
+                    break
+                if ex_act.status == "PENDING" and sim >= 80 and matched_pending is None:
+                    matched_pending = ex_act
+
+            if not skip_completed_dup:
+                if matched_pending is not None:
+                    matched_pending.event_id = event.id
+                    matched_pending.urgency = urgency
+                    if parsed_due:
+                        matched_pending.due_date = parsed_due
+                else:
+                    # Supersede older PENDING email-generated tasks from the same thread when a new distinct action arrives
+                    conv_id = state.get("conversation_id")
+                    if conv_id:
+                        thread_evt_ids_res = await db.execute(
+                            select(ApplicationEventModel.id).where(
+                                ApplicationEventModel.email_application_id
+                                == application_id,
+                                ApplicationEventModel.email_conversation_id == conv_id,
+                                ApplicationEventModel.id != event.id,
+                            )
+                        )
+                        thread_evt_ids = set(thread_evt_ids_res.scalars().all())
+                        for ex_act in existing_acts:
+                            if (
+                                ex_act.status == "PENDING"
+                                and ex_act.event_id in thread_evt_ids
+                            ):
+                                ex_act.status = "COMPLETED"
+
+                    action_item = ActionItemModel(
+                        application_id=application_id,
+                        event_id=event.id,
+                        title=action_text[:500],
+                        urgency=urgency,
+                        due_date=parsed_due,
+                        status="PENDING",
+                    )
+                    db.add(action_item)
 
     await db.commit()
     await db.refresh(event)

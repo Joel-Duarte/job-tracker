@@ -762,3 +762,136 @@ async def test_graph_subject_company_recovery_autolinks_active_application(
         assert result.get("application_id") == app.id
         assert result.get("company_name") == "knok"
         assert result.get("route") == "commit"
+
+
+def test_split_latest_email_message():
+    from app.core.html_utils import split_latest_email_message
+
+    thread_body = (
+        "Thanks for the answers! Could you also confirm your notice period and salary expectations?\n\n"
+        "On Oct 20, 2026, at 2:15 PM, HR Team <hr@stripe.com> wrote:\n"
+        "> Hi John, please answer these initial screening questions.\n"
+        "> 1. Are you eligible to work in the EU?"
+    )
+    latest, quoted = split_latest_email_message(thread_body)
+    assert "confirm your notice period" in latest
+    assert "initial screening questions" not in latest
+    assert "initial screening questions" in quoted
+
+
+@pytest.mark.asyncio
+async def test_email_thread_does_not_duplicate_completed_or_superseded_tasks(
+    db_session: AsyncSession,
+):
+    from app.models.applications import ActionItemModel
+
+    company = CompanyModel(name="Linear", name_normalized="linear", domain="linear.app")
+    db_session.add(company)
+    await db_session.flush()
+
+    app = ApplicationModel(
+        company_id=company.id,
+        position="Staff Backend Engineer",
+        position_normalized="staff backend engineer",
+        status="APPLIED",
+    )
+    db_session.add(app)
+    await db_session.commit()
+
+    # Turn 1: HR asks initial screening questions -> 1 PENDING task created
+    turn1_state: JobTrackerState = {
+        "message_id": "msg-linear-thread-1",
+        "conversation_id": "conv-linear-thread",
+        "subject": "Linear - Initial Screening Questions",
+        "body": "Hi, please reply with your answers to our initial screening questions.",
+        "received_at": "2026-10-20T10:00:00+00:00",
+    }
+    turn1_extracted = ExtractedEmailInfo(
+        email_type="JOB_APPLICATION",
+        company="Linear",
+        position="Staff Backend Engineer",
+        event_type="RECRUITER_CONTACTED",
+        status="RECRUITER_CONTACT",
+        summary="HR asked initial screening questions.",
+        action_required=True,
+        action="Reply with answers to initial screening questions",
+    )
+
+    with patch(
+        "app.services.intake.extract_email_info", new_callable=AsyncMock
+    ) as mock_extract:
+        mock_extract.return_value = turn1_extracted
+        await intake_graph.ainvoke(
+            turn1_state,
+            config={"configurable": {"db": db_session}},
+        )
+
+    acts_res = await db_session.execute(
+        select(ActionItemModel).where(ActionItemModel.application_id == app.id)
+    )
+    acts = acts_res.scalars().all()
+    assert len(acts) == 1
+    assert acts[0].status == "PENDING"
+
+    # Candidate replies and marks Turn 1 task as COMPLETED
+    acts[0].status = "COMPLETED"
+    await db_session.commit()
+
+    # Turn 2a: Suppose LLM mistakenly echoes the exact same action from quoted text -> should NOT recreate completed task
+    turn2_dup_state: JobTrackerState = {
+        "message_id": "msg-linear-thread-2a",
+        "conversation_id": "conv-linear-thread",
+        "subject": "Re: Linear - Initial Screening Questions",
+        "body": "Thanks!\n\nOn Oct 20, HR wrote:\n> Hi, please reply with your answers to our initial screening questions.",
+        "received_at": "2026-10-21T10:00:00+00:00",
+    }
+    with patch(
+        "app.services.intake.extract_email_info", new_callable=AsyncMock
+    ) as mock_extract:
+        mock_extract.return_value = turn1_extracted
+        await intake_graph.ainvoke(
+            turn2_dup_state,
+            config={"configurable": {"db": db_session}},
+        )
+
+    acts_res = await db_session.execute(
+        select(ActionItemModel).where(ActionItemModel.application_id == app.id)
+    )
+    acts = acts_res.scalars().all()
+    assert len(acts) == 1
+    assert acts[0].status == "COMPLETED"
+
+    # Turn 2b: HR sends follow-up email with NEW questions -> creates 1 new PENDING task (only 1 PENDING total)
+    turn2_new_state: JobTrackerState = {
+        "message_id": "msg-linear-thread-2b",
+        "conversation_id": "conv-linear-thread",
+        "subject": "Re: Linear - Initial Screening Questions",
+        "body": "Could you also share your notice period and salary expectations?\n\nOn Oct 20, HR wrote:\n> Initial questions",
+        "received_at": "2026-10-21T12:00:00+00:00",
+    }
+    turn2_new_extracted = ExtractedEmailInfo(
+        email_type="JOB_APPLICATION",
+        company="Linear",
+        position="Staff Backend Engineer",
+        event_type="INTERVIEW_REQUESTED",
+        status="TECHNICAL_INTERVIEW",
+        summary="HR asked for notice period and salary expectations.",
+        action_required=True,
+        action="Share notice period and salary expectations",
+    )
+    with patch(
+        "app.services.intake.extract_email_info", new_callable=AsyncMock
+    ) as mock_extract:
+        mock_extract.return_value = turn2_new_extracted
+        await intake_graph.ainvoke(
+            turn2_new_state,
+            config={"configurable": {"db": db_session}},
+        )
+
+    acts_res = await db_session.execute(
+        select(ActionItemModel).where(ActionItemModel.application_id == app.id)
+    )
+    all_acts = acts_res.scalars().all()
+    pending_acts = [a for a in all_acts if a.status == "PENDING"]
+    assert len(pending_acts) == 1
+    assert pending_acts[0].title == "Share notice period and salary expectations"

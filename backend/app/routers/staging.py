@@ -2,6 +2,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from rapidfuzz import fuzz
 from sqlalchemy import String, cast, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -428,15 +429,43 @@ async def resolve_staging_item(
             else:
                 urgency_val = "MEDIUM"
 
-            action_item = ActionItemModel(
-                application_id=application.id,
-                event_id=event.id,
-                title=str(action_text)[:250],
-                status="PENDING",
-                urgency=urgency_val,
-                due_date=parsed_due,
+            existing_acts_res = await db.execute(
+                select(ActionItemModel)
+                .where(ActionItemModel.application_id == application.id)
+                .order_by(ActionItemModel.created_at.desc())
             )
-            db.add(action_item)
+            existing_acts = existing_acts_res.scalars().all()
+            action_norm = str(action_text)[:250].strip().lower()
+
+            skip_completed_dup = False
+            matched_pending: ActionItemModel | None = None
+            for ex_act in existing_acts:
+                ex_norm = (ex_act.title or "").strip().lower()
+                if not ex_norm:
+                    continue
+                sim = fuzz.token_sort_ratio(action_norm, ex_norm)
+                if ex_act.status in ("COMPLETED", "DISMISSED") and sim >= 85:
+                    skip_completed_dup = True
+                    break
+                if ex_act.status == "PENDING" and sim >= 80 and matched_pending is None:
+                    matched_pending = ex_act
+
+            if not skip_completed_dup:
+                if matched_pending is not None:
+                    matched_pending.event_id = event.id
+                    matched_pending.urgency = urgency_val
+                    if parsed_due:
+                        matched_pending.due_date = parsed_due
+                else:
+                    action_item = ActionItemModel(
+                        application_id=application.id,
+                        event_id=event.id,
+                        title=str(action_text)[:250],
+                        status="PENDING",
+                        urgency=urgency_val,
+                        due_date=parsed_due,
+                    )
+                    db.add(action_item)
 
         # Save IDs to variables before committing so we don't access expired ORM attributes
         target_app_id = application.id
