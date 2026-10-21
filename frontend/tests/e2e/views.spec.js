@@ -107,3 +107,65 @@ test('theme switch persists across navigation', async ({ page }) => {
   await page.goto('/companies')
   await expect(page.locator('html')).not.toHaveClass(/daylight/)
 })
+
+test('date range filter persists across page reloads in applications view', async ({ page, isMobile }) => {
+  await page.goto('/')
+  if (isMobile) {
+    await page.getByRole('button', { name: 'Filters' }).click()
+  }
+  const select = page.locator('.date-range-select')
+  await expect(select).toBeVisible()
+  await select.selectOption('90d')
+  await expect(select).toHaveValue('90d')
+  await page.reload()
+  if (isMobile) {
+    await page.getByRole('button', { name: 'Filters' }).click()
+  }
+  await expect(page.locator('.date-range-select')).toHaveValue('90d')
+})
+
+test('job intake JD tab supports optional job posting URL and auto-carries URL from tab 1', async ({ page, isMobile }) => {
+  await page.goto('/')
+  if (isMobile) {
+    await page.getByRole('button', { name: 'Toggle navigation menu' }).click()
+    await page.getByRole('button', { name: 'Job Intake' }).last().click()
+  } else {
+    await page.getByRole('button', { name: 'Job Intake' }).first().click()
+  }
+  const urlInput = page.getByPlaceholder(/https:\/\/jobs\.lever\.co/)
+  await urlInput.fill('https://jobs.lever.co/example/123')
+  await page.getByRole('button', { name: 'Job Description (JD)' }).click()
+  const jdUrlInput = page.getByPlaceholder('https://www.linkedin.com/jobs/view/... or https://...')
+  await expect(jdUrlInput).toBeVisible()
+  await expect(jdUrlInput).toHaveValue('https://jobs.lever.co/example/123')
+})
+
+test('assessments view opens application drawer and drawer supports inline job URL editing', async ({ page }) => {
+  await page.goto('/assessments')
+  const openDrawerBtn = page.locator('.eval-role-row .btn-open-app-drawer').first()
+  await expect(openDrawerBtn).toBeVisible()
+  await openDrawerBtn.click()
+  await expect(page.locator('.drawer-panel')).toBeVisible()
+
+  const editOrAddUrlBtn = page.locator('.drawer-header .btn-edit-job-url, .drawer-header .btn-add-job-url').first()
+  await expect(editOrAddUrlBtn).toBeVisible()
+  await editOrAddUrlBtn.click()
+  await expect(page.locator('.job-url-editor-bar')).toBeVisible()
+  const input = page.locator('.job-url-input')
+  await input.fill('https://careers.example.com/role-999')
+  await page.locator('.job-url-editor-bar').getByRole('button', { name: 'Save' }).click()
+  await expect(page.locator('.job-url-editor-bar')).toBeHidden()
+})
+
+test('staging view displays sender info and includes archived toggle in link mode', async ({ page, isMobile }) => {
+  await page.goto('/staging')
+  await expect(page.locator('.item-sender-snippet').first()).toBeVisible()
+  if (isMobile) {
+    await page.locator('.queue-item-card').first().click()
+  }
+  await page.getByRole('button', { name: 'Link to Existing Application' }).click()
+  const archivedCheckbox = page.locator('.include-archived-toggle input[type="checkbox"]')
+  await expect(archivedCheckbox).toBeVisible()
+  await archivedCheckbox.check()
+  await expect(archivedCheckbox).toBeChecked()
+})

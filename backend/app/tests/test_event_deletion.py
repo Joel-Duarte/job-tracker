@@ -62,6 +62,8 @@ async def test_delete_application_event(db_session):
         assert res_list.status_code == 200
         assert len(res_list.json()) == 0
 
+    app.dependency_overrides.clear()
+
 
 @pytest.mark.asyncio
 async def test_delete_other_event(db_session):
@@ -84,6 +86,8 @@ async def test_delete_other_event(db_session):
         res = await ac.delete(f"/api/v1/events/{other_event.id}?source=other")
         assert res.status_code == 200
         assert res.json()["status"] == "success"
+
+    app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio
@@ -152,3 +156,52 @@ async def test_move_event_to_staging(db_session):
         assert res_reopen.status_code == 200
         assert res_reopen.json()["status"] == "PENDING"
         assert res_reopen.json()["match_reason"] == "REOPENED_FOR_TRIAGE"
+
+    app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_update_application_event_note(db_session):
+    app.dependency_overrides[get_db] = lambda: db_session
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        company = CompanyModel(
+            name="Figma Design",
+            name_normalized="figma design",
+            domain="figma.com",
+        )
+        db_session.add(company)
+        await db_session.flush()
+
+        application = ApplicationModel(
+            company_id=company.id,
+            position="Staff Systems Engineer",
+            position_normalized="staff systems engineer",
+            status="TECHNICAL_INTERVIEW",
+        )
+        db_session.add(application)
+        await db_session.flush()
+
+        event = ApplicationEventModel(
+            email_application_id=application.id,
+            email_subject="Activity Log: Note",
+            email_event_type="CUSTOM_NOTE",
+            email_summary="Initial note text",
+            raw_payload={"notes": "Initial note text", "manual_transition": True},
+        )
+        db_session.add(event)
+        await db_session.commit()
+        await db_session.refresh(event)
+
+        res = await ac.patch(
+            f"/api/v1/events/{event.id}",
+            json={"notes": "Updated inline note text"},
+        )
+        assert res.status_code == 200
+        updated = res.json()
+        assert updated["raw_payload"]["notes"] == "Updated inline note text"
+        assert updated["email_summary"] == "Updated inline note text"
+
+    app.dependency_overrides.clear()

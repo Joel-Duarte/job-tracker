@@ -1,6 +1,7 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.core.database import get_db
 from app.main import app
 from app.models.applications import ActionItemModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
@@ -9,6 +10,7 @@ from app.models.staging import StagingItemModel
 
 @pytest.mark.asyncio
 async def test_get_system_badges_counts(db_session):
+    app.dependency_overrides[get_db] = lambda: db_session
     # Seed staging item
     staging = StagingItemModel(
         email_subject="Test Interview Request",
@@ -49,3 +51,5 @@ async def test_get_system_badges_counts(db_session):
         assert data["staging_count"] >= 1
         assert data["pending_action_items_count"] >= 1
         assert data["active_queue_tasks_count"] >= 1
+
+    app.dependency_overrides.clear()

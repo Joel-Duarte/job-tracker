@@ -91,15 +91,85 @@ export async function handleDemoRequest(config) {
     const appIndex = (db.applications || []).findIndex((a) => String(a.id) === String(appId))
 
     if (method === 'get') {
-      if (appIndex === -1) throw new Error('Application not found')
-      const app = db.applications[appIndex]
-      const events = app.events || []
-      const latest_event = events.length > 0 ? events[0] : null
-      return ok({ ...app, events, latest_event })
+      if (appIndex !== -1) {
+        const app = db.applications[appIndex]
+        const events = app.events || []
+        const latest_event = events.length > 0 ? events[0] : null
+        return ok({ ...app, events, latest_event })
+      }
+      // Fallback: check if this ID corresponds to an assessment dossier in demo mode
+      const assessment = (db.assessments || []).find(
+        (a) => String(a.id) === String(appId) || String(a.result_json?.application_id) === String(appId)
+      )
+      if (assessment) {
+        const r = assessment.result_json || {}
+        const syntheticApp = {
+          id: r.application_id || assessment.id,
+          company_id: r.company_id || null,
+          company_name: r.company || assessment.title_hint || 'Target Company',
+          company: {
+            id: r.company_id || null,
+            name: r.company || assessment.title_hint || 'Target Company',
+            domain: r.company_domain || null,
+          },
+          position: r.position || 'Software Engineer',
+          status: r.assessment_archived ? 'ARCHIVED' : 'ASSESSMENT',
+          is_assessment: true,
+          job_url: assessment.job_url || null,
+          created_at: assessment.created_at,
+          application_date: assessment.created_at,
+          last_activity_at: assessment.completed_at || assessment.created_at,
+          match_score: r.match_score,
+          fit_score: r.fit_score,
+          programmatic_match_score: r.programmatic_match_score,
+          match_analysis_payload: r,
+          job_posting: {
+            id: `jp_assess_${assessment.id}`,
+            title: r.position || 'Software Engineer',
+            company_name: r.company || 'Target Company',
+            description_markdown: assessment.raw_text || r.summary || '',
+            salary_min: r.salary_min ?? null,
+            salary_max: r.salary_max ?? null,
+            currency: r.currency || 'USD',
+            location: r.location || null,
+            work_model: r.work_model || null,
+            required_skills: [...(r.matching_skills || []), ...(r.missing_skills || [])],
+          },
+          events: [],
+          latest_event: null,
+          action_items: [],
+        }
+        return ok(syntheticApp)
+      }
+      throw new Error('Application not found')
     }
 
     if (method === 'patch') {
-      if (appIndex === -1) throw new Error('Application not found')
+      if (appIndex === -1) {
+        const assessmentIdx = (db.assessments || []).findIndex(
+          (a) => String(a.id) === String(appId) || String(a.result_json?.application_id) === String(appId)
+        )
+        if (assessmentIdx !== -1) {
+          const assessment = db.assessments[assessmentIdx]
+          if (data.job_url !== undefined) assessment.job_url = data.job_url
+          if (data.position !== undefined && assessment.result_json) {
+            assessment.result_json.position = data.position
+          }
+          saveDemoDb(db)
+          const r = assessment.result_json || {}
+          return ok({
+            id: r.application_id || assessment.id,
+            company_name: r.company || 'Target Company',
+            company: { id: r.company_id || null, name: r.company || 'Target Company', domain: r.company_domain || null },
+            position: r.position || 'Software Engineer',
+            status: r.assessment_archived ? 'ARCHIVED' : 'ASSESSMENT',
+            is_assessment: true,
+            job_url: assessment.job_url || null,
+            match_analysis_payload: r,
+          })
+        }
+        throw new Error('Application not found')
+      }
       const targetApp = db.applications[appIndex]
       const existingJp = targetApp.job_posting || {}
       const updatedJp = {

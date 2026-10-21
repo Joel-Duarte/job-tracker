@@ -250,11 +250,16 @@ async def test_activity_logging_preserves_task_completion(db_session: AsyncSessi
             assert data["scheduled_interview_at"] is None
             assert data["has_action_required"] is False
             assert data["latest_event"]["email_event_type"] == "CUSTOM_NOTE"
+            assert (
+                data["latest_event"]["raw_payload"].get("interview_stage")
+                == "Task Completed / Awaiting Response"
+            )
             assert len(data["events"]) == 2
             assert data["events"][0]["email_event_type"] == "CUSTOM_NOTE"
             assert "Status changed" not in (data["events"][0]["email_summary"] or "")
-            assert "Sent a follow-up email to recruiter." in (
-                data["events"][0]["email_summary"] or ""
+            assert (
+                data["events"][0]["email_summary"]
+                == "Sent a follow-up email to recruiter."
             )
 
     app.dependency_overrides.clear()

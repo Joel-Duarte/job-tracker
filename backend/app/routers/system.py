@@ -72,7 +72,9 @@ async def get_badge_counts(db: AsyncSession = Depends(get_db)) -> BadgeCountsRes
     latest_event_res = await db.scalar(latest_event_activity_stmt)
 
     candidates = [
-        ts for ts in (latest_app_res, latest_action_res, latest_event_res) if ts is not None
+        ts
+        for ts in (latest_app_res, latest_action_res, latest_event_res)
+        if ts is not None
     ]
     latest_activity_res = max(candidates) if candidates else None
 

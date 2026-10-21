@@ -208,9 +208,8 @@ async def list_applications(
         latest_interview_evt = None
         for evt in sorted_events:
             if evt.raw_payload and isinstance(evt.raw_payload, dict):
-                if (
-                    evt.raw_payload.get("interview_stage")
-                    or evt.raw_payload.get("scheduled_at")
+                if evt.raw_payload.get("interview_stage") or evt.raw_payload.get(
+                    "scheduled_at"
                 ):
                     latest_interview_evt = evt
                     break
@@ -475,9 +474,8 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
     latest_interview_evt = None
     for evt in sorted_events:
         if evt.raw_payload and isinstance(evt.raw_payload, dict):
-            if (
-                evt.raw_payload.get("interview_stage")
-                or evt.raw_payload.get("scheduled_at")
+            if evt.raw_payload.get("interview_stage") or evt.raw_payload.get(
+                "scheduled_at"
             ):
                 latest_interview_evt = evt
                 break
@@ -919,9 +917,11 @@ async def transition_application(
     if old_status == new_status and not payload.interview_stage:
         sorted_existing = sorted(
             app.events or [],
-            key=lambda e: _to_utc(e.email_received_at)
-            or _to_utc(e.created_at)
-            or datetime.min.replace(tzinfo=UTC),
+            key=lambda e: (
+                _to_utc(e.email_received_at)
+                or _to_utc(e.created_at)
+                or datetime.min.replace(tzinfo=UTC)
+            ),
             reverse=True,
         )
         for existing_evt in sorted_existing:

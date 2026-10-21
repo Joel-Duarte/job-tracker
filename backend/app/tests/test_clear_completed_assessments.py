@@ -52,8 +52,10 @@ async def test_clear_completed_preserves_job_assessment(db_session: AsyncSession
 
 
 @pytest.mark.asyncio
-async def test_delete_assessment_task_archives_application(db_session: AsyncSession):
-    """Ensure deleting a job assessment task transitions linked assessment application to ARCHIVED."""
+async def test_delete_assessment_task_preserves_application_status(
+    db_session: AsyncSession,
+):
+    """Ensure deleting a job assessment queue task never mutates or archives the linked application."""
     app.dependency_overrides[get_db] = lambda: db_session
 
     company = CompanyModel(name="TestCorp", name_normalized="testcorp")
@@ -89,8 +91,8 @@ async def test_delete_assessment_task_archives_application(db_session: AsyncSess
     t_check = await db_session.get(IntakeEvaluationTaskModel, task.id)
     assert t_check is None
 
-    # Application should be ARCHIVED
+    # Linked application status MUST remain ASSESSMENT (not archived)
     await db_session.refresh(application)
-    assert application.status == "ARCHIVED"
+    assert application.status == "ASSESSMENT"
 
     app.dependency_overrides.clear()

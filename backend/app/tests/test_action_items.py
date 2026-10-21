@@ -110,3 +110,5 @@ async def test_action_items_crud_and_filtering(db_session):
         # Verify 404 on deleting already deleted item
         del_res_404 = await ac.delete(f"/api/v1/action-items/{item2_id}")
         assert del_res_404.status_code == 404
+
+    app.dependency_overrides.clear()
