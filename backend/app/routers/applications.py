@@ -68,6 +68,50 @@ def _to_utc(dt: datetime | None) -> datetime | None:
     return dt.astimezone(UTC)
 
 
+_TERMINAL_STATUSES = {"HIRED", "ARCHIVED", "WITHDRAWN", "REJECTED"}
+_PRE_APPLY_STATUSES = {"ASSESSMENT", "QUEUED", "PROCESSING"}
+_STATUS_FROM_RE = re.compile(r"from\s+([A-Z_]+)\s+to\s+([A-Z_]+)")
+
+
+def _resolve_previous_status(
+    app_status: str,
+    sorted_events: list[ApplicationEventModel],
+    is_assessment: bool = False,
+) -> str | None:
+    """Resolve the active pipeline stage an application was in before being closed."""
+    if is_assessment:
+        return "ASSESSMENT"
+    if not sorted_events:
+        return "APPLIED" if app_status in _TERMINAL_STATUSES else None
+    latest_evt = sorted_events[0]
+    if latest_evt.raw_payload and isinstance(latest_evt.raw_payload, dict):
+        prev = latest_evt.raw_payload.get("previous_status")
+        if prev and str(prev) not in _TERMINAL_STATUSES:
+            return str(prev)
+    if latest_evt.email_summary:
+        m = _STATUS_FROM_RE.search(latest_evt.email_summary)
+        if m and m.group(1) not in _TERMINAL_STATUSES:
+            return m.group(1)
+    for evt in sorted_events:
+        if (
+            evt.email_status_after_event
+            and evt.email_status_after_event not in _TERMINAL_STATUSES
+            and evt.email_status_after_event not in _PRE_APPLY_STATUSES
+        ):
+            return evt.email_status_after_event
+        if evt.raw_payload and isinstance(evt.raw_payload, dict):
+            if evt.raw_payload.get("interview_stage") or evt.raw_payload.get(
+                "scheduled_at"
+            ):
+                return "TECHNICAL_INTERVIEW"
+    for evt in sorted_events:
+        if evt.email_status_after_event in _PRE_APPLY_STATUSES:
+            return "ASSESSMENT"
+    if app_status in _TERMINAL_STATUSES:
+        return "APPLIED"
+    return None
+
+
 router = APIRouter(prefix="/applications", tags=["Applications"])
 
 
@@ -308,6 +352,10 @@ async def list_applications(
                 ),
                 position=app.position,
                 status=app.status,
+                is_assessment=bool(app.is_assessment),
+                previous_status=_resolve_previous_status(
+                    app.status, sorted_events, bool(app.is_assessment)
+                ),
                 application_date=app.application_date,
                 last_activity_at=effective_activity_at,
                 has_action_required=has_action,
@@ -571,6 +619,10 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
         ),
         position=app.position,
         status=app.status,
+        is_assessment=bool(app.is_assessment),
+        previous_status=_resolve_previous_status(
+            app.status, sorted_events, bool(app.is_assessment)
+        ),
         application_date=app.application_date,
         last_activity_at=effective_activity_at,
         has_action_required=has_action,
@@ -885,6 +937,14 @@ async def transition_application(
         else str(payload.status)
     )
     app.status = new_status
+    if new_status in {
+        "APPLIED",
+        "ONLINE_ASSESSMENT",
+        "TECHNICAL_INTERVIEW",
+        "OFFER",
+        "HIRED",
+    }:
+        app.is_assessment = False
     now = datetime.now(UTC)
     app.last_activity_at = now
 
@@ -1022,6 +1082,8 @@ async def transition_application(
     summary_str = " ".join(summary_parts)
 
     event_payload = payload.model_dump(mode="json")
+    if old_status != new_status:
+        event_payload["previous_status"] = old_status
     if preserved_interview_stage and not event_payload.get("interview_stage"):
         event_payload["interview_stage"] = preserved_interview_stage
 
@@ -1100,6 +1162,7 @@ async def bulk_transition_applications(
 
     updated_ids = []
     for app in apps:
+        previous_status = app.status
         app.status = target
         app.last_activity_at = now
         event = ApplicationEventModel(
@@ -1108,7 +1171,11 @@ async def bulk_transition_applications(
             email_status_after_event=target,
             email_summary=note,
             source_channel="MANUAL",
-            raw_payload={"bulk_action": True, "target_status": target},
+            raw_payload={
+                "bulk_action": True,
+                "target_status": target,
+                "previous_status": previous_status,
+            },
         )
         db.add(event)
 

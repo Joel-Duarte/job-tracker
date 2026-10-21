@@ -215,6 +215,7 @@ export const useApplicationsStore = defineStore('applications', () => {
 
   const archivedApplications = computed(() => {
     return applications.value.filter((a) => {
+      if (a.is_assessment) return false
       const status = (a.status || '').toUpperCase()
       return (
         ['ARCHIVED', 'WITHDRAWN', 'REJECTED'].includes(status) &&

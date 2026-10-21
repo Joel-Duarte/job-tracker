@@ -241,10 +241,80 @@ async function quickWithdrawApp(app) {
     uiStore.showToast(err.message || 'Failed to withdraw application', 'error')
   }
 }
+const STAGE_REACHED_LABELS = {
+  ASSESSMENT: 'AI Assessment',
+  APPLIED: 'Applied',
+  ONLINE_ASSESSMENT: 'Online Assessment',
+  TECHNICAL_INTERVIEW: 'Technical Interview',
+  OFFER: 'Offer',
+}
+
+const POST_APPLIED_STAGES = new Set(['ONLINE_ASSESSMENT', 'TECHNICAL_INTERVIEW', 'OFFER'])
+const NON_PIPELINE_STAGES = new Set([
+  ...appStore.TERMINAL_STATUSES,
+  ...appStore.PENDING_ASSESSMENT_STATUSES,
+])
+
+function getAppPriorStage(app) {
+  if (!app) return 'APPLIED'
+  if (app.is_assessment) return 'ASSESSMENT'
+  const direct = app.previous_status || app.latest_event?.raw_payload?.previous_status
+  if (direct && !appStore.TERMINAL_STATUSES.includes(direct)) {
+    return direct
+  }
+  const summary = app.latest_event?.email_summary || app.latest_event?.description || ''
+  const match = summary.match(/from\s+([A-Z_]+)\s+to\s+([A-Z_]+)/)
+  if (match && !appStore.TERMINAL_STATUSES.includes(match[1])) {
+    return match[1]
+  }
+  if (app.latest_event?.raw_payload?.interview_stage || app.scheduled_interview_at) {
+    return 'TECHNICAL_INTERVIEW'
+  }
+  for (const evt of app.events || []) {
+    if (evt.email_status_after_event && !NON_PIPELINE_STAGES.has(evt.email_status_after_event)) {
+      return evt.email_status_after_event
+    }
+    if (evt.raw_payload?.interview_stage || evt.raw_payload?.scheduled_at) {
+      return 'TECHNICAL_INTERVIEW'
+    }
+  }
+  return 'APPLIED'
+}
+
+function isPostAppliedStage(stageKey) {
+  return POST_APPLIED_STAGES.has(stageKey)
+}
+
+function isGhostedOrArchived(app) {
+  if (!app) return false
+  if (app.status === 'ARCHIVED') return true
+  const reason = (
+    app.latest_event?.raw_payload?.archive_reason ||
+    app.latest_event?.raw_payload?.rejection_reason ||
+    app.rejection_reason ||
+    ''
+  ).toLowerCase()
+  return reason.includes('ghost')
+}
+
+function formatPriorStageLabel(stageKey) {
+  if (!stageKey) return 'Applied'
+  return STAGE_REACHED_LABELS[stageKey] || stageKey.replace(/_/g, ' ')
+}
+
+function getPriorStageBadgeClass(stageKey) {
+  if (stageKey === 'OFFER') return 'stage-reached-pill--offer'
+  if (stageKey === 'TECHNICAL_INTERVIEW' || stageKey === 'ONLINE_ASSESSMENT') return 'stage-reached-pill--interview'
+  return 'stage-reached-pill--applied'
+}
+
 async function restoreApp(app) {
+  const rawPrior = getAppPriorStage(app)
+  const targetStage = isPostAppliedStage(rawPrior) ? rawPrior : 'APPLIED'
+  const stageLabel = formatPriorStageLabel(targetStage)
   try {
-    await appStore.restoreToActive(app.id, 'APPLIED')
-    uiStore.showToast(`Restored '${app.company?.name || 'Application'}' to Active Pipeline`, 'success')
+    await appStore.restoreToActive(app.id, targetStage)
+    uiStore.showToast(`Restored '${app.company?.name || 'Application'}' to ${stageLabel}`, 'success')
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to restore application', 'error')
   }
@@ -385,21 +455,83 @@ function getAppMetadataLine(app) {
   return parts.join(' · ')
 }
 
-// Table Sorting State (Archive View)
-const archiveSortKey = ref('archived_date') // 'company' | 'position' | 'reason' | 'archived_date' | 'match'
+// Table Sorting & Quick Filter State (Archive View)
+const archiveFilter = ref('all') // 'all' | 'ghosted_post_applied' | 'ghosted_applied' | 'rejected' | 'withdrawn'
+const archiveSortKey = ref('archived_date') // 'company' | 'position' | 'stage_reached' | 'reason' | 'archived_date' | 'match'
 const archiveSortOrder = ref('desc') // 'asc' | 'desc'
+
+const archiveFilterCounts = computed(() => {
+  const apps = appStore.archivedApplications
+  let ghostedPostApplied = 0
+  let ghostedApplied = 0
+  let rejected = 0
+  let withdrawn = 0
+
+  for (const app of apps) {
+    if (app.status === 'WITHDRAWN') {
+      withdrawn++
+    } else if (isGhostedOrArchived(app)) {
+      const priorStage = getAppPriorStage(app)
+      if (isPostAppliedStage(priorStage)) {
+        ghostedPostApplied++
+      } else {
+        ghostedApplied++
+      }
+    } else {
+      rejected++
+    }
+  }
+
+  return {
+    all: apps.length,
+    ghosted_post_applied: ghostedPostApplied,
+    ghosted_applied: ghostedApplied,
+    rejected,
+    withdrawn,
+  }
+})
+
+const ARCHIVE_FILTER_PILLS = computed(() => [
+  { key: 'all', label: 'All Closed', count: archiveFilterCounts.value.all },
+  { key: 'ghosted_post_applied', label: 'Ghosted (Post-Applied)', count: archiveFilterCounts.value.ghosted_post_applied },
+  { key: 'ghosted_applied', label: 'Ghosted (Applied)', count: archiveFilterCounts.value.ghosted_applied },
+  { key: 'rejected', label: 'Rejected', count: archiveFilterCounts.value.rejected },
+  { key: 'withdrawn', label: 'Withdrawn', count: archiveFilterCounts.value.withdrawn },
+])
+
+function matchesArchiveFilter(app) {
+  const f = archiveFilter.value
+  if (!f || f === 'all') return true
+  if (f === 'withdrawn') return app.status === 'WITHDRAWN'
+  if (f === 'rejected') return app.status === 'REJECTED' && !isGhostedOrArchived(app)
+  if (f === 'ghosted_post_applied') {
+    return isGhostedOrArchived(app) && isPostAppliedStage(getAppPriorStage(app))
+  }
+  if (f === 'ghosted_applied') {
+    return isGhostedOrArchived(app) && !isPostAppliedStage(getAppPriorStage(app))
+  }
+  return true
+}
 
 function toggleArchiveSort(key) {
   if (archiveSortKey.value === key) {
     archiveSortOrder.value = archiveSortOrder.value === 'asc' ? 'desc' : 'asc'
   } else {
     archiveSortKey.value = key
-    archiveSortOrder.value = (key === 'archived_date' || key === 'match') ? 'desc' : 'asc'
+    archiveSortOrder.value = (key === 'archived_date' || key === 'match' || key === 'stage_reached') ? 'desc' : 'asc'
   }
 }
 
+const STAGE_SORT_RANK = {
+  ASSESSMENT: 0,
+  APPLIED: 1,
+  ONLINE_ASSESSMENT: 2,
+  TECHNICAL_INTERVIEW: 3,
+  OFFER: 4,
+}
+
 const sortedArchivedApplications = computed(() => {
-  const apps = [...appStore.archivedApplications]
+  const apps = appStore.archivedApplications.filter(matchesArchiveFilter)
   const order = archiveSortOrder.value === 'asc' ? 1 : -1
 
   return apps.sort((a, b) => {
@@ -412,6 +544,11 @@ const sortedArchivedApplications = computed(() => {
       const posA = (a.position || '').toLowerCase()
       const posB = (b.position || '').toLowerCase()
       return posA.localeCompare(posB) * order
+    }
+    if (archiveSortKey.value === 'stage_reached') {
+      const rankA = isGhostedOrArchived(a) ? (STAGE_SORT_RANK[getAppPriorStage(a)] || 1) : 0
+      const rankB = isGhostedOrArchived(b) ? (STAGE_SORT_RANK[getAppPriorStage(b)] || 1) : 0
+      return (rankA - rankB) * order
     }
     if (archiveSortKey.value === 'reason') {
       const reasonA = ((a.status || '') + ' ' + (a.latest_event?.raw_payload?.archive_reason || a.latest_event?.raw_payload?.rejection_reason || a.rejection_reason || '')).toLowerCase()
@@ -1005,12 +1142,44 @@ async function confirmDelete() {
     <div class="content-wrapper">
       <!-- 1. ARCHIVE / REJECTIONS VIEW -->
       <div v-if="appStore.pipelineViewMode === 'archive'" class="archive-view-container animate-fade-in">
+        <!-- Quick Filter Strip for Closed / Archived Applications -->
+        <div
+          v-if="appStore.archivedApplications.length > 0"
+          class="archive-filter-strip"
+          role="group"
+          aria-label="Filter archived applications by outcome"
+        >
+          <button
+            v-for="pill in ARCHIVE_FILTER_PILLS"
+            :key="pill.key"
+            type="button"
+            class="archive-filter-pill"
+            :class="{ active: archiveFilter === pill.key }"
+            :aria-pressed="archiveFilter === pill.key"
+            @click="archiveFilter = pill.key"
+          >
+            <span class="pill-label">{{ pill.label }}</span>
+            <span class="pill-count">{{ pill.count }}</span>
+          </button>
+        </div>
+
         <div v-if="appStore.archivedApplications.length === 0" class="empty-state-box">
           <Archive :size="40" class="empty-state-icon" />
           <h3 class="empty-state-title">No archived or rejected applications</h3>
           <p class="empty-state-desc">
             When you reject or conclude applications, they will be archived here safely without crowding your active board.
           </p>
+        </div>
+
+        <div v-else-if="sortedArchivedApplications.length === 0" class="empty-state-box">
+          <Filter :size="36" class="empty-state-icon" />
+          <h3 class="empty-state-title">No matching closed applications</h3>
+          <p class="empty-state-desc">
+            No applications match the selected outcome filter.
+          </p>
+          <button type="button" class="btn btn-secondary btn-sm" @click="archiveFilter = 'all'">
+            Show All Closed
+          </button>
         </div>
 
         <div v-else class="archive-table-card">
@@ -1030,6 +1199,14 @@ async function confirmDelete() {
                     <span>Position</span>
                     <ArrowUp v-if="archiveSortKey === 'position' && archiveSortOrder === 'asc'" :size="12" class="sort-icon active" />
                     <ArrowDown v-else-if="archiveSortKey === 'position' && archiveSortOrder === 'desc'" :size="12" class="sort-icon active" />
+                    <ArrowUpDown v-else :size="12" class="sort-icon neutral" />
+                  </div>
+                </th>
+                <th class="sortable-th" :class="{ 'is-sorted': archiveSortKey === 'stage_reached' }" @click="toggleArchiveSort('stage_reached')">
+                  <div class="th-content">
+                    <span>Stage Reached</span>
+                    <ArrowUp v-if="archiveSortKey === 'stage_reached' && archiveSortOrder === 'asc'" :size="12" class="sort-icon active" />
+                    <ArrowDown v-else-if="archiveSortKey === 'stage_reached' && archiveSortOrder === 'desc'" :size="12" class="sort-icon active" />
                     <ArrowUpDown v-else :size="12" class="sort-icon neutral" />
                   </div>
                 </th>
@@ -1082,6 +1259,17 @@ async function confirmDelete() {
                   <span class="position-title">{{ app.position || '—' }}</span>
                 </td>
 
+                <td class="cell-stage-reached">
+                  <span
+                    v-if="isGhostedOrArchived(app)"
+                    class="stage-reached-pill"
+                    :class="getPriorStageBadgeClass(getAppPriorStage(app))"
+                  >
+                    {{ formatPriorStageLabel(getAppPriorStage(app)) }}
+                  </span>
+                  <span v-else class="stage-reached-dash">—</span>
+                </td>
+
                 <td class="cell-reason">
                   <span class="archive-reason-pill">
                     <span v-if="app.status === 'ARCHIVED'" class="status-badge status-badge--archived">Archived</span>
@@ -1116,17 +1304,11 @@ async function confirmDelete() {
                 <td class="text-right cell-actions" @click.stop>
                   <button
                     class="btn btn-secondary btn-sm"
-                    title="Restore back to Active Pipeline (Applied)"
+                    :title="`Restore back to ${formatPriorStageLabel(getAppPriorStage(app))}`"
                     @click="restoreApp(app)"
                   >
                     <RotateCcw :size="13" />
                     <span>Restore</span>
-                  </button>
-                  <button
-                    class="btn btn-ghost btn-sm"
-                    @click="uiStore.openDetail(app.id)"
-                  >
-                    Details
                   </button>
                   <button
                     class="btn btn-danger-subtle btn-sm"
@@ -2086,7 +2268,7 @@ async function confirmDelete() {
 
 /* Archive & Rejections View */
 .archive-view-container {
-  padding: 24px;
+  padding: 0;
   width: 100%;
   height: 100%;
   overflow-y: auto;
@@ -3850,7 +4032,99 @@ async function confirmDelete() {
 .status-badge--rejected { background: hsl(0 70% 50% / 0.15); color: hsl(0 70% 60%); }
 .status-badge--archived { background: hsl(220 40% 50% / 0.15); color: hsl(220 40% 60%); }
 .status-badge--withdrawn { background: hsl(40 80% 50% / 0.15); color: hsl(40 80% 60%); }
-.reason-text { color: var(--color-text-muted, #888); font-size: 0.8rem; }
+.reason-text { color: var(--text-muted); font-size: 0.8rem; }
+
+/* Archive Filter Strip & Stage Reached Pills */
+.archive-filter-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.archive-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: var(--radius-full);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.archive-filter-pill:hover {
+  background-color: var(--bg-surface-hover);
+  color: var(--text-main);
+  border-color: var(--border-focus);
+}
+
+.archive-filter-pill.active {
+  background-color: var(--primary-subtle);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.archive-filter-pill .pill-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.archive-filter-pill.active .pill-count {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-contrast);
+}
+
+.stage-reached-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.stage-reached-pill--applied {
+  background-color: var(--bg-elevated);
+  border-color: var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.stage-reached-pill--interview {
+  background-color: var(--status-interview-bg);
+  border-color: var(--status-interview-border);
+  color: var(--status-interview-text);
+}
+
+.stage-reached-pill--offer {
+  background-color: var(--status-offer-bg);
+  border-color: var(--status-offer-border);
+  color: var(--status-offer-text);
+}
+
+.stage-reached-dash {
+  color: var(--text-muted);
+  font-size: 12px;
+}
 
 /* Offer Actions Styles appended below */
 .offer-actions {

@@ -75,6 +75,7 @@ export async function handleDemoRequest(config) {
 
     db.applications = db.applications.map((app) => {
       if (fromSet.has(app.status) && !excludeSet.has(app.id)) {
+        app.previous_status = app.status
         app.status = target_status
         app.last_activity_at = new Date().toISOString()
         updatedIds.push(app.id)
@@ -240,7 +241,12 @@ export async function handleDemoRequest(config) {
 
     const rawPayload = {
       ...data,
+      ...(!isSameStatus ? { previous_status: oldStatus } : {}),
       ...(preservedInterviewStage ? { interview_stage: preservedInterviewStage } : {}),
+    }
+
+    if (!isSameStatus) {
+      app.previous_status = oldStatus
     }
 
     const newEvent = {

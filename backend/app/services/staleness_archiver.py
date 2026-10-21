@@ -48,6 +48,7 @@ async def archive_stale_applications(
     archived_ids = []
 
     for app in applications:
+        previous_status = app.status
         app.status = target_status
         app.last_activity_at = datetime.now(UTC)
 
@@ -58,7 +59,8 @@ async def archive_stale_applications(
             email_summary=f"Application automatically archived — no activity for {threshold_days}+ days.",
             source_channel="SYSTEM",
             raw_payload={
-                "archive_reason": f"Ghosted / Inactive for {threshold_days}+ days (Auto-Archived)"
+                "archive_reason": f"Ghosted / Inactive for {threshold_days}+ days (Auto-Archived)",
+                "previous_status": previous_status,
             },
         )
         db.add(event)

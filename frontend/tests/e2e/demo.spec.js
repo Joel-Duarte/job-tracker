@@ -26,9 +26,66 @@ test('demo pipeline search and archive work', async ({ page }) => {
   await expect(page.locator('.kanban-container')).toContainText('Stripe')
   await search.fill('an-unmatched-company')
   await expect(page.locator('.kanban-container')).not.toContainText('Stripe')
+  await search.fill('')
+
+  // Archive a post-Applied application (Datadog in Technical Interview) and an Applied application (Linear) via demo storage
+  await page.evaluate(() => {
+    const raw = localStorage.getItem('jt_demo_db_v1')
+    if (!raw) return
+    const db = JSON.parse(raw)
+    const datadog = db.applications.find((a) => a.id === 'app_datacamp_004')
+    if (datadog) {
+      datadog.previous_status = 'TECHNICAL_INTERVIEW'
+      datadog.status = 'ARCHIVED'
+      datadog.latest_event = {
+        id: 'evt_dd_arch',
+        email_event_type: 'STATUS_CHANGE',
+        email_summary: 'Application automatically archived — no activity for 30+ days.',
+        raw_payload: {
+          archive_reason: 'Ghosted / Inactive for 30+ days (Auto-Archived)',
+          previous_status: 'TECHNICAL_INTERVIEW',
+        },
+      }
+      datadog.events = [datadog.latest_event, ...(datadog.events || [])]
+    }
+    const linear = db.applications.find((a) => a.id === 'app_linear_002')
+    if (linear) {
+      linear.previous_status = 'APPLIED'
+      linear.status = 'ARCHIVED'
+      linear.latest_event = {
+        id: 'evt_lin_arch',
+        email_event_type: 'STATUS_CHANGE',
+        email_summary: 'Application automatically archived — no activity for 30+ days.',
+        raw_payload: {
+          archive_reason: 'Ghosted / Inactive for 30+ days (Auto-Archived)',
+          previous_status: 'APPLIED',
+        },
+      }
+      linear.events = [linear.latest_event, ...(linear.events || [])]
+    }
+    localStorage.setItem('jt_demo_db_v1', JSON.stringify(db))
+  })
+  await page.reload()
 
   await page.getByRole('button', { name: /Archived \/ Closed/ }).click()
-  await expect(page.locator('.archive-view-container')).toBeVisible()
+  const archiveContainer = page.locator('.archive-view-container')
+  await expect(archiveContainer).toBeVisible()
+
+  // Verify Stage Reached column and removal of redundant Details button
+  await expect(archiveContainer.getByRole('columnheader', { name: 'Stage Reached' })).toBeVisible()
+  await expect(archiveContainer.getByRole('button', { name: 'Details' })).toHaveCount(0)
+
+  // Filter by Ghosted (Post-Applied)
+  await archiveContainer.getByRole('button', { name: /Ghosted \(Post-Applied\)/ }).click()
+  await expect(archiveContainer.locator('tbody tr')).toHaveCount(1)
+  await expect(archiveContainer.locator('tbody tr').first()).toContainText('Datadog')
+  await expect(archiveContainer.locator('tbody tr').first()).toContainText('Technical Interview')
+
+  // Restore Datadog and verify it returns to Technical Interview on the Active Pipeline
+  await archiveContainer.locator('tbody tr').first().getByRole('button', { name: 'Restore' }).click()
+  await page.getByRole('button', { name: /Active Pipeline/ }).click()
+  const interviewColumn = page.locator('.kanban-column').filter({ hasText: 'Interview' })
+  await expect(interviewColumn).toContainText('Datadog')
 })
 
 test('demo company can be added and found', async ({ page }) => {

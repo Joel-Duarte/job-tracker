@@ -41,6 +41,8 @@ class ApplicationListItem(BaseModel):
     company: CompanySummary
     position: str | None = None
     status: str
+    is_assessment: bool = False
+    previous_status: str | None = None
     application_date: datetime | None = None
     last_activity_at: datetime | None = None
     has_action_required: bool = False

@@ -75,6 +75,7 @@ async def test_archive_stale_applications_transitions_inactive_apps(
     assert event_list[0].email_event_type == "STATUS_CHANGE"
     assert event_list[0].email_status_after_event == "ARCHIVED"
     assert event_list[0].source_channel == "SYSTEM"
+    assert event_list[0].raw_payload.get("previous_status") == "APPLIED"
 
     # Verify action items dismissed
     await db_session.refresh(action_item)
