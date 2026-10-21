@@ -515,21 +515,6 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Live AI Queue Banner -->
-      <div v-if="queuePositionInfo" class="queue-status-banner animate-fade-in">
-        <div class="flex items-center gap-3">
-          <Loader2 class="animate-spin text-primary" :size="18" />
-          <div>
-            <span class="font-semibold text-primary block text-sm">{{ queuePositionInfo.statusText }}</span>
-            <span class="text-xs text-muted">{{ queuePositionInfo.stageText }}</span>
-          </div>
-        </div>
-        <div class="queue-pulse-badge">
-          <span class="pulse-dot"></span>
-          <span>Live Processing</span>
-        </div>
-      </div>
-
       <!-- Failed Task Banner -->
       <div v-if="failedQATask && !isCurrentlyGenerating" class="failure-banner animate-fade-in">
         <div class="flex items-center gap-2 text-danger">

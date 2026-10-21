@@ -723,10 +723,16 @@ onBeforeUnmount(() => {
 }
 
 .time-select-24 {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 4px;
-  padding: 3px 5px;
+  padding: 4px 10px;
+  min-width: 48px;
+  text-align: center;
+  text-align-last: center;
   font-size: 13px;
   font-weight: 700;
   font-family: var(--font-mono);
