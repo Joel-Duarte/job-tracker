@@ -906,6 +906,7 @@ async def _execute_email_sync_steps(
                     conversation_id=email_dict.get("conversation_id")
                     or f"conv-{task_id}-{idx}",
                     sender=email_dict.get("sender"),
+                    sender_name=email_dict.get("sender_name"),
                     subject=email_dict.get("subject") or "No Subject",
                     body=email_dict.get("body") or "",
                     received_at=rec_at,

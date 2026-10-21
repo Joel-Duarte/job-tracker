@@ -296,6 +296,7 @@ async def intake_pasted_text(
     email_dict = {
         "conversation_id": conv_id,
         "message_id": msg_id,
+        "sender": payload.sender,
         "received_at": received_at.isoformat()
         if hasattr(received_at, "isoformat")
         else str(received_at),
@@ -358,6 +359,7 @@ async def intake_uploaded_files(
                     "conversation_id": email_payload.conversation_id
                     or f"conv-{uuid.uuid4().hex[:8]}",
                     "sender": getattr(email_payload, "sender", None),
+                    "sender_name": getattr(email_payload, "sender_name", None),
                     "subject": email_payload.subject,
                     "body": clean_html_text(email_payload.body),
                     "received_at": email_payload.received_at.isoformat()
@@ -895,6 +897,7 @@ async def sync_email_account(
                     "message_id": email.message_id,
                     "conversation_id": email.conversation_id,
                     "sender": getattr(email, "sender", None),
+                    "sender_name": getattr(email, "sender_name", None),
                     "subject": email.subject,
                     "body": email.body,
                     "received_at": email.received_at.isoformat()
@@ -974,6 +977,8 @@ async def intake_direct_raw_email(
     email_dict = {
         "conversation_id": conv_id,
         "message_id": msg_id,
+        "sender": payload.sender,
+        "sender_name": payload.sender_name,
         "received_at": received_at.isoformat(),
         "subject": payload.subject,
         "body": payload.body,

@@ -26,6 +26,8 @@ async def test_low_confidence_email_routed_to_staging(db_session):
 
     staged_email = EmailPayload(
         conversation_id="conv-staging-101",
+        sender="founder@mystery-startup.io",
+        sender_name="Mystery Founder",
         received_at=datetime.now(UTC),
         subject="Interview Invitation - Mystery Startup",
         body="We would love to chat about your application.",
@@ -63,6 +65,8 @@ async def test_low_confidence_email_routed_to_staging(db_session):
     assert staged_item is not None
     assert staged_item.status == "PENDING"
     assert staged_item.match_reason == "NEW_COMPANY_LEAD"
+    assert staged_item.email_sender == "founder@mystery-startup.io"
+    assert staged_item.email_sender_name == "Mystery Founder"
 
 
 @pytest.mark.asyncio

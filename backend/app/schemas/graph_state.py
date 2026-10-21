@@ -6,6 +6,7 @@ class JobTrackerState(TypedDict, total=False):
     message_id: str | None
     conversation_id: str | None
     sender: str | None
+    sender_name: str | None
     subject: str
     body: str
     received_at: str | None

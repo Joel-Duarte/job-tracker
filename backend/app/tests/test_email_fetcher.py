@@ -25,7 +25,7 @@ def test_imap_batch_fetching():
     mock_mail.search.return_value = ("OK", [b"1 2 3"])
 
     raw_msg_1 = (
-        b"From: sender1@example.com\r\n"
+        b'From: "Alice Recruiter" <sender1@example.com>\r\n'
         b"Subject: Test Subject 1\r\n"
         b"Message-ID: <msg-1@example.com>\r\n"
         b"Content-Type: text/plain\r\n\r\n"
@@ -70,8 +70,12 @@ def test_imap_batch_fetching():
 
         assert len(emails) == 3
         assert emails[0].subject == "Test Subject 1"
+        assert emails[0].sender == "sender1@example.com"
+        assert emails[0].sender_name == "Alice Recruiter"
         assert emails[1].subject == "Test Subject 2"
+        assert emails[1].sender == "sender2@example.com"
         assert emails[2].subject == "Test Subject 3"
+        assert emails[2].sender == "sender3@example.com"
 
         # Verify mail.fetch was called once in a single batch with concatenated sequence "1,2,3"
         mock_mail.fetch.assert_called_once_with(b"1,2,3", "(RFC822)")

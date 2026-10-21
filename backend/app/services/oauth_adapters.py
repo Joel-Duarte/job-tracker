@@ -330,10 +330,24 @@ class MicrosoftGraphAdapter:
                     msg_id = item.get("id", "")
                     conv_id = item.get("conversationId") or f"ms-conv-{msg_id}"
 
+                    from_obj = (
+                        item.get("from", {}).get("emailAddress", {})
+                        if isinstance(item.get("from"), dict)
+                        else {}
+                    ) or (
+                        item.get("sender", {}).get("emailAddress", {})
+                        if isinstance(item.get("sender"), dict)
+                        else {}
+                    )
+                    sender_addr = (from_obj.get("address") or "").strip() or None
+                    sender_name = (from_obj.get("name") or "").strip() or None
+
                     emails.append(
                         EmailPayload(
                             conversation_id=conv_id,
                             message_id=f"msg-graph-{msg_id}",
+                            sender=sender_addr,
+                            sender_name=sender_name,
                             received_at=received_at,
                             subject=subject,
                             body=body_content,

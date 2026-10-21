@@ -610,6 +610,10 @@ async def staging_node(
         existing_res = await db.execute(existing_stmt)
         existing_item = existing_res.scalar_one_or_none()
         if existing_item:
+            if state.get("sender") and not existing_item.email_sender:
+                existing_item.email_sender = state.get("sender")
+            if state.get("sender_name") and not existing_item.email_sender_name:
+                existing_item.email_sender_name = state.get("sender_name")
             existing_item.extracted_data = (
                 state.get("extracted_data") or existing_item.extracted_data
             )
@@ -633,6 +637,7 @@ async def staging_node(
         email_message_id=message_id,
         email_conversation_id=state.get("conversation_id"),
         email_sender=state.get("sender"),
+        email_sender_name=state.get("sender_name"),
         email_subject=state.get("subject", ""),
         email_received_at=received_at_dt,
         email_raw_body=state.get("body", ""),
@@ -697,6 +702,8 @@ async def db_commit_node(
         other_event = OtherEventModel(
             email_message_id=msg_id,
             email_conversation_id=state.get("conversation_id"),
+            email_sender=state.get("sender"),
+            email_sender_name=state.get("sender_name"),
             email_subject=state.get("subject", ""),
             email_received_at=received_at_dt,
             email_type=extracted.get("email_type") or "OTHER",
@@ -825,6 +832,8 @@ async def db_commit_node(
         email_application_id=application_id,
         email_message_id=msg_id,
         email_conversation_id=state.get("conversation_id"),
+        email_sender=state.get("sender"),
+        email_sender_name=state.get("sender_name"),
         email_received_at=received_at_dt,
         email_event_type=extracted.get("event_type") or "UPDATED",
         email_subject=state.get("subject", ""),

@@ -4,6 +4,7 @@ import imaplib
 import logging
 from datetime import UTC, datetime
 from email.header import decode_header
+from email.utils import parseaddr
 
 import httpx
 
@@ -91,7 +92,18 @@ def _fetch_imap_emails_sync(
                         else "unknown"
                     )
                     subject = _clean_header(msg.get("Subject", "No Subject"))
-                    conversation_id = msg.get("Message-ID", f"msg-{seq_num}")
+                    from_header = _clean_header(msg.get("From", ""))
+                    parsed_name, parsed_addr = parseaddr(from_header)
+                    sender_addr = parsed_addr.strip() or from_header.strip() or None
+                    sender_name = parsed_name.strip() or None
+                    msg_id_header = (
+                        msg.get("Message-ID") or ""
+                    ).strip() or f"imap-{account_id or 0}-{seq_num}"
+                    conversation_id = (
+                        msg.get("In-Reply-To") or msg.get("References", "").split()[0]
+                        if msg.get("References")
+                        else None
+                    ) or msg_id_header
                     date_header = msg.get("Date", datetime.now(UTC).isoformat())
 
                     # Extract body (plain text preferred, fallback to HTML)
@@ -126,7 +138,10 @@ def _fetch_imap_emails_sync(
 
                     results.append(
                         EmailPayload(
+                            message_id=msg_id_header,
                             conversation_id=conversation_id,
+                            sender=sender_addr,
+                            sender_name=sender_name,
                             received_at=date_header,
                             subject=subject,
                             body=final_body,

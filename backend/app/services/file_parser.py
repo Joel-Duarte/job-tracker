@@ -5,7 +5,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 from email import policy
-from email.utils import parsedate_to_datetime
+from email.utils import parseaddr, parsedate_to_datetime
 
 from app.schemas.intake import EmailPayload
 
@@ -39,7 +39,10 @@ def parse_eml(content: bytes) -> EmailPayload:
     msg = email.message_from_bytes(content, policy=policy.default)
 
     subject = msg.get("Subject", "No Subject").strip()
-    msg.get("From", "").strip()
+    from_raw = msg.get("From", "").strip()
+    parsed_name, parsed_addr = parseaddr(from_raw)
+    sender_addr = parsed_addr.strip() or from_raw or None
+    sender_name = parsed_name.strip() or None
     message_id = msg.get("Message-ID", f"eml-{uuid.uuid4().hex[:12]}").strip()
     conversation_id = msg.get("Thread-Topic") or msg.get("In-Reply-To") or message_id
 
@@ -106,6 +109,8 @@ def parse_eml(content: bytes) -> EmailPayload:
     return EmailPayload(
         conversation_id=conversation_id,
         message_id=message_id,
+        sender=sender_addr,
+        sender_name=sender_name,
         received_at=received_at,
         subject=subject or "No Subject",
         body=full_body,
@@ -118,6 +123,10 @@ def parse_msg(content: bytes) -> EmailPayload:
 
     msg = extract_msg.Message(io.BytesIO(content))
     subject = msg.subject or "No Subject"
+    from_raw = (getattr(msg, "sender", None) or "").strip()
+    parsed_name, parsed_addr = parseaddr(from_raw)
+    sender_addr = parsed_addr.strip() or from_raw or None
+    sender_name = parsed_name.strip() or None
     message_id = msg.messageId or f"msg-{uuid.uuid4().hex[:12]}"
     conversation_id = msg.conversationTopic or message_id
 
@@ -147,6 +156,8 @@ def parse_msg(content: bytes) -> EmailPayload:
     return EmailPayload(
         conversation_id=conversation_id,
         message_id=message_id,
+        sender=sender_addr,
+        sender_name=sender_name,
         received_at=received_at,
         subject=subject,
         body=body,
@@ -159,6 +170,8 @@ def parse_txt(content: bytes, filename: str = "upload.txt") -> EmailPayload:
     lines = text.splitlines()
 
     subject = ""
+    sender_addr = None
+    sender_name = None
     body_lines = []
     in_headers = True
 
@@ -168,11 +181,12 @@ def parse_txt(content: bytes, filename: str = "upload.txt") -> EmailPayload:
             lower = line.lower()
             if lower.startswith("subject:"):
                 subject = line.split(":", 1)[1].strip()
-            elif (
-                lower.startswith("from:")
-                or lower.startswith("date:")
-                or lower.startswith("to:")
-            ):
+            elif lower.startswith("from:"):
+                from_val = line.split(":", 1)[1].strip()
+                p_name, p_addr = parseaddr(from_val)
+                sender_addr = p_addr.strip() or from_val or None
+                sender_name = p_name.strip() or None
+            elif lower.startswith("date:") or lower.startswith("to:"):
                 continue
             elif line.strip() == "":
                 in_headers = False
@@ -195,6 +209,8 @@ def parse_txt(content: bytes, filename: str = "upload.txt") -> EmailPayload:
     return EmailPayload(
         conversation_id=f"conv-{content_hash}",
         message_id=msg_id,
+        sender=sender_addr,
+        sender_name=sender_name,
         received_at=datetime.now(UTC),
         subject=subject,
         body=body,

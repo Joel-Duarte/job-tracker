@@ -38,6 +38,7 @@ async def process_single_email_graph(
         "message_id": message_id,
         "conversation_id": email.conversation_id,
         "sender": getattr(email, "sender", None),
+        "sender_name": getattr(email, "sender_name", None),
         "subject": email.subject,
         "body": email.body,
         "received_at": received_at_str,
