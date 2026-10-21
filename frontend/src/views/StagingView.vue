@@ -332,17 +332,45 @@ function selectNextItem() {
 }
 
 // Applications search for linking with fuzzy matching & relevance ranking
-const filteredExistingApps = computed(() => {
-  let apps = (appStore.applications || []).filter((a) => a.status !== 'ASSESSMENT')
-  if (!includeArchivedApps.value) {
-    apps = apps.filter((a) => !['REJECTED', 'ARCHIVED', 'WITHDRAWN'].includes(a.status))
-  }
-  if (!appSearchQuery.value.trim()) {
+const CONCLUDED_APP_STATUSES = ['REJECTED', 'ARCHIVED', 'WITHDRAWN', 'HIRED']
+
+const activeMatchedApps = computed(() => {
+  const apps = (appStore.applications || []).filter(
+    (a) => a.status !== 'ASSESSMENT' && !CONCLUDED_APP_STATUSES.includes(a.status)
+  )
+  const q = appSearchQuery.value.trim()
+  if (!q) {
     return [...apps].sort(
       (a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0)
     )
   }
-  return fuzzyFilterApplications(apps, appSearchQuery.value.trim(), 0.25)
+  return fuzzyFilterApplications(apps, q, 0.25)
+})
+
+const allMatchedApps = computed(() => {
+  const apps = (appStore.applications || []).filter((a) => a.status !== 'ASSESSMENT')
+  const q = appSearchQuery.value.trim()
+  if (!q) {
+    return [...apps].sort(
+      (a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0)
+    )
+  }
+  return fuzzyFilterApplications(apps, q, 0.25)
+})
+
+const isShowingArchivedFallback = computed(() => {
+  return (
+    !includeArchivedApps.value &&
+    activeMatchedApps.value.length === 0 &&
+    allMatchedApps.value.length > 0
+  )
+})
+
+const filteredExistingApps = computed(() => {
+  if (includeArchivedApps.value || isShowingArchivedFallback.value) {
+    return allMatchedApps.value
+  }
+  return activeMatchedApps.value
 })
 
 // Populate resolveForm whenever selected item changes
@@ -989,6 +1017,14 @@ function formatRelativeTime(isoStr) {
             </div>
 
             <div class="item-role-title">{{ getItemPosition(item) }}</div>
+            <div v-if="item.email_sender || item.email_sender_name" class="item-sender-snippet">
+              <User :size="11" class="sender-icon" />
+              <span>{{
+                item.email_sender_name && item.email_sender && item.email_sender_name !== item.email_sender
+                  ? `${item.email_sender_name} <${item.email_sender}>`
+                  : item.email_sender || item.email_sender_name
+              }}</span>
+            </div>
             <div class="item-subject-snippet">{{ item.email_subject || 'No Subject' }}</div>
 
             <div class="item-footer-row">
@@ -1126,8 +1162,11 @@ function formatRelativeTime(isoStr) {
                   <div class="email-subject-heading">{{ selectedItem.email_subject || '(No Subject)' }}</div>
                   <div class="email-sender-line">
                     <User :size="13" class="text-muted" />
-                    <strong>{{ selectedItem.email_sender_name || selectedItem.email_sender }}</strong>
-                    <span v-if="selectedItem.email_sender_name && selectedItem.email_sender" class="email-address">
+                    <strong>{{ selectedItem.email_sender_name || selectedItem.email_sender || 'Unknown Sender' }}</strong>
+                    <span
+                      v-if="selectedItem.email_sender && selectedItem.email_sender_name && selectedItem.email_sender_name !== selectedItem.email_sender"
+                      class="email-address"
+                    >
                       &lt;{{ selectedItem.email_sender }}&gt;
                     </span>
                   </div>
@@ -1189,6 +1228,17 @@ function formatRelativeTime(isoStr) {
                   <div class="ai-tag-item">
                     <span class="ai-tag-label">Position:</span>
                     <strong class="ai-tag-val">{{ getItemPosition(selectedItem) }}</strong>
+                  </div>
+                  <div
+                    v-if="selectedItem.email_sender || selectedItem.email_sender_name"
+                    class="ai-tag-item full-width"
+                  >
+                    <span class="ai-tag-label">From:</span>
+                    <strong class="ai-tag-val">{{
+                      selectedItem.email_sender_name && selectedItem.email_sender && selectedItem.email_sender_name !== selectedItem.email_sender
+                        ? `${selectedItem.email_sender_name} <${selectedItem.email_sender}>`
+                        : selectedItem.email_sender || selectedItem.email_sender_name
+                    }}</strong>
                   </div>
                   <div class="ai-tag-item">
                     <span class="ai-tag-label">Detected Event:</span>
@@ -1373,16 +1423,30 @@ function formatRelativeTime(isoStr) {
               <!-- FORM: Mode = LINK TO EXISTING APPLICATION -->
               <div v-else class="triage-form-stack">
                 <div class="form-group">
-                  <label class="form-label">Search Target Application</label>
+                  <div class="form-label-row">
+                    <label class="form-label">Search Target Application</label>
+                    <label class="include-archived-toggle">
+                      <input v-model="includeArchivedApps" type="checkbox" />
+                      <span>Include Archived / Concluded</span>
+                    </label>
+                  </div>
                   <div class="app-search-input-wrapper">
                     <Search :size="14" class="search-icon" />
                     <input
                       v-model="appSearchQuery"
                       type="text"
-                      placeholder="Search active applications by company or role..."
+                      :placeholder="
+                        includeArchivedApps
+                          ? 'Search all applications (including archived) by company or role...'
+                          : 'Search active applications by company or role...'
+                      "
                       class="form-input search-input-with-icon"
                     />
                   </div>
+                </div>
+
+                <div v-if="isShowingArchivedFallback" class="archived-fallback-notice">
+                  <span>No active matches — showing archived/concluded applications</span>
                 </div>
 
                 <div class="app-select-cards-list">
@@ -1838,6 +1902,22 @@ function formatRelativeTime(isoStr) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.item-sender-snippet {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-sender-snippet .sender-icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
 }
 
 .item-subject-snippet {
@@ -2428,6 +2508,38 @@ function formatRelativeTime(isoStr) {
 }
 
 /* LINK APPLICATION LIST */
+.form-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.include-archived-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.include-archived-toggle input[type='checkbox'] {
+  cursor: pointer;
+}
+
+.archived-fallback-notice {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background-color: var(--bg-surface);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-xs);
+  padding: 5px 10px;
+}
+
 .app-search-input-wrapper {
   position: relative;
   display: flex;
