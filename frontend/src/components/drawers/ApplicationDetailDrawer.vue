@@ -52,6 +52,7 @@ import {
   Archive,
   ArchiveRestore,
   HelpCircle,
+  Link as LinkIcon,
 } from 'lucide-vue-next'
 import { renderEmailBody } from '../../utils/emailRenderer'
 import { getCurrencySymbol } from '../../utils/formatters'
@@ -247,6 +248,45 @@ const isSavingHeader = ref(false)
 const headerEditForm = ref({
   position: '',
 })
+
+// Header inline editing state (Job Posting URL)
+const isEditingJobUrl = ref(false)
+const isSavingJobUrl = ref(false)
+const jobUrlDraft = ref('')
+
+function startEditJobUrl() {
+  if (!appStore.selectedApplication) return
+  jobUrlDraft.value = appStore.selectedApplication.job_url || ''
+  isEditingJobUrl.value = true
+}
+
+function cancelEditJobUrl() {
+  isEditingJobUrl.value = false
+  jobUrlDraft.value = ''
+}
+
+async function saveEditJobUrl() {
+  if (!appStore.selectedApplication) return
+  let url = jobUrlDraft.value.trim()
+  if (url && !/^https?:\/\//i.test(url)) {
+    url = `https://${url}`
+  }
+
+  isSavingJobUrl.value = true
+  try {
+    await appStore.updateApplication(appStore.selectedApplication.id, {
+      job_url: url || null,
+    })
+    uiStore.showToast(url ? 'Job posting URL saved' : 'Job posting URL cleared', 'success')
+    isEditingJobUrl.value = false
+    await appStore.fetchApplications(true)
+    await appStore.fetchApplicationDetail(appStore.selectedApplication.id)
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to update job URL', 'error')
+  } finally {
+    isSavingJobUrl.value = false
+  }
+}
 
 function startEditHeader() {
   if (!appStore.selectedApplication) return
@@ -910,6 +950,8 @@ watch(
 watch(
   () => uiStore.activeDetailId,
   (newId) => {
+    isEditingJobUrl.value = false
+    isEditingHeader.value = false
     if (newId) {
       appStore.fetchApplicationDetail(newId)
     }
@@ -1364,16 +1406,34 @@ function formatDate(isoStr) {
 
             <div class="header-actions-col">
               <div class="header-actions">
-                <a
-                  v-if="appStore.selectedApplication.job_url"
-                  :href="appStore.selectedApplication.job_url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="btn-icon-action"
-                  title="Open Original Job Posting"
+                <template v-if="appStore.selectedApplication.job_url">
+                  <a
+                    :href="appStore.selectedApplication.job_url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn-icon-action"
+                    title="Open Original Job Posting"
+                  >
+                    <ExternalLink :size="16" />
+                  </a>
+                  <button
+                    type="button"
+                    class="btn-icon-action btn-edit-job-url"
+                    title="Edit Job Posting URL"
+                    @click="startEditJobUrl"
+                  >
+                    <Edit2 :size="13" />
+                  </button>
+                </template>
+                <button
+                  v-else
+                  type="button"
+                  class="btn-icon-action btn-add-job-url"
+                  title="Add Job Posting URL"
+                  @click="startEditJobUrl"
                 >
-                  <ExternalLink :size="16" />
-                </a>
+                  <Plus :size="16" />
+                </button>
                 <!-- <button
                   class="btn-icon-danger"
                   title="Delete Application"
@@ -1396,6 +1456,44 @@ function formatDate(isoStr) {
                 <Calendar :size="12" class="text-muted" />
                 <span>Applied {{ formatDate(appStore.selectedApplication.application_date || appStore.selectedApplication.created_at) }}</span>
               </div>
+            </div>
+          </div>
+
+          <!-- Inline Job Posting URL Editor Bar -->
+          <div v-if="isEditingJobUrl" class="job-url-editor-bar animate-fade-in">
+            <div class="job-url-input-wrap">
+              <LinkIcon :size="14" class="text-muted" />
+              <input
+                v-model="jobUrlDraft"
+                type="url"
+                placeholder="https://... (Job Posting URL)"
+                class="job-url-input"
+                :disabled="isSavingJobUrl"
+                @keyup.enter="saveEditJobUrl"
+                @keyup.esc="cancelEditJobUrl"
+                autofocus
+              />
+            </div>
+            <div class="job-url-editor-actions">
+              <button
+                type="button"
+                class="btn btn-primary btn-xs"
+                :disabled="isSavingJobUrl"
+                @click="saveEditJobUrl"
+              >
+                <Loader2 v-if="isSavingJobUrl" class="animate-spin" :size="12" />
+                <Check v-else :size="12" />
+                <span>Save</span>
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-xs"
+                :disabled="isSavingJobUrl"
+                @click="cancelEditJobUrl"
+              >
+                <X :size="12" />
+                <span>Cancel</span>
+              </button>
             </div>
           </div>
 
@@ -3895,6 +3993,46 @@ function formatDate(isoStr) {
 .btn-icon-action:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.job-url-editor-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 24px;
+  background-color: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.job-url-input-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  padding: 4px 10px;
+}
+
+.job-url-input-wrap:focus-within {
+  border-color: var(--primary);
+}
+
+.job-url-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  font-size: 12px;
+  outline: none;
+}
+
+.job-url-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* LATEST EVENT HIGHLIGHT BANNER */

@@ -27,9 +27,20 @@ const queueStore = useQueueStore()
 
 const activeTab = ref('url') // 'url' | 'jd' | 'extension'
 const jobUrl = ref('')
+const jdSourceUrl = ref('')
 const jobText = ref('')
 const isEnqueuing = ref(false)
 const jdTextareaRef = ref(null)
+
+function switchToJdTab() {
+  if (!jdSourceUrl.value.trim() && jobUrl.value.trim()) {
+    const urls = extractUrls(jobUrl.value.trim())
+    if (urls.length === 1) {
+      jdSourceUrl.value = urls[0]
+    }
+  }
+  activeTab.value = 'jd'
+}
 
 const showBulkLinkedInPrompt = ref(false)
 const parsedBulkUrls = ref([])
@@ -56,7 +67,7 @@ function handleBulkPromptDecision(skipLinkedIn) {
   executeEnqueue(urlsToProcess, null)
 }
 
-async function executeEnqueue(urls, textVal) {
+async function executeEnqueue(urls, textVal, sourceUrl = null) {
   if (!(await uiStore.ensureAIReady())) return
 
   isEnqueuing.value = true
@@ -74,10 +85,11 @@ async function executeEnqueue(urls, textVal) {
         }
       }
     } else if (textVal) {
-      await queueStore.enqueueAssessment({ url: null, text: textVal })
+      await queueStore.enqueueAssessment({ url: sourceUrl || null, text: textVal })
     }
 
     jobUrl.value = ''
+    jdSourceUrl.value = ''
     jobText.value = ''
     uiStore.closeJobIntakeModal()
   } catch (err) {
@@ -107,7 +119,7 @@ function dismissLinkedInWarning() {
 
 function handlePasteTextInstead() {
   dismissLinkedInWarning()
-  activeTab.value = 'jd'
+  switchToJdTab()
   nextTick(() => {
     if (jdTextareaRef.value) {
       jdTextareaRef.value.focus()
@@ -182,7 +194,7 @@ async function submitJobIntake() {
       uiStore.showToast('Please paste the job description text', 'warning')
       return
     }
-    executeEnqueue(null, textVal)
+    executeEnqueue(null, textVal, jdSourceUrl.value.trim() || null)
   }
 }
 
@@ -231,7 +243,7 @@ onMounted(() => {
           <button
             class="modal-tab"
             :class="{ active: activeTab === 'jd' }"
-            @click="activeTab = 'jd'"
+            @click="switchToJdTab"
           >
             <FileText :size="14" />
             <span>Job Description (JD)</span>
@@ -316,6 +328,19 @@ Or paste multiple URLs separated by newlines to bulk add!"
 
         <!-- Tab 2: Job Description Text -->
         <div v-else-if="activeTab === 'jd'" class="tab-content animate-fade-in">
+          <div class="input-group mb-3">
+            <label class="input-label">Job Posting URL (Optional — saved for reference, not scraped)</label>
+            <div class="input-with-icon">
+              <LinkIcon :size="15" class="field-icon" />
+              <input
+                v-model="jdSourceUrl"
+                type="url"
+                placeholder="https://www.linkedin.com/jobs/view/... or https://..."
+                class="form-input"
+              />
+            </div>
+          </div>
+
           <div class="input-group">
             <label class="input-label">Paste Full Job Specification / Requirements</label>
             <textarea

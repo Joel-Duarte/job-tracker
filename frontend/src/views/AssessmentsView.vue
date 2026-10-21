@@ -44,6 +44,7 @@ import {
   CheckSquare,
   HelpCircle,
   Pencil,
+  PanelRightOpen,
 } from 'lucide-vue-next'
 import PageHeader from '../components/common/PageHeader.vue'
 import CompanyLogo from '../components/common/CompanyLogo.vue'
@@ -122,6 +123,15 @@ async function openAppQuestionsModalForTask(task) {
     uiStore.openAppQuestionsModal(appId)
   } else {
     uiStore.showToast('Application ID missing. Confirm application first.', 'warning')
+  }
+}
+
+function openApplicationDrawerForTask(task) {
+  const appId = task?.result_json?.application_id
+  if (appId) {
+    uiStore.openDetail(appId)
+  } else {
+    uiStore.showToast('Application record not found for this assessment.', 'warning')
   }
 }
 
@@ -1037,6 +1047,15 @@ onUnmounted(() => {
                     <span>{{ task.result_json?.position || 'Software Engineer' }}</span>
                     <Pencil :size="13" class="edit-role-icon" />
                   </h2>
+                  <button
+                    v-if="task.result_json?.application_id"
+                    type="button"
+                    class="btn-open-app-drawer"
+                    title="Open Application Drawer"
+                    @click.stop="openApplicationDrawerForTask(task)"
+                  >
+                    <PanelRightOpen :size="14" />
+                  </button>
                 </div>
               </div>
             </div>
@@ -1462,6 +1481,15 @@ onUnmounted(() => {
                     <span>{{ task.result_json?.position || 'Software Engineer' }}</span>
                     <Pencil :size="13" class="edit-role-icon" />
                   </h2>
+                  <button
+                    v-if="task.result_json?.application_id"
+                    type="button"
+                    class="btn-open-app-drawer"
+                    title="Open Application Drawer"
+                    @click.stop="openApplicationDrawerForTask(task)"
+                  >
+                    <PanelRightOpen :size="14" />
+                  </button>
                 </div>
               </div>
             </div>
@@ -2034,7 +2062,30 @@ onUnmounted(() => {
 .eval-role-row {
   display: flex;
   align-items: center;
+  gap: 8px;
   min-height: 28px;
+}
+
+.btn-open-app-drawer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.btn-open-app-drawer:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background-color: var(--primary-subtle);
 }
 
 .eval-role {
