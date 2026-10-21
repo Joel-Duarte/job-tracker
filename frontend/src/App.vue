@@ -27,7 +27,7 @@ onMounted(async () => {
     const provRes = await AIConfigAPI.listProviders()
     const providers = provRes.data || []
 
-    if (!uiStore.hasCompletedOnboarding || providers.length === 0) {
+    if (!uiStore.isDemoMode && (!uiStore.hasCompletedOnboarding || providers.length === 0)) {
       uiStore.openOnboardingWizard()
     }
   } catch (error) {
