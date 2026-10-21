@@ -352,20 +352,6 @@ function getAppSubPhaseLabel(app) {
   return 'Applied'
 }
 
-function formatCardEventTypeLabel(eventType) {
-  if (!eventType) return 'Update'
-  if (eventType === 'CUSTOM_NOTE') return 'Note'
-  if (eventType === 'ACTION_ITEM_COMPLETED') return 'Task Completed'
-  if (eventType === 'STATUS_CHANGE') return 'Stage Update'
-  return String(eventType).replace(/_/g, ' ')
-}
-
-function formatCardEventSummary(latestEvent) {
-  if (!latestEvent) return ''
-  const raw = latestEvent.email_summary || latestEvent.raw_payload?.notes || ''
-  return String(raw).replace(/^Notes:\s*/i, '').trim()
-}
-
 function getScheduledInterviewDate(app) {
   if (!app) return null
   const stage = getAppSubPhaseLabel(app)
@@ -1364,12 +1350,6 @@ async function confirmDelete() {
                   <Clock :size="11" />
                   <span>Due {{ formatDueDateFriendly(app) }}</span>
                 </div>
-              </div>
-
-              <!-- Latest Event Summary Note (Compact) -->
-              <div v-if="formatCardEventSummary(app.latest_event)" class="card-summary">
-                <span class="summary-prefix">{{ formatCardEventTypeLabel(app.latest_event.email_event_type) }}:</span>
-                {{ formatCardEventSummary(app.latest_event) }}
               </div>
 
               <!-- Offer Actions (Hired / Withdrawn) -->
@@ -3314,12 +3294,6 @@ async function confirmDelete() {
   border-color: var(--primary);
   background-color: var(--bg-surface-hover);
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
-}
-
-.summary-prefix {
-  font-weight: 600;
-  color: var(--text-main);
-  margin-right: 4px;
 }
 
 /* INNER MODALS */
