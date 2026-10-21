@@ -1372,19 +1372,7 @@ async def delete_evaluation_task(
         if staged_item:
             await db.delete(staged_item)
 
-    # If this was an unconfirmed job assessment application, transition it to ARCHIVED
-    if task.task_type == "JOB_ASSESSMENT" and isinstance(task.result_json, dict):
-        app_id = task.result_json.get("application_id")
-        if app_id:
-            app_stmt = select(ApplicationModel).where(
-                ApplicationModel.id == app_id,
-                ApplicationModel.status == "ASSESSMENT",
-            )
-            app_rec = (await db.execute(app_stmt)).scalar_one_or_none()
-            if app_rec:
-                app_rec.status = "ARCHIVED"
-                app_rec.updated_at = datetime.now(UTC)
-
+    # Deleting an AI queue task must NEVER mutate or archive linked applications or assessment dossiers.
     await db.delete(task)
     await db.commit()
     return {"status": "success", "message": f"Evaluation task {task_id} deleted."}
