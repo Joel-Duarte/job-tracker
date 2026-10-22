@@ -834,7 +834,7 @@ async def db_commit_node(
     event_payload: dict[str, Any] = {}
     if parsed_due:
         event_payload["scheduled_at"] = parsed_due.isoformat()
-    if extracted.get("event_type"):
+    if status_val == "TECHNICAL_INTERVIEW" and extracted.get("event_type"):
         event_payload["interview_stage"] = extracted.get("event_type")
 
     event = ApplicationEventModel(
@@ -845,6 +845,7 @@ async def db_commit_node(
         email_sender_name=state.get("sender_name"),
         email_received_at=received_at_dt,
         email_event_type=extracted.get("event_type") or "UPDATED",
+        email_status_after_event=status_val,
         email_subject=state.get("subject", ""),
         email_summary=extracted.get("summary", ""),
         email_action_required=extracted.get("action_required", False),

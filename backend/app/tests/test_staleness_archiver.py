@@ -198,3 +198,47 @@ async def test_archive_stale_applications_ignores_terminal_statuses(
 
     stats = await archive_stale_applications(db_session, threshold_days=30)
     assert stats["archived_count"] == 0
+
+
+def test_resolve_previous_status_ignores_non_interview_event_types():
+    """Application confirmation or rejection events with legacy raw_payload['interview_stage'] must stay APPLIED."""
+    from app.routers.applications import _resolve_previous_status
+
+    # Case 1: Application confirmation + auto-archive + later rejection email
+    ev_confirm = ApplicationEventModel(
+        email_event_type="APPLICATION_RECEIVED",
+        email_summary="Thank you for applying.",
+        raw_payload={"interview_stage": "APPLICATION_RECEIVED"},
+    )
+    ev_archive = ApplicationEventModel(
+        email_event_type="STATUS_CHANGE",
+        email_status_after_event="ARCHIVED",
+        email_summary="Application automatically archived — no activity for 30+ days.",
+        raw_payload={
+            "archive_reason": "Ghosted / Inactive for 30+ days (Auto-Archived)"
+        },
+    )
+    ev_reject = ApplicationEventModel(
+        email_event_type="REJECTION_RECEIVED",
+        email_summary="We decided not to move forward.",
+        raw_payload={"interview_stage": "REJECTION_RECEIVED"},
+    )
+    assert (
+        _resolve_previous_status(
+            "REJECTED", [ev_reject, ev_archive, ev_confirm], is_assessment=False
+        )
+        == "APPLIED"
+    )
+
+    # Case 2: Genuine interview event followed by auto-archive
+    ev_interview = ApplicationEventModel(
+        email_event_type="INTERVIEW_SCHEDULED",
+        email_summary="Technical screen scheduled.",
+        raw_payload={"interview_stage": "INTERVIEW_SCHEDULED"},
+    )
+    assert (
+        _resolve_previous_status(
+            "ARCHIVED", [ev_archive, ev_interview, ev_confirm], is_assessment=False
+        )
+        == "TECHNICAL_INTERVIEW"
+    )

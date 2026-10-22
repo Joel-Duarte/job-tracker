@@ -366,7 +366,10 @@ async def resolve_staging_item(
         event_raw_payload = dict(extracted) if isinstance(extracted, dict) else {}
         if payload.due_date:
             event_raw_payload["scheduled_at"] = payload.due_date.isoformat()
-        if payload.event_type:
+        if (
+            application.status in {"TECHNICAL_INTERVIEW", "ONLINE_ASSESSMENT"}
+            and payload.event_type
+        ):
             event_raw_payload["interview_stage"] = payload.event_type
 
         event = ApplicationEventModel(

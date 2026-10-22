@@ -250,35 +250,96 @@ const STAGE_REACHED_LABELS = {
 }
 
 const POST_APPLIED_STAGES = new Set(['ONLINE_ASSESSMENT', 'TECHNICAL_INTERVIEW', 'OFFER'])
-const NON_PIPELINE_STAGES = new Set([
-  ...appStore.TERMINAL_STATUSES,
-  ...appStore.PENDING_ASSESSMENT_STATUSES,
+const GENUINE_INTERVIEW_STAGE_SET = new Set([
+  'Interview Requested / Scheduling',
+  'Recruiter Screen',
+  'Technical / Coding Round',
+  'Final / Hiring Manager Round',
+  'Task Completed / Awaiting Response',
+])
+const INTERVIEW_EVENT_TYPES_SET = new Set([
+  'INTERVIEW_REQUESTED',
+  'INTERVIEW_SCHEDULED',
+  'INTERVIEW_INVITE',
+  'TECHNICAL_INTERVIEW',
+  'BEHAVIORAL_INTERVIEW',
+  'ONSITE_INTERVIEW',
+  'FINAL_INTERVIEW',
+  'PHONE_SCREEN',
+  'RECRUITER_CONTACTED',
+])
+const ONLINE_ASSESSMENT_EVENT_TYPES_SET = new Set([
+  'ONLINE_ASSESSMENT',
+  'ASSESSMENT_REQUESTED',
+  'ASSESSMENT_COMPLETED',
+])
+const OFFER_EVENT_TYPES_SET = new Set([
+  'OFFER',
+  'OFFER_RECEIVED',
+  'OFFER_LETTER',
 ])
 
-function getAppPriorStage(app) {
-  if (!app) return 'APPLIED'
-  if (app.is_assessment) return 'ASSESSMENT'
-  const direct = app.previous_status || app.latest_event?.raw_payload?.previous_status
-  if (direct && !appStore.TERMINAL_STATUSES.includes(direct)) {
-    return direct
-  }
-  const summary = app.latest_event?.email_summary || app.latest_event?.description || ''
+function inferStageFromEvent(evt) {
+  if (!evt) return null
+  const afterStatus = (evt.email_status_after_event || '').toUpperCase()
+  if (POST_APPLIED_STAGES.has(afterStatus)) return afterStatus
+  if (afterStatus === 'APPLIED') return 'APPLIED'
+
+  const summary = evt.email_summary || evt.description || ''
   const match = summary.match(/from\s+([A-Z_]+)\s+to\s+([A-Z_]+)/)
   if (match && !appStore.TERMINAL_STATUSES.includes(match[1])) {
     return match[1]
   }
-  if (app.latest_event?.raw_payload?.interview_stage || app.scheduled_interview_at) {
-    return 'TECHNICAL_INTERVIEW'
+
+  const evType = (evt.email_event_type || evt.event_type || '').toUpperCase()
+  if (OFFER_EVENT_TYPES_SET.has(evType)) return 'OFFER'
+  if (INTERVIEW_EVENT_TYPES_SET.has(evType)) return 'TECHNICAL_INTERVIEW'
+  if (ONLINE_ASSESSMENT_EVENT_TYPES_SET.has(evType)) return 'ONLINE_ASSESSMENT'
+
+  const payload = evt.raw_payload || {}
+  const prev = (payload.previous_status || '').toUpperCase()
+  if (prev && !appStore.TERMINAL_STATUSES.includes(prev)) return prev
+
+  const rawStage = String(payload.interview_stage || '').trim()
+  if (GENUINE_INTERVIEW_STAGE_SET.has(rawStage)) return 'TECHNICAL_INTERVIEW'
+  const rawStageUpper = rawStage.toUpperCase()
+  if (OFFER_EVENT_TYPES_SET.has(rawStageUpper)) return 'OFFER'
+  if (INTERVIEW_EVENT_TYPES_SET.has(rawStageUpper)) return 'TECHNICAL_INTERVIEW'
+  if (ONLINE_ASSESSMENT_EVENT_TYPES_SET.has(rawStageUpper)) return 'ONLINE_ASSESSMENT'
+  if (payload.offered_salary !== undefined && payload.offered_salary !== null) return 'OFFER'
+
+  return null
+}
+
+function getAppPriorStage(app) {
+  if (!app) return 'APPLIED'
+  if (app.is_assessment) return 'ASSESSMENT'
+  const direct = (app.previous_status || app.latest_event?.raw_payload?.previous_status || '').toUpperCase()
+  if (direct && !appStore.TERMINAL_STATUSES.includes(direct)) {
+    return direct
   }
-  for (const evt of app.events || []) {
-    if (evt.email_status_after_event && !NON_PIPELINE_STAGES.has(evt.email_status_after_event)) {
-      return evt.email_status_after_event
-    }
-    if (evt.raw_payload?.interview_stage || evt.raw_payload?.scheduled_at) {
-      return 'TECHNICAL_INTERVIEW'
+
+  const stagePriority = {
+    ASSESSMENT: 0,
+    APPLIED: 1,
+    ONLINE_ASSESSMENT: 2,
+    TECHNICAL_INTERVIEW: 3,
+    OFFER: 4,
+  }
+  const allEvents = [
+    ...(app.latest_event ? [app.latest_event] : []),
+    ...(app.events || []),
+  ]
+  let highestStage = null
+  let highestRank = -1
+  for (const evt of allEvents) {
+    const inferred = inferStageFromEvent(evt)
+    if (inferred && (stagePriority[inferred] ?? -1) > highestRank) {
+      highestRank = stagePriority[inferred]
+      highestStage = inferred
     }
   }
-  return 'APPLIED'
+  return highestStage || 'APPLIED'
 }
 
 function isPostAppliedStage(stageKey) {

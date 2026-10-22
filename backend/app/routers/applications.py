@@ -71,6 +71,105 @@ def _to_utc(dt: datetime | None) -> datetime | None:
 _TERMINAL_STATUSES = {"HIRED", "ARCHIVED", "WITHDRAWN", "REJECTED"}
 _PRE_APPLY_STATUSES = {"ASSESSMENT", "QUEUED", "PROCESSING"}
 _STATUS_FROM_RE = re.compile(r"from\s+([A-Z_]+)\s+to\s+([A-Z_]+)")
+_STAGE_PRIORITY = {
+    "ASSESSMENT": 0,
+    "APPLIED": 1,
+    "ONLINE_ASSESSMENT": 2,
+    "TECHNICAL_INTERVIEW": 3,
+    "OFFER": 4,
+}
+_GENUINE_INTERVIEW_STAGE_LABELS = {
+    "Interview Requested / Scheduling",
+    "Recruiter Screen",
+    "Technical / Coding Round",
+    "Final / Hiring Manager Round",
+    "Task Completed / Awaiting Response",
+}
+_OFFER_EVENT_TYPES = {
+    "OFFER",
+    "OFFER_RECEIVED",
+    "OFFER_LETTER",
+}
+_INTERVIEW_EVENT_TYPES = {
+    "INTERVIEW_REQUESTED",
+    "INTERVIEW_SCHEDULED",
+    "INTERVIEW_INVITE",
+    "TECHNICAL_INTERVIEW",
+    "BEHAVIORAL_INTERVIEW",
+    "ONSITE_INTERVIEW",
+    "FINAL_INTERVIEW",
+    "PHONE_SCREEN",
+    "RECRUITER_CONTACTED",
+}
+_ONLINE_ASSESSMENT_EVENT_TYPES = {
+    "ONLINE_ASSESSMENT",
+    "ASSESSMENT_REQUESTED",
+    "ASSESSMENT_COMPLETED",
+}
+_STATUS_STAGE_NORMALIZATION = {
+    "APPLIED": "APPLIED",
+    "RECRUITER_CONTACT": "TECHNICAL_INTERVIEW",
+    "PHONE_SCREEN": "TECHNICAL_INTERVIEW",
+    "ONLINE_ASSESSMENT": "ONLINE_ASSESSMENT",
+    "TECHNICAL_INTERVIEW": "TECHNICAL_INTERVIEW",
+    "BEHAVIORAL_INTERVIEW": "TECHNICAL_INTERVIEW",
+    "ONSITE_INTERVIEW": "TECHNICAL_INTERVIEW",
+    "FINAL_INTERVIEW": "TECHNICAL_INTERVIEW",
+    "INTERVIEW": "TECHNICAL_INTERVIEW",
+    "OFFER": "OFFER",
+    "OFFER_RECEIVED": "OFFER",
+}
+
+
+def _infer_event_stage(evt: ApplicationEventModel) -> str | None:
+    """Infer the active pipeline stage represented by a single timeline event."""
+    if evt.email_status_after_event:
+        norm = _STATUS_STAGE_NORMALIZATION.get(evt.email_status_after_event.upper())
+        if norm:
+            return norm
+        if evt.email_status_after_event.upper() in _PRE_APPLY_STATUSES:
+            return "ASSESSMENT"
+
+    if evt.email_summary:
+        m = _STATUS_FROM_RE.search(evt.email_summary)
+        if m:
+            norm_from = _STATUS_STAGE_NORMALIZATION.get(m.group(1).upper())
+            if norm_from:
+                return norm_from
+
+    ev_type = (evt.email_event_type or "").upper()
+    if ev_type in _OFFER_EVENT_TYPES:
+        return "OFFER"
+    if ev_type in _INTERVIEW_EVENT_TYPES:
+        return "TECHNICAL_INTERVIEW"
+    if ev_type in _ONLINE_ASSESSMENT_EVENT_TYPES:
+        return "ONLINE_ASSESSMENT"
+
+    if evt.raw_payload and isinstance(evt.raw_payload, dict):
+        prev = evt.raw_payload.get("previous_status")
+        if prev:
+            norm_prev = _STATUS_STAGE_NORMALIZATION.get(str(prev).upper())
+            if norm_prev:
+                return norm_prev
+        payload_status = evt.raw_payload.get("status")
+        if payload_status:
+            norm_ps = _STATUS_STAGE_NORMALIZATION.get(str(payload_status).upper())
+            if norm_ps:
+                return norm_ps
+        raw_stage = str(evt.raw_payload.get("interview_stage") or "").strip()
+        if raw_stage in _GENUINE_INTERVIEW_STAGE_LABELS:
+            return "TECHNICAL_INTERVIEW"
+        raw_stage_upper = raw_stage.upper()
+        if raw_stage_upper in _OFFER_EVENT_TYPES:
+            return "OFFER"
+        if raw_stage_upper in _INTERVIEW_EVENT_TYPES:
+            return "TECHNICAL_INTERVIEW"
+        if raw_stage_upper in _ONLINE_ASSESSMENT_EVENT_TYPES:
+            return "ONLINE_ASSESSMENT"
+        if evt.raw_payload.get("offered_salary") is not None:
+            return "OFFER"
+
+    return None
 
 
 def _resolve_previous_status(
@@ -78,35 +177,24 @@ def _resolve_previous_status(
     sorted_events: list[ApplicationEventModel],
     is_assessment: bool = False,
 ) -> str | None:
-    """Resolve the active pipeline stage an application was in before being closed."""
+    """Resolve the highest active pipeline stage an application reached before being closed."""
     if is_assessment:
         return "ASSESSMENT"
     if not sorted_events:
         return "APPLIED" if app_status in _TERMINAL_STATUSES else None
-    latest_evt = sorted_events[0]
-    if latest_evt.raw_payload and isinstance(latest_evt.raw_payload, dict):
-        prev = latest_evt.raw_payload.get("previous_status")
-        if prev and str(prev) not in _TERMINAL_STATUSES:
-            return str(prev)
-    if latest_evt.email_summary:
-        m = _STATUS_FROM_RE.search(latest_evt.email_summary)
-        if m and m.group(1) not in _TERMINAL_STATUSES:
-            return m.group(1)
+
+    highest_stage: str | None = None
+    highest_rank = -1
     for evt in sorted_events:
-        if (
-            evt.email_status_after_event
-            and evt.email_status_after_event not in _TERMINAL_STATUSES
-            and evt.email_status_after_event not in _PRE_APPLY_STATUSES
-        ):
-            return evt.email_status_after_event
-        if evt.raw_payload and isinstance(evt.raw_payload, dict):
-            if evt.raw_payload.get("interview_stage") or evt.raw_payload.get(
-                "scheduled_at"
-            ):
-                return "TECHNICAL_INTERVIEW"
-    for evt in sorted_events:
-        if evt.email_status_after_event in _PRE_APPLY_STATUSES:
-            return "ASSESSMENT"
+        inferred = _infer_event_stage(evt)
+        if inferred is not None:
+            rank = _STAGE_PRIORITY.get(inferred, -1)
+            if rank > highest_rank:
+                highest_rank = rank
+                highest_stage = inferred
+
+    if highest_stage is not None:
+        return highest_stage
     if app_status in _TERMINAL_STATUSES:
         return "APPLIED"
     return None
