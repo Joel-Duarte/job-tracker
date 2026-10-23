@@ -5,9 +5,13 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class EmailExtractionResult(BaseModel):
+    status_evidence: str | None = None
+    action_evidence: str | None = None
+    deadline_evidence: str | None = None
+    meeting_proposal: str | None = None
     email_type: str = Field(description="Type/category of the email")
     company: str | None = Field(default=None, description="Company name if present")
-    position: str = Field(description="Job position or title")
+    position: str | None = Field(default=None, description="Job position or title")
     external_job_id: str | None = Field(
         default=None, description="External job/requisition ID"
     )
@@ -20,11 +24,7 @@ class EmailExtractionResult(BaseModel):
     action: str | None = Field(default=None, description="Action details if required")
     due_date: str | None = Field(
         default=None,
-        description=(
-            "Explicit deadline date or scheduled interview date/time in local wall-clock ISO 8601 format. "
-            "Use 'YYYY-MM-DDTHH:MM:SS' for exact meeting times as written (e.g. '2026-09-14T16:30:00' or '2026-09-17T11:00:00'); "
-            "use date-only 'YYYY-MM-DD' if only a calendar date is specified."
-        ),
+        description="Deprecated: always null. Supply deadline_evidence or meeting_proposal instead.",
     )
     summary: str = Field(description="Brief summary of the email body")
 

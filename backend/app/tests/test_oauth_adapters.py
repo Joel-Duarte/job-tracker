@@ -58,6 +58,11 @@ async def test_gmail_oauth_adapter_incremental_sync():
 @pytest.mark.asyncio
 async def test_ms_graph_adapter_delta_sync():
     async def mock_handler(request: httpx.Request):
+        if request.url.path.endswith("/$value"):
+            return httpx.Response(
+                200,
+                content=b"From: hr@microsoft.com\r\nSubject: Microsoft Offer Letter\r\nMessage-ID: <offer@microsoft.com>\r\nContent-Type: text/plain\r\n\r\nCongratulations on your offer!",
+            )
         return httpx.Response(
             200,
             json={

@@ -181,6 +181,7 @@ def mock_extracted_job_info():
         status="APPLIED",
         event_type="APPLICATION_SUBMITTED",
         summary="Application submitted for Senior Backend Engineer at Stripe.",
+        status_evidence="Thank you for applying to the Senior Backend Engineer position at Stripe.",
         action_required=False,
         action=None,
     )

@@ -114,7 +114,9 @@ async def clip_job_url(
     # For ad-hoc extension submissions, generate a simple uuid task_id
     task_id = str(uuid.uuid4())
 
-    graph_res = await process_single_email_graph(db, email_payload, task_id)
+    graph_res = await process_single_email_graph(
+        db, email_payload, task_id, user_created_lead=True
+    )
 
     if graph_res.get("staging_item_id"):
         return ExtensionClipResponse(

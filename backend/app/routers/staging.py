@@ -365,7 +365,22 @@ async def resolve_staging_item(
         # Prepare raw_payload preserving scheduled_at and interview_stage for Application badges
         event_raw_payload = dict(extracted) if isinstance(extracted, dict) else {}
         if payload.due_date:
-            event_raw_payload["scheduled_at"] = payload.due_date.isoformat()
+            from app.core.config_manager import get_system_settings_model
+            from app.services.email_normalization import normalize_instant
+
+            zone = (await get_system_settings_model(db)).display_timezone or "UTC"
+            payload.due_date = normalize_instant(payload.due_date, zone)
+            if payload.due_date is None:
+                raise HTTPException(
+                    status_code=422, detail="Ambiguous or invalid deadline"
+                )
+            event_raw_payload["temporal"] = {
+                "version": 2,
+                "deadline": {
+                    "at": payload.due_date.isoformat(),
+                    "precision": "instant",
+                },
+            }
         if (
             application.status in {"TECHNICAL_INTERVIEW", "ONLINE_ASSESSMENT"}
             and payload.event_type

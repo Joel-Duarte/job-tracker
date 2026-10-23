@@ -1,10 +1,8 @@
 import asyncio
-import email
 import imaplib
 import logging
 from datetime import UTC, datetime
 from email.header import decode_header
-from email.utils import parseaddr
 
 import httpx
 
@@ -64,7 +62,7 @@ def _fetch_imap_emails_sync(
         else:
             search_criterion = "ALL"
 
-        status, messages = mail.search(None, search_criterion)
+        status, messages = mail.uid("search", None, search_criterion)
         if status != "OK" or not messages[0]:
             return []
 
@@ -78,75 +76,32 @@ def _fetch_imap_emails_sync(
         for i in range(0, len(email_ids), batch_size):
             batch_ids = email_ids[i : i + batch_size]
             fetch_ids = b",".join(batch_ids)
-            status, msg_data = mail.fetch(fetch_ids, "(RFC822)")
+            status, msg_data = mail.uid("fetch", fetch_ids, "(UID RFC822)")
             if status != "OK" or not msg_data:
                 continue
 
             for response_part in msg_data:
                 if isinstance(response_part, tuple):
-                    msg = email.message_from_bytes(response_part[1])
-
                     seq_num = (
                         response_part[0].split()[0].decode(errors="ignore")
                         if isinstance(response_part[0], bytes)
                         else "unknown"
                     )
-                    subject = _clean_header(msg.get("Subject", "No Subject"))
-                    from_header = _clean_header(msg.get("From", ""))
-                    parsed_name, parsed_addr = parseaddr(from_header)
-                    sender_addr = parsed_addr.strip() or from_header.strip() or None
-                    sender_name = parsed_name.strip() or None
-                    msg_id_header = (
-                        msg.get("Message-ID") or ""
-                    ).strip() or f"imap-{account_id or 0}-{seq_num}"
-                    conversation_id = (
-                        msg.get("In-Reply-To") or msg.get("References", "").split()[0]
-                        if msg.get("References")
-                        else None
-                    ) or msg_id_header
-                    date_header = msg.get("Date", datetime.now(UTC).isoformat())
+                    from app.services.email_normalization import parse_mime
 
-                    # Extract body (plain text preferred, fallback to HTML)
-                    body: str = ""
-                    html_body: str = ""
-                    if msg.is_multipart():
-                        for part in msg.walk():
-                            ctype = part.get_content_type()
-                            payload = part.get_payload(decode=True)
-                            p_str = (
-                                payload.decode(errors="ignore")
-                                if isinstance(payload, bytes)
-                                else str(payload or "")
-                            )
-                            if ctype == "text/plain" and not body:
-                                body = p_str
-                            elif ctype == "text/html" and not html_body:
-                                html_body = p_str
-                    else:
-                        payload = msg.get_payload(decode=True)
-                        p_str = (
-                            payload.decode(errors="ignore")
-                            if isinstance(payload, bytes)
-                            else str(payload or "")
-                        )
-                        if msg.get_content_type() == "text/html":
-                            html_body = p_str
-                        else:
-                            body = p_str
+                    parsed = parse_mime(response_part[1])
+                    import re
 
-                    final_body = clean_html_text(body or html_body or "")
-
-                    results.append(
-                        EmailPayload(
-                            message_id=msg_id_header,
-                            conversation_id=conversation_id,
-                            sender=sender_addr,
-                            sender_name=sender_name,
-                            received_at=date_header,
-                            subject=subject,
-                            body=final_body,
-                        )
+                    uid_match = re.search(rb"UID (\d+)", response_part[0])
+                    seq_num = (
+                        uid_match.group(1).decode() if uid_match else parsed.message_id
                     )
+                    parsed.provider_message_id = (
+                        f"imap-{account_id}-{mail.response('UIDVALIDITY')[1]}-{seq_num}"
+                    )
+                    if not parsed.internet_message_id:
+                        parsed.message_id = parsed.provider_message_id
+                    results.append(parsed)
 
         return results
     except Exception as err:

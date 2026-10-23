@@ -1213,6 +1213,8 @@ function formatRelativeTime(isoStr) {
 
             <!-- SUB-PANE 2: AI Suggestions & Resolution Controls (Only shown for PENDING items) -->
             <section v-if="selectedItem.status === 'PENDING'" class="resolution-panel">
+              <p v-if="selectedItem.extracted_data?.temporal?.issues?.length" role="status" class="text-secondary">Intake requires review: {{ selectedItem.extracted_data.temporal.issues.join(', ') }}</p>
+              <p v-if="selectedItem.extracted_data?.temporal?.meeting_proposal" class="text-secondary">Proposed meeting: {{ selectedItem.extracted_data.temporal.meeting_proposal }}</p>
               <!-- AI Extraction Highlights -->
               <div class="ai-extraction-card">
                 <div class="ai-card-title">

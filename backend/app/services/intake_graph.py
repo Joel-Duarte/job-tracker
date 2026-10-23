@@ -36,7 +36,9 @@ def route_after_dedupe(
 
 def route_after_extraction(
     state: JobTrackerState,
-) -> Literal["fuzzy_match", "db_commit"]:
+) -> Literal["fuzzy_match", "db_commit", "staging"]:
+    if state.get("route") == "staging":
+        return "staging"
     if not state.get("is_application"):
         return "db_commit"
     return "fuzzy_match"

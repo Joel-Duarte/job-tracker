@@ -892,24 +892,16 @@ async def _execute_email_sync_steps(
                 return
 
             if isinstance(email_dict, dict):
-                rec_at = email_dict.get("received_at")
-                if isinstance(rec_at, str):
-                    try:
-                        rec_at = datetime.fromisoformat(rec_at)
-                    except Exception:
-                        rec_at = datetime.now(UTC)
-                elif not isinstance(rec_at, datetime):
-                    rec_at = datetime.now(UTC)
-
-                email_payload = EmailPayload(
-                    message_id=email_dict.get("message_id") or f"sync-{task_id}-{idx}",
-                    conversation_id=email_dict.get("conversation_id")
-                    or f"conv-{task_id}-{idx}",
-                    sender=email_dict.get("sender"),
-                    sender_name=email_dict.get("sender_name"),
-                    subject=email_dict.get("subject") or "No Subject",
-                    body=email_dict.get("body") or "",
-                    received_at=rec_at,
+                email_payload = EmailPayload.model_validate(
+                    {
+                        **email_dict,
+                        "message_id": email_dict.get("message_id")
+                        or f"sync-{task_id}-{idx}",
+                        "conversation_id": email_dict.get("conversation_id")
+                        or f"conv-{task_id}-{idx}",
+                        "subject": email_dict.get("subject") or "No Subject",
+                        "body": email_dict.get("body") or "",
+                    }
                 )
             elif isinstance(email_dict, EmailPayload):
                 email_payload = email_dict

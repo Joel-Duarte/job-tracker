@@ -107,11 +107,11 @@ _QUOTE_HEADER_PATTERNS = [
     # Standard Gmail / Apple Mail / Thunderbird reply header: "On Oct 21, 2026, at 10:00 AM, HR <hr@company.com> wrote:"
     re.compile(
         r"^[ \t]*On\s+.+?\bwrote:\s*$",
-        re.IGNORECASE | re.MULTILINE | re.DOTALL,
+        re.IGNORECASE | re.MULTILINE,
     ),
     # Portuguese / Spanish / French / German common reply headers
     re.compile(
-        r"^[ \t]*(?:Em|El|Le|Am)\s+\d.+?(?:escreveu|escribió|a écrit|schrieb):\s*$",
+        r"^[ \t]*(?:Em|El|Le|Am)\s+.+?(?:escreveu|escribió|a écrit|schrieb):\s*$",
         re.IGNORECASE | re.MULTILINE,
     ),
     # Outlook separator: "-----Original Message-----" or "________________________________" followed by From:
@@ -134,14 +134,25 @@ def split_latest_email_message(raw_text: str | None) -> tuple[str, str]:
     Outlook 'From:/Sent:/To:' blocks) so LLM extraction focuses on the newest message in a conversation
     without re-triggering actions from earlier turns.
     """
-    cleaned = clean_html_text(raw_text)
+    # Preserve structural quote boundaries before flattening HTML.
+    raw = raw_text or ""
+    raw = re.sub(r"<(?:blockquote)\b[^>]*>", "\n[QUOTED_HISTORY]\n", raw, flags=re.I)
+    raw = re.sub(
+        r"<(?:div|section)\b[^>]*(?:gmail_quote|yahoo_quoted|moz-cite-prefix|divRplyFwdMsg)[^>]*>",
+        "\n[QUOTED_HISTORY]\n",
+        raw,
+        flags=re.I,
+    )
+    cleaned = clean_html_text(raw)
     if not cleaned:
         return "", ""
 
-    earliest_idx: int | None = None
+    earliest_idx: int | None = (
+        cleaned.index("[QUOTED_HISTORY]") if "[QUOTED_HISTORY]" in cleaned else None
+    )
     for pat in _QUOTE_HEADER_PATTERNS:
         m = pat.search(cleaned)
-        if m and m.start() > 0:
+        if m:
             if earliest_idx is None or m.start() < earliest_idx:
                 earliest_idx = m.start()
 
@@ -174,4 +185,9 @@ def split_latest_email_message(raw_text: str | None) -> tuple[str, str]:
                 "\n".join(quote_lines) + ("\n\n" + quoted if quoted else "")
             ).strip()
 
-    return latest or cleaned, quoted
+    if latest and all(
+        not line.strip() or line.lstrip().startswith(">")
+        for line in latest.splitlines()
+    ):
+        return "", latest + "\n" + quoted
+    return latest, quoted

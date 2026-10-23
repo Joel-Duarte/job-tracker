@@ -1,4 +1,5 @@
 <script setup>
+import { formatEmailInstant } from '../../utils/emailTime'
 import { ref, watch, computed, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
@@ -1643,7 +1644,7 @@ function formatDate(isoStr) {
                         </span>
                       </div>
                       <div class="event-header-right">
-                        <span class="event-date">{{ formatDate(event.email_received_at || event.created_at) }}</span>
+                        <span class="event-date">{{ event.raw_payload?.temporal?.version === 2 ? formatEmailInstant(event.email_received_at || event.created_at) : formatDate(event.email_received_at || event.created_at) }}</span>
                         <button
                           v-if="event.id && isEmailEvent(event)"
                           class="btn-staging-event"
@@ -1675,6 +1676,15 @@ function formatDate(isoStr) {
                       {{ getCleanedEventSummary(event) }}
                     </div>
 
+                    <div v-if="event.raw_payload?.temporal?.version === 2" class="event-summary">
+                      <p v-if="event.raw_payload.schedule_state === 'confirmed'">Confirmed by calendar invite: {{ formatEmailInstant(event.raw_payload.scheduled_at) }}</p>
+                      <p v-if="event.raw_payload.schedule_state === 'cancelled'">Calendar meeting cancelled</p>
+                      <p v-if="event.raw_payload.temporal.meeting_proposal">Proposed meeting: {{ event.raw_payload.temporal.meeting_proposal }}</p>
+                      <p v-if="event.raw_payload.temporal.deadline?.date">Task deadline: {{ event.raw_payload.temporal.deadline.date }}</p>
+                      <p v-if="event.raw_payload.temporal.deadline?.at">Task deadline: {{ formatEmailInstant(event.raw_payload.temporal.deadline.at) }}</p>
+                      <p v-if="event.raw_payload.calendar">Original calendar time: {{ event.raw_payload.calendar.start }} {{ event.raw_payload.calendar.timezone }}</p>
+                      <p v-if="event.raw_payload.temporal.issues?.length" role="status">Time requires review: {{ event.raw_payload.temporal.issues.join(', ') }}</p>
+                    </div>
                     <!-- Recorded Notes Pill / Card -->
                     <div v-if="event.raw_payload?.notes" class="event-notes-card">
                       <div class="notes-header">
@@ -2266,7 +2276,7 @@ function formatDate(isoStr) {
                   </div>
                   <div v-if="action.due_date" class="action-due">
                     <Calendar :size="12" />
-                    <span>Due: {{ formatDate(action.due_date) }}</span>
+                    <span>Due: {{ action.temporal_metadata?.version === 2 ? formatEmailInstant(action.due_date) : formatDate(action.due_date) }}</span>
                   </div>
                 </div>
 

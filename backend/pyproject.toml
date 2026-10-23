@@ -34,6 +34,8 @@ dependencies = [
     "alembic>=1.13.0",
     "duckduckgo-search>=7.0.0",
     "ddgs>=9.0.0",
+    "icalendar>=7.3.0",
+    "python-dateutil>=3.0.0",
 ]
 
 [dependency-groups]

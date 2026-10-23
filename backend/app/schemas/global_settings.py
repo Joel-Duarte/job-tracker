@@ -42,6 +42,9 @@ class SystemSettingsUpdate(BaseModel):
 
 
 class GlobalSettingsUpdate(BaseModel):
+    RESET_TIMEZONE_OVERRIDE: bool = False
+    DISPLAY_TIMEZONE: str | None = None
+    TIMEZONE_SOURCE: str | None = None
     ENABLE_EMBEDDINGS: bool | None = None
     ENABLE_WEB_SEARCH: bool | None = None
     AGENT_CHAT_RETENTION_DAYS: int | None = None
@@ -62,6 +65,8 @@ class GlobalSettingsUpdate(BaseModel):
 
 
 class GlobalSettingsRead(BaseModel):
+    DISPLAY_TIMEZONE: str | None = None
+    TIMEZONE_SOURCE: str = "auto"
     ENABLE_EMBEDDINGS: bool = False
     ENABLE_WEB_SEARCH: bool = False
     AGENT_CHAT_RETENTION_DAYS: int

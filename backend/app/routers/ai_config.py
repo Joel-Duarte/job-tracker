@@ -459,6 +459,8 @@ async def get_global_settings(
 ) -> GlobalSettingsRead:
     settings = await load_settings(db)
     return GlobalSettingsRead(
+        DISPLAY_TIMEZONE=settings.get("display_timezone"),
+        TIMEZONE_SOURCE=settings.get("timezone_source") or "auto",
         ENABLE_EMBEDDINGS=settings.get("enable_embeddings", False),
         ENABLE_WEB_SEARCH=settings.get("enable_web_search", False),
         AGENT_CHAT_RETENTION_DAYS=settings.get("agent_chat_retention_days", 7),
@@ -488,7 +490,36 @@ async def update_global_settings(
     payload: GlobalSettingsUpdate,
     db: AsyncSession = Depends(get_db),
 ) -> GlobalSettingsRead:
+    from app.models.system_settings import SystemSettingsModel
+
+    await db.execute(
+        select(SystemSettingsModel)
+        .where(SystemSettingsModel.id == 1)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     settings = await load_settings(db)
+    if payload.DISPLAY_TIMEZONE is not None:
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        try:
+            ZoneInfo(payload.DISPLAY_TIMEZONE)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise HTTPException(
+                status_code=422, detail="Invalid IANA timezone"
+            ) from None
+        source = payload.TIMEZONE_SOURCE or "manual"
+        if source not in ("auto", "manual"):
+            raise HTTPException(status_code=422, detail="Invalid timezone source")
+        if (
+            source == "manual"
+            or payload.RESET_TIMEZONE_OVERRIDE
+            or settings.get("timezone_source") != "manual"
+        ):
+            settings["display_timezone"] = payload.DISPLAY_TIMEZONE
+            settings["timezone_source"] = source
+    elif payload.TIMEZONE_SOURCE is not None:
+        raise HTTPException(status_code=422, detail="A timezone is required")
     if payload.ENABLE_EMBEDDINGS is not None:
         settings["enable_embeddings"] = payload.ENABLE_EMBEDDINGS
     if payload.ENABLE_WEB_SEARCH is not None:
@@ -529,6 +560,8 @@ async def update_global_settings(
         settings["llm_judge_max_retries"] = payload.LLM_JUDGE_MAX_RETRIES
     await save_settings(settings, db)
     return GlobalSettingsRead(
+        DISPLAY_TIMEZONE=settings.get("display_timezone"),
+        TIMEZONE_SOURCE=settings.get("timezone_source") or "auto",
         ENABLE_EMBEDDINGS=settings.get("enable_embeddings", False),
         ENABLE_WEB_SEARCH=settings.get("enable_web_search", False),
         AGENT_CHAT_RETENTION_DAYS=settings.get("agent_chat_retention_days", 7),

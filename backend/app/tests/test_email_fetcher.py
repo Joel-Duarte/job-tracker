@@ -22,7 +22,7 @@ def test_imap_batch_fetching():
     )
 
     mock_mail = MagicMock()
-    mock_mail.search.return_value = ("OK", [b"1 2 3"])
+    mock_mail.response.return_value = ("UIDVALIDITY", [b"42"])
 
     raw_msg_1 = (
         b'From: "Alice Recruiter" <sender1@example.com>\r\n'
@@ -58,6 +58,7 @@ def test_imap_batch_fetching():
         ],
     )
 
+    mock_mail.uid.side_effect = [("OK", [b"1 2 3"]), mock_mail.fetch.return_value]
     with patch("imaplib.IMAP4_SSL", return_value=mock_mail):
         emails = _fetch_imap_emails_sync(
             account.imap_host,
@@ -77,8 +78,8 @@ def test_imap_batch_fetching():
         assert emails[2].subject == "Test Subject 3"
         assert emails[2].sender == "sender3@example.com"
 
-        # Verify mail.fetch was called once in a single batch with concatenated sequence "1,2,3"
-        mock_mail.fetch.assert_called_once_with(b"1,2,3", "(RFC822)")
+        # Stable UIDs are used for batched retrieval.
+        mock_mail.uid.assert_any_call("fetch", b"1,2,3", "(UID RFC822)")
 
 
 @pytest.mark.asyncio

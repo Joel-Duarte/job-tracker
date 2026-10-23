@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -39,6 +40,7 @@ class UrgencyOverrideUpdate(BaseModel):
 
 
 class ActionItemResponse(BaseModel):
+    temporal_metadata: dict[str, Any] | None = None
     id: int
     application_id: int | None = None
     event_id: int | None = None

@@ -315,7 +315,9 @@ async def test_ai_health_cache_ttl_and_invalidation(db_session: AsyncSession):
 
         # Simulate TTL expiration by mocking time.monotonic
         with patch("app.routers.ai_config.httpx.AsyncClient", return_value=mock_client):
-            with patch("time.monotonic", return_value=100000.0):
+            with patch(
+                "time.monotonic", return_value=__import__("time").monotonic() + 100000.0
+            ):
                 res3 = await ac.get("/api/v1/config/ai/health")
                 assert res3.status_code == 200
                 assert mock_client.get.call_count == 2

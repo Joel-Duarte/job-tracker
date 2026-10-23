@@ -9,6 +9,10 @@ from app.models.applications import Base
 class SystemSettingsModel(Base):
     __tablename__ = "system_settings"
 
+    display_timezone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    timezone_source: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="auto"
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     has_completed_onboarding: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False

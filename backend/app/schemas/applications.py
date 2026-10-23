@@ -54,6 +54,8 @@ class ApplicationListItem(BaseModel):
     latest_event: EventSummary | None = None
     nearest_due_date: datetime | None = None
     scheduled_interview_at: datetime | None = None
+    temporal_version: int | None = None
+    scheduled_interview_temporal_version: int | None = None
     location: str | None = None
     work_model: str | None = None
     salary_min: float | None = None
@@ -80,6 +82,7 @@ class JobPostingDetail(BaseModel):
 
 
 class ActionItemDetail(BaseModel):
+    temporal_metadata: dict | None = None
     id: int
     title: str
     status: str

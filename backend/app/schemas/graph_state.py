@@ -2,7 +2,16 @@ from typing import Any, TypedDict
 
 
 class JobTrackerState(TypedDict, total=False):
+    user_created_lead: bool
     # Input data
+    internet_message_id: str | None
+    provider_message_id: str | None
+    in_reply_to: str | None
+    references: list[str]
+    plain_body: str | None
+    html_body: str | None
+    calendar_events: list[dict[str, Any]]
+    original_body: str
     message_id: str | None
     conversation_id: str | None
     sender: str | None

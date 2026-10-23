@@ -41,9 +41,11 @@ END:VCALENDAR
 """
     payload = parse_eml(raw_eml)
     assert payload.subject == "Interview Scheduled with Uber"
-    assert payload.message_id == "<msg-uber-12345@uber.com>"
+    assert payload.message_id == "msg-uber-12345@uber.com"
     assert "your interview is confirmed" in payload.body
-    assert "Technical Interview with Uber" in payload.body
+    assert "Technical Interview with Uber" not in payload.body
+    assert payload.calendar_events[0]["summary"] == "Technical Interview with Uber"
+    assert payload.calendar_events[0]["start"] == "2026-08-16T14:00:00+00:00"
 
 
 def test_parse_txt():

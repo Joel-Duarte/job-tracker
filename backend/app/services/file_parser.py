@@ -1,120 +1,19 @@
-import email
 import hashlib
 import io
 import logging
-import uuid
 from datetime import UTC, datetime
-from email import policy
-from email.utils import parseaddr, parsedate_to_datetime
+from email.utils import parseaddr
 
 from app.schemas.intake import EmailPayload
 
 logger = logging.getLogger(__name__)
 
 
-def _extract_ics_summary(ics_bytes: bytes) -> str:
-    """Extracts summary and date info from raw .ics calendar payload."""
-    try:
-        text = ics_bytes.decode("utf-8", errors="replace")
-        lines = text.splitlines()
-        extracted: list[str] = []
-        for line in lines:
-            if line.startswith("SUMMARY:"):
-                extracted.append(f"Meeting Title: {line[8:].strip()}")
-            elif line.startswith("DTSTART"):
-                extracted.append(f"Start: {line.split(':', 1)[-1].strip()}")
-            elif line.startswith("DTEND"):
-                extracted.append(f"End: {line.split(':', 1)[-1].strip()}")
-            elif line.startswith("DESCRIPTION:"):
-                extracted.append(f"Description: {line[12:].strip()}")
-        if extracted:
-            return "\n[Calendar Event (.ics)]\n" + "\n".join(extracted)
-    except Exception as err:
-        logger.warning("Failed parsing .ics attachment: %s", err)
-    return ""
-
-
 def parse_eml(content: bytes) -> EmailPayload:
     """Parses raw RFC 822 / MIME .eml bytes into EmailPayload."""
-    msg = email.message_from_bytes(content, policy=policy.default)
+    from app.services.email_normalization import parse_mime
 
-    subject = msg.get("Subject", "No Subject").strip()
-    from_raw = msg.get("From", "").strip()
-    parsed_name, parsed_addr = parseaddr(from_raw)
-    sender_addr = parsed_addr.strip() or from_raw or None
-    sender_name = parsed_name.strip() or None
-    message_id = msg.get("Message-ID", f"eml-{uuid.uuid4().hex[:12]}").strip()
-    conversation_id = msg.get("Thread-Topic") or msg.get("In-Reply-To") or message_id
-
-    # Parse date
-    received_at = datetime.now(UTC)
-    date_header = msg.get("Date")
-    if date_header:
-        try:
-            parsed_dt = parsedate_to_datetime(date_header)
-            if parsed_dt.tzinfo is None:
-                parsed_dt = parsed_dt.replace(tzinfo=UTC)
-            received_at = parsed_dt
-        except Exception:
-            pass
-
-    # Extract body and calendar attachments
-    body_parts: list[str] = []
-    ics_parts: list[str] = []
-
-    if msg.is_multipart():
-        for part in msg.walk():
-            content_type = part.get_content_type()
-            content_disposition = str(part.get("Content-Disposition", ""))
-
-            if (
-                content_type == "text/plain"
-                and "attachment" not in content_disposition
-                or (
-                    content_type == "text/html"
-                    and not body_parts
-                    and "attachment" not in content_disposition
-                )
-            ):
-                payload = part.get_payload(decode=True)
-                if payload:
-                    body_parts.append(
-                        payload.decode(
-                            part.get_content_charset() or "utf-8", errors="replace"
-                        )
-                    )
-            elif (
-                content_type == "text/calendar"
-                or part.get_filename()
-                and part.get_filename().endswith(".ics")
-            ):
-                raw_ics = part.get_payload(decode=True)
-                if raw_ics:
-                    ics_summary = _extract_ics_summary(raw_ics)
-                    if ics_summary:
-                        ics_parts.append(ics_summary)
-    else:
-        payload = msg.get_payload(decode=True)
-        if payload:
-            body_parts.append(
-                payload.decode(msg.get_content_charset() or "utf-8", errors="replace")
-            )
-
-    full_body = "\n".join(body_parts).strip() if body_parts else msg.get_payload() or ""
-    if isinstance(full_body, list):
-        full_body = "\n".join(str(p) for p in full_body)
-    if ics_parts:
-        full_body += "\n" + "\n".join(ics_parts)
-
-    return EmailPayload(
-        conversation_id=conversation_id,
-        message_id=message_id,
-        sender=sender_addr,
-        sender_name=sender_name,
-        received_at=received_at,
-        subject=subject or "No Subject",
-        body=full_body,
-    )
+    return parse_mime(content)
 
 
 def parse_msg(content: bytes) -> EmailPayload:
@@ -127,18 +26,22 @@ def parse_msg(content: bytes) -> EmailPayload:
     parsed_name, parsed_addr = parseaddr(from_raw)
     sender_addr = parsed_addr.strip() or from_raw or None
     sender_name = parsed_name.strip() or None
-    message_id = msg.messageId or f"msg-{uuid.uuid4().hex[:12]}"
+    from app.services.email_normalization import message_identity
+
+    message_id = (
+        message_identity(msg.messageId) or "msg-" + hashlib.sha256(content).hexdigest()
+    )
     conversation_id = msg.conversationTopic or message_id
 
-    received_at = msg.date or datetime.now(UTC)
-    if received_at.tzinfo is None:
+    received_at = msg.date
+    if received_at and received_at.tzinfo is None:
         received_at = received_at.replace(tzinfo=UTC)
 
     body = msg.body or msg.htmlBody or ""
     if isinstance(body, bytes):
         body = body.decode("utf-8", errors="replace")
 
-    ics_parts: list[str] = []
+    calendar_events: list[dict] = []
     if hasattr(msg, "attachments"):
         for att in msg.attachments:
             if (
@@ -146,14 +49,13 @@ def parse_msg(content: bytes) -> EmailPayload:
                 and att.longFilename
                 and att.longFilename.endswith(".ics")
             ):
-                ics_summary = _extract_ics_summary(att.data)
-                if ics_summary:
-                    ics_parts.append(ics_summary)
+                from app.services.email_normalization import parse_calendar
 
-    if ics_parts:
-        body += "\n" + "\n".join(ics_parts)
+                calendar_events.extend(parse_calendar(att.data))
 
     return EmailPayload(
+        internet_message_id=message_identity(msg.messageId),
+        calendar_events=calendar_events,
         conversation_id=conversation_id,
         message_id=message_id,
         sender=sender_addr,

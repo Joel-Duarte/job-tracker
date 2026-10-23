@@ -1,6 +1,6 @@
 import base64
 import logging
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 from urllib.parse import urlencode
 
@@ -158,10 +158,13 @@ class GmailOAuthAdapter:
                         thread_id = raw_data.get("threadId")
                         if thread_id:
                             parsed.conversation_id = f"gmail-thread-{thread_id}"
-                        parsed.message_id = f"gmail-{mid}"
+                        parsed.provider_message_id = f"gmail-{mid}"
                         emails.append(parsed)
                 except Exception as err:
                     logger.error("Failed downloading Gmail message %s: %s", mid, err)
+                    raise ValueError(
+                        "Gmail message retrieval failed; sync cursor retained"
+                    ) from err
 
             return emails, str(new_history_id) if new_history_id else None
 
@@ -313,46 +316,23 @@ class MicrosoftGraphAdapter:
                     if "@removed" in item:
                         continue
 
-                    subject = item.get("subject") or "No Subject"
-                    body_obj = item.get("body", {})
-                    body_content = body_obj.get("content", "")
-
                     received_str = item.get("receivedDateTime")
-                    received_at = datetime.now(UTC)
-                    if received_str:
-                        try:
-                            received_at = datetime.fromisoformat(
-                                received_str.replace("Z", "+00:00")
-                            )
-                        except Exception:
-                            pass
-
                     msg_id = item.get("id", "")
                     conv_id = item.get("conversationId") or f"ms-conv-{msg_id}"
-
-                    from_obj = (
-                        item.get("from", {}).get("emailAddress", {})
-                        if isinstance(item.get("from"), dict)
-                        else {}
-                    ) or (
-                        item.get("sender", {}).get("emailAddress", {})
-                        if isinstance(item.get("sender"), dict)
-                        else {}
+                    # MIME retains attachments, quote boundaries and cross-provider identity.
+                    mime_response = await client.get(
+                        f"{cls.GRAPH_BASE}/me/messages/{msg_id}/$value", headers=headers
                     )
-                    sender_addr = (from_obj.get("address") or "").strip() or None
-                    sender_name = (from_obj.get("name") or "").strip() or None
+                    mime_response.raise_for_status()
+                    parsed = parse_eml(mime_response.content)
+                    parsed.provider_message_id = f"msg-graph-{msg_id}"
+                    parsed.conversation_id = conv_id
+                    from app.services.email_normalization import normalize_instant
 
-                    emails.append(
-                        EmailPayload(
-                            conversation_id=conv_id,
-                            message_id=f"msg-graph-{msg_id}",
-                            sender=sender_addr,
-                            sender_name=sender_name,
-                            received_at=received_at,
-                            subject=subject,
-                            body=body_content,
-                        )
+                    parsed.received_at = (
+                        normalize_instant(received_str) or parsed.received_at
                     )
+                    emails.append(parsed)
 
                 next_delta = data.get("@odata.deltaLink")
                 next_url = data.get("@odata.nextLink")

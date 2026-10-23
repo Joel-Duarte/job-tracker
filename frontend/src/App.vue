@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted } from 'vue'
+import { displayTimezone } from './utils/emailTime'
 import { AIConfigAPI } from './api/endpoints'
 import { useUIStore } from './stores/uiStore'
 import { useAIStore } from './stores/aiStore'
@@ -22,6 +23,12 @@ const aiStore = useAIStore()
 
 onMounted(async () => {
   try {
+    const currentTimezone = await AIConfigAPI.getGlobalSettings()
+    const timezoneResponse = currentTimezone.data.TIMEZONE_SOURCE === 'manual' ? currentTimezone : await AIConfigAPI.updateGlobalSettings({
+      DISPLAY_TIMEZONE: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      TIMEZONE_SOURCE: 'auto',
+    })
+    displayTimezone.value = timezoneResponse.data.DISPLAY_TIMEZONE || displayTimezone.value
     await uiStore.fetchSystemSettings()
     await aiStore.fetchProviders()
     const provRes = await AIConfigAPI.listProviders()

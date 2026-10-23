@@ -1,4 +1,24 @@
 <script setup>
+import { displayTimezone } from '../utils/emailTime'
+const timezoneInput = ref(displayTimezone.value)
+const timezoneSource = ref('auto')
+const timezoneError = ref('')
+const timezoneSettingsReady = ref(false)
+async function saveTimezone(source = 'manual') {
+  timezoneError.value = ''
+  const zone = source === 'auto' ? Intl.DateTimeFormat().resolvedOptions().timeZone : timezoneInput.value.trim()
+  try {
+    new Intl.DateTimeFormat(undefined, { timeZone: zone }).format()
+    const response = await AIConfigAPI.updateGlobalSettings({ DISPLAY_TIMEZONE: zone, TIMEZONE_SOURCE: source, RESET_TIMEZONE_OVERRIDE: source === 'auto' })
+    displayTimezone.value = response.data.DISPLAY_TIMEZONE
+    timezoneInput.value = displayTimezone.value
+    timezoneSource.value = response.data.TIMEZONE_SOURCE
+    uiStore.showToast('Time zone saved', 'success')
+  } catch {
+    timezoneError.value = 'Enter a valid IANA time zone, such as Europe/Lisbon.'
+  }
+}
+
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUIStore } from '../stores/uiStore'
@@ -944,6 +964,9 @@ async function testAndSaveSearxngUrl() {
 async function loadGlobalSettings() {
   try {
     const res = await AIConfigAPI.getGlobalSettings()
+    timezoneInput.value = res.data.DISPLAY_TIMEZONE || displayTimezone.value
+    timezoneSource.value = res.data.TIMEZONE_SOURCE || 'auto'
+    displayTimezone.value = timezoneInput.value
     enableEmbeddings.value = res.data.ENABLE_EMBEDDINGS ?? true
     uiStore.enableEmbeddings = enableEmbeddings.value
 
@@ -972,6 +995,8 @@ async function loadGlobalSettings() {
     llmJudgeMaxRetries.value = res.data.LLM_JUDGE_MAX_RETRIES ?? 1
   } catch (err) {
     console.error('Failed to load global settings', err)
+  } finally {
+    timezoneSettingsReady.value = true
   }
 }
 
@@ -3974,6 +3999,16 @@ PARAMETER cache_type_v q8_0</code></pre>
         </div>
 
         <div class="preferences-grid">
+          <div class="preference-card">
+            <h4>Time zone</h4>
+            <p class="preference-desc">Calendar invites keep their original time zone. New meeting times display in your saved zone. Dates discussed in email remain proposals until confirmed.</p>
+            <label for="display-timezone">Display time zone</label>
+            <input id="display-timezone" v-model="timezoneInput" :disabled="!timezoneSettingsReady" class="input" placeholder="Europe/Lisbon" />
+            <p class="text-muted">{{ timezoneSource === 'manual' ? 'Manual override' : 'Detected from browser' }}</p>
+            <p v-if="timezoneError" role="alert">{{ timezoneError }}</p>
+            <button class="btn btn-primary" :disabled="!timezoneSettingsReady" @click="saveTimezone('manual')">Save time zone</button>
+            <button class="btn btn-secondary" :disabled="!timezoneSettingsReady" @click="saveTimezone('auto')">Use browser time zone</button>
+          </div>
           <!-- 0. Client Demo Mode & Dataset Card -->
           <div v-if="uiStore.isDemoMode" class="preference-card preference-card-wide border-primary">
             <div class="preference-header">

@@ -5,14 +5,14 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from rapidfuzz import fuzz
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 import app.services.llm as llm_service
 from app.core.config_manager import get_setting
-from app.core.html_utils import clean_html_text, split_latest_email_message
+from app.core.html_utils import split_latest_email_message
 from app.core.url_utils import normalize_job_url
 from app.models.applications import (
     ActionItemModel,
@@ -37,78 +37,9 @@ STAGING_MATCH_THRESHOLD = 0.75
 
 
 def _parse_email_date(date_val: str | datetime | None) -> datetime | None:
-    if not date_val:
-        return None
-    if isinstance(date_val, datetime):
-        # Keep literal face-value date and time without shifting
-        return date_val.replace(tzinfo=None).replace(tzinfo=UTC)
-    if not isinstance(date_val, str):
-        return None
+    from app.services.email_normalization import normalize_instant
 
-    val = date_val.strip()
-    if not val:
-        return None
-
-    # 1. Normalize European date format DD-MM-YYYY or DD/MM/YYYY -> YYYY-MM-DD
-    val = re.sub(r"\b(\d{2})[-/](\d{2})[-/](\d{4})\b", r"\3-\2-\1", val)
-
-    # 2. Normalize European time notations: e.g. "11h00" -> "11:00", "16h30" -> "16:30", "11h" -> "11:00"
-    val = re.sub(r"\b(\d{1,2})h(\d{2})\b", r"\1:\2", val, flags=re.IGNORECASE)
-    val = re.sub(r"\b(\d{1,2})h\b", r"\1:00", val, flags=re.IGNORECASE)
-
-    # 3. Strip timezone words and abbreviations (WEST, WET, CEST, CET, BST, PDT, PST, EDT, EST, UTC, GMT, etc.)
-    # to preserve face-value wall-clock time
-    val = re.sub(
-        r"\b(?:WEST|WET|CEST|CET|BST|EEST|EET|PDT|PST|EDT|EST|CDT|CST|MDT|MST)\b",
-        "",
-        val,
-        flags=re.IGNORECASE,
-    ).strip()
-
-    # Strip explicit GMT/UTC prefixes with optional offset, e.g. "GMT+1", "UTC-5", "GMT", "UTC"
-    val = re.sub(
-        r"\b(?:GMT|UTC)\s*(?:[+-]\s*\d{1,2}(?::?\d{2})?)?\b",
-        "",
-        val,
-        flags=re.IGNORECASE,
-    ).strip()
-
-    # Strip trailing ISO offset after time component e.g. "+00:00", "-07:00", "+0100", "+01", "Z"
-    val = re.sub(r"(?<=\d{2}:\d{2})[+-]\d{2}(?::?\d{2})?$", "", val).strip()
-    val = re.sub(r"(?<=\d{2}:\d{2}:\d{2})[+-]\d{2}(?::?\d{2})?$", "", val).strip()
-    val = re.sub(r"Z$", "", val).strip()
-
-    # 4. Handle 12-hour AM/PM notation if present (e.g. "4:30 PM", "10:00 AM")
-    m_ampm = re.search(
-        r"(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)\b", val, re.IGNORECASE
-    )
-    if m_ampm:
-        hr = int(m_ampm.group(1))
-        mn = m_ampm.group(2)
-        sc = m_ampm.group(3) or "00"
-        ampm = m_ampm.group(4).upper()
-        if ampm == "PM" and hr < 12:
-            hr += 12
-        elif ampm == "AM" and hr == 12:
-            hr = 0
-        time_24 = f"{hr:02d}:{mn}:{sc}"
-        val = val[: m_ampm.start()] + time_24 + val[m_ampm.end() :]
-        val = val.strip()
-
-    # 5. Convert space between date and time to 'T': '2026-09-14 15:15:00' -> '2026-09-14T15:15:00'
-    val = re.sub(r"^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)", r"\1T\2", val)
-
-    # 6. Date-only format fallback: '2026-09-14' -> '2026-09-14T00:00:00'
-    if re.match(r"^\d{4}-\d{2}-\d{2}$", val):
-        val = f"{val}T00:00:00"
-
-    try:
-        dt = datetime.fromisoformat(val)
-        # Store as UTC without offset shifting (floating wall-clock time)
-        return dt.replace(tzinfo=None).replace(tzinfo=UTC)
-    except Exception:
-        logger.warning("Failed to parse date '%s', falling back to UTC now", date_val)
-        return datetime.now(UTC)
+    return normalize_instant(date_val)
 
 
 def _extract_company_fallback(
@@ -219,6 +150,7 @@ async def _upsert_processed_email(
     status: str,
     subject: str | None = None,
     account_id: int | None = None,
+    commit: bool = True,
 ) -> None:
     if not message_id:
         return
@@ -240,7 +172,10 @@ async def _upsert_processed_email(
             account_id=account_id,
         )
         db.add(record)
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
 
 
 async def is_email_already_processed(db: AsyncSession, message_id: str | None) -> bool:
@@ -270,33 +205,97 @@ async def normalize_and_dedupe_node(
     db = _get_db(config)
     message_id = state.get("message_id")
 
-    if await is_email_already_processed(db, message_id):
+    aliases = {
+        message_id,
+        f"<{message_id}>" if message_id else None,
+        state.get("provider_message_id"),
+    }
+    alias_match = (
+        await db.execute(
+            select(ProcessedEmailModel.id).where(
+                ProcessedEmailModel.message_id.in_([item for item in aliases if item])
+            )
+        )
+    ).first()
+    if alias_match:
         logger.info("Duplicate email detected for message_id=%s, skipping.", message_id)
         return {"is_duplicate": True, "route": "skip"}
 
-    cleaned_body = clean_html_text(state.get("body", ""))
+    cleaned_body = state.get("html_body") or state.get("body", "")
 
     return {
         "is_duplicate": False,
         "subject": state.get("subject", "").strip(),
         "body": cleaned_body,
+        "original_body": cleaned_body,
     }
 
 
 async def extraction_node(
     state: JobTrackerState, config: RunnableConfig
 ) -> dict[str, Any]:
+    from app.services.telemetry import trace_operation
+
+    async with trace_operation(
+        category="email_sync",
+        name="normalize_and_extract_email",
+        inputs={
+            "has_calendar": bool(state.get("calendar_events")),
+            "has_html": bool(state.get("html_body")),
+        },
+        db=_get_db(config),
+    ) as trace:
+        result = await _extract_email(state, config)
+        trace["outputs"] = {
+            "route": result.get("route"),
+            "reason": result.get("match_reason"),
+            "issues": ((result.get("extracted_data") or {}).get("temporal") or {}).get(
+                "issues", []
+            ),
+        }
+        return result
+
+
+async def _extract_email(
+    state: JobTrackerState, config: RunnableConfig
+) -> dict[str, Any]:
     db = _get_db(config)
     raw_body = state.get("body", "")
+    if re.search(
+        r"</blockquote>\s*(?:<(?:p|div)[^>]*>)?\s*[^<\s]", raw_body, flags=re.I
+    ):
+        return {
+            "route": "staging",
+            "match_reason": "INTERLEAVED_REPLY_REVIEW",
+            "extracted_data": {
+                "temporal": {"version": 2, "issues": ["INTERLEAVED_REPLY_REVIEW"]}
+            },
+        }
     latest_body, quoted_history = split_latest_email_message(raw_body)
     body = latest_body
-    if quoted_history:
-        # Provide truncated thread context strictly labeled for company/position fallback only
-        body = (
-            f"{latest_body}\n\n"
-            f"[QUOTED EARLIER THREAD CONTEXT - USE ONLY FOR COMPANY/POSITION IDENTIFICATION, IGNORE OLD ACTIONS/DEADLINES]:\n"
-            f"{quoted_history[:1200]}"
-        )
+    events = state.get("calendar_events") or []
+    from app.core.config_manager import get_system_settings_model
+    from app.services.email_scheduling import calendar_issue
+
+    settings_model = await get_system_settings_model(db)
+    zone = settings_model.display_timezone or "UTC"
+    issue = calendar_issue(events, state.get("sender"), zone)
+    if issue or (not latest_body.strip() and not events):
+        return {
+            "route": "staging",
+            "match_reason": issue or "EMPTY_NEWEST_MESSAGE",
+            "extracted_data": {
+                "temporal": {"version": 2, "issues": [issue or "EMPTY_NEWEST_MESSAGE"]}
+            },
+        }
+    if re.search(r"(?m)^\s*>.*\n(?!\s*>)(?:\s*\n)*\S", latest_body):
+        return {
+            "route": "staging",
+            "match_reason": "INTERLEAVED_REPLY_REVIEW",
+            "extracted_data": {
+                "temporal": {"version": 2, "issues": ["INTERLEAVED_REPLY_REVIEW"]}
+            },
+        }
 
     # Resolve extract_email_info dynamically so module mocks in tests are respected
     import app.services.intake as intake_mod
@@ -305,23 +304,68 @@ async def extraction_node(
         intake_mod, "extract_email_info", llm_service.extract_email_info
     )
 
-    try:
-        extracted = await extract_fn(
-            db,
-            body,
-            sender=state.get("sender"),
-            subject=state.get("subject"),
-            date=str(state.get("received_at")) if state.get("received_at") else None,
+    if not latest_body.strip() and events:
+        from app.schemas.intake import ExtractedEmailInfo
+
+        extracted = ExtractedEmailInfo(
+            email_type="JOB_APPLICATION",
+            summary=events[0].get("summary") or "Calendar update",
         )
-    except TypeError:
-        # Fallback for mock callables that only accept (db, body)
-        extracted = await extract_fn(db, body)
+    else:
+        try:
+            extracted = await extract_fn(
+                db,
+                body,
+                sender=state.get("sender"),
+                subject=state.get("subject"),
+                date=str(state.get("received_at"))
+                if state.get("received_at")
+                else None,
+            )
+        except TypeError:
+            # Fallback for mock callables that only accept (db, body)
+            extracted = await extract_fn(db, body)
 
     extracted_dict = (
         extracted.model_dump()
         if hasattr(extracted, "model_dump")
         else extracted.__dict__
     )
+
+    from app.services.email_scheduling import validate_extraction
+
+    extracted_dict = validate_extraction(
+        extracted_dict, latest_body, state.get("received_at"), zone
+    )
+    if state.get("user_created_lead"):
+        extracted_dict["status"] = "APPLIED"
+    # Identity context never enters the update extractor.
+    thread_events = (
+        (
+            await db.execute(
+                select(ApplicationEventModel)
+                .where(
+                    ApplicationEventModel.email_conversation_id
+                    == state.get("conversation_id")
+                )
+                .order_by(ApplicationEventModel.email_received_at.desc())
+                .limit(20)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    application_ids = {event.email_application_id for event in thread_events}
+    if len(application_ids) == 1:
+        known_app = await db.get(ApplicationModel, next(iter(application_ids)))
+        if known_app:
+            known_company = await db.get(CompanyModel, known_app.company_id)
+            extracted_dict["company"] = (
+                extracted_dict.get("company") or known_company.name
+            )
+            extracted_dict["position"] = (
+                extracted_dict.get("position") or known_app.position
+            )
 
     email_type = str(extracted_dict.get("email_type") or "").upper()
     pos = extracted_dict.get("position")
@@ -380,7 +424,8 @@ async def extraction_node(
     )
 
     is_app = (
-        is_recruitment_type
+        bool(events)
+        or is_recruitment_type
         or (has_company_or_position and email_type not in ["NEWSLETTER", "SPAM"])
         or has_recruitment_event
     )
@@ -399,6 +444,68 @@ async def fuzzy_match_node(
     state: JobTrackerState, config: RunnableConfig
 ) -> dict[str, Any]:
     db = _get_db(config)
+    calendars = state.get("calendar_events") or []
+    if calendars:
+        from app.models.applications import EmailCalendarOccurrenceModel
+
+        item = calendars[0]
+        matches = (
+            (
+                await db.execute(
+                    select(EmailCalendarOccurrenceModel.application_id)
+                    .where(
+                        EmailCalendarOccurrenceModel.calendar_data["uid"].astext
+                        == item.get("uid"),
+                        EmailCalendarOccurrenceModel.calendar_data["organizer"].astext
+                        == item.get("organizer"),
+                    )
+                    .distinct()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if len(matches) == 1:
+            app = await db.get(ApplicationModel, matches[0])
+            return {
+                "application_id": app.id,
+                "company_id": app.company_id,
+                "match_score": 1.0,
+                "route": "commit",
+            }
+        if len(matches) > 1:
+            return {
+                "route": "staging",
+                "match_reason": "AMBIGUOUS_CALENDAR_APPLICATION",
+            }
+    thread_apps = (
+        (
+            await db.execute(
+                select(ApplicationEventModel.email_application_id)
+                .where(
+                    ApplicationEventModel.email_conversation_id
+                    == state.get("conversation_id")
+                )
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if len(thread_apps) == 1:
+        app = await db.get(ApplicationModel, thread_apps[0])
+        explicit_position = (state.get("position_name") or "").strip().lower()
+        if (
+            explicit_position
+            and fuzz.ratio(explicit_position, app.position_normalized) < 75
+        ):
+            return {"route": "staging", "match_reason": "THREAD_IDENTITY_CONFLICT"}
+        return {
+            "application_id": app.id,
+            "company_id": app.company_id,
+            "match_score": 1.0,
+            "route": "commit",
+        }
     company_name = state.get("company_name", "")
     position_name = state.get("position_name", "")
 
@@ -447,7 +554,11 @@ async def fuzzy_match_node(
         }
 
     extracted = state.get("extracted_data") or {}
-    raw_status = str(extracted.get("status") or "APPLIED").upper()
+    raw_status = (
+        ""
+        if state.get("calendar_events")
+        else str(extracted.get("status") or "").upper()
+    )
     is_initial_application = raw_status in ["APPLIED", "IN_PROGRESS", "ASSESSMENT"]
 
     # Match application under matched company
@@ -611,6 +722,13 @@ async def staging_node(
     db = _get_db(config)
     received_at_dt = _parse_email_date(state.get("received_at"))
     message_id = state.get("message_id")
+    if message_id:
+        import hashlib
+
+        lock_key = int.from_bytes(
+            hashlib.sha256(message_id.encode()).digest()[:8], "big", signed=True
+        )
+        await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
 
     if message_id:
         existing_stmt = select(StagingItemModel).where(
@@ -649,18 +767,22 @@ async def staging_node(
         email_sender_name=state.get("sender_name"),
         email_subject=state.get("subject", ""),
         email_received_at=received_at_dt,
-        email_raw_body=state.get("body", ""),
-        extracted_data=state.get("extracted_data"),
+        email_raw_body=state.get("original_body") or state.get("body", ""),
+        extracted_data={
+            **(state.get("extracted_data") or {}),
+            "calendar_events": state.get("calendar_events") or [],
+            "provider_message_id": state.get("provider_message_id"),
+        },
         match_score=state.get("match_score", 0.0),
         match_reason=state.get("match_reason") or "LOW_FUZZY_MATCH_CONFIDENCE",
         status="PENDING",
     )
     db.add(staging_item)
+    await _upsert_processed_email(
+        db, message_id, "staged", state.get("subject"), commit=False
+    )
     await db.commit()
     await db.refresh(staging_item)
-
-    # Mark as staged in unified dedup table
-    await _upsert_processed_email(db, message_id, "staged", state.get("subject"))
 
     return {"staging_item_id": staging_item.id, "route": "staging_done"}
 
@@ -689,6 +811,16 @@ async def db_commit_node(
     state: JobTrackerState, config: RunnableConfig
 ) -> dict[str, Any]:
     db = _get_db(config)
+    import hashlib
+
+    msg_id = state.get("message_id")
+    if msg_id:
+        lock_key = int.from_bytes(
+            hashlib.sha256(msg_id.encode()).digest()[:8], "big", signed=True
+        )
+        await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+        if await is_email_already_processed(db, msg_id):
+            return {"is_duplicate": True, "route": "skip"}
     received_at_dt = _parse_email_date(state.get("received_at"))
     extracted = state.get("extracted_data") or {}
 
@@ -722,6 +854,9 @@ async def db_commit_node(
             raw_body=state.get("body", ""),
         )
         db.add(other_event)
+        await _upsert_processed_email(
+            db, msg_id, "not_a_job", state.get("subject"), commit=False
+        )
         await db.commit()
         await db.refresh(other_event)
         return {"event_id": other_event.id, "application_id": None}
@@ -750,6 +885,10 @@ async def db_commit_node(
             await db.flush()
         company_id = company.id
 
+    if msg_id:
+        await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+        if await is_email_already_processed(db, msg_id):
+            return {"is_duplicate": True, "route": "skip"}
     application_id = state.get("application_id")
     pos_raw = state.get("position_name") or extracted.get("position")
     position = (
@@ -758,12 +897,16 @@ async def db_commit_node(
         else pos_raw
     )
 
-    raw_status = str(extracted.get("status") or "APPLIED").upper()
+    raw_status = (
+        ""
+        if state.get("calendar_events")
+        else str(extracted.get("status") or "").upper()
+    )
     stage_mapping = {
         "APPLIED": "APPLIED",
         "RECRUITER_CONTACT": "TECHNICAL_INTERVIEW",
         "PHONE_SCREEN": "TECHNICAL_INTERVIEW",
-        "ONLINE_ASSESSMENT": "TECHNICAL_INTERVIEW",
+        "ONLINE_ASSESSMENT": "ONLINE_ASSESSMENT",
         "TECHNICAL_INTERVIEW": "TECHNICAL_INTERVIEW",
         "BEHAVIORAL_INTERVIEW": "TECHNICAL_INTERVIEW",
         "ONSITE_INTERVIEW": "TECHNICAL_INTERVIEW",
@@ -773,10 +916,18 @@ async def db_commit_node(
         "OFFER_RECEIVED": "OFFER",
         "REJECTED": "REJECTED",
         "REJECTION_RECEIVED": "REJECTED",
-        "WITHDRAWN": "REJECTED",
+        "WITHDRAWN": "WITHDRAWN",
         "ASSESSMENT": "ASSESSMENT",
     }
-    status_val = stage_mapping.get(raw_status, "APPLIED")
+    status_val = stage_mapping.get(raw_status)
+    if state.get("calendar_events") and not application_id:
+        return await staging_node(
+            dict(state, match_reason="UNMATCHED_CALENDAR_INVITATION"), config
+        )
+    if not application_id and not status_val:
+        return await staging_node(
+            dict(state, match_reason="NO_VERIFIED_APPLICATION_STATUS"), config
+        )
 
     if not application_id:
         if status_val not in ["APPLIED", "IN_PROGRESS", "ASSESSMENT"]:
@@ -796,10 +947,8 @@ async def db_commit_node(
             external_job_id=extracted.get("external_job_id"),
             job_url=normalize_job_url(raw_job_url) if raw_job_url else None,
             status=status_val,
-            application_date=(
-                received_at_dt.date() if received_at_dt else datetime.now(UTC).date()
-            ),
-            last_activity_at=received_at_dt or datetime.now(UTC),
+            application_date=(received_at_dt.date() if received_at_dt else None),
+            last_activity_at=received_at_dt,
         )
         db.add(application)
         await db.flush()
@@ -808,10 +957,26 @@ async def db_commit_node(
         app_stmt = select(ApplicationModel).where(ApplicationModel.id == application_id)
         app_res = await db.execute(app_stmt)
         application = app_res.scalar_one()
-        if status_val:
+        if (
+            status_val
+            and application.status not in {"HIRED", "ARCHIVED", "WITHDRAWN", "REJECTED"}
+            and (
+                not received_at_dt
+                or not application.last_activity_at
+                or received_at_dt >= application.last_activity_at
+            )
+        ):
             application.status = status_val
-        if received_at_dt:
+        if (
+            not state.get("calendar_events")
+            and received_at_dt
+            and (
+                not application.last_activity_at
+                or received_at_dt > application.last_activity_at
+            )
+        ):
             application.last_activity_at = received_at_dt
+        status_val = application.status
 
     msg_id = state.get("message_id")
     if msg_id:
@@ -828,14 +993,50 @@ async def db_commit_node(
             )
             return {"event_id": existing_app_ev.id, "application_id": application_id}
 
-    raw_due = extracted.get("due_date")
-    parsed_due = _parse_email_date(raw_due) if raw_due else None
+    temporal = extracted.get("temporal") or {"version": 2}
+    deadline = temporal.get("deadline") or {}
+    parsed_due = _parse_email_date(deadline.get("at"))
+    event_payload: dict[str, Any] = {
+        "source": {
+            "plain_body": state.get("plain_body"),
+            "html_body": state.get("html_body"),
+            "in_reply_to": state.get("in_reply_to"),
+            "references": state.get("references") or [],
+        },
+        "temporal": temporal,
+        "provider_message_id": state.get("provider_message_id"),
+        "internet_message_id": state.get("internet_message_id"),
+    }
+    calendar_events = state.get("calendar_events") or []
+    if calendar_events:
+        from app.services.email_scheduling import apply_calendar
 
-    event_payload: dict[str, Any] = {}
-    if parsed_due:
-        event_payload["scheduled_at"] = parsed_due.isoformat()
-    if status_val == "TECHNICAL_INTERVIEW" and extracted.get("event_type"):
-        event_payload["interview_stage"] = extracted.get("event_type")
+        # Serialize updates for all occurrences on an application, including first insert.
+        await db.execute(
+            select(ApplicationModel.id)
+            .where(ApplicationModel.id == application_id)
+            .with_for_update()
+        )
+        calendar_payload, changed = await apply_calendar(
+            db, application_id, calendar_events[0], temporal.get("timezone") or "UTC"
+        )
+        if not changed:
+            await _upsert_processed_email(
+                db, msg_id, "ingested", state.get("subject"), commit=False
+            )
+            await db.commit()
+            return {"application_id": application_id, "is_duplicate": True}
+        if received_at_dt and (
+            not application.last_activity_at
+            or received_at_dt > application.last_activity_at
+        ):
+            application.last_activity_at = received_at_dt
+        event_payload.update(calendar_payload)
+        if event_payload["schedule_state"] == "confirmed":
+            extracted["event_type"] = "INTERVIEW_SCHEDULED"
+        else:
+            extracted["event_type"] = "INTERVIEW_CANCELLED"
+        # Calendar changes do not imply a pipeline status change or task completion.
 
     event = ApplicationEventModel(
         email_application_id=application_id,
@@ -850,7 +1051,7 @@ async def db_commit_node(
         email_summary=extracted.get("summary", ""),
         email_action_required=extracted.get("action_required", False),
         email_action=extracted.get("action"),
-        email_raw_body=state.get("body", ""),
+        email_raw_body=state.get("original_body") or state.get("body", ""),
         raw_payload=event_payload or None,
     )
     db.add(event)
@@ -893,75 +1094,32 @@ async def db_commit_node(
                     else "MEDIUM"
                 )
 
-            existing_acts_res = await db.execute(
-                select(ActionItemModel)
-                .where(ActionItemModel.application_id == application_id)
-                .order_by(ActionItemModel.created_at.desc())
+            db.add(
+                ActionItemModel(
+                    application_id=application_id,
+                    event_id=event.id,
+                    title=action_text[:500],
+                    urgency=urgency,
+                    due_date=parsed_due,
+                    temporal_metadata={
+                        "version": 2,
+                        "deadline": deadline,
+                        "source_message_id": msg_id,
+                    },
+                    status="PENDING",
+                )
             )
-            existing_acts = existing_acts_res.scalars().all()
-            action_norm = action_text[:500].strip().lower()
 
-            skip_completed_dup = False
-            matched_pending: ActionItemModel | None = None
-            for ex_act in existing_acts:
-                ex_norm = (ex_act.title or "").strip().lower()
-                if not ex_norm:
-                    continue
-                sim = fuzz.token_sort_ratio(action_norm, ex_norm)
-                if ex_act.status in ("COMPLETED", "DISMISSED") and sim >= 85:
-                    # Do not re-create an identical task that the user already completed earlier in the thread
-                    skip_completed_dup = True
-                    break
-                if ex_act.status == "PENDING" and sim >= 80 and matched_pending is None:
-                    matched_pending = ex_act
-
-            if not skip_completed_dup:
-                if matched_pending is not None:
-                    matched_pending.event_id = event.id
-                    matched_pending.urgency = urgency
-                    if parsed_due:
-                        matched_pending.due_date = parsed_due
-                else:
-                    # Supersede older PENDING email-generated tasks from the same thread when a new distinct action arrives
-                    conv_id = state.get("conversation_id")
-                    if conv_id:
-                        thread_evt_ids_res = await db.execute(
-                            select(ApplicationEventModel.id).where(
-                                ApplicationEventModel.email_application_id
-                                == application_id,
-                                ApplicationEventModel.email_conversation_id == conv_id,
-                                ApplicationEventModel.id != event.id,
-                            )
-                        )
-                        thread_evt_ids = set(thread_evt_ids_res.scalars().all())
-                        for ex_act in existing_acts:
-                            if (
-                                ex_act.status == "PENDING"
-                                and ex_act.event_id in thread_evt_ids
-                            ):
-                                ex_act.status = "COMPLETED"
-
-                    action_item = ActionItemModel(
-                        application_id=application_id,
-                        event_id=event.id,
-                        title=action_text[:500],
-                        urgency=urgency,
-                        due_date=parsed_due,
-                        status="PENDING",
-                    )
-                    db.add(action_item)
-
+    await _upsert_processed_email(
+        db, msg_id, "ingested", state.get("subject"), commit=False
+    )
+    provider_alias = state.get("provider_message_id")
+    if provider_alias and provider_alias != msg_id:
+        await _upsert_processed_email(
+            db, provider_alias, "ingested", state.get("subject"), commit=False
+        )
     await db.commit()
     await db.refresh(event)
-
-    # Mark as ingested (or not_a_job) in unified dedup table
-    status_label = "ingested" if state.get("is_application") else "not_a_job"
-    await _upsert_processed_email(
-        db,
-        state.get("message_id"),
-        status_label,
-        state.get("subject"),
-    )
 
     return {
         "company_id": company_id,

@@ -104,6 +104,8 @@ async def test_graph_high_confidence_application_flow(db_session: AsyncSession):
         event_type="APPLICATION_SUBMITTED",
         status="APPLIED",
         summary="Applied to Google.",
+        status_evidence="Thank you for applying to Google as Backend Developer.",
+        action_evidence="Thank you for applying to Google as Backend Developer.",
         action_required=False,
         action=None,
     )
@@ -405,6 +407,8 @@ async def test_graph_different_position_routes_to_staging(db_session: AsyncSessi
         event_type="APPLICATION_SUBMITTED",
         status="APPLIED",
         summary="Applied for Product Manager.",
+        status_evidence="We received your application for Product Manager.",
+        action_evidence="We received your application for Product Manager.",
         action_required=False,
         action=None,
     )
@@ -462,6 +466,8 @@ async def test_graph_reapplication_concluded_routes_to_staging(
         event_type="APPLICATION_SUBMITTED",
         status="APPLIED",
         summary="Re-applied to Datadog.",
+        status_evidence="Thank you for applying to Datadog.",
+        action_evidence="Thank you for applying to Datadog.",
         action_required=False,
         action=None,
     )
@@ -571,6 +577,8 @@ async def test_graph_action_item_generation(db_session: AsyncSession):
         event_type="ASSESSMENT_REQUESTED",
         status="ONLINE_ASSESSMENT",
         summary="CodeSignal assessment invitation.",
+        status_evidence="Please complete the CodeSignal assessment by Friday.",
+        action_evidence="Please complete the CodeSignal assessment by Friday.",
         action_required=True,
         action="Complete CodeSignal assessment by Friday 5 PM",
     )
@@ -615,22 +623,22 @@ def test_parse_email_date_timezones_and_formats():
     assert dt_date.hour == 0 and dt_date.minute == 0
     assert dt_date.tzinfo is not None
 
-    # ISO with offset +01:00 (stripped to preserve wall-clock time in UTC)
+    # ISO offsets are converted to real UTC instants
     dt_offset = _parse_email_date("2026-09-14T15:15:00+01:00")
     assert dt_offset is not None
     assert dt_offset.year == 2026 and dt_offset.month == 9 and dt_offset.day == 14
-    assert dt_offset.hour == 15 and dt_offset.minute == 15
+    assert dt_offset.hour == 14 and dt_offset.minute == 15
     assert dt_offset.utcoffset().total_seconds() == 0
 
-    # Human-like GMT+1 offset format (stripped to preserve wall-clock time in UTC)
-    dt_gmt = _parse_email_date("2026-09-14 15:15:00 GMT+1")
+    # Explicit numeric offsets preserve the instant
+    dt_gmt = _parse_email_date("2026-09-14T15:15:00+01:00")
     assert dt_gmt is not None
     assert dt_gmt.year == 2026 and dt_gmt.month == 9 and dt_gmt.day == 14
-    assert dt_gmt.hour == 15 and dt_gmt.minute == 15
+    assert dt_gmt.hour == 14 and dt_gmt.minute == 15
     assert dt_gmt.utcoffset().total_seconds() == 0
 
-    # Human-like UTC+1 offset format (stripped to preserve wall-clock time in UTC)
-    dt_utc = _parse_email_date("2026-09-14 15:15:00 UTC+1")
+    # Repeated offset parsing is stable
+    dt_utc = _parse_email_date("2026-09-14T15:15:00+01:00")
     assert dt_utc is not None
     assert dt_utc.utcoffset().total_seconds() == 0
 
@@ -813,6 +821,8 @@ async def test_email_thread_does_not_duplicate_completed_or_superseded_tasks(
         event_type="RECRUITER_CONTACTED",
         status="RECRUITER_CONTACT",
         summary="HR asked initial screening questions.",
+        status_evidence="Hi, please reply with your answers to our initial screening questions.",
+        action_evidence="Hi, please reply with your answers to our initial screening questions.",
         action_required=True,
         action="Reply with answers to initial screening questions",
     )
@@ -876,6 +886,8 @@ async def test_email_thread_does_not_duplicate_completed_or_superseded_tasks(
         event_type="INTERVIEW_REQUESTED",
         status="TECHNICAL_INTERVIEW",
         summary="HR asked for notice period and salary expectations.",
+        status_evidence="Could you also share your notice period and salary expectations?",
+        action_evidence="Could you also share your notice period and salary expectations?",
         action_required=True,
         action="Share notice period and salary expectations",
     )

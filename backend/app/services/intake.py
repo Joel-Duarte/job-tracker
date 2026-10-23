@@ -22,6 +22,8 @@ async def process_single_email_graph(
     db: AsyncSession,
     email: EmailPayload,
     task_id: str,
+    *,
+    user_created_lead: bool = False,
 ) -> JobTrackerState:
     """Executes the LangGraph StateGraph pipeline for a single email payload."""
     received_at_str = (
@@ -32,9 +34,13 @@ async def process_single_email_graph(
         else None
     )
 
-    message_id = getattr(email, "message_id", None)
+    from app.services.email_normalization import message_identity
+
+    message_id = message_identity(email.internet_message_id or email.message_id)
 
     state_input: JobTrackerState = {
+        **email.model_dump(mode="json"),
+        "user_created_lead": user_created_lead,
         "message_id": message_id,
         "conversation_id": email.conversation_id,
         "sender": getattr(email, "sender", None),

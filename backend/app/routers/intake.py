@@ -275,8 +275,8 @@ async def intake_pasted_text(
     db: AsyncSession = Depends(get_db),
 ):
     """Ingests raw pasted email text, thread, or job communication by queuing an AI task."""
-    raw_text = clean_html_text(payload.text.strip())
-    if not raw_text:
+    raw_text = payload.text.strip()
+    if not clean_html_text(raw_text):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Pasted text content cannot be empty.",
@@ -285,7 +285,11 @@ async def intake_pasted_text(
     # Derive subject from first non-empty line if not provided
     subject = payload.subject
     if not subject:
-        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        lines = [
+            line.strip()
+            for line in clean_html_text(raw_text).splitlines()
+            if line.strip()
+        ]
         subject = lines[0][:100] if lines else "Pasted Job Update"
 
     content_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:16]
@@ -354,6 +358,7 @@ async def intake_uploaded_files(
             email_payload = parse_uploaded_file(filename, content)
             parsed_emails.append(
                 {
+                    **email_payload.model_dump(mode="json"),
                     "message_id": email_payload.message_id
                     or f"upload-{uuid.uuid4().hex[:8]}",
                     "conversation_id": email_payload.conversation_id
@@ -361,7 +366,7 @@ async def intake_uploaded_files(
                     "sender": getattr(email_payload, "sender", None),
                     "sender_name": getattr(email_payload, "sender_name", None),
                     "subject": email_payload.subject,
-                    "body": clean_html_text(email_payload.body),
+                    "body": email_payload.body,
                     "received_at": email_payload.received_at.isoformat()
                     if hasattr(email_payload.received_at, "isoformat")
                     else str(email_payload.received_at)
@@ -894,6 +899,7 @@ async def sync_email_account(
             "failed_count": 0,
             "emails": [
                 {
+                    **email.model_dump(mode="json"),
                     "message_id": email.message_id,
                     "conversation_id": email.conversation_id,
                     "sender": getattr(email, "sender", None),

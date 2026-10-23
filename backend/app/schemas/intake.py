@@ -7,6 +7,10 @@ from pydantic import BaseModel, ConfigDict, Field
 class ExtractedEmailInfo(BaseModel):
     """Structured extraction format returned by the LLM service."""
 
+    status_evidence: str | None = None
+    action_evidence: str | None = None
+    deadline_evidence: str | None = None
+    meeting_proposal: str | None = None
     company: str | None = Field(
         default=None,
         description="Name of the company (e.g., 'Stripe', 'Google'). None if not a job email.",
@@ -48,16 +52,25 @@ class ExtractedEmailInfo(BaseModel):
     )
     due_date: str | None = Field(
         default=None,
-        description="Explicit deadline date or scheduled interview date in ISO YYYY-MM-DD format if mentioned in the email.",
+        description="Deprecated: always null. Supply deadline_evidence or meeting_proposal instead.",
     )
 
 
 class EmailPayload(BaseModel):
     conversation_id: str = Field(description="Unique email thread or conversation ID")
     message_id: str | None = Field(default=None, description="Unique email message ID")
+    internet_message_id: str | None = None
+    provider_message_id: str | None = None
+    in_reply_to: str | None = None
+    references: list[str] = Field(default_factory=list)
+    plain_body: str | None = None
+    html_body: str | None = None
+    calendar_events: list[dict[str, Any]] = Field(default_factory=list)
     sender: str | None = Field(default=None, description="Sender email address")
     sender_name: str | None = Field(default=None, description="Sender display name")
-    received_at: datetime = Field(description="ISO timestamp of email receipt")
+    received_at: datetime | None = Field(
+        default=None, description="ISO timestamp of email receipt"
+    )
     subject: str = Field(description="Email subject line")
     body: str = Field(description="Full text body of the email")
 

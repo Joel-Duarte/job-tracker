@@ -328,8 +328,6 @@ async def list_applications(
                     except (ValueError, TypeError):
                         pass
 
-        # Compute scheduled interview date
-        scheduled_interview = None
         sorted_events = sorted(
             app.events or [],
             key=lambda e: (
@@ -337,34 +335,11 @@ async def list_applications(
             ),
             reverse=True,
         )
-        latest_interview_evt = None
-        for evt in sorted_events:
-            if evt.raw_payload and isinstance(evt.raw_payload, dict):
-                if evt.raw_payload.get("interview_stage") or evt.raw_payload.get(
-                    "scheduled_at"
-                ):
-                    latest_interview_evt = evt
-                    break
+        from app.services.email_scheduling import current_schedule, schedule_version
 
-        if latest_interview_evt:
-            payload_stage = latest_interview_evt.raw_payload.get("interview_stage")
-            if payload_stage != "Task Completed / Awaiting Response":
-                sched_val = latest_interview_evt.raw_payload.get("scheduled_at")
-                if sched_val:
-                    try:
-                        scheduled_interview = datetime.fromisoformat(str(sched_val))
-                    except Exception:
-                        pass
-
-        if not scheduled_interview:
-            for act in app.action_items or []:
-                if (
-                    act.status == "PENDING"
-                    and "interview" in act.title.lower()
-                    and act.due_date
-                ):
-                    scheduled_interview = act.due_date
-                    break
+        scheduled_interview, _ = current_schedule(
+            app.events, app.action_items, app.calendar_occurrences
+        )
 
         loc = (
             app.job_posting.location
@@ -454,6 +429,15 @@ async def list_applications(
                 match_analysis_payload=app.match_analysis_payload,
                 nearest_due_date=nearest_due,
                 scheduled_interview_at=scheduled_interview,
+                scheduled_interview_temporal_version=schedule_version(
+                    app, scheduled_interview
+                ),
+                temporal_version=2
+                if any(
+                    (e.raw_payload or {}).get("temporal", {}).get("version") == 2
+                    for e in app.events or []
+                )
+                else None,
                 location=loc,
                 work_model=wm,
                 salary_min=s_min,
@@ -605,36 +589,11 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
                         except (ValueError, TypeError):
                             pass
 
-    # Compute scheduled interview date
-    scheduled_interview = None
-    latest_interview_evt = None
-    for evt in sorted_events:
-        if evt.raw_payload and isinstance(evt.raw_payload, dict):
-            if evt.raw_payload.get("interview_stage") or evt.raw_payload.get(
-                "scheduled_at"
-            ):
-                latest_interview_evt = evt
-                break
+    from app.services.email_scheduling import current_schedule, schedule_version
 
-    if latest_interview_evt:
-        payload_stage = latest_interview_evt.raw_payload.get("interview_stage")
-        if payload_stage != "Task Completed / Awaiting Response":
-            sched_val = latest_interview_evt.raw_payload.get("scheduled_at")
-            if sched_val:
-                try:
-                    scheduled_interview = datetime.fromisoformat(str(sched_val))
-                except Exception:
-                    pass
-
-    if not scheduled_interview:
-        for act in app.action_items or []:
-            if (
-                act.status == "PENDING"
-                and "interview" in act.title.lower()
-                and act.due_date
-            ):
-                scheduled_interview = act.due_date
-                break
+    scheduled_interview, _ = current_schedule(
+        app.events, app.action_items, app.calendar_occurrences
+    )
 
     due_dates = [
         _to_utc(a.due_date)
@@ -727,6 +686,13 @@ async def get_application(application_id: int, db: AsyncSession = Depends(get_db
         match_analysis_payload=match_payload,
         nearest_due_date=nearest_due,
         scheduled_interview_at=scheduled_interview,
+        scheduled_interview_temporal_version=schedule_version(app, scheduled_interview),
+        temporal_version=2
+        if any(
+            (e.raw_payload or {}).get("temporal", {}).get("version") == 2
+            for e in app.events or []
+        )
+        else None,
         location=loc,
         work_model=wm,
         salary_min=s_min,
@@ -1102,6 +1068,17 @@ async def transition_application(
         for act in res_acts.scalars().all():
             act.status = "COMPLETED"
 
+    if payload.scheduled_at:
+        from app.core.config_manager import get_system_settings_model
+        from app.services.email_normalization import normalize_instant
+
+        zone = (await get_system_settings_model(db)).display_timezone or "UTC"
+        normalized = normalize_instant(payload.scheduled_at, zone)
+        if normalized is None:
+            raise HTTPException(
+                status_code=422, detail="Ambiguous or invalid scheduled time"
+            )
+        payload.scheduled_at = normalized
     if payload.scheduled_at and not is_task_completed:
         summary_parts.append(
             f"Scheduled: {payload.scheduled_at.strftime('%b %d, %Y %I:%M %p')}."
@@ -1170,6 +1147,11 @@ async def transition_application(
     summary_str = " ".join(summary_parts)
 
     event_payload = payload.model_dump(mode="json")
+    if payload.scheduled_at or is_task_completed:
+        event_payload["temporal"] = {"version": 2, "source": "user_confirmation"}
+        event_payload["schedule_state"] = (
+            "cancelled" if is_task_completed else "confirmed"
+        )
     if old_status != new_status:
         event_payload["previous_status"] = old_status
     if preserved_interview_stage and not event_payload.get("interview_stage"):

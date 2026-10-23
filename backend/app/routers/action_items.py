@@ -1,8 +1,9 @@
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import case, func, select
+from sqlalchemy import Date, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -31,6 +32,13 @@ def compute_live_urgency(item: ActionItemModel) -> str:
     if item.manual_urgency_override:
         return item.manual_urgency_override.upper()
 
+    deadline = (item.temporal_metadata or {}).get("deadline") or {}
+    if not item.due_date and deadline.get("date"):
+        days = (
+            date.fromisoformat(deadline["date"])
+            - datetime.now(ZoneInfo(deadline.get("timezone") or "UTC")).date()
+        ).days
+        return "HIGH" if days <= 1 else "MEDIUM" if days <= 3 else "LOW"
     if item.due_date:
         time_diff = item.due_date - datetime.now(UTC)
         hours_diff = time_diff.total_seconds() / 3600
@@ -74,9 +82,29 @@ async def list_action_items(
     # 4. else if due_date -> LOW
     # 5. else default urgency
 
+    deadline_date = cast(
+        ActionItemModel.temporal_metadata["deadline"]["date"].astext, Date
+    )
+    today_in_zone = cast(
+        func.timezone(
+            func.coalesce(
+                ActionItemModel.temporal_metadata["deadline"]["timezone"].astext, "UTC"
+            ),
+            func.now(),
+        ),
+        Date,
+    )
     live_urgency_expr = func.coalesce(
         ActionItemModel.manual_urgency_override,
         case(
+            (
+                deadline_date.is_not(None),
+                case(
+                    (deadline_date - today_in_zone <= 1, "HIGH"),
+                    (deadline_date - today_in_zone <= 3, "MEDIUM"),
+                    else_="LOW",
+                ),
+            ),
             (ActionItemModel.due_date.is_(None), ActionItemModel.urgency),
             (
                 func.extract("epoch", ActionItemModel.due_date - func.now()) / 3600
@@ -164,6 +192,7 @@ async def list_action_items(
                 event_id=item.event_id,
                 title=item.title,
                 due_date=item.due_date,
+                temporal_metadata=item.temporal_metadata,
                 status=item.status,
                 action_url=item.action_url,
                 urgency=compute_live_urgency(item),
@@ -218,7 +247,21 @@ async def create_action_item(
         app_status = app.status
         app.last_activity_at = datetime.now(UTC)
 
+    if payload.due_date:
+        from app.core.config_manager import get_system_settings_model
+        from app.services.email_normalization import normalize_instant
+
+        zone = (await get_system_settings_model(db)).display_timezone or "UTC"
+        payload.due_date = normalize_instant(payload.due_date, zone)
+        if payload.due_date is None:
+            raise HTTPException(status_code=422, detail="Ambiguous or invalid deadline")
     action_item = ActionItemModel(
+        temporal_metadata={
+            "version": 2,
+            "deadline": {"at": payload.due_date.isoformat(), "precision": "instant"},
+        }
+        if payload.due_date
+        else None,
         application_id=payload.application_id,
         title=payload.title.strip(),
         due_date=payload.due_date,
@@ -244,6 +287,7 @@ async def create_action_item(
         event_id=action_item.event_id,
         title=action_item.title,
         due_date=action_item.due_date,
+        temporal_metadata=action_item.temporal_metadata,
         status=action_item.status,
         action_url=action_item.action_url,
         urgency=compute_live_urgency(action_item),
@@ -287,6 +331,28 @@ async def update_action_item(
 
     old_status = item.status
     update_data = payload.model_dump(exclude_unset=True)
+    if "due_date" in update_data:
+        from app.core.config_manager import get_system_settings_model
+        from app.services.email_normalization import normalize_instant
+
+        value = update_data["due_date"]
+        if value:
+            zone = (await get_system_settings_model(db)).display_timezone or "UTC"
+            normalized = normalize_instant(value, zone)
+            if normalized is None:
+                raise HTTPException(
+                    status_code=422, detail="Ambiguous or invalid deadline"
+                )
+            update_data["due_date"] = normalized
+        item.temporal_metadata = {
+            "version": 2,
+            "deadline": {
+                "at": update_data["due_date"].isoformat(),
+                "precision": "instant",
+            }
+            if update_data["due_date"]
+            else None,
+        }
     for key, value in update_data.items():
         if value is not None and key in ["status", "urgency"]:
             setattr(item, key, value.upper())
@@ -343,6 +409,7 @@ async def update_action_item(
         event_id=item.event_id,
         title=item.title,
         due_date=item.due_date,
+        temporal_metadata=item.temporal_metadata,
         status=item.status,
         action_url=item.action_url,
         urgency=compute_live_urgency(item),
@@ -410,6 +477,7 @@ async def override_action_item_urgency(
         event_id=item.event_id,
         title=item.title,
         due_date=item.due_date,
+        temporal_metadata=item.temporal_metadata,
         status=item.status,
         action_url=item.action_url,
         urgency=compute_live_urgency(item),

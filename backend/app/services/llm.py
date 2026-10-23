@@ -245,7 +245,13 @@ Email Body:
         [
             (
                 "system",
-                "You are an information extraction engine for recruitment emails. Return only valid structured data.",
+                "You extract only the newest recruitment message. Return structured data. "
+                "For status and action return exact verbatim excerpts in status_evidence and action_evidence. "
+                "For an explicit task deadline return its verbatim clause in deadline_evidence; "
+                "never use meeting availability as a task deadline. "
+                "Return meeting dates discussed in prose as verbatim meeting_proposal. "
+                "Acknowledgments do not change status or create tasks. "
+                "due_date must be null; never confirm meeting times from prose.",
             ),
             ("human", template_str),
         ]

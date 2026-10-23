@@ -71,6 +71,9 @@ class CompanyModel(Base):
 
 
 class ApplicationModel(Base):
+    calendar_occurrences: Mapped[list["EmailCalendarOccurrenceModel"]] = relationship(
+        lazy="selectin", cascade="all, delete-orphan"
+    )
     __tablename__ = "applications"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -253,6 +256,9 @@ class ActionItemModel(Base):
         nullable=True,
     )
     title: Mapped[str] = mapped_column(Text, nullable=False)
+    temporal_metadata: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
     due_date: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -354,3 +360,15 @@ class OtherEventModel(Base):
             postgresql_where=text("action_required = TRUE"),
         ),
     )
+
+
+class EmailCalendarOccurrenceModel(Base):
+    """Current organizer revision of an application calendar occurrence."""
+
+    __tablename__ = "email_calendar_occurrences"
+    identity_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    application_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("applications.id", ondelete="CASCADE"), index=True
+    )
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    calendar_data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)

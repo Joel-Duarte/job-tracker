@@ -123,6 +123,7 @@ async def test_deduplication_and_update_existing_application(
         company="Stripe",  # Same company
         position="Senior Backend Engineer",  # Same position
         status="REJECTED",  # Updated status
+        status_evidence="Unfortunately, we decided to proceed with another candidate.",
         event_type="REJECTION",
         summary="Application rejected.",
         action_required=False,

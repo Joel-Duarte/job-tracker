@@ -618,56 +618,9 @@ def _resolve_scheduled_interview_info(
     app: ApplicationModel,
 ) -> tuple[datetime | None, str | None]:
     """Helper extracting confirmed scheduled interview datetime and sub-phase for an application."""
-    scheduled_dt: datetime | None = None
-    sub_stage: str | None = None
+    from app.services.email_scheduling import current_schedule
 
-    sorted_events = sorted(
-        app.events or [],
-        key=lambda e: (
-            (
-                e.email_received_at
-                if e.email_received_at.tzinfo
-                else e.email_received_at.replace(tzinfo=UTC)
-            )
-            if e.email_received_at
-            else datetime.min.replace(tzinfo=UTC)
-        ),
-        reverse=True,
-    )
-    latest_interview_evt = None
-    for evt in sorted_events:
-        if evt.raw_payload and isinstance(evt.raw_payload, dict):
-            if (
-                "interview_stage" in evt.raw_payload
-                or "scheduled_at" in evt.raw_payload
-            ):
-                latest_interview_evt = evt
-                break
-
-    if latest_interview_evt:
-        payload_stage = latest_interview_evt.raw_payload.get("interview_stage")
-        sub_stage = payload_stage
-        if payload_stage != "Task Completed / Awaiting Response":
-            sched_val = latest_interview_evt.raw_payload.get("scheduled_at")
-            if sched_val:
-                try:
-                    scheduled_dt = datetime.fromisoformat(str(sched_val))
-                except Exception:
-                    pass
-
-    if not scheduled_dt:
-        for act in app.action_items or []:
-            if (
-                act.status == "PENDING"
-                and "interview" in (act.title or "").lower()
-                and act.due_date
-            ):
-                scheduled_dt = act.due_date
-                if not sub_stage:
-                    sub_stage = act.title
-                break
-
-    return scheduled_dt, sub_stage
+    return current_schedule(app.events, app.action_items, app.calendar_occurrences)
 
 
 # Retained Legacy Helpers

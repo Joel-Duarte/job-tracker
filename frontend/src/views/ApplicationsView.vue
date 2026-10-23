@@ -1,4 +1,5 @@
 <script setup>
+import { formatEmailInstant, toEmailLocalDatetime } from '../utils/emailTime'
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useUIStore } from '../stores/uiStore'
@@ -488,6 +489,7 @@ function getScheduledInterviewDate(app) {
   const stage = getAppSubPhaseLabel(app)
   if (stage === 'Task Completed / Awaiting Response') return null
   if (app.scheduled_interview_at) return app.scheduled_interview_at
+  if (app.temporal_version === 2) return null
   const payload = app.latest_event?.raw_payload || {}
   if (payload.scheduled_at) return payload.scheduled_at
   if (app.status === 'TECHNICAL_INTERVIEW') {
@@ -676,13 +678,13 @@ const sortedActiveApplications = computed(() => {
 function formatScheduledDateFriendly(app) {
   const dateStr = getScheduledInterviewDate(app)
   if (!dateStr) return ''
-  return formatRelativeDate(dateStr, true)
+  return app.scheduled_interview_temporal_version === 2 ? formatEmailInstant(dateStr) : formatRelativeDate(dateStr, true)
 }
 
 function formatScheduledDate(app) {
   const dateStr = getScheduledInterviewDate(app)
   if (!dateStr) return ''
-  return formatRelativeDate(dateStr, true)
+  return app.scheduled_interview_temporal_version === 2 ? formatEmailInstant(dateStr) : formatRelativeDate(dateStr, true)
 }
 
 function getScheduleUrgencyClass(app) {
@@ -1545,7 +1547,7 @@ async function confirmDelete() {
                 <!-- Show Interview Scheduled Date if it exists -->
                 <DateTimePicker
                   v-if="getScheduledInterviewDate(app)"
-                  :model-value="toLocalDatetimeString(getScheduledInterviewDate(app))"
+                  :model-value="app.scheduled_interview_temporal_version === 2 ? toEmailLocalDatetime(getScheduledInterviewDate(app)) : toLocalDatetimeString(getScheduledInterviewDate(app))"
                   type="datetime"
                   @confirm="(val) => handleQuickUpdateInterviewDate(app, val)"
                 >
@@ -1753,7 +1755,7 @@ async function confirmDelete() {
 
                     <DateTimePicker
                       v-if="getScheduledInterviewDate(app)"
-                      :model-value="toLocalDatetimeString(getScheduledInterviewDate(app))"
+                      :model-value="app.scheduled_interview_temporal_version === 2 ? toEmailLocalDatetime(getScheduledInterviewDate(app)) : toLocalDatetimeString(getScheduledInterviewDate(app))"
                       type="datetime"
                       @confirm="(val) => handleQuickUpdateInterviewDate(app, val)"
                     >

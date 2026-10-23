@@ -23,14 +23,13 @@ export async function handleDemoRequest(config) {
   const params = config.params || {}
   const data = typeof config.data === 'string' ? JSON.parse(config.data || '{}') : (config.data || {})
 
-  const db = getDemoDb()
-
   // Simulate artificial delay (500ms - 1000ms by default, 1500ms for job intake extraction)
   let delayMs = 500
   if (urlPath.includes('/intake/paste') || urlPath.includes('/intake/assess-job') || urlPath.includes('/intake/upload')) {
     delayMs = 1500
   }
   await delay(delayMs)
+  const db = getDemoDb()
 
   // Response helper
   const ok = (responseData, status = 200) => ({
@@ -1565,6 +1564,8 @@ export async function handleDemoRequest(config) {
 
   if (urlPath === '/ai/global-settings' && method === 'get') {
     return ok({
+      DISPLAY_TIMEZONE: db.system_settings?.DISPLAY_TIMEZONE || null,
+      TIMEZONE_SOURCE: db.system_settings?.TIMEZONE_SOURCE || 'auto',
       HAS_COMPLETED_ONBOARDING: db.system_settings?.has_completed_onboarding ?? true,
       ENABLE_EMAIL_INTAKE: db.system_settings?.enable_email_intake ?? true,
       ENABLE_EMBEDDINGS: db.system_settings?.enable_embeddings ?? true,
@@ -1576,6 +1577,11 @@ export async function handleDemoRequest(config) {
   }
 
   if (urlPath === '/ai/global-settings' && method === 'patch') {
+    db.system_settings = getDemoDb().system_settings
+    if (data.TIMEZONE_SOURCE === 'auto' && db.system_settings?.TIMEZONE_SOURCE === 'manual' && !data.RESET_TIMEZONE_OVERRIDE) {
+      data.DISPLAY_TIMEZONE = db.system_settings.DISPLAY_TIMEZONE
+      data.TIMEZONE_SOURCE = 'manual'
+    }
     db.system_settings = {
       ...(db.system_settings || {}),
       ...(data.COVER_LETTER_TONE ? { cover_letter_tone: data.COVER_LETTER_TONE } : {}),
@@ -1584,6 +1590,8 @@ export async function handleDemoRequest(config) {
     }
     saveDemoDb(db)
     return ok({
+      DISPLAY_TIMEZONE: db.system_settings?.DISPLAY_TIMEZONE || null,
+      TIMEZONE_SOURCE: db.system_settings?.TIMEZONE_SOURCE || 'auto',
       HAS_COMPLETED_ONBOARDING: db.system_settings?.has_completed_onboarding ?? true,
       ENABLE_EMAIL_INTAKE: db.system_settings?.enable_email_intake ?? true,
       ENABLE_EMBEDDINGS: db.system_settings?.enable_embeddings ?? true,

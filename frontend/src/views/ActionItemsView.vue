@@ -1,4 +1,5 @@
 <script setup>
+import { formatEmailInstant, toEmailLocalDatetime } from '../utils/emailTime'
 import { ref, onMounted, computed } from 'vue'
 import { ActionItemsAPI, ApplicationsAPI } from '../api/endpoints'
 import { useUIStore } from '../stores/uiStore'
@@ -129,7 +130,7 @@ function openEditModal(item) {
   taskForm.value = {
     application_id: item.application_id,
     title: item.title,
-    due_date: item.due_date ? toLocalDatetimeString(item.due_date) : '',
+    due_date: item.due_date ? (item.temporal_metadata?.version === 2 ? toEmailLocalDatetime(item.due_date) : toLocalDatetimeString(item.due_date)) : '',
     urgency: item.urgency || 'MEDIUM',
     status: item.status || 'PENDING',
     action_url: item.action_url || '',
@@ -566,7 +567,7 @@ onUnmounted(() => {
               <!-- Due Date Pill with 1-click inline DateTimePicker quick-editor -->
               <DateTimePicker
                 v-if="item.due_date"
-                :model-value="toLocalDatetimeString(item.due_date)"
+                :model-value="item.temporal_metadata?.version === 2 ? toEmailLocalDatetime(item.due_date) : toLocalDatetimeString(item.due_date)"
                 type="datetime"
                 @confirm="(val) => handleQuickUpdateDueDate(item, val)"
               >
@@ -578,14 +579,15 @@ onUnmounted(() => {
                     @click.stop="toggle"
                   >
                     <Calendar :size="12" />
-                    <span>{{ isOverdue(item.due_date, item.status) ? 'Overdue: ' : 'Due: ' }}{{ formatDate(item.due_date) }}</span>
+                    <span>{{ isOverdue(item.due_date, item.status) ? 'Overdue: ' : 'Due: ' }}{{ item.temporal_metadata?.version === 2 ? formatEmailInstant(item.due_date) : formatDate(item.due_date) }}</span>
                   </div>
                 </template>
               </DateTimePicker>
 
+              <p v-if="item.temporal_metadata?.deadline?.date" class="text-muted">Due: {{ item.temporal_metadata.deadline.date }} (date only)</p>
               <!-- Quick Add Deadline button if no due date yet -->
               <DateTimePicker
-                v-else-if="item.status !== 'COMPLETED'"
+                v-if="!item.due_date && !item.temporal_metadata?.deadline?.date && item.status !== 'COMPLETED'"
                 type="datetime"
                 placeholder="Set deadline..."
                 @confirm="(val) => handleQuickUpdateDueDate(item, val)"

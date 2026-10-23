@@ -83,6 +83,8 @@ async def load_settings(db: AsyncSession | None = None) -> dict[str, Any]:
         llm_judge_max_retries = getattr(model, "llm_judge_max_retries", 1)
 
         return {
+            "display_timezone": model.display_timezone,
+            "timezone_source": model.timezone_source,
             "has_completed_onboarding": has_completed_onboarding,
             "enable_email_intake": enable_email_intake,
             "enable_embeddings": enable_embeddings,
@@ -166,6 +168,10 @@ async def save_settings(
 
     async def _update_settings(session: AsyncSession) -> None:
         model = await get_system_settings_model(session)
+        if "display_timezone" in settings:
+            model.display_timezone = settings["display_timezone"]
+        if "timezone_source" in settings:
+            model.timezone_source = settings["timezone_source"]
         val_onboarding = (
             settings.get("has_completed_onboarding")
             if "has_completed_onboarding" in settings
