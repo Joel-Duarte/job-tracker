@@ -15,7 +15,7 @@
 
 **Job Tracker** is the all-in-one, local-first platform to automate job intake, assess skill fit with AI, practice interactive mock interviews, sync recruitment emails, and manage your job search pipeline. Built for privacy, speed, and intelligence.
 
-> 🎮 **Live Interactive Demo:** Try Job Tracker directly in your browser without installing anything: **[https://joel-duarte.github.io/job-tracker/](https://joel-duarte.github.io/job-tracker/?ref=github)** (runs 100% client-side with full mock dataset & simulated AI workflows).
+> 🎮 **Interactive Demo:** [Try Job Tracker in your browser](https://joel-duarte.github.io/job-tracker/?ref=github). The demo runs client-side with sample data and simulated AI workflows; it does not connect to a live Job Tracker backend or AI provider.
 
 
 
@@ -42,7 +42,7 @@ https://github.com/user-attachments/assets/e76d9693-f1d6-463e-b726-821fe8df0942
 
 | Feature | Description |
 | :--- | :--- |
-| 🔒 **100% Private & Local-First** | Run entirely on your own hardware with **LM Studio** or **Ollama** (zero telemetry, zero cloud data leakage), or connect top-tier cloud models (**OpenAI**, **Anthropic**, **Gemini**, **OpenRouter**). |
+| 🔒 **Self-Hosted & Privacy-Configurable** | Run the app and database on infrastructure you control. Use local models such as **LM Studio** or **Ollama**, or opt into cloud providers (**OpenAI**, **Anthropic**, **Gemini**, **OpenRouter**). Web search and connected email use the external services you configure. |
 | 🏢 **Companies Directory & Live Intelligence** | Unified employer directory (`/companies`), multi-application history, candidate pros/red flags, and live web research synthesis via DuckDuckGo and SearXNG. |
 | 🎯 **Role Alignment & CV Tuning** | AI career intelligence dossiers: executive market positioning, quantified resume bullet rewrites, strategic interview talking points, and skill bridge roadmaps. |
 | ⚡ **Async Evaluation Queue** | Central background task manager (`/queue`) with per-provider concurrency ceilings, live stage steppers, bulk retries, and cancellation. |
@@ -234,14 +234,14 @@ Explore our guides to get the most out of Job Tracker:
 
 | Document | Description |
 | :--- | :--- |
-| [`docs/QUICKSTART.md`](file:///home/joel/Projects/job-tracker/docs/QUICKSTART.md) | Detailed installation steps, first-run wizard guide, and troubleshooting FAQs. |
-| [`docs/USER_GUIDE.md`](file:///home/joel/Projects/job-tracker/docs/USER_GUIDE.md) | Complete "Day in the Life" guide covering intake, AI analysis, simulations, and tracking. |
-| [`docs/AI_PROVIDERS.md`](file:///home/joel/Projects/job-tracker/docs/AI_PROVIDERS.md) | Local AI configuration (LM Studio, Ollama) and Cloud AI setup (OpenAI, Anthropic, Gemini). |
-| [`docs/OAUTH_SETUP.md`](file:///home/joel/Projects/job-tracker/docs/OAUTH_SETUP.md) | Complete step-by-step guide for Gmail/Outlook OAuth 2.0 and IMAP App-Specific Passwords. |
-| [`docs/EXTERNAL_SERVICES.md`](file:///home/joel/Projects/job-tracker/docs/EXTERNAL_SERVICES.md) | Guide for connecting external PostgreSQL databases and custom Camofox scraper instances. |
-| [`docs/ARCHITECTURE.md`](file:///home/joel/Projects/job-tracker/docs/ARCHITECTURE.md) | Architectural blueprints, LangGraph state machine flows, pgvector vector search, and Camofox scraper design. |
-| [`extension/README.md`](file:///home/joel/Projects/job-tracker/extension/README.md) | Installation and setup guide for the companion Chrome, Brave, Edge, and Firefox browser extension. |
-| [`backend/README.md`](file:///home/joel/Projects/job-tracker/backend/README.md) | Backend developer guide, API schemas, testing hierarchy, and database migration rules. |
+| [`docs/QUICKSTART.md`](docs/QUICKSTART.md) | Installation steps, first-run setup, and troubleshooting. |
+| [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) | Guide to job intake, AI analysis, interview practice, and application tracking. |
+| [`docs/AI_PROVIDERS.md`](docs/AI_PROVIDERS.md) | Local and cloud AI provider configuration. |
+| [`docs/OAUTH_SETUP.md`](docs/OAUTH_SETUP.md) | Gmail and Outlook OAuth setup and IMAP app passwords. |
+| [`docs/EXTERNAL_SERVICES.md`](docs/EXTERNAL_SERVICES.md) | Connecting external PostgreSQL databases and Camofox scraper instances. |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System architecture, LangGraph workflows, vector search, and scraper design. |
+| [`extension/README.md`](extension/README.md) | Companion browser extension installation and setup. |
+| [`backend/README.md`](backend/README.md) | Backend development, API, testing, and database migrations. |
 
 ---
 
@@ -251,7 +251,7 @@ Explore our guides to get the most out of Job Tracker:
 | :--- | :--- | :--- |
 | **Frontend** | Vue 3 (Composition API), Vite, Pinia, Lucide Icons | High-performance SPA with dark/light themes, Kanban drag-and-drop, radar scorecards, and live reactive store state. |
 | **Backend API** | FastAPI, Python 3.12, AsyncIO, Uvicorn | Async REST API and WebSocket gateway with non-blocking database queries and worker orchestration. |
-| **AI Orchestration** | LangChain, LangGraph, Pydantic | Multi-agent state machines, role-playing interview simulator, candidate fit evaluation, and customizable provider task bindings. |
+| **AI Orchestration** | LangChain, LangGraph, Pydantic | Tool-using conversational assistant, candidate fit workflows, role-playing interview simulator, and configurable provider task bindings. |
 | **Database & Vector Search** | PostgreSQL 16, pgvector, pg_trgm, SQLAlchemy 2 | Relational application storage, vector similarity search, fuzzy full-text matching, and Alembic migrations. |
 | **Stealth Scraper** | Camofox (Headless Firefox Engine) | Anti-bot evasion, dynamic JavaScript execution, cookie dismissals, and high-fidelity DOM extraction. |
 | **Web Search & Limiter** | DuckDuckGo, SearXNG, Token Bucket Limiter | Multi-engine web intelligence retrieval with automatic health fallback and domain-anchored company profiling. |
@@ -261,7 +261,7 @@ Explore our guides to get the most out of Job Tracker:
 
 ## 🤝 Contributing
 
-Contributions, issues, and feature requests are welcome!
+Bug reports and feature requests are welcome. If you plan to submit code, open an issue first to discuss scope and contribution terms. The project is licensed under PolyForm Noncommercial; including contributed code in a separately commercially licensed distribution requires the contributor's separate written permission.
 
 ### Development Workflow
 
@@ -271,7 +271,7 @@ Contributions, issues, and feature requests are welcome!
    ```
 
 2. **Run Quality Verification:**
-   Before submitting changes, execute the pre-commit verification script ([`pre-commit.sh`](file:///home/joel/Projects/job-tracker/scripts/pre-commit.sh)):
+   Before submitting changes, execute the pre-commit verification script ([`scripts/pre-commit.sh`](scripts/pre-commit.sh)):
    ```bash
    ./scripts/pre-commit.sh
    ```
@@ -284,6 +284,6 @@ Contributions, issues, and feature requests are welcome!
 
 ## 📄 License
 
-This project is licensed under the **PolyForm Noncommercial License 1.0.0** — see the [LICENSE](LICENSE) file for details.
+This is a source-available project under the **PolyForm Noncommercial License 1.0.0**, not an OSI-approved open-source license. The license permits noncommercial use, modification, and redistribution; commercial use requires separate permission from the copyright holder. See [LICENSE](LICENSE) for the terms.
 
-> Free for personal, educational, and individual non-commercial use. Commercial use, third-party SaaS hosting, redistribution for profit, and commercial exploitation are strictly prohibited without prior written permission from the copyright holder (Joel Duarte).
+> Noncommercial use is permitted under the license terms, which also define permitted personal and organizational uses. Commercial use requires separate written permission from the copyright holder (Joel Duarte).

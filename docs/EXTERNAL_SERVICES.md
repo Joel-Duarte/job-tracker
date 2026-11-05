@@ -389,6 +389,6 @@ docker compose -f docker-compose.yml -f docker-compose.external.yml exec backend
 
 ## 📚 Related Documentation
 
-- [System Architecture](file:///home/joel/Projects/job-tracker/docs/ARCHITECTURE.md) — Comprehensive architecture, LangGraph state machines, and data models.
-- [AI Providers Setup](file:///home/joel/Projects/job-tracker/docs/AI_PROVIDERS.md) — Configuring local LLMs (LM Studio, Ollama) and cloud providers (OpenAI, Claude, Gemini).
-- [Quickstart & Daily Driving Guide](file:///home/joel/Projects/job-tracker/docs/QUICKSTART.md) — In-app onboarding wizard, daily CLI commands, and companion browser extension.
+- [System Architecture](ARCHITECTURE.md) — System architecture, LangGraph workflows, and data models.
+- [AI Providers Setup](AI_PROVIDERS.md) — Configuring local LLMs (LM Studio, Ollama) and cloud providers (OpenAI, Claude, Gemini).
+- [Quickstart & Daily Driving Guide](QUICKSTART.md) — In-app onboarding, CLI commands, and companion browser extension.

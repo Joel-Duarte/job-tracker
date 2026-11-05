@@ -1,6 +1,6 @@
 # 🧠 Job Tracker: Local & Cloud AI Provider Setup Guide
 
-Job Tracker is built with a flexible, model-agnostic AI engine powered by **LangChain** and **LangGraph**. It supports everything from **100% private, offline, on-premise local inference** (zero data leaves your home network) to **high-performance cloud providers** (OpenAI, Anthropic Claude, Google Gemini, OpenRouter).
+Job Tracker is built with a flexible, model-agnostic AI engine powered by **LangChain** and **LangGraph**. It supports local inference on a model endpoint you control, as well as cloud providers such as OpenAI, Anthropic, Google Gemini, and OpenRouter. With local inference, prompts go to the configured local endpoint; email sync, web search, and job-page fetching remain networked integrations when enabled.
 
 All provider configurations, credentials, and task bindings are managed dynamically via the in-app Settings UI (`/settings`) and stored securely in PostgreSQL with Fernet symmetric encryption.
 
@@ -31,9 +31,9 @@ All provider configurations, credentials, and task bindings are managed dynamica
 
 ---
 
-## 💻 100% Private Offline Local AI
+## 💻 Local AI Inference
 
-Local inference ensures that your resumes, application histories, and recruiter emails are processed entirely on your local machine or private home lab.
+Local inference sends AI prompts to your configured local machine or private model host instead of a cloud model provider. This setting controls model inference only; it does not disable the app's separately configured email, web-search, OAuth, or job-page network integrations.
 
 ---
 

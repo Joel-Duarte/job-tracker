@@ -87,13 +87,15 @@ When you open the web UI for the first time, Job Tracker automatically launches 
 
 ### Step 1: Connect Your AI Provider
 Job Tracker is model-agnostic. Choose your preferred AI engine:
-1. **Local LM Studio / Local Ollama (100% Private):** Zero data leaves your computer. Default endpoint `http://192.168.x.x:1234/v1` (LM Studio) or `http://localhost:11434/v1` (Ollama).
+1. **Local LM Studio / Local Ollama:** Prompts are sent to the local model endpoint you configure. Default endpoint `http://192.168.x.x:1234/v1` (LM Studio) or `http://localhost:11434/v1` (Ollama).
 2. **Cloud Providers (OpenAI, Anthropic Claude, Google Gemini, OpenRouter):** Enter your API key.
 3. Click **"Test Connection"** — Job Tracker verifies network connectivity and dynamically discovers all loaded models directly from the provider endpoint.
 4. Select your primary model (e.g., `qwen2.5-7b-instruct`, `gpt-4o-mini`, `gemini-2.0-flash`, `claude-3-5-haiku`) and click **Next**.
 
+> Using a local model keeps model prompts on the configured local endpoint. Features such as OAuth email sync, web search, and external job-page fetching still contact the services you configure; local inference does not make those integrations offline.
+
 > [!NOTE]
-> For in-depth instructions on setting up local and cloud AI backends, see [AI Providers Documentation](file:///home/joel/Projects/job-tracker/docs/AI_PROVIDERS.md).
+> For in-depth instructions on setting up local and cloud AI backends, see [AI Providers Documentation](AI_PROVIDERS.md).
 
 ### Step 2: Upload or Paste Candidate CV
 1. Upload your resume (PDF, DOCX, TXT, or Markdown) or paste the raw text.
@@ -112,7 +114,7 @@ Automate interview invites, online assessments, and recruiter update tracking:
 - **Apple iCloud / Fastmail / Yahoo / Custom IMAP:** Direct IMAP connection over SSL (Port 993).
 - Choose your recruitment folder (e.g., `INBOX`, `Jobs`, `Recruitment`) and sync schedule.
 
-> For complete step-by-step instructions with Cloud Console / Azure setup and App Password generation, see the [OAuth & Mailbox Setup Guide](file:///home/joel/Projects/job-tracker/docs/OAUTH_SETUP.md).
+> For complete step-by-step instructions with Cloud Console / Azure setup and App Password generation, see the [OAuth & Mailbox Setup Guide](OAUTH_SETUP.md).
 
 ### Step 5: Launch!
 Click **"Launch Job Tracker"** to enter your workspace. Your background evaluation worker starts immediately, ready to triage and assess leads.
@@ -247,7 +249,7 @@ docker compose logs -f backend
 
 ## 🎯 Next Steps
 
-- Explore the [AI Providers Guide](file:///home/joel/Projects/job-tracker/docs/AI_PROVIDERS.md) to fine-tune per-task model bindings and configure transparent failovers.
+- Explore the [AI Providers Guide](AI_PROVIDERS.md) to fine-tune per-task model bindings and configure transparent failovers.
 - Visit `/applications` in the web app to manage your Kanban pipeline.
 - Explore `/companies` to research employer profiles, track notes, and synthesize web intelligence.
 - Practice multi-turn behavioral and technical interview questions in `/chat` (Agent Chat & Mock Interview Simulator).
