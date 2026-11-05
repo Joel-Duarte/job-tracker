@@ -1124,7 +1124,7 @@ async def seed_development_dataset(session: AsyncSession) -> dict[str, int]:
     provider_local = AIProviderModel(
         name="Local LM studio",
         provider_type="openai",
-        base_url="http://192.168.1.187:1234/v1",
+        base_url="http://host.docker.internal:1234/v1",
         api_key="",
         max_concurrency=2,
         auto_release_vram_minutes=10,

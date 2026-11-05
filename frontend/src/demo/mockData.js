@@ -1356,7 +1356,7 @@ export const INITIAL_MOCK_DATA = {
       id: "prov_demo_1",
       name: "Local LM Studio",
       provider_type: "openai",
-      base_url: "http://192.168.1.187:1234/v1",
+      base_url: "http://localhost:1234/v1",
       api_key_masked: "Not Required / Local",
       max_concurrency: 1,
       is_active: true,

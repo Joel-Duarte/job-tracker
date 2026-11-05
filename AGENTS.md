@@ -65,7 +65,7 @@ Job Tracker is a full-stack, AI-powered application designed to help users track
   - 8 Application Timeline Events and 5 Action Items with varying deadlines/urgencies
   - 3 Staging Queue items for triage
   - 3 Intake AI evaluation tasks: 2 `COMPLETED` tasks with full match dossiers and 1 retryable `FAILED` task (with simulated network error) for testing UI retry functionality
-  - 1 Active AI Provider: `Local LM studio` (`openai` provider type, `http://192.168.1.187:1234/v1`, max concurrency `2`, auto_release_vram_minutes `10`, empty key)
+  - 1 Active AI Provider: `Local LM studio` (`openai` provider type, `http://host.docker.internal:1234/v1`, max concurrency `2`, auto_release_vram_minutes `10`, empty key)
   - 5 AI Task Bindings (`GLOBAL_DEFAULT`, `JOB_ASSESSMENT`, `EMAIL_EXTRACTION`, `INTERVIEW_GUIDE`, `JD_EXTRACTION`) bound to `Local LM studio`
   - 2 Connected Email Accounts
 - **Dynamic Local LLM Mock Data Generator:** Run `./jt seed` (or `uv run python -m app.services.mock_generator --seed-db`) to query your local LM Studio instance and synthesize fresh, domain-accurate tech job leads, dossiers, and timeline events for testing new fields.
