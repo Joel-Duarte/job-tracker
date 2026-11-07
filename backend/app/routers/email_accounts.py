@@ -450,6 +450,8 @@ async def oauth_callback(
             await db.commit()
 
         frontend_origin = _resolve_frontend_origin(request)
+        safe_prov = json.dumps(prov).replace("<", "\\u003c")
+        safe_origin = json.dumps(frontend_origin).replace("<", "\\u003c")
         response = Response(
             content=f"""
             <html>
@@ -458,12 +460,12 @@ async def oauth_callback(
                         <h2 style="color: #10b981; margin-bottom: 8px;">✓ Mailbox Connected Successfully!</h2>
                         <p style="color: #94a3b8; font-size: 14px;">Sync authorization established. Closing window...</p>
                         <script>
-                            const payload = {{ type: 'oauth_success', provider: {json.dumps(prov)}, timestamp: Date.now() }};
+                            const payload = {{ type: 'oauth_success', provider: {safe_prov}, timestamp: Date.now() }};
 
                             // 1. PostMessage to opener window (if opener exists and is reachable)
                             if (window.opener) {{
                                 try {{
-                                    window.opener.postMessage(payload, {json.dumps(frontend_origin)});
+                                    window.opener.postMessage(payload, {safe_origin});
                                 }} catch (e) {{
                                     console.warn('postMessage failed:', e);
                                 }}

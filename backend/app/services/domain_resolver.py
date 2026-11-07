@@ -378,32 +378,68 @@ def clean_company_name(raw_name: str | None) -> str:
     if not raw_name:
         return ""
 
-    # Company labels are short; cap regex work on malformed extracted content.
+    # Company labels are short; cap work on malformed extracted content.
     name = raw_name.strip()[:512]
     # Remove quotes, backticks, and brackets
-    name = re.sub(r"^[\"\'`\(\[\{]+|[\"\'`\)\]\}]+$", "", name).strip()
+    name = name.strip("\"'`([{)]}").strip()
 
     # Remove career / job portal suffixes
-    name = re.sub(
-        r"\s*[-–—:]\s*(Careers|Jobs|Job\s+Openings?|Engineering|Hiring)\s*$",
-        "",
-        name,
-        flags=re.IGNORECASE,
-    ).strip()
-    name = re.sub(
-        r"\s+(Careers|Jobs|Job\s+Openings?|Team)\s*$", "", name, flags=re.IGNORECASE
-    ).strip()
+    portal_suffixes = (
+        "job openings",
+        "job opening",
+        "careers",
+        "jobs",
+        "engineering",
+        "hiring",
+        "team",
+    )
+    name_lower = name.lower()
+    for suffix in portal_suffixes:
+        if name_lower.endswith(suffix):
+            idx = len(name) - len(suffix)
+            if idx > 0 and name[idx - 1] in " \t-–—:":
+                prefix = name[:idx].rstrip(",.-:–— ").strip()
+                if prefix:
+                    name = prefix
+                    name_lower = name.lower()
+                    break
 
-    # Remove common legal entity suffixes: Inc, LLC, Ltd, Corp, Corporation, GmbH, S.A., B.V., Co.
-    name = re.sub(
-        r"[,.]?\s*\b(inc(\.|\b)|llc(\.|\b)|ltd(\.|\b)|limited\b|corp(\.|\b)|corporation\b|gmbh\b|s\.?a\.?\b|b\.?v\.?\b|co(\.|\b)|p\.?l\.?c\.?\b)\s*$",
-        "",
-        name,
-        flags=re.IGNORECASE,
-    ).strip()
+    # Remove common legal entity suffixes
+    legal_suffixes = (
+        "corporation",
+        "limited",
+        "p.l.c.",
+        "s.a.",
+        "b.v.",
+        "gmbh",
+        "corp.",
+        "corp",
+        "inc.",
+        "inc",
+        "llc.",
+        "llc",
+        "ltd.",
+        "ltd",
+        "s.a",
+        "b.v",
+        "plc",
+        "co.",
+        "co",
+        "sa",
+        "bv",
+    )
+    for suffix in legal_suffixes:
+        if name_lower.endswith(suffix):
+            idx = len(name) - len(suffix)
+            if idx > 0 and name[idx - 1] in " \t,.-/":
+                prefix = name[:idx].rstrip(",.-:–— ").strip()
+                if prefix:
+                    name = prefix
+                    name_lower = name.lower()
+                    break
 
     # Clean trailing punctuation
-    name = re.sub(r"[,.\-:–—]+$", "", name).strip()
+    name = name.rstrip(",.-:–— ").strip()
     return name or raw_name.strip()[:512]
 
 

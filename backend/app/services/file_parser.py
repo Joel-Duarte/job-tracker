@@ -148,7 +148,11 @@ def normalize_resume_text(text: str) -> str:
     # 1. Normalize line endings and non-breaking spaces
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = text.replace("\xa0", " ").replace("\u200b", "").replace("\ufeff", "")
-    # Keep each regex search bounded even for a malformed single-line document.
+
+    # Collapse multiple horizontal spaces/tabs into a single space early
+    text = re.sub(r"[^\S\n]+", " ", text)
+
+    # Keep each line bounded even for a malformed single-line document.
     text = "\n".join(
         line[offset : offset + 1024]
         for line in text.split("\n")
@@ -160,16 +164,12 @@ def normalize_resume_text(text: str) -> str:
         text = re.sub(rf"(?<!\n)[ \t]*{re.escape(b)}[ \t]*", f"\n{b} ", text)
 
     # Break embedded dash/bullet items onto new lines (e.g. "...updates. - Managed...")
-    text = re.sub(r"(?<!\n)[ \t]+-[ \t]+", "\n- ", text)
+    text = re.sub(r"(?<!\n) - ", "\n- ", text)
 
-    # 3. Collapse multiple horizontal spaces/tabs into a single space
-    text = re.sub(r"[^\S\n]+", " ", text)
-
-    # 4. Clean up spaces before punctuation (horizontal space only, preserving newlines for .NET etc.)
-    text = re.sub(r"[ \t]+([,.:;!?])", r"\1", text)
-    text = re.sub(r"\([ \t]+", "(", text)
-    text = re.sub(r"[ \t]+\)", ")", text)
-    text = re.sub(r"(\w+)[ \t]+-[ \t]*based", r"\1-based", text, flags=re.IGNORECASE)
+    # 3. Clean up spaces before punctuation (horizontal space only, preserving newlines for .NET etc.)
+    text = re.sub(r" ([,.:;!?])", r"\1", text)
+    text = text.replace("( ", "(").replace(" )", ")")
+    text = re.sub(r"(\w{1,64}) - ?based", r"\1-based", text, flags=re.IGNORECASE)
 
     # 5. Process lines: heal broken/fragmented lines while preserving sections & bullets
     raw_lines = [line.strip() for line in text.split("\n")]
@@ -301,7 +301,7 @@ def normalize_resume_text(text: str) -> str:
                 result.append("")
         else:
             cleaned_line = re.sub(r"[^\S\n]+", " ", trimmed)
-            cleaned_line = re.sub(r"\s+([,.:;!?])", r"\1", cleaned_line)
+            cleaned_line = re.sub(r" ([,.:;!?])", r"\1", cleaned_line)
             result.append(cleaned_line)
 
     return "\n".join(result).strip()

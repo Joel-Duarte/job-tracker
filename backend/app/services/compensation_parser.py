@@ -215,7 +215,7 @@ def parse_compensation_text(raw_text: str | None) -> dict[str, Any]:
     # '66500 to 88000'
     # '120,000 - 150,000'
     range_pattern = re.compile(
-        r"(?:[\$€£₹¥]?\s*)(\d[\d,\.]*\s*[kmKM]?)\s*(?:-|–|—|to)\s*(?:[\$€£₹¥]?\s*)(\d[\d,\.]*\s*[kmKM]?)",
+        r"(?:[$€£₹¥]\s*)?(\d[\d,.]{0,15}(?:[ \t]{1,5}[kmKM]|[kmKM])?)\s*(?:[-–—]|\bto\b)(?:\s*[$€£₹¥])?\s*(\d[\d,.]{0,15}(?:[ \t]{1,5}[kmKM]|[kmKM])?)",
         re.IGNORECASE,
     )
 
@@ -253,7 +253,7 @@ def parse_compensation_text(raw_text: str | None) -> dict[str, Any]:
 
     # Match single numbers (e.g. 'Up to $180,000', 'From $120k', '$85/hr')
     single_num_pattern = re.compile(
-        r"(?:(?:up\s*to|max(?:imum)?)\s*[\$€£₹¥]?\s*|\b(?:from|min(?:imum)?)\s*[\$€£₹¥]?\s*|[\$€£₹¥]\s*)(\d[\d,\.]*\s*[kmKM]?)",
+        r"(?:(?:up\s*to|max(?:imum)?)(?:\s*[$€£₹¥])?\s*|\b(?:from|min(?:imum)?)(?:\s*[$€£₹¥])?\s*|[$€£₹¥]\s*)(\d[\d,.]{0,15}(?:[ \t]{1,5}[kmKM]|[kmKM])?)",
         re.IGNORECASE,
     )
 
@@ -261,7 +261,7 @@ def parse_compensation_text(raw_text: str | None) -> dict[str, Any]:
     if not single_match:
         # Fallback single number followed by currency or period
         fallback_pattern = re.compile(
-            r"(\d[\d,\.]*\s*[kmKM]?)\s*(?:eur|usd|gbp|chf|sek|cad|aud|\/|per\s*(?:year|month|hour|annum))",
+            r"(\d[\d,.]{0,15}(?:[ \t]{1,5}[kmKM]|[kmKM])?)\s*(?:eur|usd|gbp|chf|sek|cad|aud|\/|per\s*(?:year|month|hour|annum))\b",
             re.IGNORECASE,
         )
         single_match = fallback_pattern.search(scan_text)

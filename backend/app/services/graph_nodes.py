@@ -256,13 +256,29 @@ async def extraction_node(
         return result
 
 
+def _has_interleaved_plain_reply(body: str) -> bool:
+    """Detects interleaved plain-text email replies where a quote block ('> ...')
+    is followed by user reply text, indicating manual staging review is needed.
+    """
+    saw_quote = False
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith(">"):
+            saw_quote = True
+        elif saw_quote:
+            return True
+    return False
+
+
 async def _extract_email(
     state: JobTrackerState, config: RunnableConfig
 ) -> dict[str, Any]:
     db = _get_db(config)
     raw_body = state.get("body", "")
     if re.search(
-        r"</blockquote>\s*(?:<(?:p|div)[^>]*>)?\s*[^<\s]", raw_body, flags=re.I
+        r"</blockquote>(?:\s*<(?:p|div)[^>]*>)?\s*[^<\s]", raw_body, flags=re.I
     ):
         return {
             "route": "staging",
@@ -288,7 +304,7 @@ async def _extract_email(
                 "temporal": {"version": 2, "issues": [issue or "EMPTY_NEWEST_MESSAGE"]}
             },
         }
-    if re.search(r"(?m)^\s*>.*\n(?!\s*>)(?:\s*\n)*\S", latest_body):
+    if _has_interleaved_plain_reply(latest_body):
         return {
             "route": "staging",
             "match_reason": "INTERLEAVED_REPLY_REVIEW",
