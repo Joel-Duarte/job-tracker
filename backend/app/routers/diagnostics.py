@@ -1,13 +1,13 @@
 import json
 import zipfile
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -19,6 +19,33 @@ router = APIRouter(
     tags=["Diagnostics"],
     dependencies=[Depends(verify_admin_access)],
 )
+
+_DIAGNOSTICS_STATS_CACHE: dict[str, tuple[tuple[int, int], dict[str, Any]]] = {}
+
+
+def clear_diagnostics_cache() -> None:
+    """Clears the in-memory diagnostics stats cache (used in testing)."""
+    _DIAGNOSTICS_STATS_CACHE.clear()
+
+
+async def _get_diagnostics_fingerprint(
+    db: AsyncSession, days: int | None = None
+) -> tuple[int, int]:
+    try:
+        stmt = select(
+            func.count(TraceEventModel.id),
+            func.coalesce(func.max(TraceEventModel.id), 0),
+        ).where(TraceEventModel.event_type != "health_check")
+        if days is not None:
+            cutoff = datetime.now(UTC) - timedelta(days=days)
+            stmt = stmt.where(TraceEventModel.timestamp >= cutoff)
+        res = await db.execute(stmt)
+        row = res.first()
+        if row:
+            return (int(row[0] or 0), int(row[1] or 0))
+    except Exception:
+        pass
+    return (0, 0)
 
 
 @router.get("/export")
@@ -68,12 +95,26 @@ async def export_diagnostics(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/stats")
-async def get_diagnostics_stats(db: AsyncSession = Depends(get_db)):
+async def get_diagnostics_stats(
+    days: int | None = Query(None, description="Scope stats to last N days"),
+    db: AsyncSession = Depends(get_db),
+):
     from app.services.pricing_service import extract_usage_from_payload
+
+    cache_key = f"stats_{days}"
+    current_fp = await _get_diagnostics_fingerprint(db, days=days)
+    if cache_key in _DIAGNOSTICS_STATS_CACHE:
+        cached_fp, cached_stats = _DIAGNOSTICS_STATS_CACHE[cache_key]
+        if cached_fp == current_fp:
+            return cached_stats
 
     stmt = select(TraceEventModel.category, TraceEventModel.payload).where(
         TraceEventModel.event_type != "health_check"
     )
+    if days is not None:
+        cutoff = datetime.now(UTC) - timedelta(days=days)
+        stmt = stmt.where(TraceEventModel.timestamp >= cutoff)
+
     result = await db.execute(stmt)
     records = result.all()
 
@@ -116,7 +157,7 @@ async def get_diagnostics_stats(db: AsyncSession = Depends(get_db)):
             task_token_breakdown[task_name]["savings_usd"] + savings, 4
         )
 
-    return {
+    res_data = {
         "total_runs": total_runs,
         "success_count": success_count,
         "error_count": error_count,
@@ -130,6 +171,8 @@ async def get_diagnostics_stats(db: AsyncSession = Depends(get_db)):
         "total_savings_usd": round(total_savings_usd, 4),
         "task_token_breakdown": dict(task_token_breakdown),
     }
+    _DIAGNOSTICS_STATS_CACHE[cache_key] = (current_fp, res_data)
+    return res_data
 
 
 def _extract_tracer_task_name(
@@ -275,6 +318,7 @@ async def purge_traces(db: AsyncSession = Depends(get_db)):
 
     await db.execute(delete(TraceEventModel))
     await db.commit()
+    clear_diagnostics_cache()
     return {"message": "All diagnostic traces purged successfully."}
 
 

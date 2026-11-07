@@ -125,6 +125,9 @@ async function fetchBadgeCounts() {
     if (res?.data) {
       uiStore.setPendingStagingCount(res.data.staging_count)
       pendingTasksCount.value = res.data.pending_action_items_count || 0
+      if (typeof res.data.ready_assessments_count === 'number') {
+        queueStore.setReadyAssessmentsCount(res.data.ready_assessments_count)
+      }
       if (res.data.active_queue_tasks_count > 0 || queueStore.tasks.length === 0) {
         await queueStore.fetchTasks(true)
       }

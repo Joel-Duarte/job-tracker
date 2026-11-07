@@ -828,7 +828,10 @@ export async function handleDemoRequest(config) {
 
   // Assessments Endpoints
   if (urlPath === '/intake/assessments' && method === 'get') {
-    return ok(db.assessments || [])
+    const list = db.assessments || []
+    const limit = params.limit ? parseInt(params.limit, 10) : 50
+    const offset = params.offset ? parseInt(params.offset, 10) : 0
+    return ok(list.slice(offset, offset + limit))
   }
 
   const assessRestoreMatch = urlPath.match(/^\/intake\/assessments\/([^/]+)\/restore$/)
@@ -1463,6 +1466,9 @@ export async function handleDemoRequest(config) {
     ).length
 
     const totalAppsCount = (db.applications || []).length
+    const readyAssessmentsCount = (db.applications || []).filter(
+      (a) => (a.is_assessment || a.status === 'ASSESSMENT') && a.status === 'ASSESSMENT'
+    ).length
     const latestActivity = (db.applications || []).reduce((max, app) => {
       const act = app.last_activity_at || app.created_at
       return act && (!max || act > max) ? act : max
@@ -1472,6 +1478,7 @@ export async function handleDemoRequest(config) {
       staging_count: stagingCount,
       pending_action_items_count: pendingTasksCount,
       active_queue_tasks_count: activeQueueTasksCount,
+      ready_assessments_count: readyAssessmentsCount,
       total_applications_count: totalAppsCount,
       latest_activity_at: latestActivity,
     })
@@ -1844,7 +1851,15 @@ export async function handleDemoRequest(config) {
 
   // 9. AGENT CHAT ENDPOINTS
   if (urlPath === '/agent/chats' && method === 'get') {
-    return ok(db.agent_chats || [])
+    const list = db.agent_chats || []
+    return ok(
+      list.map((c) => ({
+        id: c.id,
+        title: c.title,
+        created_at: c.created_at,
+        updated_at: c.updated_at,
+      }))
+    )
   }
 
   const agentChatDetailMatch = urlPath.match(/^\/agent\/chats\/([^/]+)$/)

@@ -3,11 +3,12 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 from app.core.database import get_db
 from app.core.llm_factory import get_task_chat_model
@@ -81,6 +82,13 @@ class AgentChatResponse(BaseModel):
     actions_performed: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class AgentChatSummary(BaseModel):
+    id: int
+    title: str
+    created_at: Any
+    updated_at: Any
+
+
 class AgentChatRead(BaseModel):
     id: int
     title: str
@@ -89,11 +97,30 @@ class AgentChatRead(BaseModel):
     updated_at: Any
 
 
-@router.get("/chats", response_model=list[AgentChatRead])
-async def list_chats(db: AsyncSession = Depends(get_db)):
-    stmt = select(AgentChatModel).order_by(desc(AgentChatModel.updated_at))
+@router.get("/chats", response_model=list[AgentChatSummary])
+async def list_chats(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = (
+        select(AgentChatModel)
+        .options(defer(AgentChatModel.messages))
+        .order_by(desc(AgentChatModel.updated_at))
+        .limit(limit)
+        .offset(offset)
+    )
     res = await db.execute(stmt)
-    return res.scalars().all()
+    chats = res.scalars().all()
+    return [
+        AgentChatSummary(
+            id=c.id,
+            title=c.title,
+            created_at=c.created_at,
+            updated_at=c.updated_at,
+        )
+        for c in chats
+    ]
 
 
 @router.get("/chats/{chat_id}", response_model=AgentChatRead)

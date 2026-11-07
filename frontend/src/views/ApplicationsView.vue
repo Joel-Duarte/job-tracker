@@ -744,9 +744,16 @@ const sortedArchivedApplications = computed(() => {
       return reasonA.localeCompare(reasonB) * order
     }
     if (archiveSortKey.value === 'match') {
-      const scoreA = Number(getAppFitScores(a).aiScore ?? getAppFitScores(a).computedScore ?? -1)
-      const scoreB = Number(getAppFitScores(b).aiScore ?? getAppFitScores(b).computedScore ?? -1)
-      return (scoreA - scoreB) * order
+      const scoreMap = new Map()
+      for (const app of apps) {
+        const scores = getAppFitScores(app)
+        scoreMap.set(app.id, Number(scores.aiScore ?? scores.computedScore ?? -1))
+      }
+      return apps.sort((a, b) => {
+        const scoreA = scoreMap.get(a.id) ?? -1
+        const scoreB = scoreMap.get(b.id) ?? -1
+        return (scoreA - scoreB) * order
+      })
     }
     // Default: archived_date
     const dateA = new Date(appStore.getAppActivityDate(a) || 0).getTime()

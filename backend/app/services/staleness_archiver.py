@@ -3,7 +3,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config_manager import load_settings
@@ -65,15 +65,18 @@ async def archive_stale_applications(
         )
         db.add(event)
 
-        action_items_query = select(ActionItemModel).where(
-            ActionItemModel.application_id == app.id,
-            ActionItemModel.status == "PENDING",
-        )
-        action_items_result = await db.execute(action_items_query)
-        for item in action_items_result.scalars().all():
-            item.status = "DISMISSED"
-
         archived_ids.append(app.id)
+
+    # Bulk dismiss pending action items in a single query instead of N individual queries
+    if archived_ids:
+        await db.execute(
+            update(ActionItemModel)
+            .where(
+                ActionItemModel.application_id.in_(archived_ids),
+                ActionItemModel.status == "PENDING",
+            )
+            .values(status="DISMISSED", updated_at=datetime.now(UTC))
+        )
 
     await db.commit()
 

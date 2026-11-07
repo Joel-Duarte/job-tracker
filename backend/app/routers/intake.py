@@ -12,6 +12,7 @@ from fastapi import (
     Depends,
     File,
     HTTPException,
+    Query,
     Request,
     UploadFile,
     status,
@@ -1094,6 +1095,8 @@ async def enqueue_job_assessment(
     status_code=status.HTTP_200_OK,
 )
 async def list_assessments(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ) -> list[IntakeEvaluationTaskResponse]:
     """Retrieves all pending job assessments directly from persistent applications storage,
@@ -1115,6 +1118,8 @@ async def list_assessments(
             ApplicationModel.status.in_(["ASSESSMENT", "ARCHIVED"]),
         )
         .order_by(ApplicationModel.created_at.desc())
+        .limit(limit)
+        .offset(offset)
     )
     app_res = await db.execute(app_stmt)
     apps = app_res.scalars().all()

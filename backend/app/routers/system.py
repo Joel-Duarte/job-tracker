@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -48,6 +48,13 @@ async def get_badge_counts(db: AsyncSession = Depends(get_db)) -> BadgeCountsRes
     active_tasks_stmt = select(func.count(IntakeEvaluationTaskModel.id)).where(
         IntakeEvaluationTaskModel.status.in_(ACTIVE_TASK_STATUSES)
     )
+    ready_assessments_stmt = select(func.count(ApplicationModel.id)).where(
+        or_(
+            ApplicationModel.is_assessment.is_(True),
+            ApplicationModel.status == "ASSESSMENT",
+        ),
+        ApplicationModel.status == "ASSESSMENT",
+    )
     total_apps_stmt = select(func.count(ApplicationModel.id))
     latest_app_activity_stmt = select(
         func.greatest(
@@ -66,6 +73,7 @@ async def get_badge_counts(db: AsyncSession = Depends(get_db)) -> BadgeCountsRes
     staging_res = await db.scalar(staging_stmt)
     action_items_res = await db.scalar(action_items_stmt)
     active_tasks_res = await db.scalar(active_tasks_stmt)
+    ready_assessments_res = await db.scalar(ready_assessments_stmt)
     total_apps_res = await db.scalar(total_apps_stmt)
     latest_app_res = await db.scalar(latest_app_activity_stmt)
     latest_action_res = await db.scalar(latest_action_activity_stmt)
@@ -82,6 +90,7 @@ async def get_badge_counts(db: AsyncSession = Depends(get_db)) -> BadgeCountsRes
         staging_count=staging_res or 0,
         pending_action_items_count=action_items_res or 0,
         active_queue_tasks_count=active_tasks_res or 0,
+        ready_assessments_count=ready_assessments_res or 0,
         total_applications_count=total_apps_res or 0,
         latest_activity_at=latest_activity_res,
     )

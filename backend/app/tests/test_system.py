@@ -3,7 +3,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.core.database import get_db
 from app.main import app
-from app.models.applications import ActionItemModel
+from app.models.applications import ActionItemModel, ApplicationModel, CompanyModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.models.staging import StagingItemModel
 
@@ -39,7 +39,19 @@ async def test_get_system_badges_counts(db_session):
         title_hint="Frontend Dev",
         raw_text="Job posting text",
     )
-    db_session.add_all([active_task, completed_task])
+    company = CompanyModel(
+        name="Test Assessment Co", name_normalized="test assessment co"
+    )
+    db_session.add(company)
+    await db_session.flush()
+
+    assessment_app = ApplicationModel(
+        company_id=company.id,
+        position="Backend Engineer Assessment",
+        status="ASSESSMENT",
+        is_assessment=True,
+    )
+    db_session.add_all([active_task, completed_task, assessment_app])
     await db_session.commit()
 
     async with AsyncClient(
@@ -51,5 +63,6 @@ async def test_get_system_badges_counts(db_session):
         assert data["staging_count"] >= 1
         assert data["pending_action_items_count"] >= 1
         assert data["active_queue_tasks_count"] >= 1
+        assert data["ready_assessments_count"] >= 1
 
     app.dependency_overrides.clear()

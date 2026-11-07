@@ -89,9 +89,13 @@ export const useQueueStore = defineStore('queue', () => {
           .map((t) => [t.id, t])
       )
 
+      const shouldFetchAssessments =
+        assessments.value.length === 0 ||
+        prevActiveTasks.size > 0
+
       const [res, assessmentsRes] = await Promise.all([
         IntakeAPI.getEvaluations(250),
-        IntakeAPI.getAssessments(),
+        shouldFetchAssessments ? IntakeAPI.getAssessments(50) : Promise.resolve(null),
       ])
 
       const newlyCompletedTasks = []
@@ -106,7 +110,7 @@ export const useQueueStore = defineStore('queue', () => {
         tasks.value = res.data
       }
 
-      if (Array.isArray(assessmentsRes.data)) {
+      if (assessmentsRes && Array.isArray(assessmentsRes.data)) {
         assessments.value = assessmentsRes.data
         let passedIds = new Set()
         try {

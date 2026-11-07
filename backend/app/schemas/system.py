@@ -16,6 +16,10 @@ class BadgeCountsResponse(BaseModel):
         default=0,
         description="Number of actively running background intake/evaluation tasks",
     )
+    ready_assessments_count: int = Field(
+        default=0,
+        description="Number of completed job assessments ready for candidate review",
+    )
     total_applications_count: int = Field(
         default=0,
         description="Total number of applications in the system",
