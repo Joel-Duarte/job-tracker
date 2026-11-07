@@ -178,3 +178,23 @@ test('staging view displays sender info and includes archived toggle in link mod
   await archivedCheckbox.check()
   await expect(archivedCheckbox).toBeChecked()
 })
+
+test('applications archived view switches subcategory pills and renders independently', async ({ page }) => {
+  await page.goto('/')
+  const archiveViewBtn = page.getByRole('button', { name: /Archived \/ Closed/ })
+  await expect(archiveViewBtn).toBeVisible()
+  await archiveViewBtn.click()
+
+  const pills = page.locator('.archive-filter-pill')
+  await expect(pills.first()).toBeVisible()
+
+  const rejectedPill = page.locator('.archive-filter-pill').filter({ hasText: 'Rejected' })
+  if (await rejectedPill.isVisible()) {
+    await rejectedPill.click()
+    await expect(rejectedPill).toHaveClass(/active/)
+  }
+
+  const allClosedPill = page.locator('.archive-filter-pill').filter({ hasText: 'All Closed' })
+  await allClosedPill.click()
+  await expect(allClosedPill).toHaveClass(/active/)
+})

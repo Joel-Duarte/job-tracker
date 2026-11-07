@@ -182,6 +182,33 @@ export async function handleDemoRequest(config) {
         items = items.filter((a) => (a.status || '').toUpperCase() === stUpper)
       }
     }
+    if (params.archive_filter && params.archive_filter !== 'all') {
+      const af = params.archive_filter.toLowerCase()
+      const POST_APPLIED_STAGES = new Set(['ONLINE_ASSESSMENT', 'TECHNICAL_INTERVIEW', 'OFFER'])
+      items = items.filter((a) => {
+        const st = (a.status || '').toUpperCase()
+        if (af === 'withdrawn') return st === 'WITHDRAWN'
+        if (st === 'WITHDRAWN') return false
+
+        const reason = (
+          a.latest_event?.raw_payload?.archive_reason ||
+          a.latest_event?.raw_payload?.rejection_reason ||
+          a.rejection_reason ||
+          ''
+        ).toLowerCase()
+        const isGhost = st === 'ARCHIVED' || reason.includes('ghost')
+        if (isGhost) {
+          const prior = (a.previous_status || a.latest_event?.raw_payload?.previous_status || '').toUpperCase()
+          if (POST_APPLIED_STAGES.has(prior)) {
+            return af === 'ghosted_post_applied'
+          } else {
+            return af === 'ghosted_applied'
+          }
+        } else {
+          return af === 'rejected'
+        }
+      })
+    }
     const total = items.length
     const limit = Number(params.limit) || 1000
     const offset = Number(params.offset) || 0

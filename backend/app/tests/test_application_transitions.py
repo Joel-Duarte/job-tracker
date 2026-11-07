@@ -415,4 +415,20 @@ async def test_application_stage_counts(db_session: AsyncSession):
         data_list = resp_list.json()
         assert any(item["id"] == app1.id for item in data_list["items"])
 
+        # Test listing by archive subcategory filter
+        resp_withdrawn = await client.get(
+            "/api/v1/applications?status=ARCHIVED&archive_filter=withdrawn"
+        )
+        assert resp_withdrawn.status_code == 200
+        data_withdrawn = resp_withdrawn.json()
+        assert any(item["id"] == app_withdrawn.id for item in data_withdrawn["items"])
+        assert all(item["status"] == "WITHDRAWN" for item in data_withdrawn["items"])
+
+        resp_ghosted = await client.get(
+            "/api/v1/applications?status=ARCHIVED&archive_filter=ghosted_applied"
+        )
+        assert resp_ghosted.status_code == 200
+        data_ghosted = resp_ghosted.json()
+        assert any(item["id"] == app_archived.id for item in data_ghosted["items"])
+
     app.dependency_overrides.clear()

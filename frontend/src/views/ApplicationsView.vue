@@ -170,8 +170,8 @@ function handleArchiveScroll(event) {
   const el = event.target
   if (!el) return
   if (el.scrollHeight - el.scrollTop - el.clientHeight < 350) {
-    if (appStore.columnState.ARCHIVED.hasMore && !appStore.columnState.ARCHIVED.loading) {
-      appStore.loadMoreColumn('ARCHIVED')
+    if (appStore.currentArchiveState.hasMore && !appStore.currentArchiveState.loading) {
+      appStore.loadMoreArchive()
     }
   }
 }
@@ -198,10 +198,10 @@ function setupArchiveObserver() {
       const entry = entries[0]
       if (
         entry?.isIntersecting &&
-        appStore.columnState.ARCHIVED.hasMore &&
-        !appStore.columnState.ARCHIVED.loading
+        appStore.currentArchiveState.hasMore &&
+        !appStore.currentArchiveState.loading
       ) {
-        appStore.loadMoreColumn('ARCHIVED')
+        appStore.loadMoreArchive()
       }
     },
     { rootMargin: '300px' }
@@ -233,7 +233,12 @@ function setupHiredObserver() {
 }
 
 watch(
-  () => [appStore.pipelineViewMode, archiveSentinelRef.value, appStore.columnState.ARCHIVED.hasMore],
+  () => [
+    appStore.pipelineViewMode,
+    archiveSentinelRef.value,
+    appStore.currentArchiveState.hasMore,
+    appStore.archiveFilter,
+  ],
   async () => {
     if (appStore.pipelineViewMode === 'archive') {
       await nextTick()
@@ -243,7 +248,7 @@ watch(
       archiveObserver = null
     }
   },
-  { flush: 'post' }
+  { immediate: true }
 )
 
 watch(
@@ -634,48 +639,20 @@ function getAppMetadataLine(app) {
 }
 
 // Table Sorting & Quick Filter State (Archive View)
-const archiveFilter = ref('all') // 'all' | 'ghosted_post_applied' | 'ghosted_applied' | 'rejected' | 'withdrawn'
+const archiveFilter = computed({
+  get: () => appStore.archiveFilter,
+  set: (val) => appStore.setArchiveFilter(val),
+})
 const archiveSortKey = ref('archived_date') // 'company' | 'position' | 'stage_reached' | 'reason' | 'archived_date' | 'match'
 const archiveSortOrder = ref('desc') // 'asc' | 'desc'
 
 const archiveFilterCounts = computed(() => {
-  if (appStore.archiveCounts && (appStore.archiveCounts.all > 0 || appStore.stageCounts?.ARCHIVED > 0)) {
-    return {
-      all: appStore.archiveCounts.all || appStore.stageCounts?.ARCHIVED || 0,
-      ghosted_post_applied: appStore.archiveCounts.ghosted_post_applied || 0,
-      ghosted_applied: appStore.archiveCounts.ghosted_applied || 0,
-      rejected: appStore.archiveCounts.rejected || 0,
-      withdrawn: appStore.archiveCounts.withdrawn || 0,
-    }
-  }
-
-  const apps = appStore.archivedApplications
-  let ghostedPostApplied = 0
-  let ghostedApplied = 0
-  let rejected = 0
-  let withdrawn = 0
-
-  for (const app of apps) {
-    if (app.status === 'WITHDRAWN') {
-      withdrawn++
-    } else if (isGhostedOrArchived(app)) {
-      const priorStage = getAppPriorStage(app)
-      if (isPostAppliedStage(priorStage)) {
-        ghostedPostApplied++
-      } else {
-        ghostedApplied++
-      }
-    } else {
-      rejected++
-    }
-  }
-
   return {
-    all: apps.length,
-    ghosted_post_applied: ghostedPostApplied,
-    ghosted_applied: ghostedApplied,
-    rejected,
-    withdrawn,
+    all: appStore.archiveCounts?.all || appStore.stageCounts?.ARCHIVED || 0,
+    ghosted_post_applied: appStore.archiveCounts?.ghosted_post_applied || 0,
+    ghosted_applied: appStore.archiveCounts?.ghosted_applied || 0,
+    rejected: appStore.archiveCounts?.rejected || 0,
+    withdrawn: appStore.archiveCounts?.withdrawn || 0,
   }
 })
 
@@ -1362,7 +1339,12 @@ async function confirmDelete() {
           </button>
         </div>
 
-        <div v-if="appStore.archivedApplications.length === 0" class="empty-state-box">
+        <div v-if="appStore.currentArchiveState.loading && appStore.currentArchiveState.items.length === 0" class="empty-state-box">
+          <Loader2 :size="36" class="spin-loader empty-state-icon" />
+          <h3 class="empty-state-title">Loading applications...</h3>
+        </div>
+
+        <div v-else-if="archiveFilter === 'all' && appStore.currentArchiveState.items.length === 0" class="empty-state-box">
           <Archive :size="40" class="empty-state-icon" />
           <h3 class="empty-state-title">No archived or rejected applications</h3>
           <p class="empty-state-desc">
@@ -1522,7 +1504,7 @@ async function confirmDelete() {
           </table>
           <!-- Auto-loading Sentinel & Loading Indicator -->
           <div ref="archiveSentinelRef" class="scroll-sentinel"></div>
-          <div v-if="appStore.columnState.ARCHIVED.loading" class="archive-loading-indicator">
+          <div v-if="appStore.currentArchiveState.loading" class="archive-loading-indicator">
             <Loader2 :size="16" class="spin-loader" />
             <span>Loading more closed applications...</span>
           </div>

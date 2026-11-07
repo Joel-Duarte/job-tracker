@@ -71,6 +71,22 @@ export const useApplicationsStore = defineStore('applications', () => {
     withdrawn: 0,
   })
 
+  // Selected subcategory filter in Archive View
+  const archiveFilter = ref('all') // 'all' | 'ghosted_post_applied' | 'ghosted_applied' | 'rejected' | 'withdrawn'
+
+  // Dedicated paginated state per archive subcategory
+  const archiveSubState = ref({
+    all: { items: [], total: 0, offset: 0, hasMore: true, loading: false },
+    ghosted_post_applied: { items: [], total: 0, offset: 0, hasMore: true, loading: false },
+    ghosted_applied: { items: [], total: 0, offset: 0, hasMore: true, loading: false },
+    rejected: { items: [], total: 0, offset: 0, hasMore: true, loading: false },
+    withdrawn: { items: [], total: 0, offset: 0, hasMore: true, loading: false },
+  })
+
+  const currentArchiveState = computed(() => {
+    return archiveSubState.value[archiveFilter.value] || archiveSubState.value.all
+  })
+
   // Per-column paginated state
   const columnState = ref({
     APPLIED: { items: [], total: 0, offset: 0, hasMore: true, loading: false },
@@ -390,7 +406,8 @@ export const useApplicationsStore = defineStore('applications', () => {
   })
 
   const archivedApplications = computed(() => {
-    return (columnState.value.ARCHIVED.items || []).filter((a) => matchesDateRange(a))
+    const sub = currentArchiveState.value
+    return (sub.items || []).filter((a) => matchesDateRange(a))
   })
 
   const hiredApplications = computed(() => {
@@ -404,6 +421,11 @@ export const useApplicationsStore = defineStore('applications', () => {
     })
     Object.values(columnState.value).forEach((col) => {
       col.items.forEach((a) => {
+        if (a?.id) map.set(a.id, a)
+      })
+    })
+    Object.values(archiveSubState.value).forEach((sub) => {
+      sub.items.forEach((a) => {
         if (a?.id) map.set(a.id, a)
       })
     })
@@ -450,6 +472,10 @@ export const useApplicationsStore = defineStore('applications', () => {
 
   // Paginated column fetch
   async function fetchColumn(stage, reset = false) {
+    if (stage === 'ARCHIVED') {
+      await fetchArchive(archiveFilter.value, reset)
+      return
+    }
     const col = columnState.value[stage]
     if (!col) return
     if (col.loading) return
@@ -499,8 +525,83 @@ export const useApplicationsStore = defineStore('applications', () => {
     }
   }
 
+  // Dedicated paginated fetch for archive subcategories
+  async function fetchArchive(subFilter = archiveFilter.value, reset = false) {
+    const sub = archiveSubState.value[subFilter]
+    if (!sub) return
+    if (sub.loading) return
+    if (!reset && !sub.hasMore) return
+
+    sub.loading = true
+    const offset = reset ? 0 : sub.offset
+    const limit = 25
+
+    try {
+      const params = {
+        status: 'ARCHIVED',
+        archive_filter: subFilter,
+        limit,
+        offset,
+      }
+      if (searchQuery.value && searchQuery.value.trim()) {
+        params.q = searchQuery.value.trim()
+      }
+      if (actionRequiredOnly.value) {
+        params.action_required = true
+      }
+      if (selectedWorkModel.value) {
+        params.work_model = selectedWorkModel.value
+      }
+
+      const res = await ApplicationsAPI.list(params)
+      const items = res.data.items || []
+      const totalCount = res.data.total ?? items.length
+
+      if (reset) {
+        sub.items = items
+        sub.offset = items.length
+      } else {
+        const existingIds = new Set(sub.items.map((i) => i.id))
+        const deduped = items.filter((i) => !existingIds.has(i.id))
+        sub.items.push(...deduped)
+        sub.offset += items.length
+      }
+      sub.total = totalCount
+      sub.hasMore = sub.items.length < totalCount && items.length >= limit
+
+      if (archiveFilter.value === subFilter) {
+        columnState.value.ARCHIVED = { ...sub }
+      }
+      syncApplicationsList()
+    } catch (err) {
+      error.value = err.message
+    } finally {
+      sub.loading = false
+      if (archiveFilter.value === subFilter) {
+        columnState.value.ARCHIVED = { ...sub }
+      }
+    }
+  }
+
+  async function setArchiveFilter(newFilter) {
+    archiveFilter.value = newFilter
+    columnState.value.ARCHIVED = archiveSubState.value[newFilter] || archiveSubState.value.all
+    const sub = archiveSubState.value[newFilter]
+    if (sub && sub.items.length === 0 && sub.hasMore) {
+      await fetchArchive(newFilter, true)
+    }
+  }
+
+  async function loadMoreArchive() {
+    await fetchArchive(archiveFilter.value, false)
+  }
+
   async function loadMoreColumn(stage) {
-    await fetchColumn(stage, false)
+    if (stage === 'ARCHIVED') {
+      await loadMoreArchive()
+    } else {
+      await fetchColumn(stage, false)
+    }
   }
 
   // Main board fetcher
@@ -520,6 +621,11 @@ export const useApplicationsStore = defineStore('applications', () => {
     error.value = null
     try {
       await fetchStageCounts()
+      if (force) {
+        for (const key of Object.keys(archiveSubState.value)) {
+          archiveSubState.value[key] = { items: [], total: 0, offset: 0, hasMore: true, loading: false }
+        }
+      }
       if (pipelineViewMode.value === 'active') {
         await Promise.all([
           fetchColumn('APPLIED', true),
@@ -527,7 +633,7 @@ export const useApplicationsStore = defineStore('applications', () => {
           fetchColumn('OFFER', true),
         ])
       } else if (pipelineViewMode.value === 'archive') {
-        await fetchColumn('ARCHIVED', true)
+        await fetchArchive(archiveFilter.value, true)
       } else if (pipelineViewMode.value === 'hired') {
         await fetchColumn('HIRED', true)
       }
@@ -555,8 +661,9 @@ export const useApplicationsStore = defineStore('applications', () => {
         ])
       }
     } else if (newMode === 'archive') {
-      if (columnState.value.ARCHIVED.items.length === 0) {
-        await fetchColumn('ARCHIVED', true)
+      const cur = archiveSubState.value[archiveFilter.value]
+      if (!cur || cur.items.length === 0) {
+        await fetchArchive(archiveFilter.value, true)
       }
     } else if (newMode === 'hired') {
       if (columnState.value.HIRED.items.length === 0) {
@@ -926,5 +1033,11 @@ export const useApplicationsStore = defineStore('applications', () => {
     checkAndSyncWithBadges,
     lastFetchedAt,
     isStale,
+    archiveFilter,
+    archiveSubState,
+    currentArchiveState,
+    setArchiveFilter,
+    loadMoreArchive,
+    fetchArchive,
   }
 })

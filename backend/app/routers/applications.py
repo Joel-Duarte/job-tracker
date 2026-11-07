@@ -200,6 +200,33 @@ def _resolve_previous_status(
     return None
 
 
+def _resolve_archive_category(app: ApplicationModel) -> str:
+    """Resolve the specific closed/archived bucket for an application."""
+    st = (app.status or "").upper()
+    if st == "WITHDRAWN":
+        return "withdrawn"
+
+    latest_evt = app.events[0] if app.events else None
+    reason = ""
+    if latest_evt and latest_evt.raw_payload:
+        reason = str(
+            latest_evt.raw_payload.get("archive_reason")
+            or latest_evt.raw_payload.get("rejection_reason")
+            or ""
+        ).lower()
+    is_ghost = (st == "ARCHIVED") or ("ghost" in reason)
+
+    if is_ghost:
+        prior = _resolve_previous_status(
+            app.status, app.events or [], bool(app.is_assessment)
+        )
+        if prior in ("ONLINE_ASSESSMENT", "TECHNICAL_INTERVIEW", "OFFER"):
+            return "ghosted_post_applied"
+        else:
+            return "ghosted_applied"
+    return "rejected"
+
+
 router = APIRouter(prefix="/applications", tags=["Applications"])
 
 STAGE_MAP = {
@@ -337,30 +364,9 @@ async def get_application_stage_counts(
         closed_apps = closed_res.scalars().all()
 
         for app in closed_apps:
-            st = (app.status or "").upper()
-            if st == "WITHDRAWN":
-                archive_counts["withdrawn"] += 1
-            else:
-                latest_evt = app.events[0] if app.events else None
-                reason = ""
-                if latest_evt and latest_evt.raw_payload:
-                    reason = str(
-                        latest_evt.raw_payload.get("archive_reason")
-                        or latest_evt.raw_payload.get("rejection_reason")
-                        or ""
-                    ).lower()
-                is_ghost = (st == "ARCHIVED") or ("ghost" in reason)
-
-                if is_ghost:
-                    prior = _resolve_previous_status(
-                        app.status, app.events or [], bool(app.is_assessment)
-                    )
-                    if prior in ("ONLINE_ASSESSMENT", "TECHNICAL_INTERVIEW", "OFFER"):
-                        archive_counts["ghosted_post_applied"] += 1
-                    else:
-                        archive_counts["ghosted_applied"] += 1
-                else:
-                    archive_counts["rejected"] += 1
+            cat = _resolve_archive_category(app)
+            if cat in archive_counts:
+                archive_counts[cat] += 1
 
     return {
         "counts": counts,
@@ -378,6 +384,10 @@ async def list_applications(
     q: str | None = Query(None, description="Search position or company name"),
     status_filter: str | None = Query(
         None, alias="status", description="Filter by status"
+    ),
+    archive_filter: str | None = Query(
+        None,
+        description="Filter closed subcategory (all, ghosted_post_applied, ghosted_applied, rejected, withdrawn)",
     ),
     action_required: bool | None = Query(
         None, description="Filter by pending action required"
@@ -454,6 +464,65 @@ async def list_applications(
                 ~ApplicationModel.id.in_(event_subq),
                 ~ApplicationModel.id.in_(action_item_subq),
             )
+
+    # Apply specific archive subcategory filter if requested
+    archive_filter_val = (
+        archive_filter.strip().lower()
+        if isinstance(archive_filter, str) and archive_filter.strip()
+        else None
+    )
+    if archive_filter_val and archive_filter_val != "all":
+        if archive_filter_val == "withdrawn":
+            base_stmt = base_stmt.where(ApplicationModel.status == "WITHDRAWN")
+        else:
+            candidate_stmt = (
+                select(ApplicationModel)
+                .join(ApplicationModel.company)
+                .options(selectinload(ApplicationModel.events))
+                .where(ApplicationModel.status.in_(STAGE_MAP["ARCHIVED"]))
+            )
+            if q_val:
+                candidate_stmt = candidate_stmt.where(
+                    or_(
+                        func.lower(ApplicationModel.position).like(search_pattern),
+                        func.lower(CompanyModel.name).like(search_pattern),
+                        func.lower(ApplicationModel.location).like(search_pattern),
+                    )
+                )
+            if company_id:
+                candidate_stmt = candidate_stmt.where(
+                    ApplicationModel.company_id == company_id
+                )
+            if work_model_val:
+                candidate_stmt = candidate_stmt.join(
+                    JobPostingModel,
+                    ApplicationModel.id == JobPostingModel.application_id,
+                    isouter=True,
+                ).where(
+                    func.lower(JobPostingModel.work_model).like(f"%{work_model_val}%")
+                )
+            if action_required is not None:
+                if action_required:
+                    candidate_stmt = candidate_stmt.where(
+                        or_(
+                            ApplicationModel.id.in_(event_subq),
+                            ApplicationModel.id.in_(action_item_subq),
+                        )
+                    )
+                else:
+                    candidate_stmt = candidate_stmt.where(
+                        ~ApplicationModel.id.in_(event_subq),
+                        ~ApplicationModel.id.in_(action_item_subq),
+                    )
+
+            cand_res = await db.execute(candidate_stmt)
+            cand_apps = cand_res.scalars().all()
+            matching_ids = [
+                a.id
+                for a in cand_apps
+                if _resolve_archive_category(a) == archive_filter_val
+            ]
+            base_stmt = base_stmt.where(ApplicationModel.id.in_(matching_ids))
 
     # Calculate total count before pagination (stripped of eager loads and ordering)
     count_stmt = base_stmt.with_only_columns(
