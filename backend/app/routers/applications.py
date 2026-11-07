@@ -392,23 +392,14 @@ async def list_applications(
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
-    # Base query joining company and events
-    stmt = (
-        select(ApplicationModel)
-        .join(ApplicationModel.company)
-        .options(
-            joinedload(ApplicationModel.company),
-            selectinload(ApplicationModel.events),
-            selectinload(ApplicationModel.action_items),
-            selectinload(ApplicationModel.job_posting),
-        )
-    )
+    # Base query joining company
+    base_stmt = select(ApplicationModel).join(ApplicationModel.company)
 
     # Apply filters
     q_val = q.strip().lower() if isinstance(q, str) and q.strip() else None
     if q_val:
         search_pattern = f"%{q_val}%"
-        stmt = stmt.where(
+        base_stmt = base_stmt.where(
             or_(
                 func.lower(ApplicationModel.position).like(search_pattern),
                 func.lower(CompanyModel.name).like(search_pattern),
@@ -423,12 +414,14 @@ async def list_applications(
     )
     if status_val:
         if status_val in STAGE_MAP:
-            stmt = stmt.where(ApplicationModel.status.in_(STAGE_MAP[status_val]))
+            base_stmt = base_stmt.where(
+                ApplicationModel.status.in_(STAGE_MAP[status_val])
+            )
         else:
-            stmt = stmt.where(ApplicationModel.status == status_val)
+            base_stmt = base_stmt.where(ApplicationModel.status == status_val)
 
     if company_id:
-        stmt = stmt.where(ApplicationModel.company_id == company_id)
+        base_stmt = base_stmt.where(ApplicationModel.company_id == company_id)
 
     work_model_val = (
         work_model.strip().lower()
@@ -436,7 +429,7 @@ async def list_applications(
         else None
     )
     if work_model_val:
-        stmt = stmt.join(
+        base_stmt = base_stmt.join(
             JobPostingModel,
             ApplicationModel.id == JobPostingModel.application_id,
             isouter=True,
@@ -450,27 +443,38 @@ async def list_applications(
             ActionItemModel.status == "PENDING"
         )
         if action_required:
-            stmt = stmt.where(
+            base_stmt = base_stmt.where(
                 or_(
                     ApplicationModel.id.in_(event_subq),
                     ApplicationModel.id.in_(action_item_subq),
                 )
             )
         else:
-            stmt = stmt.where(
+            base_stmt = base_stmt.where(
                 ~ApplicationModel.id.in_(event_subq),
                 ~ApplicationModel.id.in_(action_item_subq),
             )
 
-    # Calculate total count before pagination
-    count_stmt = select(func.count()).select_from(stmt.subquery())
+    # Calculate total count before pagination (stripped of eager loads and ordering)
+    count_stmt = base_stmt.with_only_columns(
+        func.count(func.distinct(ApplicationModel.id))
+    ).order_by(None)
     total_result = await db.execute(count_stmt)
     total = total_result.scalar_one()
 
-    # Apply sorting and pagination
+    # Apply eager loading options, sorting, and pagination
     sort_column = getattr(ApplicationModel, sort_by)
-    stmt = stmt.order_by(sort_column.desc() if order == "desc" else sort_column.asc())
-    stmt = stmt.limit(limit).offset(offset)
+    stmt = (
+        base_stmt.options(
+            joinedload(ApplicationModel.company),
+            selectinload(ApplicationModel.events),
+            selectinload(ApplicationModel.action_items),
+            selectinload(ApplicationModel.job_posting),
+        )
+        .order_by(sort_column.desc() if order == "desc" else sort_column.asc())
+        .limit(limit)
+        .offset(offset)
+    )
 
     result = await db.execute(stmt)
     applications = result.scalars().unique().all()
