@@ -41,21 +41,152 @@ export async function handleDemoRequest(config) {
   })
 
   // 1. APPLICATIONS ENDPOINTS
-  if (urlPath === '/applications' && method === 'get') {
+  if (urlPath === '/applications/stage-counts' && method === 'get') {
     let items = [...(db.applications || [])]
     if (params.q) {
-      const q = params.q.toLowerCase()
+      const q = params.q.toLowerCase().trim()
       items = items.filter(
         (a) =>
           a.company_name?.toLowerCase().includes(q) ||
+          a.company?.name?.toLowerCase().includes(q) ||
           a.position?.toLowerCase().includes(q) ||
           a.location?.toLowerCase().includes(q)
       )
     }
-    if (params.status) {
-      items = items.filter((a) => a.status === params.status)
+    if (params.work_model) {
+      const wm = params.work_model.toLowerCase().replace(/[^a-z]/g, '')
+      items = items.filter((a) => {
+        const cur = (a.work_model || a.job_posting?.work_model || '').toLowerCase().replace(/[^a-z]/g, '')
+        return cur.includes(wm) || wm.includes(cur)
+      })
     }
-    return ok({ items, total: items.length })
+    if (params.action_required !== undefined) {
+      const req = params.action_required === true || params.action_required === 'true'
+      items = items.filter((a) => Boolean(a.has_action_required) === req)
+    }
+    const counts = {
+      APPLIED: 0,
+      TECHNICAL_INTERVIEW: 0,
+      OFFER: 0,
+      ARCHIVED: 0,
+      HIRED: 0,
+    }
+    const STAGE_MAP = {
+      APPLIED: ['APPLIED', 'RECRUITER_CONTACT', 'IN_PROGRESS', 'PENDING'],
+      TECHNICAL_INTERVIEW: [
+        'TECHNICAL_INTERVIEW',
+        'PHONE_SCREEN',
+        'ONLINE_ASSESSMENT',
+        'BEHAVIORAL_INTERVIEW',
+        'ONSITE_INTERVIEW',
+        'FINAL_INTERVIEW',
+        'INTERVIEW',
+        'SCREENING',
+      ],
+      OFFER: ['OFFER'],
+      ARCHIVED: ['ARCHIVED', 'WITHDRAWN', 'REJECTED'],
+      HIRED: ['HIRED'],
+    }
+    items.forEach((a) => {
+      const st = (a.status || '').toUpperCase()
+      if (STAGE_MAP.APPLIED.includes(st)) counts.APPLIED++
+      else if (STAGE_MAP.TECHNICAL_INTERVIEW.includes(st)) counts.TECHNICAL_INTERVIEW++
+      else if (STAGE_MAP.OFFER.includes(st)) counts.OFFER++
+      else if (STAGE_MAP.ARCHIVED.includes(st)) counts.ARCHIVED++
+      else if (STAGE_MAP.HIRED.includes(st)) counts.HIRED++
+    })
+    const total_active = counts.APPLIED + counts.TECHNICAL_INTERVIEW + counts.OFFER
+
+    const archive_counts = {
+      all: counts.ARCHIVED,
+      ghosted_post_applied: 0,
+      ghosted_applied: 0,
+      rejected: 0,
+      withdrawn: 0,
+    }
+    const POST_APPLIED_STAGES = new Set(['ONLINE_ASSESSMENT', 'TECHNICAL_INTERVIEW', 'OFFER'])
+    items.forEach((a) => {
+      const st = (a.status || '').toUpperCase()
+      if (STAGE_MAP.ARCHIVED.includes(st)) {
+        if (st === 'WITHDRAWN') {
+          archive_counts.withdrawn++
+        } else {
+          const reason = (
+            a.latest_event?.raw_payload?.archive_reason ||
+            a.latest_event?.raw_payload?.rejection_reason ||
+            a.rejection_reason ||
+            ''
+          ).toLowerCase()
+          const isGhost = st === 'ARCHIVED' || reason.includes('ghost')
+          if (isGhost) {
+            const prior = (a.previous_status || a.latest_event?.raw_payload?.previous_status || '').toUpperCase()
+            if (POST_APPLIED_STAGES.has(prior)) {
+              archive_counts.ghosted_post_applied++
+            } else {
+              archive_counts.ghosted_applied++
+            }
+          } else {
+            archive_counts.rejected++
+          }
+        }
+      }
+    })
+
+    return ok({ counts, archive_counts, total_active })
+  }
+
+  if (urlPath === '/applications' && method === 'get') {
+    let items = [...(db.applications || [])]
+    if (params.q) {
+      const q = params.q.toLowerCase().trim()
+      items = items.filter(
+        (a) =>
+          a.company_name?.toLowerCase().includes(q) ||
+          a.company?.name?.toLowerCase().includes(q) ||
+          a.position?.toLowerCase().includes(q) ||
+          a.location?.toLowerCase().includes(q)
+      )
+    }
+    if (params.work_model) {
+      const wm = params.work_model.toLowerCase().replace(/[^a-z]/g, '')
+      items = items.filter((a) => {
+        const cur = (a.work_model || a.job_posting?.work_model || '').toLowerCase().replace(/[^a-z]/g, '')
+        return cur.includes(wm) || wm.includes(cur)
+      })
+    }
+    if (params.action_required !== undefined) {
+      const req = params.action_required === true || params.action_required === 'true'
+      items = items.filter((a) => Boolean(a.has_action_required) === req)
+    }
+    const STAGE_MAP = {
+      APPLIED: ['APPLIED', 'RECRUITER_CONTACT', 'IN_PROGRESS', 'PENDING'],
+      TECHNICAL_INTERVIEW: [
+        'TECHNICAL_INTERVIEW',
+        'PHONE_SCREEN',
+        'ONLINE_ASSESSMENT',
+        'BEHAVIORAL_INTERVIEW',
+        'ONSITE_INTERVIEW',
+        'FINAL_INTERVIEW',
+        'INTERVIEW',
+        'SCREENING',
+      ],
+      OFFER: ['OFFER'],
+      ARCHIVED: ['ARCHIVED', 'WITHDRAWN', 'REJECTED'],
+      HIRED: ['HIRED'],
+    }
+    if (params.status) {
+      const stUpper = params.status.toUpperCase()
+      if (STAGE_MAP[stUpper]) {
+        items = items.filter((a) => STAGE_MAP[stUpper].includes((a.status || '').toUpperCase()))
+      } else {
+        items = items.filter((a) => (a.status || '').toUpperCase() === stUpper)
+      }
+    }
+    const total = items.length
+    const limit = Number(params.limit) || 1000
+    const offset = Number(params.offset) || 0
+    const pagedItems = items.slice(offset, offset + limit)
+    return ok({ items: pagedItems, total, limit, offset })
   }
 
   if (urlPath === '/applications/by-status' && method === 'get') {
@@ -2192,25 +2323,106 @@ export async function handleDemoRequest(config) {
   }
 
   if (urlPath === '/companies' && method === 'get') {
-    let items = [...(db.companies || [])]
+    let allItems = [...(db.companies || [])]
+
+    // Calculate application_count & applications dynamically from db.applications
+    allItems = allItems.map((c) => {
+      const apps = (db.applications || []).filter(
+        (a) =>
+          String(a.company_id) === String(c.id) ||
+          a.company_name?.toLowerCase() === c.name?.toLowerCase()
+      )
+      const activeCount = apps.filter((a) =>
+        ['APPLIED', 'ONLINE_ASSESSMENT', 'TECHNICAL_INTERVIEW', 'OFFER'].includes(a.status)
+      ).length
+      return {
+        ...c,
+        applications_count: apps.length,
+        active_applications_count: activeCount,
+        application_count: apps.length,
+      }
+    })
+
+    // Compute global directory stats before filtering
+    const totalCompanies = allItems.length
+    const withActive = allItems.filter((c) => (c.active_applications_count || 0) > 0).length
+    const researchedCount = allItems.filter(
+      (c) => c.company_research && c.company_research.summary
+    ).length
+    const totalApps = (db.applications || []).length
+    const stats = {
+      total: totalCompanies,
+      with_active: withActive,
+      researched_count: researchedCount,
+      total_applications: totalApps,
+      unresearched_count: Math.max(0, totalCompanies - researchedCount),
+    }
+
+    let items = allItems
+
+    // 1. Text Search Filter (name, domain, notes, research summary)
     if (params.q) {
       const q = params.q.toLowerCase().trim()
       items = items.filter(
         (c) =>
           c.name?.toLowerCase().includes(q) ||
-          c.domain?.toLowerCase().includes(q)
+          c.domain?.toLowerCase().includes(q) ||
+          c.notes?.toLowerCase().includes(q) ||
+          c.company_research?.summary?.toLowerCase().includes(q)
       )
     }
-    // Calculate application_count dynamically from db.applications
-    items = items.map((c) => {
-      const appCount = (db.applications || []).filter(
-        (a) =>
-          String(a.company_id) === String(c.id) ||
-          a.company_name?.toLowerCase() === c.name?.toLowerCase()
-      ).length
-      return { ...c, application_count: appCount }
+
+    // 2. Filter missing research
+    if (params.without_research === 'true' || params.without_research === true) {
+      items = items.filter(
+        (c) => !c.company_research || !c.company_research.summary
+      )
+    }
+
+    // 3. Duplicate IDs filter
+    if (params.duplicate_ids) {
+      const ids = String(params.duplicate_ids)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+      if (ids.length) {
+        items = items.filter((c) => ids.includes(String(c.id)))
+      }
+    }
+
+    // 4. Sorting
+    const sortBy = params.sort_by || 'applications'
+    const sortOrder = (params.sort_order || 'desc').toLowerCase()
+    const isAsc = sortOrder === 'asc'
+
+    items.sort((a, b) => {
+      if (sortBy === 'name') {
+        const res = (a.name || '').localeCompare(b.name || '')
+        return isAsc ? res : -res
+      }
+      if (sortBy === 'recent') {
+        const dateA = a.last_applied_at ? new Date(a.last_applied_at).getTime() : 0
+        const dateB = b.last_applied_at ? new Date(b.last_applied_at).getTime() : 0
+        return isAsc ? dateA - dateB : dateB - dateA
+      }
+      // Default: 'applications'
+      const countA = a.applications_count || 0
+      const countB = b.applications_count || 0
+      return isAsc ? countA - countB : countB - countA
     })
-    return ok(items)
+
+    const total = items.length
+    const limit = Number(params.limit) || 50
+    const offset = Number(params.offset) || 0
+    const pagedItems = items.slice(offset, offset + limit)
+
+    return ok({
+      items: pagedItems,
+      total,
+      limit,
+      offset,
+      stats,
+    })
   }
 
   if (urlPath === '/companies/duplicates' && method === 'get') {

@@ -35,12 +35,21 @@ test('profile route redirects to profile settings', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'My Profile / CV' })).toHaveClass(/active/)
 })
 
-test('analytics tabs reveal the selected dashboard', async ({ page }) => {
+test('analytics tabs reveal the selected dashboard and navigates smoothly to tasks', async ({ page, isMobile }) => {
   await page.goto('/analytics')
   await page.getByRole('button', { name: 'Pipeline Funnel Performance' }).click()
   await expect(page.getByRole('heading', { name: /Funnel Progression/, level: 2 })).toBeVisible()
   await page.getByRole('button', { name: 'Role Alignment & CV Tuning' }).click()
   await expect(page.getByRole('heading', { name: /Role Alignment & Vocabulary/ })).toBeVisible()
+
+  // Transition to tasks: ensure instant loading and no frozen event loop
+  if (isMobile) {
+    await page.getByRole('button', { name: 'Toggle navigation menu' }).click()
+    await page.locator('.mobile-nav-link').filter({ hasText: 'Tasks' }).click()
+  } else {
+    await page.locator('.nav-link').filter({ hasText: 'Tasks' }).first().click()
+  }
+  await expect(page.getByPlaceholder('Search task title, company, or role...')).toBeVisible()
 })
 
 test('settings tabs switch and profile route is deep linkable', async ({ page }) => {

@@ -469,6 +469,10 @@ async def test_list_companies_with_query_filter():
 
     db = AsyncMock()
 
+    # Total count query
+    mock_count_res = MagicMock()
+    mock_count_res.scalar_one.return_value = 1
+
     # Companies query returns matching company
     comp1 = CompanyModel(
         id=1,
@@ -485,12 +489,80 @@ async def test_list_companies_with_query_filter():
     mock_active_res = MagicMock()
     mock_active_res.all.return_value = []
 
-    db.execute.side_effect = [mock_companies_res, mock_active_res]
+    # Directory stats query returns aggregates
+    mock_stats_res = MagicMock()
+    mock_stats_res.first.return_value = (1, 0, 0, 0)
 
-    results = await list_companies(q="line", db=db)
-    assert len(results) == 1
-    assert results[0].name == "Linear"
-    assert results[0].domain == "linear.app"
+    db.execute.side_effect = [
+        mock_count_res,
+        mock_companies_res,
+        mock_active_res,
+        mock_stats_res,
+    ]
+
+    results = await list_companies(q="line", limit=50, offset=0, db=db)
+    assert results.total == 1
+    assert results.limit == 50
+    assert results.offset == 0
+    assert len(results.items) == 1
+    assert results.items[0].name == "Linear"
+    assert results.items[0].domain == "linear.app"
+    assert results.stats.total == 1
+    assert results.stats.unresearched_count == 1
+
+
+@pytest.mark.asyncio
+async def test_list_companies_pagination_and_sorting():
+    from app.routers.companies import list_companies
+
+    db = AsyncMock()
+
+    mock_count_res = MagicMock()
+    mock_count_res.scalar_one.return_value = 100
+
+    comp = CompanyModel(
+        id=5,
+        name="Stripe",
+        name_normalized="stripe",
+        domain="stripe.com",
+        research_status="COMPLETED",
+        company_research={"summary": "Payment infrastructure"},
+        applications=[],
+    )
+    mock_companies_res = MagicMock()
+    mock_companies_res.scalars.return_value.all.return_value = [comp]
+
+    mock_active_res = MagicMock()
+    mock_active_res.all.return_value = []
+
+    mock_stats_res = MagicMock()
+    mock_stats_res.first.return_value = (100, 10, 45, 120)
+
+    db.execute.side_effect = [
+        mock_count_res,
+        mock_companies_res,
+        mock_active_res,
+        mock_stats_res,
+    ]
+
+    results = await list_companies(
+        limit=25,
+        offset=50,
+        sort_by="applications",
+        sort_order="desc",
+        without_research=False,
+        db=db,
+    )
+    assert results.total == 100
+    assert results.limit == 25
+    assert results.offset == 50
+    assert len(results.items) == 1
+    assert results.items[0].name == "Stripe"
+    assert results.stats.total == 100
+    assert results.stats.with_active == 10
+    assert results.stats.researched_count == 45
+    assert results.stats.total_applications == 120
+    assert results.stats.unresearched_count == 55
 
 
 @pytest.mark.asyncio

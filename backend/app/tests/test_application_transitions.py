@@ -334,3 +334,85 @@ async def test_application_reassign_company_id(db_session: AsyncSession):
         assert resp_404.status_code == 404
 
     app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_application_stage_counts(db_session: AsyncSession):
+    app.dependency_overrides[get_db] = lambda: db_session
+
+    company = CompanyModel(
+        name="StageCo", name_normalized="stageco", domain="stageco.io"
+    )
+    db_session.add(company)
+    await db_session.flush()
+
+    app1 = ApplicationModel(
+        company_id=company.id,
+        position="Frontend Architect",
+        position_normalized="frontend architect",
+        status="APPLIED",
+        application_key="app-stage-1",
+    )
+    app2 = ApplicationModel(
+        company_id=company.id,
+        position="Senior Systems Dev",
+        position_normalized="senior systems dev",
+        status="TECHNICAL_INTERVIEW",
+        application_key="app-stage-2",
+    )
+    app3 = ApplicationModel(
+        company_id=company.id,
+        position="Principal Architect",
+        position_normalized="principal architect",
+        status="OFFER",
+        application_key="app-stage-3",
+    )
+    app_withdrawn = ApplicationModel(
+        company_id=company.id,
+        position="Lead Designer",
+        position_normalized="lead designer",
+        status="WITHDRAWN",
+        application_key="app-stage-4",
+    )
+    app_archived = ApplicationModel(
+        company_id=company.id,
+        position="DevOps Lead",
+        position_normalized="devops lead",
+        status="ARCHIVED",
+        application_key="app-stage-5",
+    )
+    db_session.add_all([app1, app2, app3, app_withdrawn, app_archived])
+    await db_session.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/v1/applications/stage-counts")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "counts" in data
+        assert data["counts"]["APPLIED"] >= 1
+        assert data["counts"]["TECHNICAL_INTERVIEW"] >= 1
+        assert data["counts"]["OFFER"] >= 1
+        assert data["counts"]["ARCHIVED"] >= 2
+        assert data["total_active"] >= 3
+        assert "archive_counts" in data
+        assert data["archive_counts"]["withdrawn"] >= 1
+        assert data["archive_counts"]["ghosted_applied"] >= 1
+        assert data["archive_counts"]["all"] >= 2
+
+        # Test with query filter matching only app1
+        resp_q = await client.get("/api/v1/applications/stage-counts?q=Frontend")
+        assert resp_q.status_code == 200
+        data_q = resp_q.json()
+        assert data_q["counts"]["APPLIED"] == 1
+        assert data_q["counts"]["TECHNICAL_INTERVIEW"] == 0
+        assert data_q["counts"]["OFFER"] == 0
+        assert data_q["total_active"] == 1
+
+        # Test listing by canonical stage name
+        resp_list = await client.get("/api/v1/applications?status=APPLIED")
+        assert resp_list.status_code == 200
+        data_list = resp_list.json()
+        assert any(item["id"] == app1.id for item in data_list["items"])
+
+    app.dependency_overrides.clear()

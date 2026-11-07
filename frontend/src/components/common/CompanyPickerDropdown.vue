@@ -97,7 +97,7 @@ async function fetchCompanies(query = '') {
   try {
     const params = query ? { q: query } : {}
     const res = await CompaniesAPI.list(params)
-    const list = res.data || []
+    const list = res.data?.items || res.data || []
     companies.value = list
     highlightedIndex.value = 0
   } catch (err) {

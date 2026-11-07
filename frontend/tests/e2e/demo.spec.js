@@ -109,6 +109,31 @@ test('company card opens its detail drawer', async ({ page }) => {
   await expect(page.getByRole('dialog', { name: 'Company Details' })).toContainText('Stripe')
 })
 
+test('companies directory supports server-side search, sorting, and global metrics', async ({ page }) => {
+  await page.goto('/companies')
+  await expect(page.getByRole('heading', { name: 'Companies Directory' })).toBeVisible()
+  await expect(page.locator('.company-card').first()).toBeVisible()
+
+  // Verify metric cards render global stats
+  await expect(page.locator('.metric-num').first()).not.toHaveText('0')
+
+  // Verify search input with debounce filters results
+  const searchInput = page.getByPlaceholder('Search companies...')
+  await searchInput.fill('Linear')
+  await expect(page.locator('.company-card')).toHaveCount(1)
+  await expect(page.locator('.company-card')).toContainText('Linear')
+
+  // Clear search and verify full results restore
+  await page.locator('.btn-clear-search').click()
+  await expect(page.locator('.company-card').first()).toBeVisible()
+
+  // Test sort dropdown selection
+  const sortSelect = page.locator('.filter-group select')
+  await sortSelect.selectOption('name')
+  await expect(sortSelect).toHaveValue('name')
+  await expect(page.locator('.company-card').first()).toBeVisible()
+})
+
 test('company form exposes accessible fields', async ({ page }) => {
   await page.goto('/companies')
   await page.getByRole('button', { name: 'Add Company' }).click()
@@ -210,4 +235,54 @@ test('existing demo sessions receive audits without losing saved applications', 
   await expect(page.locator('.quality-view-body')).toContainText('3 / 4 passed')
   await page.goto('/')
   await expect(page.locator('.kanban-container')).toContainText('My saved demo role')
+})
+
+test('applications kanban displays global stage counts and loads cards progressively', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('.kanban-board')).toBeVisible()
+
+  // Verify column headers show stage count badges
+  const appliedCol = page.locator('.kanban-column').filter({ hasText: 'Applied' })
+  await expect(appliedCol.locator('.column-count')).toBeVisible()
+  const countText = await appliedCol.locator('.column-count').innerText()
+  expect(Number(countText)).toBeGreaterThanOrEqual(0)
+
+  // Verify segmented toggle displays total active count
+  const activeBtn = page.getByRole('button', { name: /Active Pipeline/ })
+  await expect(activeBtn).toBeVisible()
+
+  // Verify search query filters the kanban board
+  const searchInput = page.getByPlaceholder('Search company, role, or keywords...')
+  await searchInput.fill('Stripe')
+  await expect(page.locator('.kanban-container')).toContainText('Stripe')
+  await expect(page.locator('.kanban-container')).not.toContainText('Linear')
+
+  // Clear search restores other cards
+  await searchInput.fill('')
+  await expect(page.locator('.kanban-container')).toContainText('Linear')
+})
+
+test('archived view displays correct filter pill counts and auto-loads on scroll without button', async ({ page }) => {
+  await page.goto('/')
+  // Switch to Archived / Closed view
+  await page.getByRole('button', { name: /Archived \/ Closed/ }).click()
+  const archiveContainer = page.locator('.archive-view-container')
+  await expect(archiveContainer).toBeVisible()
+
+  // Verify filter pills have non-empty numeric counts
+  const allClosedPill = archiveContainer.getByRole('button', { name: /All Closed/ })
+  await expect(allClosedPill).toBeVisible()
+  const allCount = await allClosedPill.locator('.pill-count').innerText()
+  expect(Number(allCount)).toBeGreaterThan(0)
+
+  // Verify other filter pills exist with pill counts
+  const rejectedPill = archiveContainer.getByRole('button', { name: /Rejected/ })
+  await expect(rejectedPill).toBeVisible()
+  await expect(rejectedPill.locator('.pill-count')).toBeVisible()
+
+  // Verify manual load more button is completely removed
+  await expect(archiveContainer.getByRole('button', { name: /Load More/i })).toHaveCount(0)
+
+  // Verify scroll sentinel is mounted for auto-loading
+  await expect(archiveContainer.locator('.scroll-sentinel')).toBeAttached()
 })

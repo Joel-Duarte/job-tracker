@@ -513,7 +513,7 @@ async function openCompanyDrawerForTask(task) {
   try {
     const query = companyName || companyDomain
     const res = await CompaniesAPI.list({ q: query })
-    const list = res.data || []
+    const list = res.data?.items || res.data || []
 
     const cleanName = companyName?.trim().toLowerCase()
     const cleanDom = companyDomain?.trim().toLowerCase()

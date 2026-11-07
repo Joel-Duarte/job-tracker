@@ -331,7 +331,7 @@ async function openCompanyDrawerForCurrentApp() {
 
   try {
     const res = await CompaniesAPI.list({ q: name || domain })
-    const list = res.data || []
+    const list = res.data?.items || res.data || []
     const cleanName = name?.trim().toLowerCase()
     const cleanDom = domain?.trim().toLowerCase()
     const match =

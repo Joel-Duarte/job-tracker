@@ -40,6 +40,26 @@ class CompanyRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CompanyDirectoryStats(BaseModel):
+    total: int = 0
+    with_active: int = 0
+    researched_count: int = 0
+    total_applications: int = 0
+    unresearched_count: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CompanyPaginationResponse(BaseModel):
+    items: list[CompanyRead] = Field(default_factory=list)
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
+    stats: CompanyDirectoryStats | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class CompanyCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Company name")
     domain: str | None = Field(

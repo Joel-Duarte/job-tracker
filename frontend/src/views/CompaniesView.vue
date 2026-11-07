@@ -1,7 +1,8 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useUIStore } from '../stores/uiStore'
 import { CompaniesAPI } from '../api/endpoints'
+import { useCompaniesStore } from '../stores/companiesStore'
 import CompanyLogo from '../components/common/CompanyLogo.vue'
 import AddCompanyModal from '../components/modals/AddCompanyModal.vue'
 import {
@@ -28,21 +29,11 @@ import {
 } from 'lucide-vue-next'
 
 const uiStore = useUIStore()
+const companiesStore = useCompaniesStore()
 
-const companies = ref([])
-const isLoading = ref(true)
-const searchQuery = ref('')
-const sortBy = ref('applications') // 'applications' | 'name' | 'recent'
-const filterWithoutInfo = ref(false)
-
-// Duplicate Detection State
-const duplicateData = ref({
-  total_clusters: 0,
-  total_duplicate_companies: 0,
-  duplicate_company_ids: [],
-  clusters: [],
-})
-const filterDuplicatesOnly = ref(false)
+const scrollSentinelRef = ref(null)
+let observer = null
+let searchDebounceTimeout = null
 
 // Create Company Modal State
 const isCreateModalOpen = ref(false)
@@ -52,12 +43,10 @@ function openCreateModal() {
 }
 
 async function onCompanyCreated(createdCompany) {
-  isStale.value = true
-  lastFetchedAt.value = null
-  await fetchCompanies()
+  companiesStore.invalidateCache()
+  await companiesStore.fetchCompanies(true)
   checkAndStartActiveResearchPolling()
 
-  // Automatically open the company drawer for quick review
   if (createdCompany?.id) {
     openCompanyDrawer(createdCompany.id)
   }
@@ -70,19 +59,12 @@ const bulkProgressTotal = ref(0)
 const bulkProgressCompleted = ref(0)
 const bulkProgressFailed = ref(0)
 const bulkProgressActive = ref(0)
-const lastFetchedAt = ref(null)
-const isStale = ref(false)
-const COMPANY_CACHE_KEY = 'jobtracker_companies_cache'
-const COMPANY_CACHE_TTL_MS = 5 * 60 * 1000
 let pollInterval = null
 
-const companiesWithoutInfo = computed(() =>
-  companies.value.filter((c) => !c.company_research || !c.company_research.summary)
-)
-
 onMounted(async () => {
-  hydrateCompanyCache()
-  await fetchCompanies()
+  await companiesStore.fetchCompanies()
+  await nextTick()
+  setupIntersectionObserver()
   checkAndStartActiveResearchPolling()
   window.addEventListener('company:updated', refreshCompaniesFromEvent)
   window.addEventListener('company:merged', refreshCompaniesFromEvent)
@@ -95,26 +77,63 @@ onUnmounted(() => {
     clearInterval(pollInterval)
     pollInterval = null
   }
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
+  if (searchDebounceTimeout) {
+    clearTimeout(searchDebounceTimeout)
+    searchDebounceTimeout = null
+  }
   window.removeEventListener('company:updated', refreshCompaniesFromEvent)
   window.removeEventListener('company:merged', refreshCompaniesFromEvent)
   window.removeEventListener('company:deleted', refreshCompaniesFromEvent)
   window.removeEventListener('application:deleted', refreshCompaniesFromEvent)
 })
 
+function setupIntersectionObserver() {
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
+  if (!scrollSentinelRef.value) return
+
+  observer = new IntersectionObserver(
+    (entries) => {
+      const first = entries[0]
+      if (
+        first &&
+        first.isIntersecting &&
+        companiesStore.hasMore &&
+        !companiesStore.isLoading &&
+        !companiesStore.isLoadingMore
+      ) {
+        companiesStore.loadMoreCompanies()
+      }
+    },
+    { rootMargin: '300px' }
+  )
+  observer.observe(scrollSentinelRef.value)
+}
+
+watch(scrollSentinelRef, () => {
+  setupIntersectionObserver()
+})
+
 function checkAndStartActiveResearchPolling() {
-  const activeCount = companies.value.filter(
+  const activeCount = companiesStore.companies.filter(
     (c) => c.research_status === 'QUEUED' || c.research_status === 'IN_PROGRESS'
   ).length
 
   if (activeCount > 0 && !pollInterval) {
     pollInterval = setInterval(async () => {
-      await fetchCompaniesSilently()
+      await companiesStore.fetchCompaniesSilently()
 
-      const currentActive = companies.value.filter(
+      const currentActive = companiesStore.companies.filter(
         (c) => c.research_status === 'QUEUED' || c.research_status === 'IN_PROGRESS'
       ).length
 
-      const failedCount = companies.value.filter(
+      const failedCount = companiesStore.companies.filter(
         (c) => c.research_status === 'FAILED'
       ).length
 
@@ -146,132 +165,44 @@ function checkAndStartActiveResearchPolling() {
   }
 }
 
-async function fetchCompanies() {
-  if (
-    !isStale.value &&
-    lastFetchedAt.value !== null &&
-    Date.now() - lastFetchedAt.value < COMPANY_CACHE_TTL_MS
-  ) {
-    isLoading.value = false
-    return
+// Watchers for Server-side Filtering and Sorting
+watch(
+  () => companiesStore.searchQuery,
+  () => {
+    if (searchDebounceTimeout) clearTimeout(searchDebounceTimeout)
+    searchDebounceTimeout = setTimeout(() => {
+      companiesStore.fetchCompanies(true)
+    }, 300)
   }
+)
 
-  isLoading.value = true
-  try {
-    const [res, dupRes] = await Promise.allSettled([
-      CompaniesAPI.list(),
-      CompaniesAPI.getDuplicates(),
-    ])
-    if (res.status === 'fulfilled') {
-      companies.value = res.value.data || []
-    }
-    if (dupRes.status === 'fulfilled') {
-      duplicateData.value = dupRes.value.data || {
-        total_clusters: 0,
-        total_duplicate_companies: 0,
-        duplicate_company_ids: [],
-        clusters: [],
-      }
-    }
-    lastFetchedAt.value = Date.now()
-    isStale.value = false
-    persistCompanyCache()
-    checkAndStartActiveResearchPolling()
-  } catch (err) {
-    uiStore.showToast('Failed to load companies directory', 'error')
-  } finally {
-    isLoading.value = false
+watch(
+  [
+    () => companiesStore.sortBy,
+    () => companiesStore.filterWithoutInfo,
+    () => companiesStore.filterDuplicatesOnly,
+  ],
+  () => {
+    companiesStore.fetchCompanies(true)
   }
-}
-
-async function fetchCompaniesSilently() {
-  try {
-    const [res, dupRes] = await Promise.allSettled([
-      CompaniesAPI.list(),
-      CompaniesAPI.getDuplicates(),
-    ])
-    if (res.status === 'fulfilled') {
-      companies.value = res.value.data || []
-    }
-    if (dupRes.status === 'fulfilled') {
-      duplicateData.value = dupRes.value.data || {
-        total_clusters: 0,
-        total_duplicate_companies: 0,
-        duplicate_company_ids: [],
-        clusters: [],
-      }
-    }
-    lastFetchedAt.value = Date.now()
-    isStale.value = false
-    persistCompanyCache()
-  } catch (err) {
-    // Silent background poll
-  }
-}
-
-function hydrateCompanyCache() {
-  try {
-    const cached = JSON.parse(localStorage.getItem(COMPANY_CACHE_KEY) || 'null')
-    if (!cached || !Array.isArray(cached.companies)) return
-    companies.value = cached.companies
-    duplicateData.value = cached.duplicateData || duplicateData.value
-    lastFetchedAt.value = Number(cached.fetchedAt) || null
-  } catch {
-    localStorage.removeItem(COMPANY_CACHE_KEY)
-  }
-}
-
-function persistCompanyCache() {
-  try {
-    localStorage.setItem(
-      COMPANY_CACHE_KEY,
-      JSON.stringify({
-        companies: companies.value,
-        duplicateData: duplicateData.value,
-        fetchedAt: lastFetchedAt.value,
-      })
-    )
-  } catch {
-    // Browser caching is optional.
-  }
-}
+)
 
 function refreshCompaniesFromEvent(event) {
   const updatedCompany = event?.detail?.company || event?.detail
   if (updatedCompany && updatedCompany.id) {
-    const idx = companies.value.findIndex(
-      (c) => String(c.id) === String(updatedCompany.id)
-    )
-    if (idx > -1) {
-      companies.value[idx] = {
-        ...companies.value[idx],
-        ...updatedCompany,
-        applications_count: updatedCompany.applications_count ?? companies.value[idx].applications_count,
-        active_applications_count: updatedCompany.active_applications_count ?? companies.value[idx].active_applications_count,
-      }
-      persistCompanyCache()
-      checkAndStartActiveResearchPolling()
-    }
+    companiesStore.updateCompanyInStore(updatedCompany)
+    checkAndStartActiveResearchPolling()
   }
 
   if (event?.type === 'company:deleted' && event.detail?.companyId) {
-    companies.value = companies.value.filter(
-      (c) => String(c.id) !== String(event.detail.companyId)
-    )
-    persistCompanyCache()
+    companiesStore.removeCompanyFromStore(event.detail.companyId)
   }
-
-  isStale.value = true
-  lastFetchedAt.value = null
-  fetchCompaniesSilently().then(() => {
-    checkAndStartActiveResearchPolling()
-  })
 }
 
 async function triggerBulkResearch(mode = 'missing') {
   if (isResearchingBulk.value) return
-  if (mode === 'missing' && !companiesWithoutInfo.value.length) return
-  if (mode === 'all' && !companies.value.length) return
+  if (mode === 'missing' && !companiesStore.unresearchedCount) return
+  if (mode === 'all' && !companiesStore.stats.total) return
 
   isResearchingBulk.value = true
   bulkResearchMode.value = mode
@@ -303,7 +234,7 @@ async function triggerBulkResearch(mode = 'missing') {
       'success'
     )
 
-    await fetchCompaniesSilently()
+    await companiesStore.fetchCompaniesSilently()
 
     if (pollInterval) {
       clearInterval(pollInterval)
@@ -320,61 +251,54 @@ async function retryCompanyResearch(company) {
   try {
     await CompaniesAPI.refreshResearch(company.id)
     uiStore.showToast(`Research re-queued for ${company.name}`, 'success')
-    await fetchCompaniesSilently()
+    await companiesStore.fetchCompaniesSilently()
     checkAndStartActiveResearchPolling()
   } catch (err) {
     uiStore.showToast('Failed to queue research retry', 'error')
   }
 }
 
-const stats = computed(() => {
-  const total = companies.value.length
-  const withActive = companies.value.filter((c) => c.active_applications_count > 0).length
-  const withResearch = companies.value.filter((c) => c.company_research && c.company_research.summary).length
-  const totalApps = companies.value.reduce((acc, c) => acc + (c.applications_count || 0), 0)
-  return { total, withActive, researchedCount: withResearch, totalApplications: totalApps }
+const filteredCompanies = computed(() => companiesStore.companies)
+const companies = computed(() => companiesStore.companies)
+const totalCount = computed(() => companiesStore.totalCount)
+const stats = computed(() => companiesStore.stats)
+const unresearchedCount = computed(() => companiesStore.unresearchedCount)
+const duplicateData = computed(() => companiesStore.duplicateData)
+const isLoading = computed(() => companiesStore.isLoading)
+const isLoadingMore = computed(() => companiesStore.isLoadingMore)
+const hasMore = computed(() => companiesStore.hasMore)
+
+const searchQuery = computed({
+  get: () => companiesStore.searchQuery,
+  set: (val) => {
+    companiesStore.searchQuery = val
+  },
 })
 
-const filteredCompanies = computed(() => {
-  let list = [...companies.value]
-
-  // 0. Potential Duplicates Filter
-  if (filterDuplicatesOnly.value) {
-    const dupSet = new Set(duplicateData.value.duplicate_company_ids || [])
-    list = list.filter((c) => dupSet.has(c.id))
-  }
-
-  // 1. Hide companies that already have intel
-  if (filterWithoutInfo.value) {
-    list = list.filter((c) => !c.company_research || !c.company_research.summary)
-  }
-
-  // 2. Text Search
-  const q = searchQuery.value.trim().toLowerCase()
-  if (q) {
-    list = list.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        (c.domain && c.domain.toLowerCase().includes(q)) ||
-        (c.notes && c.notes.toLowerCase().includes(q)) ||
-        (c.company_research?.summary && c.company_research.summary.toLowerCase().includes(q))
-    )
-  }
-
-  // 3. Sorting
-  list.sort((a, b) => {
-    if (sortBy.value === 'name') return a.name.localeCompare(b.name)
-    if (sortBy.value === 'recent') {
-      const dateA = a.last_applied_at ? new Date(a.last_applied_at).getTime() : 0
-      const dateB = b.last_applied_at ? new Date(b.last_applied_at).getTime() : 0
-      return dateB - dateA
-    }
-    // Default: 'applications' (descending)
-    return (b.applications_count || 0) - (a.applications_count || 0)
-  })
-
-  return list
+const sortBy = computed({
+  get: () => companiesStore.sortBy,
+  set: (val) => {
+    companiesStore.sortBy = val
+  },
 })
+
+const filterWithoutInfo = computed({
+  get: () => companiesStore.filterWithoutInfo,
+  set: (val) => {
+    companiesStore.filterWithoutInfo = val
+  },
+})
+
+const filterDuplicatesOnly = computed({
+  get: () => companiesStore.filterDuplicatesOnly,
+  set: (val) => {
+    companiesStore.filterDuplicatesOnly = val
+  },
+})
+
+function loadMoreCompanies() {
+  companiesStore.loadMoreCompanies()
+}
 
 function openCompanyDrawer(companyId) {
   uiStore.openCompanyDrawer(companyId)
@@ -383,7 +307,6 @@ function openCompanyDrawer(companyId) {
 function openCompanyDrawerWithMerge(companyId) {
   uiStore.openCompanyDrawer(companyId, 'merge')
 }
-
 </script>
 
 <template>
@@ -442,7 +365,7 @@ function openCompanyDrawerWithMerge(companyId) {
     </div>
 
     <!-- Intelligence Missing Action Banner -->
-    <div v-if="companiesWithoutInfo.length > 0 || isResearchingBulk" class="intelligence-banner">
+    <div v-if="unresearchedCount > 0 || isResearchingBulk" class="intelligence-banner">
       <div class="banner-content">
         <div class="banner-icon-wrap">
           <Sparkles :size="20" class="text-primary" />
@@ -450,7 +373,7 @@ function openCompanyDrawerWithMerge(companyId) {
         <div class="banner-text">
           <h4 class="banner-title">
             <span v-if="!isResearchingBulk">
-              {{ companiesWithoutInfo.length }} {{ companiesWithoutInfo.length === 1 ? 'company has' : 'companies have' }} no web intelligence
+              {{ unresearchedCount }} {{ unresearchedCount === 1 ? 'company has' : 'companies have' }} no web intelligence
             </span>
             <span v-else>
               Researching company intelligence in AI Queue...
@@ -493,17 +416,17 @@ function openCompanyDrawerWithMerge(companyId) {
         </button>
         <button
           class="btn btn-primary btn-sm btn-bulk-research"
-          :disabled="isResearchingBulk || !companiesWithoutInfo.length"
+          :disabled="isResearchingBulk || !unresearchedCount"
           @click="triggerBulkResearch('missing')"
           title="Research only companies that lack synthesized company intelligence"
         >
           <Loader2 v-if="isResearchingBulk && bulkResearchMode === 'missing'" :size="14" class="animate-spin" />
           <Globe v-else :size="14" />
-          <span>Research Missing ({{ companiesWithoutInfo.length }})</span>
+          <span>Research Missing ({{ unresearchedCount }})</span>
         </button>
         <button
           class="btn btn-secondary btn-sm btn-refresh-all"
-          :disabled="isResearchingBulk || !companies.length"
+          :disabled="isResearchingBulk || !stats.total"
           @click="triggerBulkResearch('all')"
           title="Re-run research and update intelligence for all companies"
         >
@@ -677,6 +600,21 @@ function openCompanyDrawerWithMerge(companyId) {
         </div>
       </div>
     </div>
+
+    <!-- Infinite Scroll Sentinel & Load More Footer -->
+    <div ref="scrollSentinelRef" class="scroll-sentinel"></div>
+    <div v-if="hasMore" class="companies-load-more-footer">
+      <button
+        type="button"
+        class="btn-load-more"
+        :disabled="isLoadingMore"
+        @click="loadMoreCompanies"
+      >
+        <Loader2 v-if="isLoadingMore" class="animate-spin" :size="14" />
+        <span v-else>Load More ({{ totalCount - companies.length }} remaining)</span>
+      </button>
+    </div>
+
     <!-- Add Company Modal -->
     <AddCompanyModal
       v-model="isCreateModalOpen"
@@ -1262,5 +1200,48 @@ function openCompanyDrawerWithMerge(companyId) {
   background: var(--primary-hover, #4f46e5);
   border-color: var(--primary-hover, #4f46e5);
   transform: translateY(-1px);
+}
+
+/* Infinite Scroll Sentinel & Load More Footer */
+.scroll-sentinel {
+  height: 20px;
+  width: 100%;
+  pointer-events: none;
+}
+
+.companies-load-more-footer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 24px 0 32px 0;
+}
+
+.btn-load-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 24px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.btn-load-more:hover:not(:disabled) {
+  background-color: var(--bg-card-hover, var(--bg-surface));
+  border-color: var(--primary);
+  color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.btn-load-more:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>

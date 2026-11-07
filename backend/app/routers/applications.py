@@ -202,6 +202,172 @@ def _resolve_previous_status(
 
 router = APIRouter(prefix="/applications", tags=["Applications"])
 
+STAGE_MAP = {
+    "APPLIED": ["APPLIED", "RECRUITER_CONTACT", "IN_PROGRESS", "PENDING"],
+    "TECHNICAL_INTERVIEW": [
+        "TECHNICAL_INTERVIEW",
+        "PHONE_SCREEN",
+        "ONLINE_ASSESSMENT",
+        "BEHAVIORAL_INTERVIEW",
+        "ONSITE_INTERVIEW",
+        "FINAL_INTERVIEW",
+        "INTERVIEW",
+        "SCREENING",
+    ],
+    "OFFER": ["OFFER"],
+    "ARCHIVED": ["ARCHIVED", "WITHDRAWN", "REJECTED"],
+    "HIRED": ["HIRED"],
+}
+
+
+@router.get(
+    "/stage-counts",
+    summary="Get aggregated application counts grouped by kanban stage",
+)
+async def get_application_stage_counts(
+    q: str | None = Query(
+        None, description="Search position, company name, or location"
+    ),
+    action_required: bool | None = Query(
+        None, description="Filter by pending action required"
+    ),
+    company_id: int | None = Query(None, description="Filter by company ID"),
+    work_model: str | None = Query(None, description="Filter by work model"),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(ApplicationModel.status, func.count(ApplicationModel.id)).join(
+        ApplicationModel.company
+    )
+
+    if q and q.strip():
+        search_pattern = f"%{q.strip().lower()}%"
+        stmt = stmt.where(
+            or_(
+                func.lower(ApplicationModel.position).like(search_pattern),
+                func.lower(CompanyModel.name).like(search_pattern),
+            )
+        )
+
+    if company_id:
+        stmt = stmt.where(ApplicationModel.company_id == company_id)
+
+    if work_model and work_model.strip():
+        wm = work_model.strip().lower()
+        stmt = stmt.join(
+            JobPostingModel,
+            ApplicationModel.id == JobPostingModel.application_id,
+            isouter=True,
+        ).where(func.lower(JobPostingModel.work_model).like(f"%{wm}%"))
+
+    if action_required is not None:
+        action_item_subq = (
+            select(ActionItemModel.application_id)
+            .where(
+                ActionItemModel.status == "PENDING",
+                ActionItemModel.application_id.is_not(None),
+            )
+            .scalar_subquery()
+        )
+        if action_required:
+            stmt = stmt.where(ApplicationModel.id.in_(action_item_subq))
+        else:
+            stmt = stmt.where(~ApplicationModel.id.in_(action_item_subq))
+
+    stmt = stmt.group_by(ApplicationModel.status)
+    res = await db.execute(stmt)
+    rows = res.all()
+
+    counts = {
+        "APPLIED": 0,
+        "TECHNICAL_INTERVIEW": 0,
+        "OFFER": 0,
+        "ARCHIVED": 0,
+        "HIRED": 0,
+    }
+
+    for raw_status, count in rows:
+        st = (raw_status or "").upper()
+        if st in STAGE_MAP["APPLIED"]:
+            counts["APPLIED"] += count
+        elif st in STAGE_MAP["TECHNICAL_INTERVIEW"]:
+            counts["TECHNICAL_INTERVIEW"] += count
+        elif st in STAGE_MAP["OFFER"]:
+            counts["OFFER"] += count
+        elif st in STAGE_MAP["ARCHIVED"]:
+            counts["ARCHIVED"] += count
+        elif st in STAGE_MAP["HIRED"]:
+            counts["HIRED"] += count
+
+    total_active = counts["APPLIED"] + counts["TECHNICAL_INTERVIEW"] + counts["OFFER"]
+
+    archive_counts = {
+        "all": counts["ARCHIVED"],
+        "ghosted_post_applied": 0,
+        "ghosted_applied": 0,
+        "rejected": 0,
+        "withdrawn": 0,
+    }
+
+    if counts["ARCHIVED"] > 0:
+        closed_stmt = (
+            select(ApplicationModel)
+            .join(ApplicationModel.company)
+            .options(selectinload(ApplicationModel.events))
+            .where(ApplicationModel.status.in_(STAGE_MAP["ARCHIVED"]))
+        )
+        if q and q.strip():
+            search_pattern = f"%{q.strip().lower()}%"
+            closed_stmt = closed_stmt.where(
+                or_(
+                    func.lower(ApplicationModel.position).like(search_pattern),
+                    func.lower(CompanyModel.name).like(search_pattern),
+                )
+            )
+        if company_id:
+            closed_stmt = closed_stmt.where(ApplicationModel.company_id == company_id)
+        if work_model and work_model.strip():
+            wm = work_model.strip().lower()
+            closed_stmt = closed_stmt.join(
+                JobPostingModel,
+                ApplicationModel.id == JobPostingModel.application_id,
+                isouter=True,
+            ).where(func.lower(JobPostingModel.work_model).like(f"%{wm}%"))
+
+        closed_res = await db.execute(closed_stmt)
+        closed_apps = closed_res.scalars().all()
+
+        for app in closed_apps:
+            st = (app.status or "").upper()
+            if st == "WITHDRAWN":
+                archive_counts["withdrawn"] += 1
+            else:
+                latest_evt = app.events[0] if app.events else None
+                reason = ""
+                if latest_evt and latest_evt.raw_payload:
+                    reason = str(
+                        latest_evt.raw_payload.get("archive_reason")
+                        or latest_evt.raw_payload.get("rejection_reason")
+                        or ""
+                    ).lower()
+                is_ghost = (st == "ARCHIVED") or ("ghost" in reason)
+
+                if is_ghost:
+                    prior = _resolve_previous_status(
+                        app.status, app.events or [], bool(app.is_assessment)
+                    )
+                    if prior in ("ONLINE_ASSESSMENT", "TECHNICAL_INTERVIEW", "OFFER"):
+                        archive_counts["ghosted_post_applied"] += 1
+                    else:
+                        archive_counts["ghosted_applied"] += 1
+                else:
+                    archive_counts["rejected"] += 1
+
+    return {
+        "counts": counts,
+        "archive_counts": archive_counts,
+        "total_active": total_active,
+    }
+
 
 @router.get(
     "",
@@ -217,6 +383,7 @@ async def list_applications(
         None, description="Filter by pending action required"
     ),
     company_id: int | None = Query(None, description="Filter by company ID"),
+    work_model: str | None = Query(None, description="Filter by work model"),
     sort_by: str = Query(
         "last_activity_at", pattern="^(last_activity_at|application_date|created_at)$"
     ),
@@ -238,20 +405,42 @@ async def list_applications(
     )
 
     # Apply filters
-    if q:
-        search_pattern = f"%{q.lower()}%"
+    q_val = q.strip().lower() if isinstance(q, str) and q.strip() else None
+    if q_val:
+        search_pattern = f"%{q_val}%"
         stmt = stmt.where(
             or_(
                 func.lower(ApplicationModel.position).like(search_pattern),
                 func.lower(CompanyModel.name).like(search_pattern),
+                func.lower(ApplicationModel.location).like(search_pattern),
             )
         )
 
-    if status_filter:
-        stmt = stmt.where(ApplicationModel.status == status_filter.upper())
+    status_val = (
+        status_filter.strip().upper()
+        if isinstance(status_filter, str) and status_filter.strip()
+        else None
+    )
+    if status_val:
+        if status_val in STAGE_MAP:
+            stmt = stmt.where(ApplicationModel.status.in_(STAGE_MAP[status_val]))
+        else:
+            stmt = stmt.where(ApplicationModel.status == status_val)
 
     if company_id:
         stmt = stmt.where(ApplicationModel.company_id == company_id)
+
+    work_model_val = (
+        work_model.strip().lower()
+        if isinstance(work_model, str) and work_model.strip()
+        else None
+    )
+    if work_model_val:
+        stmt = stmt.join(
+            JobPostingModel,
+            ApplicationModel.id == JobPostingModel.application_id,
+            isouter=True,
+        ).where(func.lower(JobPostingModel.work_model).like(f"%{work_model_val}%"))
 
     if action_required is not None:
         event_subq = select(ApplicationEventModel.email_application_id).where(

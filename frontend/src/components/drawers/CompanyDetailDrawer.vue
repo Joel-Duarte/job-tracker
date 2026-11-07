@@ -487,8 +487,9 @@ async function loadAllCompaniesForMerge() {
   mergeSearchQuery.value = ''
   selectedSourceIds.value = []
   try {
-    const res = await CompaniesAPI.list()
-    allCompanies.value = res.data.filter((c) => c.id !== company.value?.id)
+    const res = await CompaniesAPI.list({ limit: 500 })
+    const items = res.data?.items || res.data || []
+    allCompanies.value = items.filter((c) => c.id !== company.value?.id)
   } catch {
     allCompanies.value = []
   }

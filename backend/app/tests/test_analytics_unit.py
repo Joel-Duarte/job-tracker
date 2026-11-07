@@ -243,3 +243,42 @@ async def test_get_role_alignment_unit():
     assert res.vocabulary_shifts[0].jd_term == "PostgreSQL"
     assert len(res.bullet_reframes) == 1
     assert res.bullet_reframes[0].original_bullet == "Engineered scalable services."
+
+
+def test_compute_consensus_text_edge_cases_and_performance():
+    import time
+
+    from app.services.analytics import compute_consensus_text
+
+    # 1. Empty and whitespace
+    assert compute_consensus_text([]) == ""
+    assert compute_consensus_text(["   ", "", None]) == ""
+
+    # 2. Single item
+    assert compute_consensus_text(["PostgreSQL"]) == "PostgreSQL"
+
+    # 3. Clear majority fast-path (>= 50%)
+    variants = ["PostgreSQL"] * 6 + ["Postgres DB"] * 4
+    assert compute_consensus_text(variants) == "PostgreSQL"
+
+    # 4. Diverse variants choosing highest weighted similarity
+    variants = [
+        "Architected distributed event-driven systems using Kafka and Redis.",
+        "Built event-driven microservices architecture using Kafka and Redis.",
+        "Created microservices with Kafka and Redis.",
+        "Completely unrelated text about gardening and soil pH levels.",
+    ]
+    consensus = compute_consensus_text(variants)
+    assert "Kafka" in consensus
+    assert "soil pH" not in consensus
+
+    # 5. Performance test with 1,000 variants: must execute in under 50ms without blocking
+    large_variants = [
+        f"Variant description {i % 25} with detailed bullet points" for i in range(1000)
+    ]
+    start = time.perf_counter()
+    res = compute_consensus_text(large_variants)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+
+    assert res != ""
+    assert elapsed_ms < 50.0  # Must be fast (<50ms, typically <2ms)

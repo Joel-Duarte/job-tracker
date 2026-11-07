@@ -3,7 +3,7 @@ import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import or_, select, update
+from sqlalchemy import String, cast, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,7 +12,9 @@ from app.models.applications import ApplicationModel, CompanyModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
 from app.schemas.companies import (
     CompanyCreate,
+    CompanyDirectoryStats,
     CompanyMergeRequest,
+    CompanyPaginationResponse,
     CompanyRead,
     CompanyUpdate,
 )
@@ -30,31 +32,145 @@ router = APIRouter(prefix="/companies", tags=["Companies"])
 ACTIVE_STATUSES = ("APPLIED", "ONLINE_ASSESSMENT", "TECHNICAL_INTERVIEW", "OFFER")
 
 
-@router.get("", response_model=list[CompanyRead])
+@router.get("", response_model=CompanyPaginationResponse)
 async def list_companies(
-    q: str | None = Query(None, description="Search query by name or domain"),
+    limit: int = Query(50, ge=1, le=500, description="Page limit"),
+    offset: int = Query(0, ge=0, description="Page offset"),
+    q: str | None = Query(
+        None, description="Search query by name, domain, notes, or research"
+    ),
+    sort_by: str = Query(
+        "applications", description="Sort by: applications, recent, or name"
+    ),
+    sort_order: str = Query("desc", description="Sort order: asc or desc"),
+    without_research: bool = Query(
+        False, description="Filter for companies without web intelligence"
+    ),
+    duplicate_ids: str | None = Query(
+        None, description="Comma-separated IDs to filter potential duplicates"
+    ),
     db: AsyncSession = Depends(get_db),
-) -> list[CompanyRead]:
-    """Lists all companies with aggregated application metrics, optionally filtered by search term."""
-    stmt = select(CompanyModel).options(
-        selectinload(CompanyModel.applications).selectinload(ApplicationModel.events)
+) -> CompanyPaginationResponse:
+    """Lists companies with pagination, database-level sorting, search, and global directory statistics."""
+    limit_val = limit if isinstance(limit, int) else 50
+    offset_val = offset if isinstance(offset, int) else 0
+    q_val = q if isinstance(q, str) else None
+    sort_by_val = sort_by if isinstance(sort_by, str) else "applications"
+    sort_order_val = sort_order if isinstance(sort_order, str) else "desc"
+    without_research_val = (
+        bool(without_research) if isinstance(without_research, bool) else False
     )
+    duplicate_ids_val = duplicate_ids if isinstance(duplicate_ids, str) else None
 
-    if q and q.strip():
-        term = f"%{q.strip().lower()}%"
-        stmt = stmt.where(
+    base_query = select(CompanyModel)
+    count_query = select(func.count()).select_from(CompanyModel)
+
+    conditions = []
+
+    if q_val and q_val.strip():
+        term = f"%{q_val.strip().lower()}%"
+        conditions.append(
             or_(
                 CompanyModel.name_normalized.ilike(term),
                 CompanyModel.name.ilike(term),
                 CompanyModel.domain.ilike(term),
+                CompanyModel.notes.ilike(term),
+                cast(CompanyModel.company_research, String).ilike(term),
             )
         )
 
-    stmt = stmt.order_by(CompanyModel.name_normalized.asc())
+    if without_research_val:
+        conditions.append(
+            or_(
+                CompanyModel.company_research.is_(None),
+                cast(CompanyModel.company_research["summary"], String).is_(None),
+                cast(CompanyModel.company_research["summary"], String).in_(
+                    ["null", '""', ""]
+                ),
+            )
+        )
+
+    if duplicate_ids_val and duplicate_ids_val.strip():
+        try:
+            parsed_ids = [
+                int(i.strip())
+                for i in duplicate_ids_val.split(",")
+                if i.strip().isdigit()
+            ]
+            if parsed_ids:
+                conditions.append(CompanyModel.id.in_(parsed_ids))
+        except Exception:
+            pass
+
+    if conditions:
+        base_query = base_query.where(*conditions)
+        count_query = count_query.where(*conditions)
+
+    # 1. Total count of filtered matches
+    total_res = await db.execute(count_query)
+    total = total_res.scalar_one()
+
+    # 2. Database-level sorting
+    is_asc = sort_order_val.lower() == "asc"
+    if sort_by_val == "name":
+        if is_asc:
+            base_query = base_query.order_by(
+                CompanyModel.name_normalized.asc(), CompanyModel.id.asc()
+            )
+        else:
+            base_query = base_query.order_by(
+                CompanyModel.name_normalized.desc(), CompanyModel.id.desc()
+            )
+    elif sort_by_val == "recent":
+        recent_sub = (
+            select(
+                func.max(
+                    func.coalesce(
+                        ApplicationModel.application_date, ApplicationModel.created_at
+                    )
+                )
+            )
+            .where(ApplicationModel.company_id == CompanyModel.id)
+            .scalar_subquery()
+        )
+        if is_asc:
+            base_query = base_query.order_by(
+                recent_sub.asc().nulls_first(), CompanyModel.name_normalized.asc()
+            )
+        else:
+            base_query = base_query.order_by(
+                recent_sub.desc().nulls_last(), CompanyModel.name_normalized.asc()
+            )
+    else:
+        # Default: 'applications'
+        app_count_sub = (
+            select(func.count(ApplicationModel.id))
+            .where(ApplicationModel.company_id == CompanyModel.id)
+            .scalar_subquery()
+        )
+        if is_asc:
+            base_query = base_query.order_by(
+                app_count_sub.asc(), CompanyModel.name_normalized.asc()
+            )
+        else:
+            base_query = base_query.order_by(
+                app_count_sub.desc(), CompanyModel.name_normalized.asc()
+            )
+
+    # 3. Limit & Offset pagination with eager loading
+    stmt = (
+        base_query.limit(limit_val)
+        .offset(offset_val)
+        .options(
+            selectinload(CompanyModel.applications).selectinload(
+                ApplicationModel.events
+            )
+        )
+    )
     res = await db.execute(stmt)
     companies = res.scalars().all()
 
-    # Active research tasks query to avoid stale QUEUED status
+    # 4. Active research tasks query to avoid stale QUEUED status
     active_stmt = select(
         IntakeEvaluationTaskModel.raw_text, IntakeEvaluationTaskModel.status
     ).where(
@@ -66,7 +182,6 @@ async def list_companies(
         int(r[0]): r[1] for r in active_res.all() if r[0] and str(r[0]).isdigit()
     }
 
-    needs_commit = False
     result: list[CompanyRead] = []
     for c in companies:
         apps = list(c.applications or [])
@@ -86,10 +201,6 @@ async def list_companies(
             effective_status = "FAILED"
         else:
             effective_status = "NONE"
-
-        if c.research_status != effective_status:
-            c.research_status = effective_status
-            needs_commit = True
 
         app_items = [
             {
@@ -132,10 +243,43 @@ async def list_companies(
             )
         )
 
-    if needs_commit:
-        await db.commit()
+    # 5. Global directory statistics
+    stats_stmt = select(
+        select(func.count()).select_from(CompanyModel).scalar_subquery(),
+        select(func.count(func.distinct(ApplicationModel.company_id)))
+        .where(ApplicationModel.status.in_(ACTIVE_STATUSES))
+        .scalar_subquery(),
+        select(func.count())
+        .select_from(CompanyModel)
+        .where(CompanyModel.research_status == "COMPLETED")
+        .scalar_subquery(),
+        select(func.count()).select_from(ApplicationModel).scalar_subquery(),
+    )
+    stats_res = await db.execute(stats_stmt)
+    stats_row = stats_res.first()
+    if stats_row:
+        t = stats_row[0] or 0
+        w = stats_row[1] or 0
+        r = stats_row[2] or 0
+        a = stats_row[3] or 0
+    else:
+        t = w = r = a = 0
 
-    return result
+    stats_obj = CompanyDirectoryStats(
+        total=t,
+        with_active=w,
+        researched_count=r,
+        total_applications=a,
+        unresearched_count=max(0, t - r),
+    )
+
+    return CompanyPaginationResponse(
+        items=result,
+        total=total,
+        limit=limit_val,
+        offset=offset_val,
+        stats=stats_obj,
+    )
 
 
 @router.post("", response_model=CompanyRead, status_code=status.HTTP_201_CREATED)
@@ -232,58 +376,78 @@ async def get_potential_duplicates(
         .order_by(CompanyModel.name.asc())
     )
     res = await db.execute(stmt)
-    companies = res.scalars().all()
+    raw_companies = res.scalars().all()
+
+    companies = [
+        {
+            "id": c.id,
+            "name": c.name,
+            "name_normalized": c.name_normalized or "",
+            "domain": c.domain,
+            "rating": c.rating,
+            "applications_count": len(c.applications or [])
+            if hasattr(c, "applications")
+            else 0,
+        }
+        for c in raw_companies
+    ]
 
     clusters = []
     visited_ids = set()
 
     for i, c1 in enumerate(companies):
-        if c1.id in visited_ids:
+        if c1["id"] in visited_ids:
             continue
         cluster = [c1]
+        name1 = c1["name_normalized"]
+        dom1 = c1["domain"]
+        len1 = len(name1)
+
         for c2 in companies[i + 1 :]:
-            if c2.id in visited_ids:
+            if c2["id"] in visited_ids:
                 continue
             is_dup = False
+            name2 = c2["name_normalized"]
+            dom2 = c2["domain"]
+
             # Check 1: Same normalized name
-            if c1.name_normalized and c1.name_normalized == c2.name_normalized:
+            if name1 and name1 == name2:
                 is_dup = True
             # Check 2: Same non-ATS canonical domain
             elif (
-                c1.domain
-                and c2.domain
-                and c1.domain == c2.domain
+                dom1
+                and dom2
+                and dom1 == dom2
                 and (
-                    not any(h in c1.domain for h in GENERIC_ATS_HOSTS)
-                    or is_ats_vendor_match(c1.name_normalized, c1.domain)
+                    not any(h in dom1 for h in GENERIC_ATS_HOSTS)
+                    or is_ats_vendor_match(name1, dom1)
                 )
             ):
                 is_dup = True
             # Check 3: Fuzzy similarity >= 0.85
-            elif (
-                c1.name_normalized
-                and c2.name_normalized
-                and difflib.SequenceMatcher(
-                    None, c1.name_normalized, c2.name_normalized
-                ).ratio()
-                >= 0.85
-            ):
-                is_dup = True
+            elif name1 and name2:
+                len2 = len(name2)
+                if abs(len1 - len2) <= max(2, int((len1 + len2) * 0.15)):
+                    if name1[0] == name2[0] or (
+                        len1 >= 2 and len2 >= 2 and name1[:2] == name2[:2]
+                    ):
+                        if difflib.SequenceMatcher(None, name1, name2).ratio() >= 0.85:
+                            is_dup = True
 
             if is_dup:
                 cluster.append(c2)
 
         if len(cluster) > 1:
             for c in cluster:
-                visited_ids.add(c.id)
+                visited_ids.add(c["id"])
             clusters.append(
                 [
                     {
-                        "id": c.id,
-                        "name": c.name,
-                        "domain": c.domain,
-                        "applications_count": len(c.applications or []),
-                        "rating": c.rating,
+                        "id": c["id"],
+                        "name": c["name"],
+                        "domain": c["domain"],
+                        "applications_count": c["applications_count"],
+                        "rating": c["rating"],
                     }
                     for c in cluster
                 ]

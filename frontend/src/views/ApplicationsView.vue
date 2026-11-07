@@ -1,6 +1,6 @@
 <script setup>
 import { formatEmailInstant, toEmailLocalDatetime } from '../utils/emailTime'
-import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
+import { ref, watch, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useUIStore } from '../stores/uiStore'
 import DateTimePicker from '../components/common/DateTimePicker.vue'
@@ -61,10 +61,13 @@ import {
   HelpCircle,
 } from 'lucide-vue-next'
 
+const appStore = useApplicationsStore()
+const uiStore = useUIStore()
+
 const pipelineCount = computed(() => {
-  if (appStore.pipelineViewMode === 'active') return appStore.activeApplications.length
-  if (appStore.pipelineViewMode === 'hired') return appStore.hiredApplications.length
-  return appStore.archivedApplications.length
+  if (appStore.pipelineViewMode === 'active') return appStore.stageCounts?.total_active ?? appStore.activeApplications.length
+  if (appStore.pipelineViewMode === 'hired') return appStore.stageCounts?.HIRED ?? appStore.hiredApplications.length
+  return appStore.stageCounts?.ARCHIVED ?? appStore.archivedApplications.length
 })
 
 const pipelineCountLabel = computed(() => {
@@ -72,9 +75,6 @@ const pipelineCountLabel = computed(() => {
   if (appStore.pipelineViewMode === 'hired') return 'Hired'
   return 'Archived'
 })
-
-const appStore = useApplicationsStore()
-const uiStore = useUIStore()
 
 // Dropdown Context Menu State (Teleported Floating Menu)
 const activeMenuApp = ref(null)
@@ -152,6 +152,113 @@ function scrollToColumn(index) {
     }
   }
 }
+
+function handleColumnCardsScroll(colKey, event) {
+  const el = event.target
+  if (!el) return
+  if (el.scrollHeight - el.scrollTop - el.clientHeight < 250) {
+    appStore.loadMoreColumn(colKey)
+  }
+}
+
+const archiveSentinelRef = ref(null)
+const hiredSentinelRef = ref(null)
+let archiveObserver = null
+let hiredObserver = null
+
+function handleArchiveScroll(event) {
+  const el = event.target
+  if (!el) return
+  if (el.scrollHeight - el.scrollTop - el.clientHeight < 350) {
+    if (appStore.columnState.ARCHIVED.hasMore && !appStore.columnState.ARCHIVED.loading) {
+      appStore.loadMoreColumn('ARCHIVED')
+    }
+  }
+}
+
+function handleHiredScroll(event) {
+  const el = event.target
+  if (!el) return
+  if (el.scrollHeight - el.scrollTop - el.clientHeight < 350) {
+    if (appStore.columnState.HIRED.hasMore && !appStore.columnState.HIRED.loading) {
+      appStore.loadMoreColumn('HIRED')
+    }
+  }
+}
+
+function setupArchiveObserver() {
+  if (archiveObserver) {
+    archiveObserver.disconnect()
+    archiveObserver = null
+  }
+  if (!archiveSentinelRef.value) return
+
+  archiveObserver = new IntersectionObserver(
+    (entries) => {
+      const entry = entries[0]
+      if (
+        entry?.isIntersecting &&
+        appStore.columnState.ARCHIVED.hasMore &&
+        !appStore.columnState.ARCHIVED.loading
+      ) {
+        appStore.loadMoreColumn('ARCHIVED')
+      }
+    },
+    { rootMargin: '300px' }
+  )
+  archiveObserver.observe(archiveSentinelRef.value)
+}
+
+function setupHiredObserver() {
+  if (hiredObserver) {
+    hiredObserver.disconnect()
+    hiredObserver = null
+  }
+  if (!hiredSentinelRef.value) return
+
+  hiredObserver = new IntersectionObserver(
+    (entries) => {
+      const entry = entries[0]
+      if (
+        entry?.isIntersecting &&
+        appStore.columnState.HIRED.hasMore &&
+        !appStore.columnState.HIRED.loading
+      ) {
+        appStore.loadMoreColumn('HIRED')
+      }
+    },
+    { rootMargin: '300px' }
+  )
+  hiredObserver.observe(hiredSentinelRef.value)
+}
+
+watch(
+  () => [appStore.pipelineViewMode, archiveSentinelRef.value, appStore.columnState.ARCHIVED.hasMore],
+  async () => {
+    if (appStore.pipelineViewMode === 'archive') {
+      await nextTick()
+      setupArchiveObserver()
+    } else if (archiveObserver) {
+      archiveObserver.disconnect()
+      archiveObserver = null
+    }
+  },
+  { flush: 'post' }
+)
+
+watch(
+  () => [appStore.pipelineViewMode, hiredSentinelRef.value, appStore.columnState.HIRED.hasMore],
+  async () => {
+    if (appStore.pipelineViewMode === 'hired') {
+      await nextTick()
+      setupHiredObserver()
+    } else if (hiredObserver) {
+      hiredObserver.disconnect()
+      hiredObserver = null
+    }
+  },
+  { flush: 'post' }
+)
 
 const isGuideModalOpen = ref(false)
 const guideAppId = ref(null)
@@ -412,6 +519,14 @@ onUnmounted(() => {
   if (appStore.searchQuery) {
     appStore.searchQuery = ''
   }
+  if (archiveObserver) {
+    archiveObserver.disconnect()
+    archiveObserver = null
+  }
+  if (hiredObserver) {
+    hiredObserver.disconnect()
+    hiredObserver = null
+  }
   window.removeEventListener('click', handleGlobalClick)
   window.removeEventListener('scroll', handleScrollOrResize, true)
   window.removeEventListener('resize', handleScrollOrResize)
@@ -524,6 +639,16 @@ const archiveSortKey = ref('archived_date') // 'company' | 'position' | 'stage_r
 const archiveSortOrder = ref('desc') // 'asc' | 'desc'
 
 const archiveFilterCounts = computed(() => {
+  if (appStore.archiveCounts && (appStore.archiveCounts.all > 0 || appStore.stageCounts?.ARCHIVED > 0)) {
+    return {
+      all: appStore.archiveCounts.all || appStore.stageCounts?.ARCHIVED || 0,
+      ghosted_post_applied: appStore.archiveCounts.ghosted_post_applied || 0,
+      ghosted_applied: appStore.archiveCounts.ghosted_applied || 0,
+      rejected: appStore.archiveCounts.rejected || 0,
+      withdrawn: appStore.archiveCounts.withdrawn || 0,
+    }
+  }
+
   const apps = appStore.archivedApplications
   let ghostedPostApplied = 0
   let ghostedApplied = 0
@@ -976,7 +1101,7 @@ async function confirmDelete() {
             @click="appStore.pipelineViewMode = 'active'"
           >
             <Briefcase :size="14" />
-            <span>Active Pipeline ({{ appStore.activeApplications.length }})</span>
+            <span>Active Pipeline ({{ appStore.stageCounts?.total_active ?? appStore.activeApplications.length }})</span>
           </button>
           <button
             class="pipeline-mode-btn"
@@ -984,7 +1109,7 @@ async function confirmDelete() {
             @click="appStore.pipelineViewMode = 'archive'"
           >
             <Archive :size="14" />
-            <span>Archived / Closed ({{ appStore.archivedApplications.length }})</span>
+            <span>Archived / Closed ({{ appStore.stageCounts?.ARCHIVED ?? appStore.archivedApplications.length }})</span>
           </button>
           <button
             class="pipeline-mode-btn"
@@ -992,7 +1117,7 @@ async function confirmDelete() {
             @click="appStore.pipelineViewMode = 'hired'"
           >
             <Trophy :size="14" />
-            <span>Past Wins ({{ appStore.hiredApplications.length }})</span>
+            <span>Past Wins ({{ appStore.stageCounts?.HIRED ?? appStore.hiredApplications.length }})</span>
           </button>
         </div>
 
@@ -1204,10 +1329,14 @@ async function confirmDelete() {
     <!-- MAIN VIEW AREA -->
     <div class="content-wrapper">
       <!-- 1. ARCHIVE / REJECTIONS VIEW -->
-      <div v-if="appStore.pipelineViewMode === 'archive'" class="archive-view-container animate-fade-in">
+      <div
+        v-if="appStore.pipelineViewMode === 'archive'"
+        class="archive-view-container animate-fade-in"
+        @scroll.passive="handleArchiveScroll"
+      >
         <!-- Quick Filter Strip for Closed / Archived Applications -->
         <div
-          v-if="appStore.archivedApplications.length > 0"
+          v-if="appStore.archivedApplications.length > 0 || appStore.stageCounts?.ARCHIVED > 0"
           class="archive-filter-strip"
           role="group"
           aria-label="Filter archived applications by outcome"
@@ -1384,11 +1513,21 @@ async function confirmDelete() {
               </tr>
             </tbody>
           </table>
+          <!-- Auto-loading Sentinel & Loading Indicator -->
+          <div ref="archiveSentinelRef" class="scroll-sentinel"></div>
+          <div v-if="appStore.columnState.ARCHIVED.loading" class="archive-loading-indicator">
+            <Loader2 :size="16" class="spin-loader" />
+            <span>Loading more closed applications...</span>
+          </div>
         </div>
       </div>
 
       <!-- 1b. HIRED / PAST WINS VIEW -->
-      <div v-else-if="appStore.pipelineViewMode === 'hired'" class="hired-view-container animate-fade-in">
+      <div
+        v-else-if="appStore.pipelineViewMode === 'hired'"
+        class="hired-view-container animate-fade-in"
+        @scroll.passive="handleHiredScroll"
+      >
         <div v-if="appStore.hiredApplications.length === 0" class="empty-state-box">
           <span class="empty-state-trophy">&#x1F3C6;</span>
           <h3 class="empty-state-title">No hired applications yet</h3>
@@ -1420,6 +1559,12 @@ async function confirmDelete() {
             </div>
           </div>
         </div>
+        <!-- Auto-loading Sentinel & Loading Indicator -->
+        <div ref="hiredSentinelRef" class="scroll-sentinel"></div>
+        <div v-if="appStore.columnState.HIRED.loading" class="archive-loading-indicator">
+          <Loader2 :size="16" class="spin-loader" />
+          <span>Loading more hired applications...</span>
+        </div>
       </div>
 
       <!-- 2. ACTIVE VIEW (KANBAN OR DATA TABLE) -->
@@ -1446,11 +1591,14 @@ async function confirmDelete() {
               <span class="column-title">{{ col.label }}</span>
             </div>
             <span class="column-count">
-              {{ appStore.kanbanColumns[col.key]?.length || 0 }}
+              {{ appStore.stageCounts?.[col.key] ?? appStore.kanbanColumns[col.key]?.length ?? 0 }}
             </span>
           </div>
 
-          <div class="column-cards">
+          <div
+            class="column-cards"
+            @scroll.passive="handleColumnCardsScroll(col.key, $event)"
+          >
             <div
               v-for="app in appStore.kanbanColumns[col.key] || []"
               :key="app.id"
@@ -1622,9 +1770,15 @@ async function confirmDelete() {
 
             </div>
 
+            <!-- Loading More indicator -->
+            <div v-if="appStore.columnState[col.key]?.loading" class="column-page-loading">
+              <Loader2 :size="16" class="spin-loader" />
+              <span>Loading more...</span>
+            </div>
+
             <!-- Empty Column State -->
             <div
-              v-if="!appStore.kanbanColumns[col.key]?.length"
+              v-if="!appStore.kanbanColumns[col.key]?.length && !appStore.columnState[col.key]?.loading"
               class="column-empty"
             >
               No applications in {{ col.label }}
@@ -3079,6 +3233,39 @@ async function confirmDelete() {
   padding: 24px 0;
 }
 
+.column-page-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 12px 0;
+}
+
+.load-more-section {
+  display: flex;
+  justify-content: center;
+  padding: 16px;
+}
+
+.scroll-sentinel {
+  height: 1px;
+  width: 100%;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.archive-loading-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
 /* DATA TABLE */
 .table-container {
   background-color: var(--bg-surface);
@@ -4002,7 +4189,7 @@ async function confirmDelete() {
 }
 
 /* Hired / Past Wins View */
-.hired-view-container { padding: 1.5rem 0; }
+.hired-view-container { padding: 1.5rem 0; height: 100%; overflow-y: auto; }
 
 .hired-cards-grid {
   display: grid;

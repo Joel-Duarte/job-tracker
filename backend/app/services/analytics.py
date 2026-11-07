@@ -1,6 +1,6 @@
 import datetime
 import logging
-from collections import defaultdict
+from collections import Counter, defaultdict
 from difflib import SequenceMatcher
 
 from sqlalchemy import and_, func, select
@@ -826,6 +826,47 @@ def classify_position_to_track(position: str | None) -> str:
     return "fullstack" if "engineer" in pos or "developer" in pos else "other"
 
 
+def compute_consensus_text(variants: list[str]) -> str:
+    """
+    Computes a representative consensus text from a list of variant strings.
+    Optimized for high-throughput execution without blocking the event loop:
+    - O(N) linear majority check via Counter (instant exit when >= 50% match)
+    - Capped at top unique candidates (max 100 SequenceMatcher comparisons)
+    """
+    clean_variants = [
+        v.strip() for v in variants if v and isinstance(v, str) and v.strip()
+    ]
+    if not clean_variants:
+        return ""
+    if len(clean_variants) == 1:
+        return clean_variants[0]
+
+    counts = Counter(clean_variants)
+    most_common = counts.most_common()
+
+    # If the top variant represents >= 50% of all occurrences, it is consensus
+    if most_common[0][1] >= len(clean_variants) * 0.5:
+        return most_common[0][0]
+
+    # Bound candidate set to top unique strings to prevent O(N^2) explosion
+    top_candidates = most_common[:10]
+    if len(top_candidates) == 1:
+        return top_candidates[0][0]
+
+    best_candidate = top_candidates[0][0]
+    best_score = -1.0
+    for cand, _ in top_candidates:
+        cand_lower = cand.lower()
+        weighted_sim = sum(
+            SequenceMatcher(None, cand_lower, other.lower()).ratio() * cnt
+            for other, cnt in top_candidates
+        )
+        if weighted_sim > best_score:
+            best_score = weighted_sim
+            best_candidate = cand
+    return best_candidate
+
+
 async def get_role_alignment(
     db: AsyncSession,
     role_track: str | None = "all",
@@ -899,26 +940,6 @@ async def get_role_alignment(
         ]
 
     total_analyzed = len(filtered_apps)
-
-    # Helper: Text similarity consensus string calculation
-    def compute_consensus_text(variants: list[str]) -> str:
-        if not variants:
-            return ""
-        if len(variants) == 1:
-            return variants[0]
-        # Choose string with highest average similarity to all other variants
-        best_candidate = variants[0]
-        best_avg_score = -1.0
-        for cand in variants:
-            total_sim = 0.0
-            for other in variants:
-                sim = SequenceMatcher(None, cand.lower(), other.lower()).ratio()
-                total_sim += sim
-            avg_score = total_sim / len(variants)
-            if avg_score > best_avg_score:
-                best_avg_score = avg_score
-                best_candidate = cand
-        return best_candidate
 
     # Global aggregation across role track by Target CV Term / Original Bullet
     vocab_groups = defaultdict(lambda: {"count": 0, "jd_terms": [], "rationales": []})

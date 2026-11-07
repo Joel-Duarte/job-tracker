@@ -167,6 +167,7 @@ const isDraggingTrackBar = ref(false)
 let startX = 0
 let scrollLeftStart = 0
 let hasMovedSignificantly = false
+let warmTimeout = null
 
 function onTrackMouseDown(e) {
   if (!trackSelectorBarRef.value) return
@@ -212,6 +213,10 @@ function onTrackWheel(e) {
 }
 
 onUnmounted(() => {
+  if (warmTimeout) {
+    clearTimeout(warmTimeout)
+    warmTimeout = null
+  }
   window.removeEventListener('mousemove', onTrackMouseMove)
   window.removeEventListener('mouseup', onTrackMouseUp)
 })
@@ -268,11 +273,11 @@ onMounted(() => {
   }
 
   // 2. Silently warm other tabs in background without network contention
-  setTimeout(() => {
+  warmTimeout = setTimeout(() => {
     if (activeTab.value !== 'market') fetchAnalytics()
     if (activeTab.value !== 'funnel') fetchFunnelMetrics()
     if (activeTab.value !== 'alignment') fetchRoleAlignment()
-  }, 300)
+  }, 1000)
 })
 
 // Tab 1 Computed Metrics

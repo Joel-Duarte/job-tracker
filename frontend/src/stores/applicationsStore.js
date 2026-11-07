@@ -26,10 +26,13 @@ function loadSavedDateBound(key) {
 export const useApplicationsStore = defineStore('applications', () => {
   const uiStore = useUIStore()
 
+  // Flat application array for backward compatibility
   const applications = ref([])
   const total = ref(0)
   const loading = ref(false)
   const error = ref(null)
+
+  // Filters
   const searchQuery = ref('')
   const selectedStatus = ref('')
   const actionRequiredOnly = ref(false)
@@ -38,8 +41,44 @@ export const useApplicationsStore = defineStore('applications', () => {
   const selectedDateRange = ref(loadSavedDateRange()) // 'all' | '7d' | '30d' | '90d' | 'custom'
   const customDateStart = ref(loadSavedDateBound('jobtracker_apps_custom_date_start'))
   const customDateEnd = ref(loadSavedDateBound('jobtracker_apps_custom_date_end'))
+
+  // Selected item / Drawer state
   const selectedApplication = ref(null)
   const loadingDetail = ref(false)
+
+  // View mode
+  const pipelineViewMode = ref('active') // 'active' | 'archive' | 'hired'
+  const lastFetchedAt = ref(null)
+  const isStale = ref(false)
+  const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes cache TTL
+
+  // Global Stage Counts from SQL aggregation
+  const stageCounts = ref({
+    APPLIED: 0,
+    TECHNICAL_INTERVIEW: 0,
+    OFFER: 0,
+    ARCHIVED: 0,
+    HIRED: 0,
+    total_active: 0,
+  })
+
+  // Breakdown counts for Archived/Closed filter pills
+  const archiveCounts = ref({
+    all: 0,
+    ghosted_post_applied: 0,
+    ghosted_applied: 0,
+    rejected: 0,
+    withdrawn: 0,
+  })
+
+  // Per-column paginated state
+  const columnState = ref({
+    APPLIED: { items: [], total: 0, offset: 0, hasMore: true, loading: false },
+    TECHNICAL_INTERVIEW: { items: [], total: 0, offset: 0, hasMore: true, loading: false },
+    OFFER: { items: [], total: 0, offset: 0, hasMore: true, loading: false },
+    ARCHIVED: { items: [], total: 0, offset: 0, hasMore: true, loading: false },
+    HIRED: { items: [], total: 0, offset: 0, hasMore: true, loading: false },
+  })
 
   watch([selectedDateRange, customDateStart, customDateEnd], ([range, start, end]) => {
     try {
@@ -50,11 +89,6 @@ export const useApplicationsStore = defineStore('applications', () => {
       // ignore storage errors
     }
   })
-
-  const pipelineViewMode = ref('active') // 'active' | 'archive' | 'hired'
-  const lastFetchedAt = ref(null)
-  const isStale = ref(false)
-  const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes cache TTL
 
   function invalidateCache() {
     isStale.value = true
@@ -131,49 +165,6 @@ export const useApplicationsStore = defineStore('applications', () => {
     return true
   }
 
-  function matchesWorkModel(app) {
-    if (!selectedWorkModel.value) return true
-    const target = selectedWorkModel.value.toLowerCase().replace(/[^a-z]/g, '')
-    const current = (app.work_model || app.match_analysis_payload?.work_model || '').toLowerCase().replace(/[^a-z]/g, '')
-    return current.includes(target) || target.includes(current)
-  }
-
-  function matchesSearch(app) {
-    if (!searchQuery.value) return true
-    const q = searchQuery.value.toLowerCase().trim()
-    if (!q) return true
-    const company = (app.company?.name || '').toLowerCase()
-    const position = (app.position || '').toLowerCase()
-    const location = (app.location || '').toLowerCase()
-    const workModel = (app.work_model || '').toLowerCase()
-    const salaryMin = app.salary_min ? String(app.salary_min) : ''
-    const salaryMax = app.salary_max ? String(app.salary_max) : ''
-    return (
-      company.includes(q) ||
-      position.includes(q) ||
-      location.includes(q) ||
-      workModel.includes(q) ||
-      salaryMin.includes(q) ||
-      salaryMax.includes(q)
-    )
-  }
-
-  // Full status list
-  const STATUSES = [
-    { key: 'ASSESSMENT', label: 'AI Assessment', color: 'assessment' },
-    { key: 'APPLIED', label: 'Applied', color: 'applied' },
-    { key: 'TECHNICAL_INTERVIEW', label: 'Interview', color: 'interview' },
-    { key: 'OFFER', label: 'Offer', color: 'offer' },
-    { key: 'REJECTED', label: 'Rejected', color: 'rejected' },
-  ]
-
-  // Active Pipeline Stages for the main Kanban Board
-  const ACTIVE_STATUSES = [
-    { key: 'APPLIED', label: 'Applied', color: 'applied' },
-    { key: 'TECHNICAL_INTERVIEW', label: 'Interview', color: 'interview' },
-    { key: 'OFFER', label: 'Offer', color: 'offer' },
-  ]
-
   function appNeedsAction(app) {
     if (app.has_action_required) return true
     try {
@@ -185,6 +176,20 @@ export const useApplicationsStore = defineStore('applications', () => {
       return false
     }
   }
+
+  const STATUSES = [
+    { key: 'ASSESSMENT', label: 'AI Assessment', color: 'assessment' },
+    { key: 'APPLIED', label: 'Applied', color: 'applied' },
+    { key: 'TECHNICAL_INTERVIEW', label: 'Interview', color: 'interview' },
+    { key: 'OFFER', label: 'Offer', color: 'offer' },
+    { key: 'REJECTED', label: 'Rejected', color: 'rejected' },
+  ]
+
+  const ACTIVE_STATUSES = [
+    { key: 'APPLIED', label: 'Applied', color: 'applied' },
+    { key: 'TECHNICAL_INTERVIEW', label: 'Interview', color: 'interview' },
+    { key: 'OFFER', label: 'Offer', color: 'offer' },
+  ]
 
   const TERMINAL_STATUSES = ['HIRED', 'ARCHIVED', 'WITHDRAWN', 'REJECTED']
   const PENDING_ASSESSMENT_STATUSES = [
@@ -200,193 +205,123 @@ export const useApplicationsStore = defineStore('applications', () => {
     'CANCELLED',
   ]
 
-  const activeApplications = computed(() => {
-    return applications.value.filter((a) => {
-      const status = (a.status || '').toUpperCase()
-      if (!status || TERMINAL_STATUSES.includes(status) || PENDING_ASSESSMENT_STATUSES.includes(status)) {
-        return false
-      }
-      if (actionRequiredOnly.value) {
-        if (!appNeedsAction(a)) return false
-      }
-      return matchesWorkModel(a) && matchesSearch(a) && matchesDateRange(a)
-    })
-  })
-
-  const archivedApplications = computed(() => {
-    return applications.value.filter((a) => {
-      if (a.is_assessment) return false
-      const status = (a.status || '').toUpperCase()
-      return (
-        ['ARCHIVED', 'WITHDRAWN', 'REJECTED'].includes(status) &&
-        matchesWorkModel(a) &&
-        matchesSearch(a) &&
-        matchesDateRange(a)
-      )
-    })
-  })
-
-  const hiredApplications = computed(() => {
-    return applications.value.filter((a) => {
-      const status = (a.status || '').toUpperCase()
-      return status === 'HIRED' && matchesWorkModel(a) && matchesSearch(a) && matchesDateRange(a)
-    })
-  })
-
-  const kanbanColumns = computed(() => {
-    const columns = {
-      APPLIED: [],
-      TECHNICAL_INTERVIEW: [],
-      OFFER: [],
+  function getAppInterviewTimestamp(app) {
+    const stage = (app.latest_event?.raw_payload?.interview_stage || '').trim()
+    if (stage === 'Task Completed / Awaiting Response') {
+      return null
     }
+    const raw =
+      app.scheduled_interview_at ||
+      app.latest_event?.raw_payload?.scheduled_at
+    if (!raw) return null
+    const ts = new Date(raw).getTime()
+    return isNaN(ts) ? null : ts
+  }
 
-    applications.value.forEach((app) => {
-      // Filter by search query if active
-      if (!matchesSearch(app)) return
+  function getAppOfferDeadlineTimestamp(app) {
+    const raw =
+      app.nearest_due_date ||
+      app.latest_event?.raw_payload?.decision_deadline
+    if (!raw) return null
+    const ts = new Date(raw).getTime()
+    return isNaN(ts) ? null : ts
+  }
 
-      // Filter by work model if active
-      if (!matchesWorkModel(app)) return
+  function getAppScheduledOrDeadlineTimestamp(app) {
+    return getAppInterviewTimestamp(app) ?? getAppOfferDeadlineTimestamp(app)
+  }
 
-      // Filter by date range if active
-      if (!matchesDateRange(app)) return
+  function getAppActivityTimestamp(app) {
+    const raw = getAppActivityDate(app)
+    if (!raw) return 0
+    const ts = new Date(raw).getTime()
+    return isNaN(ts) ? 0 : ts
+  }
 
-      // Filter by action required if active
-      if (actionRequiredOnly.value && !appNeedsAction(app)) return
+  function getAppScore(app) {
+    const score =
+      app.match_score ??
+      app.match_analysis_payload?.ai_fit_score ??
+      app.match_analysis_payload?.fit_score ??
+      app.match_analysis_payload?.match_score ??
+      app.match_analysis_payload?.keyword_overlap_score ??
+      app.latest_event?.raw_payload?.match_score ??
+      app.latest_event?.raw_payload?.fit_score ??
+      app.latest_event?.raw_payload?.overall_fit_score ??
+      -1
+    const num = Number(score)
+    return isNaN(num) ? -1 : num
+  }
 
-      // Filter by min match score if active
+  function sortByNextScheduled(list) {
+    const nowTs = Date.now()
+    return list.sort((a, b) => {
+      const tsA = getAppScheduledOrDeadlineTimestamp(a)
+      const tsB = getAppScheduledOrDeadlineTimestamp(b)
+
+      const isFutureA = tsA !== null && tsA >= nowTs
+      const isFutureB = tsB !== null && tsB >= nowTs
+
+      if (isFutureA && isFutureB) return tsA - tsB
+      if (isFutureA) return -1
+      if (isFutureB) return 1
+
+      const isPastA = tsA !== null && tsA < nowTs
+      const isPastB = tsB !== null && tsB < nowTs
+      if (isPastA && isPastB) return tsB - tsA
+      if (isPastA) return -1
+      if (isPastB) return 1
+
+      return getAppActivityTimestamp(b) - getAppActivityTimestamp(a)
+    })
+  }
+
+  function processColumnItems(stageKey, rawItems) {
+    if (!rawItems || rawItems.length === 0) return []
+
+    const filtered = rawItems.filter((app) => {
+      if (!matchesDateRange(app)) return false
+
       if (minMatchScore.value !== null && minMatchScore.value !== undefined && minMatchScore.value !== '') {
         const targetMin = Number(minMatchScore.value)
         if (targetMin > 0) {
-          const score = app.match_score ?? app.latest_event?.raw_payload?.match_score ?? app.latest_event?.raw_payload?.fit_score ?? null
+          const score =
+            app.match_score ??
+            app.latest_event?.raw_payload?.match_score ??
+            app.latest_event?.raw_payload?.fit_score ??
+            null
           if (score === null || Number(score) < targetMin) {
-            return
+            return false
           }
         }
       }
-
-      const rawStatus = (app.status || '').toUpperCase()
-      let statusKey = ''
-      if (['APPLIED', 'RECRUITER_CONTACT', 'IN_PROGRESS', 'PENDING'].includes(rawStatus)) {
-        statusKey = 'APPLIED'
-      } else if ([
-        'PHONE_SCREEN',
-        'ONLINE_ASSESSMENT',
-        'TECHNICAL_INTERVIEW',
-        'BEHAVIORAL_INTERVIEW',
-        'ONSITE_INTERVIEW',
-        'FINAL_INTERVIEW',
-        'INTERVIEW',
-        'SCREENING',
-      ].includes(rawStatus)) {
-        statusKey = 'TECHNICAL_INTERVIEW'
-      } else if (rawStatus === 'OFFER') {
-        statusKey = 'OFFER'
-      }
-
-      // Strictly include only active pipeline stages (APPLIED, TECHNICAL_INTERVIEW, OFFER)
-      if (statusKey && columns[statusKey]) {
-        columns[statusKey].push(app)
-      }
+      return true
     })
 
-    const nowTs = Date.now()
+    const mode = kanbanSortMode.value || 'smart'
+    const list = [...filtered]
 
-    function getAppInterviewTimestamp(app) {
-      const stage = (app.latest_event?.raw_payload?.interview_stage || '').trim()
-      if (stage === 'Task Completed / Awaiting Response') {
-        return null
-      }
-      const raw =
-        app.scheduled_interview_at ||
-        app.latest_event?.raw_payload?.scheduled_at
-      if (!raw) return null
-      const ts = new Date(raw).getTime()
-      return isNaN(ts) ? null : ts
+    if (mode === 'latest_activity') {
+      return list.sort((a, b) => getAppActivityTimestamp(b) - getAppActivityTimestamp(a))
     }
-
-    function getAppOfferDeadlineTimestamp(app) {
-      const raw =
-        app.nearest_due_date ||
-        app.latest_event?.raw_payload?.decision_deadline
-      if (!raw) return null
-      const ts = new Date(raw).getTime()
-      return isNaN(ts) ? null : ts
+    if (mode === 'next_scheduled') {
+      return sortByNextScheduled(list)
     }
-
-    function getAppScheduledOrDeadlineTimestamp(app) {
-      return getAppInterviewTimestamp(app) ?? getAppOfferDeadlineTimestamp(app)
-    }
-
-    function getAppActivityTimestamp(app) {
-      const raw = getAppActivityDate(app)
-      if (!raw) return 0
-      const ts = new Date(raw).getTime()
-      return isNaN(ts) ? 0 : ts
-    }
-
-    function getAppScore(app) {
-      const score =
-        app.match_score ??
-        app.match_analysis_payload?.ai_fit_score ??
-        app.match_analysis_payload?.fit_score ??
-        app.match_analysis_payload?.match_score ??
-        app.match_analysis_payload?.keyword_overlap_score ??
-        app.latest_event?.raw_payload?.match_score ??
-        app.latest_event?.raw_payload?.fit_score ??
-        app.latest_event?.raw_payload?.overall_fit_score ??
-        -1
-      const num = Number(score)
-      return isNaN(num) ? -1 : num
-    }
-
-    function sortByNextScheduled(list) {
+    if (mode === 'match_score') {
       return list.sort((a, b) => {
-        const tsA = getAppScheduledOrDeadlineTimestamp(a)
-        const tsB = getAppScheduledOrDeadlineTimestamp(b)
-
-        const isFutureA = tsA !== null && tsA >= nowTs
-        const isFutureB = tsB !== null && tsB >= nowTs
-
-        if (isFutureA && isFutureB) return tsA - tsB
-        if (isFutureA) return -1
-        if (isFutureB) return 1
-
-        const isPastA = tsA !== null && tsA < nowTs
-        const isPastB = tsB !== null && tsB < nowTs
-        if (isPastA && isPastB) return tsB - tsA
-        if (isPastA) return -1
-        if (isPastB) return 1
-
+        const diff = getAppScore(b) - getAppScore(a)
+        if (diff !== 0) return diff
         return getAppActivityTimestamp(b) - getAppActivityTimestamp(a)
       })
     }
 
-    const mode = kanbanSortMode.value || 'smart'
-
-    if (mode === 'latest_activity') {
-      columns.APPLIED.sort((a, b) => getAppActivityTimestamp(b) - getAppActivityTimestamp(a))
-      columns.TECHNICAL_INTERVIEW.sort((a, b) => getAppActivityTimestamp(b) - getAppActivityTimestamp(a))
-      columns.OFFER.sort((a, b) => getAppActivityTimestamp(b) - getAppActivityTimestamp(a))
-    } else if (mode === 'next_scheduled') {
-      sortByNextScheduled(columns.APPLIED)
-      sortByNextScheduled(columns.TECHNICAL_INTERVIEW)
-      sortByNextScheduled(columns.OFFER)
-    } else if (mode === 'match_score') {
-      const scoreSorter = (a, b) => {
-        const diff = getAppScore(b) - getAppScore(a)
-        if (diff !== 0) return diff
-        return getAppActivityTimestamp(b) - getAppActivityTimestamp(a)
-      }
-      columns.APPLIED.sort(scoreSorter)
-      columns.TECHNICAL_INTERVIEW.sort(scoreSorter)
-      columns.OFFER.sort(scoreSorter)
-    } else {
-      // Default: 'smart' (stage-adaptive)
-      // Sort APPLIED by last activity (most recent first)
-      columns.APPLIED.sort((a, b) => getAppActivityTimestamp(b) - getAppActivityTimestamp(a))
-
-      // Sort TECHNICAL_INTERVIEW chronologically by upcoming interview date
-      columns.TECHNICAL_INTERVIEW.sort((a, b) => {
+    // Default: 'smart'
+    const nowTs = Date.now()
+    if (stageKey === 'APPLIED') {
+      return list.sort((a, b) => getAppActivityTimestamp(b) - getAppActivityTimestamp(a))
+    }
+    if (stageKey === 'TECHNICAL_INTERVIEW') {
+      return list.sort((a, b) => {
         const tsA = getAppInterviewTimestamp(a)
         const tsB = getAppInterviewTimestamp(b)
 
@@ -405,9 +340,9 @@ export const useApplicationsStore = defineStore('applications', () => {
 
         return getAppActivityTimestamp(b) - getAppActivityTimestamp(a)
       })
-
-      // Sort OFFER by nearest decision deadline
-      columns.OFFER.sort((a, b) => {
+    }
+    if (stageKey === 'OFFER') {
+      return list.sort((a, b) => {
         const tsA = getAppOfferDeadlineTimestamp(a)
         const tsB = getAppOfferDeadlineTimestamp(b)
 
@@ -428,7 +363,215 @@ export const useApplicationsStore = defineStore('applications', () => {
       })
     }
 
-    return columns
+    return list
+  }
+
+  // Kanban columns with sorting & date/score filtering applied
+  const kanbanColumns = computed(() => {
+    return {
+      APPLIED: processColumnItems('APPLIED', columnState.value.APPLIED.items),
+      TECHNICAL_INTERVIEW: processColumnItems('TECHNICAL_INTERVIEW', columnState.value.TECHNICAL_INTERVIEW.items),
+      OFFER: processColumnItems('OFFER', columnState.value.OFFER.items),
+    }
+  })
+
+  const activeApplications = computed(() => {
+    const combined = [
+      ...columnState.value.APPLIED.items,
+      ...columnState.value.TECHNICAL_INTERVIEW.items,
+      ...columnState.value.OFFER.items,
+    ]
+    const seen = new Set()
+    return combined.filter((a) => {
+      if (!a?.id || seen.has(a.id)) return false
+      seen.add(a.id)
+      return matchesDateRange(a)
+    })
+  })
+
+  const archivedApplications = computed(() => {
+    return (columnState.value.ARCHIVED.items || []).filter((a) => matchesDateRange(a))
+  })
+
+  const hiredApplications = computed(() => {
+    return (columnState.value.HIRED.items || []).filter((a) => matchesDateRange(a))
+  })
+
+  function syncApplicationsList() {
+    const map = new Map()
+    applications.value.forEach((a) => {
+      if (a?.id) map.set(a.id, a)
+    })
+    Object.values(columnState.value).forEach((col) => {
+      col.items.forEach((a) => {
+        if (a?.id) map.set(a.id, a)
+      })
+    })
+    applications.value = Array.from(map.values())
+  }
+
+  // Fetch fast stage counts from backend SQL aggregation
+  async function fetchStageCounts() {
+    try {
+      const params = {}
+      if (searchQuery.value && searchQuery.value.trim()) {
+        params.q = searchQuery.value.trim()
+      }
+      if (actionRequiredOnly.value) {
+        params.action_required = true
+      }
+      if (selectedWorkModel.value) {
+        params.work_model = selectedWorkModel.value
+      }
+      const res = await ApplicationsAPI.getStageCounts(params)
+      const data = res.data || {}
+      stageCounts.value = {
+        APPLIED: data.counts?.APPLIED || 0,
+        TECHNICAL_INTERVIEW: data.counts?.TECHNICAL_INTERVIEW || 0,
+        OFFER: data.counts?.OFFER || 0,
+        ARCHIVED: data.counts?.ARCHIVED || 0,
+        HIRED: data.counts?.HIRED || 0,
+        total_active: data.total_active || 0,
+      }
+      if (data.archive_counts) {
+        archiveCounts.value = {
+          all: data.archive_counts.all || 0,
+          ghosted_post_applied: data.archive_counts.ghosted_post_applied || 0,
+          ghosted_applied: data.archive_counts.ghosted_applied || 0,
+          rejected: data.archive_counts.rejected || 0,
+          withdrawn: data.archive_counts.withdrawn || 0,
+        }
+      }
+      total.value = data.total_active || 0
+    } catch (err) {
+      console.error('Failed to fetch stage counts:', err)
+    }
+  }
+
+  // Paginated column fetch
+  async function fetchColumn(stage, reset = false) {
+    const col = columnState.value[stage]
+    if (!col) return
+    if (col.loading) return
+    if (!reset && !col.hasMore) return
+
+    col.loading = true
+    const offset = reset ? 0 : col.offset
+    const limit = 25
+
+    try {
+      const params = {
+        status: stage,
+        limit,
+        offset,
+      }
+      if (searchQuery.value && searchQuery.value.trim()) {
+        params.q = searchQuery.value.trim()
+      }
+      if (actionRequiredOnly.value) {
+        params.action_required = true
+      }
+      if (selectedWorkModel.value) {
+        params.work_model = selectedWorkModel.value
+      }
+
+      const res = await ApplicationsAPI.list(params)
+      const items = res.data.items || []
+      const totalCount = res.data.total ?? items.length
+
+      if (reset) {
+        col.items = items
+        col.offset = items.length
+      } else {
+        const existingIds = new Set(col.items.map((i) => i.id))
+        const deduped = items.filter((i) => !existingIds.has(i.id))
+        col.items.push(...deduped)
+        col.offset += items.length
+      }
+      col.total = totalCount
+      col.hasMore = col.items.length < totalCount && items.length >= limit
+
+      syncApplicationsList()
+    } catch (err) {
+      error.value = err.message
+    } finally {
+      col.loading = false
+    }
+  }
+
+  async function loadMoreColumn(stage) {
+    await fetchColumn(stage, false)
+  }
+
+  // Main board fetcher
+  async function fetchApplications(force = false) {
+    const isFresh =
+      !force &&
+      !isStale.value &&
+      lastFetchedAt.value !== null &&
+      (columnState.value.APPLIED.items.length > 0 || columnState.value.ARCHIVED.items.length > 0) &&
+      Date.now() - lastFetchedAt.value < CACHE_TTL_MS
+
+    if (isFresh) {
+      return
+    }
+
+    loading.value = applications.value.length === 0
+    error.value = null
+    try {
+      await fetchStageCounts()
+      if (pipelineViewMode.value === 'active') {
+        await Promise.all([
+          fetchColumn('APPLIED', true),
+          fetchColumn('TECHNICAL_INTERVIEW', true),
+          fetchColumn('OFFER', true),
+        ])
+      } else if (pipelineViewMode.value === 'archive') {
+        await fetchColumn('ARCHIVED', true)
+      } else if (pipelineViewMode.value === 'hired') {
+        await fetchColumn('HIRED', true)
+      }
+      lastFetchedAt.value = Date.now()
+      isStale.value = false
+    } catch (err) {
+      error.value = err.message
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // Watch pipelineViewMode to lazily load archive / hired / active cards when tabs switch
+  watch(pipelineViewMode, async (newMode) => {
+    if (newMode === 'active') {
+      if (
+        columnState.value.APPLIED.items.length === 0 &&
+        columnState.value.TECHNICAL_INTERVIEW.items.length === 0 &&
+        columnState.value.OFFER.items.length === 0
+      ) {
+        await Promise.all([
+          fetchColumn('APPLIED', true),
+          fetchColumn('TECHNICAL_INTERVIEW', true),
+          fetchColumn('OFFER', true),
+        ])
+      }
+    } else if (newMode === 'archive') {
+      if (columnState.value.ARCHIVED.items.length === 0) {
+        await fetchColumn('ARCHIVED', true)
+      }
+    } else if (newMode === 'hired') {
+      if (columnState.value.HIRED.items.length === 0) {
+        await fetchColumn('HIRED', true)
+      }
+    }
+  })
+
+  // Debounced server search / filter reload
+  let filterDebounceTimer = null
+  watch([searchQuery, actionRequiredOnly, selectedWorkModel], () => {
+    if (filterDebounceTimer) clearTimeout(filterDebounceTimer)
+    filterDebounceTimer = setTimeout(() => {
+      fetchApplications(true)
+    }, 300)
   })
 
   const lastKnownTotalApps = ref(null)
@@ -451,45 +594,10 @@ export const useApplicationsStore = defineStore('applications', () => {
 
     if (hasAppsCountChanged || hasActivityChanged) {
       isStale.value = true
-      // If we already have applications loaded in memory, silently refetch fresh data
-      if (applications.value.length > 0) {
-        await fetchApplications(true)
-      }
-      // If an application drawer is currently open, refresh its detail
+      await fetchApplications(true)
       if (selectedApplication.value?.id) {
         await fetchApplicationDetail(selectedApplication.value.id)
       }
-    }
-  }
-
-  async function fetchApplications(force = false) {
-    const isFresh =
-      !force &&
-      !isStale.value &&
-      lastFetchedAt.value !== null &&
-      applications.value.length > 0 &&
-      Date.now() - lastFetchedAt.value < CACHE_TTL_MS
-
-    if (isFresh) {
-      return
-    }
-
-    loading.value = applications.value.length === 0
-    error.value = null
-    try {
-      const params = {
-        limit: 1000,
-        offset: 0,
-      }
-      const res = await ApplicationsAPI.list(params)
-      applications.value = res.data.items || []
-      total.value = res.data.total || (res.data.items || []).length
-      lastFetchedAt.value = Date.now()
-      isStale.value = false
-    } catch (err) {
-      error.value = err.message
-    } finally {
-      loading.value = false
     }
   }
 
@@ -498,42 +606,20 @@ export const useApplicationsStore = defineStore('applications', () => {
     try {
       const res = await ApplicationsAPI.get(id)
       selectedApplication.value = res.data
-      const idx = applications.value.findIndex((a) => a.id === id)
-      if (idx !== -1) {
-        applications.value[idx].has_action_required = res.data.has_action_required
-        applications.value[idx].nearest_due_date = res.data.nearest_due_date
-        applications.value[idx].scheduled_interview_at = res.data.scheduled_interview_at
+
+      for (const col of Object.values(columnState.value)) {
+        const idx = col.items.findIndex((a) => a.id === id)
+        if (idx !== -1) {
+          col.items[idx].has_action_required = res.data.has_action_required
+          col.items[idx].nearest_due_date = res.data.nearest_due_date
+          col.items[idx].scheduled_interview_at = res.data.scheduled_interview_at
+        }
       }
+      syncApplicationsList()
     } catch (err) {
       error.value = err.message
     } finally {
       loadingDetail.value = false
-    }
-  }
-
-  // Optimistic updateStatus
-  async function updateStatus(applicationId, newStatus) {
-    const appsSnapshot = JSON.parse(JSON.stringify(applications.value))
-    const selectedSnapshot = selectedApplication.value ? JSON.parse(JSON.stringify(selectedApplication.value)) : null
-
-    // Optimistic local update
-    const target = applications.value.find((a) => a.id === applicationId)
-    if (target) {
-      target.status = newStatus
-    }
-    if (selectedApplication.value && selectedApplication.value.id === applicationId) {
-      selectedApplication.value.status = newStatus
-    }
-
-    try {
-      await ApplicationsAPI.update(applicationId, { status: newStatus })
-    } catch (err) {
-      // Rollback
-      applications.value = appsSnapshot
-      selectedApplication.value = selectedSnapshot
-      error.value = err.message
-      uiStore.showToast(err.message || 'Failed to update application status', 'error')
-      throw err
     }
   }
 
@@ -550,34 +636,97 @@ export const useApplicationsStore = defineStore('applications', () => {
     return merged
   }
 
-  // Optimistic transitionApplication
+  const STAGE_MAP_TARGET = {
+    APPLIED: 'APPLIED',
+    RECRUITER_CONTACT: 'APPLIED',
+    IN_PROGRESS: 'APPLIED',
+    PENDING: 'APPLIED',
+    PHONE_SCREEN: 'TECHNICAL_INTERVIEW',
+    ONLINE_ASSESSMENT: 'TECHNICAL_INTERVIEW',
+    TECHNICAL_INTERVIEW: 'TECHNICAL_INTERVIEW',
+    BEHAVIORAL_INTERVIEW: 'TECHNICAL_INTERVIEW',
+    ONSITE_INTERVIEW: 'TECHNICAL_INTERVIEW',
+    FINAL_INTERVIEW: 'TECHNICAL_INTERVIEW',
+    INTERVIEW: 'TECHNICAL_INTERVIEW',
+    SCREENING: 'TECHNICAL_INTERVIEW',
+    OFFER: 'OFFER',
+    ARCHIVED: 'ARCHIVED',
+    WITHDRAWN: 'ARCHIVED',
+    REJECTED: 'ARCHIVED',
+    HIRED: 'HIRED',
+  }
+
+  async function updateStatus(applicationId, newStatus) {
+    return transitionApplication(applicationId, { status: newStatus })
+  }
+
   async function transitionApplication(applicationId, transitionData) {
-    const appsSnapshot = JSON.parse(JSON.stringify(applications.value))
+    const columnSnapshot = JSON.parse(JSON.stringify(columnState.value))
+    const stageCountsSnapshot = { ...stageCounts.value }
     const selectedSnapshot = selectedApplication.value ? JSON.parse(JSON.stringify(selectedApplication.value)) : null
 
-    // Optimistic local update
-    const idx = applications.value.findIndex((a) => a.id === applicationId)
-    if (idx !== -1) {
-      applications.value[idx] = { ...applications.value[idx], ...transitionData }
+    let foundApp = null
+    let sourceStage = null
+    for (const [st, col] of Object.entries(columnState.value)) {
+      const idx = col.items.findIndex((a) => a.id === applicationId)
+      if (idx !== -1) {
+        foundApp = col.items[idx]
+        sourceStage = st
+        col.items.splice(idx, 1)
+        if (col.total > 0) col.total--
+        break
+      }
     }
+
+    const updatedStatus = transitionData.status || foundApp?.status
+    const targetColKey = STAGE_MAP_TARGET[(updatedStatus || '').toUpperCase()]
+
+    if (foundApp && targetColKey && columnState.value[targetColKey]) {
+      const updatedApp = { ...foundApp, ...transitionData }
+      columnState.value[targetColKey].items.unshift(updatedApp)
+      columnState.value[targetColKey].total = (columnState.value[targetColKey].total || 0) + 1
+    }
+
+    if (sourceStage && stageCounts.value[sourceStage] > 0) {
+      stageCounts.value[sourceStage]--
+    }
+    if (targetColKey) {
+      stageCounts.value[targetColKey] = (stageCounts.value[targetColKey] || 0) + 1
+    }
+    const activeStages = ['APPLIED', 'TECHNICAL_INTERVIEW', 'OFFER']
+    const wasActive = activeStages.includes(sourceStage)
+    const isActiveNow = activeStages.includes(targetColKey)
+    if (wasActive && !isActiveNow) stageCounts.value.total_active = Math.max(0, stageCounts.value.total_active - 1)
+    if (!wasActive && isActiveNow) stageCounts.value.total_active++
+
     if (selectedApplication.value && selectedApplication.value.id === applicationId) {
       selectedApplication.value = { ...selectedApplication.value, ...transitionData }
     }
 
+    syncApplicationsList()
+
     try {
       const res = await ApplicationsAPI.transition(applicationId, transitionData)
       const updated = res.data
-      if (idx !== -1) {
-        applications.value[idx] = mergeDetailIntoListItem(applications.value[idx], updated)
+      if (targetColKey && columnState.value[targetColKey]) {
+        const idx = columnState.value[targetColKey].items.findIndex((a) => a.id === applicationId)
+        if (idx !== -1) {
+          columnState.value[targetColKey].items[idx] = mergeDetailIntoListItem(
+            columnState.value[targetColKey].items[idx],
+            updated
+          )
+        }
       }
       if (selectedApplication.value && selectedApplication.value.id === applicationId) {
         selectedApplication.value = { ...selectedApplication.value, ...updated }
       }
+      syncApplicationsList()
       return updated
     } catch (err) {
-      // Rollback
-      applications.value = appsSnapshot
+      columnState.value = columnSnapshot
+      stageCounts.value = stageCountsSnapshot
       selectedApplication.value = selectedSnapshot
+      syncApplicationsList()
       error.value = err.message
       uiStore.showToast(err.message || 'Failed to transition application', 'error')
       throw err
@@ -600,18 +749,9 @@ export const useApplicationsStore = defineStore('applications', () => {
     })
   }
 
-  // Optimistic bulkTransition
   async function bulkTransition(targetStatus, fromStatuses, excludeIds = [], notes = null) {
-    const appsSnapshot = JSON.parse(JSON.stringify(applications.value))
-    const excludeSet = new Set(excludeIds)
-    const fromSet = new Set(fromStatuses)
-
-    // Optimistically update eligible applications
-    applications.value.forEach((a) => {
-      if (fromSet.has(a.status) && !excludeSet.has(a.id)) {
-        a.status = targetStatus
-      }
-    })
+    const columnSnapshot = JSON.parse(JSON.stringify(columnState.value))
+    const stageCountsSnapshot = { ...stageCounts.value }
 
     try {
       const res = await ApplicationsAPI.bulkTransition({
@@ -620,16 +760,12 @@ export const useApplicationsStore = defineStore('applications', () => {
         exclude_ids: excludeIds,
         notes,
       })
-      const updatedIds = new Set(res.data.updated_ids || [])
-      applications.value.forEach((a) => {
-        if (updatedIds.has(a.id)) {
-          a.status = targetStatus
-        }
-      })
+      await fetchApplications(true)
       return res.data
     } catch (err) {
-      // Rollback
-      applications.value = appsSnapshot
+      columnState.value = columnSnapshot
+      stageCounts.value = stageCountsSnapshot
+      syncApplicationsList()
       error.value = err.message
       uiStore.showToast(err.message || 'Failed bulk application transition', 'error')
       throw err
@@ -644,12 +780,16 @@ export const useApplicationsStore = defineStore('applications', () => {
   }
 
   function removeApplicationsForCompany(companyId) {
-    applications.value = applications.value.filter(
-      (a) =>
-        String(a.company_id) !== String(companyId) &&
-        String(a.company?.id) !== String(companyId)
-    )
-    total.value = applications.value.length
+    for (const col of Object.values(columnState.value)) {
+      col.items = col.items.filter(
+        (a) =>
+          String(a.company_id) !== String(companyId) &&
+          String(a.company?.id) !== String(companyId)
+      )
+    }
+    syncApplicationsList()
+    fetchStageCounts()
+
     if (
       selectedApplication.value &&
       (String(selectedApplication.value.company_id) === String(companyId) ||
@@ -660,21 +800,37 @@ export const useApplicationsStore = defineStore('applications', () => {
     }
   }
 
-  // Optimistic deleteApplication
   async function deleteApplication(applicationId) {
-    const appsSnapshot = JSON.parse(JSON.stringify(applications.value))
-    const totalSnapshot = total.value
+    const columnSnapshot = JSON.parse(JSON.stringify(columnState.value))
+    const stageCountsSnapshot = { ...stageCounts.value }
     const selectedSnapshot = selectedApplication.value ? JSON.parse(JSON.stringify(selectedApplication.value)) : null
 
-    // Optimistically remove application
-    applications.value = applications.value.filter((a) => a.id !== applicationId)
-    total.value = Math.max(0, total.value - 1)
+    let sourceStage = null
+    for (const [st, col] of Object.entries(columnState.value)) {
+      const idx = col.items.findIndex((a) => a.id === applicationId)
+      if (idx !== -1) {
+        sourceStage = st
+        col.items.splice(idx, 1)
+        if (col.total > 0) col.total--
+        break
+      }
+    }
+
+    if (sourceStage && stageCounts.value[sourceStage] > 0) {
+      stageCounts.value[sourceStage]--
+    }
+    const activeStages = ['APPLIED', 'TECHNICAL_INTERVIEW', 'OFFER']
+    if (activeStages.includes(sourceStage)) {
+      stageCounts.value.total_active = Math.max(0, stageCounts.value.total_active - 1)
+    }
+
     if (selectedApplication.value && selectedApplication.value.id === applicationId) {
       selectedApplication.value = null
       uiStore.closeApplicationDrawer()
     }
 
-    // Broadcast event for cross-view synchronization (CompanyDetailDrawer, CompaniesView, AssessmentsView)
+    syncApplicationsList()
+
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('application:deleted', { detail: { applicationId } }))
     }
@@ -683,16 +839,15 @@ export const useApplicationsStore = defineStore('applications', () => {
       await ApplicationsAPI.delete(applicationId)
       uiStore.showToast('Application deleted', 'info')
     } catch (err) {
-      // Rollback
-      applications.value = appsSnapshot
-      total.value = totalSnapshot
+      columnState.value = columnSnapshot
+      stageCounts.value = stageCountsSnapshot
       selectedApplication.value = selectedSnapshot
+      syncApplicationsList()
       uiStore.showToast(err.message || 'Failed to delete application', 'error')
       throw err
     }
   }
 
-  // Listen for company:deleted to purge associated applications if deleted
   if (typeof window !== 'undefined') {
     window.addEventListener('company:deleted', (event) => {
       const { companyId, deletedApplications } = event.detail || {}
@@ -703,15 +858,17 @@ export const useApplicationsStore = defineStore('applications', () => {
     })
   }
 
-  // Update application fields (e.g. position, company_name)
   async function updateApplication(applicationId, payload) {
     try {
       const res = await ApplicationsAPI.update(applicationId, payload)
       selectedApplication.value = res.data
-      const idx = applications.value.findIndex((a) => String(a.id) === String(applicationId))
-      if (idx !== -1) {
-        applications.value[idx] = mergeDetailIntoListItem(applications.value[idx], res.data)
+      for (const col of Object.values(columnState.value)) {
+        const idx = col.items.findIndex((a) => String(a.id) === String(applicationId))
+        if (idx !== -1) {
+          col.items[idx] = mergeDetailIntoListItem(col.items[idx], res.data)
+        }
       }
+      syncApplicationsList()
       return res.data
     } catch (err) {
       error.value = err.message
@@ -735,6 +892,9 @@ export const useApplicationsStore = defineStore('applications', () => {
     selectedApplication,
     loadingDetail,
     pipelineViewMode,
+    stageCounts,
+    archiveCounts,
+    columnState,
     STATUSES,
     ACTIVE_STATUSES,
     TERMINAL_STATUSES,
@@ -748,6 +908,9 @@ export const useApplicationsStore = defineStore('applications', () => {
     KANBAN_SORT_OPTIONS,
     getAppActivityDate,
     fetchApplications,
+    fetchStageCounts,
+    fetchColumn,
+    loadMoreColumn,
     fetchApplicationDetail,
     fetchApplication: fetchApplicationDetail,
     updateStatus,
