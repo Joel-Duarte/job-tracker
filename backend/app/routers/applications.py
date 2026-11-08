@@ -247,6 +247,19 @@ STAGE_MAP = {
 }
 
 
+def _build_search_filter(search_pattern: str):
+    return or_(
+        func.lower(ApplicationModel.position).like(search_pattern),
+        func.lower(CompanyModel.name).like(search_pattern),
+        func.lower(JobPostingModel.location).like(search_pattern),
+        func.lower(
+            func.coalesce(
+                ApplicationModel.match_analysis_payload.op("->>")("location"), ""
+            )
+        ).like(search_pattern),
+    )
+
+
 @router.get(
     "/stage-counts",
     summary="Get aggregated application counts grouped by kanban stage",
@@ -262,31 +275,35 @@ async def get_application_stage_counts(
     work_model: str | None = Query(None, description="Filter by work model"),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(ApplicationModel.status, func.count(ApplicationModel.id)).join(
-        ApplicationModel.company
+    stmt = select(
+        ApplicationModel.status, func.count(func.distinct(ApplicationModel.id))
+    ).join(ApplicationModel.company)
+
+    q_val = q.strip().lower() if isinstance(q, str) and q.strip() else None
+    work_model_val = (
+        work_model.strip().lower()
+        if isinstance(work_model, str) and work_model.strip()
+        else None
     )
 
-    if q and q.strip():
-        search_pattern = f"%{q.strip().lower()}%"
-        stmt = stmt.where(
-            or_(
-                func.lower(ApplicationModel.position).like(search_pattern),
-                func.lower(CompanyModel.name).like(search_pattern),
-            )
-        )
-
-    if company_id:
-        stmt = stmt.where(ApplicationModel.company_id == company_id)
-
-    if work_model and work_model.strip():
-        wm = work_model.strip().lower()
-        stmt = stmt.join(
+    if q_val or work_model_val:
+        stmt = stmt.outerjoin(
             JobPostingModel,
             ApplicationModel.id == JobPostingModel.application_id,
-            isouter=True,
-        ).where(func.lower(JobPostingModel.work_model).like(f"%{wm}%"))
+        )
 
-    if action_required is not None:
+    if q_val:
+        stmt = stmt.where(_build_search_filter(f"%{q_val}%"))
+
+    if isinstance(company_id, int):
+        stmt = stmt.where(ApplicationModel.company_id == company_id)
+
+    if work_model_val:
+        stmt = stmt.where(
+            func.lower(JobPostingModel.work_model).like(f"%{work_model_val}%")
+        )
+
+    if isinstance(action_required, bool):
         action_item_subq = (
             select(ActionItemModel.application_id)
             .where(
@@ -342,26 +359,22 @@ async def get_application_stage_counts(
             .options(selectinload(ApplicationModel.events))
             .where(ApplicationModel.status.in_(STAGE_MAP["ARCHIVED"]))
         )
-        if q and q.strip():
-            search_pattern = f"%{q.strip().lower()}%"
-            closed_stmt = closed_stmt.where(
-                or_(
-                    func.lower(ApplicationModel.position).like(search_pattern),
-                    func.lower(CompanyModel.name).like(search_pattern),
-                )
-            )
-        if company_id:
-            closed_stmt = closed_stmt.where(ApplicationModel.company_id == company_id)
-        if work_model and work_model.strip():
-            wm = work_model.strip().lower()
-            closed_stmt = closed_stmt.join(
+        if q_val or work_model_val:
+            closed_stmt = closed_stmt.outerjoin(
                 JobPostingModel,
                 ApplicationModel.id == JobPostingModel.application_id,
-                isouter=True,
-            ).where(func.lower(JobPostingModel.work_model).like(f"%{wm}%"))
+            )
+        if q_val:
+            closed_stmt = closed_stmt.where(_build_search_filter(f"%{q_val}%"))
+        if isinstance(company_id, int):
+            closed_stmt = closed_stmt.where(ApplicationModel.company_id == company_id)
+        if work_model_val:
+            closed_stmt = closed_stmt.where(
+                func.lower(JobPostingModel.work_model).like(f"%{work_model_val}%")
+            )
 
         closed_res = await db.execute(closed_stmt)
-        closed_apps = closed_res.scalars().all()
+        closed_apps = closed_res.scalars().unique().all()
 
         for app in closed_apps:
             cat = _resolve_archive_category(app)
@@ -407,15 +420,20 @@ async def list_applications(
 
     # Apply filters
     q_val = q.strip().lower() if isinstance(q, str) and q.strip() else None
-    if q_val:
-        search_pattern = f"%{q_val}%"
-        base_stmt = base_stmt.where(
-            or_(
-                func.lower(ApplicationModel.position).like(search_pattern),
-                func.lower(CompanyModel.name).like(search_pattern),
-                func.lower(ApplicationModel.location).like(search_pattern),
-            )
+    work_model_val = (
+        work_model.strip().lower()
+        if isinstance(work_model, str) and work_model.strip()
+        else None
+    )
+
+    if q_val or work_model_val:
+        base_stmt = base_stmt.outerjoin(
+            JobPostingModel,
+            ApplicationModel.id == JobPostingModel.application_id,
         )
+
+    if q_val:
+        base_stmt = base_stmt.where(_build_search_filter(f"%{q_val}%"))
 
     status_val = (
         status_filter.strip().upper()
@@ -430,22 +448,15 @@ async def list_applications(
         else:
             base_stmt = base_stmt.where(ApplicationModel.status == status_val)
 
-    if company_id:
+    if isinstance(company_id, int):
         base_stmt = base_stmt.where(ApplicationModel.company_id == company_id)
 
-    work_model_val = (
-        work_model.strip().lower()
-        if isinstance(work_model, str) and work_model.strip()
-        else None
-    )
     if work_model_val:
-        base_stmt = base_stmt.join(
-            JobPostingModel,
-            ApplicationModel.id == JobPostingModel.application_id,
-            isouter=True,
-        ).where(func.lower(JobPostingModel.work_model).like(f"%{work_model_val}%"))
+        base_stmt = base_stmt.where(
+            func.lower(JobPostingModel.work_model).like(f"%{work_model_val}%")
+        )
 
-    if action_required is not None:
+    if isinstance(action_required, bool):
         event_subq = select(ApplicationEventModel.email_application_id).where(
             ApplicationEventModel.email_action_required
         )
@@ -481,27 +492,24 @@ async def list_applications(
                 .options(selectinload(ApplicationModel.events))
                 .where(ApplicationModel.status.in_(STAGE_MAP["ARCHIVED"]))
             )
+            if q_val or work_model_val:
+                candidate_stmt = candidate_stmt.outerjoin(
+                    JobPostingModel,
+                    ApplicationModel.id == JobPostingModel.application_id,
+                )
             if q_val:
                 candidate_stmt = candidate_stmt.where(
-                    or_(
-                        func.lower(ApplicationModel.position).like(search_pattern),
-                        func.lower(CompanyModel.name).like(search_pattern),
-                        func.lower(ApplicationModel.location).like(search_pattern),
-                    )
+                    _build_search_filter(f"%{q_val}%")
                 )
-            if company_id:
+            if isinstance(company_id, int):
                 candidate_stmt = candidate_stmt.where(
                     ApplicationModel.company_id == company_id
                 )
             if work_model_val:
-                candidate_stmt = candidate_stmt.join(
-                    JobPostingModel,
-                    ApplicationModel.id == JobPostingModel.application_id,
-                    isouter=True,
-                ).where(
+                candidate_stmt = candidate_stmt.where(
                     func.lower(JobPostingModel.work_model).like(f"%{work_model_val}%")
                 )
-            if action_required is not None:
+            if isinstance(action_required, bool):
                 if action_required:
                     candidate_stmt = candidate_stmt.where(
                         or_(
@@ -532,7 +540,23 @@ async def list_applications(
     total = total_result.scalar_one()
 
     # Apply eager loading options, sorting, and pagination
-    sort_column = getattr(ApplicationModel, sort_by)
+    sort_by_val = (
+        sort_by
+        if isinstance(sort_by, str) and hasattr(ApplicationModel, sort_by)
+        else getattr(sort_by, "default", "last_activity_at")
+    )
+    if not hasattr(ApplicationModel, sort_by_val):
+        sort_by_val = "last_activity_at"
+
+    order_val = (
+        order
+        if isinstance(order, str) and order.lower() in ("asc", "desc")
+        else getattr(order, "default", "desc")
+    )
+    limit_val = limit if isinstance(limit, int) else getattr(limit, "default", 500)
+    offset_val = offset if isinstance(offset, int) else getattr(offset, "default", 0)
+
+    sort_column = getattr(ApplicationModel, sort_by_val)
     stmt = (
         base_stmt.options(
             joinedload(ApplicationModel.company),
@@ -540,9 +564,9 @@ async def list_applications(
             selectinload(ApplicationModel.action_items),
             selectinload(ApplicationModel.job_posting),
         )
-        .order_by(sort_column.desc() if order == "desc" else sort_column.asc())
-        .limit(limit)
-        .offset(offset)
+        .order_by(sort_column.desc() if order_val == "desc" else sort_column.asc())
+        .limit(limit_val)
+        .offset(offset_val)
     )
 
     result = await db.execute(stmt)
@@ -719,7 +743,9 @@ async def list_applications(
             )
         )
 
-    return ApplicationListResponse(items=items, total=total, limit=limit, offset=offset)
+    return ApplicationListResponse(
+        items=items, total=total, limit=limit_val, offset=offset_val
+    )
 
 
 @router.get(

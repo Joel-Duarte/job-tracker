@@ -432,3 +432,115 @@ async def test_application_stage_counts(db_session: AsyncSession):
         assert any(item["id"] == app_archived.id for item in data_ghosted["items"])
 
     app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_application_search_filtering(db_session: AsyncSession):
+    app.dependency_overrides[get_db] = lambda: db_session
+
+    company = CompanyModel(
+        name="SearchCorp Inc",
+        name_normalized="searchcorp inc",
+        domain="searchcorp.com",
+    )
+    db_session.add(company)
+    await db_session.flush()
+
+    # app1 has a JobPostingModel with location="San Francisco, CA" and work_model="Hybrid"
+    app1 = ApplicationModel(
+        company_id=company.id,
+        position="Frontend Architect",
+        position_normalized="frontend architect",
+        status="APPLIED",
+        application_key="app-search-1",
+    )
+    db_session.add(app1)
+    await db_session.flush()
+
+    posting1 = JobPostingModel(
+        application_id=app1.id,
+        job_url="https://searchcorp.com/jobs/1",
+        location="San Francisco, CA",
+        work_model="Hybrid",
+    )
+    db_session.add(posting1)
+
+    # app2 has location inside match_analysis_payload JSONB
+    app2 = ApplicationModel(
+        company_id=company.id,
+        position="Senior Backend Engineer",
+        position_normalized="senior backend engineer",
+        status="APPLIED",
+        application_key="app-search-2",
+        match_analysis_payload={"location": "Remote, US", "work_model": "Remote"},
+    )
+    # app3 has withdrawn status and position "Staff Mobile Dev"
+    app3 = ApplicationModel(
+        company_id=company.id,
+        position="Staff Mobile Dev",
+        position_normalized="staff mobile dev",
+        status="WITHDRAWN",
+        application_key="app-search-3",
+    )
+    db_session.add_all([app2, app3])
+    await db_session.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Search active pipeline by position
+        resp = await client.get("/api/v1/applications?status=APPLIED&q=Architect")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["items"][0]["id"] == app1.id
+
+        # 2. Search active pipeline by company name
+        resp_comp = await client.get("/api/v1/applications?status=APPLIED&q=SearchCorp")
+        assert resp_comp.status_code == 200
+        data_comp = resp_comp.json()
+        assert data_comp["total"] == 2
+        ids = [item["id"] for item in data_comp["items"]]
+        assert app1.id in ids and app2.id in ids
+
+        # 3. Search active pipeline by JobPostingModel location
+        resp_loc = await client.get(
+            "/api/v1/applications?status=APPLIED&q=San Francisco"
+        )
+        assert resp_loc.status_code == 200
+        data_loc = resp_loc.json()
+        assert data_loc["total"] == 1
+        assert data_loc["items"][0]["id"] == app1.id
+
+        # 4. Search active pipeline by match_analysis_payload location
+        resp_remote = await client.get("/api/v1/applications?status=APPLIED&q=Remote")
+        assert resp_remote.status_code == 200
+        data_remote = resp_remote.json()
+        assert any(item["id"] == app2.id for item in data_remote["items"])
+
+        # 5. Search with both q and work_model (verifies no duplicate join conflict)
+        resp_hybrid = await client.get(
+            "/api/v1/applications?status=APPLIED&q=Frontend&work_model=hybrid"
+        )
+        assert resp_hybrid.status_code == 200
+        data_hybrid = resp_hybrid.json()
+        assert data_hybrid["total"] == 1
+        assert data_hybrid["items"][0]["id"] == app1.id
+
+        # 6. Stage counts with location search
+        resp_counts = await client.get(
+            "/api/v1/applications/stage-counts?q=San Francisco"
+        )
+        assert resp_counts.status_code == 200
+        counts_data = resp_counts.json()
+        assert counts_data["counts"]["APPLIED"] == 1
+        assert counts_data["counts"]["TECHNICAL_INTERVIEW"] == 0
+
+        # 7. Archive filter search
+        resp_arch = await client.get(
+            "/api/v1/applications?status=ARCHIVED&archive_filter=withdrawn&q=Mobile"
+        )
+        assert resp_arch.status_code == 200
+        data_arch = resp_arch.json()
+        assert any(item["id"] == app3.id for item in data_arch["items"])
+
+    app.dependency_overrides.clear()
