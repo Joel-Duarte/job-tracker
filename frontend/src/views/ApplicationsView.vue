@@ -753,7 +753,12 @@ function toggleTableSort(key) {
 }
 
 const sortedActiveApplications = computed(() => {
-  const apps = [...appStore.activeApplications]
+  let apps = [...appStore.activeApplications]
+  if (appStore.selectedStatus) {
+    apps = apps.filter(
+      (a) => (a.status || '').toUpperCase() === appStore.selectedStatus.toUpperCase()
+    )
+  }
   const order = tableSortOrder.value === 'asc' ? 1 : -1
 
   return apps.sort((a, b) => {

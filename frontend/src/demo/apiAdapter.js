@@ -64,6 +64,20 @@ export async function handleDemoRequest(config) {
       const req = params.action_required === true || params.action_required === 'true'
       items = items.filter((a) => Boolean(a.has_action_required) === req)
     }
+    if (params.start_date) {
+      const startMs = new Date(params.start_date).getTime()
+      items = items.filter((a) => {
+        const d = a.last_activity_at || a.application_date || a.created_at
+        return d && new Date(d).getTime() >= startMs
+      })
+    }
+    if (params.end_date) {
+      const endMs = new Date(params.end_date).getTime()
+      items = items.filter((a) => {
+        const d = a.last_activity_at || a.application_date || a.created_at
+        return d && new Date(d).getTime() <= endMs
+      })
+    }
     const counts = {
       APPLIED: 0,
       TECHNICAL_INTERVIEW: 0,
@@ -157,6 +171,20 @@ export async function handleDemoRequest(config) {
     if (params.action_required !== undefined) {
       const req = params.action_required === true || params.action_required === 'true'
       items = items.filter((a) => Boolean(a.has_action_required) === req)
+    }
+    if (params.start_date) {
+      const startMs = new Date(params.start_date).getTime()
+      items = items.filter((a) => {
+        const d = a.last_activity_at || a.application_date || a.created_at
+        return d && new Date(d).getTime() >= startMs
+      })
+    }
+    if (params.end_date) {
+      const endMs = new Date(params.end_date).getTime()
+      items = items.filter((a) => {
+        const d = a.last_activity_at || a.application_date || a.created_at
+        return d && new Date(d).getTime() <= endMs
+      })
     }
     const STAGE_MAP = {
       APPLIED: ['APPLIED', 'RECRUITER_CONTACT', 'IN_PROGRESS', 'PENDING'],

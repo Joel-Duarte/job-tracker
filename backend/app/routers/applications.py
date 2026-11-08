@@ -260,6 +260,33 @@ def _build_search_filter(search_pattern: str):
     )
 
 
+def _parse_iso_datetime(
+    val: str | None, is_end_of_day: bool = False
+) -> datetime | None:
+    if not isinstance(val, str) or not val.strip():
+        return None
+    clean = val.strip()
+    try:
+        if " " in clean and "+" not in clean and "-" in clean[:10]:
+            parts = clean.split(" ")
+            if len(parts) == 2 and ":" in parts[1]:
+                clean = f"{parts[0]}+{parts[1]}"
+        clean = clean.replace("Z", "+00:00")
+        if "T" in clean:
+            dt = datetime.fromisoformat(clean)
+        else:
+            dt = datetime.strptime(clean, "%Y-%m-%d")
+            if is_end_of_day:
+                dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+            else:
+                dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt
+    except Exception:
+        return None
+
+
 @router.get(
     "/stage-counts",
     summary="Get aggregated application counts grouped by kanban stage",
@@ -273,6 +300,12 @@ async def get_application_stage_counts(
     ),
     company_id: int | None = Query(None, description="Filter by company ID"),
     work_model: str | None = Query(None, description="Filter by work model"),
+    start_date: str | None = Query(
+        None, description="Filter applications with activity on or after this ISO date"
+    ),
+    end_date: str | None = Query(
+        None, description="Filter applications with activity on or before this ISO date"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     stmt = select(
@@ -284,6 +317,13 @@ async def get_application_stage_counts(
         work_model.strip().lower()
         if isinstance(work_model, str) and work_model.strip()
         else None
+    )
+    start_dt = _parse_iso_datetime(start_date, is_end_of_day=False)
+    end_dt = _parse_iso_datetime(end_date, is_end_of_day=True)
+    eff_date = func.coalesce(
+        ApplicationModel.last_activity_at,
+        ApplicationModel.application_date,
+        ApplicationModel.created_at,
     )
 
     if q_val or work_model_val:
@@ -302,6 +342,11 @@ async def get_application_stage_counts(
         stmt = stmt.where(
             func.lower(JobPostingModel.work_model).like(f"%{work_model_val}%")
         )
+
+    if start_dt:
+        stmt = stmt.where(eff_date >= start_dt)
+    if end_dt:
+        stmt = stmt.where(eff_date <= end_dt)
 
     if isinstance(action_required, bool):
         action_item_subq = (
@@ -372,6 +417,10 @@ async def get_application_stage_counts(
             closed_stmt = closed_stmt.where(
                 func.lower(JobPostingModel.work_model).like(f"%{work_model_val}%")
             )
+        if start_dt:
+            closed_stmt = closed_stmt.where(eff_date >= start_dt)
+        if end_dt:
+            closed_stmt = closed_stmt.where(eff_date <= end_dt)
 
         closed_res = await db.execute(closed_stmt)
         closed_apps = closed_res.scalars().unique().all()
@@ -407,6 +456,12 @@ async def list_applications(
     ),
     company_id: int | None = Query(None, description="Filter by company ID"),
     work_model: str | None = Query(None, description="Filter by work model"),
+    start_date: str | None = Query(
+        None, description="Filter applications with activity on or after this ISO date"
+    ),
+    end_date: str | None = Query(
+        None, description="Filter applications with activity on or before this ISO date"
+    ),
     sort_by: str = Query(
         "last_activity_at", pattern="^(last_activity_at|application_date|created_at)$"
     ),
@@ -425,6 +480,13 @@ async def list_applications(
         if isinstance(work_model, str) and work_model.strip()
         else None
     )
+    start_dt = _parse_iso_datetime(start_date, is_end_of_day=False)
+    end_dt = _parse_iso_datetime(end_date, is_end_of_day=True)
+    eff_date = func.coalesce(
+        ApplicationModel.last_activity_at,
+        ApplicationModel.application_date,
+        ApplicationModel.created_at,
+    )
 
     if q_val or work_model_val:
         base_stmt = base_stmt.outerjoin(
@@ -434,6 +496,11 @@ async def list_applications(
 
     if q_val:
         base_stmt = base_stmt.where(_build_search_filter(f"%{q_val}%"))
+
+    if start_dt:
+        base_stmt = base_stmt.where(eff_date >= start_dt)
+    if end_dt:
+        base_stmt = base_stmt.where(eff_date <= end_dt)
 
     status_val = (
         status_filter.strip().upper()
@@ -509,6 +576,10 @@ async def list_applications(
                 candidate_stmt = candidate_stmt.where(
                     func.lower(JobPostingModel.work_model).like(f"%{work_model_val}%")
                 )
+            if start_dt:
+                candidate_stmt = candidate_stmt.where(eff_date >= start_dt)
+            if end_dt:
+                candidate_stmt = candidate_stmt.where(eff_date <= end_dt)
             if isinstance(action_required, bool):
                 if action_required:
                     candidate_stmt = candidate_stmt.where(

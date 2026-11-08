@@ -432,10 +432,53 @@ export const useApplicationsStore = defineStore('applications', () => {
     applications.value = Array.from(map.values())
   }
 
+  function getDateFilterParams() {
+    const range = selectedDateRange.value
+    if (!range || range === 'all') return {}
+
+    const now = new Date()
+    if (range === '7d') {
+      return { start_date: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString() }
+    }
+    if (range === '30d') {
+      return { start_date: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString() }
+    }
+    if (range === '90d') {
+      return { start_date: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString() }
+    }
+    if (range === 'custom') {
+      const params = {}
+      if (customDateStart.value) {
+        params.start_date = customDateStart.value
+      }
+      if (customDateEnd.value) {
+        params.end_date = customDateEnd.value
+      }
+      return params
+    }
+    return {}
+  }
+
+  const currentFilterSignature = computed(() => {
+    return JSON.stringify({
+      q: (searchQuery.value || '').trim(),
+      action_required: Boolean(actionRequiredOnly.value),
+      work_model: selectedWorkModel.value || '',
+      date_range: selectedDateRange.value || 'all',
+      start_date: customDateStart.value || '',
+      end_date: customDateEnd.value || '',
+    })
+  })
+  const lastActiveSignature = ref('')
+  const lastArchiveSignature = ref('')
+  const lastHiredSignature = ref('')
+
   // Fetch fast stage counts from backend SQL aggregation
   async function fetchStageCounts() {
     try {
-      const params = {}
+      const params = {
+        ...getDateFilterParams(),
+      }
       if (searchQuery.value && searchQuery.value.trim()) {
         params.q = searchQuery.value.trim()
       }
@@ -490,6 +533,7 @@ export const useApplicationsStore = defineStore('applications', () => {
         status: stage,
         limit,
         offset,
+        ...getDateFilterParams(),
       }
       if (searchQuery.value && searchQuery.value.trim()) {
         params.q = searchQuery.value.trim()
@@ -542,6 +586,7 @@ export const useApplicationsStore = defineStore('applications', () => {
         archive_filter: subFilter,
         limit,
         offset,
+        ...getDateFilterParams(),
       }
       if (searchQuery.value && searchQuery.value.trim()) {
         params.q = searchQuery.value.trim()
@@ -625,17 +670,27 @@ export const useApplicationsStore = defineStore('applications', () => {
         for (const key of Object.keys(archiveSubState.value)) {
           archiveSubState.value[key] = { items: [], total: 0, offset: 0, hasMore: true, loading: false }
         }
+        for (const stage of ['APPLIED', 'TECHNICAL_INTERVIEW', 'OFFER', 'HIRED']) {
+          columnState.value[stage] = { items: [], total: 0, offset: 0, hasMore: true, loading: false }
+        }
+        lastActiveSignature.value = ''
+        lastArchiveSignature.value = ''
+        lastHiredSignature.value = ''
       }
+      const curSig = currentFilterSignature.value
       if (pipelineViewMode.value === 'active') {
         await Promise.all([
           fetchColumn('APPLIED', true),
           fetchColumn('TECHNICAL_INTERVIEW', true),
           fetchColumn('OFFER', true),
         ])
+        lastActiveSignature.value = curSig
       } else if (pipelineViewMode.value === 'archive') {
         await fetchArchive(archiveFilter.value, true)
+        lastArchiveSignature.value = curSig
       } else if (pipelineViewMode.value === 'hired') {
         await fetchColumn('HIRED', true)
+        lastHiredSignature.value = curSig
       }
       lastFetchedAt.value = Date.now()
       isStale.value = false
@@ -648,38 +703,47 @@ export const useApplicationsStore = defineStore('applications', () => {
 
   // Watch pipelineViewMode to lazily load archive / hired / active cards when tabs switch
   watch(pipelineViewMode, async (newMode) => {
+    const curSig = currentFilterSignature.value
     if (newMode === 'active') {
-      if (
-        columnState.value.APPLIED.items.length === 0 &&
-        columnState.value.TECHNICAL_INTERVIEW.items.length === 0 &&
-        columnState.value.OFFER.items.length === 0
-      ) {
+      if (lastActiveSignature.value !== curSig) {
         await Promise.all([
           fetchColumn('APPLIED', true),
           fetchColumn('TECHNICAL_INTERVIEW', true),
           fetchColumn('OFFER', true),
         ])
+        lastActiveSignature.value = curSig
       }
     } else if (newMode === 'archive') {
-      const cur = archiveSubState.value[archiveFilter.value]
-      if (!cur || cur.items.length === 0) {
+      if (lastArchiveSignature.value !== curSig) {
         await fetchArchive(archiveFilter.value, true)
+        lastArchiveSignature.value = curSig
       }
     } else if (newMode === 'hired') {
-      if (columnState.value.HIRED.items.length === 0) {
+      if (lastHiredSignature.value !== curSig) {
         await fetchColumn('HIRED', true)
+        lastHiredSignature.value = curSig
       }
     }
   })
 
   // Debounced server search / filter reload
   let filterDebounceTimer = null
-  watch([searchQuery, actionRequiredOnly, selectedWorkModel], () => {
-    if (filterDebounceTimer) clearTimeout(filterDebounceTimer)
-    filterDebounceTimer = setTimeout(() => {
-      fetchApplications(true)
-    }, 300)
-  })
+  watch(
+    [
+      searchQuery,
+      actionRequiredOnly,
+      selectedWorkModel,
+      selectedDateRange,
+      customDateStart,
+      customDateEnd,
+    ],
+    () => {
+      if (filterDebounceTimer) clearTimeout(filterDebounceTimer)
+      filterDebounceTimer = setTimeout(() => {
+        fetchApplications(true)
+      }, 300)
+    }
+  )
 
   const lastKnownTotalApps = ref(null)
   const lastKnownLatestActivityAt = ref(null)

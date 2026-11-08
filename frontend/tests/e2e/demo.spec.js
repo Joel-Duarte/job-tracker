@@ -286,3 +286,44 @@ test('archived view displays correct filter pill counts and auto-loads on scroll
   // Verify scroll sentinel is mounted for auto-loading
   await expect(archiveContainer.locator('.scroll-sentinel')).toBeAttached()
 })
+
+test('clearing search on archive view properly unlocks active pipeline view and filters synchronize across tabs', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('.kanban-board')).toBeVisible()
+
+  // 1. Search on active view
+  const searchInput = page.getByPlaceholder('Search company, role, or keywords...')
+  await searchInput.fill('Stripe')
+  await expect(page.locator('.kanban-container')).toContainText('Stripe')
+  await expect(page.locator('.kanban-container')).not.toContainText('Linear')
+
+  // 2. Switch to Archive view while search is populated
+  await page.getByRole('button', { name: /Archived \/ Closed/ }).click()
+  await expect(page.locator('.archive-view-container')).toBeVisible()
+
+  // 3. Clear search while on Archive view
+  await searchInput.fill('')
+
+  // 4. Switch back to Active Pipeline view
+  await page.getByRole('button', { name: /Active Pipeline/ }).click()
+  await expect(page.locator('.kanban-board')).toBeVisible()
+
+  // 5. Verify active pipeline is NOT locked and displays other cards again
+  await expect(page.locator('.kanban-container')).toContainText('Linear')
+  await expect(page.locator('.kanban-container')).toContainText('Stripe')
+
+  // 6. Test Workplace filter
+  const mobileTrigger = page.locator('.mobile-filter-trigger-btn')
+  if (await mobileTrigger.isVisible()) {
+    await mobileTrigger.click()
+  }
+
+  const workModelSelect = page.locator('.work-model-select')
+  await workModelSelect.selectOption('Remote')
+  await workModelSelect.selectOption('')
+
+  // 7. Test Time filter
+  const dateRangeSelect = page.locator('.date-range-select')
+  await dateRangeSelect.selectOption('30d')
+  await dateRangeSelect.selectOption('all')
+})

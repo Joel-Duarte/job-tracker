@@ -1,3 +1,4 @@
+from datetime import UTC
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -542,5 +543,31 @@ async def test_application_search_filtering(db_session: AsyncSession):
         assert resp_arch.status_code == 200
         data_arch = resp_arch.json()
         assert any(item["id"] == app3.id for item in data_arch["items"])
+
+        # 8. Date range filtering on list and stage counts
+        from datetime import datetime, timedelta
+
+        now = datetime.now(UTC)
+        iso_past = (now - timedelta(days=1)).isoformat()
+        iso_future = (now + timedelta(days=5)).isoformat()
+
+        resp_date = await client.get(
+            f"/api/v1/applications?status=APPLIED&start_date={iso_past}"
+        )
+        assert resp_date.status_code == 200
+        data_date = resp_date.json()
+        assert data_date["total"] >= 1
+
+        resp_date_future = await client.get(
+            f"/api/v1/applications?status=APPLIED&start_date={iso_future}"
+        )
+        assert resp_date_future.status_code == 200
+        assert resp_date_future.json()["total"] == 0
+
+        resp_counts_date = await client.get(
+            f"/api/v1/applications/stage-counts?start_date={iso_past}"
+        )
+        assert resp_counts_date.status_code == 200
+        assert resp_counts_date.json()["counts"]["APPLIED"] >= 1
 
     app.dependency_overrides.clear()
