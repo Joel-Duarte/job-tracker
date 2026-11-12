@@ -102,8 +102,11 @@ function backToQueueMobile() {
 const resolutionMode = ref('create') // 'create' | 'link'
 const selectedExistingAppId = ref(null)
 const appSearchQuery = ref('')
-const includeArchivedApps = ref(false)
 const showRawJobDesc = ref(false)
+const candidateApps = ref([])
+const loadingCandidates = ref(false)
+const serverSmartSuggestion = ref(null)
+const serverDetectedSignals = ref(null)
 
 const resolveForm = ref({
   company: '',
@@ -256,17 +259,50 @@ const selectedItem = computed(() => {
   return stagingItems.value.find((i) => i.id === selectedItemId.value) || null
 })
 
-// Smart suggestion existing/concluded application with fuzzy company matching
+// Extracted signals helpers for UI display
+const itemDetectedDomains = computed(() => {
+  const ext = selectedItem.value?.extracted_data || {}
+  const fromServer = serverDetectedSignals.value?.detected_domains || []
+  const fromItem = ext.detected_domains || (ext.sender_domain ? [ext.sender_domain] : [])
+  return Array.from(new Set([...fromServer, ...fromItem]))
+})
+
+const itemAtsSlugs = computed(() => {
+  const ext = selectedItem.value?.extracted_data || {}
+  const fromServer = serverDetectedSignals.value?.ats_slugs || []
+  const fromItem = ext.ats_slugs || []
+  return Array.from(new Set([...fromServer, ...fromItem]))
+})
+
+const itemJobUrl = computed(() => {
+  const ext = selectedItem.value?.extracted_data || {}
+  return (
+    ext.job_url ||
+    ext.detected_job_url ||
+    serverDetectedSignals.value?.detected_job_url ||
+    ''
+  )
+})
+
+const CONCLUDED_APP_STATUSES = ['REJECTED', 'ARCHIVED', 'WITHDRAWN', 'HIRED']
+
+// Smart suggestion existing/concluded application with server 4-tier cascade & client fallback
 const smartSuggestionApp = computed(() => {
   if (!selectedItem.value || selectedItem.value.status !== 'PENDING') return null
+  if (serverSmartSuggestion.value) return serverSmartSuggestion.value
+
   const companyName = getItemCompany(selectedItem.value).trim()
-  if (!companyName || companyName.toLowerCase() === 'unknown company') return null
+  const fallbackQuery =
+    companyName && companyName.toLowerCase() !== 'unknown company'
+      ? companyName
+      : itemDetectedDomains.value[0] || itemAtsSlugs.value[0] || ''
+  if (!fallbackQuery) return null
 
   const scoredApps = (appStore.applications || [])
     .filter((a) => a.status !== 'ASSESSMENT')
     .map((a) => ({
       app: a,
-      score: scoreApplicationMatch(a, companyName),
+      score: scoreApplicationMatch(a, fallbackQuery),
     }))
     .filter((entry) => entry.score >= 0.6)
     .sort((a, b) => b.score - a.score)
@@ -275,29 +311,19 @@ const smartSuggestionApp = computed(() => {
   const matchedApps = scoredApps.map((entry) => entry.app)
 
   if (selectedItem.value.match_reason === 'REAPPLICATION_PREVIOUSLY_CONCLUDED') {
-    const terminalApps = matchedApps.filter((a) =>
-      ['REJECTED', 'ARCHIVED', 'WITHDRAWN', 'HIRED'].includes(a.status)
-    )
+    const terminalApps = matchedApps.filter((a) => CONCLUDED_APP_STATUSES.includes(a.status))
     if (!terminalApps.length) return matchedApps[0]
     return [...terminalApps].sort(
       (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
     )[0]
   } else {
-    const activeApps = matchedApps.filter(
-      (a) => !['REJECTED', 'ARCHIVED', 'WITHDRAWN', 'HIRED'].includes(a.status)
-    )
+    const activeApps = matchedApps.filter((a) => !CONCLUDED_APP_STATUSES.includes(a.status))
     return activeApps.length ? activeApps[0] : matchedApps[0]
   }
 })
 
 function applySmartLink() {
   if (!smartSuggestionApp.value) return
-  const isTerminal = ['REJECTED', 'ARCHIVED', 'WITHDRAWN', 'HIRED'].includes(
-    smartSuggestionApp.value.status
-  )
-  if (isTerminal) {
-    includeArchivedApps.value = true
-  }
   resolutionMode.value = 'link'
   selectedExistingAppId.value = smartSuggestionApp.value.id
 
@@ -331,46 +357,66 @@ function selectNextItem() {
   }
 }
 
-// Applications search for linking with fuzzy matching & relevance ranking
-const CONCLUDED_APP_STATUSES = ['REJECTED', 'ARCHIVED', 'WITHDRAWN', 'HIRED']
+let candidateSearchTimeout = null
 
-const activeMatchedApps = computed(() => {
-  const apps = (appStore.applications || []).filter(
-    (a) => a.status !== 'ASSESSMENT' && !CONCLUDED_APP_STATUSES.includes(a.status)
-  )
-  const q = appSearchQuery.value.trim()
-  if (!q) {
-    return [...apps].sort(
-      (a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0)
-    )
+async function fetchCandidateApplications(stagingId, queryText) {
+  loadingCandidates.value = true
+  try {
+    const cleanQ = (queryText || '').trim()
+    const res = await StagingAPI.getCandidateApplications({
+      staging_item_id: stagingId || undefined,
+      q: cleanQ && cleanQ.toLowerCase() !== 'unknown company' ? cleanQ : undefined,
+      limit: 30,
+    })
+    candidateApps.value = res.data?.items || []
+    if (res.data?.smart_suggestion !== undefined) {
+      serverSmartSuggestion.value = res.data.smart_suggestion
+    }
+    if (res.data?.detected_signals) {
+      serverDetectedSignals.value = res.data.detected_signals
+      if (!resolveForm.value.job_url && res.data.detected_signals.detected_job_url) {
+        resolveForm.value.job_url = res.data.detected_signals.detected_job_url
+      }
+    }
+    if (!selectedExistingAppId.value && serverSmartSuggestion.value?.id) {
+      selectedExistingAppId.value = serverSmartSuggestion.value.id
+    }
+  } catch {
+    // Fallback to client-side store if endpoint is unreachable
+    const apps = (appStore.applications || []).filter((a) => a.status !== 'ASSESSMENT')
+    const q = (queryText || '').trim()
+    candidateApps.value =
+      q && q.toLowerCase() !== 'unknown company'
+        ? fuzzyFilterApplications(apps, q, 0.25)
+        : [...apps].sort(
+            (a, b) =>
+              new Date(b.updated_at || b.created_at || 0) -
+              new Date(a.updated_at || a.created_at || 0)
+          )
+  } finally {
+    loadingCandidates.value = false
   }
-  return fuzzyFilterApplications(apps, q, 0.25)
-})
+}
 
-const allMatchedApps = computed(() => {
-  const apps = (appStore.applications || []).filter((a) => a.status !== 'ASSESSMENT')
-  const q = appSearchQuery.value.trim()
-  if (!q) {
-    return [...apps].sort(
-      (a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0)
-    )
-  }
-  return fuzzyFilterApplications(apps, q, 0.25)
-})
-
-const isShowingArchivedFallback = computed(() => {
-  return (
-    !includeArchivedApps.value &&
-    activeMatchedApps.value.length === 0 &&
-    allMatchedApps.value.length > 0
-  )
+watch(appSearchQuery, (newQ) => {
+  if (candidateSearchTimeout) clearTimeout(candidateSearchTimeout)
+  candidateSearchTimeout = setTimeout(() => {
+    fetchCandidateApplications(selectedItem.value?.id, newQ)
+  }, 180)
 })
 
 const filteredExistingApps = computed(() => {
-  if (includeArchivedApps.value || isShowingArchivedFallback.value) {
-    return allMatchedApps.value
+  if (candidateApps.value.length > 0 || !appStore.applications.length) {
+    return candidateApps.value
   }
-  return activeMatchedApps.value
+  const apps = (appStore.applications || []).filter((a) => a.status !== 'ASSESSMENT')
+  const q = appSearchQuery.value.trim()
+  if (!q || q.toLowerCase() === 'unknown company') {
+    return [...apps].sort(
+      (a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0)
+    )
+  }
+  return fuzzyFilterApplications(apps, q, 0.25)
 })
 
 // Populate resolveForm whenever selected item changes
@@ -379,8 +425,8 @@ function selectItem(item, fromUserClick = false) {
   selectedItemId.value = item.id
   resolutionMode.value = 'create'
   selectedExistingAppId.value = null
-  includeArchivedApps.value = false
-  appSearchQuery.value = getItemCompany(item) || ''
+  serverSmartSuggestion.value = null
+  serverDetectedSignals.value = null
   showRawJobDesc.value = false
   emailViewMode.value = 'formatted'
 
@@ -389,35 +435,39 @@ function selectItem(item, fromUserClick = false) {
   }
 
   const extracted = item.extracted_data || {}
+  const rawCompany = getItemCompany(item)
+  const isKnownCompany =
+    rawCompany && rawCompany.trim().toLowerCase() !== 'unknown company'
+  const fallbackSignalQuery =
+    extracted.detected_domains?.[0] ||
+    extracted.sender_domain ||
+    extracted.ats_slugs?.[0] ||
+    ''
+
+  appSearchQuery.value = isKnownCompany ? rawCompany : fallbackSignalQuery
+
   const autoStatus = getAutoDetectedStatus(item)
   const eventType = getDetectedEventType(item)
-
   const extractedDueDate = extracted.due_date ? toLocalDatetimeString(extracted.due_date) : ''
+  const detectedUrl = extracted.job_url || extracted.detected_job_url || ''
 
   resolveForm.value = {
-    company: getItemCompany(item),
+    company: isKnownCompany ? rawCompany : (extracted.cleaned_company || fallbackSignalQuery || ''),
     position: getItemPosition(item),
     status: autoStatus,
-    job_url: '',
+    job_url: detectedUrl,
     description_markdown: '',
     event_type: eventType,
     summary:
       extracted.summary ||
       item.email_subject ||
-      `Received ${formatEventTypeLabel(eventType)} from ${getItemCompany(item)}`,
+      `Received ${formatEventTypeLabel(eventType)} from ${rawCompany}`,
     action_required: Boolean(extracted.action_required),
     action: extracted.action || '',
     due_date: extractedDueDate,
   }
 
-  // Pre-match existing application if high confidence
-  const companyName = getItemCompany(item).toLowerCase().trim()
-  const matchedApp = (appStore.applications || []).find(
-    (a) => a.status !== 'ASSESSMENT' && (a.company?.name || '').toLowerCase().trim() === companyName
-  )
-  if (matchedApp) {
-    selectedExistingAppId.value = matchedApp.id
-  }
+  fetchCandidateApplications(item.id, appSearchQuery.value)
 }
 
 // Watch sorted items to keep selection stable
@@ -756,7 +806,12 @@ async function submitResolution() {
         return
       }
 
-      const matchedApp = appStore.applications.find((a) => a.id === selectedExistingAppId.value)
+      const matchedApp =
+        candidateApps.value.find((a) => a.id === selectedExistingAppId.value) ||
+        (serverSmartSuggestion.value?.id === selectedExistingAppId.value
+          ? serverSmartSuggestion.value
+          : null) ||
+        appStore.applications.find((a) => a.id === selectedExistingAppId.value)
       await StagingAPI.resolve(selectedItem.value.id, {
         ...payload,
         application_id: selectedExistingAppId.value,
@@ -1242,11 +1297,52 @@ function formatRelativeTime(isoStr) {
                         : selectedItem.email_sender || selectedItem.email_sender_name
                     }}</strong>
                   </div>
+                  <div v-if="itemDetectedDomains.length > 0" class="ai-tag-item">
+                    <span class="ai-tag-label">Domain:</span>
+                    <span class="signal-domain-pills">
+                      <span
+                        v-for="dom in itemDetectedDomains"
+                        :key="dom"
+                        class="signal-pill"
+                        title="Click to search by this domain"
+                        @click="resolutionMode = 'link'; appSearchQuery = dom"
+                      >
+                        <Globe :size="11" />
+                        <span>{{ dom }}</span>
+                      </span>
+                    </span>
+                  </div>
+                  <div v-if="itemAtsSlugs.length > 0" class="ai-tag-item">
+                    <span class="ai-tag-label">ATS Org:</span>
+                    <span class="signal-domain-pills">
+                      <span
+                        v-for="slug in itemAtsSlugs"
+                        :key="slug"
+                        class="signal-pill"
+                        title="Click to search by this ATS organization"
+                        @click="resolutionMode = 'link'; appSearchQuery = slug"
+                      >
+                        <span>{{ slug }}</span>
+                      </span>
+                    </span>
+                  </div>
                   <div class="ai-tag-item">
                     <span class="ai-tag-label">Detected Event:</span>
                     <span class="badge-mini" :class="getEventTypeBadgeClass(getDetectedEventType(selectedItem))">
                       {{ formatEventTypeLabel(getDetectedEventType(selectedItem)) }}
                     </span>
+                  </div>
+                  <div v-if="itemJobUrl" class="ai-tag-item full-width">
+                    <span class="ai-tag-label">Job Link:</span>
+                    <a
+                      :href="itemJobUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="signal-job-link"
+                    >
+                      <span>{{ itemJobUrl }}</span>
+                      <ExternalLink :size="11" />
+                    </a>
                   </div>
                   <div v-if="selectedItem.extracted_data?.action" class="ai-tag-item full-width">
                     <span class="ai-tag-label">Action Item:</span>
@@ -1294,6 +1390,12 @@ function formatRelativeTime(isoStr) {
                         ).toLowerCase()}`"
                       >
                         {{ smartSuggestionApp.status?.replace('_', ' ') }}
+                      </span>
+                      <span
+                        v-if="smartSuggestionApp.match_reason_label"
+                        class="match-reason-pill"
+                      >
+                        {{ smartSuggestionApp.match_reason_label }}
                       </span>
                     </template>
                   </div>
@@ -1427,28 +1529,28 @@ function formatRelativeTime(isoStr) {
                 <div class="form-group">
                   <div class="form-label-row">
                     <label class="form-label">Search Target Application</label>
-                    <label class="include-archived-toggle">
-                      <input v-model="includeArchivedApps" type="checkbox" />
-                      <span>Include Archived / Concluded</span>
-                    </label>
+                    <span class="search-scope-hint text-muted">
+                      Active &amp; Concluded (ranked by URL, domain &amp; name)
+                    </span>
                   </div>
                   <div class="app-search-input-wrapper">
                     <Search :size="14" class="search-icon" />
                     <input
                       v-model="appSearchQuery"
                       type="text"
-                      :placeholder="
-                        includeArchivedApps
-                          ? 'Search all applications (including archived) by company or role...'
-                          : 'Search active applications by company or role...'
-                      "
+                      placeholder="Search company, domain (e.g. zero.inc), role, or URL..."
                       class="form-input search-input-with-icon"
                     />
+                    <button
+                      v-if="appSearchQuery"
+                      type="button"
+                      class="btn-clear-input app-search-clear"
+                      title="Clear search"
+                      @click="appSearchQuery = ''"
+                    >
+                      <X :size="12" />
+                    </button>
                   </div>
-                </div>
-
-                <div v-if="isShowingArchivedFallback" class="archived-fallback-notice">
-                  <span>No active matches — showing archived/concluded applications</span>
                 </div>
 
                 <div class="app-select-cards-list">
@@ -1462,18 +1564,30 @@ function formatRelativeTime(isoStr) {
                     <div class="app-option-main">
                       <CompanyLogo :name="app.company?.name" :domain="app.company?.domain" :size="24" />
                       <div class="app-option-titles">
-                        <strong>{{ app.company?.name }}</strong>
+                        <div class="app-option-company-row">
+                          <strong>{{ app.company?.name }}</strong>
+                          <span v-if="app.company?.domain" class="app-option-domain">
+                            {{ app.company.domain }}
+                          </span>
+                        </div>
                         <span class="app-option-role">{{ app.position }}</span>
                       </div>
                     </div>
                     <div class="app-option-badge">
+                      <span v-if="app.match_reason_label" class="match-reason-pill">
+                        {{ app.match_reason_label }}
+                      </span>
                       <span class="badge-mini" :class="`badge-${(app.status || 'applied').toLowerCase()}`">
                         {{ app.status?.replace('_', ' ') }}
                       </span>
                     </div>
                   </div>
 
-                  <div v-if="filteredExistingApps.length === 0" class="no-apps-found">
+                  <div v-if="loadingCandidates && filteredExistingApps.length === 0" class="no-apps-found">
+                    <Loader2 class="animate-spin" :size="14" />
+                    <span>Searching applications...</span>
+                  </div>
+                  <div v-else-if="filteredExistingApps.length === 0" class="no-apps-found">
                     <span>No applications found matching "{{ appSearchQuery }}"</span>
                   </div>
                 </div>
@@ -2822,6 +2936,86 @@ function formatRelativeTime(isoStr) {
 
 .mobile-back-queue-btn {
   display: none;
+}
+
+.signal-domain-pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.signal-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  background-color: var(--primary-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.signal-pill:hover {
+  border-color: var(--primary);
+}
+
+.signal-job-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--primary);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.signal-job-link:hover {
+  text-decoration: underline;
+}
+
+.match-reason-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--primary);
+  background-color: var(--primary-subtle);
+  border-radius: var(--radius-xs);
+  white-space: nowrap;
+}
+
+.app-option-company-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.app-option-domain {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.app-option-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.app-search-clear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.search-scope-hint {
+  font-size: 11px;
 }
 
 @media (max-width: 1024px) {

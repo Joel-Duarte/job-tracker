@@ -404,6 +404,34 @@ def clean_company_name(raw_name: str | None) -> str:
                     name_lower = name.lower()
                     break
 
+    # Remove common domain TLD suffixes when dot-attached (e.g., 'Zero.inc', 'Linear.app', 'Zero.io')
+    dot_tlds = (
+        ".inc",
+        ".llc",
+        ".ltd",
+        ".corp",
+        ".com",
+        ".io",
+        ".ai",
+        ".app",
+        ".dev",
+        ".org",
+        ".net",
+        ".tech",
+        ".co",
+        ".so",
+        ".sh",
+        ".xyz",
+        ".gg",
+    )
+    for tld in dot_tlds:
+        if name_lower.endswith(tld) and len(name) > len(tld):
+            prefix = name[: -len(tld)].rstrip(",.-:–— ").strip()
+            if prefix:
+                name = prefix
+                name_lower = name.lower()
+                break
+
     # Remove common legal entity suffixes
     legal_suffixes = (
         "corporation",
@@ -441,6 +469,219 @@ def clean_company_name(raw_name: str | None) -> str:
     # Clean trailing punctuation
     name = name.rstrip(",.-:–— ").strip()
     return name or raw_name.strip()[:512]
+
+
+_EMAIL_IGNORE_DOMAINS = KNOWN_AGGREGATOR_DOMAINS | {
+    "gmail.com",
+    "googlemail.com",
+    "google.com",
+    "outlook.com",
+    "hotmail.com",
+    "live.com",
+    "msn.com",
+    "yahoo.com",
+    "ymail.com",
+    "icloud.com",
+    "me.com",
+    "mac.com",
+    "proton.me",
+    "protonmail.com",
+    "aol.com",
+    "zoho.com",
+    "fastmail.com",
+    "hey.com",
+    "gmx.com",
+    "mail.com",
+    "sendgrid.net",
+    "sendgrid.com",
+    "mailgun.org",
+    "mailgun.com",
+    "mailchimp.com",
+    "list-manage.com",
+    "mandrillapp.com",
+    "amazonses.com",
+    "postmarkapp.com",
+    "sparkpostmail.com",
+    "customeriomail.com",
+    "hubspotemail.net",
+    "hubspot.com",
+    "intercom-mail.com",
+    "intercom.io",
+    "calendly.com",
+    "zoom.us",
+    "microsoft.com",
+    "office.com",
+    "w3.org",
+    "schema.org",
+}
+
+_EMAIL_SUBDOMAIN_PREFIXES = {
+    "mail",
+    "email",
+    "em",
+    "mg",
+    "notifications",
+    "notify",
+    "no-reply",
+    "noreply",
+    "bounce",
+    "bounces",
+    "careers",
+    "jobs",
+    "job",
+    "career",
+    "talent",
+    "recruiting",
+    "recruitment",
+    "hr",
+    "apply",
+    "hire",
+    "hiring",
+    "links",
+    "click",
+    "track",
+    "t",
+}
+
+_HREF_URL_RE = re.compile(r'href=["\'](https?://[^"\'\s<>]+)["\']', re.IGNORECASE)
+_PLAIN_URL_RE = re.compile(r'https?://[^\s<>"\'\)\]]+', re.IGNORECASE)
+_EMAIL_ADDR_RE = re.compile(r"[a-zA-Z0-9_.+-]+@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)")
+
+
+def _normalize_company_email_domain(raw_host: str | None) -> str | None:
+    """Normalizes an email sender or link host to a canonical company root domain, filtering mail/ATS/tracker hosts."""
+    cleaned = clean_domain(raw_host)
+    if not cleaned:
+        return None
+    parts = cleaned.split(".")
+    while len(parts) > 2 and parts[0] in _EMAIL_SUBDOMAIN_PREFIXES:
+        parts = parts[1:]
+    candidate = ".".join(parts)
+    for ignored in _EMAIL_IGNORE_DOMAINS:
+        if candidate == ignored or candidate.endswith(f".{ignored}"):
+            return None
+    if is_aggregator_hostname(candidate):
+        return None
+    return candidate
+
+
+def extract_email_identity_signals(
+    raw_body: str | None,
+    sender: str | None = None,
+    subject: str | None = None,
+    extracted_data: dict | None = None,
+) -> dict[str, list[str] | str | None]:
+    """Deterministically extracts URLs, company domains, ATS org slugs, and cleaned company names from an email."""
+    from app.core.url_utils import normalize_job_url
+
+    extracted = extracted_data if isinstance(extracted_data, dict) else {}
+
+    # 1. Sender domain
+    sender_domain: str | None = None
+    if sender:
+        m = _EMAIL_ADDR_RE.search(sender)
+        if m:
+            sender_domain = _normalize_company_email_domain(m.group(1))
+
+    # 2. Candidate URLs from newest part of raw_body (before quote blocks) + extracted job_url
+    body_text = raw_body or ""
+    quote_Match = re.search(
+        r"<blockquote|<div[^>]*(?:gmail_quote|yahoo_quoted|divRplyFwdMsg)|^[ \t]*On\s+.+?\bwrote:\s*$",
+        body_text,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    newest_segment = body_text[: quote_Match.start()] if quote_Match else body_text
+
+    raw_urls: list[str] = []
+    if extracted.get("job_url"):
+        raw_urls.append(str(extracted["job_url"]))
+    raw_urls.extend(_HREF_URL_RE.findall(newest_segment))
+    raw_urls.extend(_PLAIN_URL_RE.findall(newest_segment))
+
+    candidate_job_urls: list[str] = []
+    candidate_domains: list[str] = []
+    ats_slugs: list[str] = []
+    seen_urls: set[str] = set()
+
+    for u in raw_urls:
+        u_clean = u.rstrip(".,;:!?)>'\"")
+        u_lower = u_clean.lower()
+        if any(
+            skip in u_lower
+            for skip in (
+                "unsubscribe",
+                "optout",
+                "opt-out",
+                "preferences",
+                "privacy",
+                "terms",
+                "mailto:",
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".gif",
+                ".svg",
+                ".css",
+                ".js",
+                ".woff",
+                ".ico",
+            )
+        ):
+            continue
+
+        norm_u = normalize_job_url(u_clean) or u_clean
+        if norm_u in seen_urls:
+            continue
+        seen_urls.add(norm_u)
+
+        slug = extract_organization_from_ats_url(norm_u)
+        if slug and slug not in ats_slugs:
+            ats_slugs.append(slug)
+            candidate_job_urls.append(norm_u)
+            continue
+
+        try:
+            parsed = urlparse(norm_u)
+            dom = _normalize_company_email_domain(parsed.netloc)
+        except Exception:
+            dom = None
+
+        if dom:
+            if dom not in candidate_domains:
+                candidate_domains.append(dom)
+            path_l = (parsed.path or "").lower()
+            if norm_u == normalize_job_url(str(extracted.get("job_url") or "")) or any(
+                k in path_l
+                for k in ("/job", "/career", "/role", "/position", "/apply", "/opening")
+            ):
+                if norm_u not in candidate_job_urls:
+                    candidate_job_urls.append(norm_u)
+
+    if sender_domain and sender_domain not in candidate_domains:
+        candidate_domains.append(sender_domain)
+
+    raw_comp = str(
+        extracted.get("company") or extracted.get("company_name") or ""
+    ).strip()
+    if raw_comp.lower() in {
+        "unknown company",
+        "unknown",
+        "none",
+        "null",
+        "n/a",
+        "not specified",
+    }:
+        raw_comp = ""
+    cleaned_comp = clean_company_name(raw_comp) if raw_comp else None
+
+    return {
+        "sender_domain": sender_domain,
+        "detected_domains": candidate_domains,
+        "ats_slugs": ats_slugs,
+        "candidate_job_urls": candidate_job_urls,
+        "detected_job_url": candidate_job_urls[0] if candidate_job_urls else None,
+        "cleaned_company": cleaned_comp,
+    }
 
 
 def extract_organization_from_ats_url(url: str | None) -> str | None:

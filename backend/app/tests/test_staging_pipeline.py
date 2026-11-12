@@ -321,3 +321,77 @@ def test_parse_email_date_preserves_instant_and_rejects_unresolved_text():
     assert _parse_email_date("invalid") is None
     assert _parse_email_date("2026-09-14T16:30:00-07:00").hour == 23
     assert _parse_email_date("2024-01-14T10:00:00+00:00").hour == 10
+
+
+@pytest.mark.asyncio
+async def test_intake_matches_zero_inc_via_cleaned_name_and_domain_ignoring_assessments(
+    db_session,
+):
+    """Test that 'Zero' or @zero.inc / HTML link matches 'Zero.inc' APPLIED app while ignoring ASSESSMENT leads."""
+    company = CompanyModel(
+        name="Zero.inc", name_normalized="zero.inc", domain="zero.inc"
+    )
+    db_session.add(company)
+    await db_session.flush()
+
+    assessed_only = ApplicationModel(
+        company_id=company.id,
+        position="Unapplied Assessment Role",
+        position_normalized="unapplied assessment role",
+        status="ASSESSMENT",
+        is_assessment=True,
+    )
+    applied_app = ApplicationModel(
+        company_id=company.id,
+        position="Senior Product Engineer",
+        position_normalized="senior product engineer",
+        status="APPLIED",
+    )
+    db_session.add_all([assessed_only, applied_app])
+    await db_session.commit()
+
+    email_payload = EmailPayload(
+        conversation_id="conv-zero-inc-1",
+        sender="talent@zero.inc",
+        sender_name="Zero Recruiting",
+        received_at=datetime.now(UTC),
+        subject="Next steps with Zero",
+        body='<p>Hi! View your portal at <a href="https://zero.inc/careers/senior-product-engineer">Zero</a>.</p>',
+    )
+
+    extracted_info = ExtractedEmailInfo(
+        company="Zero",
+        position=None,
+        status="TECHNICAL_INTERVIEW",
+        event_type="INTERVIEW_INVITE",
+        summary="Interview invite from Zero.",
+        action_required=False,
+    )
+
+    task_id = task_tracker.create_task(total_emails=1)
+
+    with (
+        patch(
+            "app.services.intake.extract_email_info", new_callable=AsyncMock
+        ) as mock_extract,
+        patch(
+            "app.services.graph_nodes.generate_and_save_application_embedding",
+            new_callable=AsyncMock,
+        ),
+    ):
+        mock_extract.return_value = extracted_info
+        await process_email_batch_sequential(db_session, [email_payload], task_id)
+
+    events = (
+        (
+            await db_session.execute(
+                select(ApplicationEventModel).where(
+                    ApplicationEventModel.email_application_id == applied_app.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(events) == 1
+    assert events[0].email_subject == "Next steps with Zero"

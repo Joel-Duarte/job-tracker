@@ -77,6 +77,8 @@ export const PromptsAPI = {
 
 export const StagingAPI = {
   list: (params = {}) => apiClient.get('/staging', { params }),
+  getCandidateApplications: (params = {}) =>
+    apiClient.get('/staging/candidate-applications', { params }),
   resolve: (id, data) => apiClient.post(`/staging/${id}/resolve`, data),
   reopen: (id) => apiClient.post(`/staging/${id}/reopen`),
   delete: (id) => apiClient.delete(`/staging/${id}`),

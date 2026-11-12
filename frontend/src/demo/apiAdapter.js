@@ -1,6 +1,7 @@
 import { getDemoAgentReply } from './agentReplies.js'
 import { getDemoQualityStats } from './qualityAudits.js'
 import { getDemoDb, saveDemoDb } from './demoStorage.js'
+import { scoreApplicationMatch, normalizeCompanyText } from '../utils/fuzzyMatch.js'
 
 function filterDemoTraces(traces, params) {
   return traces.filter(t =>
@@ -1221,6 +1222,100 @@ export async function handleDemoRequest(config) {
     const paginated = items.slice(offset, offset + limit)
 
     return ok({ items: paginated, total })
+  }
+
+  if (urlPath === '/staging/candidate-applications' && method === 'get') {
+    const q = (params.q || '').trim()
+    const stagingId = params.staging_item_id
+    const stagedItem = stagingId
+      ? (db.staging_items || []).find((s) => String(s.id) === String(stagingId))
+      : null
+    const senderEmail = stagedItem?.email_sender || ''
+    const senderDomMatch = senderEmail.match(/@([a-z0-9.-]+)/i)
+    const rawSenderDom = senderDomMatch ? senderDomMatch[1].toLowerCase() : null
+    const senderDomain =
+      rawSenderDom &&
+      !['gmail.com', 'outlook.com', 'yahoo.com', 'greenhouse.io', 'ashbyhq.com', 'lever.co'].some((d) =>
+        rawSenderDom.endsWith(d)
+      )
+        ? rawSenderDom
+        : null
+    const signalCompany =
+      stagedItem?.extracted_data?.company ||
+      stagedItem?.extracted_data?.company_name ||
+      stagedItem?.suggested_company ||
+      ''
+    const CONCLUDED = ['REJECTED', 'ARCHIVED', 'WITHDRAWN', 'HIRED']
+
+    const apps = (db.applications || []).filter((a) => a.status !== 'ASSESSMENT')
+    const scored = apps.map((a) => {
+      const compName = a.company?.name || a.company_name || ''
+      const compDom = (a.company?.domain || '').toLowerCase()
+      const isActive = !CONCLUDED.includes(a.status)
+      let sigScore = 0
+      let reason = null
+      if (senderDomain && (compDom === senderDomain || normalizeCompanyText(compName) === normalizeCompanyText(senderDomain))) {
+        sigScore = 0.96
+        reason = `Matched domain ${senderDomain}`
+      } else if (signalCompany && signalCompany.toLowerCase() !== 'unknown company') {
+        const sc = scoreApplicationMatch(a, signalCompany)
+        if (sc >= 0.6) {
+          sigScore = Math.min(sc, 0.92)
+          reason = compDom ? `Matched ${compDom}` : 'Matched company'
+        }
+      }
+      const qScore = q && q.toLowerCase() !== 'unknown company' ? scoreApplicationMatch(a, q) : sigScore
+      const effScore = Math.max(qScore, q && normalizeCompanyText(q) === normalizeCompanyText(signalCompany) ? sigScore : 0)
+      if (!reason && effScore >= 0.7) {
+        reason = compDom ? `Matched ${compDom}` : 'Company match'
+      }
+      return {
+        id: a.id,
+        company_id: a.company?.id || a.company_id || 1,
+        company: {
+          id: a.company?.id || a.company_id || 1,
+          name: compName,
+          domain: a.company?.domain || null,
+        },
+        position: a.position,
+        status: a.status,
+        job_url: a.job_url || a.url || null,
+        application_date: a.application_date || a.created_at || null,
+        last_activity_at: a.last_activity_at || a.updated_at || a.created_at || null,
+        match_score: Number(effScore.toFixed(3)),
+        match_reason_label: reason,
+        is_active_stage: isActive,
+        _sigScore: sigScore,
+      }
+    })
+
+    const filtered =
+      q && q.toLowerCase() !== 'unknown company'
+        ? scored.filter((item) => item.match_score >= 0.25)
+        : scored
+
+    filtered.sort((a, b) => {
+      const scoreDiff = (b.match_score + (b.is_active_stage ? 0.02 : 0)) - (a.match_score + (a.is_active_stage ? 0.02 : 0))
+      if (Math.abs(scoreDiff) > 0.005) return scoreDiff
+      return new Date(b.last_activity_at || 0) - new Date(a.last_activity_at || 0)
+    })
+
+    const sigMatches = scored.filter((item) => item._sigScore >= 0.65)
+    sigMatches.sort((a, b) => b._sigScore - a._sigScore)
+    const smartSuggestion = sigMatches.length ? sigMatches[0] : null
+
+    return ok({
+      items: filtered.slice(0, parseInt(params.limit, 10) || 30),
+      detected_signals: {
+        sender_domain: senderDomain,
+        detected_domains: senderDomain ? [senderDomain] : [],
+        ats_slugs: [],
+        candidate_job_urls: [],
+        detected_job_url: stagedItem?.extracted_data?.job_url || null,
+        cleaned_company: normalizeCompanyText(signalCompany) || null,
+      },
+      smart_suggestion: smartSuggestion,
+    })
   }
 
   if (urlPath === '/staging/bulk-dismiss' && method === 'post') {

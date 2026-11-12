@@ -131,3 +131,38 @@ class StagingBulkDismissRequest(BaseModel):
 class StagingBulkDismissResponse(BaseModel):
     dismissed_count: int
     message: str
+
+
+class StagingDetectedSignals(BaseModel):
+    sender_domain: str | None = None
+    detected_domains: list[str] = Field(default_factory=list)
+    ats_slugs: list[str] = Field(default_factory=list)
+    candidate_job_urls: list[str] = Field(default_factory=list)
+    detected_job_url: str | None = None
+    cleaned_company: str | None = None
+
+
+class StagingCandidateCompanySummary(BaseModel):
+    id: int
+    name: str
+    domain: str | None = None
+
+
+class StagingCandidateAppItem(BaseModel):
+    id: int
+    company_id: int
+    company: StagingCandidateCompanySummary
+    position: str
+    status: str
+    job_url: str | None = None
+    application_date: datetime | None = None
+    last_activity_at: datetime | None = None
+    match_score: float = 0.0
+    match_reason_label: str | None = None
+    is_active_stage: bool = True
+
+
+class StagingCandidateAppsResponse(BaseModel):
+    items: list[StagingCandidateAppItem] = Field(default_factory=list)
+    detected_signals: StagingDetectedSignals | None = None
+    smart_suggestion: StagingCandidateAppItem | None = None

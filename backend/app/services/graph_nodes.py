@@ -19,6 +19,7 @@ from app.models.applications import (
     ApplicationEventModel,
     ApplicationModel,
     CompanyModel,
+    JobPostingModel,
     OtherEventModel,
 )
 from app.models.candidate_profile import CandidateCVModel
@@ -27,6 +28,11 @@ from app.models.processed_email import ProcessedEmailModel
 from app.models.staging import StagingItemModel
 from app.schemas.graph_state import JobTrackerState
 from app.services.company_resolver import resolve_or_create_company
+from app.services.domain_resolver import (
+    clean_company_name,
+    clean_domain,
+    extract_email_identity_signals,
+)
 
 generate_and_save_application_embedding = (
     llm_service.generate_and_save_application_embedding
@@ -404,18 +410,48 @@ async def _extract_email(
         else comp.strip()
     )
 
-    # If company was not identified by LLM, try recovering from subject or sender
+    signals = extract_email_identity_signals(
+        raw_body=raw_body,
+        sender=state.get("sender"),
+        subject=state.get("subject"),
+        extracted_data=extracted_dict,
+    )
+    if signals.get("sender_domain"):
+        extracted_dict["sender_domain"] = signals["sender_domain"]
+    if signals.get("detected_domains"):
+        extracted_dict["detected_domains"] = signals["detected_domains"]
+    if signals.get("ats_slugs"):
+        extracted_dict["ats_slugs"] = signals["ats_slugs"]
+    if signals.get("candidate_job_urls"):
+        extracted_dict["candidate_job_urls"] = signals["candidate_job_urls"]
+    if not extracted_dict.get("job_url") and signals.get("detected_job_url"):
+        extracted_dict["job_url"] = signals["detected_job_url"]
+
+    # If company was not identified by LLM, try recovering from subject, sender, or known domains/ATS slugs
     if not comp_clean:
-        company_names_res = await db.execute(select(CompanyModel.name))
-        known_companies = [c[0] for c in company_names_res.all() if c[0]]
+        all_comps_res = await db.execute(select(CompanyModel))
+        all_comps = all_comps_res.scalars().all()
+        known_companies = [c.name for c in all_comps if c.name]
         recovered = _extract_company_fallback(
             subject=state.get("subject"),
             sender=state.get("sender"),
             known_companies=known_companies,
         )
+        if not recovered and (
+            signals.get("detected_domains") or signals.get("ats_slugs")
+        ):
+            det_doms = set(signals.get("detected_domains") or [])
+            det_slugs = set(signals.get("ats_slugs") or [])
+            for c in all_comps:
+                c_dom = clean_domain(c.domain) or clean_domain(c.name_normalized)
+                c_clean = clean_company_name(c.name).lower()
+                if (c_dom and c_dom in det_doms) or (c_clean and c_clean in det_slugs):
+                    recovered = c.name
+                    break
         if recovered:
             logger.info(
-                "Recovered company name '%s' from subject/sender fallback", recovered
+                "Recovered company name '%s' from subject/sender/domain fallback",
+                recovered,
             )
             comp_clean = recovered
             extracted_dict["company"] = recovered
@@ -522,14 +558,39 @@ async def fuzzy_match_node(
             "match_score": 1.0,
             "route": "commit",
         }
-    company_name = state.get("company_name", "")
-    position_name = state.get("position_name", "")
+    extracted = state.get("extracted_data") or {}
+    signals = extract_email_identity_signals(
+        raw_body=state.get("original_body") or state.get("body"),
+        sender=state.get("sender"),
+        subject=state.get("subject"),
+        extracted_data=extracted,
+    )
+    candidate_job_urls = list(
+        dict.fromkeys(
+            ([normalize_job_url(state.get("job_url"))] if state.get("job_url") else [])
+            + (signals.get("candidate_job_urls") or [])
+        )
+    )
+    candidate_job_urls = [u for u in candidate_job_urls if u]
+    detected_domains = set(signals.get("detected_domains") or [])
+    ats_slugs = {s.lower() for s in (signals.get("ats_slugs") or []) if s}
+
+    company_name = state.get("company_name") or ""
+    position_name = state.get("position_name") or ""
 
     company_norm = company_name.strip().lower() if company_name else ""
+    company_clean_norm = (
+        clean_company_name(company_name).lower() if company_name else ""
+    )
     position_norm = position_name.strip().lower() if position_name else ""
 
-    if not company_norm:
-        # No company extracted -> route to staging for user to assign company
+    if (
+        not company_norm
+        and not detected_domains
+        and not ats_slugs
+        and not candidate_job_urls
+    ):
+        # No company or URL/domain signal extracted -> route to staging for user to assign company
         return {
             "match_score": 0.0,
             "company_id": None,
@@ -538,11 +599,43 @@ async def fuzzy_match_node(
             "match_reason": "MISSING_COMPANY_NAME",
         }
 
+    # Tier 1: Exact / Normalized Job URL match against existing non-assessment applications
+    if candidate_job_urls:
+        url_app_stmt = (
+            select(ApplicationModel)
+            .outerjoin(
+                JobPostingModel,
+                ApplicationModel.id == JobPostingModel.application_id,
+            )
+            .where(
+                ApplicationModel.status != "ASSESSMENT",
+                (ApplicationModel.job_url.in_(candidate_job_urls))
+                | (JobPostingModel.job_url.in_(candidate_job_urls)),
+            )
+        )
+        url_apps = (await db.execute(url_app_stmt)).scalars().unique().all()
+        if len(url_apps) == 1:
+            matched_app = url_apps[0]
+            return {
+                "application_id": matched_app.id,
+                "company_id": matched_app.company_id,
+                "match_score": 1.0,
+                "route": "commit",
+            }
+
     stmt = select(CompanyModel)
     res = await db.execute(stmt)
     companies = res.scalars().all()
 
     if not companies:
+        if not company_norm:
+            return {
+                "match_score": 0.0,
+                "company_id": None,
+                "application_id": None,
+                "route": "staging",
+                "match_reason": "MISSING_COMPANY_NAME",
+            }
         # First company in DB: direct match with score 1.0
         return {
             "match_score": 1.0,
@@ -554,7 +647,51 @@ async def fuzzy_match_node(
     best_company = None
     best_company_score = 0.0
     for comp in companies:
-        score = fuzz.ratio(company_norm, comp.name_normalized) / 100.0
+        score = 0.0
+        comp_dom = clean_domain(comp.domain) or clean_domain(comp.name_normalized)
+        comp_clean = clean_company_name(comp.name).lower()
+        comp_dom_root = comp_dom.split(".")[0].lower() if comp_dom else ""
+
+        # Tier 2: Non-ATS URL domain or Non-ATS Sender domain match
+        if comp_dom and comp_dom in detected_domains:
+            score = max(score, 0.96)
+        elif (
+            comp_clean
+            and len(comp_clean) >= 2
+            and any(d.split(".")[0].lower() == comp_clean for d in detected_domains)
+        ):
+            score = max(score, 0.94)
+
+        # Tier 3: ATS organization slug match
+        if ats_slugs and (
+            (comp_clean and comp_clean in ats_slugs)
+            or (comp_dom_root and comp_dom_root in ats_slugs)
+        ):
+            score = max(score, 0.92)
+
+        # Tier 4: Cleaned company name & trigram/fuzzy similarity
+        if company_norm:
+            raw_ratio = fuzz.ratio(company_norm, comp.name_normalized) / 100.0
+            clean_ratio = (
+                1.0
+                if (company_clean_norm and company_clean_norm == comp_clean)
+                else (
+                    fuzz.ratio(company_clean_norm, comp_clean) / 100.0
+                    if (company_clean_norm and comp_clean)
+                    else 0.0
+                )
+            )
+            dom_name_match = (
+                0.95
+                if (
+                    company_clean_norm
+                    and comp_dom_root
+                    and company_clean_norm == comp_dom_root
+                )
+                else 0.0
+            )
+            score = max(score, raw_ratio, clean_ratio, dom_name_match)
+
         if score > best_company_score:
             best_company_score = score
             best_company = comp
@@ -566,10 +703,11 @@ async def fuzzy_match_node(
             "company_id": None,
             "application_id": None,
             "route": "staging",
-            "match_reason": "NEW_COMPANY_LEAD",
+            "match_reason": "NEW_COMPANY_LEAD"
+            if company_norm
+            else "MISSING_COMPANY_NAME",
         }
 
-    extracted = state.get("extracted_data") or {}
     raw_status = (
         ""
         if state.get("calendar_events")
@@ -577,12 +715,13 @@ async def fuzzy_match_node(
     )
     is_initial_application = raw_status in ["APPLIED", "IN_PROGRESS", "ASSESSMENT"]
 
-    # Match application under matched company
+    # Match application under matched company (excluding unapplied ASSESSMENT leads)
     app_stmt = select(ApplicationModel).where(
-        ApplicationModel.company_id == best_company.id
+        ApplicationModel.company_id == best_company.id,
+        ApplicationModel.status != "ASSESSMENT",
     )
     app_res = await db.execute(app_stmt)
-    applications = app_res.scalars().all()
+    applications = [a for a in app_res.scalars().all() if a.status != "ASSESSMENT"]
 
     ACTIVE_STATUSES = {"APPLIED", "ONLINE_ASSESSMENT", "TECHNICAL_INTERVIEW", "OFFER"}
     active_apps = [a for a in applications if a.status in ACTIVE_STATUSES]

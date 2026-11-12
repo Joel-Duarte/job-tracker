@@ -224,3 +224,112 @@ async def test_staging_bulk_dismiss(db_session):
         (await db_session.execute(select(StagingItemModel))).scalars().all()
     )
     assert len(remaining_after) == 0
+
+
+def test_extract_email_identity_signals_and_clean_company():
+    """Verify deterministic URL, sender domain, ATS slug, and dot-TLD company normalization."""
+    from app.services.domain_resolver import (
+        clean_company_name,
+        extract_email_identity_signals,
+    )
+
+    assert clean_company_name("Zero.inc") == "Zero"
+    assert clean_company_name("Zero, Inc.") == "Zero"
+    assert clean_company_name("Linear.app") == "Linear"
+
+    html_body = (
+        "<p>Thanks for applying!</p>"
+        '<a href="https://jobs.ashbyhq.com/zero/role-123">View your application</a>'
+        '<a href="https://zero.inc/careers/role-123">Company Portal</a>'
+        '<a href="https://sendgrid.net/unsubscribe?id=99">Unsubscribe</a>'
+    )
+    signals = extract_email_identity_signals(
+        raw_body=html_body,
+        sender="Zero Recruiting <talent@zero.inc>",
+        subject="Your application to Zero",
+        extracted_data={"company": "Unknown Company"},
+    )
+    assert signals["sender_domain"] == "zero.inc"
+    assert "zero.inc" in signals["detected_domains"]
+    assert "zero" in signals["ats_slugs"]
+    assert "https://jobs.ashbyhq.com/zero/role-123" in signals["candidate_job_urls"]
+    assert signals["cleaned_company"] is None
+
+
+@pytest.mark.asyncio
+async def test_staging_candidate_applications_zero_inc_and_signals(db_session):
+    """Test GET /staging/candidate-applications matches Zero <-> Zero.inc, domains, ATS slugs, and excludes ASSESSMENT."""
+    from app.models.applications import ApplicationModel, CompanyModel
+    from app.routers.staging import get_staging_candidate_applications
+
+    now = datetime.now(UTC)
+
+    comp_zero = CompanyModel(
+        name="Zero.inc", name_normalized="zero.inc", domain="zero.inc"
+    )
+    comp_other = CompanyModel(
+        name="Stripe", name_normalized="stripe", domain="stripe.com"
+    )
+    db_session.add_all([comp_zero, comp_other])
+    await db_session.flush()
+
+    app_active = ApplicationModel(
+        company_id=comp_zero.id,
+        position="Staff Frontend Engineer",
+        position_normalized="staff frontend engineer",
+        status="APPLIED",
+        job_url="https://jobs.ashbyhq.com/zero/frontend-1",
+        last_activity_at=now - timedelta(days=40),
+    )
+    app_rejected = ApplicationModel(
+        company_id=comp_zero.id,
+        position="Backend Engineer",
+        position_normalized="backend engineer",
+        status="REJECTED",
+        last_activity_at=now - timedelta(days=10),
+    )
+    app_assessment = ApplicationModel(
+        company_id=comp_zero.id,
+        position="AI Engineer (Unapplied Assessment)",
+        position_normalized="ai engineer (unapplied assessment)",
+        status="ASSESSMENT",
+        is_assessment=True,
+        last_activity_at=now,
+    )
+    app_stripe = ApplicationModel(
+        company_id=comp_other.id,
+        position="Payments Engineer",
+        position_normalized="payments engineer",
+        status="APPLIED",
+        last_activity_at=now - timedelta(days=1),
+    )
+    db_session.add_all([app_active, app_rejected, app_assessment, app_stripe])
+    await db_session.flush()
+
+    staged = StagingItemModel(
+        email_sender="no-reply@ashbyhq.com",
+        email_subject="Update on your application",
+        email_raw_body='<p>Check your status at <a href="https://zero.inc/careers/status">Zero Portal</a></p>',
+        extracted_data={"company": "Unknown Company", "position": "Frontend Engineer"},
+        status="PENDING",
+    )
+    db_session.add(staged)
+    await db_session.commit()
+
+    # 1. Typing "Zero" finds "Zero.inc" (both APPLIED and REJECTED, active ranked first) and excludes ASSESSMENT
+    res_q = await get_staging_candidate_applications(
+        staging_item_id=staged.id, q="Zero", limit=30, db=db_session
+    )
+    returned_ids = [item.id for item in res_q.items]
+    assert app_assessment.id not in returned_ids
+    assert app_active.id in returned_ids
+    assert app_rejected.id in returned_ids
+    assert returned_ids.index(app_active.id) < returned_ids.index(app_rejected.id)
+
+    # 2. Even with q="Unknown Company" (or empty), the staged email's HTML link (zero.inc) surfaces Zero.inc as smart_suggestion
+    res_sig = await get_staging_candidate_applications(
+        staging_item_id=staged.id, q="Unknown Company", limit=30, db=db_session
+    )
+    assert res_sig.smart_suggestion is not None
+    assert res_sig.smart_suggestion.id == app_active.id
+    assert "zero.inc" in (res_sig.smart_suggestion.match_reason_label or "")

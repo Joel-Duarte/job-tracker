@@ -118,22 +118,48 @@ export function fuzzyScore(query, target) {
 }
 
 /**
- * Scores an application record against a search query across company name, position, and domain.
+ * Strips common legal entity suffixes, portal words, and dot-TLDs (e.g. 'Zero.inc' -> 'zero').
+ */
+export function normalizeCompanyText(raw) {
+  if (!raw || typeof raw !== 'string') return ''
+  let s = raw.trim().toLowerCase()
+  s = s.replace(/^https?:\/\/(www\.)?/, '').split('/')[0]
+  s = s.replace(/\.(inc|llc|ltd|corp|com|io|ai|app|dev|org|net|tech|co|so|sh|xyz|gg)$/i, '')
+  s = s.replace(/[\s,.-]+(corporation|limited|inc\.?|llc\.?|ltd\.?|corp\.?|gmbh|plc|co\.?|careers|jobs|hiring|team)$/i, '')
+  return s.replace(/[.,\-_]+$/g, '').trim()
+}
+
+/**
+ * Scores an application record against a search query across company name, position, domain, and job URL.
  */
 export function scoreApplicationMatch(app, query) {
   if (!query || !query.trim()) return 1.0
   const q = query.trim()
+  const qClean = normalizeCompanyText(q)
 
-  const companyName = app.company?.name || ''
+  const companyName = app.company?.name || app.company_name || ''
+  const companyClean = normalizeCompanyText(companyName)
   const companyDomain = app.company?.domain || ''
+  const domainRoot = normalizeCompanyText(companyDomain)
   const position = app.position || ''
-  const combined = `${companyName} ${position} ${companyDomain}`
+  const jobUrl = app.job_url || app.url || ''
+  const combined = `${companyName} ${companyClean} ${position} ${companyDomain} ${jobUrl}`
 
-  const companyScore = fuzzyScore(q, companyName)
+  if (qClean && (qClean === companyClean || qClean === domainRoot)) {
+    return 1.15
+  }
+
+  const companyScore = Math.max(
+    fuzzyScore(q, companyName),
+    fuzzyScore(qClean, companyClean),
+    fuzzyScore(q, companyDomain),
+    fuzzyScore(qClean, domainRoot)
+  )
   const positionScore = fuzzyScore(q, position)
+  const urlScore = jobUrl && jobUrl.toLowerCase().includes(q.toLowerCase()) ? 1.0 : 0.0
   const combinedScore = fuzzyScore(q, combined)
 
-  return Math.max(companyScore * 1.15, positionScore * 1.05, combinedScore)
+  return Math.max(companyScore * 1.15, positionScore * 1.05, urlScore * 1.1, combinedScore)
 }
 
 /**

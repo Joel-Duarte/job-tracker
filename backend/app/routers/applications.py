@@ -251,6 +251,8 @@ def _build_search_filter(search_pattern: str):
     return or_(
         func.lower(ApplicationModel.position).like(search_pattern),
         func.lower(CompanyModel.name).like(search_pattern),
+        func.lower(func.coalesce(CompanyModel.domain, "")).like(search_pattern),
+        func.lower(func.coalesce(ApplicationModel.job_url, "")).like(search_pattern),
         func.lower(JobPostingModel.location).like(search_pattern),
         func.lower(
             func.coalesce(

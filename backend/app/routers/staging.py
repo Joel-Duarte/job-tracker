@@ -5,6 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from rapidfuzz import fuzz
 from sqlalchemy import String, cast, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 
 # Adjust imports based on your database session setup
 from app.core.database import get_db
@@ -20,11 +21,21 @@ from app.models.staging import StagingItemModel
 from app.schemas.staging import (
     StagingBulkDismissRequest,
     StagingBulkDismissResponse,
+    StagingCandidateAppItem,
+    StagingCandidateAppsResponse,
+    StagingCandidateCompanySummary,
+    StagingDetectedSignals,
     StagingItemRead,
     StagingItemResolve,
     StagingPaginationResponse,
 )
 from app.services.company_resolver import resolve_or_create_company
+from app.services.domain_resolver import (
+    clean_company_name,
+    clean_domain,
+    extract_email_identity_signals,
+    extract_organization_from_ats_url,
+)
 from app.services.evaluation_worker import process_evaluation_task
 from app.services.llm import async_enqueue_application_embedding
 from app.services.skill_normalizer import normalize_skills_list
@@ -32,6 +43,44 @@ from app.services.skill_normalizer import normalize_skills_list
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/staging", tags=["staging"])
+
+_ACTIVE_APP_STATUSES = {
+    "APPLIED",
+    "ONLINE_ASSESSMENT",
+    "TECHNICAL_INTERVIEW",
+    "OFFER",
+    "RECRUITER_CONTACT",
+    "PHONE_SCREEN",
+    "BEHAVIORAL_INTERVIEW",
+    "ONSITE_INTERVIEW",
+    "FINAL_INTERVIEW",
+    "INTERVIEW",
+    "SCREENING",
+    "IN_PROGRESS",
+}
+
+
+def _enrich_staging_item_signals(item: StagingItemModel) -> StagingItemRead:
+    """Computes deterministic URL/domain/ATS-slug signals on read so existing staged items expose them."""
+    validated = StagingItemRead.model_validate(item)
+    ext = (
+        dict(validated.extracted_data)
+        if isinstance(validated.extracted_data, dict)
+        else validated.extracted_data.model_dump()
+    )
+    signals = extract_email_identity_signals(
+        raw_body=item.email_raw_body,
+        sender=item.email_sender,
+        subject=item.email_subject,
+        extracted_data=ext,
+    )
+    for k, v in signals.items():
+        if v and not ext.get(k):
+            ext[k] = v
+    if not ext.get("job_url") and signals.get("detected_job_url"):
+        ext["job_url"] = signals["detected_job_url"]
+    validated.extracted_data = ext
+    return validated
 
 
 @router.get("", response_model=StagingPaginationResponse)
@@ -102,10 +151,307 @@ async def list_staging_items(
     result = await db.execute(query)
     db_items = result.scalars().all()
 
-    # Convert ORM models explicitly to StagingItemRead Pydantic instances
-    items = [StagingItemRead.model_validate(item) for item in db_items]
+    # Convert ORM models explicitly to StagingItemRead Pydantic instances with enriched signals
+    items = [_enrich_staging_item_signals(item) for item in db_items]
 
     return StagingPaginationResponse(total=total, items=items)
+
+
+def _score_app_for_staging(
+    app: ApplicationModel,
+    signals: dict | None,
+    q: str | None,
+    default_company_query: str | None = None,
+) -> tuple[float, float, str | None]:
+    """Returns (effective_score, signal_score, match_reason_label) for a candidate application."""
+    comp = app.company
+    comp_name = (comp.name if comp else "") or ""
+    comp_norm = (comp.name_normalized if comp else "") or comp_name.lower()
+    comp_clean = clean_company_name(comp_name).lower()
+    comp_dom = (
+        clean_domain(comp.domain if comp else None) or clean_domain(comp_norm) or ""
+    )
+    comp_dom_root = comp_dom.split(".")[0].lower() if comp_dom else ""
+    pos_norm = (app.position_normalized or app.position or "").lower()
+    app_url = normalize_job_url(app.job_url) or normalize_job_url(
+        app.job_posting.job_url if app.job_posting else None
+    )
+
+    sig_score = 0.0
+    sig_reason: str | None = None
+
+    if signals:
+        cand_urls = signals.get("candidate_job_urls") or []
+        det_domains = signals.get("detected_domains") or []
+        sender_dom = signals.get("sender_domain")
+        ats_slugs = [s.lower() for s in (signals.get("ats_slugs") or []) if s]
+        sig_comp = (signals.get("cleaned_company") or "").lower()
+
+        # Tier 1: Exact Job URL
+        if app_url and app_url in cand_urls:
+            sig_score = 1.0
+            sig_reason = "Matched Job URL"
+        # Tier 2: Domain / Sender Domain
+        elif comp_dom and comp_dom in det_domains:
+            sig_score = 0.96
+            sig_reason = (
+                f"Matched sender @{comp_dom}"
+                if sender_dom == comp_dom
+                else f"Matched domain {comp_dom}"
+            )
+        elif (
+            comp_clean
+            and len(comp_clean) >= 2
+            and any(d.split(".")[0].lower() == comp_clean for d in det_domains)
+        ):
+            matched_d = next(
+                d for d in det_domains if d.split(".")[0].lower() == comp_clean
+            )
+            sig_score = 0.94
+            sig_reason = f"Matched domain {matched_d}"
+        # Tier 3: ATS Org Slug
+        elif ats_slugs and (
+            (comp_clean and comp_clean in ats_slugs)
+            or (comp_dom_root and comp_dom_root in ats_slugs)
+        ):
+            matched_slug = comp_clean if comp_clean in ats_slugs else comp_dom_root
+            sig_score = 0.92
+            sig_reason = f"Matched ATS '{matched_slug}'"
+        # Tier 4: Cleaned Company Name
+        elif sig_comp:
+            if sig_comp == comp_clean or (comp_dom_root and sig_comp == comp_dom_root):
+                sig_score = 0.90
+                sig_reason = "Matched company"
+            else:
+                ratio = (
+                    max(
+                        fuzz.ratio(sig_comp, comp_clean),
+                        fuzz.ratio(sig_comp, comp_norm),
+                    )
+                    / 100.0
+                )
+                if ratio >= 0.75:
+                    sig_score = ratio * 0.88
+                    sig_reason = "Similar company"
+
+    q_raw = (q or "").strip().lower()
+    if q_raw in {"unknown company", "unknown"}:
+        q_raw = ""
+
+    if not q_raw:
+        return sig_score, sig_score, sig_reason
+
+    q_clean = clean_company_name(q_raw).lower()
+    q_dom = clean_domain(q_raw)
+    q_slug = extract_organization_from_ats_url(q_raw)
+
+    q_score = 0.0
+    q_reason: str | None = None
+
+    if app_url and q_raw in app_url.lower():
+        q_score = 0.98
+        q_reason = "Matched Job URL"
+    elif q_dom and (
+        comp_dom == q_dom
+        or (comp_dom_root and comp_dom_root == q_dom.split(".")[0].lower())
+        or (comp_clean and comp_clean == q_dom.split(".")[0].lower())
+    ):
+        q_score = 0.96
+        q_reason = f"Matched domain {comp_dom or q_dom}"
+    elif q_slug and (comp_clean == q_slug or comp_dom_root == q_slug):
+        q_score = 0.94
+        q_reason = f"Matched ATS '{q_slug}'"
+    elif q_clean and (
+        comp_clean == q_clean
+        or comp_norm == q_raw
+        or (comp_dom_root and comp_dom_root == q_clean)
+    ):
+        q_score = 0.95
+        q_reason = f"Matched {comp_dom}" if comp_dom else "Matched company"
+    elif (
+        q_clean
+        and len(q_clean) >= 2
+        and (
+            q_clean in comp_clean
+            or comp_clean in q_clean
+            or q_raw in comp_norm
+            or (comp_dom and q_raw in comp_dom)
+        )
+    ):
+        q_score = 0.86
+        q_reason = "Company match"
+    elif q_raw in pos_norm:
+        q_score = 0.82
+        q_reason = "Role match"
+    else:
+        combined = f"{comp_clean} {comp_norm} {pos_norm} {comp_dom}"
+        best_fuzz = (
+            max(
+                fuzz.ratio(q_clean or q_raw, comp_clean),
+                fuzz.ratio(q_raw, comp_norm),
+                fuzz.ratio(q_raw, pos_norm),
+                fuzz.token_set_ratio(q_raw, combined) * 0.9,
+            )
+            / 100.0
+        )
+        if best_fuzz >= 0.55:
+            q_score = best_fuzz * 0.8
+            q_reason = "Fuzzy match"
+
+    is_default_query = bool(
+        default_company_query
+        and q_clean == clean_company_name(default_company_query).lower()
+    )
+    if is_default_query and sig_score > q_score:
+        return sig_score, sig_score, sig_reason
+
+    return (
+        q_score,
+        sig_score,
+        (sig_reason if sig_score >= 0.9 else (q_reason or sig_reason)),
+    )
+
+
+@router.get("/candidate-applications", response_model=StagingCandidateAppsResponse)
+async def get_staging_candidate_applications(
+    staging_item_id: int | None = Query(default=None),
+    q: str | None = Query(default=None),
+    limit: int = Query(default=30, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """Queries PostgreSQL for non-assessment applications ranked by the 4-tier email signal cascade and search query."""
+    staging_id_val = staging_item_id if isinstance(staging_item_id, int) else None
+    q_val = q.strip() if isinstance(q, str) and q.strip() else None
+    limit_val = limit if isinstance(limit, int) else 30
+
+    staged_item: StagingItemModel | None = None
+    signals_dict: dict | None = None
+    default_comp_query: str | None = None
+
+    if staging_id_val is not None:
+        staged_res = await db.execute(
+            select(StagingItemModel).where(StagingItemModel.id == staging_id_val)
+        )
+        staged_item = staged_res.scalar_one_or_none()
+        if staged_item:
+            ext = (
+                staged_item.extracted_data
+                if isinstance(staged_item.extracted_data, dict)
+                else {}
+            )
+            signals_dict = extract_email_identity_signals(
+                raw_body=staged_item.email_raw_body,
+                sender=staged_item.email_sender,
+                subject=staged_item.email_subject,
+                extracted_data=ext,
+            )
+            default_comp_query = (
+                ext.get("company")
+                or ext.get("company_name")
+                or signals_dict.get("cleaned_company")
+            )
+
+    stmt = (
+        select(ApplicationModel)
+        .join(ApplicationModel.company)
+        .outerjoin(
+            JobPostingModel,
+            ApplicationModel.id == JobPostingModel.application_id,
+        )
+        .options(
+            joinedload(ApplicationModel.company),
+            selectinload(ApplicationModel.job_posting),
+        )
+        .where(ApplicationModel.status != "ASSESSMENT")
+    )
+    res = await db.execute(stmt)
+    all_apps = res.scalars().unique().all()
+
+    scored_candidates: list[tuple[float, int, float, StagingCandidateAppItem]] = []
+    signal_matches: list[tuple[float, int, float, StagingCandidateAppItem]] = []
+
+    for app in all_apps:
+        if not app.company:
+            continue
+        eff_score, sig_score, reason_label = _score_app_for_staging(
+            app=app,
+            signals=signals_dict,
+            q=q_val,
+            default_company_query=default_comp_query,
+        )
+        is_active = (app.status or "").upper() in _ACTIVE_APP_STATUSES
+        activity_dt = app.last_activity_at or app.updated_at or app.created_at
+        activity_ts = activity_dt.timestamp() if activity_dt else 0.0
+
+        item_schema = StagingCandidateAppItem(
+            id=app.id,
+            company_id=app.company.id,
+            company=StagingCandidateCompanySummary(
+                id=app.company.id,
+                name=app.company.name,
+                domain=app.company.domain,
+            ),
+            position=app.position,
+            status=app.status,
+            job_url=app.job_url
+            or (app.job_posting.job_url if app.job_posting else None),
+            application_date=app.application_date,
+            last_activity_at=activity_dt,
+            match_score=round(eff_score, 3),
+            match_reason_label=reason_label,
+            is_active_stage=is_active,
+        )
+
+        if sig_score >= 0.72:
+            sig_item = item_schema.model_copy(
+                update={"match_score": round(sig_score, 3)}
+            )
+            signal_matches.append(
+                (sig_score, 1 if is_active else 0, activity_ts, sig_item)
+            )
+
+        if q_val and q_val.lower() not in {"unknown company", "unknown"}:
+            if eff_score >= 0.35:
+                # Active stage receives +0.02 tie-breaker boost within same match tier
+                rank_score = eff_score + (0.02 if is_active else 0.0)
+                scored_candidates.append(
+                    (rank_score, 1 if is_active else 0, activity_ts, item_schema)
+                )
+        else:
+            rank_score = (
+                (eff_score + (0.02 if is_active else 0.0))
+                if eff_score > 0
+                else (0.1 if is_active else 0.0)
+            )
+            scored_candidates.append(
+                (rank_score, 1 if is_active else 0, activity_ts, item_schema)
+            )
+
+    scored_candidates.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+    top_items = [entry[3] for entry in scored_candidates[:limit_val]]
+
+    # Smart suggestion based on staged item's signals
+    smart_suggestion: StagingCandidateAppItem | None = None
+    if signal_matches:
+        if (
+            staged_item
+            and staged_item.match_reason == "REAPPLICATION_PREVIOUSLY_CONCLUDED"
+        ):
+            concluded = [m for m in signal_matches if m[1] == 0]
+            if concluded:
+                concluded.sort(key=lambda x: (x[0], x[2]), reverse=True)
+                smart_suggestion = concluded[0][3]
+        if not smart_suggestion:
+            signal_matches.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+            smart_suggestion = signal_matches[0][3]
+
+    return StagingCandidateAppsResponse(
+        items=top_items,
+        detected_signals=(
+            StagingDetectedSignals(**signals_dict) if signals_dict else None
+        ),
+        smart_suggestion=smart_suggestion,
+    )
 
 
 @router.post("/bulk-dismiss", response_model=StagingBulkDismissResponse)
@@ -172,7 +518,7 @@ async def get_staging_item(
             detail=f"Staging item with ID {item_id} not found.",
         )
 
-    return item
+    return _enrich_staging_item_signals(item)
 
 
 @router.post("/{item_id}/resolve", response_model=dict)

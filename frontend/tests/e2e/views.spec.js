@@ -166,17 +166,19 @@ test('assessments view opens application drawer and drawer supports inline job U
   await expect(page.locator('.job-url-editor-bar')).toBeHidden()
 })
 
-test('staging view displays sender info and includes archived toggle in link mode', async ({ page, isMobile }) => {
+test('staging view displays sender info and searches active and concluded applications by company or domain in link mode', async ({ page, isMobile }) => {
   await page.goto('/staging')
   await expect(page.locator('.item-sender-snippet').first()).toBeVisible()
   if (isMobile) {
     await page.locator('.queue-item-card').first().click()
   }
   await page.getByRole('button', { name: 'Link to Existing Application' }).click()
-  const archivedCheckbox = page.locator('.include-archived-toggle input[type="checkbox"]')
-  await expect(archivedCheckbox).toBeVisible()
-  await archivedCheckbox.check()
-  await expect(archivedCheckbox).toBeChecked()
+  const searchInput = page.getByPlaceholder('Search company, domain (e.g. zero.inc), role, or URL...')
+  await expect(searchInput).toBeVisible()
+  await searchInput.fill('Stripe.inc')
+  await expect(page.locator('.existing-app-option-card').filter({ hasText: 'Stripe' }).first()).toBeVisible()
+  await searchInput.fill('snowflake.com')
+  await expect(page.locator('.existing-app-option-card').filter({ hasText: 'Snowflake' }).first()).toBeVisible()
 })
 
 test('applications archived view switches subcategory pills and renders independently', async ({ page }) => {
