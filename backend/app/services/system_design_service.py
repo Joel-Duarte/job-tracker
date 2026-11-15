@@ -1266,7 +1266,7 @@ class SystemDesignService:
 
         if not topic_text and not app_context_parts and not extra_text:
             raise ValueError(
-                "Provide either a challenge topic, extra focus notes, or link an application_id."
+                "Provide either a Topic / Scenario Focus or link a tracked job application (application_id)."
             )
 
         existing_challenges = (

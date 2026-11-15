@@ -73,6 +73,7 @@ const appSearchQuery = ref('')
 const challengeImportText = ref('')
 const challengePromptCopied = ref(false)
 const duplicateChallengeWarning = ref(null)
+const tailorInputError = ref('')
 
 const ACTIVE_APP_STAGE_PRIORITY = {
   TECHNICAL_INTERVIEW: 0,
@@ -151,8 +152,14 @@ watch(
   ],
   () => {
     duplicateChallengeWarning.value = null
+    tailorInputError.value = ''
   }
 )
+
+watch(createModalTab, () => {
+  duplicateChallengeWarning.value = null
+  tailorInputError.value = ''
+})
 const manualForm = ref({
   title: '',
   category: 'DISTRIBUTED_SYSTEMS',
@@ -474,6 +481,7 @@ async function openCreateChallengeModal() {
   challengeImportText.value = ''
   challengePromptCopied.value = false
   duplicateChallengeWarning.value = null
+  tailorInputError.value = ''
   store.challengeFrontierPrompt = null
   manualForm.value = {
     title: '',
@@ -588,12 +596,12 @@ function _hasChallengeTailorInput() {
 
 async function handleGenerateChallenge(allowDuplicate = false) {
   if (!_hasChallengeTailorInput()) {
-    uiStore.showToast(
-      'Enter a topic, extra focus notes, or pick a tracked application to tailor from.',
-      'error'
-    )
+    const msg = 'Please enter a Topic / Scenario Focus or select a Tracked Job Application first.'
+    tailorInputError.value = msg
+    uiStore.showToast(msg, 'error')
     return
   }
+  tailorInputError.value = ''
   duplicateChallengeWarning.value = null
   try {
     await store.generateChallenge(_buildChallengeTailorPayload(allowDuplicate))
@@ -617,17 +625,29 @@ async function handleGenerateChallenge(allowDuplicate = false) {
 
 async function handlePrepareChallengeFrontierPrompt() {
   if (!_hasChallengeTailorInput()) {
-    uiStore.showToast(
-      'Enter a topic, extra focus notes, or pick a tracked application first.',
-      'error'
-    )
+    const msg = 'Please enter a Topic / Scenario Focus or select a Tracked Job Application first.'
+    tailorInputError.value = msg
+    uiStore.showToast(msg, 'error')
     return
   }
+  tailorInputError.value = ''
+  duplicateChallengeWarning.value = null
   try {
-    await store.prepareChallengeFrontierPrompt(_buildChallengeTailorPayload(false))
+    const promptData = await store.prepareChallengeFrontierPrompt(_buildChallengeTailorPayload(false))
     challengePromptCopied.value = false
+    if (promptData?.markdown_prompt) {
+      try {
+        await navigator.clipboard.writeText(promptData.markdown_prompt)
+        challengePromptCopied.value = true
+      } catch {
+        // Browser clipboard permissions vary; user can click Copy Prompt or Download .md on the Frontier tab
+      }
+    }
+    createModalTab.value = 'frontier'
     uiStore.showToast(
-      'Frontier challenge prompt ready! Copy or download for Claude, ChatGPT, or Gemini.',
+      challengePromptCopied.value
+        ? 'Frontier prompt prepared & copied to clipboard! Paste into Claude, ChatGPT, or Gemini, then import JSON here.'
+        : 'Frontier prompt ready! Copy or download it here, then paste the returned JSON below.',
       'success'
     )
   } catch (err) {
@@ -1116,7 +1136,17 @@ onUnmounted(() => {
               @click="createModalTab = 'generate'"
             >
               <Sparkles :size="13" />
-              <span>Tailored AI / Frontier</span>
+              <span>AI Generate</span>
+            </button>
+            <button
+              type="button"
+              class="mode-pill"
+              :class="{ active: createModalTab === 'frontier' }"
+              data-testid="tab-frontier-challenge"
+              @click="createModalTab = 'frontier'"
+            >
+              <FileCode :size="13" />
+              <span>Frontier Chat</span>
             </button>
             <button
               type="button"
@@ -1136,13 +1166,14 @@ onUnmounted(() => {
             @submit.prevent="handleGenerateChallenge(false)"
           >
             <label class="sd-field">
-              <span>Topic / Scenario Focus</span>
+              <span>Topic / Scenario Focus <em class="sd-required-hint">(or select an application below)</em></span>
               <input
                 v-model="generateForm.topic"
                 type="text"
                 class="form-input"
+                :class="{ 'is-invalid': Boolean(tailorInputError) }"
                 data-testid="generate-topic-input"
-                placeholder="Optional if an application is selected (e.g., Real-time fraud scoring pipeline)"
+                placeholder="e.g., Real-time fraud scoring pipeline (or pick an application below)"
               />
             </label>
 
@@ -1268,8 +1299,13 @@ onUnmounted(() => {
               </label>
             </div>
 
+            <p v-if="tailorInputError" class="sd-inline-error" data-testid="tailor-input-error">
+              <AlertTriangle :size="14" />
+              <span>{{ tailorInputError }}</span>
+            </p>
+
             <div
-              v-if="duplicateChallengeWarning"
+              v-if="duplicateChallengeWarning && duplicateChallengeWarning.source === 'generate'"
               class="sd-duplicate-warning"
               data-testid="duplicate-challenge-warning"
             >
@@ -1284,7 +1320,7 @@ onUnmounted(() => {
                 type="button"
                 class="btn btn-secondary btn-sm"
                 data-testid="create-anyway-challenge-btn"
-                :disabled="store.generatingChallenge || store.importingChallenge"
+                :disabled="store.generatingChallenge"
                 @click="handleCreateAnywayDuplicate"
               >
                 Create Anyway
@@ -1292,7 +1328,7 @@ onUnmounted(() => {
             </div>
 
             <p class="sd-muted">
-              Both Local AI and Frontier Chat generate 3 distinct requirement variants and guard against duplicating existing challenges.
+              Generates 3 distinct requirement variants or prepares a Frontier Chat prompt using your role context and anti-duplication guard.
             </p>
 
             <div class="sd-modal-actions sd-modal-actions-wrap">
@@ -1325,14 +1361,27 @@ onUnmounted(() => {
                 <span>Generate with Local AI</span>
               </button>
             </div>
+          </form>
 
-            <div class="sd-frontier-challenge-box" data-testid="frontier-challenge-panel">
-              <div class="sd-frontier-box-header">
-                <strong>Frontier Chat Mode (Claude / ChatGPT / Gemini)</strong>
-                <span class="sd-muted">Prepare the prompt above, run it in any chat UI, and paste the JSON response below.</span>
-              </div>
-
-              <div v-if="store.challengeFrontierPrompt" class="sd-frontier-prompt-ready">
+          <form
+            v-else-if="createModalTab === 'frontier' && !editingChallengeId"
+            class="sd-form-stack"
+            data-testid="frontier-challenge-panel"
+            @submit.prevent="handleImportFrontierChallenge(false)"
+          >
+            <div v-if="store.challengeFrontierPrompt" class="sd-frontier-prompt-ready">
+              <div class="sd-frontier-status-row">
+                <span class="sd-frontier-ready-badge">
+                  <CheckCircle2 v-if="challengePromptCopied" :size="14" />
+                  <FileCode v-else :size="14" />
+                  <span>
+                    {{
+                      challengePromptCopied
+                        ? 'Prompt copied to clipboard — paste into Claude, ChatGPT, or Gemini'
+                        : 'Frontier Challenge Prompt Ready'
+                    }}
+                  </span>
+                </span>
                 <div class="sd-packet-actions">
                   <button
                     type="button"
@@ -1353,39 +1402,94 @@ onUnmounted(() => {
                     <span>Download .md</span>
                   </button>
                 </div>
-                <textarea
-                  readonly
-                  rows="5"
-                  class="form-input sd-packet-preview"
-                  data-testid="frontier-challenge-prompt-preview"
-                  :value="store.challengeFrontierPrompt.markdown_prompt"
-                ></textarea>
               </div>
+              <textarea
+                readonly
+                rows="6"
+                class="form-input sd-packet-preview"
+                data-testid="frontier-challenge-prompt-preview"
+                :value="store.challengeFrontierPrompt.markdown_prompt"
+              ></textarea>
+            </div>
 
-              <label class="sd-field">
-                <span>Import Challenge JSON from Frontier Chat</span>
-                <textarea
-                  v-model="challengeImportText"
-                  rows="4"
-                  class="form-input sd-packet-preview"
-                  data-testid="import-frontier-challenge-input"
-                  placeholder="Paste the JSON response (or ```json fenced block) from Claude, ChatGPT, or Gemini..."
-                ></textarea>
-              </label>
-
-              <div class="sd-modal-actions">
-                <button
-                  type="button"
-                  class="btn btn-primary btn-sm"
-                  data-testid="import-frontier-challenge-submit-btn"
-                  :disabled="store.importingChallenge || !challengeImportText.trim()"
-                  @click="handleImportFrontierChallenge(false)"
-                >
-                  <Loader2 v-if="store.importingChallenge" :size="13" class="spin" />
-                  <Upload v-else :size="13" />
-                  <span>Import Challenge JSON</span>
-                </button>
+            <div v-else class="sd-frontier-callout">
+              <div>
+                <strong>Need a tailored prompt first?</strong>
+                <p class="sd-muted">
+                  Configure your Topic and Ongoing Application on the AI Generate tab and click <strong>Prepare Frontier Prompt</strong>, or paste an existing challenge JSON below.
+                </p>
               </div>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                data-testid="back-to-generate-setup-btn"
+                @click="createModalTab = 'generate'"
+              >
+                <ArrowLeft :size="13" />
+                <span>Setup Prompt</span>
+              </button>
+            </div>
+
+            <label class="sd-field">
+              <span>Paste Frontier Challenge JSON Response</span>
+              <textarea
+                v-model="challengeImportText"
+                rows="6"
+                class="form-input sd-packet-preview"
+                data-testid="import-frontier-challenge-input"
+                placeholder="Paste the JSON object (or ```json fenced block) returned by Claude, ChatGPT, or Gemini..."
+              ></textarea>
+            </label>
+
+            <div
+              v-if="duplicateChallengeWarning && duplicateChallengeWarning.source === 'import'"
+              class="sd-duplicate-warning"
+              data-testid="duplicate-challenge-warning"
+            >
+              <div class="sd-duplicate-warning-body">
+                <AlertTriangle :size="16" />
+                <div>
+                  <strong>Duplicate / Overlapping Challenge Detected</strong>
+                  <p>{{ duplicateChallengeWarning.message }}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                data-testid="create-anyway-challenge-btn"
+                :disabled="store.importingChallenge"
+                @click="handleCreateAnywayDuplicate"
+              >
+                Create Anyway
+              </button>
+            </div>
+
+            <div class="sd-modal-actions sd-modal-actions-wrap">
+              <button
+                type="button"
+                class="btn btn-secondary"
+                @click="createModalTab = 'generate'"
+              >
+                <ArrowLeft :size="14" />
+                <span>Back to Setup</span>
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary"
+                @click="showCreateChallengeModal = false"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                class="btn btn-primary"
+                data-testid="import-frontier-challenge-submit-btn"
+                :disabled="store.importingChallenge || !challengeImportText.trim()"
+              >
+                <Loader2 v-if="store.importingChallenge" :size="14" class="spin" />
+                <Upload v-else :size="14" />
+                <span>Import Challenge JSON</span>
+              </button>
             </div>
           </form>
 
@@ -3830,6 +3934,64 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.sd-required-hint {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+}
+
+.form-input.is-invalid {
+  border-color: var(--status-rejected-border);
+}
+
+.sd-inline-error {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+  border: 1px solid var(--status-rejected-border);
+  font-size: 12.5px;
+}
+
+.sd-frontier-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sd-frontier-ready-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.sd-frontier-callout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-elevated);
+  font-size: 12.5px;
+}
+
+.sd-frontier-callout p {
+  margin: 3px 0 0;
 }
 
 .sd-empty-picker {

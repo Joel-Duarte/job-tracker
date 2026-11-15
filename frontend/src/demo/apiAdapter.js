@@ -3012,7 +3012,10 @@ export async function handleDemoRequest(config) {
       if (!topic && !appObj && !extraContext) {
         return {
           status: 400,
-          data: { detail: 'Provide either a challenge topic, extra focus notes, or link an application_id.' },
+          data: {
+            detail:
+              'Provide either a Topic / Scenario Focus or link a tracked job application (application_id).',
+          },
         }
       }
       const companyObj = appObj?.company_id

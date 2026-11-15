@@ -489,6 +489,17 @@ test('Tailored Challenge Modal filters active apps with fuzzy search, prepares F
 
   await page.getByTestId('open-new-challenge-modal-btn').click()
   await expect(page.getByTestId('new-challenge-modal')).toBeVisible()
+  await expect(page.getByTestId('tab-generate-challenge')).toHaveClass(/active/)
+  await expect(page.getByTestId('tab-frontier-challenge')).toBeVisible()
+  // Frontier Chat panel should NOT clutter the AI Generate tab before switching
+  await expect(page.getByTestId('frontier-challenge-panel')).toHaveCount(0)
+
+  // Clicking Prepare Frontier Prompt with empty topic and no selected app shows explicit validation without asking for Extra Focus
+  await page.getByTestId('prepare-frontier-challenge-prompt-btn').click()
+  await expect(page.getByTestId('tailor-input-error')).toBeVisible()
+  await expect(page.getByTestId('tailor-input-error')).toContainText('Topic / Scenario Focus')
+  await expect(page.getByTestId('tailor-input-error')).not.toContainText('extra focus')
+  await expect(page.getByTestId('tab-generate-challenge')).toHaveClass(/active/)
 
   const pickerList = page.getByTestId('tailor-app-picker-list')
   await expect(pickerList).not.toContainText('Rejected Legacy Co')
@@ -507,6 +518,7 @@ test('Tailored Challenge Modal filters active apps with fuzzy search, prepares F
   await expect(pickerList).not.toContainText('Applied Cloud Startup')
 
   await page.getByTestId('tailor-app-option-8103').click()
+  await expect(page.getByTestId('tailor-input-error')).toHaveCount(0)
   await expect(page.getByTestId('selected-tailor-app')).toContainText('Stripe Infrastructure')
   await expect(page.getByTestId('challenge-context-signals')).toContainText('Application Notes')
 
@@ -515,8 +527,10 @@ test('Tailored Challenge Modal filters active apps with fuzzy search, prepares F
     .fill('Emphasize transactional outbox vs CDC trade-offs.')
   await expect(page.getByTestId('challenge-context-signals')).toContainText('Extra Focus Clues')
 
-  // Prepare Frontier Prompt -> verifies rich context + anti-duplication list
+  // Prepare Frontier Prompt -> auto-switches to clean Frontier Chat tab & prepares prompt
   await page.getByTestId('prepare-frontier-challenge-prompt-btn').click()
+  await expect(page.getByTestId('tab-frontier-challenge')).toHaveClass(/active/)
+  await expect(page.getByTestId('frontier-challenge-panel')).toBeVisible()
   const promptPreview = page.getByTestId('frontier-challenge-prompt-preview')
   await expect(promptPreview).toBeVisible()
   const promptVal = await promptPreview.inputValue()
