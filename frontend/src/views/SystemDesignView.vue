@@ -24,6 +24,7 @@ import {
   Save,
   Send,
   ShieldAlert,
+  Shuffle,
   Sparkles,
   Trash2,
   Upload,
@@ -103,6 +104,27 @@ const useWebSearchDefence = ref(false)
 // Stage 4 & 5: Frontier Model Packet export/import state
 const importEvaluationText = ref('')
 const frontierCopied = ref(false)
+
+// Seed & Variant Launcher modal state
+const showSeedModal = ref(false)
+const seedForm = ref({
+  challengeId: '',
+  selectionType: 'random',
+  variantId: '',
+  briefSeed: '',
+})
+
+const selectedSeedChallenge = computed(() =>
+  (store.challenges || []).find((c) => Number(c.id) === Number(seedForm.value.challengeId)) || null
+)
+
+const selectedChallengeVariants = computed(
+  () => selectedSeedChallenge.value?.available_variants || []
+)
+
+const sortedSessions = computed(() =>
+  [...(store.sessions || [])].sort((a, b) => Number(b.id) - Number(a.id))
+)
 
 const activeSession = computed(() => store.activeSession)
 
@@ -298,12 +320,63 @@ function selectStage(stageId) {
 
 async function handleStartChallenge(challenge) {
   try {
-    await store.startSession(challenge.id, 'ADAPTIVE')
+    const started = await store.startSession(challenge.id, 'ADAPTIVE')
     activeStageTab.value = 'REQUIREMENTS'
     evalSubTab.value = 'scorecard'
-    uiStore.showToast(`Started "${challenge.title}"`, 'success')
+    const seedSuffix = started?.brief_seed ? ` (Seed #${started.brief_seed})` : ''
+    uiStore.showToast(`Started "${challenge.title}"${seedSuffix}`, 'success')
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to start challenge session', 'error')
+  }
+}
+
+function openSeedLauncherModal(challenge = null, prefillSeed = '') {
+  const targetChallenge = challenge || (store.challenges || [])[0] || null
+  const variants = targetChallenge?.available_variants || []
+  const cleanedSeed = String(prefillSeed || '').trim()
+  seedForm.value = {
+    challengeId: targetChallenge ? String(targetChallenge.id) : '',
+    selectionType: cleanedSeed ? 'seed' : variants.length ? 'variant' : 'random',
+    variantId: variants[0]?.variant_id || '',
+    briefSeed: cleanedSeed,
+  }
+  showSeedModal.value = true
+}
+
+function onSeedChallengeChange() {
+  const variants = selectedChallengeVariants.value
+  seedForm.value.variantId = variants[0]?.variant_id || ''
+  if (!variants.length && seedForm.value.selectionType === 'variant') {
+    seedForm.value.selectionType = 'random'
+  }
+}
+
+async function handleLaunchSeededSession() {
+  const challenge = selectedSeedChallenge.value
+  if (!challenge || store.startingSession) return
+  const options = {}
+  if (seedForm.value.selectionType === 'variant' && seedForm.value.variantId) {
+    options.variantId = seedForm.value.variantId
+  } else if (seedForm.value.selectionType === 'seed') {
+    if (!seedForm.value.briefSeed.trim()) {
+      uiStore.showToast('Enter a scenario seed or switch to Random / Variant mode.', 'error')
+      return
+    }
+    options.briefSeed = seedForm.value.briefSeed.trim()
+  }
+  try {
+    const started = await store.startSession(challenge.id, 'ADAPTIVE', null, options)
+    showSeedModal.value = false
+    activeStageTab.value = 'REQUIREMENTS'
+    evalSubTab.value = 'scorecard'
+    const seedLabel = started?.brief_seed ? `Seed #${started.brief_seed}` : ''
+    const variantLabel = started?.variant_title ? ` • ${started.variant_title}` : ''
+    uiStore.showToast(
+      `Started "${challenge.title}"${seedLabel ? ` (${seedLabel}${variantLabel})` : ''}`,
+      'success'
+    )
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to start seeded challenge session', 'error')
   }
 }
 
@@ -703,6 +776,16 @@ onUnmounted(() => {
             </button>
             <button
               type="button"
+              class="btn btn-secondary"
+              data-testid="open-seed-modal-lobby-btn"
+              :disabled="!(store.challenges || []).length"
+              @click="openSeedLauncherModal()"
+            >
+              <Shuffle :size="15" />
+              <span>Start with Seed / Variant</span>
+            </button>
+            <button
+              type="button"
               class="btn btn-primary"
               data-testid="open-new-challenge-modal-btn"
               @click="openCreateChallengeModal"
@@ -786,6 +869,75 @@ onUnmounted(() => {
                   <Trash2 :size="14" />
                 </button>
               </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- Recent & Completed Sessions -->
+      <section v-if="sortedSessions.length" class="sd-section" data-testid="past-sessions-section">
+        <div class="sd-section-header">
+          <div class="sd-header-title-group">
+            <h2>Past &amp; Active Sessions</h2>
+            <span class="sd-muted">{{ sortedSessions.length }} session(s)</span>
+          </div>
+          <button
+            type="button"
+            class="btn btn-secondary btn-xs"
+            data-testid="open-seed-modal-history-btn"
+            @click="openSeedLauncherModal()"
+          >
+            <Shuffle :size="13" />
+            <span>Start with Seed / Variant</span>
+          </button>
+        </div>
+
+        <div class="sd-sessions-list">
+          <article
+            v-for="s in sortedSessions"
+            :key="s.id"
+            class="sd-card session-row-card"
+            :data-testid="`past-session-row-${s.id}`"
+          >
+            <div>
+              <div class="session-row-title-row">
+                <strong>{{ s.challenge?.title || `Challenge #${s.challenge_id}` }}</strong>
+                <span class="sd-tag">{{ s.stage }}</span>
+                <span v-if="s.brief_seed" class="sd-tag sd-seed-pill">
+                  Seed: #{{ s.brief_seed }}
+                </span>
+                <span v-if="s.variant_title" class="sd-tag sd-variant-pill">
+                  {{ s.variant_title }}
+                </span>
+                <span v-else-if="s.status !== 'COMPLETED'" class="sd-tag sd-blind-pill">
+                  Blind Profile
+                </span>
+                <span v-if="s.overall_score !== null && s.overall_score !== undefined" class="sd-tag">
+                  Score: {{ Math.round(s.overall_score) }}/100
+                </span>
+              </div>
+              <p v-if="s.variant_focus" class="sd-muted">{{ s.variant_focus }}</p>
+            </div>
+            <div class="session-row-actions">
+              <button
+                v-if="s.brief_seed && s.challenge"
+                type="button"
+                class="btn btn-secondary btn-xs"
+                :data-testid="`replay-session-seed-btn-${s.id}`"
+                @click="openSeedLauncherModal(s.challenge, s.brief_seed)"
+              >
+                <Shuffle :size="12" />
+                <span>Replay Seed</span>
+              </button>
+              <button
+                type="button"
+                class="btn btn-primary btn-xs"
+                :data-testid="`open-session-btn-${s.id}`"
+                @click="store.loadSession(s.id)"
+              >
+                <span>{{ s.status === 'COMPLETED' ? 'View Scorecard' : 'Resume' }}</span>
+                <ArrowRight :size="12" />
+              </button>
             </div>
           </article>
         </div>
@@ -882,6 +1034,9 @@ onUnmounted(() => {
               <Globe :size="14" class="sd-primary-icon" />
               <span>Ground scenario with Web Search references</span>
             </label>
+            <p class="sd-muted">
+              AI generation automatically creates 3 distinct requirement variants for seeded replay.
+            </p>
 
             <div class="sd-modal-actions">
               <button
@@ -1047,9 +1202,44 @@ onUnmounted(() => {
           </button>
 
           <div class="workspace-title-block">
-            <h1>{{ activeSession.challenge?.title || 'System Design Session' }}</h1>
+            <div class="workspace-title-meta-row">
+              <h1>{{ activeSession.challenge?.title || 'System Design Session' }}</h1>
+              <span
+                v-if="activeSession.brief_seed"
+                class="sd-tag sd-seed-pill"
+                data-testid="active-session-seed-badge"
+              >
+                Seed: #{{ activeSession.brief_seed }}
+              </span>
+              <span
+                v-if="activeSession.variant_title"
+                class="sd-tag sd-variant-pill"
+                data-testid="active-session-variant-badge"
+                :title="activeSession.variant_focus || activeSession.variant_title"
+              >
+                {{ activeSession.variant_title }}
+              </span>
+              <span
+                v-else
+                class="sd-tag sd-blind-pill"
+                data-testid="active-session-blind-badge"
+                title="Requirement archetype stays hidden during blind discovery until evaluation completes"
+              >
+                Blind Profile
+              </span>
+            </div>
             <p class="sd-muted">{{ activeSession.challenge?.initial_prompt }}</p>
           </div>
+
+          <button
+            type="button"
+            class="btn btn-secondary btn-xs sd-header-variant-btn"
+            data-testid="open-seed-modal-active-btn"
+            @click="openSeedLauncherModal(activeSession.challenge, activeSession.brief_seed || '')"
+          >
+            <Shuffle :size="13" />
+            <span>New Variant / Replay Seed</span>
+          </button>
         </div>
 
         <!-- 5-Stage Progress Stepper (Strictly Gated) -->
@@ -1973,6 +2163,142 @@ onUnmounted(() => {
         </section>
       </div>
     </template>
+
+    <!-- Seed / Variant Launcher Modal -->
+    <div
+      v-if="showSeedModal"
+      class="sd-modal-overlay"
+      data-testid="seed-variant-modal"
+      @click.self="showSeedModal = false"
+    >
+      <div class="sd-card sd-modal-dialog">
+        <div class="sd-card-header">
+          <h3>
+            <Shuffle :size="16" class="sd-primary-icon" />
+            <span>Start with Seed or Requirement Variant</span>
+          </h3>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs"
+            aria-label="Close seed modal"
+            @click="showSeedModal = false"
+          >
+            <X :size="15" />
+          </button>
+        </div>
+
+        <form class="sd-form-stack" @submit.prevent="handleLaunchSeededSession">
+          <label class="sd-field">
+            <span>Challenge Scenario</span>
+            <select
+              v-model="seedForm.challengeId"
+              class="form-input"
+              data-testid="seed-modal-challenge-select"
+              @change="onSeedChallengeChange"
+            >
+              <option
+                v-for="ch in store.challenges"
+                :key="ch.id"
+                :value="String(ch.id)"
+              >
+                {{ ch.title }} ({{ formatDifficultyLabel(ch.difficulty) }})
+              </option>
+            </select>
+          </label>
+
+          <div class="sd-modal-tabs">
+            <button
+              type="button"
+              class="btn btn-xs"
+              :class="seedForm.selectionType === 'random' ? 'btn-primary' : 'btn-secondary'"
+              data-testid="seed-mode-random-btn"
+              @click="seedForm.selectionType = 'random'"
+            >
+              Random Blind Seed
+            </button>
+            <button
+              v-if="selectedChallengeVariants.length"
+              type="button"
+              class="btn btn-xs"
+              :class="seedForm.selectionType === 'variant' ? 'btn-primary' : 'btn-secondary'"
+              data-testid="seed-mode-variant-btn"
+              @click="seedForm.selectionType = 'variant'"
+            >
+              Choose Variant ({{ selectedChallengeVariants.length }})
+            </button>
+            <button
+              type="button"
+              class="btn btn-xs"
+              :class="seedForm.selectionType === 'seed' ? 'btn-primary' : 'btn-secondary'"
+              data-testid="seed-mode-seed-btn"
+              @click="seedForm.selectionType = 'seed'"
+            >
+              Replay Seed
+            </button>
+          </div>
+
+          <p v-if="seedForm.selectionType === 'random'" class="sd-muted">
+            Rolls a fresh random seed avoiding your immediately preceding archetype and keeps the hidden scenario blind until final evaluation completes.
+          </p>
+
+          <div v-else-if="seedForm.selectionType === 'variant'" class="sd-variant-picker-list">
+            <label
+              v-for="v in selectedChallengeVariants"
+              :key="v.variant_id"
+              class="sd-variant-option"
+              :class="{ selected: seedForm.variantId === v.variant_id }"
+              :data-testid="`seed-variant-option-${v.variant_id}`"
+            >
+              <input
+                v-model="seedForm.variantId"
+                type="radio"
+                name="variant_id"
+                :value="v.variant_id"
+              />
+              <div>
+                <strong>{{ v.title }}</strong>
+                <p v-if="v.focus_summary" class="sd-muted">{{ v.focus_summary }}</p>
+              </div>
+            </label>
+          </div>
+
+          <label v-else class="sd-field">
+            <span>Scenario Seed (deterministic replay)</span>
+            <input
+              v-model="seedForm.briefSeed"
+              type="text"
+              class="form-input"
+              maxlength="64"
+              placeholder="e.g. a8f31c90 or any shared seed phrase"
+              data-testid="seed-modal-seed-input"
+            />
+            <span class="sd-muted">
+              Same challenge + same seed always picks the exact same hidden requirements profile while keeping the title blind until completion.
+            </span>
+          </label>
+
+          <div class="sd-modal-actions">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              @click="showSeedModal = false"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="btn btn-primary"
+              data-testid="seed-modal-launch-btn"
+              :disabled="store.startingSession || !selectedSeedChallenge"
+            >
+              <Loader2 v-if="store.startingSession" :size="14" class="spin" />
+              <Sparkles v-else :size="14" />
+              <span>Start Session</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -2189,8 +2515,63 @@ onUnmounted(() => {
 .workspace-compact-top {
   display: flex;
   align-items: flex-start;
+  justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.workspace-title-meta-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sd-header-variant-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.sd-seed-pill {
+  font-family: var(--font-mono, monospace);
+}
+
+.sd-variant-pill {
+  background-color: var(--primary-subtle);
+  color: var(--text-primary);
+  border-color: var(--primary);
+}
+
+.sd-blind-pill {
+  font-style: italic;
+}
+
+.sd-variant-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sd-variant-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 6px);
+  background-color: var(--bg-input);
+  cursor: pointer;
+}
+
+.sd-variant-option.selected {
+  border-color: var(--primary);
+  background-color: var(--primary-subtle);
+}
+
+.sd-variant-option strong {
+  display: block;
+  font-size: 13px;
+  color: var(--text-main);
 }
 
 .sd-back-icon-btn {

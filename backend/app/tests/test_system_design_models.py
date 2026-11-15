@@ -38,6 +38,7 @@ EXPECTED_SLUGS = {
 
 FORBIDDEN_SECRET_KEYS = (
     "interviewer_brief",
+    "session_brief",
     "hidden_context",
     "expected_functional_requirements",
     "expected_non_functional_requirements",
@@ -48,7 +49,7 @@ FORBIDDEN_SECRET_KEYS = (
 
 
 def test_alembic_migration_metadata_integrity():
-    """Verify the system design migration chain resolves cleanly to 6b8c0d2e4f1a as single head."""
+    """Verify the system design migration chain resolves cleanly to 7c9d1e3f5a2b as single head."""
     backend_dir = Path(__file__).resolve().parents[2]
     alembic_ini = backend_dir / "alembic.ini"
     cfg = Config(str(alembic_ini))
@@ -56,7 +57,7 @@ def test_alembic_migration_metadata_integrity():
 
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
-    assert heads == ["6b8c0d2e4f1a"]
+    assert heads == ["7c9d1e3f5a2b"]
 
     rev_sd = script.get_revision("5a7b9c1d3e5f")
     assert rev_sd is not None
@@ -65,6 +66,10 @@ def test_alembic_migration_metadata_integrity():
     rev_arch = script.get_revision("6b8c0d2e4f1a")
     assert rev_arch is not None
     assert rev_arch.down_revision == "5a7b9c1d3e5f"
+
+    rev_seed = script.get_revision("7c9d1e3f5a2b")
+    assert rev_seed is not None
+    assert rev_seed.down_revision == "6b8c0d2e4f1a"
 
 
 def test_evidence_based_rubric_requires_concrete_evidence():
@@ -288,3 +293,124 @@ async def test_session_lifecycle_jsonb_persistence(db_session: AsyncSession):
     assert reloaded.final_evaluation is not None
     assert reloaded.final_evaluation["readiness_rating"] == "INTERVIEW_READY"
     assert reloaded.overall_score == pytest.approx(84.5)
+
+
+def test_curated_challenges_have_three_distinct_structured_variants():
+    """Every curated challenge must define 3 valid variants and expose only safe metadata."""
+    required_fields = (
+        "variant_id",
+        "title",
+        "focus_summary",
+        "business_context",
+        "scale_estimates",
+        "functional_requirements",
+        "non_functional_requirements",
+        "constraints",
+        "priorities",
+        "out_of_scope",
+        "expected_components",
+        "defence_questions",
+    )
+    assert len(CURATED_CHALLENGES) == 8
+
+    for challenge in CURATED_CHALLENGES:
+        brief = challenge["interviewer_brief"]
+        variants = brief.get("variants") or []
+        assert len(variants) == 3, f"{challenge['slug']} should have 3 variants"
+        variant_ids = [v.get("variant_id") for v in variants]
+        assert len(set(variant_ids)) == 3, (
+            f"Duplicate variant_ids in {challenge['slug']}"
+        )
+
+        for variant in variants:
+            for key in required_fields:
+                assert variant.get(key), (
+                    f"{challenge['slug']} variant {variant.get('variant_id')} missing {key}"
+                )
+
+        # Verify candidate-facing ChallengeRead exposes only safe variant labels
+        safe_dto = SystemDesignChallengeRead.model_validate(
+            {
+                "id": 1,
+                "slug": challenge["slug"],
+                "title": challenge["title"],
+                "category": challenge["category"],
+                "difficulty": challenge["difficulty"],
+                "prompt_summary": challenge["prompt_summary"],
+                "initial_prompt": challenge["initial_prompt"],
+                "tags": challenge["tags"],
+                "is_builtin": True,
+                "is_archived": False,
+                "interviewer_brief": brief,
+                "created_at": "2026-11-15T00:00:00Z",
+            }
+        )
+        assert len(safe_dto.available_variants) == 3
+        dto_json = safe_dto.model_dump_json()
+        for secret_key in FORBIDDEN_SECRET_KEYS:
+            assert secret_key not in dto_json
+        assert "defence_questions" not in dto_json
+
+
+@pytest.mark.asyncio
+async def test_session_read_schema_masks_blind_variant_until_completed(
+    db_session: AsyncSession,
+):
+    """Random-mode sessions hide variant identity until COMPLETED; explicit mode reveals upfront."""
+    await seed_system_design_challenges(db_session)
+    challenge = (
+        await db_session.execute(
+            select(SystemDesignChallengeModel).where(
+                SystemDesignChallengeModel.slug == "url-shortener"
+            )
+        )
+    ).scalar_one()
+
+    blind_session = SystemDesignSessionModel(
+        challenge_id=challenge.id,
+        mode="ADAPTIVE",
+        stage="REQUIREMENTS",
+        status="IN_PROGRESS",
+        brief_seed="deadbeef",
+        variant_id="enterprise-compliance-linker",
+        variant_selection_mode="random",
+        session_brief={
+            "variant_id": "enterprise-compliance-linker",
+            "variant_title": "Enterprise Internal Compliance Linker",
+            "focus_summary": "Private SSO links and PostgreSQL YAGNI.",
+            "scale_estimates": {"dau": "150,000 employees"},
+        },
+        requirements_transcript=[],
+        requirements_ledger={},
+    )
+    db_session.add(blind_session)
+    await db_session.commit()
+    await db_session.refresh(blind_session)
+    blind_session.challenge = challenge
+
+    blind_dto = SystemDesignSessionRead.model_validate(blind_session)
+    blind_json = blind_dto.model_dump_json()
+    assert blind_dto.brief_seed == "deadbeef"
+    assert blind_dto.variant_id is None
+    assert blind_dto.variant_title is None
+    assert blind_dto.variant_focus is None
+    assert "session_brief" not in blind_json
+    assert "150,000 employees" not in blind_json
+
+    # Explicit selection reveals variant title & focus immediately while keeping brief stripped
+    blind_session.variant_selection_mode = "explicit"
+    explicit_dto = SystemDesignSessionRead.model_validate(blind_session)
+    assert explicit_dto.variant_id == "enterprise-compliance-linker"
+    assert explicit_dto.variant_title == "Enterprise Internal Compliance Linker"
+    assert explicit_dto.variant_focus == "Private SSO links and PostgreSQL YAGNI."
+    assert "150,000 employees" not in explicit_dto.model_dump_json()
+
+    # Completed random session also reveals variant title & focus cleanly
+    blind_session.variant_selection_mode = "random"
+    blind_session.status = "COMPLETED"
+    blind_session.stage = "COMPLETED"
+    completed_dto = SystemDesignSessionRead.model_validate(blind_session)
+    assert completed_dto.variant_id == "enterprise-compliance-linker"
+    assert completed_dto.variant_title == "Enterprise Internal Compliance Linker"
+    assert completed_dto.variant_focus == "Private SSO links and PostgreSQL YAGNI."
+    assert "150,000 employees" not in completed_dto.model_dump_json()

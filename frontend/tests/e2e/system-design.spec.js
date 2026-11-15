@@ -320,3 +320,55 @@ test('preserves URL session recovery (F-06), custom challenge fields on edit (F-
 
   expect(errors).toEqual([])
 })
+
+test('supports seeded blind starts, explicit variant picker, and seed replay via launcher modal', async ({
+  page,
+}) => {
+  const errors = []
+  page.on('pageerror', (err) => errors.push(err.message))
+  page.on('console', (msg) => {
+    if (msg.type() === 'warning' && msg.text().includes('[Vue warn]')) {
+      errors.push(msg.text())
+    }
+  })
+
+  await page.goto('/chat?mode=system_design')
+  await expect(page.getByTestId('open-seed-modal-lobby-btn')).toBeVisible()
+
+  // 1-click Start -> rolls blind seed and hides variant title
+  const urlCard = page.getByTestId('challenge-card-url-shortener')
+  await urlCard.getByTestId('start-challenge-btn').click()
+  await expect(page.getByTestId('active-session-seed-badge')).toBeVisible()
+  const seedBadgeText = await page.getByTestId('active-session-seed-badge').innerText()
+  const rolledSeed = seedBadgeText.replace('Seed: #', '').trim()
+  expect(rolledSeed.length).toBeGreaterThanOrEqual(4)
+  await expect(page.getByTestId('active-session-blind-badge')).toBeVisible()
+  await expect(page.getByTestId('active-session-variant-badge')).toHaveCount(0)
+
+  // Active Session Header -> New Variant / Replay Seed modal -> explicit Variant selection
+  await page.getByTestId('open-seed-modal-active-btn').click()
+  await expect(page.getByTestId('seed-variant-modal')).toBeVisible()
+  await page.getByTestId('seed-mode-variant-btn').click()
+  await page.getByTestId('seed-variant-option-enterprise-compliance').click()
+  await page.getByTestId('seed-modal-launch-btn').click()
+
+  await expect(page.getByTestId('active-session-variant-badge')).toHaveText(
+    'Enterprise Compliance Profile'
+  )
+
+  // Back to challenges -> Past & Active Sessions shows seeds and allows one-click Replay Seed
+  await page.getByTestId('back-to-challenges-btn').click()
+  await expect(page.getByTestId('past-sessions-section')).toBeVisible()
+  await expect(
+    page.getByTestId('past-sessions-section').getByText(`Seed: #${rolledSeed}`)
+  ).toBeVisible()
+
+  await page.getByTestId('open-seed-modal-history-btn').click()
+  await page.getByTestId('seed-mode-seed-btn').click()
+  await page.getByTestId('seed-modal-seed-input').fill(rolledSeed)
+  await page.getByTestId('seed-modal-launch-btn').click()
+  await expect(page.getByTestId('active-session-seed-badge')).toHaveText(`Seed: #${rolledSeed}`)
+  await expect(page.getByTestId('active-session-blind-badge')).toBeVisible()
+
+  expect(errors).toEqual([])
+})

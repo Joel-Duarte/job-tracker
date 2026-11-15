@@ -1,8 +1,10 @@
 import base64
+import hashlib
 import json
 import logging
 import os
 import re
+import secrets
 import shutil
 import tempfile
 from datetime import UTC, datetime
@@ -215,40 +217,79 @@ MODE_INSTRUCTIONS: dict[str, str] = {
     ),
 }
 
-CUSTOM_CHALLENGE_GENERATE_PROMPT = """You are a Staff System Design Interview Architect designing a tailored system design interview challenge.
+CUSTOM_CHALLENGE_GENERATE_PROMPT = """You are a Staff System Design Interview Architect designing a tailored system design interview challenge with 3 genuinely distinct architectural requirement variants.
 
 Respond ONLY with a valid JSON object matching this exact schema (no markdown fences):
 {{
   "title": "<concise realistic challenge title, e.g. Design a Real-Time Fraud Scoring Pipeline>",
   "category": "<DISTRIBUTED_SYSTEMS | DATA_INFRASTRUCTURE | REALTIME_COMMUNICATION | STREAMING_MEDIA | STORAGE_SYSTEMS | AI_PLATFORM>",
   "difficulty": "{difficulty}",
-  "prompt_summary": "<1-2 sentence scenario summary shown on the challenge card>",
+  "prompt_summary": "<1-2 sentence scenario summary shown on the challenge card without spoiling variant trade-offs>",
   "initial_prompt": "<2-4 sentence intentionally broad opening interview prompt matching how a real stakeholder opens the session without leaking scale numbers or answers>",
   "tags": ["<tag1>", "<tag2>", "<tag3>"],
   "interviewer_brief": {{
-    "business_context": {{
-      "product_goal": "<core business/product objective>",
-      "target_users": "<who uses the system>"
-    }},
-    "scale_estimates": {{
-      "dau": "<concrete DAU/MAU target>",
-      "daily_volume": "<concrete daily writes/reads>",
-      "qps": "<average and peak QPS>"
-    }},
-    "functional_requirements": ["<core functional requirement 1>", "<core functional requirement 2>"],
-    "non_functional_requirements": ["<latency p99 target>", "<availability SLA>", "<consistency/privacy requirement>"],
-    "constraints": ["<business or operational constraint 1>"],
-    "priorities": ["P0: <top priority>", "P1: <secondary priority>"],
-    "out_of_scope": ["<explicitly excluded feature 1>"],
-    "hidden_context": {{
-      "scale_targets": "<concrete hidden DAU/QPS/storage/latency numbers revealed only when asked>",
-      "key_constraints": ["<constraint 1>", "<constraint 2>"]
-    }},
-    "expected_components": ["<core component 1>", "<core component 2>", "<core component 3>"],
-    "over_engineering_traps": ["<unjustified complexity trap 1>"],
-    "defence_questions": [
-      "<challenging architecture defence question 1>",
-      "<challenging architecture defence question 2>"
+    "variants": [
+      {{
+        "variant_id": "<short-kebab-slug-1>",
+        "title": "<Variant 1 Scenario Name, e.g. Cost-Constrained MVP>",
+        "focus_summary": "<1-sentence trade-off focus for post-session summary>",
+        "business_context": {{
+          "product_goal": "<core business/product objective>",
+          "target_users": "<who uses the system>"
+        }},
+        "scale_estimates": {{
+          "dau": "<concrete DAU/MAU target>",
+          "daily_volume": "<concrete daily writes/reads>",
+          "qps": "<average and peak QPS>"
+        }},
+        "functional_requirements": ["<core functional requirement 1>", "<core functional requirement 2>"],
+        "non_functional_requirements": ["<latency p99 target>", "<availability SLA>", "<consistency/privacy requirement>"],
+        "constraints": ["<business or operational constraint 1>"],
+        "priorities": ["P0: <top priority>", "P1: <secondary priority>"],
+        "out_of_scope": ["<explicitly excluded feature 1>"],
+        "hidden_context": {{
+          "scale_targets": "<concrete hidden DAU/QPS/storage/latency numbers revealed only when asked>",
+          "key_constraints": ["<constraint 1>", "<constraint 2>"]
+        }},
+        "expected_components": ["<core component 1>", "<core component 2>", "<core component 3>"],
+        "over_engineering_traps": ["<unjustified complexity trap 1>"],
+        "defence_questions": [
+          "<challenging architecture defence question 1>",
+          "<challenging architecture defence question 2>"
+        ]
+      }},
+      {{
+        "variant_id": "<short-kebab-slug-2>",
+        "title": "<Variant 2 Scenario Name with fundamentally different scale/SLA/compliance trade-offs>",
+        "focus_summary": "<1-sentence trade-off focus>",
+        "business_context": {{"product_goal": "...", "target_users": "..."}},
+        "scale_estimates": {{"dau": "...", "daily_volume": "...", "qps": "..."}},
+        "functional_requirements": ["..."],
+        "non_functional_requirements": ["..."],
+        "constraints": ["..."],
+        "priorities": ["P0: ...", "P1: ..."],
+        "out_of_scope": ["..."],
+        "hidden_context": {{"scale_targets": "...", "key_constraints": ["..."]}},
+        "expected_components": ["..."],
+        "over_engineering_traps": ["..."],
+        "defence_questions": ["...", "..."]
+      }},
+      {{
+        "variant_id": "<short-kebab-slug-3>",
+        "title": "<Variant 3 Scenario Name stressing a different dimension like bursts, strict consistency, or geo-locality>",
+        "focus_summary": "<1-sentence trade-off focus>",
+        "business_context": {{"product_goal": "...", "target_users": "..."}},
+        "scale_estimates": {{"dau": "...", "daily_volume": "...", "qps": "..."}},
+        "functional_requirements": ["..."],
+        "non_functional_requirements": ["..."],
+        "constraints": ["..."],
+        "priorities": ["P0: ...", "P1: ..."],
+        "out_of_scope": ["..."],
+        "hidden_context": {{"scale_targets": "...", "key_constraints": ["..."]}},
+        "expected_components": ["..."],
+        "over_engineering_traps": ["..."],
+        "defence_questions": ["...", "..."]
+      }}
     ]
   }}
 }}
@@ -263,6 +304,175 @@ _HINT_REQUEST_RE = re.compile(
 def _slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return slug[:80] or "custom-challenge"
+
+
+_VARIANT_BRIEF_COPY_KEYS = (
+    "business_context",
+    "scale_estimates",
+    "functional_requirements",
+    "non_functional_requirements",
+    "constraints",
+    "priorities",
+    "out_of_scope",
+    "hidden_context",
+    "expected_components",
+    "common_bottlenecks_and_spofs",
+    "over_engineering_traps",
+    "defence_questions",
+)
+
+
+def _extract_brief_variants(
+    interviewer_brief: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Return normalized scenario variant dicts from challenge.interviewer_brief, if defined."""
+    if not isinstance(interviewer_brief, dict):
+        return []
+    raw_variants = interviewer_brief.get("variants")
+    if not isinstance(raw_variants, list):
+        return []
+    variants: list[dict[str, Any]] = []
+    for idx, item in enumerate(raw_variants):
+        if not isinstance(item, dict):
+            continue
+        vid = _slugify(
+            str(item.get("variant_id") or item.get("title") or f"variant-{idx + 1}")
+        )
+        v = dict(item)
+        v["variant_id"] = vid
+        v["title"] = str(item.get("title") or f"Scenario {idx + 1}").strip()
+        v["focus_summary"] = str(item.get("focus_summary") or "").strip()
+        variants.append(v)
+    return variants
+
+
+def _build_session_brief(
+    challenge: SystemDesignChallengeModel, variant: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Assemble the isolated single-scenario interviewer brief persisted onto a session."""
+    base_brief = dict(challenge.interviewer_brief or {})
+    base_brief.pop("variants", None)
+    if variant is None:
+        return base_brief
+    scoped = dict(base_brief)
+    scoped["variant_id"] = str(variant.get("variant_id") or "default")
+    scoped["variant_title"] = str(variant.get("title") or "Standard Scenario")
+    if variant.get("focus_summary"):
+        scoped["focus_summary"] = str(variant["focus_summary"])
+    for key in _VARIANT_BRIEF_COPY_KEYS:
+        if key in variant:
+            scoped[key] = variant[key]
+    return scoped
+
+
+def _normalize_generated_brief(raw_brief: Any) -> dict[str, Any]:
+    """Normalize AI-generated interviewer_brief, flattening variant 1 to top-level defaults."""
+    default_brief = {
+        "hidden_context": {
+            "scale_targets": "Establish DAU, QPS, latency SLA, and fault tolerance targets."
+        },
+        "expected_components": ["API Gateway", "Core Service", "Primary Storage"],
+        "over_engineering_traps": [],
+        "defence_questions": [
+            "How does your design degrade gracefully when downstream storage slows down?"
+        ],
+    }
+    if not isinstance(raw_brief, dict):
+        return default_brief
+    brief = dict(raw_brief)
+    variants = _extract_brief_variants(brief)
+    if variants:
+        brief["variants"] = variants
+        primary = variants[0]
+        for key in _VARIANT_BRIEF_COPY_KEYS:
+            if key in primary and key not in brief:
+                brief[key] = primary[key]
+    return brief
+
+
+def _seed_variant_index(challenge_slug: str, seed: str, variant_count: int) -> int:
+    digest = hashlib.sha256(f"{challenge_slug}:{seed}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") % variant_count
+
+
+def _select_session_variant(
+    challenge: SystemDesignChallengeModel,
+    *,
+    brief_seed: str | None = None,
+    variant_id: str | None = None,
+    last_variant_id: str | None = None,
+) -> tuple[str, str, str, dict[str, Any]]:
+    """Resolve (brief_seed, variant_id, selection_mode, session_brief) deterministically."""
+    cleaned_seed = (brief_seed or "").strip().lower() or None
+    cleaned_variant_id = (variant_id or "").strip() or None
+    variants = _extract_brief_variants(challenge.interviewer_brief)
+
+    if cleaned_variant_id is not None:
+        resolved_seed = cleaned_seed or secrets.token_hex(4)
+        if not variants:
+            if cleaned_variant_id != "default":
+                raise ValueError(
+                    f"Variant '{cleaned_variant_id}' is not available for challenge '{challenge.title}'."
+                )
+            return (
+                resolved_seed,
+                "default",
+                "explicit",
+                _build_session_brief(challenge, None),
+            )
+        chosen = next(
+            (v for v in variants if v["variant_id"] == cleaned_variant_id), None
+        )
+        if chosen is None:
+            available = ", ".join(v["variant_id"] for v in variants)
+            raise ValueError(
+                f"Invalid variant_id '{cleaned_variant_id}' for '{challenge.title}'. Available: {available}."
+            )
+        return (
+            resolved_seed,
+            chosen["variant_id"],
+            "explicit",
+            _build_session_brief(challenge, chosen),
+        )
+
+    if not variants:
+        resolved_seed = cleaned_seed or secrets.token_hex(4)
+        return (
+            resolved_seed,
+            "default",
+            "random",
+            _build_session_brief(challenge, None),
+        )
+
+    if cleaned_seed is not None:
+        idx = _seed_variant_index(challenge.slug, cleaned_seed, len(variants))
+        chosen = variants[idx]
+        return (
+            cleaned_seed,
+            chosen["variant_id"],
+            "random",
+            _build_session_brief(challenge, chosen),
+        )
+
+    # Fresh random roll: pick a candidate seed whose deterministic hash avoids
+    # repeating the immediately preceding variant on this challenge when >1 exist.
+    resolved_seed = secrets.token_hex(4)
+    chosen = variants[_seed_variant_index(challenge.slug, resolved_seed, len(variants))]
+    if len(variants) > 1 and last_variant_id:
+        for _ in range(16):
+            if chosen["variant_id"] != last_variant_id:
+                break
+            resolved_seed = secrets.token_hex(4)
+            chosen = variants[
+                _seed_variant_index(challenge.slug, resolved_seed, len(variants))
+            ]
+
+    return (
+        resolved_seed,
+        chosen["variant_id"],
+        "random",
+        _build_session_brief(challenge, chosen),
+    )
 
 
 def _is_hint_request(message_text: str, request_hint: bool = False) -> bool:
@@ -876,24 +1086,7 @@ class SystemDesignService:
         ).strip()
         slug = await SystemDesignService._unique_challenge_slug(db, title)
         raw_brief = parsed.get("interviewer_brief")
-        interviewer_brief = (
-            dict(raw_brief)
-            if isinstance(raw_brief, dict)
-            else {
-                "hidden_context": {
-                    "scale_targets": "Establish DAU, QPS, latency SLA, and fault tolerance targets."
-                },
-                "expected_components": [
-                    "API Gateway",
-                    "Core Service",
-                    "Primary Storage",
-                ],
-                "over_engineering_traps": [],
-                "defence_questions": [
-                    "How does your design degrade gracefully when downstream storage slows down?"
-                ],
-            }
-        )
+        interviewer_brief = _normalize_generated_brief(raw_brief)
 
         challenge = SystemDesignChallengeModel(
             slug=slug,
@@ -1050,11 +1243,33 @@ class SystemDesignService:
         await db.commit()
 
     @staticmethod
+    def _get_session_brief(session: SystemDesignSessionModel) -> dict[str, Any]:
+        """Return the isolated per-session brief, with safe fallback for legacy rows."""
+        if isinstance(session.session_brief, dict) and session.session_brief:
+            return session.session_brief
+        challenge = session.challenge
+        if not challenge or not isinstance(challenge.interviewer_brief, dict):
+            return {}
+        variants = _extract_brief_variants(challenge.interviewer_brief)
+        if variants:
+            target = (
+                next(
+                    (v for v in variants if v.get("variant_id") == session.variant_id),
+                    None,
+                )
+                or variants[0]
+            )
+            return _build_session_brief(challenge, target)
+        return dict(challenge.interviewer_brief)
+
+    @staticmethod
     async def start_session(
         db: AsyncSession,
         challenge_id: int,
         application_id: int | None = None,
         mode: str = "ADAPTIVE",
+        brief_seed: str | None = None,
+        variant_id: str | None = None,
     ) -> SystemDesignSessionModel:
         if mode not in MODE_INSTRUCTIONS:
             raise ValueError(
@@ -1073,6 +1288,24 @@ class SystemDesignService:
         if not challenge:
             raise ValueError(f"System design challenge {challenge_id} not found.")
 
+        last_variant_id = (
+            await db.execute(
+                select(SystemDesignSessionModel.variant_id)
+                .where(SystemDesignSessionModel.challenge_id == challenge.id)
+                .order_by(SystemDesignSessionModel.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+        resolved_seed, resolved_variant_id, selection_mode, session_brief = (
+            _select_session_variant(
+                challenge,
+                brief_seed=brief_seed,
+                variant_id=variant_id,
+                last_variant_id=last_variant_id,
+            )
+        )
+
         initial_turn = {
             "turn_index": 1,
             "role": "interviewer",
@@ -1087,6 +1320,10 @@ class SystemDesignService:
             mode=mode,
             stage="REQUIREMENTS",
             status="IN_PROGRESS",
+            brief_seed=resolved_seed,
+            variant_id=resolved_variant_id,
+            variant_selection_mode=selection_mode,
+            session_brief=session_brief,
             requirements_transcript=[initial_turn],
             requirements_ledger=RequirementsLedgerSchema().model_dump(),
         )
@@ -1375,7 +1612,9 @@ class SystemDesignService:
             mode_instruction=mode_instruction,
             challenge_title=challenge.title,
             initial_prompt=challenge.initial_prompt,
-            hidden_brief_json=json.dumps(challenge.interviewer_brief or {}, indent=2),
+            hidden_brief_json=json.dumps(
+                SystemDesignService._get_session_brief(session), indent=2
+            ),
             stage=session.stage,
             requirements_ledger_json=json.dumps(
                 session.requirements_ledger or {}, indent=2
@@ -1656,7 +1895,9 @@ class SystemDesignService:
             requirements_ledger_json=json.dumps(
                 session.requirements_ledger or {}, indent=2
             ),
-            hidden_brief_json=json.dumps(challenge.interviewer_brief or {}, indent=2),
+            hidden_brief_json=json.dumps(
+                SystemDesignService._get_session_brief(session), indent=2
+            ),
             candidate_notes=str(target_entry.get("notes") or "None provided."),
         )
         web_section = ""
@@ -1771,7 +2012,6 @@ class SystemDesignService:
             raise ValueError(
                 f"Architecture review requires DESIGN stage or later (current stage: {session.stage})."
             )
-        challenge = session.challenge
         target_version = int(review_dict["diagram_version"])
 
         reviews = [
@@ -1790,7 +2030,7 @@ class SystemDesignService:
 
         if not session.defence_transcript:
             brief_questions = _normalize_string_list(
-                (challenge.interviewer_brief or {}).get("defence_questions")
+                SystemDesignService._get_session_brief(session).get("defence_questions")
             )
             suggested = _normalize_string_list(
                 review_dict.get("suggested_defence_topics")
@@ -1944,7 +2184,9 @@ class SystemDesignService:
                 session.requirements_ledger or {}, indent=2
             ),
             latest_review_json=json.dumps(latest_review, indent=2),
-            hidden_brief_json=json.dumps(challenge.interviewer_brief or {}, indent=2),
+            hidden_brief_json=json.dumps(
+                SystemDesignService._get_session_brief(session), indent=2
+            ),
         )
 
         if use_web_search:
@@ -2027,7 +2269,9 @@ class SystemDesignService:
 
         sys_prompt = FINAL_EVALUATION_PROMPT.format(
             challenge_title=challenge.title,
-            hidden_brief_json=json.dumps(challenge.interviewer_brief or {}, indent=2),
+            hidden_brief_json=json.dumps(
+                SystemDesignService._get_session_brief(session), indent=2
+            ),
             dimensions_list="\n".join(f"- {dim}" for dim in DEFAULT_RUBRIC_DIMENSIONS),
         )
         sys_prompt += (
@@ -2283,10 +2527,11 @@ class SystemDesignService:
             "## 1. Challenge Brief & Hidden Ground Truth",
             f"- **Title**: {challenge.title}",
             f"- **Category / Difficulty**: {challenge.category} / {challenge.difficulty}",
+            f"- **Scenario Seed / Variant**: #{session.brief_seed or 'legacy'} ({session.variant_id or 'default'})",
             f"- **Initial Prompt**: {challenge.initial_prompt}",
             "",
             "```json",
-            json.dumps(challenge.interviewer_brief or {}, indent=2),
+            json.dumps(SystemDesignService._get_session_brief(session), indent=2),
             "```",
             "",
             "## 2. Requirements Discovery Transcript (Stage B)",

@@ -195,6 +195,8 @@ async def start_session(
             challenge_id=payload.challenge_id,
             application_id=payload.application_id,
             mode=payload.mode,
+            brief_seed=payload.brief_seed,
+            variant_id=payload.variant_id,
         )
         return SystemDesignSessionRead.model_validate(session)
     except ValueError as ve:

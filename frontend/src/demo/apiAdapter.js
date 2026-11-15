@@ -2893,11 +2893,21 @@ export async function handleDemoRequest(config) {
   if (urlPath.startsWith('/system-design')) {
     ensureDemoSystemDesignData(db)
 
+    const defaultDemoVariants = [
+      { variant_id: 'standard-scale', title: 'Standard Scale Profile', focus_summary: 'Balanced throughput, SLA, and cost constraints' },
+      { variant_id: 'enterprise-compliance', title: 'Enterprise Compliance Profile', focus_summary: 'Strict privacy, audit trail, and YAGNI data governance' },
+      { variant_id: 'burst-global', title: 'Global Spike & Edge Profile', focus_summary: 'Extreme burst traffic, multi-region locality, and failover' },
+    ]
     const serializeChallenge = (c) => ({
       ...c,
       is_archived: Boolean(c.is_archived),
       expected_components: c.is_builtin ? [] : Array.isArray(c.expected_components) ? c.expected_components : [],
       scale_notes: c.is_builtin ? '' : String(c.scale_notes || ''),
+      available_variants: Array.isArray(c.available_variants) && c.available_variants.length
+        ? c.available_variants
+        : c.is_builtin
+          ? defaultDemoVariants
+          : [],
     })
 
     if (urlPath === '/system-design/challenges' && method === 'get') {
@@ -3032,17 +3042,40 @@ export async function handleDemoRequest(config) {
     }
 
     if (urlPath === '/system-design/sessions' && method === 'post') {
-      const challenge =
+      const challenge = serializeChallenge(
         db.system_design_challenges.find((c) => Number(c.id) === Number(data.challenge_id)) ||
-        db.system_design_challenges[0]
+          db.system_design_challenges[0]
+      )
       const nextId =
         db.system_design_sessions.reduce((maxId, s) => Math.max(maxId, Number(s.id) || 0), 0) + 1
       const nowIso = new Date().toISOString()
+      const variants = challenge.available_variants || []
+      const reqSeed = String(data.brief_seed || '').trim().toLowerCase()
+      const reqVariant = String(data.variant_id || '').trim()
+      const resolvedSeed = reqSeed || Math.random().toString(16).slice(2, 10).padEnd(8, '0')
+      let chosen = null
+      let selectionMode = 'random'
+      if (reqVariant && variants.length) {
+        chosen = variants.find((v) => v.variant_id === reqVariant) || variants[0]
+        selectionMode = 'explicit'
+      } else if (variants.length) {
+        let hash = 0
+        const key = `${challenge.slug}:${resolvedSeed}`
+        for (let i = 0; i < key.length; i += 1) {
+          hash = (hash * 31 + key.charCodeAt(i)) >>> 0
+        }
+        chosen = variants[hash % variants.length]
+      }
       const newSession = {
         id: nextId,
         challenge_id: challenge.id,
         application_id: data.application_id || null,
         mode: data.mode || 'ADAPTIVE',
+        brief_seed: resolvedSeed,
+        variant_id: selectionMode === 'explicit' ? chosen?.variant_id || 'default' : null,
+        variant_title: selectionMode === 'explicit' ? chosen?.title || null : null,
+        variant_focus: selectionMode === 'explicit' ? chosen?.focus_summary || null : null,
+        variant_selection_mode: selectionMode,
         stage: 'REQUIREMENTS',
         status: 'IN_PROGRESS',
         requirements_transcript: [

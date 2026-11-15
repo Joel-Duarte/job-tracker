@@ -101,6 +101,17 @@ class SystemDesignSessionModel(Base):
         default="ADAPTIVE",
         server_default=text("'ADAPTIVE'"),
     )
+    brief_seed: Mapped[str | None] = mapped_column(Text, nullable=True)
+    variant_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    variant_selection_mode: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="random",
+        server_default=text("'random'"),
+    )
+    # Hidden snapshot of the resolved interviewer brief for this specific session/seed.
+    # Must NEVER be exposed in candidate-facing Pydantic response schemas.
+    session_brief: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     stage: Mapped[str] = mapped_column(
         Text,
         nullable=False,

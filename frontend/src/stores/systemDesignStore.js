@@ -159,14 +159,23 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     }
   }
 
-  async function startSession(challengeId, mode = 'ADAPTIVE', applicationId = null) {
+  async function startSession(
+    challengeId,
+    mode = 'ADAPTIVE',
+    applicationId = null,
+    options = {}
+  ) {
     startingSession.value = true
     error.value = null
     try {
+      const cleanedSeed = options?.briefSeed ? String(options.briefSeed).trim() : ''
+      const cleanedVariant = options?.variantId ? String(options.variantId).trim() : ''
       const payload = {
         challenge_id: challengeId,
         mode,
         ...(applicationId ? { application_id: applicationId } : {}),
+        ...(cleanedSeed ? { brief_seed: cleanedSeed } : {}),
+        ...(cleanedVariant ? { variant_id: cleanedVariant } : {}),
       }
       const res = await SystemDesignAPI.startSession(payload)
       _syncSessionInList(res.data)

@@ -881,7 +881,11 @@ async def test_structured_interviewer_brief_and_url_shortener_stakeholder_rolepl
 
             sess_res = await ac.post(
                 "/api/v1/system-design/sessions",
-                json={"challenge_id": challenge_id, "mode": "INTERVIEW"},
+                json={
+                    "challenge_id": challenge_id,
+                    "mode": "INTERVIEW",
+                    "variant_id": "public-consumer-shortener",
+                },
             )
             assert sess_res.status_code == 201
             session_id = sess_res.json()["id"]
@@ -1036,3 +1040,380 @@ async def test_requirements_ledger_distinguishes_confirmed_assumptions_and_unres
             assert locked["requirements_ledger"]["unresolved_questions"] == []
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_seed_determinism_anti_repeat_and_explicit_variant_selection(
+    db_session: AsyncSession,
+):
+    """Verify anti-repeat random default, deterministic brief_seed replay, and explicit variant_id."""
+    from sqlalchemy import select
+
+    from app.models.system_design import SystemDesignSessionModel
+    from app.services.system_design_service import SystemDesignService
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            ch_res = await ac.get("/api/v1/system-design/challenges/url-shortener")
+            assert ch_res.status_code == 200
+            challenge = ch_res.json()
+            assert len(challenge["available_variants"]) == 3
+
+            # 1. Consecutive default blind starts never repeat immediately preceding variant_id
+            observed_variant_ids: list[str] = []
+            for _ in range(4):
+                s_res = await ac.post(
+                    "/api/v1/system-design/sessions",
+                    json={"challenge_id": challenge["id"], "mode": "ADAPTIVE"},
+                )
+                assert s_res.status_code == 201
+                payload = s_res.json()
+                assert payload["brief_seed"]
+                assert payload["variant_selection_mode"] == "random"
+                # Blind until COMPLETED
+                assert payload["variant_id"] is None
+                assert payload["variant_title"] is None
+                assert "session_brief" not in payload
+
+                row = (
+                    await db_session.execute(
+                        select(SystemDesignSessionModel).where(
+                            SystemDesignSessionModel.id == payload["id"]
+                        )
+                    )
+                ).scalar_one()
+                assert row.variant_id
+                if observed_variant_ids:
+                    assert row.variant_id != observed_variant_ids[-1]
+                observed_variant_ids.append(row.variant_id)
+
+            # 2. Seed determinism: same brief_seed always yields identical variant_id + session_brief
+            s_a = await ac.post(
+                "/api/v1/system-design/sessions",
+                json={
+                    "challenge_id": challenge["id"],
+                    "brief_seed": "staff-drill-99",
+                },
+            )
+            s_b = await ac.post(
+                "/api/v1/system-design/sessions",
+                json={
+                    "challenge_id": challenge["id"],
+                    "brief_seed": "STAFF-DRILL-99",
+                },
+            )
+            assert s_a.status_code == 201 and s_b.status_code == 201
+            assert s_a.json()["brief_seed"] == "staff-drill-99"
+            assert s_b.json()["brief_seed"] == "staff-drill-99"
+            row_a = await SystemDesignService.get_session(db_session, s_a.json()["id"])
+            row_b = await SystemDesignService.get_session(db_session, s_b.json()["id"])
+            assert row_a.variant_id == row_b.variant_id
+            assert row_a.session_brief == row_b.session_brief
+
+            # 3. Explicit variant selection reveals variant_title upfront and rejects invalid IDs
+            exp_res = await ac.post(
+                "/api/v1/system-design/sessions",
+                json={
+                    "challenge_id": challenge["id"],
+                    "variant_id": "enterprise-compliance-linker",
+                },
+            )
+            assert exp_res.status_code == 201
+            exp_data = exp_res.json()
+            assert exp_data["variant_selection_mode"] == "explicit"
+            assert exp_data["variant_id"] == "enterprise-compliance-linker"
+            assert exp_data["variant_title"] == "Enterprise Internal Compliance Linker"
+
+            bad_res = await ac.post(
+                "/api/v1/system-design/sessions",
+                json={
+                    "challenge_id": challenge["id"],
+                    "variant_id": "nonexistent-archetype",
+                },
+            )
+            assert bad_res.status_code == 400
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_variant_session_brief_isolation_across_all_pipeline_stages(
+    db_session: AsyncSession, tmp_path, monkeypatch
+):
+    """Stakeholder, Diagram Review, Defence, Final Evaluation, and Frontier Export all use session_brief."""
+    import base64
+    from unittest.mock import MagicMock
+
+    from app.services import system_design_service
+    from app.services.system_design_service import SystemDesignService
+
+    monkeypatch.setattr(
+        system_design_service,
+        "SYSTEM_DESIGN_DATA_DIR",
+        tmp_path,
+    )
+    png_bytes = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII="
+    )
+
+    captured_prompts: list[str] = []
+
+    async def _capture_llm(chat_model, messages, tracer, db, **kwargs):
+        sys_msg = next(
+            (m.content for m in messages if isinstance(m, SystemMessage)), ""
+        )
+        captured_prompts.append(str(sys_msg))
+        return AIMessage(
+            content="Enterprise PostgreSQL suffices for 150,000 employees."
+        )
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            ch_res = await ac.get("/api/v1/system-design/challenges/url-shortener")
+            challenge_id = ch_res.json()["id"]
+
+            # Explicit Enterprise Compliance Linker variant (150,000 employees, PostgreSQL YAGNI)
+            s_res = await ac.post(
+                "/api/v1/system-design/sessions",
+                json={
+                    "challenge_id": challenge_id,
+                    "variant_id": "enterprise-compliance-linker",
+                    "brief_seed": "ent-001",
+                },
+            )
+            assert s_res.status_code == 201
+            session_id = s_res.json()["id"]
+
+            # Stage B: Requirements Stakeholder prompt receives Enterprise brief, NOT Consumer/AdTech
+            with (
+                patch(
+                    "app.services.system_design_service.get_task_chat_model",
+                    new=AsyncMock(return_value=MagicMock()),
+                ),
+                patch(
+                    "app.services.system_design_service._invoke_llm_adaptive",
+                    new=_capture_llm,
+                ),
+            ):
+                msg_res = await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/requirements/message",
+                    json={"message": "Who are the users and expected scale?"},
+                )
+            assert msg_res.status_code == 200
+            assert "150,000 employees" in captured_prompts[-1]
+            assert "300M DAU" not in captured_prompts[-1]
+
+            # Lock ledger -> DESIGN
+            lock_res = await ac.put(
+                f"/api/v1/system-design/sessions/{session_id}/requirements/ledger",
+                json={
+                    "functional_requirements": ["Create internal SSO short links"],
+                    "non_functional_requirements": ["Audit trail for every redirect"],
+                    "scale_estimates": {"dau": "150,000 employees"},
+                    "out_of_scope": ["Public anonymous links"],
+                    "notes": "Enterprise compliant shortener",
+                    "is_locked": True,
+                },
+            )
+            assert lock_res.status_code == 200
+
+            # Upload diagram v1
+            up_res = await ac.post(
+                f"/api/v1/system-design/sessions/{session_id}/diagrams",
+                files={"file": ("arch.png", png_bytes, "image/png")},
+                data={"notes": "SSO proxy + Postgres"},
+            )
+            assert up_res.status_code == 201
+
+            # Stage C/D: prepare_diagram_review_context injects Enterprise session_brief
+            rev_ctx = await SystemDesignService.prepare_diagram_review_context(
+                db_session, session_id, diagram_version=1
+            )
+            assert "150,000 employees" in rev_ctx["sys_prompt"]
+            assert "300M DAU" not in rev_ctx["sys_prompt"]
+
+            # persist_architecture_review without suggested_defence_topics seeds from variant's defence_questions
+            reviewed = await SystemDesignService.persist_architecture_review(
+                db_session,
+                session_id,
+                {
+                    "diagram_version": 1,
+                    "interpreted_components": ["SSO Proxy", "PostgreSQL"],
+                    "interpreted_data_flows": [
+                        "Employee -> SSO Proxy -> App -> Postgres"
+                    ],
+                    "visual_clarifications_needed": [],
+                    "strengths": ["Avoided unnecessary distributed KGS"],
+                    "missing_components": [],
+                    "bottlenecks_and_spofs": [],
+                    "unnecessary_complexity": [],
+                    "requirement_gaps": [],
+                    "overall_impression": "Right-sized enterprise design.",
+                    "suggested_defence_topics": [],
+                },
+            )
+            session_obj = await SystemDesignService.get_session(db_session, session_id)
+            variant_q0 = session_obj.session_brief["defence_questions"][0]
+            assert reviewed.defence_transcript[0]["content"] == variant_q0
+
+            # Stage E: Defence turn receives Enterprise session_brief
+            with (
+                patch(
+                    "app.services.system_design_service.get_task_chat_model",
+                    new=AsyncMock(return_value=MagicMock()),
+                ),
+                patch(
+                    "app.services.system_design_service._invoke_llm_adaptive",
+                    new=_capture_llm,
+                ),
+            ):
+                def_res = await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/defence/message",
+                    json={
+                        "message": "PostgreSQL + SSO handles 150k corporate users easily."
+                    },
+                )
+            assert def_res.status_code == 200
+            assert "150,000 employees" in captured_prompts[-1]
+            assert "300M DAU" not in captured_prompts[-1]
+
+            # Stage F: Final Evaluation context + Frontier Packet inject Enterprise session_brief
+            eval_ctx = await SystemDesignService.prepare_final_evaluation_context(
+                db_session, session_id
+            )
+            assert "150,000 employees" in eval_ctx["sys_prompt"]
+            assert "300M DAU" not in eval_ctx["sys_prompt"]
+
+            packet_res = await ac.get(
+                f"/api/v1/system-design/sessions/{session_id}/frontier-packet"
+            )
+            assert packet_res.status_code == 200
+            md = packet_res.json()["markdown_packet"]
+            assert "#ent-001" in md
+            assert "150,000 employees" in md
+            assert "300M DAU" not in md
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_ai_challenge_generation_normalizes_three_variants(
+    db_session: AsyncSession,
+):
+    """Generated custom challenges store 3 distinct requirement variants playable by variant_id."""
+    import json
+
+    from app.services.system_design_service import SystemDesignService
+
+    generated_payload = {
+        "title": "Design a Real-Time Fraud Scoring Engine",
+        "category": "DATA_INFRASTRUCTURE",
+        "difficulty": "HARD",
+        "prompt_summary": "Score card swipes and transfers in real time.",
+        "initial_prompt": "Design a fraud scoring system. Clarify SLA, traffic, and constraints first.",
+        "tags": ["fraud", "streaming", "low-latency"],
+        "interviewer_brief": {
+            "variants": [
+                {
+                    "variant_id": "lean-neobank-mvp",
+                    "title": "Lean Neobank Rules Engine",
+                    "focus_summary": "Deterministic rules with single-region PostgreSQL.",
+                    "business_context": {"product_goal": "Launch basic rule scoring"},
+                    "scale_estimates": {"qps": "500 req/s"},
+                    "functional_requirements": ["Score swipe rules"],
+                    "non_functional_requirements": ["< 80ms p99"],
+                    "constraints": ["Zero ML infra team"],
+                    "priorities": ["P0: Simple deterministic rules"],
+                    "out_of_scope": ["Deep neural embeddings"],
+                    "expected_components": ["Rule Engine", "PostgreSQL"],
+                    "over_engineering_traps": ["Flink + Kafka for 500 QPS"],
+                    "defence_questions": [
+                        "Why avoid streaming stateful engines at 500 QPS?"
+                    ],
+                },
+                {
+                    "variant_id": "global-card-network",
+                    "title": "Global Card Network Scorer",
+                    "focus_summary": "100k TPS multi-region online feature store + Flink.",
+                    "business_context": {"product_goal": "Global issuer fraud SLA"},
+                    "scale_estimates": {"qps": "100,000 TPS peak"},
+                    "functional_requirements": ["Real-time velocity features"],
+                    "non_functional_requirements": ["< 25ms p99 strict failover"],
+                    "constraints": ["PCI-DSS cardholder isolation"],
+                    "priorities": ["P0: Fail-open/fallback rule circuit breaker"],
+                    "out_of_scope": ["Batch tax reporting"],
+                    "expected_components": [
+                        "Edge Scorer",
+                        "Redis Feature Store",
+                        "Flink",
+                    ],
+                    "over_engineering_traps": ["Synchronous cross-ocean consensus"],
+                    "defence_questions": [
+                        "How do you keep feature freshness under 1s across regions?"
+                    ],
+                },
+                {
+                    "variant_id": "crypto-withdrawal-guard",
+                    "title": "Exchange Withdrawal Hold Guard",
+                    "focus_summary": "Fail-closed high-value anomaly review with human escalation.",
+                    "business_context": {
+                        "product_goal": "Prevent irreversible on-chain drains"
+                    },
+                    "scale_estimates": {"qps": "4,000 withdrawals/s peak"},
+                    "functional_requirements": [
+                        "Graph risk scoring",
+                        "Manual analyst queue",
+                    ],
+                    "non_functional_requirements": [
+                        "Zero false-negative bypass (fail-closed)"
+                    ],
+                    "constraints": ["Irreversible ledger settlements"],
+                    "priorities": ["P0: Fail-closed holds on score timeout"],
+                    "out_of_scope": ["Credit card chargebacks"],
+                    "expected_components": [
+                        "Hold State Machine",
+                        "Graph Store",
+                        "Analyst Case Queue",
+                    ],
+                    "over_engineering_traps": [
+                        "Fail-open auto-approvals during timeouts"
+                    ],
+                    "defence_questions": [
+                        "Why is fail-closed mandatory here unlike retail checkout?"
+                    ],
+                },
+            ]
+        },
+    }
+
+    ctx = {
+        "topic_text": "Real-Time Fraud Scoring",
+        "difficulty": "HARD",
+    }
+    challenge = await SystemDesignService.persist_generated_challenge(
+        db_session, ctx, generated_payload
+    )
+    variants = challenge.interviewer_brief.get("variants") or []
+    assert len(variants) == 3
+
+    # Top-level brief inherits primary variant fallback cleanly
+    assert challenge.interviewer_brief.get("expected_components") == [
+        "Rule Engine",
+        "PostgreSQL",
+    ]
+
+    # Starting an explicit session on variant 3 snapshots ONLY variant 3 into session_brief
+    session = await SystemDesignService.start_session(
+        db_session,
+        challenge.id,
+        variant_id="crypto-withdrawal-guard",
+        brief_seed="fraud-test-seed",
+    )
+    assert session.variant_id == "crypto-withdrawal-guard"
+    assert session.session_brief["scale_estimates"]["qps"] == "4,000 withdrawals/s peak"
+    assert "variants" not in session.session_brief
+    assert "global-card-network" not in json.dumps(session.session_brief)

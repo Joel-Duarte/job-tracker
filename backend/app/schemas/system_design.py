@@ -8,6 +8,39 @@ SystemDesignStage = Literal["REQUIREMENTS", "DESIGN", "REVIEW", "DEFENCE", "COMP
 SystemDesignStatus = Literal["IN_PROGRESS", "COMPLETED", "ABANDONED"]
 
 
+class ChallengeVariantSummary(BaseModel):
+    """Candidate-safe summary of an available architectural variant profile."""
+
+    variant_id: str
+    title: str
+    focus_summary: str = ""
+
+
+def _extract_available_variants(brief: Any) -> list[dict[str, str]]:
+    """Extract only candidate-safe variant labels from interviewer_brief['variants']."""
+    if not isinstance(brief, dict):
+        return []
+    raw_variants = brief.get("variants")
+    if not isinstance(raw_variants, list):
+        return []
+    summaries: list[dict[str, str]] = []
+    for idx, item in enumerate(raw_variants, start=1):
+        if not isinstance(item, dict):
+            continue
+        vid = str(item.get("variant_id") or f"variant-{idx}").strip()
+        title = str(item.get("title") or f"Profile {idx}").strip()
+        focus = str(item.get("focus_summary") or "").strip()
+        if vid and title:
+            summaries.append(
+                {
+                    "variant_id": vid,
+                    "title": title,
+                    "focus_summary": focus,
+                }
+            )
+    return summaries
+
+
 class SystemDesignChallengeRead(BaseModel):
     """Candidate-safe challenge projection.
 
@@ -31,6 +64,7 @@ class SystemDesignChallengeRead(BaseModel):
     is_archived: bool = False
     expected_components: list[str] = Field(default_factory=list)
     scale_notes: str = ""
+    available_variants: list[ChallengeVariantSummary] = Field(default_factory=list)
     created_at: datetime
 
     @model_validator(mode="before")
@@ -39,11 +73,13 @@ class SystemDesignChallengeRead(BaseModel):
         if isinstance(value, dict):
             result = dict(value)
             is_builtin = bool(result.get("is_builtin", True))
+            brief = result.get("interviewer_brief") or {}
+            if "available_variants" not in result and "interviewer_brief" in result:
+                result["available_variants"] = _extract_available_variants(brief)
             if is_builtin:
                 result["expected_components"] = []
                 result["scale_notes"] = ""
             elif "interviewer_brief" in result:
-                brief = result.get("interviewer_brief") or {}
                 hidden = brief.get("hidden_context") or {}
                 if "expected_components" not in result:
                     result["expected_components"] = [
@@ -56,10 +92,11 @@ class SystemDesignChallengeRead(BaseModel):
             return result
 
         is_builtin = bool(getattr(value, "is_builtin", True))
+        brief = getattr(value, "interviewer_brief", None) or {}
+        available_variants = _extract_available_variants(brief)
         expected_components: list[str] = []
         scale_notes = ""
         if not is_builtin:
-            brief = getattr(value, "interviewer_brief", None) or {}
             hidden = brief.get("hidden_context") or {}
             expected_components = [
                 str(item)
@@ -81,6 +118,7 @@ class SystemDesignChallengeRead(BaseModel):
             "is_archived": bool(getattr(value, "is_archived", False)),
             "expected_components": expected_components,
             "scale_notes": scale_notes,
+            "available_variants": available_variants,
             "created_at": value.created_at,
         }
 
@@ -174,6 +212,8 @@ class SystemDesignSessionCreate(BaseModel):
     challenge_id: int
     application_id: int | None = None
     mode: SystemDesignMode = "ADAPTIVE"
+    brief_seed: str | None = Field(default=None, max_length=64)
+    variant_id: str | None = Field(default=None, max_length=80)
 
 
 class SystemDesignChallengeCreate(BaseModel):
@@ -294,6 +334,11 @@ class SystemDesignSessionRead(BaseModel):
     challenge_id: int
     application_id: int | None = None
     mode: str
+    brief_seed: str | None = None
+    variant_id: str | None = None
+    variant_title: str | None = None
+    variant_focus: str | None = None
+    variant_selection_mode: str = "random"
     stage: str
     status: str
     requirements_transcript: list[dict[str, Any]] = Field(default_factory=list)
@@ -316,3 +361,72 @@ class SystemDesignSessionRead(BaseModel):
     active_task_attempt_count: int = 0
     active_task_completed_steps: list[str] = Field(default_factory=list)
     active_task_provider: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _mask_blind_variant_and_strip_brief(cls, value: Any) -> Any:
+        def _get(field: str, default: Any = None) -> Any:
+            if isinstance(value, dict):
+                return value.get(field, default)
+            return getattr(value, field, default)
+
+        selection_mode = str(_get("variant_selection_mode", "random") or "random")
+        status_val = str(_get("status", "IN_PROGRESS") or "IN_PROGRESS")
+        reveal_variant = status_val == "COMPLETED" or selection_mode != "random"
+        raw_brief = _get("session_brief")
+        session_brief = raw_brief if isinstance(raw_brief, dict) else {}
+
+        data = (
+            dict(value)
+            if isinstance(value, dict)
+            else {
+                "id": _get("id"),
+                "challenge_id": _get("challenge_id"),
+                "application_id": _get("application_id"),
+                "mode": _get("mode"),
+                "brief_seed": _get("brief_seed"),
+                "variant_id": _get("variant_id"),
+                "variant_selection_mode": selection_mode,
+                "stage": _get("stage"),
+                "status": status_val,
+                "requirements_transcript": list(_get("requirements_transcript") or []),
+                "requirements_ledger": dict(_get("requirements_ledger") or {}),
+                "diagrams_metadata": list(_get("diagrams_metadata") or []),
+                "architecture_reviews": list(_get("architecture_reviews") or []),
+                "defence_transcript": list(_get("defence_transcript") or []),
+                "final_evaluation": _get("final_evaluation"),
+                "overall_score": _get("overall_score"),
+                "readiness_rating": _get("readiness_rating"),
+                "created_at": _get("created_at"),
+                "updated_at": _get("updated_at"),
+                "completed_at": _get("completed_at"),
+                "challenge": _get("challenge"),
+                "active_task_id": _get("active_task_id"),
+                "active_task_status": _get("active_task_status"),
+                "active_task_stage": _get("active_task_stage"),
+                "active_task_type": _get("active_task_type"),
+                "active_task_error": _get("active_task_error"),
+                "active_task_attempt_count": int(
+                    _get("active_task_attempt_count") or 0
+                ),
+                "active_task_completed_steps": list(
+                    _get("active_task_completed_steps") or []
+                ),
+                "active_task_provider": _get("active_task_provider"),
+            }
+        )
+        data.pop("session_brief", None)
+        if reveal_variant:
+            data["variant_title"] = session_brief.get("variant_title") or data.get(
+                "variant_title"
+            )
+            data["variant_focus"] = (
+                session_brief.get("focus_summary")
+                or session_brief.get("variant_focus")
+                or data.get("variant_focus")
+            )
+        else:
+            data["variant_id"] = None
+            data["variant_title"] = None
+            data["variant_focus"] = None
+        return data
