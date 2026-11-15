@@ -368,7 +368,7 @@ async def test_adaptive_default_mode_and_assisted_hint_tracking(
 
             first_sys = mock_model.ainvoke.call_args_list[0].args[0][0].content
             second_sys = mock_model.ainvoke.call_args_list[1].args[0][0].content
-            assert "ADAPTIVE INTERVIEWER MODE" in first_sys
+            assert "ADAPTIVE STAKEHOLDER MODE" in first_sys
             assert "COACHING HINT REQUESTED" not in first_sys
             assert "COACHING HINT REQUESTED" in second_sys
     finally:
@@ -801,5 +801,238 @@ async def test_f02_backend_stage_enforcement_and_completed_immutability(
                     json={"raw_response": '{"rubric_scores": []}'},
                 )
             ).status_code == 400
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_structured_interviewer_brief_and_url_shortener_stakeholder_roleplay(
+    db_session: AsyncSession,
+):
+    """Stakeholder roleplay answers concrete brief facts progressively, handles unspecified items, and auto-heals legacy prompts."""
+    import json
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from sqlalchemy import select
+
+    from app.core.prompts import DEFAULT_PROMPTS, PromptModel, seed_default_prompts
+    from app.models.system_design import SystemDesignChallengeModel
+    from app.services.system_design_seed import seed_system_design_challenges
+
+    await seed_system_design_challenges(db_session)
+    challenges = (
+        (await db_session.execute(select(SystemDesignChallengeModel))).scalars().all()
+    )
+    assert len(challenges) == 8
+    required_brief_keys = {
+        "business_context",
+        "scale_estimates",
+        "functional_requirements",
+        "non_functional_requirements",
+        "constraints",
+        "priorities",
+        "out_of_scope",
+    }
+    for ch in challenges:
+        brief = ch.interviewer_brief or {}
+        missing = required_brief_keys - set(brief.keys())
+        assert not missing, f"{ch.slug} missing structured brief keys: {missing}"
+
+    # Verify legacy interviewer prompt in DB gets auto-healed to stakeholder roleplay
+    legacy = PromptModel(
+        name="system_design_interviewer",
+        template="Old prompt: Make the candidate drive discovery. push back and ask what workload or SLA justifies it.",
+    )
+    db_session.add(legacy)
+    await db_session.commit()
+    await seed_default_prompts(db_session)
+    await db_session.commit()
+    await db_session.refresh(legacy)
+    assert legacy.template == DEFAULT_PROMPTS["system_design_interviewer"]
+    assert "Stakeholder" in legacy.template
+    assert "NEVER BOUNCE" in legacy.template
+
+    captured_prompts: list[str] = []
+    scenario_replies = {
+        "creation volume": "We expect about 3.3M new shortened URLs created per day (~100M/month), averaging 40 writes/s and peaking at 120 writes/s.",
+        "user traffic": "We have ~80M MAU and 20M DAU generating ~330M redirects per day (~4,000 QPS average, ~12,000 QPS peak) at a 100:1 read-to-write ratio.",
+        "expire": "Links have a default 5-year retention lifecycle (~300M active records), and creators can optionally set an explicit TTL (returning HTTP 410/404 once expired).",
+        "public or private": "Short links are public by default with no login required to redirect; 7-char Base62 codes must be non-sequential and non-predictable to prevent enumeration, with HTTPS and malicious URL blocklist checks.",
+        "analytics": "Click count analytics are asynchronous and eventually consistent—a 1-5 minute freshness lag is acceptable so analytics never slow down the <30ms p99 redirect path.",
+        "qr code": "QR code generation is not specified in our current business requirements. As a baseline assumption, we can treat QR rendering as a client-side or separate post-MVP add-on if you want to note that.",
+    }
+
+    async def fake_invoke(chat_model, messages, tracer, db, task_type=None):
+        sys_msg = str(messages[0].content)
+        captured_prompts.append(sys_msg)
+        last_user = str(messages[-1].content).lower()
+        for key, text in scenario_replies.items():
+            if key in last_user:
+                return MagicMock(content=text)
+        return MagicMock(content="Unmatched test turn.")
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            ch_res = await ac.get("/api/v1/system-design/challenges/url-shortener")
+            assert ch_res.status_code == 200
+            challenge_id = ch_res.json()["id"]
+
+            sess_res = await ac.post(
+                "/api/v1/system-design/sessions",
+                json={"challenge_id": challenge_id, "mode": "INTERVIEW"},
+            )
+            assert sess_res.status_code == 201
+            session_id = sess_res.json()["id"]
+
+            questions_and_assertions = [
+                (
+                    "What is our expected daily URL creation volume?",
+                    ["3.3M", "100M/month"],
+                ),
+                (
+                    "What user traffic (MAU/DAU and redirect QPS) should we expect?",
+                    ["80M MAU", "20M DAU", "330M redirects", "12,000 QPS"],
+                ),
+                ("Do links expire or have a TTL?", ["5-year", "TTL"]),
+                (
+                    "Are links public or private, and what are the security expectations?",
+                    ["public", "non-predictable", "HTTPS"],
+                ),
+                (
+                    "What consistency and freshness do we need for click analytics?",
+                    ["eventually consistent", "1-5 minute"],
+                ),
+                (
+                    "Should we support QR code generation for each short link?",
+                    ["not specified", "assumption"],
+                ),
+            ]
+
+            with (
+                patch(
+                    "app.services.system_design_service.get_task_chat_model",
+                    new=AsyncMock(return_value=MagicMock()),
+                ),
+                patch(
+                    "app.services.system_design_service._invoke_llm_adaptive",
+                    side_effect=fake_invoke,
+                ),
+            ):
+                for question, expected_tokens in questions_and_assertions:
+                    res = await ac.post(
+                        f"/api/v1/system-design/sessions/{session_id}/requirements/message",
+                        json={"message": question},
+                    )
+                    assert res.status_code == 200
+                    transcript = res.json()["requirements_transcript"]
+                    reply = transcript[-1]["content"]
+                    for token in expected_tokens:
+                        assert token in reply
+                    assert "what do you think" not in reply.lower()
+
+            # Ensure the hidden brief was injected into the stakeholder system prompt
+            assert len(captured_prompts) == 6
+            brief_check = json.dumps({"daily_creation_volume": "3.3M"})
+            assert "3.3M new shortened URLs" in captured_prompts[0]
+            assert "80M monthly active users" in captured_prompts[0]
+            assert "non-sequential" in captured_prompts[0]
+            assert brief_check  # keep lint clean
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_requirements_ledger_distinguishes_confirmed_assumptions_and_unresolved(
+    db_session: AsyncSession,
+):
+    """Live ledger extraction and manual update distinguish confirmed requirements, assumptions, and unresolved questions."""
+    import json
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            ch_res = await ac.get("/api/v1/system-design/challenges/url-shortener")
+            challenge_id = ch_res.json()["id"]
+            sess_res = await ac.post(
+                "/api/v1/system-design/sessions",
+                json={"challenge_id": challenge_id, "mode": "ADAPTIVE"},
+            )
+            session_id = sess_res.json()["id"]
+
+            extracted_json = json.dumps(
+                {
+                    "functional_requirements": [
+                        "Create 7-char Base62 short URLs",
+                        "Optional user-specified TTL expiration",
+                    ],
+                    "non_functional_requirements": [
+                        "99.99% redirect availability",
+                        "p99 redirect latency < 30ms",
+                        "Eventual consistency (1-5 min lag) for click analytics",
+                    ],
+                    "scale_estimates": {
+                        "creation_volume": "3.3M/day (~100M/month)",
+                        "traffic": "80M MAU, 20M DAU, 12,000 peak redirect QPS",
+                    },
+                    "out_of_scope": ["Custom branded domain SSL"],
+                    "assumptions": [
+                        "Assumption: QR code rendering deferred to client side post-MVP"
+                    ],
+                    "unresolved_questions": [
+                        "Whether custom aliases require authenticated user accounts"
+                    ],
+                    "notes": "Focus on read-heavy redirect cache path.",
+                }
+            )
+
+            with (
+                patch(
+                    "app.services.system_design_service.get_task_chat_model",
+                    new=AsyncMock(return_value=MagicMock()),
+                ),
+                patch(
+                    "app.services.system_design_service._invoke_llm_adaptive",
+                    new=AsyncMock(return_value=MagicMock(content=extracted_json)),
+                ),
+            ):
+                ext_res = await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/requirements/extract"
+                )
+            assert ext_res.status_code == 200
+            ledger = ext_res.json()["requirements_ledger"]
+            assert ledger["assumptions"] == [
+                "Assumption: QR code rendering deferred to client side post-MVP"
+            ]
+            assert ledger["unresolved_questions"] == [
+                "Whether custom aliases require authenticated user accounts"
+            ]
+            assert ledger["is_locked"] is False
+
+            # Locking ledger preserves assumptions & unresolved questions and advances stage to DESIGN
+            lock_res = await ac.put(
+                f"/api/v1/system-design/sessions/{session_id}/requirements/ledger",
+                json={
+                    "functional_requirements": ledger["functional_requirements"],
+                    "non_functional_requirements": ledger[
+                        "non_functional_requirements"
+                    ],
+                    "scale_estimates": ledger["scale_estimates"],
+                    "out_of_scope": ledger["out_of_scope"],
+                    "assumptions": ledger["assumptions"],
+                    "unresolved_questions": [],
+                    "notes": ledger["notes"],
+                    "is_locked": True,
+                },
+            )
+            assert lock_res.status_code == 200
+            locked = lock_res.json()
+            assert locked["stage"] == "DESIGN"
+            assert locked["requirements_ledger"]["is_locked"] is True
+            assert locked["requirements_ledger"]["assumptions"] == ledger["assumptions"]
+            assert locked["requirements_ledger"]["unresolved_questions"] == []
     finally:
         app.dependency_overrides.clear()

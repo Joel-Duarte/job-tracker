@@ -844,18 +844,24 @@ DEFAULT_PROMPTS = {
         "<generated_text>\n{generated_text}\n</generated_text>\n"
     ),
     "system_design_interviewer": (
-        "You are conducting a realistic System Design Interview for the challenge: {challenge_title}.\n\n"
+        "You are playing the role of the Stakeholder / Product Owner / Business Representative "
+        "for the system design challenge: {challenge_title}.\n"
+        "The user is the System Designer / Candidate interviewing YOU to discover and clarify "
+        "product requirements, scale targets, constraints, and priorities.\n\n"
         "MODE INSTRUCTION:\n{mode_instruction}\n\n"
         "CANDIDATE-FACING PROMPT:\n{initial_prompt}\n\n"
-        "HIDDEN INTERVIEWER BRIEF (GROUND TRUTH — DO NOT DUMP RAW JSON OR REVEAL UNASKED SOLUTION DETAILS):\n"
+        "HIDDEN INTERVIEWER BRIEF (GROUND TRUTH — REVEAL PROGRESSIVELY ONLY AS ASKED; NEVER DUMP RAW JSON OR SOLUTION ARCHITECTURE):\n"
         "{hidden_brief_json}\n\n"
         "CURRENT SESSION STAGE: {stage}\n"
         "CURRENT REQUIREMENTS LEDGER:\n{requirements_ledger_json}\n\n"
-        "INTERVIEWER RULES:\n"
-        "1. Answer only the specific clarifying questions the candidate asks, grounded in the Hidden Interviewer Brief.\n"
-        "2. Do NOT volunteer the entire list of requirements, scale numbers, or expected architecture upfront. Make the candidate drive discovery.\n"
-        "3. If the candidate proposes a premature technology choice before establishing scale or constraints, push back and ask what workload or SLA justifies it.\n"
-        "4. Keep responses concise (2-5 sentences), natural, and focused on 1-2 follow-up threads at a time."
+        "STAKEHOLDER ROLEPLAY RULES:\n"
+        "1. ANSWER DIRECTLY: When the candidate asks a clarifying question (traffic, DAU/MAU, creation volume, retention/TTL, privacy/security, analytics freshness, latency, availability, mandatory vs out-of-scope features), answer it directly using the concrete figures and facts in the Hidden Interviewer Brief.\n"
+        "2. CONCRETE NUMBERS ONLY: Give exact numbers from the brief (e.g., '20M DAU', '3.3M new URLs/day', '4,000 avg / 12,000 peak QPS', '< 30ms p99', '99.99% availability'). Never replace defined figures with vague phrases like 'high traffic' or 'millions of users'.\n"
+        "3. PROGRESSIVE DISCLOSURE: Disclose ONLY the information relevant to what the candidate just asked. Do NOT dump the entire Hidden Interviewer Brief or list unasked architecture components.\n"
+        "4. NEVER BOUNCE QUESTIONS BACK: Never respond to a candidate's clarifying question by asking them to guess or estimate it instead (e.g., never say 'What do you think the traffic should be?' or 'How would you define retention?'). You are the stakeholder being interviewed.\n"
+        "5. UNSPECIFIED REQUIREMENTS: If the brief genuinely does NOT specify something the candidate asks about, say explicitly that it is not specified in the business requirements yet. You may offer ONE reasonable baseline assumption, but you MUST clearly label it as an 'assumption' rather than an established business requirement.\n"
+        "6. OCCASIONAL FOLLOW-UP: After directly answering the candidate's question, you may occasionally mention one relevant business constraint or ask one brief trade-off question, but never instead of answering.\n"
+        "7. Keep responses concise (2-5 sentences), natural, and grounded in the brief."
     ),
     "system_design_reviewer": (
         "You are a Staff Systems Architect reviewing a candidate's system design submission for: {challenge_title}.\n\n"
@@ -879,6 +885,13 @@ async def seed_default_prompts(session: AsyncSession) -> None:
 
         if not existing:
             session.add(PromptModel(name=prompt_name, template=default_template))
+        elif prompt_name == "system_design_interviewer" and (
+            "Make the candidate drive discovery" in (existing.template or "")
+            or "push back and ask what workload or SLA justifies it"
+            in (existing.template or "")
+        ):
+            # Auto-heal legacy interviewer prompt that bounced clarifying questions back
+            existing.template = default_template
         elif prompt_name == "cv_anonymization" and (
             "{'domain'}" in (existing.template or "")
             or "{'domain" in (existing.template or "")

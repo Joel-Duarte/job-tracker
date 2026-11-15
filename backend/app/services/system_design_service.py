@@ -191,25 +191,27 @@ Respond ONLY with a single complete JSON object matching this exact schema:
 
 MODE_INSTRUCTIONS: dict[str, str] = {
     "ADAPTIVE": (
-        "ADAPTIVE INTERVIEWER MODE (Realistic Interview + On-Demand Coaching): "
-        "Conduct a realistic Staff-level system design interview where the candidate leads. "
-        "Do NOT volunteer unasked scale numbers, hints, or solutions during standard Q&A. "
+        "ADAPTIVE STAKEHOLDER MODE (Realistic Stakeholder + On-Demand Coaching): "
+        "During requirements discovery, act as the Product Owner / Business Stakeholder: "
+        "answer the candidate's clarifying questions directly using concrete figures from the brief "
+        "without dumping unasked sections or bouncing questions back. "
         "HOWEVER, when the candidate explicitly asks for help, a hint, or guidance (or when "
         "a coaching hint is requested for a turn), respond with a brief, constructive nudge "
-        "pointing out what constraint, bottleneck, or trade-off to think about next without "
+        "pointing out what requirement area, constraint, or trade-off to ask about next without "
         "handing over the full answer."
     ),
     "INTERVIEW": (
-        "INTERVIEW MODE (Strict Bar Raiser): Conduct a realistic Staff-level system design interview. "
-        "Never volunteer unasked scale figures, hints, or expected architectural components. "
-        "Answer only what the candidate explicitly asks, challenge vague assumptions, and ask them "
-        "to justify constraints or estimate numbers."
+        "INTERVIEW MODE (Strict Stakeholder): During requirements discovery, act strictly as the "
+        "Product Owner / Business Stakeholder being interviewed. Answer only what the candidate "
+        "explicitly asks using concrete figures from the brief; do not volunteer unasked sections "
+        "or coaching hints, and never bounce a clarifying question back to the candidate. "
+        "If something is not in the brief, state that it is unspecified."
     ),
     "PRACTICE": (
-        "PRACTICE / COACHING MODE (Collaborative Mentor): Help the candidate practice structured requirements "
-        "discovery while still letting them lead. Answer clarifying questions accurately, and if they ask for "
-        "hints or overlook essential constraint areas (such as read/write ratio, latency SLA, durability, or scale bounds), "
-        "provide brief, constructive nudges on what to consider next."
+        "PRACTICE / COACHING MODE (Collaborative Stakeholder): Answer the candidate's clarifying "
+        "questions directly with concrete figures from the brief, and if they ask for hints or "
+        "overlook essential constraint areas (such as read/write ratio, latency SLA, retention/TTL, "
+        "privacy, or analytics freshness), suggest 1-2 unexplored requirement areas to ask about next."
     ),
 }
 
@@ -221,9 +223,23 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown fe
   "category": "<DISTRIBUTED_SYSTEMS | DATA_INFRASTRUCTURE | REALTIME_COMMUNICATION | STREAMING_MEDIA | STORAGE_SYSTEMS | AI_PLATFORM>",
   "difficulty": "{difficulty}",
   "prompt_summary": "<1-2 sentence scenario summary shown on the challenge card>",
-  "initial_prompt": "<2-4 sentence intentionally broad opening interview prompt matching how a real interviewer opens the session without leaking scale numbers or answers>",
+  "initial_prompt": "<2-4 sentence intentionally broad opening interview prompt matching how a real stakeholder opens the session without leaking scale numbers or answers>",
   "tags": ["<tag1>", "<tag2>", "<tag3>"],
   "interviewer_brief": {{
+    "business_context": {{
+      "product_goal": "<core business/product objective>",
+      "target_users": "<who uses the system>"
+    }},
+    "scale_estimates": {{
+      "dau": "<concrete DAU/MAU target>",
+      "daily_volume": "<concrete daily writes/reads>",
+      "qps": "<average and peak QPS>"
+    }},
+    "functional_requirements": ["<core functional requirement 1>", "<core functional requirement 2>"],
+    "non_functional_requirements": ["<latency p99 target>", "<availability SLA>", "<consistency/privacy requirement>"],
+    "constraints": ["<business or operational constraint 1>"],
+    "priorities": ["P0: <top priority>", "P1: <secondary priority>"],
+    "out_of_scope": ["<explicitly excluded feature 1>"],
     "hidden_context": {{
       "scale_targets": "<concrete hidden DAU/QPS/storage/latency numbers revealed only when asked>",
       "key_constraints": ["<constraint 1>", "<constraint 2>"]
@@ -366,20 +382,26 @@ def _parse_strict_json_object(raw_text: str) -> dict[str, Any]:
 _extract_json_object = _parse_strict_json_object
 
 
-REQUIREMENTS_EXTRACTION_PROMPT = """You are extracting structured requirements from a System Design interview requirements-discovery conversation.
+REQUIREMENTS_EXTRACTION_PROMPT = """You are extracting structured requirements from a System Design interview requirements-discovery conversation between a Candidate and a Stakeholder.
 
 STRICT GROUNDING RULES:
-1. Extract ONLY functional requirements, non-functional requirements, scale estimates, out-of-scope decisions, and notes that were explicitly discussed, clarified, or agreed upon in the conversation below or already recorded in the existing ledger.
+1. Extract ONLY items that were explicitly discussed, clarified, assumed, or left open in the conversation below or already recorded in the existing ledger.
 2. Do NOT copy hidden metrics or unmentioned requirements from external knowledge.
-3. Preserve still-valid items from the existing ledger unless contradicted or refined by later turns.
-4. Respond ONLY with a valid JSON object matching this exact schema (no markdown fences):
+3. DISTINGUISH CONFIRMED VS ASSUMED VS UNRESOLVED:
+   - Put confirmed business answers and agreed requirements into `functional_requirements`, `non_functional_requirements`, `scale_estimates`, and `out_of_scope`.
+   - Put candidate-proposed or stakeholder-offered baseline assumptions (not yet confirmed as hard business requirements) into `assumptions`.
+   - Put open/unspecified questions or unresolved trade-offs awaiting confirmation into `unresolved_questions`.
+4. Preserve still-valid items from the existing ledger unless contradicted, resolved, or refined by later turns.
+5. Respond ONLY with a valid JSON object matching this exact schema (no markdown fences):
 {{
-  "functional_requirements": ["<item 1>", "<item 2>"],
-  "non_functional_requirements": ["<SLA/availability/consistency requirement>"],
+  "functional_requirements": ["<confirmed functional item>"],
+  "non_functional_requirements": ["<confirmed SLA/availability/consistency/privacy requirement>"],
   "scale_estimates": {{
-    "<metric_name>": "<estimate string>"
+    "<metric_name>": "<concrete estimate string>"
   }},
   "out_of_scope": ["<excluded feature>"],
+  "assumptions": ["<explicitly labeled assumption>"],
+  "unresolved_questions": ["<open or unspecified question>"],
   "notes": "<concise summary note>"
 }}
 
@@ -1375,7 +1397,7 @@ class SystemDesignService:
         )
         reply_text = strip_reasoning_tags(_extract_text_content(llm_res.content))
         if not reply_text:
-            reply_text = "Could you clarify the specific constraint or assumption you want to explore?"
+            reply_text = "I can share details on expected traffic, creation volume, retention/TTL, privacy, analytics, or latency SLAs—which requirement would you like to clarify first?"
 
         interviewer_turn = {
             "turn_index": len(transcript) + 1,
@@ -1448,6 +1470,10 @@ class SystemDesignService:
             ),
             scale_estimates=_normalize_scale_dict(parsed.get("scale_estimates")),
             out_of_scope=_normalize_string_list(parsed.get("out_of_scope")),
+            assumptions=_normalize_string_list(parsed.get("assumptions")),
+            unresolved_questions=_normalize_string_list(
+                parsed.get("unresolved_questions")
+            ),
             notes=str(
                 parsed.get("notes") or existing_ledger.get("notes") or ""
             ).strip(),
@@ -1486,6 +1512,10 @@ class SystemDesignService:
             ),
             scale_estimates=_normalize_scale_dict(payload.scale_estimates),
             out_of_scope=_normalize_string_list(payload.out_of_scope),
+            assumptions=_normalize_string_list(getattr(payload, "assumptions", [])),
+            unresolved_questions=_normalize_string_list(
+                getattr(payload, "unresolved_questions", [])
+            ),
             notes=payload.notes.strip(),
             is_locked=payload.is_locked,
         )

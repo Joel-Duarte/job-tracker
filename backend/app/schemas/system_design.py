@@ -86,12 +86,14 @@ class SystemDesignChallengeRead(BaseModel):
 
 
 class RequirementsLedgerSchema(BaseModel):
-    """Structured functional, non-functional, scale, and scope ledger."""
+    """Structured functional, non-functional, scale, scope, assumptions, and open-question ledger."""
 
     functional_requirements: list[str] = Field(default_factory=list)
     non_functional_requirements: list[str] = Field(default_factory=list)
     scale_estimates: dict[str, str] = Field(default_factory=dict)
     out_of_scope: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    unresolved_questions: list[str] = Field(default_factory=list)
     notes: str = ""
     is_locked: bool = False
 
@@ -271,6 +273,8 @@ class RequirementsLedgerUpdateRequest(BaseModel):
     non_functional_requirements: list[str] = Field(default_factory=list)
     scale_estimates: dict[str, str] = Field(default_factory=dict)
     out_of_scope: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    unresolved_questions: list[str] = Field(default_factory=list)
     notes: str = ""
     is_locked: bool = False
 

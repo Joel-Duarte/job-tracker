@@ -20,11 +20,55 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
         ),
         "tags": ["hashing", "caching", "key-generation", "redirects", "read-heavy"],
         "interviewer_brief": {
+            "business_context": {
+                "product_goal": "Global public URL shortening service for consumers, marketers, and API integrations to share compact links and track basic aggregate click counts.",
+                "target_users": "Public web visitors following links, anonymous/authenticated link creators, and internal partner apps.",
+                "privacy_and_access": "Short links are public by default (no authentication required to follow a redirect); short codes must be non-sequential and non-predictable to prevent enumeration/scraping; HTTPS enforced and malicious URLs blocked.",
+                "analytics_model": "Basic aggregate click count per short link via asynchronous eventual consistency (1-5 minute freshness lag is acceptable; never block the redirect path).",
+            },
+            "scale_estimates": {
+                "mau": "~80M monthly active users (MAU)",
+                "dau": "20M daily active users (DAU)",
+                "daily_creation_volume": "~3.3M new shortened URLs created per day (~100M/month; ~40 writes/s average, ~120 writes/s peak)",
+                "daily_redirect_volume": "~330M redirects/day (~4,000 redirect QPS average, ~12,000 peak QPS; 100:1 read-to-write ratio)",
+                "payload_and_storage": "~500 bytes per URL mapping record; 7-char Base62 short codes; ~300M active records over 5 years (~1.5 TB raw mapping data)",
+            },
+            "functional_requirements": [
+                "Create a unique 7-character Base62 short URL from a valid long URL",
+                "Optional custom short alias selection with uniqueness/collision handling",
+                "Redirect from short code to original URL (HTTP 301 vs 302 trade-off)",
+                "Default 5-year link retention lifecycle plus optional user-specified TTL/expiration timestamp",
+                "Asynchronous eventual-consistency click count analytics",
+            ],
+            "non_functional_requirements": [
+                "99.99% availability on the redirect read path",
+                "p99 redirect latency < 30ms; link creation latency < 200ms",
+                "Zero short-code collisions and non-predictable/non-sequential codes for link privacy",
+                "Eventual consistency acceptable for click analytics (1-5 minute lag); read path decoupled from analytics writes",
+            ],
+            "constraints": [
+                "Global user base: reads served globally at low latency; writes can terminate in regional primaries",
+                "Default retention is 5 years unless an explicit shorter TTL is provided; expired links return HTTP 410/404",
+                "No authentication required on redirect path; malicious/phishing destination URLs must be rejected",
+            ],
+            "priorities": [
+                "P0: Fast (<30ms p99) and highly available (99.99%) URL redirects",
+                "P1: Collision-free, non-predictable 7-char Base62 code generation and default 5-year lifecycle + optional TTL",
+                "P2: Eventual-consistency click counting and optional custom aliases",
+            ],
+            "out_of_scope": [
+                "Interstitial link-preview or warning pages",
+                "User billing, paid plans, or subscription management",
+                "Custom branded domain SSL certificate provisioning",
+                "Real-time sub-second streaming analytics dashboards",
+            ],
             "hidden_context": {
-                "dau": "20M daily active users; ~100M new shortened URLs created per month",
-                "read_write_ratio": "100:1 read-heavy (~4,000 redirect QPS average, ~12,000 peak QPS; ~40 writes/s average, ~120 peak)",
+                "dau": "80M MAU; 20M daily active users; ~3.3M new URLs/day (~100M/month)",
+                "read_write_ratio": "100:1 read-heavy (~330M redirects/day; ~4,000 redirect QPS average, ~12,000 peak QPS; ~40 writes/s average, ~120 peak)",
                 "payload_size": "~500 bytes per URL mapping record; short code length 7 chars (Base62)",
-                "retention": "Default 5-year retention (~300M total records over 5 years, ~1.5 TB raw mapping data)",
+                "retention": "Default 5-year retention (~300M total records over 5 years, ~1.5 TB raw mapping data) plus optional user-specified TTL",
+                "privacy_and_security": "Public links by default (no login to redirect); non-sequential/non-predictable short codes; HTTPS + URL blocklist",
+                "analytics": "Asynchronous eventual consistency (1-5 min lag acceptable; decoupled from redirect latency)",
                 "latency_sla": "p99 redirect latency < 30ms; link creation < 200ms",
                 "availability_target": "99.99% availability on redirects (eventual consistency acceptable for analytics)",
                 "geographic_distribution": "Global user base; reads served globally, writes can terminate in regional primaries",
@@ -88,6 +132,38 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
             "yagni",
         ],
         "interviewer_brief": {
+            "business_context": {
+                "product_goal": "Right-sized consumer audio streaming platform intentionally capped at 100,000 registered users with cost efficiency and operational simplicity.",
+                "target_users": "100,000 registered listeners streaming playlists and search results across mobile and web.",
+            },
+            "scale_estimates": {
+                "registered_users": "100,000 registered users (~30,000 DAU)",
+                "concurrent_streams": "~3,000-5,000 concurrent audio streams at evening peak",
+                "qps": "~500 QPS peak metadata/search reads; < 20 QPS playlist/like writes (99:1 read-heavy)",
+                "catalog_storage": "500,000 tracks (~5 MB average = ~2.5 TB base; ~10 TB across bitrates)",
+            },
+            "functional_requirements": [
+                "Stream audio tracks with chunked HTTP range requests / adaptive bitrate",
+                "Browse catalog and search songs, artists, and albums",
+                "Create and manage user playlists and liked tracks",
+                "Basic play count and listening history tracking",
+            ],
+            "non_functional_requirements": [
+                "Playback start time < 300ms; search/browse < 150ms",
+                "99.9% availability (~8.7 hours/year downtime acceptable); single primary region + edge CDN",
+                "Operational simplicity and low egress cost via Object Storage + CDN",
+            ],
+            "constraints": [
+                "Lean growth-stage team: avoid multi-region active-active or unnecessary distributed brokers",
+                "Single continent deployment with edge CDN caching for audio chunks",
+            ],
+            "priorities": [
+                "P0: Smooth CDN-backed playback (<300ms start) and simple catalog/playlist APIs",
+                "P1: Right-sized single-region architecture without over-engineering",
+            ],
+            "out_of_scope": [
+                "Social live listening rooms, podcast recording studio, and real-time ML audio fingerprinting",
+            ],
             "hidden_context": {
                 "dau": "100,000 registered users; ~30,000 DAU; ~3,000-5,000 concurrent audio streams at evening peak",
                 "read_write_ratio": "99:1 read-heavy; audio metadata/search ~500 QPS peak; playlists/likes writes < 20 QPS",
@@ -148,6 +224,38 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
         ),
         "tags": ["pub-sub", "websockets", "queues", "idempotency", "fan-out"],
         "interviewer_brief": {
+            "business_context": {
+                "product_goal": "Multi-channel notification delivery platform supporting OTP/security alerts and high-volume product/marketing notifications.",
+                "target_users": "Internal producer microservices and 10M DAU end users across push, in-app, email, and SMS.",
+            },
+            "scale_estimates": {
+                "dau": "10M DAU",
+                "daily_volume": "~200M notifications/day (60% push, 25% in-app, 12% email, 3% SMS)",
+                "qps": "~50,000 notifications/sec peak burst fan-out; ~5,000 reads/sec for in-app inbox",
+            },
+            "functional_requirements": [
+                "Ingest notification events from internal producer services",
+                "Enforce user opt-out preferences, quiet hours, and deduplication",
+                "Deliver across Push (APNs/FCM), Email, SMS, and In-App WebSockets",
+                "Separate priority lanes (critical OTP vs bulk promotional)",
+                "In-app notification inbox with read/unread state",
+            ],
+            "non_functional_requirements": [
+                "OTP/security alerts < 2s p99; promotional digests within 60s",
+                "99.95% availability; at-least-once delivery with idempotency keys",
+                "Priority isolation and circuit breaking against third-party provider outages",
+            ],
+            "constraints": [
+                "External gateways (Twilio/APNs/FCM/SES) have rate limits and intermittent timeouts",
+                "Strict per-user rate limits and quiet-hour compliance",
+            ],
+            "priorities": [
+                "P0: Critical OTP/security delivery < 2s p99 unaffected by bulk campaigns",
+                "P1: Idempotent at-least-once delivery and DLQ recovery",
+            ],
+            "out_of_scope": [
+                "WYSIWYG marketing campaign drag-and-drop template editor and A/B revenue attribution",
+            ],
             "hidden_context": {
                 "dau": "10M DAU; ~200M notifications/day across channels (push 60%, in-app 25%, email 12%, SMS 3%)",
                 "read_write_ratio": "High burst writes during breaking events (~50k notifications/sec peak fan-out); ~5k in-app unread count reads/sec",
@@ -206,6 +314,38 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
         ),
         "tags": ["geospatial", "geohash", "h3", "matching", "state-machine"],
         "interviewer_brief": {
+            "business_context": {
+                "product_goal": "Real-time rider-driver geospatial matching, GPS location tracking, and trip dispatch state machine.",
+                "target_users": "10M riders and 1M peak active drivers globally across metro regions.",
+            },
+            "scale_estimates": {
+                "daily_trips": "5M daily trips",
+                "active_fleet": "1M active drivers at peak; 10M riders",
+                "write_qps": "~250,000 GPS updates/sec sustained (500,000/sec peak, 4s heartbeat)",
+                "matching_qps": "~2,000 ride requests/sec peak globally",
+            },
+            "functional_requirements": [
+                "Ingest continuous driver GPS heartbeats every 4 seconds",
+                "Show nearby available drivers to riders",
+                "Match ride requests to nearby drivers with offer timeout and fallback",
+                "Manage strongly consistent trip lifecycle state transitions",
+            ],
+            "non_functional_requirements": [
+                "Driver location query < 50ms; ride match proposal < 3 seconds",
+                "99.99% availability on dispatch and trip transitions",
+                "Strong consistency on driver assignment (never double-book a driver)",
+            ],
+            "constraints": [
+                "Workload is partitioned naturally by city/metro region",
+                "Location index may be a few seconds stale; trip acceptance must be atomic",
+            ],
+            "priorities": [
+                "P0: Zero double-bookings and <3s dispatch matching under 250k-500k GPS updates/sec",
+                "P1: Graceful recovery if a driver disconnects mid-offer",
+            ],
+            "out_of_scope": [
+                "Detailed payments settlement ledger and ML surge-pricing model training",
+            ],
             "hidden_context": {
                 "dau": "5M daily trips; 1M active drivers at peak globally; 10M riders",
                 "location_update_rate": "Drivers emit GPS heartbeat every 4 seconds (~250,000 location updates/sec sustained, 500k peak)",
@@ -263,6 +403,37 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
         ),
         "tags": ["queues", "visibility-timeout", "dlq", "scheduling", "idempotency"],
         "interviewer_brief": {
+            "business_context": {
+                "product_goal": "Multi-tenant distributed background job execution platform with delayed scheduling, retries, leases, and fair queuing.",
+                "target_users": "Internal engineering teams and multi-tenant SaaS workloads submitting async tasks.",
+            },
+            "scale_estimates": {
+                "enqueue_qps": "10,000 jobs/sec average; 50,000 jobs/sec burst",
+                "execution_duration": "200ms to 15 minutes per job",
+                "scheduling_horizon": "Immediate and delayed jobs up to 30 days ahead",
+            },
+            "functional_requirements": [
+                "Submit immediate, prioritized, and delayed jobs up to 30 days out",
+                "Lease jobs to workers with heartbeats / visibility timeout renewal",
+                "Retry failed jobs with exponential backoff + jitter and Dead Letter Queue (DLQ)",
+                "Query job status, cancel pending jobs, and enforce per-tenant fairness",
+            ],
+            "non_functional_requirements": [
+                "Immediate jobs dispatched within 500ms when workers are available",
+                "99.99% enqueue durability (zero silent job loss after ACK)",
+                "At-least-once execution with automatic dead-worker lease recovery",
+            ],
+            "constraints": [
+                "Long-running 15-minute jobs must not be prematurely stolen by short fixed timeouts",
+                "Noisy-neighbor tenant flooding 1M jobs must not starve other tenants",
+            ],
+            "priorities": [
+                "P0: Durable enqueue, lease-based crash recovery, and tenant isolation",
+                "P1: Efficient delayed scheduling and DLQ observability",
+            ],
+            "out_of_scope": [
+                "Distributed DAG workflow UI builder and cron-expression billing",
+            ],
             "hidden_context": {
                 "throughput": "10,000 jobs enqueued/sec average; 50,000 jobs/sec burst; average job execution duration 200ms to 15 minutes",
                 "scheduling": "Immediate jobs plus delayed/scheduled jobs up to 30 days in the future",
@@ -321,6 +492,37 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
         ),
         "tags": ["hls", "dash", "transcoding", "cdn", "dag-pipeline"],
         "interviewer_brief": {
+            "business_context": {
+                "product_goal": "Global user-generated video upload, parallel transcoding DAG, and adaptive bitrate streaming platform.",
+                "target_users": "100M DAU viewers globally and video creators uploading up to 4K 5 GB files.",
+            },
+            "scale_estimates": {
+                "dau": "100M DAU",
+                "daily_views": "~500M video views/day (~6,000/sec avg, ~25,000/sec peak)",
+                "daily_uploads": "~500,000 uploads/day (~5-10/sec avg; 500 MB avg, up to 5 GB 4K)",
+            },
+            "functional_requirements": [
+                "Resumable chunked large video uploads directly to object storage",
+                "Asynchronous DAG transcoding into multiple HLS/DASH resolutions + thumbnails",
+                "Adaptive Bitrate (ABR) playback via global CDN",
+                "Video metadata CRUD, search, and eventually consistent view counts",
+            ],
+            "non_functional_requirements": [
+                "Playback start < 500ms; transcoding ready within minutes",
+                "99.99% playback availability; 99.9% upload availability",
+                "Minimize origin egress via multi-tier CDN caching",
+            ],
+            "constraints": [
+                "Mobile creators experience flaky connections during multi-GB uploads",
+                "Viral videos cause extreme hot-key view counter and CDN edge spikes",
+            ],
+            "priorities": [
+                "P0: Fast global ABR playback (<500ms) and reliable resumable uploads",
+                "P1: Parallel GOP-chunk transcoding pipeline",
+            ],
+            "out_of_scope": [
+                "ML feed recommendation engine and ultra-low-latency live WebRTC streaming",
+            ],
             "hidden_context": {
                 "dau": "100M DAU; ~500M video views/day (~6,000 views/sec average, 25k/sec peak)",
                 "upload_volume": "~500,000 video uploads/day (~5-10 uploads/sec average); average raw upload 500 MB (up to 4K 5 GB)",
@@ -378,6 +580,37 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
         ),
         "tags": ["websockets", "ordering", "presence", "fan-out", "cassandra"],
         "interviewer_brief": {
+            "business_context": {
+                "product_goal": "Real-time 1:1 and group messaging platform with presence indicators, read receipts, and multi-device sync.",
+                "target_users": "50M DAU messaging across up to 5 synced devices per user.",
+            },
+            "scale_estimates": {
+                "dau": "50M DAU",
+                "daily_messages": "~20B messages/day (~230k/sec average, ~700k/sec peak; ~200 bytes avg text)",
+                "group_and_devices": "Typical groups 5-50 members (max 500); up to 5 devices/user",
+            },
+            "functional_requirements": [
+                "1:1 and group real-time messaging (up to 500 members)",
+                "Persistent message history and multi-device catch-up sync",
+                "Offline message queueing and push notification fallback",
+                "Per-conversation message ordering, delivery/read receipts, and online presence",
+            ],
+            "non_functional_requirements": [
+                "Online message delivery < 150ms p99",
+                "99.99% availability with per-conversation monotonic/causal ordering",
+                "Encrypted in transit and durable persistent history",
+            ],
+            "constraints": [
+                "Presence heartbeats can cause thundering-herd fan-out storms unless throttled",
+                "Media attachments must stay off the text message payload path",
+            ],
+            "priorities": [
+                "P0: Sub-150ms p99 delivery, strict per-conversation ordering, and multi-device sync",
+                "P1: Bandwidth-efficient presence and offline push fallback",
+            ],
+            "out_of_scope": [
+                "End-to-end voice/video calling and enterprise eDiscovery compliance export",
+            ],
             "hidden_context": {
                 "dau": "50M DAU; ~20B messages/day (~230k messages/sec average, 700k/sec peak)",
                 "group_size": "Typical groups 5-50 members; max group size capped at 500 members",
@@ -442,6 +675,36 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
             "fail-open",
         ],
         "interviewer_brief": {
+            "business_context": {
+                "product_goal": "Low-latency distributed API rate-limiting layer protecting enterprise SaaS gateways from abuse and traffic spikes.",
+                "target_users": "Enterprise API consumers, public gateway traffic, and platform security/ops teams.",
+            },
+            "scale_estimates": {
+                "peak_qps": "1,000,000 API requests/sec peak across multi-zone clusters",
+                "rules_count": "100,000 dynamic rate-limit rules (by user_id, api_key, IP, or route)",
+                "latency_budget": "< 2ms p99 added decision overhead",
+            },
+            "functional_requirements": [
+                "Enforce configurable rate-limit rules per user, IP, API key, route, and plan tier",
+                "Return HTTP 429 with `X-RateLimit-Remaining` and `Retry-After` headers",
+                "Dynamic rule updates without restarting API gateway instances",
+            ],
+            "non_functional_requirements": [
+                "Rate-limit decision overhead < 2ms p99",
+                "Atomic check-and-increment counters without read-then-write race conditions",
+                "Fail-open for core traffic if central store degrades (fail-closed/local fallback for auth routes)",
+            ],
+            "constraints": [
+                "1-5% counter drift during split-brain is acceptable in exchange for <2ms latency",
+                "Cannot perform synchronous DB lookups or cross-region Raft consensus per request",
+            ],
+            "priorities": [
+                "P0: <2ms p99 decision latency, atomic counter updates, and safe failure fallback",
+                "P1: Hot-reloadable rules across gateway nodes",
+            ],
+            "out_of_scope": [
+                "Full WAF deep-packet inspection and customer usage-based billing invoicing",
+            ],
             "hidden_context": {
                 "throughput": "1,000,000 API requests/sec peak across multi-zone clusters",
                 "latency_budget": "Rate limit decision overhead must add < 2ms p99 to API request latency",

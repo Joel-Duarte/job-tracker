@@ -82,6 +82,8 @@ const ledgerForm = ref({
   nonFunctionalText: '',
   scaleText: '',
   outOfScopeText: '',
+  assumptionsText: '',
+  unresolvedQuestionsText: '',
   notes: '',
   isLocked: false,
 })
@@ -141,6 +143,8 @@ function syncLedgerFormFromSession(session) {
     .map(([k, v]) => `${k}: ${v}`)
     .join('\n')
   ledgerForm.value.outOfScopeText = (ledger.out_of_scope || []).join('\n')
+  ledgerForm.value.assumptionsText = (ledger.assumptions || []).join('\n')
+  ledgerForm.value.unresolvedQuestionsText = (ledger.unresolved_questions || []).join('\n')
   ledgerForm.value.notes = ledger.notes || ''
   ledgerForm.value.isLocked = Boolean(ledger.is_locked)
 }
@@ -461,6 +465,8 @@ async function handleSaveLedger(lock = false) {
     non_functional_requirements: parseLines(ledgerForm.value.nonFunctionalText),
     scale_estimates: parseScaleLines(ledgerForm.value.scaleText),
     out_of_scope: parseLines(ledgerForm.value.outOfScopeText),
+    assumptions: parseLines(ledgerForm.value.assumptionsText),
+    unresolved_questions: parseLines(ledgerForm.value.unresolvedQuestionsText),
     notes: ledgerForm.value.notes.trim(),
     is_locked: Boolean(lock),
   }
@@ -1263,6 +1269,26 @@ onUnmounted(() => {
                 class="form-textarea"
                 rows="2"
                 placeholder="e.g., Custom billing dashboards"
+              />
+            </label>
+
+            <label class="sd-field">
+              <span>Confirmed / Baseline Assumptions (one per line)</span>
+              <textarea
+                v-model="ledgerForm.assumptionsText"
+                class="form-textarea"
+                rows="2"
+                placeholder="e.g., Assume single-region writes unless specified otherwise"
+              />
+            </label>
+
+            <label class="sd-field">
+              <span>Unresolved Questions (one per line)</span>
+              <textarea
+                v-model="ledgerForm.unresolvedQuestionsText"
+                class="form-textarea"
+                rows="2"
+                placeholder="e.g., Custom domain SSL provisioning?"
               />
             </label>
 
