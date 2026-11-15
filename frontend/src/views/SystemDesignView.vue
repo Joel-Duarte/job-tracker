@@ -1093,6 +1093,24 @@ onUnmounted(() => {
                 }}
                 • {{ activeSession.active_task_status }}
                 <span v-if="activeSession.active_task_stage">({{ activeSession.active_task_stage }})</span>
+                <span
+                  v-if="activeSession.active_task_attempt_count > 1"
+                  class="sd-task-banner-meta"
+                >
+                  • Attempt #{{ activeSession.active_task_attempt_count }}
+                </span>
+                <span
+                  v-if="activeSession.active_task_provider"
+                  class="sd-task-banner-meta"
+                >
+                  • {{ activeSession.active_task_provider }}
+                </span>
+                <span
+                  v-if="(activeSession.active_task_completed_steps || []).length"
+                  class="sd-task-banner-meta"
+                >
+                  • {{ activeSession.active_task_completed_steps.length }}/3 steps
+                </span>
               </strong>
               <p v-if="activeSession.active_task_error" class="sd-task-banner-error">
                 {{ activeSession.active_task_error }}

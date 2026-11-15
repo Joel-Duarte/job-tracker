@@ -214,6 +214,10 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
       }
       if (!task) continue
       if (activeSession.value?.id === sessionId) {
+        const cp = task.result_json?._checkpoint || {}
+        const telemetry = cp.provider_telemetry || {}
+        const providerLabel =
+          telemetry.last_used_provider || telemetry.primary_provider || null
         activeSession.value = {
           ...activeSession.value,
           active_task_id: task.id,
@@ -221,6 +225,11 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
           active_task_stage: task.stage,
           active_task_type: task.task_type,
           active_task_error: task.error_message || null,
+          active_task_attempt_count: Number(cp.attempt_count || 0),
+          active_task_completed_steps: Array.isArray(cp.completed_steps)
+            ? cp.completed_steps
+            : [],
+          active_task_provider: providerLabel,
         }
       }
       if (task.status === 'COMPLETED') {

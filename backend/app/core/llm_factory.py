@@ -47,11 +47,71 @@ class FailoverChatModel(Runnable[Any, Any]):
         fallback_model: Any | None = None,
         primary_name: str = "Primary AI Provider",
         fallback_name: str | None = None,
+        _telemetry: dict[str, Any] | None = None,
     ):
         self.primary_model = primary_model
         self.fallback_model = fallback_model
         self.primary_name = primary_name
         self.fallback_name = fallback_name or "Fallback Provider"
+        self._telemetry = (
+            _telemetry
+            if _telemetry is not None
+            else {
+                "primary_provider": self.primary_name,
+                "fallback_provider": self.fallback_name if fallback_model else None,
+                "last_used_provider": self.primary_name,
+                "fallback_used": False,
+                "last_fallback_error": None,
+                "model_name": (
+                    str(getattr(primary_model, "model_name", None))
+                    if isinstance(
+                        getattr(primary_model, "model_name", None), (str, int, float)
+                    )
+                    else (
+                        str(getattr(primary_model, "model", None))
+                        if isinstance(
+                            getattr(primary_model, "model", None), (str, int, float)
+                        )
+                        else None
+                    )
+                ),
+            }
+        )
+
+    @property
+    def last_used_provider(self) -> str:
+        return str(self._telemetry.get("last_used_provider") or self.primary_name)
+
+    @last_used_provider.setter
+    def last_used_provider(self, value: str) -> None:
+        self._telemetry["last_used_provider"] = value
+
+    @property
+    def fallback_used(self) -> bool:
+        return bool(self._telemetry.get("fallback_used", False))
+
+    @fallback_used.setter
+    def fallback_used(self, value: bool) -> None:
+        self._telemetry["fallback_used"] = value
+
+    @property
+    def last_fallback_error(self) -> str | None:
+        val = self._telemetry.get("last_fallback_error")
+        return str(val) if val is not None else None
+
+    @last_fallback_error.setter
+    def last_fallback_error(self, value: str | None) -> None:
+        self._telemetry["last_fallback_error"] = value
+
+    def _record_primary_usage(self) -> None:
+        self._telemetry["last_used_provider"] = self.primary_name
+        self._telemetry["fallback_used"] = False
+        self._telemetry["last_fallback_error"] = None
+
+    def _record_fallback_usage(self, err_msg: str) -> None:
+        self._telemetry["last_used_provider"] = self.fallback_name
+        self._telemetry["fallback_used"] = True
+        self._telemetry["last_fallback_error"] = err_msg[:500]
 
     def _should_failover(self, exc: Exception) -> bool:
         if isinstance(exc, self.FAILOVER_ERRORS):
@@ -95,9 +155,12 @@ class FailoverChatModel(Runnable[Any, Any]):
 
     async def ainvoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
         try:
-            return await self.primary_model.ainvoke(input, config=config, **kwargs)
+            res = await self.primary_model.ainvoke(input, config=config, **kwargs)
+            self._record_primary_usage()
+            return res
         except Exception as exc:
             if self.fallback_model and self._should_failover(exc):
+                self._record_fallback_usage(str(exc))
                 await self._log_failover_telemetry(str(exc))
                 logger.warning(
                     "Primary provider '%s' unreachable (%s). Automatic failover routed task to '%s'",
@@ -110,9 +173,12 @@ class FailoverChatModel(Runnable[Any, Any]):
 
     def invoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
         try:
-            return self.primary_model.invoke(input, config=config, **kwargs)
+            res = self.primary_model.invoke(input, config=config, **kwargs)
+            self._record_primary_usage()
+            return res
         except Exception as exc:
             if self.fallback_model and self._should_failover(exc):
+                self._record_fallback_usage(str(exc))
                 logger.warning(
                     "Primary provider '%s' unreachable (%s). Automatic failover routed task to '%s'",
                     self.primary_name,
@@ -125,6 +191,7 @@ class FailoverChatModel(Runnable[Any, Any]):
     def stream(self, input: Any, config: Any = None, **kwargs: Any):
         if not self.fallback_model:
             yield from self.primary_model.stream(input, config=config, **kwargs)
+            self._record_primary_usage()
             return
 
         yielded = False
@@ -132,8 +199,10 @@ class FailoverChatModel(Runnable[Any, Any]):
             for chunk in self.primary_model.stream(input, config=config, **kwargs):
                 yielded = True
                 yield chunk
+            self._record_primary_usage()
         except Exception as exc:
             if not yielded and self._should_failover(exc):
+                self._record_fallback_usage(str(exc))
                 logger.warning(
                     "Primary provider '%s' unreachable (%s). Automatic failover streaming from '%s'",
                     self.primary_name,
@@ -150,6 +219,7 @@ class FailoverChatModel(Runnable[Any, Any]):
                 input, config=config, **kwargs
             ):
                 yield chunk
+            self._record_primary_usage()
             return
 
         yielded = False
@@ -159,8 +229,10 @@ class FailoverChatModel(Runnable[Any, Any]):
             ):
                 yielded = True
                 yield chunk
+            self._record_primary_usage()
         except Exception as exc:
             if not yielded and self._should_failover(exc):
+                self._record_fallback_usage(str(exc))
                 await self._log_failover_telemetry(str(exc))
                 logger.warning(
                     "Primary provider '%s' unreachable (%s). Automatic failover streaming from '%s'",
@@ -187,6 +259,7 @@ class FailoverChatModel(Runnable[Any, Any]):
             fallback_model=bound_fallback,
             primary_name=self.primary_name,
             fallback_name=self.fallback_name,
+            _telemetry=self._telemetry,
         )
 
     def with_structured_output(self, schema: Any, **kwargs: Any) -> Any:
@@ -201,10 +274,47 @@ class FailoverChatModel(Runnable[Any, Any]):
             fallback_model=struct_fallback,
             primary_name=self.primary_name,
             fallback_name=self.fallback_name,
+            _telemetry=self._telemetry,
         )
+
+    def get_telemetry_metadata(self) -> dict[str, Any]:
+        return dict(self._telemetry)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.primary_model, name)
+
+
+def _safe_str_attr(obj: Any, *attrs: str) -> str | None:
+    for attr in attrs:
+        val = getattr(obj, attr, None)
+        if isinstance(val, (str, int, float)) and not isinstance(val, bool):
+            s = str(val).strip()
+            if s:
+                return s
+    return None
+
+
+def get_model_telemetry_metadata(model: Any, task_type: str = "") -> dict[str, Any]:
+    """Extracts JSON-safe provider, model name, and failover status from an instantiated chat model."""
+    if isinstance(model, FailoverChatModel):
+        meta = model.get_telemetry_metadata()
+        meta["task_type"] = task_type
+        return meta
+    model_name = _safe_str_attr(model, "model_name", "model")
+    provider_name = (
+        _safe_str_attr(model, "primary_name", "model_provider") or type(model).__name__
+    )
+    raw_fb_used = getattr(model, "fallback_used", False)
+    return {
+        "task_type": task_type,
+        "primary_provider": provider_name,
+        "fallback_provider": _safe_str_attr(model, "fallback_name"),
+        "last_used_provider": _safe_str_attr(model, "last_used_provider")
+        or provider_name,
+        "fallback_used": raw_fb_used if isinstance(raw_fb_used, bool) else False,
+        "last_fallback_error": _safe_str_attr(model, "last_fallback_error"),
+        "model_name": model_name,
+    }
 
 
 _EMBEDDINGS_CACHE: dict[tuple, Embeddings] = {}

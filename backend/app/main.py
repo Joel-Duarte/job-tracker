@@ -62,17 +62,22 @@ async def lifespan(app: FastAPI):
         await checkpointer_pool.open()
         await postgres_saver.setup()
 
-        # Start the background worker for staleness archiver
+        # Start the background workers (staleness archiver, VRAM watcher, queue recovery & dispatcher)
         import asyncio
 
-        from app.core.ai_queue import idle_vram_watcher_loop
+        from app.core.ai_queue import idle_vram_watcher_loop, set_shutting_down
+        from app.services.evaluation_worker import queue_recovery_and_dispatcher_loop
         from app.services.staleness_archiver import staleness_archiver_worker
 
+        set_shutting_down(False)
         app.state.archiver_task = asyncio.create_task(
             staleness_archiver_worker(AsyncSessionLocal)
         )
         app.state.vram_watcher_task = asyncio.create_task(
             idle_vram_watcher_loop(AsyncSessionLocal)
+        )
+        app.state.queue_dispatcher_task = asyncio.create_task(
+            queue_recovery_and_dispatcher_loop(AsyncSessionLocal)
         )
     else:
         print("\n==================================================")
@@ -83,13 +88,38 @@ async def lifespan(app: FastAPI):
     yield
     # Executed on shutdown
     logger.info("Shutting down application and disposing connection pools...")
+    import asyncio
 
-    archiver_task = getattr(app.state, "archiver_task", None)
-    if archiver_task:
-        archiver_task.cancel()
-    vram_task = getattr(app.state, "vram_watcher_task", None)
-    if vram_task:
-        vram_task.cancel()
+    from app.core.ai_queue import (
+        _RUNNING_TASKS,
+        cancel_running_task,
+        get_running_task_ids,
+        set_shutting_down,
+    )
+
+    set_shutting_down(True)
+
+    bg_tasks_to_stop = []
+    for attr_name in ("archiver_task", "vram_watcher_task", "queue_dispatcher_task"):
+        bg_t = getattr(app.state, attr_name, None)
+        if bg_t and not bg_t.done():
+            bg_t.cancel()
+            bg_tasks_to_stop.append(bg_t)
+
+    for tid in get_running_task_ids():
+        running_t = _RUNNING_TASKS.get(tid)
+        if running_t and not running_t.done():
+            cancel_running_task(tid)
+            bg_tasks_to_stop.append(running_t)
+
+    if bg_tasks_to_stop:
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*bg_tasks_to_stop, return_exceptions=True),
+                timeout=5.0,
+            )
+        except Exception:
+            pass
 
     from app.core.database import checkpointer_pool, engine
 

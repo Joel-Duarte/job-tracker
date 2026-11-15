@@ -992,3 +992,64 @@ async def test_f04_nonblocking_queue_enqueue_cancel_and_retry(
             assert eval_retry["stage"] == "ANALYZING"
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_challenge_generation_creates_queued_worker_task_with_telemetry(
+    db_session: AsyncSession,
+):
+    from sqlalchemy import select
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    fake_challenge = {
+        "title": "Design a Real-Time Audit Log Ingestion Pipeline",
+        "category": "DATA_INFRASTRUCTURE",
+        "difficulty": "HARD",
+        "prompt_summary": "Build a tamper-evident event pipeline.",
+        "initial_prompt": "Design a multi-tenant audit logging pipeline.",
+        "tags": ["kafka", "append-only"],
+        "interviewer_brief": {
+            "hidden_context": {"scale_targets": "50k events/sec"},
+            "expected_components": ["Ingest Gateway", "Kafka", "Immutable Store"],
+            "over_engineering_traps": ["Custom blockchain"],
+            "defence_questions": ["How do you guarantee ordering per tenant?"],
+        },
+    }
+    mock_msg = AsyncMock()
+    mock_msg.content = json.dumps(fake_challenge)
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as ac:
+            with patch(
+                "app.services.system_design_service.get_task_chat_model",
+                return_value=AsyncMock(ainvoke=AsyncMock(return_value=mock_msg)),
+            ):
+                res = await ac.post(
+                    "/api/v1/system-design/challenges/generate",
+                    json={
+                        "topic": "Real-time audit log ingestion pipeline",
+                        "difficulty": "HARD",
+                        "use_web_search": False,
+                    },
+                )
+        assert res.status_code == 201
+        created = res.json()
+        assert created["title"] == fake_challenge["title"]
+
+        task = (
+            await db_session.execute(
+                select(IntakeEvaluationTaskModel).where(
+                    IntakeEvaluationTaskModel.task_type == "SYSTEM_DESIGN_CHALLENGE_GEN"
+                )
+            )
+        ).scalar_one_or_none()
+        assert task is not None
+        assert task.status == "COMPLETED"
+        assert task.stage == "COMPLETE"
+        cp = (task.result_json or {}).get("_checkpoint", {})
+        assert cp.get("completed_steps") == ["PREPARING", "GENERATING", "SAVING"]
+        assert isinstance(cp.get("provider_telemetry"), dict)
+    finally:
+        app.dependency_overrides.clear()

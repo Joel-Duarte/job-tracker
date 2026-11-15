@@ -309,3 +309,6 @@ class SystemDesignSessionRead(BaseModel):
     active_task_stage: str | None = None
     active_task_type: str | None = None
     active_task_error: str | None = None
+    active_task_attempt_count: int = 0
+    active_task_completed_steps: list[str] = Field(default_factory=list)
+    active_task_provider: str | None = None

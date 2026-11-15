@@ -197,6 +197,9 @@ function getTaskDisplayTitle(task) {
   if (task.task_type === 'SYSTEM_DESIGN_EVALUATION') {
     return task.title_hint || 'System Design Final Evaluation'
   }
+  if (task.task_type === 'SYSTEM_DESIGN_CHALLENGE_GEN') {
+    return task.title_hint || 'System Design Challenge Generation'
+  }
   if (task.result_json?.company && task.result_json?.position) {
     return `${task.result_json.company} - ${task.result_json.position}`
   }
@@ -220,6 +223,7 @@ function getTaskTypeIcon(type) {
   if (type === 'EMAIL_SYNC' || type === 'EMAIL_INTAKE') return Mail
   if (type === 'SYSTEM_DESIGN_REVIEW') return Layers
   if (type === 'SYSTEM_DESIGN_EVALUATION') return ShieldCheck
+  if (type === 'SYSTEM_DESIGN_CHALLENGE_GEN') return Sparkles
   return Briefcase
 }
 
@@ -233,7 +237,35 @@ function getTaskTypeLabel(type) {
   if (type === 'EMAIL_SYNC' || type === 'EMAIL_INTAKE') return 'Email Sync'
   if (type === 'SYSTEM_DESIGN_REVIEW') return 'System Design Review'
   if (type === 'SYSTEM_DESIGN_EVALUATION') return 'System Design Evaluation'
+  if (type === 'SYSTEM_DESIGN_CHALLENGE_GEN') return 'SD Challenge Gen'
   return 'Job Assessment'
+}
+
+function getSdCheckpoint(task) {
+  const cp = task?.result_json?._checkpoint
+  return cp && typeof cp === 'object' ? cp : {}
+}
+
+function getSdCompletedSteps(task) {
+  const steps = getSdCheckpoint(task).completed_steps
+  return new Set(Array.isArray(steps) ? steps.map((s) => String(s)) : [])
+}
+
+function getSdAttemptCount(task) {
+  return Number(getSdCheckpoint(task).attempt_count || 0)
+}
+
+function getSdProviderTelemetry(task) {
+  const t = getSdCheckpoint(task).provider_telemetry
+  return t && typeof t === 'object' ? t : null
+}
+
+function isSdTaskType(type) {
+  return [
+    'SYSTEM_DESIGN_REVIEW',
+    'SYSTEM_DESIGN_EVALUATION',
+    'SYSTEM_DESIGN_CHALLENGE_GEN',
+  ].includes(type)
 }
 
 const runningCount = computed(() => queueStore.runningCount)
@@ -588,6 +620,15 @@ onMounted(() => {
             <ShieldCheck :size="12" />
             <span>SD Eval</span>
           </button>
+          <button
+            class="type-pill"
+            :class="{ active: typeFilter === 'SYSTEM_DESIGN_CHALLENGE_GEN' }"
+            data-testid="queue-filter-sd-gen"
+            @click="typeFilter = 'SYSTEM_DESIGN_CHALLENGE_GEN'"
+          >
+            <Sparkles :size="12" />
+            <span>SD Gen</span>
+          </button>
         </div>
 
         <!-- Actions: Slot Saturation, VRAM Release, Search, Refresh, Clear Completed -->
@@ -877,7 +918,7 @@ onMounted(() => {
                   'type-company-research': task.task_type === 'COMPANY_RESEARCH',
                   'type-email-sync': task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE',
                   'type-sd-review': task.task_type === 'SYSTEM_DESIGN_REVIEW',
-                  'type-sd-eval': task.task_type === 'SYSTEM_DESIGN_EVALUATION'
+                  'type-sd-eval': task.task_type === 'SYSTEM_DESIGN_EVALUATION' || task.task_type === 'SYSTEM_DESIGN_CHALLENGE_GEN'
                 }"
               >
                 <component :is="getTaskTypeIcon(task.task_type)" :size="12" />
@@ -1423,13 +1464,13 @@ onMounted(() => {
               </div>
             </div>
 
-            <!-- 9. SYSTEM DESIGN REVIEW & EVALUATION STEPPER (3 Stages) -->
-            <div v-else-if="['SYSTEM_DESIGN_REVIEW', 'SYSTEM_DESIGN_EVALUATION'].includes(task.task_type)" class="pipeline-stepper sd-stepper">
+            <!-- 9. SYSTEM DESIGN REVIEW, EVALUATION & CHALLENGE GEN STEPPER (Checkpoint-Aware Stages) -->
+            <div v-else-if="isSdTaskType(task.task_type)" class="pipeline-stepper sd-stepper">
               <div
                 class="stepper-node"
                 :class="{
                   active: task.stage === 'QUEUED',
-                  done: ['ANALYZING', 'COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
+                  done: ['PREPARING', 'ANALYZING', 'EVALUATING', 'GENERATING', 'SAVING', 'COMPLETE'].includes(task.stage) || getSdCompletedSteps(task).size > 0 || task.status === 'COMPLETED',
                 }"
               >
                 <div class="node-bullet">1</div>
@@ -1439,12 +1480,40 @@ onMounted(() => {
               <div
                 class="stepper-node"
                 :class="{
-                  active: task.stage === 'ANALYZING',
-                  done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
+                  active: task.stage === 'PREPARING',
+                  done: getSdCompletedSteps(task).has('PREPARING') || ['ANALYZING', 'EVALUATING', 'GENERATING', 'SAVING', 'COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
                 }"
               >
                 <div class="node-bullet">2</div>
-                <span class="node-label">{{ task.task_type === 'SYSTEM_DESIGN_REVIEW' ? 'Analyzing Architecture' : 'Evaluating Rubric' }}</span>
+                <span class="node-label">Preparing</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  active: ['ANALYZING', 'EVALUATING', 'GENERATING'].includes(task.stage),
+                  done: getSdCompletedSteps(task).has('ANALYZING') || getSdCompletedSteps(task).has('EVALUATING') || getSdCompletedSteps(task).has('GENERATING') || ['SAVING', 'COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">3</div>
+                <span class="node-label">{{
+                  task.task_type === 'SYSTEM_DESIGN_REVIEW'
+                    ? 'Analyzing Architecture'
+                    : task.task_type === 'SYSTEM_DESIGN_EVALUATION'
+                      ? 'Evaluating Rubric'
+                      : 'Generating Challenge'
+                }}</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'SAVING',
+                  done: getSdCompletedSteps(task).has('SAVING') || task.stage === 'COMPLETE' || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">4</div>
+                <span class="node-label">Saving</span>
               </div>
 
               <div
@@ -1453,7 +1522,7 @@ onMounted(() => {
                   done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
                 }"
               >
-                <div class="node-bullet">3</div>
+                <div class="node-bullet">5</div>
                 <span class="node-label">Complete</span>
               </div>
             </div>
@@ -1663,19 +1732,33 @@ onMounted(() => {
               </div>
             </template>
 
-            <!-- System Design Review / Evaluation Context -->
-            <template v-else-if="['SYSTEM_DESIGN_REVIEW', 'SYSTEM_DESIGN_EVALUATION'].includes(task.task_type)">
+            <!-- System Design Review / Evaluation / Challenge Gen Context -->
+            <template v-else-if="isSdTaskType(task.task_type)">
               <div class="footer-left">
                 <span class="badge-cv-ready">
                   <ShieldCheck v-if="task.task_type === 'SYSTEM_DESIGN_EVALUATION'" :size="12" />
+                  <Sparkles v-else-if="task.task_type === 'SYSTEM_DESIGN_CHALLENGE_GEN'" :size="12" />
                   <Layers v-else :size="12" />
-                  <span>{{ task.task_type === 'SYSTEM_DESIGN_REVIEW' ? 'Architecture Reviewed' : 'Final Evaluation Ready' }}</span>
+                  <span>{{
+                    task.task_type === 'SYSTEM_DESIGN_REVIEW'
+                      ? 'Architecture Reviewed'
+                      : task.task_type === 'SYSTEM_DESIGN_EVALUATION'
+                        ? 'Final Evaluation Ready'
+                        : 'Challenge Generated'
+                  }}</span>
                 </span>
                 <span v-if="task.task_type === 'SYSTEM_DESIGN_EVALUATION' && task.result_json?.overall_score !== undefined" class="footer-meta-text">
                   Score: {{ Math.round(task.result_json.overall_score) }}/100 ({{ task.result_json.readiness_rating || 'GRADED' }})
                 </span>
                 <span v-else-if="task.result_json?.diagram_version" class="footer-meta-text">
                   Revision v{{ task.result_json.diagram_version }}
+                </span>
+                <span v-if="getSdProviderTelemetry(task)" class="footer-meta-text">
+                  • {{ getSdProviderTelemetry(task).last_used_provider || getSdProviderTelemetry(task).primary_provider }}
+                  <template v-if="getSdProviderTelemetry(task).fallback_used">(failover)</template>
+                </span>
+                <span v-if="getSdAttemptCount(task) > 1" class="footer-meta-text">
+                  • Attempts: {{ getSdAttemptCount(task) }}
                 </span>
               </div>
               <div class="footer-right">
@@ -1684,7 +1767,7 @@ onMounted(() => {
                   class="btn btn-primary btn-xs"
                 >
                   <Layers :size="12" />
-                  <span>Open Session &rarr;</span>
+                  <span>{{ task.result_json?.session_id ? 'Open Session' : 'Open Lab' }} &rarr;</span>
                 </router-link>
               </div>
             </template>

@@ -16,7 +16,11 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import settings
-from app.core.llm_factory import get_task_chat_model, strip_reasoning_tags
+from app.core.llm_factory import (
+    get_model_telemetry_metadata,
+    get_task_chat_model,
+    strip_reasoning_tags,
+)
 from app.core.prompts import DEFAULT_PROMPTS
 from app.models.applications import ApplicationModel
 from app.models.intake_tasks import IntakeEvaluationTaskModel
@@ -724,27 +728,32 @@ class SystemDesignService:
         return challenge
 
     @staticmethod
-    async def generate_custom_challenge(
-        db: AsyncSession, payload: SystemDesignChallengeGenerateRequest
-    ) -> SystemDesignChallengeModel:
-        """Use AI (plus optional tracked Job Application & Web Search) to generate a custom challenge."""
+    async def prepare_challenge_gen_context(
+        db: AsyncSession, payload_dict: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Step 1 for SYSTEM_DESIGN_CHALLENGE_GEN: validate input, load app context, and fetch web snippets."""
         await SystemDesignService._ensure_challenges_seeded(db)
-        topic_text = payload.topic.strip()
+        topic_text = str(payload_dict.get("topic") or "").strip()
+        application_id = payload_dict.get("application_id")
+        difficulty = (
+            str(payload_dict.get("difficulty") or "MEDIUM").strip().upper() or "MEDIUM"
+        )
+        use_web_search = bool(payload_dict.get("use_web_search", False))
         app_context_parts: list[str] = []
         search_seed = topic_text
 
-        if payload.application_id is not None:
+        if application_id is not None:
             app_stmt = (
                 select(ApplicationModel)
                 .options(
                     selectinload(ApplicationModel.company),
                     selectinload(ApplicationModel.job_posting),
                 )
-                .where(ApplicationModel.id == payload.application_id)
+                .where(ApplicationModel.id == int(application_id))
             )
             application = (await db.execute(app_stmt)).scalar_one_or_none()
             if not application:
-                raise ValueError(f"Application {payload.application_id} not found.")
+                raise ValueError(f"Application {application_id} not found.")
             company_name = (
                 application.company.name if application.company else "Target Company"
             )
@@ -770,9 +779,8 @@ class SystemDesignService:
                 "Provide either a challenge topic or link an application_id."
             )
 
-        difficulty = payload.difficulty.strip().upper() or "MEDIUM"
         web_snippets = ""
-        if payload.use_web_search and search_seed:
+        if use_web_search and search_seed:
             web_snippets = await _fetch_web_grounding_snippets(
                 db,
                 f"{search_seed} system design architecture engineering blog scale",
@@ -792,6 +800,18 @@ class SystemDesignService:
                 + web_snippets
             )
 
+        return {
+            "topic_text": topic_text,
+            "difficulty": difficulty,
+            "sys_prompt": sys_prompt,
+            "user_prompt": "\n\n".join(user_sections),
+        }
+
+    @staticmethod
+    async def run_challenge_gen_inference(
+        db: AsyncSession, prepared_ctx: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Step 2 for SYSTEM_DESIGN_CHALLENGE_GEN: invoke AI model and parse JSON payload."""
         tracer = PostgresTracer()
         chat_model = await get_task_chat_model(
             db, task_type="SYSTEM_DESIGN_INTERVIEWER"
@@ -799,8 +819,8 @@ class SystemDesignService:
         llm_res = await _invoke_llm_adaptive(
             chat_model,
             [
-                SystemMessage(content=sys_prompt),
-                HumanMessage(content="\n\n".join(user_sections)),
+                SystemMessage(content=str(prepared_ctx["sys_prompt"])),
+                HumanMessage(content=str(prepared_ctx["user_prompt"])),
             ],
             tracer,
             db,
@@ -808,7 +828,22 @@ class SystemDesignService:
         )
         raw_text = strip_reasoning_tags(_extract_text_content(llm_res.content))
         parsed = _extract_json_object(raw_text)
+        return {
+            "parsed": parsed,
+            "provider_telemetry": get_model_telemetry_metadata(
+                chat_model, "SYSTEM_DESIGN_INTERVIEWER"
+            ),
+        }
 
+    @staticmethod
+    async def persist_generated_challenge(
+        db: AsyncSession,
+        prepared_ctx: dict[str, Any],
+        parsed: dict[str, Any],
+    ) -> SystemDesignChallengeModel:
+        """Step 3 for SYSTEM_DESIGN_CHALLENGE_GEN: persist the generated challenge row."""
+        topic_text = str(prepared_ctx.get("topic_text") or "").strip()
+        difficulty = str(prepared_ctx.get("difficulty") or "MEDIUM").strip().upper()
         title = str(
             parsed.get("title")
             or (
@@ -861,6 +896,49 @@ class SystemDesignService:
         db.add(challenge)
         await db.commit()
         await db.refresh(challenge)
+        return challenge
+
+    @staticmethod
+    async def generate_custom_challenge(
+        db: AsyncSession, payload: SystemDesignChallengeGenerateRequest
+    ) -> SystemDesignChallengeModel:
+        """Use the persistent queue worker pipeline to generate a tailored challenge."""
+        from app.services.evaluation_worker import process_evaluation_task
+
+        payload_dict = payload.model_dump()
+        task = IntakeEvaluationTaskModel(
+            task_type="SYSTEM_DESIGN_CHALLENGE_GEN",
+            title_hint=f"Custom Challenge: {(payload.topic or 'Tailored Scenario').strip()[:80]}",
+            status="QUEUED",
+            stage="QUEUED",
+            raw_text=(payload.topic or "")[:500] or None,
+            result_json={
+                "request_payload": payload_dict,
+            },
+        )
+        db.add(task)
+        await db.commit()
+        await db.refresh(task)
+
+        await process_evaluation_task(task.id, db=db)
+        await db.refresh(task)
+
+        if task.status != "COMPLETED":
+            err = task.error_message or "Challenge generation failed."
+            lower = err.lower()
+            if "not found" in lower or "provide either" in lower:
+                raise ValueError(err)
+            raise RuntimeError(err)
+
+        challenge_id = (task.result_json or {}).get("challenge_id")
+        if challenge_id is None:
+            raise RuntimeError("Challenge generation completed without challenge_id.")
+        stmt = select(SystemDesignChallengeModel).where(
+            SystemDesignChallengeModel.id == int(challenge_id)
+        )
+        challenge = (await db.execute(stmt)).scalar_one_or_none()
+        if not challenge:
+            raise RuntimeError(f"Generated challenge {challenge_id} not found.")
         return challenge
 
     @staticmethod
@@ -1101,7 +1179,7 @@ class SystemDesignService:
     async def attach_active_queue_tasks(
         db: AsyncSession, sessions: list[SystemDesignSessionModel]
     ) -> list[SystemDesignSessionModel]:
-        """Attach the latest active (QUEUED/RUNNING) or failed queue task metadata to sessions."""
+        """Attach the latest active (QUEUED/PROCESSING/RUNNING) or failed queue task metadata to sessions."""
         if not sessions:
             return sessions
         session_id_strs = [str(s.id) for s in sessions]
@@ -1129,7 +1207,28 @@ class SystemDesignService:
 
         for session in sessions:
             latest = latest_by_session.get(int(session.id))
-            if latest and latest.status in ("QUEUED", "RUNNING", "FAILED"):
+            if latest and latest.status in (
+                "QUEUED",
+                "PROCESSING",
+                "RUNNING",
+                "FAILED",
+            ):
+                result_json = (
+                    latest.result_json if isinstance(latest.result_json, dict) else {}
+                )
+                checkpoint = (
+                    result_json.get("_checkpoint")
+                    if isinstance(result_json.get("_checkpoint"), dict)
+                    else {}
+                )
+                telemetry = (
+                    checkpoint.get("provider_telemetry")
+                    if isinstance(checkpoint.get("provider_telemetry"), dict)
+                    else {}
+                )
+                provider_label = telemetry.get("last_used_provider") or telemetry.get(
+                    "primary_provider"
+                )
                 session.active_task_id = int(latest.id)
                 session.active_task_status = str(latest.status)
                 session.active_task_stage = str(latest.stage)
@@ -1139,12 +1238,24 @@ class SystemDesignService:
                     if latest.status == "FAILED" and latest.error_message
                     else None
                 )
+                session.active_task_attempt_count = int(
+                    checkpoint.get("attempt_count") or 0
+                )
+                session.active_task_completed_steps = [
+                    str(s) for s in (checkpoint.get("completed_steps") or [])
+                ]
+                session.active_task_provider = (
+                    str(provider_label) if provider_label else None
+                )
             else:
                 session.active_task_id = None
                 session.active_task_status = None
                 session.active_task_stage = None
                 session.active_task_type = None
                 session.active_task_error = None
+                session.active_task_attempt_count = 0
+                session.active_task_completed_steps = []
+                session.active_task_provider = None
         return sessions
 
     @staticmethod
@@ -1155,7 +1266,9 @@ class SystemDesignService:
                 IntakeEvaluationTaskModel.task_type.in_(
                     ["SYSTEM_DESIGN_REVIEW", "SYSTEM_DESIGN_EVALUATION"]
                 ),
-                IntakeEvaluationTaskModel.status.in_(["QUEUED", "RUNNING"]),
+                IntakeEvaluationTaskModel.status.in_(
+                    ["QUEUED", "PROCESSING", "RUNNING"]
+                ),
                 IntakeEvaluationTaskModel.result_json["session_id"].astext
                 == str(session_id),
             )
@@ -1470,13 +1583,14 @@ class SystemDesignService:
         return (file_path, str(entry["mime_type"]), str(entry["filename"]))
 
     @staticmethod
-    async def analyze_diagram_architecture(
+    async def prepare_diagram_review_context(
         db: AsyncSession,
         session_id: int,
         diagram_version: int | None = None,
         use_web_search: bool = False,
-    ) -> SystemDesignSessionModel:
-        session = await SystemDesignService._get_session_for_update(db, session_id)
+    ) -> dict[str, Any]:
+        """Step 1 for SYSTEM_DESIGN_REVIEW: validate session, resolve diagram file path, and build prompt."""
+        session = await SystemDesignService.get_session(db, session_id)
         SystemDesignService._ensure_session_mutable(session)
         SystemDesignService._ensure_requirements_locked(session)
         SystemDesignService._ensure_diagram_uploaded(session)
@@ -1503,8 +1617,6 @@ class SystemDesignService:
         file_path, mime_type, _ = await SystemDesignService.get_diagram_file(
             db, session_id, target_version
         )
-        encoded = base64.b64encode(file_path.read_bytes()).decode("ascii")
-        data_uri = f"data:{mime_type};base64,{encoded}"
 
         base_prompt = await _format_prompt_from_db(
             db,
@@ -1530,6 +1642,28 @@ class SystemDesignService:
                 )
 
         sys_prompt = f"{base_prompt.strip()}{web_section}\n\n{ARCHITECTURE_REVIEW_JSON_INSTRUCTIONS}"
+        return {
+            "session_id": session_id,
+            "target_version": target_version,
+            "file_path": str(file_path),
+            "mime_type": str(mime_type),
+            "sys_prompt": sys_prompt,
+        }
+
+    @staticmethod
+    async def run_diagram_vlm_inference(
+        db: AsyncSession, prepared_ctx: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Step 2 for SYSTEM_DESIGN_REVIEW: read diagram bytes from disk, run VLM, and parse JSON review."""
+        target_version = int(prepared_ctx["target_version"])
+        file_path = Path(str(prepared_ctx["file_path"]))
+        if not file_path.exists():
+            raise FileNotFoundError(
+                f"Diagram binary for revision v{target_version} missing at {file_path}"
+            )
+        mime_type = str(prepared_ctx["mime_type"])
+        encoded = base64.b64encode(file_path.read_bytes()).decode("ascii")
+        data_uri = f"data:{mime_type};base64,{encoded}"
 
         human_msg = HumanMessage(
             content=[
@@ -1551,7 +1685,7 @@ class SystemDesignService:
         chat_model = await get_task_chat_model(db, task_type="SYSTEM_DESIGN_REVIEWER")
         llm_res = await _invoke_llm_adaptive(
             chat_model,
-            [SystemMessage(content=sys_prompt), human_msg],
+            [SystemMessage(content=str(prepared_ctx["sys_prompt"])), human_msg],
             tracer,
             db,
             task_type="SYSTEM_DESIGN_REVIEWER",
@@ -1587,27 +1721,53 @@ class SystemDesignService:
                 parsed.get("suggested_defence_topics")
             ),
         )
+        return {
+            "review": review.model_dump(),
+            "provider_telemetry": get_model_telemetry_metadata(
+                chat_model, "SYSTEM_DESIGN_REVIEWER"
+            ),
+        }
+
+    @staticmethod
+    async def persist_architecture_review(
+        db: AsyncSession, session_id: int, review_dict: dict[str, Any]
+    ) -> SystemDesignSessionModel:
+        """Step 3 for SYSTEM_DESIGN_REVIEW: lock session row, merge review, and seed defence prompt."""
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+        SystemDesignService._ensure_requirements_locked(session)
+        SystemDesignService._ensure_diagram_uploaded(session)
+        if session.stage not in ("DESIGN", "REVIEW", "DEFENCE"):
+            raise ValueError(
+                f"Architecture review requires DESIGN stage or later (current stage: {session.stage})."
+            )
+        challenge = session.challenge
+        target_version = int(review_dict["diagram_version"])
 
         reviews = [
             r
             for r in (session.architecture_reviews or [])
             if int(r.get("diagram_version", -1)) != target_version
         ]
-        reviews.append(review.model_dump())
+        reviews.append(dict(review_dict))
         reviews.sort(key=lambda r: int(r.get("diagram_version", 0)))
 
         session.architecture_reviews = reviews
         if session.stage == "DESIGN":
             session.stage = "REVIEW"
+        session.updated_at = datetime.now(UTC)
         flag_modified(session, "architecture_reviews")
 
         if not session.defence_transcript:
             brief_questions = _normalize_string_list(
                 (challenge.interviewer_brief or {}).get("defence_questions")
             )
+            suggested = _normalize_string_list(
+                review_dict.get("suggested_defence_topics")
+            )
             opening_question = (
-                review.suggested_defence_topics[0]
-                if review.suggested_defence_topics
+                suggested[0]
+                if suggested
                 else (
                     brief_questions[0]
                     if brief_questions
@@ -1627,6 +1787,26 @@ class SystemDesignService:
 
         await db.commit()
         return await SystemDesignService.get_session(db, session_id)
+
+    @staticmethod
+    async def analyze_diagram_architecture(
+        db: AsyncSession,
+        session_id: int,
+        diagram_version: int | None = None,
+        use_web_search: bool = False,
+    ) -> SystemDesignSessionModel:
+        prepared_ctx = await SystemDesignService.prepare_diagram_review_context(
+            db,
+            session_id=session_id,
+            diagram_version=diagram_version,
+            use_web_search=use_web_search,
+        )
+        inference_out = await SystemDesignService.run_diagram_vlm_inference(
+            db, prepared_ctx
+        )
+        return await SystemDesignService.persist_architecture_review(
+            db, session_id=session_id, review_dict=inference_out["review"]
+        )
 
     @staticmethod
     async def enqueue_architecture_review(
@@ -1782,11 +1962,11 @@ class SystemDesignService:
         return await SystemDesignService.get_session(db, session_id)
 
     @staticmethod
-    async def evaluate_session(
+    async def prepare_final_evaluation_context(
         db: AsyncSession, session_id: int
-    ) -> SystemDesignSessionModel:
-        """Synthesize and strictly validate the Stage F 12-dimension final scorecard."""
-        session = await SystemDesignService._get_session_for_update(db, session_id)
+    ) -> dict[str, Any]:
+        """Step 1 for SYSTEM_DESIGN_EVALUATION: validate preconditions and assemble grading dossier."""
+        session = await SystemDesignService.get_session(db, session_id)
         SystemDesignService._ensure_session_mutable(session)
         SystemDesignService._ensure_requirements_locked(session)
         SystemDesignService._ensure_diagram_uploaded(session)
@@ -1838,6 +2018,20 @@ class SystemDesignService:
             "architecture_reviews": session.architecture_reviews or [],
             "defence_transcript": session.defence_transcript or [],
         }
+        return {
+            "session_id": session_id,
+            "sys_prompt": sys_prompt,
+            "context_payload": context_payload,
+        }
+
+    @staticmethod
+    async def run_final_evaluation_inference(
+        db: AsyncSession, prepared_ctx: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Step 2 for SYSTEM_DESIGN_EVALUATION: invoke reviewer LLM, validate 12-dimension rubric, repair once if needed."""
+        session_id = int(prepared_ctx["session_id"])
+        sys_prompt = str(prepared_ctx["sys_prompt"])
+        context_payload = dict(prepared_ctx["context_payload"])
 
         tracer = PostgresTracer()
         chat_model = await get_task_chat_model(db, task_type="SYSTEM_DESIGN_REVIEWER")
@@ -1858,6 +2052,7 @@ class SystemDesignService:
         )
 
         raw_text = _extract_text_content(llm_res.content)
+        repair_used = False
         try:
             parsed = _parse_strict_json_object(raw_text)
             eval_dict = _validate_final_evaluation_payload(parsed)
@@ -1867,6 +2062,7 @@ class SystemDesignService:
                 session_id,
                 initial_err,
             )
+            repair_used = True
             repair_prompt = (
                 "Your previous JSON evaluation failed strict validation and was rejected.\n"
                 f"Validation Error: {initial_err}\n\n"
@@ -1894,8 +2090,42 @@ class SystemDesignService:
             repaired_parsed = _parse_strict_json_object(repaired_raw)
             eval_dict = _validate_final_evaluation_payload(repaired_parsed)
 
+        telemetry = get_model_telemetry_metadata(chat_model, "SYSTEM_DESIGN_REVIEWER")
+        telemetry["repair_retry_used"] = repair_used
+        return {
+            "evaluation": eval_dict,
+            "provider_telemetry": telemetry,
+        }
+
+    @staticmethod
+    async def persist_final_evaluation(
+        db: AsyncSession,
+        session_id: int,
+        eval_dict: dict[str, Any],
+        *,
+        idempotent_if_completed: bool = False,
+    ) -> SystemDesignSessionModel:
+        """Step 3 for SYSTEM_DESIGN_EVALUATION: lock session row and persist final scorecard."""
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        if (
+            idempotent_if_completed
+            and session.status == "COMPLETED"
+            and session.final_evaluation is not None
+        ):
+            return await SystemDesignService.get_session(db, session_id)
+
+        SystemDesignService._ensure_session_mutable(session)
+        SystemDesignService._ensure_requirements_locked(session)
+        SystemDesignService._ensure_diagram_uploaded(session)
+        SystemDesignService._ensure_review_completed(session)
+        SystemDesignService._ensure_defence_participated(session)
+        if session.stage != "DEFENCE":
+            raise ValueError(
+                f"Final evaluation requires DEFENCE stage after answering defence prompts (current stage: {session.stage})."
+            )
+
         now = datetime.now(UTC)
-        session.final_evaluation = eval_dict
+        session.final_evaluation = dict(eval_dict)
         session.overall_score = float(eval_dict["overall_score"])
         session.readiness_rating = str(eval_dict["readiness_rating"])
         session.stage = "COMPLETED"
@@ -1905,6 +2135,21 @@ class SystemDesignService:
         flag_modified(session, "final_evaluation")
         await db.commit()
         return await SystemDesignService.get_session(db, session_id)
+
+    @staticmethod
+    async def evaluate_session(
+        db: AsyncSession, session_id: int
+    ) -> SystemDesignSessionModel:
+        """Synthesize and strictly validate the Stage F 12-dimension final scorecard."""
+        prepared_ctx = await SystemDesignService.prepare_final_evaluation_context(
+            db, session_id
+        )
+        inference_out = await SystemDesignService.run_final_evaluation_inference(
+            db, prepared_ctx
+        )
+        return await SystemDesignService.persist_final_evaluation(
+            db, session_id=session_id, eval_dict=inference_out["evaluation"]
+        )
 
     @staticmethod
     async def enqueue_final_evaluation(

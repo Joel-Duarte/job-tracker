@@ -464,3 +464,255 @@ async def test_bulk_retry_and_delete_evaluation_tasks(db_session: AsyncSession):
         assert running_check.status == "PROCESSING"
 
     app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_retry_endpoint_guards_active_and_completed_and_preserves_checkpoint(
+    db_session: AsyncSession,
+):
+    app.dependency_overrides[get_db] = lambda: db_session
+
+    processing_task = IntakeEvaluationTaskModel(
+        task_type="SYSTEM_DESIGN_REVIEW",
+        title_hint="Processing SD Review",
+        status="PROCESSING",
+        stage="ANALYZING",
+    )
+    completed_task = IntakeEvaluationTaskModel(
+        task_type="SYSTEM_DESIGN_EVALUATION",
+        title_hint="Completed SD Eval",
+        status="COMPLETED",
+        stage="COMPLETE",
+    )
+    checkpointed_failed = IntakeEvaluationTaskModel(
+        task_type="SYSTEM_DESIGN_REVIEW",
+        title_hint="Failed at SAVING",
+        status="FAILED",
+        stage="FAILED",
+        error_message="DB blip during save",
+        result_json={
+            "session_id": 77,
+            "_checkpoint": {
+                "completed_steps": ["PREPARING", "ANALYZING"],
+                "review_result": {"diagram_version": 1},
+                "attempt_count": 1,
+            },
+        },
+    )
+    db_session.add_all([processing_task, completed_task, checkpointed_failed])
+    await db_session.commit()
+    for t in (processing_task, completed_task, checkpointed_failed):
+        await db_session.refresh(t)
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as ac:
+            r_proc = await ac.post(
+                f"/api/v1/intake/evaluations/{processing_task.id}/retry"
+            )
+            assert r_proc.status_code == 409
+
+            r_comp = await ac.post(
+                f"/api/v1/intake/evaluations/{completed_task.id}/retry"
+            )
+            assert r_comp.status_code == 409
+
+            with patch("app.routers.intake.process_evaluation_task"):
+                r_retry = await ac.post(
+                    f"/api/v1/intake/evaluations/{checkpointed_failed.id}/retry"
+                )
+            assert r_retry.status_code == 200
+            retried = r_retry.json()
+            assert retried["status"] == "QUEUED"
+            assert retried["stage"] == "SAVING"
+            cp = retried["result_json"]["_checkpoint"]
+            assert cp["completed_steps"] == ["PREPARING", "ANALYZING"]
+            assert cp["manual_retry_count"] == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_startup_recovery_duplicate_claim_and_graceful_shutdown(
+    db_session: AsyncSession,
+):
+    from datetime import UTC, datetime, timedelta
+
+    from app.core.ai_queue import set_shutting_down
+    from app.services.evaluation_worker import (
+        recover_and_dispatch_queue_tasks,
+    )
+
+    # Scenario B: stale/crashed PROCESSING task with partial checkpoint
+    stale_time = (datetime.now(UTC) - timedelta(minutes=15)).isoformat()
+    crashed_task = IntakeEvaluationTaskModel(
+        task_type="SYSTEM_DESIGN_REVIEW",
+        title_hint="Crashed mid-review",
+        status="PROCESSING",
+        stage="ANALYZING",
+        result_json={
+            "session_id": 12,
+            "_checkpoint": {
+                "completed_steps": ["PREPARING"],
+                "last_activity_at": stale_time,
+                "worker_host": "crashed-host",
+            },
+        },
+    )
+    db_session.add(crashed_task)
+    await db_session.commit()
+    await db_session.refresh(crashed_task)
+
+    # Prevent real background execution in test while inspecting dispatch behavior
+    spawned_ids: list[int] = []
+
+    async def fake_process(task_id: int, db=None):
+        spawned_ids.append(task_id)
+
+    with patch(
+        "app.services.evaluation_worker.process_evaluation_task",
+        side_effect=fake_process,
+    ):
+        summary = await recover_and_dispatch_queue_tasks(
+            startup=True, stale_after_seconds=300
+        )
+        # Allow scheduled asyncio tasks to run one event-loop turn
+        await asyncio.sleep(0.05)
+
+    assert summary["recovered_count"] == 1
+    assert crashed_task.id in summary["dispatched_task_ids"]
+    assert crashed_task.id in spawned_ids
+
+    await db_session.refresh(crashed_task)
+    assert crashed_task.status == "QUEUED"
+    assert crashed_task.stage == "ANALYZING"
+    assert crashed_task.result_json["_checkpoint"]["completed_steps"] == ["PREPARING"]
+    assert crashed_task.result_json["_checkpoint"]["recovery_count"] == 1
+
+    # Scenario D: Duplicate claim / concurrent worker guard & completed idempotency
+    exec_count = 0
+
+    async def counting_steps(task, db):
+        nonlocal exec_count
+        exec_count += 1
+        await asyncio.sleep(0.05)
+        task.status = "COMPLETED"
+        task.stage = "COMPLETE"
+        await db.commit()
+
+    dup_task = IntakeEvaluationTaskModel(
+        task_type="JOB_ASSESSMENT",
+        title_hint="Concurrent Claim Guard",
+        status="QUEUED",
+        stage="QUEUED",
+    )
+    db_session.add(dup_task)
+    await db_session.commit()
+    await db_session.refresh(dup_task)
+
+    with patch(
+        "app.services.evaluation_worker._execute_evaluation_steps",
+        side_effect=counting_steps,
+    ):
+        await asyncio.gather(
+            process_evaluation_task(dup_task.id),
+            process_evaluation_task(dup_task.id),
+        )
+        # Calling again once COMPLETED must be an immediate no-op
+        await process_evaluation_task(dup_task.id)
+
+    assert exec_count == 1
+    await db_session.refresh(dup_task)
+    assert dup_task.status == "COMPLETED"
+
+    # Scenario E: Graceful shutdown re-queues interrupted task preserving _checkpoint
+    shutdown_task = IntakeEvaluationTaskModel(
+        task_type="SYSTEM_DESIGN_EVALUATION",
+        title_hint="Shutdown Interrupt Task",
+        status="QUEUED",
+        stage="QUEUED",
+        result_json={
+            "session_id": 55,
+            "_checkpoint": {"completed_steps": ["PREPARING"]},
+        },
+    )
+    db_session.add(shutdown_task)
+    await db_session.commit()
+    await db_session.refresh(shutdown_task)
+
+    started_event = asyncio.Event()
+
+    async def slow_eval_steps(task, db):
+        started_event.set()
+        await asyncio.sleep(10.0)
+
+    try:
+        with patch(
+            "app.services.evaluation_worker._execute_evaluation_steps",
+            side_effect=slow_eval_steps,
+        ):
+            worker = asyncio.create_task(process_evaluation_task(shutdown_task.id))
+            await started_event.wait()
+            set_shutting_down(True)
+            worker.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await worker
+    finally:
+        set_shutting_down(False)
+
+    await db_session.refresh(shutdown_task)
+    assert shutdown_task.status == "QUEUED"
+    assert shutdown_task.result_json["_checkpoint"]["completed_steps"] == ["PREPARING"]
+    assert shutdown_task.result_json["_checkpoint"].get("interrupted_by_shutdown_at")
+
+
+@pytest.mark.asyncio
+async def test_transient_retry_vs_permanent_error_policy():
+    from app.services import evaluation_worker as ew
+
+    task = IntakeEvaluationTaskModel(
+        id=909,
+        task_type="SYSTEM_DESIGN_REVIEW",
+        status="PROCESSING",
+        stage="ANALYZING",
+        result_json={"_checkpoint": {}},
+    )
+
+    mock_exec_res = AsyncMock()
+    mock_exec_res.scalar_one_or_none = lambda: "PROCESSING"
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(return_value=mock_exec_res)
+    mock_db.get = AsyncMock(return_value=task)
+
+    calls = 0
+
+    async def flaky_then_ok():
+        nonlocal calls
+        calls += 1
+        if calls < 2:
+            raise TimeoutError("429 upstream timed out")
+        return {"ok": True}
+
+    with patch.object(ew, "_TRANSIENT_RETRY_DELAYS", (0.0, 0.0)):
+        out = await ew._run_with_transient_retry(
+            909, "ANALYZING", flaky_then_ok, task, mock_db
+        )
+    assert out == {"ok": True}
+    assert calls == 2
+
+    perm_calls = 0
+
+    async def permanent_validation_err():
+        nonlocal perm_calls
+        perm_calls += 1
+        raise ValueError("Invalid rubric schema output")
+
+    with (
+        patch.object(ew, "_TRANSIENT_RETRY_DELAYS", (0.0, 0.0)),
+        pytest.raises(ValueError, match="Invalid rubric schema output"),
+    ):
+        await ew._run_with_transient_retry(
+            909, "ANALYZING", permanent_validation_err, task, mock_db
+        )
+    assert perm_calls == 1
