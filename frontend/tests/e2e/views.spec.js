@@ -35,6 +35,13 @@ test('profile route redirects to profile settings', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'My Profile / CV' })).toHaveClass(/active/)
 })
 
+test('system-design route redirects to Agent chat System Design Lab tab', async ({ page }) => {
+  await page.goto('/system-design')
+  await expect(page).toHaveURL(/\/chat\?mode=system_design$/)
+  await expect(page.getByTestId('mode-btn-system-design')).toHaveClass(/active/)
+  await expect(page.locator('.system-design-view')).toBeVisible()
+})
+
 test('analytics tabs reveal the selected dashboard and navigates smoothly to tasks', async ({ page, isMobile }) => {
   await page.goto('/analytics')
   await page.getByRole('button', { name: 'Pipeline Funnel Performance' }).click()

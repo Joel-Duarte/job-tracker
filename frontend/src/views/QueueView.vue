@@ -191,6 +191,12 @@ function getTaskDisplayTitle(task) {
   if (task.task_type === 'EMBEDDING') {
     return 'Vector Embedding Generation'
   }
+  if (task.task_type === 'SYSTEM_DESIGN_REVIEW') {
+    return task.title_hint || 'System Design Vision Review'
+  }
+  if (task.task_type === 'SYSTEM_DESIGN_EVALUATION') {
+    return task.title_hint || 'System Design Final Evaluation'
+  }
   if (task.result_json?.company && task.result_json?.position) {
     return `${task.result_json.company} - ${task.result_json.position}`
   }
@@ -212,6 +218,8 @@ function getTaskTypeIcon(type) {
   if (type === 'COVER_LETTER') return FileText
   if (type === 'APPLICATION_QA') return HelpCircle
   if (type === 'EMAIL_SYNC' || type === 'EMAIL_INTAKE') return Mail
+  if (type === 'SYSTEM_DESIGN_REVIEW') return Layers
+  if (type === 'SYSTEM_DESIGN_EVALUATION') return ShieldCheck
   return Briefcase
 }
 
@@ -223,6 +231,8 @@ function getTaskTypeLabel(type) {
   if (type === 'COVER_LETTER') return 'Cover Letter Generation'
   if (type === 'APPLICATION_QA') return 'Form Q&A'
   if (type === 'EMAIL_SYNC' || type === 'EMAIL_INTAKE') return 'Email Sync'
+  if (type === 'SYSTEM_DESIGN_REVIEW') return 'System Design Review'
+  if (type === 'SYSTEM_DESIGN_EVALUATION') return 'System Design Evaluation'
   return 'Job Assessment'
 }
 

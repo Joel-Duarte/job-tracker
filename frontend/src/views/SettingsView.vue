@@ -86,11 +86,22 @@ import {
 } from 'lucide-vue-next'
 import { useAIStore } from '../stores/aiStore'
 import { useQueueStore } from '../stores/queueStore'
+import { useSystemDesignStore } from '../stores/systemDesignStore'
 
 const route = useRoute()
 const uiStore = useUIStore()
 const aiStore = useAIStore()
 const queueStore = useQueueStore()
+const sdStore = useSystemDesignStore()
+
+const handleResetSdChallenges = async () => {
+  try {
+    await sdStore.resetDefaultChallenges()
+    uiStore.showToast('Restored all 8 default System Design challenges.', 'success')
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to reset System Design challenges.', 'error')
+  }
+}
 
 const activeTab = ref(route.query.tab || 'studio') // 'studio' | 'providers' | 'email_accounts' | 'profile' | 'preferences'
 
@@ -1391,6 +1402,34 @@ const TASKS = [
     hasPrompt: true,
     desc: 'Generates tailored opening and progression interview challenges aligned with interviewer persona and candidate background.',
     variables: ['{persona_instruction}', '{position}', '{company_name}', '{job_spec}', '{cv_summary}'],
+  },
+  {
+    category: 'interview',
+    key: 'SYSTEM_DESIGN_INTERVIEWER',
+    promptKey: 'system_design_interviewer',
+    label: 'System Design Interviewer',
+    icon: Layers,
+    recommendedTemp: 0.3,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: 2048,
+    reasoningTip: '💡 Local & Cloud: Moderate (0.3) — Drives requirements discovery & architecture defence without revealing hidden solutions.',
+    hasPrompt: true,
+    desc: 'Conducts System Design Lab requirements clarification interviews and interactive architecture defence questioning.',
+    variables: ['{mode_instruction}', '{challenge_title}', '{initial_prompt}', '{hidden_brief_json}', '{stage}', '{requirements_ledger_json}'],
+  },
+  {
+    category: 'interview',
+    key: 'SYSTEM_DESIGN_REVIEWER',
+    promptKey: 'system_design_reviewer',
+    label: 'System Design Architecture Reviewer',
+    icon: Cpu,
+    recommendedTemp: 0.1,
+    recommendedReasoning: 'none',
+    recommendedMaxTokens: 4096,
+    reasoningTip: '💡 Multimodal Vision Model Recommended — Analyzes uploaded diagram images and synthesizes evidence-based Stage F scorecards.',
+    hasPrompt: true,
+    desc: 'Evaluates uploaded architecture diagrams via multimodal vision and generates the 12-dimension evidence-backed final scorecard.',
+    variables: ['{challenge_title}', '{requirements_ledger_json}', '{hidden_brief_json}', '{candidate_notes}'],
   },
 ]
 
@@ -4009,6 +4048,32 @@ PARAMETER cache_type_v q8_0</code></pre>
             <button class="btn btn-primary" :disabled="!timezoneSettingsReady" @click="saveTimezone('manual')">Save time zone</button>
             <button class="btn btn-secondary" :disabled="!timezoneSettingsReady" @click="saveTimezone('auto')">Use browser time zone</button>
           </div>
+
+          <!-- System Design Lab Preferences Card -->
+          <div class="preference-card">
+            <div class="preference-header">
+              <div class="preference-icon text-primary">
+                <Layers :size="18" />
+              </div>
+              <div class="preference-header-text">
+                <h4 class="preference-title">System Design Lab Scenarios</h4>
+                <p class="preference-desc">Restore all 8 curated built-in system design challenges while keeping your custom scenarios.</p>
+              </div>
+            </div>
+            <div class="preference-body">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                data-testid="settings-reset-sd-challenges-btn"
+                :disabled="sdStore.resettingChallenges"
+                @click="handleResetSdChallenges"
+              >
+                <RotateCcw :size="14" />
+                <span>Reset Default 8 Challenges</span>
+              </button>
+            </div>
+          </div>
+
           <!-- 0. Client Demo Mode & Dataset Card -->
           <div v-if="uiStore.isDemoMode" class="preference-card preference-card-wide border-primary">
             <div class="preference-header">

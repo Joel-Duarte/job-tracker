@@ -6,8 +6,10 @@ import { marked } from 'marked'
 import { useAgentChatStore } from '../stores/agentChatStore'
 import { useInterviewStore } from '../stores/interviewStore'
 import { useApplicationsStore } from '../stores/applicationsStore'
+import { useSystemDesignStore } from '../stores/systemDesignStore'
 import { useUIStore } from '../stores/uiStore'
 import { AIConfigAPI } from '../api/endpoints'
+import SystemDesignView from './SystemDesignView.vue'
 import {
   Bot,
   User,
@@ -48,9 +50,10 @@ const router = useRouter()
 const chatStore = useAgentChatStore()
 const interviewStore = useInterviewStore()
 const appStore = useApplicationsStore()
+const systemDesignStore = useSystemDesignStore()
 const uiStore = useUIStore()
 
-// Mode toggle: 'assistant' | 'interview'
+// Mode toggle: 'assistant' | 'interview' | 'system_design'
 const activeMode = ref('assistant')
 
 // Assistant Chat State
@@ -124,6 +127,40 @@ const filteredInterviewSessions = computed(() => {
   if (!q) return list
   return list.filter(s => formatSessionTitle(s).toLowerCase().includes(q))
 })
+
+const filteredSdSessions = computed(() => {
+  const q = sidebarSearchQuery.value.trim().toLowerCase()
+  const list = [...(systemDesignStore.sessions || [])]
+  if (!q) return list
+  return list.filter((s) => {
+    const title = (s.challenge?.title || `Session #${s.id}`).toLowerCase()
+    const stage = (s.stage || '').toLowerCase()
+    return title.includes(q) || stage.includes(q)
+  })
+})
+
+function handleOpenSdLobby() {
+  systemDesignStore.clearActiveSession()
+  closeSidebarOnMobile()
+}
+
+async function handleLoadSdSession(id) {
+  closeSidebarOnMobile()
+  try {
+    await systemDesignStore.loadSession(id)
+  } catch (err) {
+    uiStore.showToast('Failed to load system design session', 'error')
+  }
+}
+
+async function handleDeleteSdSession(id) {
+  try {
+    await systemDesignStore.deleteSession(id)
+    uiStore.showToast('System design session deleted', 'success')
+  } catch (err) {
+    uiStore.showToast('Failed to delete system design session', 'error')
+  }
+}
 
 // Voice dictation (Web Speech API)
 const isRecording = ref(false)
@@ -245,8 +282,11 @@ onMounted(async () => {
   await interviewStore.fetchSessions()
   await uiStore.fetchSystemSettings()
 
-  // Handle URL deep-linking (?appId=X&mock=true)
-  if (route.query.mock === 'true' || route.query.appId) {
+  // Handle URL deep-linking (?mode=system_design, ?mock=true, ?appId=X)
+  if (route.query.mode === 'system_design') {
+    activeMode.value = 'system_design'
+    await Promise.all([systemDesignStore.fetchChallenges(), systemDesignStore.fetchSessions()])
+  } else if (route.query.mode === 'interview' || route.query.mock === 'true' || route.query.appId) {
     activeMode.value = 'interview'
     if (route.query.appId) {
       mockAppId.value = parseInt(route.query.appId)
@@ -289,8 +329,17 @@ onMounted(async () => {
   scrollToBottom()
 })
 
-// Auto-scroll watchers for all mode switches, message updates, and session loads
-watch(activeMode, () => {
+// Auto-scroll and lazy-load watchers for mode switches, message updates, and session loads
+watch(activeMode, async (mode) => {
+  if (mode === 'system_design') {
+    if (!systemDesignStore.challenges.length) {
+      await systemDesignStore.fetchChallenges()
+    }
+    if (!systemDesignStore.sessions.length) {
+      await systemDesignStore.fetchSessions()
+    }
+    return
+  }
   scrollToBottom()
 })
 
@@ -314,8 +363,10 @@ watch([() => chatStore.isSending, () => interviewStore.isEvaluating, () => inter
   scrollToBottom()
 })
 
-watch(() => route.query, (newQuery) => {
-  if (newQuery.mock === 'true' || newQuery.appId) {
+watch(() => route.query, async (newQuery) => {
+  if (newQuery.mode === 'system_design') {
+    activeMode.value = 'system_design'
+  } else if (newQuery.mode === 'interview' || newQuery.mock === 'true' || newQuery.appId) {
     activeMode.value = 'interview'
     if (newQuery.appId) {
       mockAppId.value = parseInt(newQuery.appId)
@@ -913,6 +964,76 @@ function getScoreBadgeClass(score) {
         </div>
       </template>
 
+      <!-- SYSTEM DESIGN LAB MODE SIDEBAR HEADER & LIST -->
+      <template v-else-if="activeMode === 'system_design'">
+        <div class="sidebar-header">
+          <button
+            class="btn-new-chat-sidebar"
+            @click="handleOpenSdLobby"
+            data-testid="sidebar-sd-lobby-btn"
+          >
+            <Plus :size="16" />
+            <span>Challenge Scenarios</span>
+          </button>
+          <button
+            class="btn-icon-sidebar"
+            @click="toggleSidebar"
+            title="Collapse Sidebar"
+          >
+            <PanelLeftClose :size="18" />
+          </button>
+        </div>
+
+        <div class="sidebar-search-box">
+          <Search :size="13" class="sidebar-search-icon" />
+          <input
+            v-model="sidebarSearchQuery"
+            type="text"
+            placeholder="Filter architecture sessions..."
+            class="sidebar-search-input"
+          />
+        </div>
+
+        <div class="chats-list">
+          <div v-if="systemDesignStore.loadingSessions" class="chats-loading">
+            <Loader2 class="animate-spin" :size="20" />
+          </div>
+          <div v-else-if="filteredSdSessions.length === 0" class="no-chats">
+            {{ sidebarSearchQuery ? 'No matching design sessions' : 'No design sessions yet' }}
+          </div>
+          <div v-else class="chats-list-scroll">
+            <div
+              v-for="session in filteredSdSessions"
+              :key="session.id"
+              class="chat-list-item interview-session-item"
+              :class="{ active: systemDesignStore.activeSession?.id === session.id }"
+              @click="handleLoadSdSession(session.id)"
+            >
+              <div class="chat-item-content">
+                <Layers :size="14" class="chat-icon text-primary" />
+                <div class="session-sidebar-info">
+                  <span class="session-sidebar-title">{{ session.challenge?.title || `Session #${session.id}` }}</span>
+                  <div class="session-sidebar-meta">
+                    <span v-if="session.status === 'COMPLETED'" class="session-status-tag session-status-closed">Done</span>
+                    <span v-else class="session-status-tag">{{ session.stage }}</span>
+                    <span
+                      v-if="session.overall_score !== null && session.overall_score !== undefined"
+                      class="session-score-tag"
+                      :class="getReadinessBadgeClass(session.readiness_rating)"
+                    >
+                      {{ Math.round(session.overall_score) }}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <button class="btn-delete-chat" @click.stop="handleDeleteSdSession(session.id)" title="Delete Session">
+                <Trash2 :size="14" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+
       <!-- Sidebar Footer -->
       <div class="sidebar-footer">
         <div v-if="activeMode === 'assistant'" class="retention-setting">
@@ -959,6 +1080,7 @@ function getScoreBadgeClass(score) {
                 class="mode-btn"
                 :class="{ active: activeMode === 'assistant' }"
                 @click="activeMode = 'assistant'"
+                data-testid="mode-btn-assistant"
               >
                 <Bot :size="15" />
                 <span>AI Assistant</span>
@@ -967,9 +1089,19 @@ function getScoreBadgeClass(score) {
                 class="mode-btn"
                 :class="{ active: activeMode === 'interview' }"
                 @click="activeMode = 'interview'"
+                data-testid="mode-btn-interview"
               >
                 <Sparkles :size="15" />
                 <span>Live Mock Interview Simulator</span>
+              </button>
+              <button
+                class="mode-btn"
+                :class="{ active: activeMode === 'system_design' }"
+                @click="activeMode = 'system_design'"
+                data-testid="mode-btn-system-design"
+              >
+                <Layers :size="15" />
+                <span>System Design Lab</span>
               </button>
             </div>
           </div>
@@ -1530,6 +1662,11 @@ function getScoreBadgeClass(score) {
           </div>
         </div>
       </template>
+
+      <!-- MODE 3: SYSTEM DESIGN LAB -->
+      <div v-else-if="activeMode === 'system_design'" class="sd-embedded-container">
+        <SystemDesignView embedded />
+      </div>
     </div>
   </div>
 </template>
@@ -1815,6 +1952,15 @@ function getScoreBadgeClass(score) {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.sd-embedded-container {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background-color: var(--bg-app);
 }
 
 .mode-switcher-pill {
@@ -3252,13 +3398,17 @@ function getScoreBadgeClass(score) {
   }
 
   .chat-header {
-    padding: 0 12px;
-    height: 56px;
+    padding: 6px 10px;
+    height: auto;
+    min-height: 56px;
   }
 
   .mode-switcher-pill {
     padding: 2px;
     gap: 2px;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
 
   .mode-btn {
@@ -3266,6 +3416,8 @@ function getScoreBadgeClass(score) {
     font-size: 11.5px;
     gap: 4px;
     min-height: 36px;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .mode-btn span {

@@ -202,3 +202,51 @@ export const CompaniesAPI = {
   bulkResearch: (data = {}) => apiClient.post('/companies/bulk-research', data),
   getDuplicates: () => apiClient.get('/companies/duplicates'),
 }
+
+export const SystemDesignAPI = {
+  listChallenges: (params = {}) => apiClient.get('/system-design/challenges', { params }),
+  getChallenge: (slugOrId) => apiClient.get(`/system-design/challenges/${slugOrId}`),
+  createChallenge: (data) => apiClient.post('/system-design/challenges', data),
+  generateChallenge: (data) => apiClient.post('/system-design/challenges/generate', data),
+  updateChallenge: (challengeId, data) =>
+    apiClient.put(`/system-design/challenges/${challengeId}`, data),
+  resetDefaultChallenges: () => apiClient.post('/system-design/challenges/reset-defaults'),
+  deleteChallenge: (challengeId) => apiClient.delete(`/system-design/challenges/${challengeId}`),
+  startSession: (data) => apiClient.post('/system-design/sessions', data),
+  listSessions: (params = {}) => apiClient.get('/system-design/sessions', { params }),
+  getSession: (sessionId) => apiClient.get(`/system-design/sessions/${sessionId}`),
+  deleteSession: (sessionId) => apiClient.delete(`/system-design/sessions/${sessionId}`),
+  updateMode: (sessionId, mode) =>
+    apiClient.patch(`/system-design/sessions/${sessionId}/mode`, { mode }),
+  sendRequirementsMessage: (sessionId, message, requestHint = false) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/requirements/message`, {
+      message,
+      request_hint: Boolean(requestHint),
+    }),
+  extractRequirementsLedger: (sessionId) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/requirements/extract`),
+  updateRequirementsLedger: (sessionId, ledgerPayload) =>
+    apiClient.put(`/system-design/sessions/${sessionId}/requirements/ledger`, ledgerPayload),
+  uploadDiagram: (sessionId, formData) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/diagrams`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  getDiagramImageUrl: (sessionId, version) =>
+    `/api/v1/system-design/sessions/${sessionId}/diagrams/${version}/image`,
+  reviewDiagram: (sessionId, data = {}) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/review`, data),
+  sendDefenceMessage: (sessionId, message, { requestHint = false, useWebSearch = false } = {}) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/defence/message`, {
+      message,
+      request_hint: Boolean(requestHint),
+      use_web_search: Boolean(useWebSearch),
+    }),
+  evaluateSession: (sessionId) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/evaluate`),
+  getFrontierPacket: (sessionId) =>
+    apiClient.get(`/system-design/sessions/${sessionId}/frontier-packet`),
+  importEvaluation: (sessionId, rawResponse) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/import-evaluation`, {
+      raw_response: rawResponse,
+    }),
+}

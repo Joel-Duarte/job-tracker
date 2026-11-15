@@ -16,6 +16,154 @@ function delay(ms = null) {
   return new Promise((resolve) => setTimeout(resolve, actualMs))
 }
 
+function getDefaultDemoSystemDesignChallenges() {
+  const nowIso = new Date().toISOString()
+  return [
+    {
+      id: 1,
+      slug: 'url-shortener',
+      title: 'Design a URL Shortener',
+      category: 'DISTRIBUTED_SYSTEMS',
+      difficulty: 'EASY',
+      prompt_summary:
+        'Build a service that creates short, shareable aliases for long URLs and redirects users reliably with low latency.',
+      initial_prompt:
+        "We need to design a URL shortening service like bit.ly or TinyURL. Users should be able to generate short links for arbitrary long URLs and be redirected when visiting a short link. Let's start with requirements discovery: what clarifying questions do you have about scale, features, and constraints?",
+      tags: ['hashing', 'caching', 'key-generation', 'redirects', 'read-heavy'],
+      is_builtin: true,
+      created_at: nowIso,
+    },
+    {
+      id: 2,
+      slug: 'spotify-100k',
+      title: 'Design Spotify for 100,000 Users',
+      category: 'MEDIA_STREAMING',
+      difficulty: 'MEDIUM',
+      prompt_summary:
+        'Design an audio streaming platform sized intentionally for 100,000 registered users with playlists, search, and offline/online playback.',
+      initial_prompt:
+        'Design a music streaming service similar to Spotify, scoped specifically to support 100,000 total registered users. Before jumping into architecture, what questions would you like to ask to clarify the workload, catalog size, features, and constraints?',
+      tags: ['right-sizing', 'audio-streaming', 'cdn', 'object-storage', 'yagni'],
+      is_builtin: true,
+      created_at: nowIso,
+    },
+    {
+      id: 3,
+      slug: 'realtime-notifications',
+      title: 'Design a Real-Time Notification System',
+      category: 'EVENT_DRIVEN',
+      difficulty: 'MEDIUM',
+      prompt_summary:
+        'Design a multi-channel notification platform delivering push, email, SMS, and in-app alerts reliably across millions of events.',
+      initial_prompt:
+        'We need a scalable real-time notification system capable of delivering user alerts across in-app real-time feeds, mobile push (APNs/FCM), email, and SMS. Ask clarifying questions to lock down scale, delivery guarantees, and product scope.',
+      tags: ['pub-sub', 'websockets', 'queues', 'idempotency', 'fan-out'],
+      is_builtin: true,
+      created_at: nowIso,
+    },
+    {
+      id: 4,
+      slug: 'ride-sharing',
+      title: 'Design a Ride-Sharing Platform',
+      category: 'GEOSPATIAL',
+      difficulty: 'HARD',
+      prompt_summary:
+        'Design a real-time rider-driver matching, location tracking, and trip dispatch backend similar to Uber or Lyft.',
+      initial_prompt:
+        'Design the core backend of a ride-sharing platform that tracks driver locations continuously, matches nearby drivers with riders, and manages trip state transitions. What questions would you like to ask to define the scope and scale?',
+      tags: ['geospatial', 'geohash', 'h3', 'matching', 'state-machine'],
+      is_builtin: true,
+      created_at: nowIso,
+    },
+    {
+      id: 5,
+      slug: 'distributed-job-queue',
+      title: 'Design a Distributed Job Processing System',
+      category: 'INFRASTRUCTURE',
+      difficulty: 'MEDIUM',
+      prompt_summary:
+        'Design a reliable multi-tenant background task execution platform supporting delayed jobs, retries, concurrency limits, and worker heartbeats.',
+      initial_prompt:
+        "Design a distributed job queue and task execution platform (similar to Celery, Temporal queues, or AWS SQS + workers). Clients submit background jobs and expect reliable execution. Let's clarify requirements and failure constraints before you design.",
+      tags: ['queues', 'visibility-timeout', 'dlq', 'scheduling', 'idempotency'],
+      is_builtin: true,
+      created_at: nowIso,
+    },
+    {
+      id: 6,
+      slug: 'video-streaming',
+      title: 'Design a Video Streaming Platform',
+      category: 'MEDIA_STREAMING',
+      difficulty: 'HARD',
+      prompt_summary:
+        'Design a scalable video upload, transcoding DAG pipeline, metadata service, and adaptive bitrate playback architecture like YouTube.',
+      initial_prompt:
+        'Design a video sharing and streaming platform where creators upload videos and viewers stream them smoothly worldwide on varied network connections. Ask clarifying questions to narrow down scope, scale, and constraints.',
+      tags: ['hls', 'dash', 'transcoding', 'cdn', 'dag-pipeline'],
+      is_builtin: true,
+      created_at: nowIso,
+    },
+    {
+      id: 7,
+      slug: 'chat-system',
+      title: 'Design a Real-Time Chat System',
+      category: 'REALTIME_MESSAGING',
+      difficulty: 'MEDIUM',
+      prompt_summary:
+        'Design a 1:1 and group messaging application with online presence, message ordering, read receipts, and multi-device sync.',
+      initial_prompt:
+        'Design a real-time chat system like WhatsApp or Slack supporting 1-on-1 conversations, group chats, online/offline presence indicators, and multi-device message history sync. What clarifying questions do you have?',
+      tags: ['websockets', 'ordering', 'presence', 'fan-out', 'cassandra'],
+      is_builtin: true,
+      created_at: nowIso,
+    },
+    {
+      id: 8,
+      slug: 'rate-limiter',
+      title: 'Design a Distributed API Rate Limiter',
+      category: 'INFRASTRUCTURE',
+      difficulty: 'MEDIUM',
+      prompt_summary:
+        'Design a low-latency distributed rate limiting layer protecting public APIs from abuse, traffic spikes, and noisy tenants.',
+      initial_prompt:
+        'Design a distributed API rate limiter to protect an enterprise SaaS API gateway from abuse, accidental client loops, and traffic spikes while adding minimal latency. What clarifying questions should we resolve first?',
+      tags: ['token-bucket', 'sliding-window', 'redis-lua', 'api-gateway', 'fail-open'],
+      is_builtin: true,
+      created_at: nowIso,
+    },
+  ]
+}
+
+function ensureDemoSystemDesignData(db) {
+  if (!Array.isArray(db.system_design_challenges)) {
+    db.system_design_challenges = getDefaultDemoSystemDesignChallenges()
+  }
+  if (!Array.isArray(db.system_design_sessions)) {
+    db.system_design_sessions = []
+  }
+}
+
+async function readDemoFileAsDataUrl(fileObj) {
+  const fallbackSvg =
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="320" viewBox="0 0 640 320"><rect width="640" height="320" fill="#1e293b"/><rect x="40" y="110" width="140" height="70" rx="8" fill="#334155" stroke="#60a5fa"/><text x="110" y="150" fill="#f8fafc" font-size="14" text-anchor="middle">API Gateway</text><rect x="250" y="110" width="140" height="70" rx="8" fill="#334155" stroke="#34d399"/><text x="320" y="150" fill="#f8fafc" font-size="14" text-anchor="middle">App Service</text><rect x="460" y="110" width="140" height="70" rx="8" fill="#334155" stroke="#fbbf24"/><text x="530" y="150" fill="#f8fafc" font-size="14" text-anchor="middle">Primary DB</text></svg>'
+    )
+  if (!fileObj || typeof FileReader === 'undefined') {
+    return fallbackSvg
+  }
+  try {
+    return await new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || fallbackSvg))
+      reader.onerror = () => resolve(fallbackSvg)
+      reader.readAsDataURL(fileObj)
+    })
+  } catch {
+    return fallbackSvg
+  }
+}
+
 export async function handleDemoRequest(config) {
   const method = (config.method || 'get').toLowerCase()
   const rawUrl = config.url || ''
@@ -2739,6 +2887,640 @@ export async function handleDemoRequest(config) {
     }
     saveDemoDb(db)
     return ok({ status: 'success', message: 'Company deleted' })
+  }
+
+  // 12. SYSTEM DESIGN LAB ENDPOINTS
+  if (urlPath.startsWith('/system-design')) {
+    ensureDemoSystemDesignData(db)
+
+    if (urlPath === '/system-design/challenges' && method === 'get') {
+      let items = [...db.system_design_challenges]
+      if (params.category) {
+        items = items.filter((c) => c.category === params.category)
+      }
+      if (params.difficulty) {
+        items = items.filter((c) => c.difficulty === params.difficulty)
+      }
+      return ok(items)
+    }
+
+    if (urlPath === '/system-design/challenges' && method === 'post') {
+      const title = String(data.title || 'Custom Architecture Challenge').trim()
+      const slugBase = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'custom-challenge'
+      const nextId = db.system_design_challenges.reduce((m, c) => Math.max(m, Number(c.id) || 0), 0) + 1
+      const created = {
+        id: nextId,
+        slug: `${slugBase}-${nextId}`,
+        title,
+        category: data.category || 'DISTRIBUTED_SYSTEMS',
+        difficulty: data.difficulty || 'MEDIUM',
+        prompt_summary: data.prompt_summary || 'Custom system design scenario.',
+        initial_prompt: data.initial_prompt || `Design ${title}. Clarify scale and core constraints first.`,
+        tags: Array.isArray(data.tags) && data.tags.length ? data.tags : ['custom'],
+        is_builtin: false,
+        created_at: new Date().toISOString(),
+      }
+      db.system_design_challenges.push(created)
+      saveDemoDb(db)
+      return ok(created, 201)
+    }
+
+    if (urlPath === '/system-design/challenges/generate' && method === 'post') {
+      const appObj = data.application_id
+        ? (db.applications || []).find((a) => Number(a.id) === Number(data.application_id))
+        : null
+      const topic = String(data.topic || '').trim()
+      const roleCtx = appObj ? `${appObj.company_name || 'Target'} ${appObj.position || 'Engineer'}` : ''
+      const titleBase = topic || (roleCtx ? `${roleCtx} Core Platform` : 'Distributed Event Pipeline')
+      const nextId = db.system_design_challenges.reduce((m, c) => Math.max(m, Number(c.id) || 0), 0) + 1
+      const created = {
+        id: nextId,
+        slug: `ai-custom-${nextId}`,
+        title: titleBase.startsWith('Design') ? titleBase : `Design ${titleBase}`,
+        category: 'DISTRIBUTED_SYSTEMS',
+        difficulty: data.difficulty || 'MEDIUM',
+        prompt_summary: data.use_web_search
+          ? `Web-grounded scenario tailored for ${titleBase}.`
+          : `AI-tailored scenario focusing on ${titleBase}.`,
+        initial_prompt: `Design ${titleBase}. Start by clarifying expected traffic, durability guarantees, and key latency SLAs.`,
+        tags: ['ai-generated', ...(data.use_web_search ? ['web-grounded'] : []), ...(appObj ? [appObj.company_name] : [])],
+        is_builtin: false,
+        created_at: new Date().toISOString(),
+      }
+      db.system_design_challenges.push(created)
+      saveDemoDb(db)
+      return ok(created, 201)
+    }
+
+    if (urlPath === '/system-design/challenges/reset-defaults' && method === 'post') {
+      const defaults = getDefaultDemoSystemDesignChallenges()
+      const customChallenges = (db.system_design_challenges || []).filter((c) => !c.is_builtin)
+      db.system_design_challenges = [...defaults, ...customChallenges]
+      saveDemoDb(db)
+      return ok([...db.system_design_challenges])
+    }
+
+    const sdChallengeMatch = urlPath.match(/^\/system-design\/challenges\/([^/]+)$/)
+    if (sdChallengeMatch) {
+      const key = sdChallengeMatch[1]
+      const idx = db.system_design_challenges.findIndex(
+        (c) => String(c.id) === String(key) || c.slug === key
+      )
+      if (idx === -1) {
+        return { status: 404, data: { detail: 'System design challenge not found' } }
+      }
+      if (method === 'get') {
+        return ok(db.system_design_challenges[idx])
+      }
+      if (method === 'put') {
+        const ch = db.system_design_challenges[idx]
+        const updated = {
+          ...ch,
+          title: String(data.title || ch.title).trim(),
+          category: String(data.category || ch.category).trim().toUpperCase(),
+          difficulty: String(data.difficulty || ch.difficulty).trim().toUpperCase(),
+          prompt_summary: String(data.prompt_summary || ch.prompt_summary).trim(),
+          initial_prompt: String(data.initial_prompt || ch.initial_prompt).trim(),
+          tags: Array.isArray(data.tags) && data.tags.length ? data.tags : ch.tags,
+        }
+        db.system_design_challenges[idx] = updated
+        db.system_design_sessions = (db.system_design_sessions || []).map((s) =>
+          Number(s.challenge_id) === Number(ch.id) ? { ...s, challenge: updated } : s
+        )
+        saveDemoDb(db)
+        return ok(updated)
+      }
+      if (method === 'delete') {
+        const ch = db.system_design_challenges[idx]
+        db.system_design_challenges.splice(idx, 1)
+        db.system_design_sessions = (db.system_design_sessions || []).filter(
+          (s) => Number(s.challenge_id) !== Number(ch.id)
+        )
+        saveDemoDb(db)
+        return ok(null, 204)
+      }
+    }
+
+    if (urlPath === '/system-design/sessions' && method === 'get') {
+      return ok([...db.system_design_sessions])
+    }
+
+    if (urlPath === '/system-design/sessions' && method === 'post') {
+      const challenge =
+        db.system_design_challenges.find((c) => Number(c.id) === Number(data.challenge_id)) ||
+        db.system_design_challenges[0]
+      const nextId =
+        db.system_design_sessions.reduce((maxId, s) => Math.max(maxId, Number(s.id) || 0), 0) + 1
+      const nowIso = new Date().toISOString()
+      const newSession = {
+        id: nextId,
+        challenge_id: challenge.id,
+        application_id: data.application_id || null,
+        mode: data.mode || 'ADAPTIVE',
+        stage: 'REQUIREMENTS',
+        status: 'IN_PROGRESS',
+        requirements_transcript: [
+          {
+            turn_index: 1,
+            role: 'interviewer',
+            content: challenge.initial_prompt,
+            stage: 'REQUIREMENTS',
+            timestamp: nowIso,
+          },
+        ],
+        requirements_ledger: {
+          functional_requirements: [],
+          non_functional_requirements: [],
+          scale_estimates: {},
+          out_of_scope: [],
+          notes: '',
+          is_locked: false,
+        },
+        diagrams_metadata: [],
+        architecture_reviews: [],
+        defence_transcript: [],
+        final_evaluation: null,
+        overall_score: null,
+        readiness_rating: null,
+        created_at: nowIso,
+        updated_at: nowIso,
+        completed_at: null,
+        challenge,
+      }
+      db.system_design_sessions = [newSession, ...db.system_design_sessions]
+      saveDemoDb(db)
+      return ok(newSession, 201)
+    }
+
+    const sdSessionIdMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)$/)
+    if (sdSessionIdMatch) {
+      const sid = Number(sdSessionIdMatch[1])
+      const idx = db.system_design_sessions.findIndex((s) => Number(s.id) === sid)
+      if (idx === -1) {
+        return { status: 404, data: { detail: 'System design session not found' } }
+      }
+      if (method === 'get') {
+        return ok(db.system_design_sessions[idx])
+      }
+      if (method === 'delete') {
+        db.system_design_sessions.splice(idx, 1)
+        saveDemoDb(db)
+        return ok(null, 204)
+      }
+    }
+
+    const sdModeMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/mode$/)
+    if (sdModeMatch && method === 'patch') {
+      const sid = Number(sdModeMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      session.mode = data.mode || session.mode
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(session)
+    }
+
+    const sdReqMsgMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/requirements\/message$/)
+    if (sdReqMsgMatch && method === 'post') {
+      const sid = Number(sdReqMsgMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const transcript = session.requirements_transcript || []
+      const nowIso = new Date().toISOString()
+      const msgText = data.message || ''
+      const assisted = Boolean(data.request_hint || /\b(hint|help|coach|nudge|stuck)\b/i.test(msgText))
+      transcript.push({
+        turn_index: transcript.length + 1,
+        role: 'candidate',
+        content: msgText,
+        stage: session.stage,
+        assisted,
+        timestamp: nowIso,
+      })
+      const replyContent = assisted
+        ? 'Coaching Hint: Focus on bounding peak read vs. write QPS (~10:1 ratio, ~50M MAU), p99 latency SLAs (<50ms), and whether custom aliases or analytics are out of scope.'
+        : 'Assume roughly 10:1 read-to-write traffic (~50M monthly active readers), 99.95% availability, and under 50ms p99 redirect latency. What write QPS or durability constraints are you designing around?'
+      transcript.push({
+        turn_index: transcript.length + 1,
+        role: 'interviewer',
+        content: replyContent,
+        stage: session.stage,
+        assisted,
+        timestamp: nowIso,
+      })
+      session.requirements_transcript = transcript
+      session.updated_at = nowIso
+      saveDemoDb(db)
+      return ok(session)
+    }
+
+    const sdReqExtractMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/requirements\/extract$/)
+    if (sdReqExtractMatch && method === 'post') {
+      const sid = Number(sdReqExtractMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      session.requirements_ledger = {
+        functional_requirements: [
+          'Core API endpoint to create/ingest primary entities',
+          'Low-latency read/lookup path for active items',
+        ],
+        non_functional_requirements: [
+          '99.95% availability target',
+          'p99 read latency under 50ms',
+        ],
+        scale_estimates: {
+          traffic_pattern: '10:1 read-to-write ratio',
+          monthly_active_users: '~50M MAU (demo baseline)',
+        },
+        out_of_scope: ['Billing and multi-region active-active conflict resolution'],
+        notes: `Extracted from ${session.requirements_transcript.length} conversation turns.`,
+        is_locked: Boolean(session.requirements_ledger?.is_locked),
+      }
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(session)
+    }
+
+    const sdLedgerMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/requirements\/ledger$/)
+    if (sdLedgerMatch && method === 'put') {
+      const sid = Number(sdLedgerMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      session.requirements_ledger = {
+        functional_requirements: data.functional_requirements || [],
+        non_functional_requirements: data.non_functional_requirements || [],
+        scale_estimates: data.scale_estimates || {},
+        out_of_scope: data.out_of_scope || [],
+        notes: data.notes || '',
+        is_locked: Boolean(data.is_locked),
+      }
+      if (data.is_locked && session.stage === 'REQUIREMENTS') {
+        session.stage = 'DESIGN'
+      } else if (!data.is_locked && session.stage === 'DESIGN' && !(session.diagrams_metadata || []).length) {
+        session.stage = 'REQUIREMENTS'
+      }
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(session)
+    }
+
+    const sdUploadMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/diagrams$/)
+    if (sdUploadMatch && method === 'post') {
+      const sid = Number(sdUploadMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const isFormData = typeof FormData !== 'undefined' && config.data instanceof FormData
+      const fileObj = isFormData ? config.data.get('file') : null
+      const notes = isFormData ? String(config.data.get('notes') || '') : String(data.notes || '')
+      const diagrams = session.diagrams_metadata || []
+      const version = diagrams.reduce((m, d) => Math.max(m, Number(d.version) || 0), 0) + 1
+      const dataUrl = await readDemoFileAsDataUrl(fileObj)
+      const mimeType = fileObj?.type || 'image/png'
+      const ext = mimeType.includes('jpeg') ? 'jpg' : mimeType.includes('webp') ? 'webp' : 'png'
+      diagrams.push({
+        version,
+        filename: `v${version}.${ext}`,
+        mime_type: mimeType,
+        size_bytes: fileObj?.size || 2048,
+        notes,
+        uploaded_at: new Date().toISOString(),
+        data_url: dataUrl,
+      })
+      session.diagrams_metadata = diagrams
+      if (session.stage === 'REQUIREMENTS') {
+        session.stage = 'DESIGN'
+      }
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(session, 201)
+    }
+
+    const sdReviewMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/review$/)
+    if (sdReviewMatch && method === 'post') {
+      const sid = Number(sdReviewMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const diagrams = session.diagrams_metadata || []
+      if (!diagrams.length) {
+        return { status: 400, data: { detail: 'No diagram uploaded yet.' } }
+      }
+      const targetVersion = Number(data.diagram_version || diagrams[diagrams.length - 1].version)
+      const webGrounded = Boolean(data.use_web_search)
+      const review = {
+        diagram_version: targetVersion,
+        interpreted_components: ['API Gateway', 'Application Service', 'Redis Read Cache', 'Primary SQL Database'],
+        interpreted_data_flows: [
+          'Client -> API Gateway -> App Service',
+          'App Service -> Redis Cache (miss -> Primary DB)',
+        ],
+        visual_clarifications_needed: [
+          'Clarify whether DB read replicas handle analytics queries or share primary connections.',
+        ],
+        strengths: [
+          'Clear separation between stateless compute tier and read-through cache.',
+          'Right-sized monolith service avoids premature microservice network overhead.',
+          ...(webGrounded
+            ? ['[Web Grounded] Matches production edge-caching & stateless app-tier benchmarks.']
+            : []),
+        ],
+        missing_components: ['Dead-letter / async worker path for non-blocking click/audit telemetry'],
+        bottlenecks_and_spofs: ['Single primary database instance without automated failover standby'],
+        unnecessary_complexity: [],
+        requirement_gaps: ['Explicit cache eviction / TTL invalidation flow is not annotated'],
+        overall_impression: `${webGrounded ? '[Web-Grounded] ' : ''}Solid v${targetVersion} baseline architecture; tighten DB failover and async telemetry paths during defence.`,
+        suggested_defence_topics: [
+          'How does your service behave if Redis evicts hot keys or temporarily goes unreachable during peak traffic?',
+        ],
+      }
+      const filteredReviews = (session.architecture_reviews || []).filter(
+        (r) => Number(r.diagram_version) !== targetVersion
+      )
+      filteredReviews.push(review)
+      filteredReviews.sort((a, b) => Number(a.diagram_version) - Number(b.diagram_version))
+      session.architecture_reviews = filteredReviews
+      session.stage = 'REVIEW'
+      if (!(session.defence_transcript || []).length) {
+        session.defence_transcript = [
+          {
+            turn_index: 1,
+            role: 'interviewer',
+            content: review.suggested_defence_topics[0],
+            stage: 'DEFENCE',
+            timestamp: new Date().toISOString(),
+          },
+        ]
+      }
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(session)
+    }
+
+    const sdDefenceMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/defence\/message$/)
+    if (sdDefenceMatch && method === 'post') {
+      const sid = Number(sdDefenceMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const defence = session.defence_transcript || []
+      const nowIso = new Date().toISOString()
+      const msgText = data.message || ''
+      const assisted = Boolean(data.request_hint || /\b(hint|help|coach|nudge|stuck)\b/i.test(msgText))
+      const webGrounded = Boolean(data.use_web_search)
+      defence.push({
+        turn_index: defence.length + 1,
+        role: 'candidate',
+        content: msgText,
+        stage: 'DEFENCE',
+        assisted,
+        timestamp: nowIso,
+      })
+      const baseReply = assisted
+        ? 'Coaching Hint: Explain your circuit-breaker threshold, stale-while-revalidate fallback, and how you shed non-critical write telemetry under primary DB saturation.'
+        : 'Understood. Suppose your primary DB hits connection saturation during a failover window—what backpressure or circuit-breaker mechanism prevents cascading 5xx failures?'
+      defence.push({
+        turn_index: defence.length + 1,
+        role: 'interviewer',
+        content: webGrounded ? `[Web-Grounded Context] ${baseReply}` : baseReply,
+        stage: 'DEFENCE',
+        assisted,
+        timestamp: nowIso,
+      })
+      session.defence_transcript = defence
+      session.stage = 'DEFENCE'
+      session.updated_at = nowIso
+      saveDemoDb(db)
+      return ok(session)
+    }
+
+    const sdEvalMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/evaluate$/)
+    if (sdEvalMatch && method === 'post') {
+      const sid = Number(sdEvalMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const lockedLabel = session.requirements_ledger?.is_locked ? 'locked' : 'unlocked'
+      const diagramsCount = (session.diagrams_metadata || []).length
+      const defTurns = (session.defence_transcript || []).filter((t) => t.role === 'candidate').length
+      const dims = [
+        ['Requirements Clarity', 4, `Candidate ran ${(session.requirements_transcript || []).length} discovery turns and curated a ${lockedLabel} requirements ledger.`, 'Strong clarifying focus on read/write ratio and SLA bounds.'],
+        ['Scope & Prioritization', 4, 'Explicitly separated MVP endpoints from out-of-scope multi-region replication.', 'Pragmatic phasing aligns with interview time constraints.'],
+        ['Back-of-the-Envelope Estimation', 4, 'Captured MAU baseline and 10:1 read/write assumption inside scale_estimates.', 'Add explicit storage growth calculations over 5 years next time.'],
+        ['API & Interface Design', 4, 'Defined primary write ingestion and low-latency read paths in ledger notes.', 'Mention idempotency keys on mutating POST requests.'],
+        ['Data Model & Storage Choice', 4, 'Diagram v' + Math.max(1, diagramsCount) + ' anchors durable state in a primary relational DB.', 'Sound indexing and schema discipline.'],
+        ['High-Level Architecture', 5, `Submitted ${diagramsCount || 1} diagram revision(s) with clear gateway, service, and storage separation.`, 'Clean component boundaries easy to follow.'],
+        ['Scalability & Partitioning', 4, 'Addressed read scaling through cache offloading before DB lookup.', 'Clarify sharding key choice once write QPS exceeds single primary.'],
+        ['Reliability & Fault Tolerance', 4, 'Identified standby failover risk and discussed cache unavailability fallback.', 'Document active health-check thresholds and retry jitter.'],
+        ['Caching & Latency Optimization', 5, 'Placed Redis read cache directly ahead of storage to meet <50ms p99 SLA.', 'Effective hot-key mitigation mindset.'],
+        ['Right-Sizing & Simplicity (YAGNI)', 5, 'Avoided unnecessary Kafka/microservice sprawl for the initial scale target.', 'Zero speculative complexity.'],
+        ['Trade-off Justification', 4, `Completed ${defTurns} defence response(s) explaining cache vs. DB consistency tradeoffs.`, 'Articulated trade-offs clearly under probing.'],
+        ['Defence Communication Under Pressure', 4, 'Directly answered bottlenecks highlighted in the architecture review.', 'Concise and structured explanations.'],
+      ]
+      const finalEvaluation = {
+        overall_score: 86,
+        readiness_rating: 'INTERVIEW_READY',
+        executive_summary:
+          `Demonstrated strong end-to-end systems thinking across ${diagramsCount || 1} diagram revision(s) and ${defTurns} defence turn(s), keeping the core read/write path clean and appropriately scaled.`,
+        rubric_scores: dims.map(([dimension, score, evidence, critique]) => ({
+          dimension,
+          score,
+          evidence,
+          critique,
+        })),
+        key_strengths: [
+          'Established measurable read/write ratio and p99 latency targets before drawing',
+          'Avoided premature distributed complexity while isolating the hot read path in cache',
+        ],
+        critical_gaps: [
+          'Primary database single-point-of-failure failover automation needs explicit diagram notation',
+        ],
+        recommended_next_steps: [
+          'Upload a revised diagram showing standby replication and async dead-letter worker queues',
+        ],
+      }
+      const nowIso = new Date().toISOString()
+      session.final_evaluation = finalEvaluation
+      session.overall_score = 86
+      session.readiness_rating = 'INTERVIEW_READY'
+      session.stage = 'COMPLETED'
+      session.status = 'COMPLETED'
+      session.completed_at = nowIso
+      session.updated_at = nowIso
+      saveDemoDb(db)
+      return ok(session)
+    }
+
+    const sdFrontierPacketMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/frontier-packet$/)
+    if (sdFrontierPacketMatch && method === 'get') {
+      const sid = Number(sdFrontierPacketMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const challenge = session.challenge || {}
+      const reqTurns = session.requirements_transcript || []
+      const defTurns = session.defence_transcript || []
+      const candidateTurns = [...reqTurns, ...defTurns].filter((t) => t.role === 'candidate')
+      const assistedCount = candidateTurns.filter((t) => t.assisted).length
+      const independentCount = candidateTurns.length - assistedCount
+      const diagrams = session.diagrams_metadata || []
+      const latestVersion = diagrams.length ? Number(diagrams[diagrams.length - 1].version) : null
+      const fmtTurns = (turns) =>
+        turns.length
+          ? turns
+              .map(
+                (t) =>
+                  `- **Turn ${t.turn_index} (${t.role}${t.assisted ? ' [ASSISTED / HINT REQUESTED]' : ''})**: ${t.content}`
+              )
+              .join('\n')
+          : '_No turns recorded._'
+      const rubricDims = [
+        'Requirements Clarity',
+        'Scope & Prioritization',
+        'Back-of-the-Envelope Estimation',
+        'API & Interface Design',
+        'Data Model & Storage Choice',
+        'High-Level Architecture',
+        'Scalability & Partitioning',
+        'Reliability & Fault Tolerance',
+        'Caching & Latency Optimization',
+        'Right-Sizing & Simplicity (YAGNI)',
+        'Trade-off Justification',
+        'Defence Communication Under Pressure',
+      ]
+      const jsonTemplate = JSON.stringify(
+        {
+          overall_score: 0,
+          readiness_rating: 'NEEDS_PRACTICE | DEVELOPING | INTERVIEW_READY | STRONG_HIRE',
+          executive_summary: '<2-4 sentence assessment>',
+          rubric_scores: rubricDims.map((dimension) => ({
+            dimension,
+            score: 3,
+            evidence: '<concrete observation>',
+            critique: '<specific strength or gap>',
+          })),
+          key_strengths: ['<strength>'],
+          critical_gaps: ['<gap>'],
+          recommended_next_steps: ['<next step>'],
+        },
+        null,
+        2
+      )
+      const markdownPacket = [
+        `# System Design Interview Evaluation Dossier: ${challenge.title || 'Challenge'}`,
+        '',
+        `> Attach your latest uploaded diagram image (if any) alongside this prompt in Claude, ChatGPT, or Gemini.`,
+        `> Coaching telemetry: **${independentCount} independent** candidate turn(s) vs **${assistedCount} assisted/hint-requested** turn(s).`,
+        '',
+        '## 1. Challenge Brief',
+        `- **Title**: ${challenge.title || ''}`,
+        `- **Initial Prompt**: ${challenge.initial_prompt || ''}`,
+        '',
+        '## 2. Requirements Discovery Transcript',
+        fmtTurns(reqTurns),
+        '',
+        '## 3. Requirements Ledger',
+        '```json',
+        JSON.stringify(session.requirements_ledger || {}, null, 2),
+        '```',
+        '',
+        '## 4. Diagram Revisions & Local AI Review Notes',
+        '```json',
+        JSON.stringify(
+          {
+            diagrams_metadata: diagrams.map(({ data_url: _omit, ...rest }) => rest),
+            architecture_reviews: session.architecture_reviews || [],
+          },
+          null,
+          2
+        ),
+        '```',
+        '',
+        '## 5. Architecture Defence Transcript',
+        fmtTurns(defTurns),
+        '',
+        '## 6. Return Valid JSON Scorecard Matching This Schema',
+        '```json',
+        jsonTemplate,
+        '```',
+      ].join('\n')
+      return ok({
+        session_id: sid,
+        challenge_title: challenge.title || 'System Design Challenge',
+        filename: `${challenge.slug || 'system-design'}-session-${sid}-frontier-packet.md`,
+        diagram_version: latestVersion,
+        markdown_packet: markdownPacket,
+      })
+    }
+
+    const sdImportEvalMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/import-evaluation$/)
+    if (sdImportEvalMatch && method === 'post') {
+      const sid = Number(sdImportEvalMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const raw = String(data.raw_response || '').trim()
+      let parsed = null
+      const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
+      const candidates = [fenced ? fenced[1].trim() : null, raw].filter(Boolean)
+      const firstBrace = raw.indexOf('{')
+      const lastBrace = raw.lastIndexOf('}')
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        candidates.push(raw.slice(firstBrace, lastBrace + 1))
+      }
+      for (const candidate of candidates) {
+        try {
+          const obj = JSON.parse(candidate)
+          if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+            parsed = obj
+            break
+          }
+        } catch {
+          // try next extraction candidate
+        }
+      }
+      if (!parsed) {
+        return { status: 400, data: { detail: 'Could not extract a valid JSON scorecard object.' } }
+      }
+      const rubricScores = Array.isArray(parsed.rubric_scores)
+        ? parsed.rubric_scores.map((r, idx) => ({
+            dimension: String(r.dimension || `Dimension ${idx + 1}`),
+            score: Math.max(1, Math.min(5, Number(r.score || 3))),
+            evidence:
+              String(r.evidence || '').trim().length >= 5
+                ? String(r.evidence).trim()
+                : `Session ${sid} external frontier review evidence.`,
+            critique: String(r.critique || 'Evaluated by external frontier model.').trim(),
+          }))
+        : []
+      const overallScore = Number(parsed.overall_score ?? 85)
+      const rating =
+        parsed.readiness_rating ||
+        (overallScore >= 88
+          ? 'STRONG_HIRE'
+          : overallScore >= 70
+            ? 'INTERVIEW_READY'
+            : overallScore >= 50
+              ? 'DEVELOPING'
+              : 'NEEDS_PRACTICE')
+      const normalized = {
+        overall_score: overallScore,
+        readiness_rating: rating,
+        executive_summary: String(
+          parsed.executive_summary || 'External frontier evaluation imported.'
+        ),
+        rubric_scores: rubricScores,
+        key_strengths: Array.isArray(parsed.key_strengths) ? parsed.key_strengths : [],
+        critical_gaps: Array.isArray(parsed.critical_gaps) ? parsed.critical_gaps : [],
+        recommended_next_steps: Array.isArray(parsed.recommended_next_steps)
+          ? parsed.recommended_next_steps
+          : [],
+      }
+      const nowIso = new Date().toISOString()
+      session.final_evaluation = normalized
+      session.overall_score = overallScore
+      session.readiness_rating = rating
+      session.stage = 'COMPLETED'
+      session.status = 'COMPLETED'
+      session.completed_at = nowIso
+      session.updated_at = nowIso
+      saveDemoDb(db)
+      return ok(session)
+    }
   }
 
   return ok({ message: 'Client Demo Mode mock response' })

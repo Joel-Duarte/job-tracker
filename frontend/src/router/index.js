@@ -73,6 +73,10 @@ const routes = [
     name: 'Diagnostics',
     component: DiagnosticsView,
   },
+  {
+    path: '/system-design',
+    redirect: '/chat?mode=system_design',
+  },
 ]
 
 const router = createRouter({
