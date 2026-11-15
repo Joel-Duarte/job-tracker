@@ -142,6 +142,12 @@ class SystemDesignSessionModel(Base):
         default=list,
         server_default=text("'[]'::jsonb"),
     )
+    diagram_guidance: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
     architecture_reviews: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB,
         nullable=False,

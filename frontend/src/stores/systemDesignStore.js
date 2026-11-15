@@ -5,6 +5,7 @@ import { useQueueStore } from './queueStore'
 
 export const useSystemDesignStore = defineStore('systemDesign', () => {
   const challenges = ref([])
+  const diagramCatalog = ref({ categories: [], blocks: [] })
   const sessions = ref([])
   const activeSession = ref(null)
 
@@ -20,6 +21,7 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
   const extractingLedger = ref(false)
   const savingLedger = ref(false)
   const uploadingDiagram = ref(false)
+  const loadingDiagramHint = ref(false)
   const reviewingDiagram = ref(false)
   const sendingDefence = ref(false)
   const evaluatingSession = ref(false)
@@ -49,6 +51,18 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
       sessions.value = updated
     } else {
       sessions.value = [session, ...sessions.value]
+    }
+  }
+
+  async function fetchDiagramCatalog() {
+    try {
+      const res = await SystemDesignAPI.getDiagramCatalog()
+      if (res?.data?.blocks?.length) {
+        diagramCatalog.value = res.data
+      }
+      return diagramCatalog.value
+    } catch {
+      return diagramCatalog.value
     }
   }
 
@@ -439,6 +453,55 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     }
   }
 
+  async function submitCanvasDiagram(payload) {
+    if (!activeSession.value) return null
+    uploadingDiagram.value = true
+    error.value = null
+    try {
+      const res = await SystemDesignAPI.submitCanvasDiagram(activeSession.value.id, payload)
+      _syncSessionInList(res.data)
+      return res.data
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      uploadingDiagram.value = false
+    }
+  }
+
+  async function loadDiagramFlow(version) {
+    if (!activeSession.value) return null
+    error.value = null
+    try {
+      const res = await SystemDesignAPI.getDiagramFlow(activeSession.value.id, version)
+      return res.data
+    } catch (err) {
+      error.value = err.message
+      throw err
+    }
+  }
+
+  async function requestDiagramHint(hintMode = 'next_component', currentNodes = []) {
+    if (!activeSession.value) return null
+    loadingDiagramHint.value = true
+    error.value = null
+    try {
+      const res = await SystemDesignAPI.requestDiagramHint(activeSession.value.id, {
+        hint_mode: hintMode,
+        current_nodes: currentNodes,
+      })
+      if (res.data?.session) {
+        _syncSessionInList(res.data.session)
+      }
+      return res.data
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      loadingDiagramHint.value = false
+    }
+  }
+
   async function reviewDiagram(diagramVersion = null, useWebSearch = false) {
     if (!activeSession.value) return null
     reviewingDiagram.value = true
@@ -562,6 +625,7 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
 
   return {
     challenges,
+    diagramCatalog,
     sessions,
     activeSession,
     loadingChallenges,
@@ -576,6 +640,7 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     extractingLedger,
     savingLedger,
     uploadingDiagram,
+    loadingDiagramHint,
     reviewingDiagram,
     sendingDefence,
     evaluatingSession,
@@ -590,6 +655,7 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     activeDiagrams,
     activeReviews,
     activeFinalEvaluation,
+    fetchDiagramCatalog,
     fetchChallenges,
     createChallenge,
     generateChallenge,
@@ -608,6 +674,9 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     extractRequirementsLedger,
     updateRequirementsLedger,
     uploadDiagram,
+    submitCanvasDiagram,
+    loadDiagramFlow,
+    requestDiagramHint,
     reviewDiagram,
     sendDefenceMessage,
     evaluateSession,

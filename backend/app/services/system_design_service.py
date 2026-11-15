@@ -33,17 +33,29 @@ from app.models.system_design import (
 )
 from app.schemas.system_design import (
     ArchitectureReviewSchema,
+    CanvasDiagramSubmitRequest,
     ChallengeFrontierPromptResponse,
+    DiagramHintRequest,
+    DiagramHintResponse,
     DiagramRevisionRead,
     FinalEvaluationSchema,
     FrontierEvaluationPacketRead,
     ImportFrontierChallengeRequest,
     RequirementsLedgerSchema,
     RequirementsLedgerUpdateRequest,
+    RevealedComponentHint,
     RubricDimensionScore,
     SystemDesignChallengeCreate,
     SystemDesignChallengeGenerateRequest,
     SystemDesignChallengeUpdate,
+    SystemDesignSessionRead,
+)
+from app.services.diagram_catalog import (
+    compute_diagram_hint_penalty,
+    match_component_to_catalog,
+    node_matches_expected,
+    normalize_flow_payload,
+    summarize_diagram_flow,
 )
 from app.services.interview_simulator_service import (
     _format_prompt_from_db,
@@ -260,6 +272,9 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown fe
           "key_constraints": ["<constraint 1>", "<constraint 2>"]
         }},
         "expected_components": ["<core component 1>", "<core component 2>", "<core component 3>"],
+        "diagram_palette_extensions": [
+          {{"type_id": "<optional-custom-slug>", "label": "<Optional Specialized Block>", "category": "compute_services", "icon": "box", "default_role": "<1-sentence role>"}}
+        ],
         "over_engineering_traps": ["<unjustified complexity trap 1>"],
         "defence_questions": [
           "<challenging architecture defence question 1>",
@@ -857,6 +872,28 @@ def _derive_readiness_rating(overall_score: float) -> str:
     if overall_score >= 50.0:
         return "DEVELOPING"
     return "NEEDS_PRACTICE"
+
+
+def _apply_guidance_penalty(
+    eval_dict: dict[str, Any], diagram_guidance: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Derive net overall_score and readiness_rating by subtracting diagram hint penalties."""
+    updated = dict(eval_dict)
+    raw_val = (
+        updated.get("raw_score")
+        if updated.get("raw_score") is not None
+        else updated.get("overall_score", 0.0)
+    )
+    raw_score = round(max(0.0, min(100.0, float(raw_val))), 1)
+    penalty = round(
+        max(0.0, float((diagram_guidance or {}).get("penalty_points") or 0.0)), 1
+    )
+    net_score = round(max(0.0, raw_score - penalty), 1)
+    updated["raw_score"] = raw_score
+    updated["guidance_penalty"] = penalty
+    updated["overall_score"] = net_score
+    updated["readiness_rating"] = _derive_readiness_rating(net_score)
+    return updated
 
 
 def _compute_deterministic_overall_score(scores: list[RubricDimensionScore]) -> float:
@@ -2258,6 +2295,238 @@ class SystemDesignService:
         return await SystemDesignService.get_session(db, session_id)
 
     @staticmethod
+    async def submit_canvas_diagram(
+        db: AsyncSession,
+        session_id: int,
+        payload: CanvasDiagramSubmitRequest,
+    ) -> SystemDesignSessionModel:
+        """Normalize and persist an interactive Canvas Builder revision as vN.flow.json."""
+        if not payload.nodes:
+            raise ValueError(
+                "Canvas diagram must include at least one architecture component before saving."
+            )
+
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+        SystemDesignService._ensure_requirements_locked(session)
+        if session.stage not in ("DESIGN", "REVIEW", "DEFENCE"):
+            raise ValueError(
+                f"Canvas diagram submission requires locking requirements first (current stage: {session.stage})."
+            )
+
+        normalized = normalize_flow_payload(payload.model_dump())
+        if not normalized["nodes"]:
+            raise ValueError(
+                "Canvas diagram must include at least one valid component."
+            )
+        flow_summary = summarize_diagram_flow(normalized)
+        disk_payload = {
+            **normalized,
+            "flow_summary": flow_summary,
+        }
+        serialized_bytes = json.dumps(disk_payload, indent=2).encode("utf-8")
+
+        diagrams = list(session.diagrams_metadata or [])
+        version = max((int(d.get("version", 0)) for d in diagrams), default=0) + 1
+        filename = f"v{version}.flow.json"
+
+        session_dir = _ensure_writable_session_dir(session_id)
+        (session_dir / filename).write_bytes(serialized_bytes)
+
+        entry = DiagramRevisionRead(
+            version=version,
+            filename=filename,
+            mime_type="application/json",
+            size_bytes=len(serialized_bytes),
+            notes=normalized["notes"],
+            uploaded_at=datetime.now(UTC).isoformat(),
+            diagram_kind="canvas",
+            node_count=int(flow_summary["node_count"]),
+            edge_count=int(flow_summary["edge_count"]),
+            components_preview=[str(n["label"]) for n in normalized["nodes"][:8]],
+        ).model_dump()
+        diagrams.append(entry)
+
+        session.diagrams_metadata = diagrams
+        flag_modified(session, "diagrams_metadata")
+        await db.commit()
+        return await SystemDesignService.get_session(db, session_id)
+
+    @staticmethod
+    async def get_diagram_flow(
+        db: AsyncSession, session_id: int, version: int
+    ) -> dict[str, Any]:
+        """Return stored Flow JSON payload for an interactive canvas diagram revision."""
+        file_path, mime_type, _ = await SystemDesignService.get_diagram_file(
+            db, session_id, version
+        )
+        if mime_type != "application/json":
+            raise ValueError(
+                f"Diagram revision v{version} is an uploaded image and does not contain editable canvas flow JSON."
+            )
+        return json.loads(file_path.read_text(encoding="utf-8"))
+
+    @staticmethod
+    async def request_diagram_hint(
+        db: AsyncSession,
+        session_id: int,
+        payload: DiagramHintRequest,
+    ) -> DiagramHintResponse:
+        """Unlock one missing expected component (-3 pts) or reveal the required component bank."""
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+        SystemDesignService._ensure_requirements_locked(session)
+        if session.stage not in ("DESIGN", "REVIEW", "DEFENCE"):
+            raise ValueError(
+                f"Diagram component hints are available during the Design stage (current stage: {session.stage})."
+            )
+        if payload.hint_mode == "reveal_all" and session.mode == "INTERVIEW":
+            raise ValueError(
+                "Revealing the full required component bank is disabled in strict INTERVIEW mode. "
+                "Switch to ADAPTIVE or PRACTICE mode, or use single-component hints."
+            )
+
+        brief = SystemDesignService._get_session_brief(session)
+        expected_components = _normalize_string_list(brief.get("expected_components"))
+        palette_extensions = (
+            brief.get("diagram_palette_extensions")
+            if isinstance(brief.get("diagram_palette_extensions"), list)
+            else []
+        )
+
+        guidance = dict(session.diagram_guidance or {})
+        hints_used_count = int(guidance.get("hints_used_count") or 0)
+        revealed_all_bank = bool(guidance.get("revealed_all_bank") or False)
+        already_revealed = [
+            dict(item)
+            for item in (guidance.get("revealed_components") or [])
+            if isinstance(item, dict)
+        ]
+        revealed_names_lower = {
+            str(item.get("name") or "").strip().lower() for item in already_revealed
+        }
+        current_nodes = [
+            n for n in (payload.current_nodes or []) if isinstance(n, dict)
+        ]
+
+        unplaced_expected = [
+            comp
+            for comp in expected_components
+            if not any(node_matches_expected(node, comp) for node in current_nodes)
+        ]
+        unrevealed_candidates = [
+            comp
+            for comp in unplaced_expected
+            if comp.lower() not in revealed_names_lower
+        ]
+
+        newly_revealed: list[RevealedComponentHint] = []
+        message = ""
+
+        if not expected_components:
+            message = "No fixed component checklist is defined for this challenge — use canonical blocks or + Custom Block freely."
+        elif payload.hint_mode == "next_component":
+            if unrevealed_candidates:
+                target_comp = unrevealed_candidates[0]
+                matched = match_component_to_catalog(target_comp, palette_extensions)
+                already_revealed.append(matched)
+                revealed_names_lower.add(target_comp.lower())
+                hints_used_count += 1
+                newly_revealed.append(RevealedComponentHint(**matched))
+                message = f"Unlocked expected block: {matched['label']} (-3 pts)."
+            elif unplaced_expected:
+                message = "All expected components are already unlocked in your hint tray below."
+            else:
+                message = "Every expected component is already placed on your canvas."
+        elif payload.hint_mode == "reveal_all":
+            revealed_all_bank = True
+            for target_comp in unrevealed_candidates:
+                matched = match_component_to_catalog(target_comp, palette_extensions)
+                already_revealed.append(matched)
+                revealed_names_lower.add(target_comp.lower())
+                newly_revealed.append(RevealedComponentHint(**matched))
+            if newly_revealed:
+                message = f"Unlocked {len(newly_revealed)} expected component(s) into your guided bank."
+            else:
+                message = "Required component bank is already unlocked."
+
+        penalty_points = compute_diagram_hint_penalty(
+            hints_used_count, revealed_all_bank
+        )
+        updated_guidance = {
+            "hints_used_count": hints_used_count,
+            "revealed_all_bank": revealed_all_bank,
+            "revealed_components": already_revealed,
+            "penalty_points": penalty_points,
+        }
+        session.diagram_guidance = updated_guidance
+        session.updated_at = datetime.now(UTC)
+        flag_modified(session, "diagram_guidance")
+        await db.commit()
+
+        refreshed = await SystemDesignService.get_session(db, session_id)
+        remaining_count = sum(
+            1 for comp in unplaced_expected if comp.lower() not in revealed_names_lower
+        )
+        return DiagramHintResponse(
+            newly_revealed=newly_revealed,
+            revealed_components=already_revealed,
+            hints_used_count=hints_used_count,
+            revealed_all_bank=revealed_all_bank,
+            penalty_points=penalty_points,
+            remaining_expected_count=remaining_count,
+            message=message,
+            session=SystemDesignSessionRead.model_validate(refreshed).model_dump(
+                mode="json"
+            ),
+        )
+
+    @staticmethod
+    def _collect_canvas_flow_summaries(
+        session_id: int, diagrams: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Read saved Flow JSON files for canvas revisions without failing if missing."""
+        session_dir = (_get_storage_root() / f"session_{session_id}").resolve()
+        summaries: list[dict[str, Any]] = []
+        for entry in diagrams or []:
+            if not isinstance(entry, dict):
+                continue
+            kind = str(
+                entry.get("diagram_kind")
+                or (
+                    "canvas"
+                    if entry.get("mime_type") == "application/json"
+                    else "image"
+                )
+            )
+            if kind != "canvas":
+                continue
+            fname = str(entry.get("filename") or "")
+            if not fname:
+                continue
+            fpath = (session_dir / fname).resolve()
+            if not fpath.is_relative_to(session_dir) or not fpath.is_file():
+                continue
+            try:
+                payload = json.loads(fpath.read_text(encoding="utf-8"))
+                summaries.append(
+                    {
+                        "version": int(entry.get("version", 0)),
+                        "notes": str(entry.get("notes") or ""),
+                        "flow_summary": payload.get("flow_summary")
+                        or summarize_diagram_flow(payload),
+                    }
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Unable to read canvas flow JSON %s for session %s: %s",
+                    fpath,
+                    session_id,
+                    exc,
+                )
+        return summaries
+
+    @staticmethod
     async def get_diagram_file(
         db: AsyncSession, session_id: int, version: int
     ) -> tuple[Path, str, str]:
@@ -2318,6 +2587,10 @@ class SystemDesignService:
         file_path, mime_type, _ = await SystemDesignService.get_diagram_file(
             db, session_id, target_version
         )
+        diagram_kind = str(
+            target_entry.get("diagram_kind")
+            or ("canvas" if str(mime_type) == "application/json" else "image")
+        )
 
         base_prompt = await _format_prompt_from_db(
             db,
@@ -2332,6 +2605,15 @@ class SystemDesignService:
             ),
             candidate_notes=str(target_entry.get("notes") or "None provided."),
         )
+        canvas_note = ""
+        if diagram_kind == "canvas":
+            canvas_note = (
+                "\n\nCANVAS FLOW JSON INPUT:\n"
+                "The candidate built this architecture in the interactive Canvas Builder and supplied exact "
+                "component nodes, tech stacks, directed connections (protocol + sync/async), and topology diagnostics. "
+                "Because structure and connections are unambiguous, leave `visual_clarifications_needed` empty unless "
+                "a node's notes/purpose itself is unclear."
+            )
         web_section = ""
         if use_web_search:
             snippets = await _fetch_web_grounding_snippets(
@@ -2344,10 +2626,11 @@ class SystemDesignService:
                     + snippets
                 )
 
-        sys_prompt = f"{base_prompt.strip()}{web_section}\n\n{ARCHITECTURE_REVIEW_JSON_INSTRUCTIONS}"
+        sys_prompt = f"{base_prompt.strip()}{canvas_note}{web_section}\n\n{ARCHITECTURE_REVIEW_JSON_INSTRUCTIONS}"
         return {
             "session_id": session_id,
             "target_version": target_version,
+            "diagram_kind": diagram_kind,
             "file_path": str(file_path),
             "mime_type": str(mime_type),
             "sys_prompt": sys_prompt,
@@ -2357,32 +2640,51 @@ class SystemDesignService:
     async def run_diagram_vlm_inference(
         db: AsyncSession, prepared_ctx: dict[str, Any]
     ) -> dict[str, Any]:
-        """Step 2 for SYSTEM_DESIGN_REVIEW: read diagram bytes from disk, run VLM, and parse JSON review."""
+        """Step 2 for SYSTEM_DESIGN_REVIEW: analyze canvas Flow JSON (text LLM) or uploaded image (VLM)."""
         target_version = int(prepared_ctx["target_version"])
         file_path = Path(str(prepared_ctx["file_path"]))
         if not file_path.exists():
             raise FileNotFoundError(
-                f"Diagram binary for revision v{target_version} missing at {file_path}"
+                f"Diagram artifact for revision v{target_version} missing at {file_path}"
             )
         mime_type = str(prepared_ctx["mime_type"])
-        encoded = base64.b64encode(file_path.read_bytes()).decode("ascii")
-        data_uri = f"data:{mime_type};base64,{encoded}"
-
-        human_msg = HumanMessage(
-            content=[
-                {
-                    "type": "text",
-                    "text": (
-                        f"Inspect the attached architecture diagram (revision v{target_version}) "
-                        "and return ONLY the JSON review object."
-                    ),
-                },
-                {
-                    "type": "image_url",
-                    "image_url": {"url": data_uri},
-                },
-            ]
+        diagram_kind = str(
+            prepared_ctx.get("diagram_kind")
+            or ("canvas" if mime_type == "application/json" else "image")
         )
+
+        if diagram_kind == "canvas":
+            flow_data = json.loads(file_path.read_text(encoding="utf-8"))
+            flow_summary = flow_data.get("flow_summary") or summarize_diagram_flow(
+                flow_data
+            )
+            human_msg = HumanMessage(
+                content=(
+                    f"Inspect this structured interactive canvas architecture diagram (revision v{target_version}) "
+                    "and return ONLY the JSON review object.\n\n"
+                    f"TOPOLOGY SUMMARY:\n{json.dumps(flow_summary, indent=2)}\n\n"
+                    f"FULL FLOW GRAPH:\n{json.dumps({'nodes': flow_data.get('nodes', []), 'edges': flow_data.get('edges', []), 'notes': flow_data.get('notes', '')}, indent=2)}"
+                )
+            )
+        else:
+            encoded = base64.b64encode(file_path.read_bytes()).decode("ascii")
+            data_uri = f"data:{mime_type};base64,{encoded}"
+
+            human_msg = HumanMessage(
+                content=[
+                    {
+                        "type": "text",
+                        "text": (
+                            f"Inspect the attached architecture diagram (revision v{target_version}) "
+                            "and return ONLY the JSON review object."
+                        ),
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": data_uri},
+                    },
+                ]
+            )
 
         tracer = PostgresTracer()
         chat_model = await get_task_chat_model(db, task_type="SYSTEM_DESIGN_REVIEWER")
@@ -2712,15 +3014,23 @@ class SystemDesignService:
             "Factor hint reliance fairly into discovery and trade-off independence scores."
         )
 
+        diagrams_meta = list(session.diagrams_metadata or [])
+        canvas_flows = SystemDesignService._collect_canvas_flow_summaries(
+            session_id, diagrams_meta
+        )
+        diagram_guidance = dict(session.diagram_guidance or {})
+
         context_payload = {
             "mode": session.mode,
             "challenge_title": challenge.title,
             "initial_prompt": challenge.initial_prompt,
             "assisted_turns_count": assisted_turns_count,
             "independent_turns_count": independent_turns_count,
+            "diagram_guidance": diagram_guidance,
             "requirements_transcript": session.requirements_transcript or [],
             "requirements_ledger": session.requirements_ledger or {},
-            "diagram_revisions": session.diagrams_metadata or [],
+            "diagram_revisions": diagrams_meta,
+            "canvas_flows": canvas_flows,
             "architecture_reviews": session.architecture_reviews or [],
             "defence_transcript": session.defence_transcript or [],
         }
@@ -2830,10 +3140,11 @@ class SystemDesignService:
                 f"Final evaluation requires DEFENCE stage after answering defence prompts (current stage: {session.stage})."
             )
 
+        adjusted_eval = _apply_guidance_penalty(eval_dict, session.diagram_guidance)
         now = datetime.now(UTC)
-        session.final_evaluation = dict(eval_dict)
-        session.overall_score = float(eval_dict["overall_score"])
-        session.readiness_rating = str(eval_dict["readiness_rating"])
+        session.final_evaluation = adjusted_eval
+        session.overall_score = float(adjusted_eval["overall_score"])
+        session.readiness_rating = str(adjusted_eval["readiness_rating"])
         session.stage = "COMPLETED"
         session.status = "COMPLETED"
         session.completed_at = now
@@ -2923,6 +3234,10 @@ class SystemDesignService:
             return "\n".join(lines)
 
         diagrams = list(session.diagrams_metadata or [])
+        canvas_flows = SystemDesignService._collect_canvas_flow_summaries(
+            session.id, diagrams
+        )
+        diagram_guidance = dict(session.diagram_guidance or {})
         latest_version = int(diagrams[-1]["version"]) if diagrams else None
         dimensions_md = "\n".join(f"- `{dim}`" for dim in DEFAULT_RUBRIC_DIMENSIONS)
 
@@ -2979,6 +3294,8 @@ class SystemDesignService:
             json.dumps(
                 {
                     "diagrams_metadata": diagrams,
+                    "canvas_flows": canvas_flows,
+                    "diagram_guidance": diagram_guidance,
                     "architecture_reviews": session.architecture_reviews or [],
                 },
                 indent=2,
@@ -3020,10 +3337,11 @@ class SystemDesignService:
 
         parsed = _parse_strict_json_object(raw_response)
         eval_dict = _validate_final_evaluation_payload(parsed)
+        adjusted_eval = _apply_guidance_penalty(eval_dict, session.diagram_guidance)
         now = datetime.now(UTC)
-        session.final_evaluation = eval_dict
-        session.overall_score = float(eval_dict["overall_score"])
-        session.readiness_rating = str(eval_dict["readiness_rating"])
+        session.final_evaluation = adjusted_eval
+        session.overall_score = float(adjusted_eval["overall_score"])
+        session.readiness_rating = str(adjusted_eval["readiness_rating"])
         session.stage = "COMPLETED"
         session.status = "COMPLETED"
         session.completed_at = now

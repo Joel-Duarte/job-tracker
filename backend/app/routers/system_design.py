@@ -17,8 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.schemas.system_design import (
+    CanvasDiagramSubmitRequest,
     ChallengeFrontierPromptResponse,
     DefenceMessageRequest,
+    DiagramCatalogResponse,
+    DiagramHintRequest,
+    DiagramHintResponse,
     DiagramReviewRequest,
     FrontierEvaluationPacketRead,
     ImportFrontierChallengeRequest,
@@ -32,6 +36,10 @@ from app.schemas.system_design import (
     SystemDesignChallengeUpdate,
     SystemDesignSessionCreate,
     SystemDesignSessionRead,
+)
+from app.services.diagram_catalog import (
+    CANONICAL_CATEGORIES,
+    CANONICAL_DIAGRAM_BLOCKS,
 )
 from app.services.evaluation_worker import process_evaluation_task
 from app.services.system_design_service import (
@@ -52,6 +60,15 @@ def _http_error_from_value_error(ve: ValueError) -> HTTPException:
         else status.HTTP_400_BAD_REQUEST
     )
     return HTTPException(status_code=code, detail=msg)
+
+
+@router.get("/catalog", response_model=DiagramCatalogResponse)
+async def get_diagram_catalog():
+    """Return canonical architecture component categories and blocks for the Canvas Builder."""
+    return {
+        "categories": CANONICAL_CATEGORIES,
+        "blocks": CANONICAL_DIAGRAM_BLOCKS,
+    }
 
 
 @router.get("/challenges", response_model=list[SystemDesignChallengeRead])
@@ -396,6 +413,65 @@ async def upload_diagram(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(pe),
         )
+
+
+@router.post(
+    "/sessions/{session_id}/diagrams/canvas",
+    response_model=SystemDesignSessionRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def submit_canvas_diagram(
+    session_id: int,
+    payload: CanvasDiagramSubmitRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Persist an interactive Canvas Builder revision as normalized Flow JSON (v1..vN)."""
+    try:
+        session = await SystemDesignService.submit_canvas_diagram(
+            db=db, session_id=session_id, payload=payload
+        )
+        return SystemDesignSessionRead.model_validate(session)
+    except ValueError as ve:
+        raise _http_error_from_value_error(ve)
+    except PermissionError as pe:
+        logger.error("Canvas diagram storage permission error: %s", pe)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(pe),
+        )
+
+
+@router.get("/sessions/{session_id}/diagrams/{version}/flow")
+async def get_diagram_flow(
+    session_id: int,
+    version: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the normalized Flow JSON payload for a canvas diagram revision."""
+    try:
+        return await SystemDesignService.get_diagram_flow(
+            db=db, session_id=session_id, version=version
+        )
+    except ValueError as ve:
+        raise _http_error_from_value_error(ve)
+
+
+@router.post(
+    "/sessions/{session_id}/diagrams/hint",
+    response_model=DiagramHintResponse,
+)
+async def request_diagram_hint(
+    session_id: int,
+    payload: DiagramHintRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Reveal one expected component (-3 pts) or the full required bank (ADAPTIVE / PRACTICE only)."""
+    try:
+        return await SystemDesignService.request_diagram_hint(
+            db=db, session_id=session_id, payload=payload
+        )
+    except ValueError as ve:
+        raise _http_error_from_value_error(ve)
 
 
 @router.get("/sessions/{session_id}/diagrams/{version}/image")

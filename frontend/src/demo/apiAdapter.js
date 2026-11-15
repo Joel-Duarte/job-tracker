@@ -2,6 +2,7 @@ import { getDemoAgentReply } from './agentReplies.js'
 import { getDemoQualityStats } from './qualityAudits.js'
 import { getDemoDb, saveDemoDb } from './demoStorage.js'
 import { scoreApplicationMatch, normalizeCompanyText } from '../utils/fuzzyMatch.js'
+import { DEFAULT_DIAGRAM_BLOCKS, DEFAULT_DIAGRAM_CATEGORIES } from '../utils/diagramCatalog.js'
 
 function filterDemoTraces(traces, params) {
   return traces.filter(t =>
@@ -2893,6 +2894,59 @@ export async function handleDemoRequest(config) {
   if (urlPath.startsWith('/system-design')) {
     ensureDemoSystemDesignData(db)
 
+    if (urlPath === '/system-design/catalog' && method === 'get') {
+      return ok({
+        categories: DEFAULT_DIAGRAM_CATEGORIES,
+        blocks: DEFAULT_DIAGRAM_BLOCKS,
+      })
+    }
+
+    const demoMatchBlock = (name) => {
+      const lower = String(name || '').trim().toLowerCase()
+      const found = DEFAULT_DIAGRAM_BLOCKS.find(
+        (b) =>
+          b.label.toLowerCase() === lower ||
+          b.type_id === lower ||
+          lower.includes(b.type_id.replace('_', ' ')) ||
+          b.label.toLowerCase().includes(lower)
+      )
+      if (found) {
+        return {
+          name: String(name || found.label),
+          type_id: found.type_id,
+          label: found.label,
+          category: found.category,
+          icon: found.icon,
+          hint_role: found.default_role,
+          is_custom: false,
+        }
+      }
+      return {
+        name: String(name || 'Custom Block'),
+        type_id: 'custom',
+        label: String(name || 'Custom Block'),
+        category: 'compute_services',
+        icon: 'box',
+        hint_role: `Place a block representing "${name}" and wire it into your data flow.`,
+        is_custom: true,
+      }
+    }
+
+    const demoComputePenalty = (hintsCount, revealedAll) => {
+      const single = Math.max(0, Number(hintsCount || 0)) * 3
+      const raw = revealedAll ? Math.max(18, single) : single
+      return Math.round(Math.min(25, raw) * 10) / 10
+    }
+
+    const demoDeriveRating = (score) =>
+      score >= 88
+        ? 'STRONG_HIRE'
+        : score >= 70
+          ? 'INTERVIEW_READY'
+          : score >= 50
+            ? 'DEVELOPING'
+            : 'NEEDS_PRACTICE'
+
     const defaultDemoVariants = [
       { variant_id: 'standard-scale', title: 'Standard Scale Profile', focus_summary: 'Balanced throughput, SLA, and cost constraints' },
       { variant_id: 'enterprise-compliance', title: 'Enterprise Compliance Profile', focus_summary: 'Strict privacy, audit trail, and YAGNI data governance' },
@@ -3311,6 +3365,7 @@ export async function handleDemoRequest(config) {
           is_locked: false,
         },
         diagrams_metadata: [],
+        diagram_guidance: {},
         architecture_reviews: [],
         defence_transcript: [],
         final_evaluation: null,
@@ -3458,6 +3513,7 @@ export async function handleDemoRequest(config) {
         size_bytes: fileObj?.size || 2048,
         notes,
         uploaded_at: new Date().toISOString(),
+        diagram_kind: 'image',
         data_url: dataUrl,
       })
       session.diagrams_metadata = diagrams
@@ -3467,6 +3523,167 @@ export async function handleDemoRequest(config) {
       session.updated_at = new Date().toISOString()
       saveDemoDb(db)
       return ok(session, 201)
+    }
+
+    const sdCanvasMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/diagrams\/canvas$/)
+    if (sdCanvasMatch && method === 'post') {
+      const sid = Number(sdCanvasMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const nodes = Array.isArray(data.nodes) ? data.nodes : []
+      if (!nodes.length) {
+        return {
+          status: 400,
+          data: { detail: 'Canvas diagram must include at least one architecture component before saving.' },
+        }
+      }
+      const edges = Array.isArray(data.edges) ? data.edges : []
+      const diagrams = session.diagrams_metadata || []
+      const version = diagrams.reduce((m, d) => Math.max(m, Number(d.version) || 0), 0) + 1
+      const flowPayload = {
+        schema_version: 1,
+        nodes,
+        edges,
+        notes: String(data.notes || '').trim(),
+        flow_summary: {
+          node_count: nodes.length,
+          edge_count: edges.length,
+          components: nodes.map((n) => (n.tech_stack ? `${n.label} (${n.tech_stack})` : n.label)),
+          directed_flows: edges.map((e) => {
+            const src = nodes.find((n) => n.id === e.source)?.label || e.source
+            const dst = nodes.find((n) => n.id === e.target)?.label || e.target
+            return `${src} -> ${dst} [${e.protocol || 'HTTPS'}, ${e.delivery_mode || 'sync'}]`
+          }),
+        },
+      }
+      diagrams.push({
+        version,
+        filename: `v${version}.flow.json`,
+        mime_type: 'application/json',
+        size_bytes: JSON.stringify(flowPayload).length,
+        notes: flowPayload.notes,
+        uploaded_at: new Date().toISOString(),
+        diagram_kind: 'canvas',
+        node_count: nodes.length,
+        edge_count: edges.length,
+        components_preview: nodes.slice(0, 8).map((n) => n.label),
+        flow_payload: flowPayload,
+      })
+      session.diagrams_metadata = diagrams
+      if (session.stage === 'REQUIREMENTS') {
+        session.stage = 'DESIGN'
+      }
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(session, 201)
+    }
+
+    const sdFlowMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/diagrams\/(\d+)\/flow$/)
+    if (sdFlowMatch && method === 'get') {
+      const sid = Number(sdFlowMatch[1])
+      const ver = Number(sdFlowMatch[2])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const entry = (session.diagrams_metadata || []).find((d) => Number(d.version) === ver)
+      if (!entry || entry.diagram_kind !== 'canvas' || !entry.flow_payload) {
+        return { status: 404, data: { detail: `Canvas flow v${ver} not found.` } }
+      }
+      return ok(entry.flow_payload)
+    }
+
+    const sdHintMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/diagrams\/hint$/)
+    if (sdHintMatch && method === 'post') {
+      const sid = Number(sdHintMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const hintMode = data.hint_mode || 'next_component'
+      if (hintMode === 'reveal_all' && String(session.mode || '').toUpperCase() === 'INTERVIEW') {
+        return {
+          status: 400,
+          data: {
+            detail:
+              'Revealing the full required component bank is disabled in strict INTERVIEW mode. Switch to ADAPTIVE or PRACTICE mode.',
+          },
+        }
+      }
+      const rawChallenge =
+        db.system_design_challenges.find((c) => Number(c.id) === Number(session.challenge_id)) || {}
+      const expectedList =
+        Array.isArray(rawChallenge.expected_components) && rawChallenge.expected_components.length
+          ? rawChallenge.expected_components
+          : [
+              'API Gateway',
+              'Stateless App Service',
+              'Distributed Cache (Redis)',
+              'Primary Relational DB',
+              'Task Queue',
+              'Background Worker Pool',
+            ]
+      const currentNodes = Array.isArray(data.current_nodes) ? data.current_nodes : []
+      const guidance = { ...(session.diagram_guidance || {}) }
+      let hintsCount = Number(guidance.hints_used_count || 0)
+      let revealedAll = Boolean(guidance.revealed_all_bank || false)
+      const alreadyRevealed = Array.isArray(guidance.revealed_components)
+        ? [...guidance.revealed_components]
+        : []
+      const revealedSet = new Set(alreadyRevealed.map((r) => String(r.name || '').toLowerCase()))
+
+      const nodeMatches = (exp) => {
+        const expLow = exp.toLowerCase()
+        const matchedBlock = demoMatchBlock(exp)
+        return currentNodes.some(
+          (n) =>
+            (matchedBlock.type_id !== 'custom' && n.type_id === matchedBlock.type_id) ||
+            `${n.label || ''} ${n.tech_stack || ''}`.toLowerCase().includes(expLow)
+        )
+      }
+
+      const unrevealed = expectedList.filter(
+        (exp) => !nodeMatches(exp) && !revealedSet.has(exp.toLowerCase())
+      )
+      const newlyRevealed = []
+      let message = ''
+      if (hintMode === 'next_component') {
+        if (unrevealed.length) {
+          const item = demoMatchBlock(unrevealed[0])
+          alreadyRevealed.push(item)
+          newlyRevealed.push(item)
+          hintsCount += 1
+          message = `Unlocked expected block: ${item.label} (-3 pts).`
+        } else {
+          message = 'All expected components are already revealed or placed.'
+        }
+      } else {
+        revealedAll = true
+        for (const exp of unrevealed) {
+          const item = demoMatchBlock(exp)
+          alreadyRevealed.push(item)
+          newlyRevealed.push(item)
+        }
+        message = newlyRevealed.length
+          ? `Unlocked ${newlyRevealed.length} expected component(s) into your guided bank.`
+          : 'Required component bank is already unlocked.'
+      }
+
+      const penaltyPoints = demoComputePenalty(hintsCount, revealedAll)
+      session.diagram_guidance = {
+        hints_used_count: hintsCount,
+        revealed_all_bank: revealedAll,
+        revealed_components: alreadyRevealed,
+        penalty_points: penaltyPoints,
+      }
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok({
+        newly_revealed: newlyRevealed,
+        revealed_components: alreadyRevealed,
+        hints_used_count: hintsCount,
+        revealed_all_bank: revealedAll,
+        penalty_points: penaltyPoints,
+        remaining_expected_count: Math.max(0, unrevealed.length - newlyRevealed.length),
+        message,
+        session,
+      })
     }
 
     const sdReviewMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/review$/)
@@ -3479,20 +3696,36 @@ export async function handleDemoRequest(config) {
         return { status: 400, data: { detail: 'No diagram uploaded yet.' } }
       }
       const targetVersion = Number(data.diagram_version || diagrams[diagrams.length - 1].version)
+      const targetRev = diagrams.find((d) => Number(d.version) === targetVersion) || diagrams[diagrams.length - 1]
       const webGrounded = Boolean(data.use_web_search)
+      const isCanvas = targetRev?.diagram_kind === 'canvas' && targetRev?.flow_payload
+      const flowNodes = isCanvas ? targetRev.flow_payload.nodes || [] : []
+      const flowEdges = isCanvas ? targetRev.flow_payload.edges || [] : []
       const review = {
         diagram_version: targetVersion,
-        interpreted_components: ['API Gateway', 'Application Service', 'Redis Read Cache', 'Primary SQL Database'],
-        interpreted_data_flows: [
-          'Client -> API Gateway -> App Service',
-          'App Service -> Redis Cache (miss -> Primary DB)',
-        ],
-        visual_clarifications_needed: [
-          'Clarify whether DB read replicas handle analytics queries or share primary connections.',
-        ],
+        interpreted_components: isCanvas
+          ? flowNodes.map((n) => (n.tech_stack ? `${n.label} (${n.tech_stack})` : n.label))
+          : ['API Gateway', 'Application Service', 'Redis Read Cache', 'Primary SQL Database'],
+        interpreted_data_flows: isCanvas && flowEdges.length
+          ? flowEdges.map((e) => {
+              const s = flowNodes.find((n) => n.id === e.source)?.label || e.source
+              const t = flowNodes.find((n) => n.id === e.target)?.label || e.target
+              return `${s} -> ${t} [${e.protocol || 'HTTPS'}, ${e.delivery_mode || 'sync'}]`
+            })
+          : [
+              'Client -> API Gateway -> App Service',
+              'App Service -> Redis Cache (miss -> Primary DB)',
+            ],
+        visual_clarifications_needed: isCanvas
+          ? []
+          : [
+              'Clarify whether DB read replicas handle analytics queries or share primary connections.',
+            ],
         strengths: [
-          'Clear separation between stateless compute tier and read-through cache.',
-          'Right-sized monolith service avoids premature microservice network overhead.',
+          isCanvas
+            ? `Explicit structured Flow JSON topology (${flowNodes.length} component(s), ${flowEdges.length} directed flow(s)) makes request paths unambiguous.`
+            : 'Clear separation between stateless compute tier and read-through cache.',
+          'Right-sized service boundaries align with discovered scale requirements.',
           ...(webGrounded
             ? ['[Web Grounded] Matches production edge-caching & stateless app-tier benchmarks.']
             : []),
@@ -3587,9 +3820,15 @@ export async function handleDemoRequest(config) {
         ['Trade-off Justification', 4, `Completed ${defTurns} defence response(s) explaining cache vs. DB consistency tradeoffs.`, 'Articulated trade-offs clearly under probing.'],
         ['Defence Communication Under Pressure', 4, 'Directly answered bottlenecks highlighted in the architecture review.', 'Concise and structured explanations.'],
       ]
+      const rawScore = 86
+      const penalty = Number(session.diagram_guidance?.penalty_points || 0)
+      const netScore = Math.round(Math.max(0, rawScore - penalty) * 10) / 10
+      const rating = demoDeriveRating(netScore)
       const finalEvaluation = {
-        overall_score: 86,
-        readiness_rating: 'INTERVIEW_READY',
+        overall_score: netScore,
+        raw_score: rawScore,
+        guidance_penalty: penalty,
+        readiness_rating: rating,
         executive_summary:
           `Demonstrated strong end-to-end systems thinking across ${diagramsCount || 1} diagram revision(s) and ${defTurns} defence turn(s), keeping the core read/write path clean and appropriately scaled.`,
         rubric_scores: dims.map(([dimension, score, evidence, critique]) => ({
@@ -3606,13 +3845,13 @@ export async function handleDemoRequest(config) {
           'Primary database single-point-of-failure failover automation needs explicit diagram notation',
         ],
         recommended_next_steps: [
-          'Upload a revised diagram showing standby replication and async dead-letter worker queues',
+          'Revise the architecture diagram showing standby replication and async dead-letter worker queues',
         ],
       }
       const nowIso = new Date().toISOString()
       session.final_evaluation = finalEvaluation
-      session.overall_score = 86
-      session.readiness_rating = 'INTERVIEW_READY'
+      session.overall_score = netScore
+      session.readiness_rating = rating
       session.stage = 'COMPLETED'
       session.status = 'COMPLETED'
       session.completed_at = nowIso
@@ -3761,18 +4000,14 @@ export async function handleDemoRequest(config) {
             critique: String(r.critique || 'Evaluated by external frontier model.').trim(),
           }))
         : []
-      const overallScore = Number(parsed.overall_score ?? 85)
-      const rating =
-        parsed.readiness_rating ||
-        (overallScore >= 88
-          ? 'STRONG_HIRE'
-          : overallScore >= 70
-            ? 'INTERVIEW_READY'
-            : overallScore >= 50
-              ? 'DEVELOPING'
-              : 'NEEDS_PRACTICE')
+      const rawScore = Number(parsed.overall_score ?? 85)
+      const penalty = Number(session.diagram_guidance?.penalty_points || 0)
+      const overallScore = Math.round(Math.max(0, rawScore - penalty) * 10) / 10
+      const rating = demoDeriveRating(overallScore)
       const normalized = {
         overall_score: overallScore,
+        raw_score: rawScore,
+        guidance_penalty: penalty,
         readiness_rating: rating,
         executive_summary: String(
           parsed.executive_summary || 'External frontier evaluation imported.'

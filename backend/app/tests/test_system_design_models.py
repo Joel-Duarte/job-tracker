@@ -57,7 +57,7 @@ def test_alembic_migration_metadata_integrity():
 
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
-    assert heads == ["7c9d1e3f5a2b"]
+    assert heads == ["8d1e2f3a4b5c"]
 
     rev_sd = script.get_revision("5a7b9c1d3e5f")
     assert rev_sd is not None
@@ -70,6 +70,10 @@ def test_alembic_migration_metadata_integrity():
     rev_seed = script.get_revision("7c9d1e3f5a2b")
     assert rev_seed is not None
     assert rev_seed.down_revision == "6b8c0d2e4f1a"
+
+    rev_guidance = script.get_revision("8d1e2f3a4b5c")
+    assert rev_guidance is not None
+    assert rev_guidance.down_revision == "7c9d1e3f5a2b"
 
 
 def test_evidence_based_rubric_requires_concrete_evidence():

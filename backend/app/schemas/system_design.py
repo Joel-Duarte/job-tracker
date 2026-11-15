@@ -147,7 +147,7 @@ class TranscriptTurnSchema(BaseModel):
 
 
 class DiagramRevisionRead(BaseModel):
-    """Metadata for a single uploaded diagram image revision (binary lives on disk)."""
+    """Metadata for a single diagram revision (image binary or flow JSON on disk)."""
 
     version: int
     filename: str
@@ -155,6 +155,110 @@ class DiagramRevisionRead(BaseModel):
     size_bytes: int
     notes: str = ""
     uploaded_at: str
+    diagram_kind: Literal["canvas", "image"] = "image"
+    node_count: int | None = None
+    edge_count: int | None = None
+    components_preview: list[str] = Field(default_factory=list)
+
+
+class DiagramFlowPosition(BaseModel):
+    """2D canvas coordinates for a node."""
+
+    x: float = 0.0
+    y: float = 0.0
+
+
+class DiagramFlowNode(BaseModel):
+    """Single architecture component placed on the interactive canvas."""
+
+    id: str = Field(..., min_length=1, max_length=100)
+    type_id: str = Field(default="custom", max_length=80)
+    label: str = Field(..., min_length=1, max_length=120)
+    category: str = Field(default="compute_services", max_length=80)
+    icon: str = Field(default="box", max_length=60)
+    tech_stack: str = Field(default="", max_length=120)
+    notes: str = Field(default="", max_length=500)
+    is_custom: bool = False
+    position: DiagramFlowPosition = Field(default_factory=DiagramFlowPosition)
+
+
+class DiagramFlowEdge(BaseModel):
+    """Directed labeled data/request flow between two architecture components."""
+
+    id: str = Field(default="", max_length=100)
+    source: str = Field(..., min_length=1, max_length=100)
+    target: str = Field(..., min_length=1, max_length=100)
+    source_handle: str | None = Field(default=None, max_length=60)
+    target_handle: str | None = Field(default=None, max_length=60)
+    protocol: str = Field(default="HTTPS", max_length=60)
+    delivery_mode: Literal["sync", "async"] = "sync"
+    label: str = Field(default="", max_length=160)
+
+
+class CanvasDiagramSubmitRequest(BaseModel):
+    """Payload submitted by the Stage 2 Interactive Canvas Builder."""
+
+    nodes: list[DiagramFlowNode] = Field(default_factory=list)
+    edges: list[DiagramFlowEdge] = Field(default_factory=list)
+    notes: str = Field(default="", max_length=4000)
+    viewport: dict[str, Any] = Field(default_factory=dict)
+
+
+class DiagramHintRequest(BaseModel):
+    """Request for guided component hints in ADAPTIVE / PRACTICE mode."""
+
+    hint_mode: Literal["next_component", "reveal_all"] = "next_component"
+    current_nodes: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class RevealedComponentHint(BaseModel):
+    """Unlocked component block revealed by diagram guidance."""
+
+    name: str
+    type_id: str
+    label: str
+    category: str
+    icon: str
+    hint_role: str
+    is_custom: bool = False
+
+
+class DiagramHintResponse(BaseModel):
+    """Response after unlocking component guidance on a session."""
+
+    newly_revealed: list[RevealedComponentHint] = Field(default_factory=list)
+    revealed_components: list[dict[str, Any]] = Field(default_factory=list)
+    hints_used_count: int = 0
+    revealed_all_bank: bool = False
+    penalty_points: float = 0.0
+    remaining_expected_count: int = 0
+    message: str = ""
+    session: dict[str, Any] | None = None
+
+
+class DiagramCatalogBlock(BaseModel):
+    """Canonical architecture component metadata for the canvas palette."""
+
+    type_id: str
+    label: str
+    category: str
+    icon: str
+    default_role: str
+    keywords: list[str] = Field(default_factory=list)
+
+
+class DiagramCatalogCategory(BaseModel):
+    """Display metadata for a canonical component category."""
+
+    id: str
+    label: str
+
+
+class DiagramCatalogResponse(BaseModel):
+    """Full backend-synced diagram component catalog."""
+
+    categories: list[DiagramCatalogCategory]
+    blocks: list[DiagramCatalogBlock]
 
 
 class ArchitectureReviewSchema(BaseModel):
@@ -196,6 +300,8 @@ class FinalEvaluationSchema(BaseModel):
     """Evidence-backed final scorecard and actionable next steps."""
 
     overall_score: float = Field(ge=0.0, le=100.0)
+    raw_score: float | None = Field(default=None, ge=0.0, le=100.0)
+    guidance_penalty: float = Field(default=0.0, ge=0.0, le=100.0)
     readiness_rating: Literal[
         "NEEDS_PRACTICE", "DEVELOPING", "INTERVIEW_READY", "STRONG_HIRE"
     ]
@@ -364,6 +470,7 @@ class SystemDesignSessionRead(BaseModel):
     requirements_transcript: list[dict[str, Any]] = Field(default_factory=list)
     requirements_ledger: dict[str, Any] = Field(default_factory=dict)
     diagrams_metadata: list[dict[str, Any]] = Field(default_factory=list)
+    diagram_guidance: dict[str, Any] = Field(default_factory=dict)
     architecture_reviews: list[dict[str, Any]] = Field(default_factory=list)
     defence_transcript: list[dict[str, Any]] = Field(default_factory=list)
     final_evaluation: dict[str, Any] | None = None
@@ -412,6 +519,7 @@ class SystemDesignSessionRead(BaseModel):
                 "requirements_transcript": list(_get("requirements_transcript") or []),
                 "requirements_ledger": dict(_get("requirements_ledger") or {}),
                 "diagrams_metadata": list(_get("diagrams_metadata") or []),
+                "diagram_guidance": dict(_get("diagram_guidance") or {}),
                 "architecture_reviews": list(_get("architecture_reviews") or []),
                 "defence_transcript": list(_get("defence_transcript") or []),
                 "final_evaluation": _get("final_evaluation"),

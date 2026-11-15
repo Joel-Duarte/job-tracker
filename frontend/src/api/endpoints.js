@@ -204,6 +204,7 @@ export const CompaniesAPI = {
 }
 
 export const SystemDesignAPI = {
+  getDiagramCatalog: () => apiClient.get('/system-design/catalog'),
   listChallenges: (params = {}) => apiClient.get('/system-design/challenges', { params }),
   getChallenge: (slugOrId) => apiClient.get(`/system-design/challenges/${slugOrId}`),
   createChallenge: (data) => apiClient.post('/system-design/challenges', data),
@@ -234,6 +235,12 @@ export const SystemDesignAPI = {
     apiClient.post(`/system-design/sessions/${sessionId}/diagrams`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
+  submitCanvasDiagram: (sessionId, payload) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/diagrams/canvas`, payload),
+  getDiagramFlow: (sessionId, version) =>
+    apiClient.get(`/system-design/sessions/${sessionId}/diagrams/${version}/flow`),
+  requestDiagramHint: (sessionId, payload) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/diagrams/hint`, payload),
   getDiagramImageUrl: (sessionId, version) =>
     `/api/v1/system-design/sessions/${sessionId}/diagrams/${version}/image`,
   reviewDiagram: (sessionId, data = {}) =>

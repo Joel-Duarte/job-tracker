@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -1665,5 +1666,360 @@ async def test_generate_and_import_challenge_duplicate_detection_repair_and_over
             )
             assert override_res.status_code == 201
             assert override_res.json()["title"] == "Build a URL Shortener Service"
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_canvas_builder_hints_flow_review_and_penalty_scoring(
+    db_session: AsyncSession, tmp_path: Path, monkeypatch
+):
+    """Verify catalog API, canvas Flow JSON submission & text-LLM review, 2-tier hints, INTERVIEW block, and Stage 5 penalty."""
+    import json as _json
+    from unittest.mock import AsyncMock, patch
+
+    from httpx import ASGITransport, AsyncClient
+
+    from app.core.database import get_db
+    from app.main import app
+    from app.services.diagram_catalog import (
+        match_component_to_catalog,
+        summarize_diagram_flow,
+    )
+    from app.services.system_design_seed import seed_system_design_challenges
+    from app.services.system_design_service import SystemDesignService
+
+    monkeypatch.setattr(
+        "app.services.system_design_service.SYSTEM_DESIGN_DATA_DIR",
+        tmp_path,
+    )
+
+    matched_cache = match_component_to_catalog("Redis Read-Through Cache")
+    assert matched_cache["type_id"] == "distributed_cache"
+    assert matched_cache["is_custom"] is False
+
+    matched_consensus = match_component_to_catalog("Etcd Consensus Coordinator")
+    assert matched_consensus["type_id"] == "consensus_store"
+
+    matched_custom = match_component_to_catalog("Proprietary Quorum Allocation Ring")
+    assert matched_custom["is_custom"] is True
+
+    sample_summary = summarize_diagram_flow(
+        {
+            "nodes": [
+                {"id": "n1", "type_id": "api_gateway", "label": "Edge API Gateway"},
+                {
+                    "id": "n2",
+                    "type_id": "relational_db",
+                    "label": "Postgres Primary",
+                    "tech_stack": "PostgreSQL 16",
+                },
+                {"id": "n3", "type_id": "custom", "label": "Orphan Audit Log"},
+            ],
+            "edges": [
+                {
+                    "id": "e1",
+                    "source": "n1",
+                    "target": "n2",
+                    "protocol": "SQL Query",
+                    "delivery_mode": "sync",
+                    "label": "Persist short code",
+                }
+            ],
+        }
+    )
+    assert sample_summary["node_count"] == 3
+    assert sample_summary["edge_count"] == 1
+    assert "Orphan Audit Log" in sample_summary["isolated_nodes"]
+    assert any("Isolated" in d for d in sample_summary["topology_diagnostics"])
+
+    await seed_system_design_challenges(db_session)
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            # 1) Canonical catalog endpoint returns 7 categories & 36+ blocks
+            cat_res = await ac.get("/api/v1/system-design/catalog")
+            assert cat_res.status_code == 200
+            cat_data = cat_res.json()
+            assert len(cat_data["categories"]) == 7
+            assert len(cat_data["blocks"]) >= 36
+
+            # 2) Start ADAPTIVE URL Shortener session & lock requirements ledger
+            start_res = await ac.post(
+                "/api/v1/system-design/sessions",
+                json={"challenge_id": 1, "mode": "ADAPTIVE"},
+            )
+            assert start_res.status_code == 201
+            session_id = start_res.json()["id"]
+
+            lock_res = await ac.put(
+                f"/api/v1/system-design/sessions/{session_id}/requirements/ledger",
+                json={
+                    "functional_requirements": ["Create short URL", "301 Redirect"],
+                    "non_functional_requirements": [
+                        "<50ms p99 redirect",
+                        "99.99% availability",
+                    ],
+                    "scale_estimates": {"dau": "10M", "writes_per_sec": "116"},
+                    "out_of_scope": ["Custom analytics BI"],
+                    "assumptions": [],
+                    "unresolved_questions": [],
+                    "notes": "Read heavy 100:1",
+                    "is_locked": True,
+                },
+            )
+            assert lock_res.status_code == 200
+
+            # 3) Request 1st next_component hint -> reveals 1 component, -3 pts
+            hint1 = await ac.post(
+                f"/api/v1/system-design/sessions/{session_id}/diagrams/hint",
+                json={"hint_mode": "next_component", "current_nodes": []},
+            )
+            assert hint1.status_code == 200
+            h1_data = hint1.json()
+            assert len(h1_data["newly_revealed"]) == 1
+            assert h1_data["hints_used_count"] == 1
+            assert h1_data["penalty_points"] == 3.0
+
+            # Requesting reveal_all in INTERVIEW mode must fail with 400
+            mode_iv = await ac.patch(
+                f"/api/v1/system-design/sessions/{session_id}/mode",
+                json={"mode": "INTERVIEW"},
+            )
+            assert mode_iv.status_code == 200
+            blocked_reveal = await ac.post(
+                f"/api/v1/system-design/sessions/{session_id}/diagrams/hint",
+                json={"hint_mode": "reveal_all", "current_nodes": []},
+            )
+            assert blocked_reveal.status_code == 400
+
+            # Switch back to ADAPTIVE & trigger reveal_all -> unlocks remaining components, penalty >= 18 and <= 25
+            await ac.patch(
+                f"/api/v1/system-design/sessions/{session_id}/mode",
+                json={"mode": "ADAPTIVE"},
+            )
+            reveal_res = await ac.post(
+                f"/api/v1/system-design/sessions/{session_id}/diagrams/hint",
+                json={"hint_mode": "reveal_all", "current_nodes": []},
+            )
+            assert reveal_res.status_code == 200
+            rev_data = reveal_res.json()
+            assert rev_data["revealed_all_bank"] is True
+            assert rev_data["penalty_points"] == 18.0
+
+            # Calling reveal_all again stays idempotent at 18.0 penalty
+            repeat_reveal = await ac.post(
+                f"/api/v1/system-design/sessions/{session_id}/diagrams/hint",
+                json={"hint_mode": "reveal_all", "current_nodes": []},
+            )
+            assert repeat_reveal.status_code == 200
+            assert repeat_reveal.json()["penalty_points"] == 18.0
+
+            # 4) Reject empty canvas submission
+            empty_canvas = await ac.post(
+                f"/api/v1/system-design/sessions/{session_id}/diagrams/canvas",
+                json={"nodes": [], "edges": [], "notes": ""},
+            )
+            assert empty_canvas.status_code == 400
+
+            # 5) Submit Canvas Flow JSON revision (catalog blocks + custom block)
+            canvas_res = await ac.post(
+                f"/api/v1/system-design/sessions/{session_id}/diagrams/canvas",
+                json={
+                    "nodes": [
+                        {
+                            "id": "n-gw",
+                            "type_id": "api_gateway",
+                            "label": "API Gateway",
+                            "category": "traffic_api",
+                            "icon": "door-open",
+                            "tech_stack": "Kong",
+                            "notes": "Rate limits writes",
+                            "is_custom": False,
+                            "position": {"x": 80, "y": 80},
+                        },
+                        {
+                            "id": "n-cache",
+                            "type_id": "distributed_cache",
+                            "label": "Redis Cache",
+                            "category": "caching_memory",
+                            "icon": "bolt",
+                            "tech_stack": "Redis 7 Cluster",
+                            "notes": "Hot short codes",
+                            "is_custom": False,
+                            "position": {"x": 320, "y": 80},
+                        },
+                        {
+                            "id": "n-custom",
+                            "type_id": "custom",
+                            "label": "Base62 Allocator Ring",
+                            "category": "compute_services",
+                            "icon": "hash",
+                            "tech_stack": "Go Worker + Etcd",
+                            "notes": "Collision-free token leases",
+                            "is_custom": True,
+                            "position": {"x": 560, "y": 80},
+                        },
+                    ],
+                    "edges": [
+                        {
+                            "id": "e1",
+                            "source": "n-gw",
+                            "target": "n-cache",
+                            "protocol": "Redis RESP",
+                            "delivery_mode": "sync",
+                            "label": "Redirect lookup",
+                        },
+                        {
+                            "id": "e2",
+                            "source": "n-gw",
+                            "target": "n-custom",
+                            "protocol": "gRPC",
+                            "delivery_mode": "sync",
+                            "label": "Allocate short key",
+                        },
+                    ],
+                    "notes": "Sub-20ms redirect path backed by Redis Cluster.",
+                },
+            )
+            assert canvas_res.status_code == 201
+            c_session = canvas_res.json()
+            assert len(c_session["diagrams_metadata"]) == 1
+            d_meta = c_session["diagrams_metadata"][0]
+            assert d_meta["diagram_kind"] == "canvas"
+            assert d_meta["node_count"] == 3
+            assert d_meta["edge_count"] == 2
+
+            # Fetch stored Flow JSON back via GET /flow
+            flow_get = await ac.get(
+                f"/api/v1/system-design/sessions/{session_id}/diagrams/1/flow"
+            )
+            assert flow_get.status_code == 200
+            assert len(flow_get.json()["nodes"]) == 3
+            assert flow_get.json()["flow_summary"]["edge_count"] == 2
+
+            # 6) Run Stage 3 Canvas Review via text-LLM path (no image bytes / VLM)
+            review_reply = AsyncMock()
+            review_reply.content = _json.dumps(
+                {
+                    "interpreted_components": [
+                        "API Gateway (Kong)",
+                        "Redis Cache (Redis 7 Cluster)",
+                        "Base62 Allocator Ring",
+                    ],
+                    "interpreted_data_flows": [
+                        "API Gateway -> Redis Cache [Redis RESP, sync]",
+                        "API Gateway -> Base62 Allocator Ring [gRPC, sync]",
+                    ],
+                    "visual_clarifications_needed": [],
+                    "strengths": [
+                        "Clear Redis hot-key lookup and Base62 key separation."
+                    ],
+                    "missing_components": ["Primary SQL Store"],
+                    "bottlenecks_and_spofs": ["Redis cache miss durability"],
+                    "unnecessary_complexity": [],
+                    "requirement_gaps": [],
+                    "overall_impression": "Clean v1 canvas topology.",
+                    "suggested_defence_topics": [
+                        "What happens when a cold short link misses Redis?"
+                    ],
+                }
+            )
+            prepared_ctx = await SystemDesignService.prepare_diagram_review_context(
+                db_session, session_id=session_id, diagram_version=1
+            )
+            assert prepared_ctx["diagram_kind"] == "canvas"
+            review_ainvoke = AsyncMock(return_value=review_reply)
+            with patch(
+                "app.services.system_design_service.get_task_chat_model",
+                return_value=AsyncMock(ainvoke=review_ainvoke),
+            ):
+                inference = await SystemDesignService.run_diagram_vlm_inference(
+                    db_session, prepared_ctx
+                )
+            # Confirm message sent to model is pure text (str), NOT image_url list!
+            sent_messages = review_ainvoke.await_args.args[0]
+            assert isinstance(sent_messages[1].content, str)
+            assert "TOPOLOGY SUMMARY" in sent_messages[1].content
+
+            await SystemDesignService.persist_architecture_review(
+                db_session, session_id=session_id, review_dict=inference["review"]
+            )
+
+            # Seed one candidate defence turn so import_frontier_evaluation preconditions pass
+            session_obj = await SystemDesignService._get_session_for_update(
+                db_session, session_id
+            )
+            session_obj.stage = "DEFENCE"
+            session_obj.defence_transcript = [
+                {
+                    "turn_index": 1,
+                    "role": "interviewer",
+                    "content": "What happens on cache miss?",
+                    "stage": "DEFENCE",
+                    "timestamp": "2026-11-15T23:00:00Z",
+                },
+                {
+                    "turn_index": 2,
+                    "role": "candidate",
+                    "content": "It falls back to Postgres read replica and populates Redis with TTL.",
+                    "stage": "DEFENCE",
+                    "assisted": False,
+                    "timestamp": "2026-11-15T23:01:00Z",
+                },
+            ]
+            from sqlalchemy.orm.attributes import flag_modified
+
+            flag_modified(session_obj, "defence_transcript")
+            await db_session.commit()
+
+            # 7) Import 90/100 scorecard -> net score must reflect -18.0 hint penalty (= 72.0 / INTERVIEW_READY)
+            dimensions = [
+                "Requirements Clarity",
+                "Scope & Prioritization",
+                "Back-of-the-Envelope Estimation",
+                "API & Interface Design",
+                "Data Model & Storage Choice",
+                "High-Level Architecture",
+                "Scalability & Partitioning",
+                "Reliability & Fault Tolerance",
+                "Caching & Latency Optimization",
+                "Right-Sizing & Simplicity (YAGNI)",
+                "Trade-off Justification",
+                "Defence Communication Under Pressure",
+            ]
+            # 12 * 4.5 isn't int; use six 5s + six 4s -> sum=54 -> 54/60*100 = 90.0
+            rubric_rows = [
+                {
+                    "dimension": dim,
+                    "score": 5 if idx < 6 else 4,
+                    "evidence": f"Evidence observed for {dim}.",
+                    "critique": f"Solid execution on {dim}.",
+                }
+                for idx, dim in enumerate(dimensions)
+            ]
+            import_res = await ac.post(
+                f"/api/v1/system-design/sessions/{session_id}/import-evaluation",
+                json={
+                    "raw_response": _json.dumps(
+                        {
+                            "overall_score": 90.0,
+                            "readiness_rating": "STRONG_HIRE",
+                            "executive_summary": "Strong design.",
+                            "rubric_scores": rubric_rows,
+                            "key_strengths": ["Fast read path"],
+                            "critical_gaps": ["Add SQL backup"],
+                            "recommended_next_steps": ["Add DB primary/replica nodes"],
+                        }
+                    )
+                },
+            )
+            assert import_res.status_code == 200
+            final_data = import_res.json()
+            assert final_data["overall_score"] == 72.0
+            assert final_data["readiness_rating"] == "INTERVIEW_READY"
+            assert final_data["final_evaluation"]["raw_score"] == 90.0
+            assert final_data["final_evaluation"]["guidance_penalty"] == 18.0
     finally:
         app.dependency_overrides.clear()

@@ -146,7 +146,9 @@ test('completes full 5-stage adaptive loop with gated stepper, sleek input bar, 
   await expect(page.locator('textarea').nth(1)).toHaveValue(/Core API endpoint to create\/ingest primary entities/)
   await page.getByRole('button', { name: 'Lock Requirements & Proceed to Diagram' }).click()
 
-  // Stage 2: Upload diagram, verify Stage 2 unlocked while Stage 3-5 still locked
+  // Stage 2: Interactive Canvas Builder is default; switch to Upload / Paste Image sibling tab
+  await expect(page.getByTestId('diagram-canvas-builder')).toBeVisible()
+  await page.getByTestId('design-mode-upload-btn').click()
   await expect(page.getByRole('heading', { name: 'Upload Architecture Diagram' })).toBeVisible()
   await expect(page.getByTestId('stage-step-DESIGN')).toBeEnabled()
   await expect(page.getByTestId('stage-step-REVIEW')).toBeDisabled()
@@ -584,6 +586,85 @@ test('Tailored Challenge Modal filters active apps with fuzzy search, prepares F
 
   await expect(page.getByTestId('new-challenge-modal')).toBeHidden()
   await expect(page.locator('.sd-challenges-grid')).toContainText('Design a Stripe Webhook Delivery Ledger')
+
+  expect(errors).toEqual([])
+})
+
+test('builds architecture in Interactive Canvas Builder with custom blocks, guided hints, Flow JSON review, and Stage 5 penalty breakdown', async ({
+  page,
+}) => {
+  const errors = []
+  page.on('pageerror', (err) => errors.push(err.message))
+  page.on('console', (msg) => {
+    if (msg.type() === 'warning' && msg.text().includes('[Vue warn]')) {
+      errors.push(msg.text())
+    }
+  })
+
+  await page.goto('/chat?mode=system_design')
+  await page.getByTestId('challenge-card-url-shortener').getByTestId('start-challenge-btn').click()
+
+  // Lock Stage 1 quickly via extract + lock
+  await page.getByTestId('req-chat-input').fill('What read/write traffic targets apply?')
+  await page.getByTestId('req-send-btn').click()
+  await page.getByRole('button', { name: 'Auto-Extract from Chat' }).click()
+  await page.getByRole('button', { name: 'Lock Requirements & Proceed to Diagram' }).click()
+
+  // Verify Interactive Canvas Builder is open by default
+  await expect(page.getByTestId('diagram-canvas-builder')).toBeVisible()
+
+  // Strict INTERVIEW mode blocks full bank reveal; ADAPTIVE allows Next Hint (-3 pts) & Reveal Bank (-18 pts cap)
+  await page.getByTestId('hint-next-component-btn').click()
+  await expect(page.getByTestId('diagram-hint-tray')).toBeVisible()
+  await expect(page.getByTestId('guidance-penalty-badge')).toContainText('-3 pts')
+
+  await page.getByTestId('reveal-bank-btn').click()
+  await expect(page.getByTestId('guidance-penalty-badge')).toContainText('-18 pts')
+
+  // Add canonical blocks from palette + create a Custom Block
+  await page.getByTestId('palette-search-input').fill('Redis')
+  await page.getByTestId('palette-block-distributed_cache').click()
+  await page.getByTestId('palette-search-input').fill('')
+  await page.getByTestId('palette-block-api_gateway').click()
+
+  await page.getByTestId('open-custom-block-btn').click()
+  await page.getByTestId('custom-block-name-input').fill('Base62 Key Ring')
+  await page.getByTestId('custom-block-tech-input').fill('Go + Etcd Lease')
+  await page.getByTestId('add-custom-block-btn').click()
+
+  await expect(page.getByTestId('canvas-node-distributed_cache')).toBeVisible()
+  await expect(page.getByTestId('canvas-node-api_gateway')).toBeVisible()
+  await expect(page.getByTestId('canvas-node-custom')).toBeVisible()
+
+  // Wire directed edge using Quick Connect bar & inspect live Flow JSON preview
+  const srcSelect = page.getByTestId('qc-source-select')
+  const dstSelect = page.getByTestId('qc-target-select')
+  const firstVal = await srcSelect.locator('option').nth(1).getAttribute('value')
+  const secondVal = await dstSelect.locator('option').nth(2).getAttribute('value')
+  await srcSelect.selectOption(firstVal)
+  await dstSelect.selectOption(secondVal)
+  await page.getByTestId('qc-protocol-select').selectOption('gRPC')
+  await page.getByTestId('quick-connect-btn').click()
+
+  await page.getByTestId('canvas-notes-input').fill('Edge gateway routes hot lookups to Redis Cluster and key leases via gRPC.')
+  await expect(page.getByTestId('flow-json-preview')).toContainText('3 blocks, 1 flows')
+
+  // Save Canvas Revision v1 & run Stage 3 Review (zero file upload needed)
+  await page.getByTestId('save-canvas-btn').click()
+  await expect(page.getByTestId('analyze-canvas-btn')).toBeVisible()
+  await page.getByTestId('analyze-canvas-btn').click()
+
+  await expect(page.getByRole('heading', { name: 'Architecture Critique' })).toBeVisible()
+  await expect(page.getByText('Visual Clarifications Needed')).toHaveCount(0)
+
+  // Proceed through Stage 4 Defence to Stage 5 Evaluation & check Raw vs Net Penalty (-18 pts -> 86 - 18 = 68)
+  await page.getByRole('button', { name: 'Proceed to Architecture Defence' }).click()
+  await page.getByTestId('defence-chat-input').fill('Cache misses fall back cleanly to read replicas with singleflight coalescing.')
+  await page.getByTestId('defence-send-btn').click()
+  await page.getByTestId('evaluate-session-btn').click()
+
+  await expect(page.locator('.eval-score-value')).toHaveText('68')
+  await expect(page.getByTestId('eval-penalty-breakdown')).toContainText('Raw 86 − 18 hint pts')
 
   expect(errors).toEqual([])
 })
