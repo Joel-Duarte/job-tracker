@@ -232,6 +232,31 @@ function getReadinessBadgeClass(rating) {
   return 'badge-rejected'
 }
 
+function getDifficultyClass(difficulty) {
+  const normalized = String(difficulty || 'MEDIUM').toUpperCase()
+  if (normalized === 'EASY') return 'diff-easy'
+  if (normalized === 'HARD') return 'diff-hard'
+  return 'diff-medium'
+}
+
+function getRunningSessionForChallenge(challengeId) {
+  return (store.sessions || []).find(
+    (s) =>
+      (s.challenge_id === challengeId || s.challenge?.id === challengeId) &&
+      s.status !== 'COMPLETED' &&
+      s.stage !== 'COMPLETED'
+  )
+}
+
+async function handleOpenOrStartChallenge(challenge) {
+  const existing = getRunningSessionForChallenge(challenge.id)
+  if (existing) {
+    await store.loadSession(existing.id)
+    return
+  }
+  await handleStartChallenge(challenge)
+}
+
 const assistedTurnCount = computed(() => {
   if (!activeSession.value) return 0
   const req = activeSession.value.requirements_transcript || []
@@ -659,36 +684,14 @@ onUnmounted(() => {
             :key="challenge.id"
             class="sd-card challenge-card"
             :data-testid="`challenge-card-${challenge.slug}`"
-            role="button"
-            tabindex="0"
-            @click="handleStartChallenge(challenge)"
-            @keydown.enter.self="handleStartChallenge(challenge)"
           >
             <div class="challenge-card-top">
-              <div class="challenge-badges-left">
-                <span class="badge badge-applied">{{ formatCategoryLabel(challenge.category) }}</span>
-                <span class="badge badge-interview">{{ formatDifficultyLabel(challenge.difficulty) }}</span>
-              </div>
+              <span class="challenge-category-label">{{ formatCategoryLabel(challenge.category) }}</span>
               <div class="challenge-badges-right">
                 <span v-if="!challenge.is_builtin" class="sd-tag">Custom</span>
-                <button
-                  type="button"
-                  class="btn btn-ghost sd-icon-btn"
-                  title="Edit challenge"
-                  data-testid="edit-challenge-btn"
-                  @click.stop="openEditChallengeModal(challenge)"
-                >
-                  <Edit3 :size="13" />
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-ghost sd-icon-danger-btn"
-                  title="Delete challenge"
-                  data-testid="delete-challenge-btn"
-                  @click.stop="handleDeleteChallenge(challenge)"
-                >
-                  <Trash2 :size="13" />
-                </button>
+                <span class="sd-difficulty-pill" :class="getDifficultyClass(challenge.difficulty)">
+                  {{ formatDifficultyLabel(challenge.difficulty) }}
+                </span>
               </div>
             </div>
             <h3 class="challenge-title">{{ challenge.title }}</h3>
@@ -699,15 +702,50 @@ onUnmounted(() => {
             <div class="challenge-actions">
               <button
                 type="button"
-                class="btn btn-primary w-full"
+                class="btn btn-primary challenge-start-btn"
                 data-testid="start-challenge-btn"
-                :disabled="store.startingSession"
-                @click.stop="handleStartChallenge(challenge)"
+                :disabled="store.startingSession || store.loadingSession"
+                @click="handleOpenOrStartChallenge(challenge)"
               >
-                <Loader2 v-if="store.startingSession" :size="14" class="spin" />
+                <Loader2 v-if="store.startingSession || store.loadingSession" :size="14" class="spin" />
+                <ArrowRight v-else-if="getRunningSessionForChallenge(challenge.id)" :size="14" />
                 <Sparkles v-else :size="14" />
-                <span>Start Challenge</span>
+                <span>{{ getRunningSessionForChallenge(challenge.id) ? 'Resume Session' : 'Start Challenge' }}</span>
               </button>
+              <button
+                v-if="getRunningSessionForChallenge(challenge.id)"
+                type="button"
+                class="btn btn-ghost challenge-action-icon-btn"
+                title="Start a fresh session"
+                aria-label="Start a fresh session"
+                data-testid="new-session-btn"
+                :disabled="store.startingSession || store.loadingSession"
+                @click="handleStartChallenge(challenge)"
+              >
+                <Plus :size="14" />
+              </button>
+              <div class="challenge-manage-btns">
+                <button
+                  type="button"
+                  class="btn btn-ghost challenge-action-icon-btn"
+                  title="Edit challenge"
+                  aria-label="Edit challenge"
+                  data-testid="edit-challenge-btn"
+                  @click="openEditChallengeModal(challenge)"
+                >
+                  <Edit3 :size="14" />
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-ghost challenge-action-icon-btn sd-icon-danger-btn"
+                  title="Delete challenge"
+                  aria-label="Delete challenge"
+                  data-testid="delete-challenge-btn"
+                  @click="handleDeleteChallenge(challenge)"
+                >
+                  <Trash2 :size="14" />
+                </button>
+              </div>
             </div>
           </article>
         </div>
@@ -1904,20 +1942,24 @@ onUnmounted(() => {
 
 .sd-challenges-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(245px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
+}
+
+@media (min-width: 1500px) {
+  .sd-challenges-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 .challenge-card {
   justify-content: space-between;
-  cursor: pointer;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .challenge-card:hover {
-  border-color: var(--border-focus);
+  border-color: var(--border-subtle);
   box-shadow: var(--card-hover-shadow);
-  transform: translateY(-1px);
 }
 
 .sd-header-actions {
@@ -1931,7 +1973,19 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
+}
+
+.challenge-category-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .challenge-title {
@@ -2520,12 +2574,91 @@ onUnmounted(() => {
   flex-wrap: wrap;
 }
 
-.challenge-badges-left,
 .challenge-badges-right {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.sd-difficulty-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.sd-difficulty-pill.diff-easy {
+  background: var(--status-offer-bg);
+  color: var(--status-offer-text);
+  border-color: var(--status-offer-border);
+}
+
+.sd-difficulty-pill.diff-medium {
+  background: var(--status-interview-bg);
+  color: var(--status-interview-text);
+  border-color: var(--status-interview-border);
+}
+
+.sd-difficulty-pill.diff-hard {
+  background: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+  border-color: var(--status-rejected-border);
+}
+
+.challenge-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.challenge-start-btn {
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+}
+
+.challenge-manage-btns {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.challenge-action-icon-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.challenge-action-icon-btn:hover:not(:disabled) {
+  background: var(--bg-surface-hover);
+  color: var(--text-main);
+  border-color: var(--border-focus);
+}
+
+.challenge-action-icon-btn.sd-icon-danger-btn:hover:not(:disabled) {
+  color: var(--text-danger);
+  border-color: var(--status-rejected-border);
+  background: var(--status-rejected-bg);
 }
 
 .sd-icon-btn,

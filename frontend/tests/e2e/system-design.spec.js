@@ -107,8 +107,13 @@ test('completes full 5-stage adaptive loop with gated stepper, sleek input bar, 
   await page.goto('/chat?mode=system_design')
   await expect(page.getByText('DEMO MODE')).toBeVisible()
 
-  // Start URL Shortener challenge by clicking the card directly
-  await page.getByTestId('challenge-card-url-shortener').click()
+  // Clicking the card body/title should not start a session; only the primary button does
+  const urlCard = page.getByTestId('challenge-card-url-shortener')
+  await urlCard.getByRole('heading', { name: 'Design a URL Shortener' }).click()
+  await expect(page.getByTestId('back-to-challenges-btn')).toHaveCount(0)
+
+  await expect(urlCard.getByTestId('start-challenge-btn')).toHaveText(/Start Challenge/)
+  await urlCard.getByTestId('start-challenge-btn').click()
 
   // Verify compact header and strict stage gating (stages 2-5 start locked)
   await expect(page.getByRole('heading', { name: 'Design a URL Shortener' })).toBeVisible()
@@ -123,6 +128,14 @@ test('completes full 5-stage adaptive loop with gated stepper, sleek input bar, 
   const reqInput = page.getByTestId('req-chat-input')
   await reqInput.fill('What read/write ratio and p99 redirect latency should we target?')
   await page.getByTestId('req-send-btn').click()
+  await expect(page.getByText(/10:1 read-to-write traffic/)).toBeVisible()
+
+  // Returning to lobby should show "Resume Session" + "+" fresh-session button and reopen the same session
+  await page.getByTestId('back-to-challenges-btn').click()
+  await expect(urlCard.getByTestId('start-challenge-btn')).toHaveText(/Resume Session/)
+  await expect(urlCard.getByTestId('new-session-btn')).toBeVisible()
+  await urlCard.getByTestId('start-challenge-btn').click()
+  await expect(page.getByTestId('back-to-challenges-btn')).toBeVisible()
   await expect(page.getByText(/10:1 read-to-write traffic/)).toBeVisible()
 
   await page.getByTestId('req-hint-btn').click()
