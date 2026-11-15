@@ -261,14 +261,17 @@ def _clean_base_url(url: str | None) -> str | None:
     return url
 
 
-async def get_active_llm_config_dict(db: AsyncSession | None = None) -> dict[str, Any]:
+async def get_active_llm_config_dict(
+    db: AsyncSession | None = None,
+    task_type: str = "GLOBAL_DEFAULT",
+) -> dict[str, Any]:
     """Retrieves runtime LLM configuration from the database."""
     if db is None:
         try:
             import app.core.database as db_module
 
             async with db_module.AsyncSessionLocal() as session:
-                return await get_active_llm_config_dict(session)
+                return await get_active_llm_config_dict(session, task_type=task_type)
         except Exception as err:
             logger.warning("Failed loading database AI configuration: %s", err)
 
@@ -277,15 +280,44 @@ async def get_active_llm_config_dict(db: AsyncSession | None = None) -> dict[str
             from app.models.ai_providers import AITaskBindingModel
             from app.models.llm import LLMConfigModel
 
+            requested_types = (
+                [task_type, "GLOBAL_DEFAULT"]
+                if task_type and task_type != "GLOBAL_DEFAULT"
+                else ["GLOBAL_DEFAULT"]
+            )
             binding_stmt = (
                 select(AITaskBindingModel)
                 .options(joinedload(AITaskBindingModel.provider))
                 .where(
-                    AITaskBindingModel.task_type == "GLOBAL_DEFAULT",
+                    AITaskBindingModel.task_type.in_(requested_types),
                     AITaskBindingModel.is_active,
                 )
             )
-            binding = (await db.execute(binding_stmt)).scalar_one_or_none()
+            bindings = (await db.execute(binding_stmt)).scalars().all()
+            exact_binding = (
+                next((b for b in bindings if b.task_type == task_type), None)
+                if task_type != "GLOBAL_DEFAULT"
+                else None
+            )
+            global_binding = next(
+                (b for b in bindings if b.task_type == "GLOBAL_DEFAULT"), None
+            )
+
+            binding = None
+            if (
+                exact_binding
+                and exact_binding.provider
+                and exact_binding.provider.is_active
+                and not (exact_binding.extra_kwargs or {}).get("use_global_default")
+            ):
+                binding = exact_binding
+            elif (
+                global_binding
+                and global_binding.provider
+                and global_binding.provider.is_active
+            ):
+                binding = global_binding
+
             if binding and binding.provider and binding.provider.is_active:
                 return {
                     "source": "database",
@@ -534,7 +566,7 @@ TASK_RECOMMENDED_DEFAULTS = {
     "SYSTEM_DESIGN_REVIEWER": {
         "temperature": 0.1,
         "reasoning_effort": "none",
-        "max_tokens": 3000,
+        "max_tokens": 4096,
     },
 }
 
@@ -653,6 +685,7 @@ async def get_task_chat_model(
                         for h in (
                             "localhost",
                             "127.0.0.1",
+                            "host.docker.internal",
                             "192.168.",
                             "0.0.0.0",
                             "10.",

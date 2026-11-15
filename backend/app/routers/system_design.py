@@ -2,6 +2,7 @@ import logging
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -30,11 +31,22 @@ from app.schemas.system_design import (
     SystemDesignSessionCreate,
     SystemDesignSessionRead,
 )
+from app.services.evaluation_worker import process_evaluation_task
 from app.services.system_design_service import SystemDesignService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/system-design", tags=["System Design Lab"])
+
+
+def _http_error_from_value_error(ve: ValueError) -> HTTPException:
+    msg = str(ve)
+    code = (
+        status.HTTP_404_NOT_FOUND
+        if "not found" in msg.lower()
+        else status.HTTP_400_BAD_REQUEST
+    )
+    return HTTPException(status_code=code, detail=msg)
 
 
 @router.get("/challenges", response_model=list[SystemDesignChallengeRead])
@@ -176,7 +188,7 @@ async def start_session(
     payload: SystemDesignSessionCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """Start a new System Design Lab session in INTERVIEW or PRACTICE mode."""
+    """Start a new System Design Lab session in ADAPTIVE, INTERVIEW, or PRACTICE mode."""
     try:
         session = await SystemDesignService.start_session(
             db=db,
@@ -186,7 +198,7 @@ async def start_session(
         )
         return SystemDesignSessionRead.model_validate(session)
     except ValueError as ve:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+        raise _http_error_from_value_error(ve)
 
 
 @router.get("/sessions", response_model=list[SystemDesignSessionRead])
@@ -199,6 +211,7 @@ async def list_sessions(
     sessions = await SystemDesignService.list_sessions(
         db=db, application_id=application_id, status=session_status
     )
+    await SystemDesignService.attach_active_queue_tasks(db, sessions)
     return [SystemDesignSessionRead.model_validate(s) for s in sessions]
 
 
@@ -210,9 +223,10 @@ async def get_session(
     """Fetch a single System Design Lab session by ID."""
     try:
         session = await SystemDesignService.get_session(db=db, session_id=session_id)
+        await SystemDesignService.attach_active_queue_tasks(db, [session])
         return SystemDesignSessionRead.model_validate(session)
     except ValueError as ve:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+        raise _http_error_from_value_error(ve)
 
 
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -225,7 +239,7 @@ async def delete_session(
         await SystemDesignService.delete_session(db=db, session_id=session_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except ValueError as ve:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+        raise _http_error_from_value_error(ve)
 
 
 @router.patch("/sessions/{session_id}/mode", response_model=SystemDesignSessionRead)
@@ -234,14 +248,14 @@ async def update_session_mode(
     payload: SessionModeUpdateRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Toggle a session between INTERVIEW and PRACTICE guidance modes."""
+    """Toggle a session between ADAPTIVE, INTERVIEW, and PRACTICE guidance modes."""
     try:
         session = await SystemDesignService.update_session_mode(
             db=db, session_id=session_id, mode=payload.mode
         )
         return SystemDesignSessionRead.model_validate(session)
     except ValueError as ve:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+        raise _http_error_from_value_error(ve)
 
 
 @router.post(
@@ -263,7 +277,7 @@ async def send_requirements_message(
         )
         return SystemDesignSessionRead.model_validate(session)
     except ValueError as ve:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+        raise _http_error_from_value_error(ve)
     except Exception as exc:
         logger.error("Failed processing requirements message: %s", exc)
         raise HTTPException(
@@ -287,7 +301,7 @@ async def extract_requirements_ledger(
         )
         return SystemDesignSessionRead.model_validate(session)
     except ValueError as ve:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+        raise _http_error_from_value_error(ve)
     except Exception as exc:
         logger.error("Failed extracting requirements ledger: %s", exc)
         raise HTTPException(
@@ -312,7 +326,7 @@ async def update_requirements_ledger(
         )
         return SystemDesignSessionRead.model_validate(session)
     except ValueError as ve:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+        raise _http_error_from_value_error(ve)
 
 
 @router.post(
@@ -334,13 +348,13 @@ async def upload_diagram(
         )
         return SystemDesignSessionRead.model_validate(session)
     except ValueError as ve:
-        msg = str(ve)
-        code = (
-            status.HTTP_404_NOT_FOUND
-            if "not found" in msg.lower()
-            else status.HTTP_400_BAD_REQUEST
+        raise _http_error_from_value_error(ve)
+    except PermissionError as pe:
+        logger.error("Diagram storage permission error: %s", pe)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(pe),
         )
-        raise HTTPException(status_code=code, detail=msg)
 
 
 @router.get("/sessions/{session_id}/diagrams/{version}/image")
@@ -356,40 +370,43 @@ async def get_diagram_image(
         )
         return FileResponse(path=file_path, media_type=mime_type, filename=filename)
     except ValueError as ve:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+        raise _http_error_from_value_error(ve)
+    except PermissionError as pe:
+        logger.error("Diagram retrieval permission error: %s", pe)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(pe),
+        )
 
 
 @router.post(
     "/sessions/{session_id}/review",
     response_model=SystemDesignSessionRead,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 async def review_diagram_architecture(
     session_id: int,
+    background_tasks: BackgroundTasks,
     payload: DiagramReviewRequest | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Run queue-backed multimodal architecture review on the latest or target diagram revision."""
+    """Enqueue background multimodal architecture review via the shared AI task queue."""
     try:
-        session = await SystemDesignService.run_queued_architecture_review(
+        session, task = await SystemDesignService.enqueue_architecture_review(
             db=db,
             session_id=session_id,
             diagram_version=payload.diagram_version if payload else None,
             use_web_search=payload.use_web_search if payload else False,
         )
+        background_tasks.add_task(process_evaluation_task, task_id=task.id)
         return SystemDesignSessionRead.model_validate(session)
     except ValueError as ve:
-        msg = str(ve)
-        code = (
-            status.HTTP_404_NOT_FOUND
-            if "not found" in msg.lower()
-            else status.HTTP_400_BAD_REQUEST
-        )
-        raise HTTPException(status_code=code, detail=msg)
+        raise _http_error_from_value_error(ve)
     except Exception as exc:
-        logger.error("Failed analyzing diagram architecture: %s", exc)
+        logger.error("Failed enqueueing diagram architecture review: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed analyzing diagram architecture: {exc}",
+            detail=f"Failed enqueueing diagram architecture review: {exc}",
         )
 
 
@@ -413,7 +430,7 @@ async def send_defence_message(
         )
         return SystemDesignSessionRead.model_validate(session)
     except ValueError as ve:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+        raise _http_error_from_value_error(ve)
     except Exception as exc:
         logger.error("Failed processing defence message: %s", exc)
         raise HTTPException(
@@ -425,25 +442,28 @@ async def send_defence_message(
 @router.post(
     "/sessions/{session_id}/evaluate",
     response_model=SystemDesignSessionRead,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 async def evaluate_system_design_session(
     session_id: int,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    """Execute Stage F evidence-based final rubric evaluation via the AI task queue."""
+    """Enqueue Stage F evidence-based final rubric evaluation via the shared AI task queue."""
     try:
-        session = await SystemDesignService.run_queued_final_evaluation(
+        session, task = await SystemDesignService.enqueue_final_evaluation(
             db=db,
             session_id=session_id,
         )
+        background_tasks.add_task(process_evaluation_task, task_id=task.id)
         return SystemDesignSessionRead.model_validate(session)
     except ValueError as ve:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+        raise _http_error_from_value_error(ve)
     except Exception as exc:
-        logger.error("Failed evaluating system design session: %s", exc)
+        logger.error("Failed enqueueing system design final evaluation: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed evaluating system design session: {exc}",
+            detail=f"Failed enqueueing system design final evaluation: {exc}",
         )
 
 
@@ -461,7 +481,7 @@ async def get_frontier_evaluation_packet(
             db=db, session_id=session_id
         )
     except ValueError as ve:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+        raise _http_error_from_value_error(ve)
 
 
 @router.post(
@@ -480,10 +500,4 @@ async def import_frontier_evaluation(
         )
         return SystemDesignSessionRead.model_validate(session)
     except ValueError as ve:
-        msg = str(ve)
-        code = (
-            status.HTTP_404_NOT_FOUND
-            if "not found" in msg.lower()
-            else status.HTTP_400_BAD_REQUEST
-        )
-        raise HTTPException(status_code=code, detail=msg)
+        raise _http_error_from_value_error(ve)

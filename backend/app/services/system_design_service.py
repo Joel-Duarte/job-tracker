@@ -1,19 +1,21 @@
 import base64
 import json
 import logging
+import os
 import re
 import shutil
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_core.output_parsers import JsonOutputParser
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.config import settings
 from app.core.llm_factory import get_task_chat_model, strip_reasoning_tags
 from app.core.prompts import DEFAULT_PROMPTS
 from app.models.applications import ApplicationModel
@@ -43,10 +45,50 @@ from app.services.system_design_seed import seed_system_design_challenges
 
 logger = logging.getLogger(__name__)
 
-# Shared disk storage root for binary diagrams (backend/data/system_design locally,
-# /app/data/system_design inside container).
-SYSTEM_DESIGN_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "system_design"
+# Configurable disk storage root for binary diagrams (SYSTEM_DESIGN_DATA_DIR env/setting,
+# defaulting to <backend_root>/data/system_design locally or /app/data/system_design in Docker).
+_DEFAULT_STORAGE_SENTINEL = settings.get_system_design_data_dir()
+SYSTEM_DESIGN_DATA_DIR = _DEFAULT_STORAGE_SENTINEL
 MAX_DIAGRAM_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+def _get_storage_root() -> Path:
+    """Resolve the active diagram storage root with NO silent fallback."""
+    if SYSTEM_DESIGN_DATA_DIR != _DEFAULT_STORAGE_SENTINEL:
+        return Path(SYSTEM_DESIGN_DATA_DIR).expanduser().resolve()
+    configured = (settings.SYSTEM_DESIGN_DATA_DIR or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    env_configured = os.environ.get("SYSTEM_DESIGN_DATA_DIR", "").strip()
+    if env_configured:
+        return Path(env_configured).expanduser().resolve()
+    return settings.get_system_design_data_dir().expanduser().resolve()
+
+
+def _ensure_writable_session_dir(session_id: int) -> Path:
+    """Create and verify writability of the session diagram directory without silent fallback."""
+    root = _get_storage_root()
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        session_dir = (root / f"session_{session_id}").resolve()
+        if not session_dir.is_relative_to(root):
+            raise PermissionError(
+                f"Resolved session directory '{session_dir}' escapes configured storage root '{root}'."
+            )
+        session_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            dir=session_dir, prefix=".write_probe_", delete=True
+        ):
+            pass
+        return session_dir
+    except (PermissionError, OSError) as exc:
+        uid = os.getuid() if hasattr(os, "getuid") else "unknown"
+        raise PermissionError(
+            f"System design diagram storage directory '{root}' is not writable by current user "
+            f"(uid={uid}): {exc}. Configure SYSTEM_DESIGN_DATA_DIR to a writable directory or "
+            "fix ownership for the executing user (never use chmod 777)."
+        ) from exc
+
 
 ARCHITECTURE_REVIEW_JSON_INSTRUCTIONS = """
 Respond ONLY with a valid JSON object matching this exact schema (no markdown fences):
@@ -111,22 +153,30 @@ FINAL_EVALUATION_PROMPT = """You are producing the Stage F evidence-based final 
 HIDDEN INTERVIEWER BRIEF (GROUND TRUTH RUBRIC):
 {hidden_brief_json}
 
-STRICT EVIDENCE RULES:
+STRICT SCORING & OUTPUT RULES:
 1. Score the candidate ONLY on demonstrated evidence in their requirements conversation, locked requirements ledger, submitted diagram reviews, and defence responses below.
-2. EVERY rubric item MUST include a concrete `evidence` quote or specific observation referencing the candidate's transcript turns, locked ledger items, or diagram components (minimum 5 non-whitespace characters; never generic filler).
-3. Evaluate across the 12 core dimensions:
+2. SCALE: Every dimension `score` MUST be an integer in 1..5 ONLY (1=poor/missing, 2=weak, 3=acceptable, 4=strong, 5=exceptional Staff level). NEVER use a 1-10 scale.
+3. OVERALL SCORE: `overall_score` MUST be on a 0..100 scale and MUST match `round((sum(all 12 scores) / 60) * 100, 1)`.
+   - `STRONG_HIRE`: 88.0 - 100.0
+   - `INTERVIEW_READY`: 70.0 - 87.9
+   - `DEVELOPING`: 50.0 - 69.9
+   - `NEEDS_PRACTICE`: 0.0 - 49.9
+4. COMPLETENESS: You MUST include ALL 12 exact dimension names listed below (no omissions, no duplicates, no renamed dimensions):
 {dimensions_list}
-4. Respond ONLY with a valid JSON object matching this exact schema (no markdown fences):
+5. EVIDENCE & ADVICE: Every single rubric item MUST have concise, concrete `evidence` (>= 5 chars referencing session artifacts) AND actionable `critique` advice (>= 5 chars explaining improvement or strength).
+6. TOKEN EFFICIENCY: Output the complete JSON object immediately with concise strings (1-2 sentences per field). Do NOT output `<think>` reasoning or markdown fences.
+
+Respond ONLY with a single complete JSON object matching this exact schema:
 {{
   "overall_score": 0,
   "readiness_rating": "NEEDS_PRACTICE | DEVELOPING | INTERVIEW_READY | STRONG_HIRE",
-  "executive_summary": "<2-4 sentence overall assessment>",
+  "executive_summary": "<2-3 sentence overall assessment>",
   "rubric_scores": [
     {{
-      "dimension": "<one of the 12 rubric dimensions>",
-      "score": 1,
+      "dimension": "<exact dimension name from the 12 listed above>",
+      "score": 3,
       "evidence": "<concrete observation from ledger, diagram review, or transcript>",
-      "critique": "<specific strength or gap and why it earned this score>"
+      "critique": "<specific strength or gap and actionable improvement advice>"
     }}
   ],
   "key_strengths": ["<evidence-backed strength>"],
@@ -227,38 +277,89 @@ async def _fetch_web_grounding_snippets(
     return "\n".join(lines)
 
 
-def _extract_json_object(raw_text: str) -> dict[str, Any]:
-    """Parse a JSON object from raw LLM text or fenced markdown pasted from external models."""
-    cleaned = strip_reasoning_tags(raw_text or "").strip()
+def _parse_strict_json_object(raw_text: str) -> dict[str, Any]:
+    """Strictly parse a complete JSON object, rejecting empty or truncated LLM outputs."""
+    text = str(raw_text or "")
+    open_think_count = len(re.findall(r"<think>", text, flags=re.IGNORECASE))
+    close_think_count = len(re.findall(r"</think>", text, flags=re.IGNORECASE))
+    if open_think_count > close_think_count:
+        raise ValueError(
+            "Truncated model response: reasoning block (<think>) was not closed."
+        )
+
+    cleaned = strip_reasoning_tags(text).strip()
     if not cleaned:
         raise ValueError("Empty response cannot be parsed as JSON.")
 
+    # Direct strict JSON check first
     try:
-        parsed = JsonOutputParser().parse(cleaned)
+        parsed = json.loads(cleaned)
         if isinstance(parsed, dict):
             return parsed
-    except Exception:
+    except json.JSONDecodeError:
         pass
 
-    for block in re.findall(r"```(?:json)?\s*([\s\S]*?)```", cleaned, re.IGNORECASE):
+    # Closed markdown JSON fences (e.g. from Frontier copy/paste)
+    complete_blocks = re.findall(
+        r"```(?:json)?\s*([\s\S]*?)```", cleaned, re.IGNORECASE
+    )
+    for block in complete_blocks:
         try:
             candidate = json.loads(block.strip())
             if isinstance(candidate, dict):
                 return candidate
-        except Exception:
+        except json.JSONDecodeError:
             continue
 
-    first_brace = cleaned.find("{")
-    last_brace = cleaned.rfind("}")
-    if first_brace != -1 and last_brace > first_brace:
-        try:
-            candidate = json.loads(cleaned[first_brace : last_brace + 1])
-            if isinstance(candidate, dict):
-                return candidate
-        except Exception:
-            pass
+    # Detect unclosed markdown fence (truncated output)
+    if cleaned.count("```") % 2 == 1 and not complete_blocks:
+        raise ValueError("Truncated markdown JSON code block (missing closing fence).")
 
-    raise ValueError("Could not extract a valid JSON scorecard object from response.")
+    # Balanced outermost JSON object extraction (supports surrounding prose)
+    first_brace = cleaned.find("{")
+    if first_brace == -1:
+        raise ValueError("Could not find a JSON object in model response.")
+
+    depth = 0
+    in_string = False
+    escape = False
+    end_idx = -1
+    for idx in range(first_brace, len(cleaned)):
+        ch = cleaned[idx]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end_idx = idx
+                break
+
+    if end_idx == -1 or depth != 0:
+        raise ValueError(
+            "Truncated or incomplete JSON object in model response (unclosed braces)."
+        )
+
+    try:
+        candidate = json.loads(cleaned[first_brace : end_idx + 1])
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Malformed JSON object in model response: {exc}") from exc
+
+    if not isinstance(candidate, dict):
+        raise ValueError("Top-level parsed JSON value must be an object.")
+    return candidate
+
+
+_extract_json_object = _parse_strict_json_object
 
 
 REQUIREMENTS_EXTRACTION_PROMPT = """You are extracting structured requirements from a System Design interview requirements-discovery conversation.
@@ -357,26 +458,13 @@ def _normalize_scale_dict(value: Any) -> dict[str, str]:
     }
 
 
-def _build_session_fallback_evidence(session: SystemDesignSessionModel) -> str:
-    ledger = session.requirements_ledger or {}
-    req_turns = sum(
-        1
-        for t in (session.requirements_transcript or [])
-        if t.get("role") == "candidate"
-    )
-    def_turns = sum(
-        1 for t in (session.defence_transcript or []) if t.get("role") == "candidate"
-    )
-    diagrams_count = len(session.diagrams_metadata or [])
-    reviews_count = len(session.architecture_reviews or [])
-    fn_count = len(ledger.get("functional_requirements") or [])
-    locked_label = "locked" if ledger.get("is_locked") else "unlocked"
-    return (
-        f"Session {session.id} evidence: {req_turns} requirements turns, "
-        f"{fn_count} functional requirements ({locked_label} ledger), "
-        f"{diagrams_count} diagram revision(s), {reviews_count} review(s), "
-        f"and {def_turns} defence response(s)."
-    )
+_PLACEHOLDER_STRINGS = {"n/a", "na", "none", "tbd", "todo", "null", "-", "..."}
+_RATING_TIERS = {
+    "NEEDS_PRACTICE": 0,
+    "DEVELOPING": 1,
+    "INTERVIEW_READY": 2,
+    "STRONG_HIRE": 3,
+}
 
 
 def _derive_readiness_rating(overall_score: float) -> str:
@@ -389,104 +477,134 @@ def _derive_readiness_rating(overall_score: float) -> str:
     return "NEEDS_PRACTICE"
 
 
-def _normalize_final_evaluation(
-    raw_data: dict[str, Any], session: SystemDesignSessionModel
-) -> dict[str, Any]:
-    fallback_evidence = _build_session_fallback_evidence(session)
+def _compute_deterministic_overall_score(scores: list[RubricDimensionScore]) -> float:
+    """Deterministic 0..100 overall score: sum(12 integer scores 1..5) / 60 * 100."""
+    max_points = len(DEFAULT_RUBRIC_DIMENSIONS) * 5
+    return round((sum(item.score for item in scores) / max_points) * 100.0, 1)
+
+
+def _validate_final_evaluation_payload(raw_data: dict[str, Any]) -> dict[str, Any]:
+    """Strictly validate Stage F evaluation output against the 12-dimension 1..5 rubric.
+
+    Never clamps invalid scores, never divides 1..10 scores heuristically, and never
+    backfills missing dimensions or empty evidence/advice.
+    """
+    if not isinstance(raw_data, dict):
+        raise ValueError("Final evaluation payload must be a JSON object.")
+
     raw_scores = raw_data.get("rubric_scores")
-    normalized_scores: list[RubricDimensionScore] = []
+    if not isinstance(raw_scores, list):
+        raise ValueError("rubric_scores must be a list of 12 dimension objects.")
 
-    if isinstance(raw_scores, list):
-        for idx, item in enumerate(raw_scores):
-            if not isinstance(item, dict):
-                continue
-            dimension = str(
-                item.get("dimension")
-                or DEFAULT_RUBRIC_DIMENSIONS[idx % len(DEFAULT_RUBRIC_DIMENSIONS)]
-            ).strip()
-            try:
-                raw_score = int(round(float(item.get("score", 3))))
-            except (TypeError, ValueError):
-                raw_score = 3
-            clamped_score = max(1, min(5, raw_score))
+    canonical_by_lower = {dim.lower(): dim for dim in DEFAULT_RUBRIC_DIMENSIONS}
+    scores_by_dim: dict[str, RubricDimensionScore] = {}
 
-            raw_evidence = str(item.get("evidence") or "").strip()
-            evidence_text = (
-                raw_evidence if len(raw_evidence) >= 5 else fallback_evidence
+    for idx, item in enumerate(raw_scores):
+        if not isinstance(item, dict):
+            raise ValueError(f"rubric_scores[{idx}] must be an object.")
+
+        raw_dim = str(item.get("dimension") or "").strip()
+        canonical_dim = canonical_by_lower.get(raw_dim.lower())
+        if canonical_dim is None:
+            raise ValueError(
+                f"Unknown rubric dimension '{raw_dim}'. Expected one of the 12 canonical dimensions."
+            )
+        if canonical_dim in scores_by_dim:
+            raise ValueError(f"Duplicate rubric dimension '{canonical_dim}'.")
+
+        raw_score = item.get("score")
+        if isinstance(raw_score, bool) or not isinstance(raw_score, int):
+            raise ValueError(
+                f"Dimension '{canonical_dim}' has non-integer score {raw_score!r}; expected integer 1..5."
+            )
+        if raw_score < 1 or raw_score > 5:
+            raise ValueError(
+                f"Dimension '{canonical_dim}' score {raw_score} is out of range; expected integer 1..5."
             )
 
-            critique_text = str(
-                item.get("critique")
-                or item.get("rationale")
-                or f"Evaluated at score {clamped_score}/5 based on session evidence."
-            ).strip()
-
-            normalized_scores.append(
-                RubricDimensionScore(
-                    dimension=dimension or f"Dimension {idx + 1}",
-                    score=clamped_score,
-                    evidence=evidence_text,
-                    critique=critique_text,
-                )
+        evidence_text = str(item.get("evidence") or "").strip()
+        if len(evidence_text) < 5 or evidence_text.lower() in _PLACEHOLDER_STRINGS:
+            raise ValueError(
+                f"Dimension '{canonical_dim}' is missing concrete evidence (>= 5 chars)."
             )
 
-    if not normalized_scores:
-        for dim in DEFAULT_RUBRIC_DIMENSIONS:
-            normalized_scores.append(
-                RubricDimensionScore(
-                    dimension=dim,
-                    score=3,
-                    evidence=fallback_evidence,
-                    critique="Baseline score inferred from recorded session artifacts.",
-                )
+        critique_text = str(item.get("critique") or item.get("rationale") or "").strip()
+        if len(critique_text) < 5 or critique_text.lower() in _PLACEHOLDER_STRINGS:
+            raise ValueError(
+                f"Dimension '{canonical_dim}' is missing improvement advice/critique (>= 5 chars)."
             )
+
+        scores_by_dim[canonical_dim] = RubricDimensionScore(
+            dimension=canonical_dim,
+            score=raw_score,
+            evidence=evidence_text,
+            critique=critique_text,
+        )
+
+    missing_dims = [
+        dim for dim in DEFAULT_RUBRIC_DIMENSIONS if dim not in scores_by_dim
+    ]
+    if missing_dims:
+        raise ValueError(
+            f"Incomplete evaluation: missing {len(missing_dims)} required rubric dimension(s): "
+            + ", ".join(missing_dims)
+        )
+
+    ordered_scores = [scores_by_dim[dim] for dim in DEFAULT_RUBRIC_DIMENSIONS]
+    computed_overall = _compute_deterministic_overall_score(ordered_scores)
 
     raw_overall = raw_data.get("overall_score")
-    computed_overall = round(
-        (sum(s.score for s in normalized_scores) / (len(normalized_scores) * 5))
-        * 100.0,
-        1,
-    )
-    try:
-        overall_score = (
-            float(raw_overall) if raw_overall is not None else computed_overall
-        )
-    except (TypeError, ValueError):
-        overall_score = computed_overall
-    overall_score = max(0.0, min(100.0, round(overall_score, 1)))
+    if raw_overall is not None:
+        if isinstance(raw_overall, bool) or not isinstance(raw_overall, (int, float)):
+            raise ValueError(
+                f"Invalid overall_score {raw_overall!r}; expected numeric score in 0..100."
+            )
+        numeric_overall = float(raw_overall)
+        if numeric_overall < 0.0 or numeric_overall > 100.0:
+            raise ValueError(f"overall_score {numeric_overall} violates 0..100 range.")
+        if abs(numeric_overall - computed_overall) > 15.0:
+            raise ValueError(
+                f"Contradictory overall_score ({numeric_overall}) vs rubric dimensions average "
+                f"({computed_overall} computed from 12 dimensions)."
+            )
 
+    derived_rating = _derive_readiness_rating(computed_overall)
     raw_rating = str(raw_data.get("readiness_rating") or "").strip().upper()
-    readiness_rating = (
-        raw_rating
-        if raw_rating in VALID_READINESS_RATINGS
-        else _derive_readiness_rating(overall_score)
-    )
+    if raw_rating:
+        if raw_rating not in VALID_READINESS_RATINGS:
+            raise ValueError(
+                f"Invalid readiness_rating '{raw_rating}'; expected one of {VALID_READINESS_RATINGS}."
+            )
+        if abs(_RATING_TIERS[raw_rating] - _RATING_TIERS[derived_rating]) >= 2:
+            raise ValueError(
+                f"Contradictory readiness_rating '{raw_rating}' for deterministic score {computed_overall}/100 ({derived_rating})."
+            )
 
-    executive_summary = str(
-        raw_data.get("executive_summary")
-        or (
-            f"Final system design evaluation completed with {overall_score:.0f}/100 "
-            f"({readiness_rating}) across {len(normalized_scores)} rubric dimensions."
+    executive_summary = str(raw_data.get("executive_summary") or "").strip()
+    if len(executive_summary) < 10:
+        raise ValueError(
+            "Final evaluation executive_summary must be at least 10 characters."
         )
-    ).strip()
 
-    key_strengths = _normalize_string_list(raw_data.get("key_strengths")) or [
-        "Engaged in iterative requirements and architectural reasoning."
-    ]
-    critical_gaps = _normalize_string_list(raw_data.get("critical_gaps")) or [
-        "Continue quantifying bottleneck thresholds and failure recovery playbooks."
-    ]
+    key_strengths = _normalize_string_list(raw_data.get("key_strengths"))
+    critical_gaps = _normalize_string_list(raw_data.get("critical_gaps"))
     recommended_next_steps = _normalize_string_list(
         raw_data.get("recommended_next_steps")
-    ) or [
-        "Revise the architecture diagram to explicitly annotate replication and backpressure controls."
-    ]
+    )
+    if not key_strengths:
+        raise ValueError(
+            "Final evaluation must include at least one key_strengths item."
+        )
+    if not recommended_next_steps:
+        raise ValueError(
+            "Final evaluation must include at least one recommended_next_steps item."
+        )
 
     validated = FinalEvaluationSchema(
-        overall_score=overall_score,
-        readiness_rating=readiness_rating,  # type: ignore[arg-type]
+        overall_score=computed_overall,
+        readiness_rating=derived_rating,  # type: ignore[arg-type]
         executive_summary=executive_summary,
-        rubric_scores=normalized_scores,
+        rubric_scores=ordered_scores,
         key_strengths=key_strengths,
         critical_gaps=critical_gaps,
         recommended_next_steps=recommended_next_steps,
@@ -514,7 +632,9 @@ class SystemDesignService:
         difficulty: str | None = None,
     ) -> list[SystemDesignChallengeModel]:
         await SystemDesignService._ensure_challenges_seeded(db)
-        stmt = select(SystemDesignChallengeModel)
+        stmt = select(SystemDesignChallengeModel).where(
+            SystemDesignChallengeModel.is_archived.is_(False)
+        )
         if category:
             stmt = stmt.where(SystemDesignChallengeModel.category == category)
         if difficulty:
@@ -532,11 +652,13 @@ class SystemDesignService:
             isinstance(slug_or_id, str) and slug_or_id.isdigit()
         ):
             stmt = select(SystemDesignChallengeModel).where(
-                SystemDesignChallengeModel.id == int(slug_or_id)
+                SystemDesignChallengeModel.id == int(slug_or_id),
+                SystemDesignChallengeModel.is_archived.is_(False),
             )
         else:
             stmt = select(SystemDesignChallengeModel).where(
-                SystemDesignChallengeModel.slug == str(slug_or_id)
+                SystemDesignChallengeModel.slug == str(slug_or_id),
+                SystemDesignChallengeModel.is_archived.is_(False),
             )
         challenge = (await db.execute(stmt)).scalar_one_or_none()
         if not challenge:
@@ -682,6 +804,7 @@ class SystemDesignService:
             ],
             tracer,
             db,
+            task_type="SYSTEM_DESIGN_INTERVIEWER",
         )
         raw_text = strip_reasoning_tags(_extract_text_content(llm_res.content))
         parsed = _extract_json_object(raw_text)
@@ -760,18 +883,28 @@ class SystemDesignService:
         challenge.difficulty = payload.difficulty.strip().upper() or "MEDIUM"
         challenge.prompt_summary = payload.prompt_summary.strip()
         challenge.initial_prompt = payload.initial_prompt.strip()
-        challenge.tags = _normalize_string_list(payload.tags) or ["custom"]
+        if payload.tags is not None:
+            normalized_tags = _normalize_string_list(payload.tags)
+            challenge.tags = normalized_tags or ["custom"]
 
-        brief = dict(challenge.interviewer_brief or {})
-        expected = _normalize_string_list(payload.expected_components)
-        if expected:
-            brief["expected_components"] = expected
-        if payload.scale_notes.strip():
-            hidden = dict(brief.get("hidden_context") or {})
-            hidden["scale_notes"] = payload.scale_notes.strip()
-            brief["hidden_context"] = hidden
-        challenge.interviewer_brief = brief
-        flag_modified(challenge, "interviewer_brief")
+        # Only custom challenges permit editing expected_components and scale_notes;
+        # built-in interviewer briefs remain protected from candidate edits/exposure.
+        if not challenge.is_builtin:
+            brief = dict(challenge.interviewer_brief or {})
+            if payload.expected_components is not None:
+                brief["expected_components"] = _normalize_string_list(
+                    payload.expected_components
+                )
+            if payload.scale_notes is not None:
+                hidden = dict(brief.get("hidden_context") or {})
+                cleaned_scale = payload.scale_notes.strip()
+                if cleaned_scale:
+                    hidden["scale_notes"] = cleaned_scale
+                else:
+                    hidden.pop("scale_notes", None)
+                brief["hidden_context"] = hidden
+            challenge.interviewer_brief = brief
+            flag_modified(challenge, "interviewer_brief")
 
         await db.commit()
         await db.refresh(challenge)
@@ -787,7 +920,7 @@ class SystemDesignService:
 
     @staticmethod
     async def delete_custom_challenge(db: AsyncSession, challenge_id: int) -> None:
-        """Delete a system design challenge and any linked sessions."""
+        """Archive built-in or session-referenced challenges; delete unused custom challenges."""
         challenge = (
             await db.execute(
                 select(SystemDesignChallengeModel).where(
@@ -798,25 +931,21 @@ class SystemDesignService:
         if not challenge:
             raise ValueError(f"System design challenge {challenge_id} not found.")
 
-        # Remove linked sessions cleanly before deleting because FK uses ON DELETE RESTRICT.
-        linked_sessions = (
-            (
-                await db.execute(
-                    select(SystemDesignSessionModel).where(
-                        SystemDesignSessionModel.challenge_id == challenge_id
-                    )
-                )
+        linked_count = (
+            await db.execute(
+                select(func.count())
+                .select_from(SystemDesignSessionModel)
+                .where(SystemDesignSessionModel.challenge_id == challenge_id)
             )
-            .scalars()
-            .all()
-        )
-        for session in linked_sessions:
-            await db.delete(session)
-            session_dir = SYSTEM_DESIGN_DATA_DIR / f"session_{session.id}"
-            if session_dir.exists():
-                shutil.rmtree(session_dir, ignore_errors=True)
+        ).scalar_one()
 
-        await db.flush()
+        # Protect session history and diagrams on deletion: archive any challenge with
+        # existing sessions (and always archive built-in challenges so reset restores them).
+        if challenge.is_builtin or linked_count > 0:
+            challenge.is_archived = True
+            await db.commit()
+            return
+
         await db.delete(challenge)
         await db.commit()
 
@@ -836,7 +965,8 @@ class SystemDesignService:
         challenge = (
             await db.execute(
                 select(SystemDesignChallengeModel).where(
-                    SystemDesignChallengeModel.id == challenge_id
+                    SystemDesignChallengeModel.id == challenge_id,
+                    SystemDesignChallengeModel.is_archived.is_(False),
                 )
             )
         ).scalar_one_or_none()
@@ -899,12 +1029,151 @@ class SystemDesignService:
         return session
 
     @staticmethod
+    async def _get_session_for_update(
+        db: AsyncSession, session_id: int
+    ) -> SystemDesignSessionModel:
+        """Fetch session row with PostgreSQL FOR UPDATE lock to serialize transitions."""
+        stmt = (
+            select(SystemDesignSessionModel)
+            .options(selectinload(SystemDesignSessionModel.challenge))
+            .where(SystemDesignSessionModel.id == session_id)
+            .with_for_update(of=SystemDesignSessionModel)
+        )
+        session = (await db.execute(stmt)).scalar_one_or_none()
+        if not session:
+            raise ValueError(f"System design session {session_id} not found.")
+        return session
+
+    @staticmethod
+    def _ensure_session_mutable(session: SystemDesignSessionModel) -> None:
+        if session.status in ("COMPLETED", "ABANDONED") or session.stage == "COMPLETED":
+            raise ValueError(
+                f"System design session {session.id} is already {session.status} and cannot be modified."
+            )
+
+    @staticmethod
+    def _has_substantive_ledger_content(ledger: dict[str, Any] | None) -> bool:
+        data = ledger or {}
+        return bool(
+            data.get("functional_requirements")
+            or data.get("non_functional_requirements")
+            or data.get("scale_estimates")
+        )
+
+    @staticmethod
+    def _ensure_requirements_locked(session: SystemDesignSessionModel) -> None:
+        ledger = session.requirements_ledger or {}
+        if not ledger.get("is_locked"):
+            raise ValueError(
+                "Requirements ledger must be locked before proceeding to architecture design or review."
+            )
+        if not SystemDesignService._has_substantive_ledger_content(ledger):
+            raise ValueError(
+                "Requirements ledger must contain at least one requirement or scale estimate before locking."
+            )
+
+    @staticmethod
+    def _ensure_diagram_uploaded(session: SystemDesignSessionModel) -> None:
+        if not (session.diagrams_metadata or []):
+            raise ValueError(
+                "At least one uploaded architecture diagram is required before this stage."
+            )
+
+    @staticmethod
+    def _ensure_review_completed(session: SystemDesignSessionModel) -> None:
+        if not (session.architecture_reviews or []):
+            raise ValueError(
+                "A completed architecture review is required before entering defence or evaluation."
+            )
+
+    @staticmethod
+    def _ensure_defence_participated(session: SystemDesignSessionModel) -> None:
+        has_candidate_turn = any(
+            t.get("role") == "candidate" and str(t.get("content") or "").strip()
+            for t in (session.defence_transcript or [])
+        )
+        if not has_candidate_turn:
+            raise ValueError(
+                "Candidate participation in Stage E (Interactive Defence) is required before final evaluation."
+            )
+
+    @staticmethod
+    async def attach_active_queue_tasks(
+        db: AsyncSession, sessions: list[SystemDesignSessionModel]
+    ) -> list[SystemDesignSessionModel]:
+        """Attach the latest active (QUEUED/RUNNING) or failed queue task metadata to sessions."""
+        if not sessions:
+            return sessions
+        session_id_strs = [str(s.id) for s in sessions]
+        stmt = (
+            select(IntakeEvaluationTaskModel)
+            .where(
+                IntakeEvaluationTaskModel.task_type.in_(
+                    ["SYSTEM_DESIGN_REVIEW", "SYSTEM_DESIGN_EVALUATION"]
+                ),
+                IntakeEvaluationTaskModel.result_json["session_id"].astext.in_(
+                    session_id_strs
+                ),
+            )
+            .order_by(IntakeEvaluationTaskModel.id.desc())
+        )
+        tasks = (await db.execute(stmt)).scalars().all()
+        latest_by_session: dict[int, IntakeEvaluationTaskModel] = {}
+        for task in tasks:
+            sid_raw = (task.result_json or {}).get("session_id")
+            if sid_raw is None:
+                continue
+            sid = int(sid_raw)
+            if sid not in latest_by_session:
+                latest_by_session[sid] = task
+
+        for session in sessions:
+            latest = latest_by_session.get(int(session.id))
+            if latest and latest.status in ("QUEUED", "RUNNING", "FAILED"):
+                session.active_task_id = int(latest.id)
+                session.active_task_status = str(latest.status)
+                session.active_task_stage = str(latest.stage)
+                session.active_task_type = str(latest.task_type)
+                session.active_task_error = (
+                    str(latest.error_message)
+                    if latest.status == "FAILED" and latest.error_message
+                    else None
+                )
+            else:
+                session.active_task_id = None
+                session.active_task_status = None
+                session.active_task_stage = None
+                session.active_task_type = None
+                session.active_task_error = None
+        return sessions
+
+    @staticmethod
+    async def _ensure_no_active_queue_task(db: AsyncSession, session_id: int) -> None:
+        stmt = (
+            select(IntakeEvaluationTaskModel)
+            .where(
+                IntakeEvaluationTaskModel.task_type.in_(
+                    ["SYSTEM_DESIGN_REVIEW", "SYSTEM_DESIGN_EVALUATION"]
+                ),
+                IntakeEvaluationTaskModel.status.in_(["QUEUED", "RUNNING"]),
+                IntakeEvaluationTaskModel.result_json["session_id"].astext
+                == str(session_id),
+            )
+            .order_by(IntakeEvaluationTaskModel.id.desc())
+        )
+        active = (await db.execute(stmt)).scalars().first()
+        if active is not None:
+            raise ValueError(
+                f"Background task {active.id} ({active.task_type}) is already {active.status} for this session."
+            )
+
+    @staticmethod
     async def delete_session(db: AsyncSession, session_id: int) -> None:
         session = await SystemDesignService.get_session(db, session_id)
         await db.delete(session)
         await db.commit()
 
-        session_dir = SYSTEM_DESIGN_DATA_DIR / f"session_{session_id}"
+        session_dir = _get_storage_root() / f"session_{session_id}"
         if session_dir.exists():
             shutil.rmtree(session_dir, ignore_errors=True)
 
@@ -916,7 +1185,8 @@ class SystemDesignService:
             raise ValueError(
                 f"Invalid mode '{mode}'. Expected ADAPTIVE, INTERVIEW, or PRACTICE."
             )
-        session = await SystemDesignService.get_session(db, session_id)
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
         session.mode = mode
         await db.commit()
         return await SystemDesignService.get_session(db, session_id)
@@ -928,7 +1198,16 @@ class SystemDesignService:
         message_text: str,
         request_hint: bool = False,
     ) -> SystemDesignSessionModel:
-        session = await SystemDesignService.get_session(db, session_id)
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+        if session.stage != "REQUIREMENTS":
+            raise ValueError(
+                f"Requirements conversation is only allowed during REQUIREMENTS stage (current stage: {session.stage})."
+            )
+        if (session.requirements_ledger or {}).get("is_locked"):
+            raise ValueError(
+                "Requirements ledger is locked; unlock it before sending further requirements messages."
+            )
         challenge = session.challenge
         assisted = _is_hint_request(message_text, request_hint)
 
@@ -974,7 +1253,13 @@ class SystemDesignService:
         chat_model = await get_task_chat_model(
             db, task_type="SYSTEM_DESIGN_INTERVIEWER"
         )
-        llm_res = await _invoke_llm_adaptive(chat_model, messages, tracer, db)
+        llm_res = await _invoke_llm_adaptive(
+            chat_model,
+            messages,
+            tracer,
+            db,
+            task_type="SYSTEM_DESIGN_INTERVIEWER",
+        )
         reply_text = strip_reasoning_tags(_extract_text_content(llm_res.content))
         if not reply_text:
             reply_text = "Could you clarify the specific constraint or assumption you want to explore?"
@@ -998,7 +1283,16 @@ class SystemDesignService:
     async def extract_requirements_ledger(
         db: AsyncSession, session_id: int
     ) -> SystemDesignSessionModel:
-        session = await SystemDesignService.get_session(db, session_id)
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+        if session.stage != "REQUIREMENTS":
+            raise ValueError(
+                f"Requirements ledger extraction is only allowed during REQUIREMENTS stage (current stage: {session.stage})."
+            )
+        if (session.requirements_ledger or {}).get("is_locked"):
+            raise ValueError(
+                "Requirements ledger is locked; unlock it before re-extracting requirements."
+            )
         challenge = session.challenge
         existing_ledger = session.requirements_ledger or {}
 
@@ -1026,12 +1320,11 @@ class SystemDesignService:
             ],
             tracer,
             db,
+            task_type="SYSTEM_DESIGN_INTERVIEWER",
         )
 
-        raw_text = strip_reasoning_tags(_extract_text_content(llm_res.content))
-        parsed = JsonOutputParser().parse(raw_text)
-        if not isinstance(parsed, dict):
-            parsed = {}
+        raw_text = _extract_text_content(llm_res.content)
+        parsed = _parse_strict_json_object(raw_text)
 
         ledger = RequirementsLedgerSchema(
             functional_requirements=_normalize_string_list(
@@ -1059,7 +1352,17 @@ class SystemDesignService:
         session_id: int,
         payload: RequirementsLedgerUpdateRequest,
     ) -> SystemDesignSessionModel:
-        session = await SystemDesignService.get_session(db, session_id)
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+
+        if session.stage not in ("REQUIREMENTS", "DESIGN"):
+            raise ValueError(
+                f"Cannot modify requirements ledger once session reached {session.stage} stage."
+            )
+        if session.stage == "DESIGN" and (session.diagrams_metadata or []):
+            raise ValueError(
+                "Cannot modify or unlock the requirements ledger after a diagram has been uploaded."
+            )
 
         ledger = RequirementsLedgerSchema(
             functional_requirements=_normalize_string_list(
@@ -1073,7 +1376,16 @@ class SystemDesignService:
             notes=payload.notes.strip(),
             is_locked=payload.is_locked,
         )
-        session.requirements_ledger = ledger.model_dump()
+        ledger_dict = ledger.model_dump()
+        if (
+            payload.is_locked
+            and not SystemDesignService._has_substantive_ledger_content(ledger_dict)
+        ):
+            raise ValueError(
+                "Add at least one functional requirement, non-functional requirement, or scale estimate before locking the ledger."
+            )
+
+        session.requirements_ledger = ledger_dict
 
         if payload.is_locked and session.stage == "REQUIREMENTS":
             session.stage = "DESIGN"
@@ -1101,14 +1413,19 @@ class SystemDesignService:
             raise ValueError("Diagram exceeds maximum size of 10 MB.")
 
         mime_type, ext = _detect_image_format(file_bytes)
-        session = await SystemDesignService.get_session(db, session_id)
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+        SystemDesignService._ensure_requirements_locked(session)
+        if session.stage not in ("DESIGN", "REVIEW", "DEFENCE"):
+            raise ValueError(
+                f"Diagram upload is only permitted after locking requirements (current stage: {session.stage})."
+            )
 
         diagrams = list(session.diagrams_metadata or [])
         version = max((int(d.get("version", 0)) for d in diagrams), default=0) + 1
         filename = f"v{version}.{ext}"
 
-        session_dir = SYSTEM_DESIGN_DATA_DIR / f"session_{session_id}"
-        session_dir.mkdir(parents=True, exist_ok=True)
+        session_dir = _ensure_writable_session_dir(session_id)
         (session_dir / filename).write_bytes(file_bytes)
 
         entry = DiagramRevisionRead(
@@ -1122,8 +1439,6 @@ class SystemDesignService:
         diagrams.append(entry)
 
         session.diagrams_metadata = diagrams
-        if session.stage == "REQUIREMENTS":
-            session.stage = "DESIGN"
         flag_modified(session, "diagrams_metadata")
         await db.commit()
         return await SystemDesignService.get_session(db, session_id)
@@ -1146,7 +1461,7 @@ class SystemDesignService:
                 f"Diagram revision v{version} not found for session {session_id}."
             )
 
-        session_dir = (SYSTEM_DESIGN_DATA_DIR / f"session_{session_id}").resolve()
+        session_dir = (_get_storage_root() / f"session_{session_id}").resolve()
         file_path = (session_dir / str(entry["filename"])).resolve()
         if not file_path.is_relative_to(session_dir) or not file_path.is_file():
             raise ValueError(
@@ -1161,11 +1476,16 @@ class SystemDesignService:
         diagram_version: int | None = None,
         use_web_search: bool = False,
     ) -> SystemDesignSessionModel:
-        session = await SystemDesignService.get_session(db, session_id)
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+        SystemDesignService._ensure_requirements_locked(session)
+        SystemDesignService._ensure_diagram_uploaded(session)
+        if session.stage not in ("DESIGN", "REVIEW", "DEFENCE"):
+            raise ValueError(
+                f"Architecture review requires DESIGN stage or later (current stage: {session.stage})."
+            )
         challenge = session.challenge
         diagrams = list(session.diagrams_metadata or [])
-        if not diagrams:
-            raise ValueError("No diagram uploaded for this session yet.")
 
         if diagram_version is not None:
             target_entry = next(
@@ -1230,13 +1550,15 @@ class SystemDesignService:
         tracer = PostgresTracer()
         chat_model = await get_task_chat_model(db, task_type="SYSTEM_DESIGN_REVIEWER")
         llm_res = await _invoke_llm_adaptive(
-            chat_model, [SystemMessage(content=sys_prompt), human_msg], tracer, db
+            chat_model,
+            [SystemMessage(content=sys_prompt), human_msg],
+            tracer,
+            db,
+            task_type="SYSTEM_DESIGN_REVIEWER",
         )
 
-        raw_text = strip_reasoning_tags(_extract_text_content(llm_res.content))
-        parsed = JsonOutputParser().parse(raw_text)
-        if not isinstance(parsed, dict):
-            parsed = {}
+        raw_text = _extract_text_content(llm_res.content)
+        parsed = _parse_strict_json_object(raw_text)
 
         review = ArchitectureReviewSchema(
             diagram_version=target_version,
@@ -1275,7 +1597,8 @@ class SystemDesignService:
         reviews.sort(key=lambda r: int(r.get("diagram_version", 0)))
 
         session.architecture_reviews = reviews
-        session.stage = "REVIEW"
+        if session.stage == "DESIGN":
+            session.stage = "REVIEW"
         flag_modified(session, "architecture_reviews")
 
         if not session.defence_transcript:
@@ -1306,17 +1629,24 @@ class SystemDesignService:
         return await SystemDesignService.get_session(db, session_id)
 
     @staticmethod
-    async def run_queued_architecture_review(
+    async def enqueue_architecture_review(
         db: AsyncSession,
         session_id: int,
         diagram_version: int | None = None,
         use_web_search: bool = False,
-    ) -> SystemDesignSessionModel:
-        session = await SystemDesignService.get_session(db, session_id)
-        diagrams = list(session.diagrams_metadata or [])
-        if not diagrams:
-            raise ValueError("No diagram uploaded for this session yet.")
+    ) -> tuple[SystemDesignSessionModel, IntakeEvaluationTaskModel]:
+        """Validate preconditions and enqueue Stage D architecture review task."""
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+        SystemDesignService._ensure_requirements_locked(session)
+        SystemDesignService._ensure_diagram_uploaded(session)
+        if session.stage not in ("DESIGN", "REVIEW", "DEFENCE"):
+            raise ValueError(
+                f"Architecture review requires DESIGN stage or later (current stage: {session.stage})."
+            )
+        await SystemDesignService._ensure_no_active_queue_task(db, session_id)
 
+        diagrams = list(session.diagrams_metadata or [])
         if diagram_version is not None:
             matching = next(
                 (d for d in diagrams if int(d.get("version", -1)) == diagram_version),
@@ -1334,7 +1664,8 @@ class SystemDesignService:
             task_type="SYSTEM_DESIGN_REVIEW",
             title_hint=f"System Design Review: {session.challenge.title} (v{target_version})",
             status="QUEUED",
-            stage="ANALYZING",
+            stage="QUEUED",
+            raw_text=f"session_id={session_id}&diagram_version={target_version}",
             result_json={
                 "session_id": session_id,
                 "diagram_version": target_version,
@@ -1345,14 +1676,9 @@ class SystemDesignService:
         await db.commit()
         await db.refresh(task)
 
-        from app.services.evaluation_worker import process_evaluation_task
-
-        await process_evaluation_task(task.id, db=db)
-        await db.refresh(task)
-        if task.status == "FAILED":
-            raise RuntimeError(task.error_message or "Architecture review task failed.")
-
-        return await SystemDesignService.get_session(db, session_id)
+        updated = await SystemDesignService.get_session(db, session_id)
+        await SystemDesignService.attach_active_queue_tasks(db, [updated])
+        return (updated, task)
 
     @staticmethod
     async def send_defence_message(
@@ -1362,7 +1688,16 @@ class SystemDesignService:
         request_hint: bool = False,
         use_web_search: bool = False,
     ) -> SystemDesignSessionModel:
-        session = await SystemDesignService.get_session(db, session_id)
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+        SystemDesignService._ensure_requirements_locked(session)
+        SystemDesignService._ensure_diagram_uploaded(session)
+        SystemDesignService._ensure_review_completed(session)
+        if session.stage not in ("REVIEW", "DEFENCE"):
+            raise ValueError(
+                f"Interactive defence requires a completed architecture review (current stage: {session.stage})."
+            )
+
         challenge = session.challenge
         assisted = _is_hint_request(message_text, request_hint)
 
@@ -1418,7 +1753,13 @@ class SystemDesignService:
         chat_model = await get_task_chat_model(
             db, task_type="SYSTEM_DESIGN_INTERVIEWER"
         )
-        llm_res = await _invoke_llm_adaptive(chat_model, messages, tracer, db)
+        llm_res = await _invoke_llm_adaptive(
+            chat_model,
+            messages,
+            tracer,
+            db,
+            task_type="SYSTEM_DESIGN_INTERVIEWER",
+        )
         reply_text = strip_reasoning_tags(_extract_text_content(llm_res.content))
         if not reply_text:
             reply_text = "Can you explain the trade-offs of that choice under peak load or partial failure?"
@@ -1434,7 +1775,7 @@ class SystemDesignService:
         defence_transcript.append(interviewer_turn)
 
         session.defence_transcript = defence_transcript
-        if session.stage in ("DESIGN", "REVIEW", "REQUIREMENTS"):
+        if session.stage == "REVIEW":
             session.stage = "DEFENCE"
         flag_modified(session, "defence_transcript")
         await db.commit()
@@ -1444,8 +1785,17 @@ class SystemDesignService:
     async def evaluate_session(
         db: AsyncSession, session_id: int
     ) -> SystemDesignSessionModel:
-        """Synthesize the Stage F evidence-backed 12-dimension final scorecard."""
-        session = await SystemDesignService.get_session(db, session_id)
+        """Synthesize and strictly validate the Stage F 12-dimension final scorecard."""
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+        SystemDesignService._ensure_requirements_locked(session)
+        SystemDesignService._ensure_diagram_uploaded(session)
+        SystemDesignService._ensure_review_completed(session)
+        SystemDesignService._ensure_defence_participated(session)
+        if session.stage != "DEFENCE":
+            raise ValueError(
+                f"Final evaluation requires DEFENCE stage after answering defence prompts (current stage: {session.stage})."
+            )
         challenge = session.challenge
 
         req_candidate_turns = [
@@ -1497,21 +1847,53 @@ class SystemDesignService:
                 SystemMessage(content=sys_prompt),
                 HumanMessage(
                     content=(
-                        "Evaluate this complete System Design Lab session and return ONLY JSON:\n"
+                        "Evaluate this complete System Design Lab session and return ONLY complete valid JSON:\n"
                         + json.dumps(context_payload, indent=2)
                     )
                 ),
             ],
             tracer,
             db,
+            task_type="SYSTEM_DESIGN_REVIEWER",
         )
 
-        raw_text = strip_reasoning_tags(_extract_text_content(llm_res.content))
-        parsed = JsonOutputParser().parse(raw_text)
-        if not isinstance(parsed, dict):
-            parsed = {}
+        raw_text = _extract_text_content(llm_res.content)
+        try:
+            parsed = _parse_strict_json_object(raw_text)
+            eval_dict = _validate_final_evaluation_payload(parsed)
+        except ValueError as initial_err:
+            logger.warning(
+                "Stage F evaluation output failed strict validation for session %s (%s). Running one controlled repair retry.",
+                session_id,
+                initial_err,
+            )
+            repair_prompt = (
+                "Your previous JSON evaluation failed strict validation and was rejected.\n"
+                f"Validation Error: {initial_err}\n\n"
+                "REPAIR INSTRUCTIONS:\n"
+                "1. Output ONLY one complete valid JSON object (no markdown fences, no `<think>` reasoning).\n"
+                "2. Include ALL 12 exact rubric dimension names in `rubric_scores`:\n"
+                + "\n".join(f"- {dim}" for dim in DEFAULT_RUBRIC_DIMENSIONS)
+                + "\n3. Every dimension `score` MUST be an integer from 1 to 5 (NEVER 1-10).\n"
+                "4. `overall_score` MUST be 0..100 equal to `round((sum(all 12 scores) / 60) * 100, 1)`.\n"
+                "5. Every dimension MUST include concrete `evidence` (>= 5 chars) and actionable `critique` advice (>= 5 chars).\n"
+                "6. Keep every string concise (1 sentence) so the JSON completes cleanly.\n\n"
+                f"Previous invalid output excerpt:\n{raw_text[:2500]}"
+            )
+            repair_res = await _invoke_llm_adaptive(
+                chat_model,
+                [
+                    SystemMessage(content=sys_prompt),
+                    HumanMessage(content=repair_prompt),
+                ],
+                tracer,
+                db,
+                task_type="SYSTEM_DESIGN_REVIEWER",
+            )
+            repaired_raw = _extract_text_content(repair_res.content)
+            repaired_parsed = _parse_strict_json_object(repaired_raw)
+            eval_dict = _validate_final_evaluation_payload(repaired_parsed)
 
-        eval_dict = _normalize_final_evaluation(parsed, session)
         now = datetime.now(UTC)
         session.final_evaluation = eval_dict
         session.overall_score = float(eval_dict["overall_score"])
@@ -1525,16 +1907,27 @@ class SystemDesignService:
         return await SystemDesignService.get_session(db, session_id)
 
     @staticmethod
-    async def run_queued_final_evaluation(
+    async def enqueue_final_evaluation(
         db: AsyncSession, session_id: int
-    ) -> SystemDesignSessionModel:
-        """Create and run an IntakeEvaluationTaskModel for Stage F final evaluation."""
-        session = await SystemDesignService.get_session(db, session_id)
+    ) -> tuple[SystemDesignSessionModel, IntakeEvaluationTaskModel]:
+        """Validate all Stage F preconditions and enqueue an async IntakeEvaluationTaskModel."""
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+        SystemDesignService._ensure_requirements_locked(session)
+        SystemDesignService._ensure_diagram_uploaded(session)
+        SystemDesignService._ensure_review_completed(session)
+        SystemDesignService._ensure_defence_participated(session)
+        if session.stage != "DEFENCE":
+            raise ValueError(
+                f"Final evaluation requires DEFENCE stage after answering defence prompts (current stage: {session.stage})."
+            )
+        await SystemDesignService._ensure_no_active_queue_task(db, session_id)
+
         task = IntakeEvaluationTaskModel(
             task_type="SYSTEM_DESIGN_EVALUATION",
             title_hint=f"System Design Evaluation: {session.challenge.title}",
             status="QUEUED",
-            stage="ANALYZING",
+            stage="QUEUED",
             raw_text=f"session_id={session_id}",
             result_json={
                 "session_id": session_id,
@@ -1545,16 +1938,9 @@ class SystemDesignService:
         await db.commit()
         await db.refresh(task)
 
-        from app.services.evaluation_worker import process_evaluation_task
-
-        await process_evaluation_task(task.id, db=db)
-        await db.refresh(task)
-        if task.status == "FAILED":
-            raise RuntimeError(
-                task.error_message or "System design final evaluation task failed."
-            )
-
-        return await SystemDesignService.get_session(db, session_id)
+        updated = await SystemDesignService.get_session(db, session_id)
+        await SystemDesignService.attach_active_queue_tasks(db, [updated])
+        return (updated, task)
 
     @staticmethod
     async def build_frontier_evaluation_packet(
@@ -1672,17 +2058,16 @@ class SystemDesignService:
     async def import_frontier_evaluation(
         db: AsyncSession, session_id: int, raw_response: str
     ) -> SystemDesignSessionModel:
-        """Parse and save an external frontier LLM scorecard back onto the session."""
-        session = await SystemDesignService.get_session(db, session_id)
-        parsed = _extract_json_object(raw_response)
-        if not any(
-            k in parsed for k in ("rubric_scores", "overall_score", "executive_summary")
-        ):
-            raise ValueError(
-                "Imported JSON must contain at least one of: rubric_scores, overall_score, or executive_summary."
-            )
+        """Parse and strictly validate an external frontier LLM scorecard back onto the session."""
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+        SystemDesignService._ensure_requirements_locked(session)
+        SystemDesignService._ensure_diagram_uploaded(session)
+        SystemDesignService._ensure_review_completed(session)
+        SystemDesignService._ensure_defence_participated(session)
 
-        eval_dict = _normalize_final_evaluation(parsed, session)
+        parsed = _parse_strict_json_object(raw_response)
+        eval_dict = _validate_final_evaluation_payload(parsed)
         now = datetime.now(UTC)
         session.final_evaluation = eval_dict
         session.overall_score = float(eval_dict["overall_score"])

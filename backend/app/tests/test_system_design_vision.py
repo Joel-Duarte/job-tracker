@@ -1,4 +1,6 @@
 import base64
+import json
+import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -10,9 +12,118 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.main import app
 from app.models.intake_tasks import IntakeEvaluationTaskModel
+from app.services.system_design_service import (
+    DEFAULT_RUBRIC_DIMENSIONS,
+)
 
 FAKE_PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDRfake-png-payload"
 FAKE_WEBP_BYTES = b"RIFF\x18\x00\x00\x00WEBPfake-webp-payload"
+
+
+def _build_full_rubric_scores(scores: list[int] | None = None) -> list[dict]:
+    values = scores or [4] * len(DEFAULT_RUBRIC_DIMENSIONS)
+    return [
+        {
+            "dimension": dim,
+            "score": values[idx],
+            "evidence": f"Candidate addressed {dim} during session ledger and diagram review.",
+            "critique": f"Document concrete failure metrics for {dim} to advance to Staff depth.",
+        }
+        for idx, dim in enumerate(DEFAULT_RUBRIC_DIMENSIONS)
+    ]
+
+
+def _build_valid_eval_payload(scores: list[int] | None = None, **overrides) -> dict:
+    rubric = _build_full_rubric_scores(scores)
+    overall = round((sum(item["score"] for item in rubric) / 60.0) * 100.0, 1)
+    if overall >= 88.0:
+        rating = "STRONG_HIRE"
+    elif overall >= 70.0:
+        rating = "INTERVIEW_READY"
+    elif overall >= 50.0:
+        rating = "DEVELOPING"
+    else:
+        rating = "NEEDS_PRACTICE"
+    payload = {
+        "overall_score": overall,
+        "readiness_rating": rating,
+        "executive_summary": "Cohesive Staff-level baseline with well-bounded trade-offs across diagram and defence.",
+        "rubric_scores": rubric,
+        "key_strengths": [
+            "Separated control plane API from high-throughput object egress"
+        ],
+        "critical_gaps": ["Quantify read-replica promotion failover budget under load"],
+        "recommended_next_steps": [
+            "Annotate queue backpressure and cache eviction bounds in diagram v2"
+        ],
+    }
+    payload.update(overrides)
+    return payload
+
+
+async def _advance_session_to_defence(
+    ac: AsyncClient,
+    session_id: int,
+    diagram_bytes: bytes = FAKE_PNG_BYTES,
+    filename: str = "v1.png",
+    mime_type: str = "image/png",
+) -> None:
+    lock_res = await ac.put(
+        f"/api/v1/system-design/sessions/{session_id}/requirements/ledger",
+        json={
+            "functional_requirements": ["Stream audio tracks", "Playlists"],
+            "non_functional_requirements": ["p99 < 300ms", "99.9% availability"],
+            "scale_estimates": {"dau": "30000"},
+            "out_of_scope": ["Podcasts"],
+            "notes": "Baseline constraints locked",
+            "is_locked": True,
+        },
+    )
+    assert lock_res.status_code == 200
+
+    up_res = await ac.post(
+        f"/api/v1/system-design/sessions/{session_id}/diagrams",
+        files={"file": (filename, diagram_bytes, mime_type)},
+        data={"notes": "Initial CDN + Postgres design"},
+    )
+    assert up_res.status_code == 201
+
+    mock_review_res = AsyncMock()
+    mock_review_res.content = json.dumps(
+        {
+            "interpreted_components": ["API", "S3", "CDN", "Postgres"],
+            "interpreted_data_flows": ["Client -> CDN -> S3"],
+            "visual_clarifications_needed": [],
+            "strengths": ["Offloads audio egress to CDN"],
+            "missing_components": [],
+            "bottlenecks_and_spofs": ["Single primary Postgres instance"],
+            "unnecessary_complexity": [],
+            "requirement_gaps": [],
+            "overall_impression": "Solid right-sized baseline.",
+            "suggested_defence_topics": [
+                "How do you handle primary Postgres failover?"
+            ],
+        }
+    )
+    mock_defence_res = AsyncMock()
+    mock_defence_res.content = (
+        "Good mitigation strategy on standby promotion and connection draining."
+    )
+
+    with patch("app.services.system_design_service.get_task_chat_model") as mock_get:
+        mock_model = AsyncMock()
+        mock_model.ainvoke.side_effect = [mock_review_res, mock_defence_res]
+        mock_get.return_value = mock_model
+
+        rev_res = await ac.post(f"/api/v1/system-design/sessions/{session_id}/review")
+        assert rev_res.status_code == 202
+        def_res = await ac.post(
+            f"/api/v1/system-design/sessions/{session_id}/defence/message",
+            json={
+                "message": "We run synchronous WAL standby with automated health-checked promotion."
+            },
+        )
+        assert def_res.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -37,11 +148,32 @@ async def test_diagram_upload_validation_and_revision_versioning(
             )
             session_id = start_res.json()["id"]
 
-            # Review before upload must return 400
+            # Diagram upload and review before locking requirements must fail with 400
+            unlocked_upload = await ac.post(
+                f"/api/v1/system-design/sessions/{session_id}/diagrams",
+                files={"file": ("early.png", FAKE_PNG_BYTES, "image/png")},
+                data={"notes": "Too early"},
+            )
+            assert unlocked_upload.status_code == 400
+
             no_diagram_review = await ac.post(
                 f"/api/v1/system-design/sessions/{session_id}/review"
             )
             assert no_diagram_review.status_code == 400
+
+            # Lock requirements before entering DESIGN stage
+            lock_res = await ac.put(
+                f"/api/v1/system-design/sessions/{session_id}/requirements/ledger",
+                json={
+                    "functional_requirements": ["Stream audio tracks"],
+                    "non_functional_requirements": ["Low latency"],
+                    "scale_estimates": {"dau": "30000"},
+                    "out_of_scope": [],
+                    "is_locked": True,
+                },
+            )
+            assert lock_res.status_code == 200
+            assert lock_res.json()["stage"] == "DESIGN"
 
             # Invalid binary must fail with 400
             bad_res = await ac.post(
@@ -165,12 +297,20 @@ async def test_multimodal_architecture_review_via_evaluation_worker(
                     f"/api/v1/system-design/sessions/{session_id}/review"
                 )
 
-            assert rev_res.status_code == 200
-            assert "interviewer_brief" not in rev_res.text
-            assert "over_engineering_traps" not in rev_res.text
+            assert rev_res.status_code == 202
+            queued_payload = rev_res.json()
+            assert queued_payload["active_task_id"] is not None
+            assert queued_payload["active_task_status"] == "QUEUED"
+            assert queued_payload["active_task_type"] == "SYSTEM_DESIGN_REVIEW"
 
-            rev_data = rev_res.json()
+            session_res = await ac.get(f"/api/v1/system-design/sessions/{session_id}")
+            assert session_res.status_code == 200
+            assert "interviewer_brief" not in session_res.text
+            assert "over_engineering_traps" not in session_res.text
+
+            rev_data = session_res.json()
             assert rev_data["stage"] == "REVIEW"
+            assert rev_data["active_task_status"] is None
             assert len(rev_data["architecture_reviews"]) == 1
             review = rev_data["architecture_reviews"][0]
             assert review["diagram_version"] == 2
@@ -336,51 +476,14 @@ async def test_final_evaluation_stage_f_evidence_backed_rubric(
             )
             session_id = start_res.json()["id"]
 
-            await ac.put(
-                f"/api/v1/system-design/sessions/{session_id}/requirements/ledger",
-                json={
-                    "functional_requirements": ["Stream tracks", "Create playlists"],
-                    "non_functional_requirements": ["Low p99 playback latency"],
-                    "scale_estimates": {"dau": "30000"},
-                    "out_of_scope": ["Podcasts"],
-                    "is_locked": True,
-                },
-            )
-            await ac.post(
-                f"/api/v1/system-design/sessions/{session_id}/diagrams",
-                files={"file": ("v1.png", FAKE_PNG_BYTES, "image/png")},
-                data={"notes": "Initial CDN + Postgres design"},
-            )
+            await _advance_session_to_defence(ac, session_id)
 
+            scores = [4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 4, 4]  # sum=50 -> 83.3
+            payload_json = json.dumps(_build_valid_eval_payload(scores=scores))
             mock_eval_res = AsyncMock()
-            mock_eval_res.content = """<think>Checking all session artifacts.</think>{
-                "overall_score": 84,
-                "readiness_rating": "INTERVIEW_READY",
-                "executive_summary": "Strong right-sizing for 30k DAU using CDN signed URLs and PostgreSQL.",
-                "rubric_scores": [
-                    {
-                        "dimension": "Requirements Clarity",
-                        "score": 4,
-                        "evidence": "Locked ledger captured 30k DAU, streaming/playlists, and excluded podcasts.",
-                        "critique": "Clear functional and scope boundaries."
-                    },
-                    {
-                        "dimension": "Right-Sizing & Simplicity (YAGNI)",
-                        "score": 5,
-                        "evidence": "Chose managed Postgres + CDN signed URLs without premature microservices.",
-                        "critique": "Appropriately simple for target scale."
-                    },
-                    {
-                        "dimension": "Reliability & Fault Tolerance",
-                        "score": 4,
-                        "evidence": "Identified standby DB replication and short-lived CDN token expiry.",
-                        "critique": "Good baseline resilience; clarify health checks."
-                    }
-                ],
-                "key_strengths": ["Avoided over-engineering while offloading audio bytes to CDN"],
-                "critical_gaps": ["Add read-replica promotion metrics and observability alerts"],
-                "recommended_next_steps": ["Upload diagram v2 annotating monitoring and failover paths"]
-            }"""
+            mock_eval_res.content = (
+                f"<think>Checking all session artifacts.</think>{payload_json}"
+            )
 
             with patch(
                 "app.services.system_design_service.get_task_chat_model"
@@ -393,21 +496,30 @@ async def test_final_evaluation_stage_f_evidence_backed_rubric(
                     f"/api/v1/system-design/sessions/{session_id}/evaluate"
                 )
 
-            assert eval_res.status_code == 200
-            assert "interviewer_brief" not in eval_res.text
-            assert "<think>" not in eval_res.text
+            assert eval_res.status_code == 202
+            queued_eval = eval_res.json()
+            assert queued_eval["active_task_id"] is not None
+            assert queued_eval["active_task_status"] == "QUEUED"
+            assert queued_eval["active_task_type"] == "SYSTEM_DESIGN_EVALUATION"
 
-            eval_data = eval_res.json()
+            done_res = await ac.get(f"/api/v1/system-design/sessions/{session_id}")
+            assert done_res.status_code == 200
+            assert "interviewer_brief" not in done_res.text
+            assert "<think>" not in done_res.text
+
+            eval_data = done_res.json()
             assert eval_data["stage"] == "COMPLETED"
             assert eval_data["status"] == "COMPLETED"
-            assert eval_data["overall_score"] == 84.0
+            assert eval_data["overall_score"] == 83.3
             assert eval_data["readiness_rating"] == "INTERVIEW_READY"
             assert eval_data["completed_at"] is not None
 
             final_eval = eval_data["final_evaluation"]
-            assert len(final_eval["rubric_scores"]) == 3
+            assert len(final_eval["rubric_scores"]) == 12
             for item in final_eval["rubric_scores"]:
+                assert 1 <= item["score"] <= 5
                 assert len(item["evidence"].strip()) >= 5
+                assert len(item["critique"].strip()) >= 5
 
             task_stmt = select(IntakeEvaluationTaskModel).where(
                 IntakeEvaluationTaskModel.task_type == "SYSTEM_DESIGN_EVALUATION"
@@ -416,7 +528,7 @@ async def test_final_evaluation_stage_f_evidence_backed_rubric(
             assert task_row.status == "COMPLETED"
             assert task_row.stage == "COMPLETE"
             assert task_row.result_json["session_id"] == session_id
-            assert task_row.result_json["overall_score"] == 84.0
+            assert task_row.result_json["overall_score"] == 83.3
     finally:
         app.dependency_overrides.clear()
 
@@ -441,6 +553,17 @@ async def test_web_search_grounding_and_frontier_packet_round_trip(
                 json={"challenge_id": challenge_id},
             )
             session_id = start_res.json()["id"]
+
+            await ac.put(
+                f"/api/v1/system-design/sessions/{session_id}/requirements/ledger",
+                json={
+                    "functional_requirements": ["Audio range streaming"],
+                    "non_functional_requirements": ["99.9% availability"],
+                    "scale_estimates": {"dau": "30000"},
+                    "out_of_scope": [],
+                    "is_locked": True,
+                },
+            )
 
             await ac.post(
                 f"/api/v1/system-design/sessions/{session_id}/diagrams",
@@ -489,7 +612,7 @@ async def test_web_search_grounding_and_frontier_packet_round_trip(
                     f"/api/v1/system-design/sessions/{session_id}/review",
                     json={"use_web_search": True},
                 )
-                assert rev_res.status_code == 200
+                assert rev_res.status_code == 202
 
                 def_res = await ac.post(
                     f"/api/v1/system-design/sessions/{session_id}/defence/message",
@@ -520,27 +643,17 @@ async def test_web_search_grounding_and_frontier_packet_round_trip(
             assert "Requirements Clarity" in packet["markdown_packet"]
             assert packet["filename"].endswith(".md")
 
-            # Two-way Frontier Evaluation Import (Markdown + JSON fence)
-            frontier_pasted = """Here is my Staff-level scorecard:
-
-```json
-{
-  "overall_score": 91.5,
-  "readiness_rating": "STRONG_HIRE",
-  "executive_summary": "Frontier review confirms clean CDN segmentation and clear failover reasoning.",
-  "rubric_scores": [
-    {
-      "dimension": "Caching & Latency Optimization",
-      "score": 5,
-      "evidence": "Used range-requested HLS chunks behind CloudFront edge caches.",
-      "critique": "High cache hit ratio and minimal origin load."
-    }
-  ],
-  "key_strengths": ["Edge-first audio streaming"],
-  "critical_gaps": ["Document multi-AZ Postgres promotion SLO"],
-  "recommended_next_steps": ["Add cache invalidation metrics"]
-}
-```"""
+            # Two-way Frontier Evaluation Import (Markdown + full 12-dimension JSON fence)
+            frontier_scores = [5, 5, 4, 5, 5, 5, 5, 4, 5, 5, 4, 5]  # 57/60 -> 95.0
+            frontier_payload = _build_valid_eval_payload(
+                scores=frontier_scores,
+                executive_summary="Frontier review confirms clean CDN segmentation and clear failover reasoning.",
+            )
+            frontier_pasted = (
+                "Here is my Staff-level scorecard:\n\n```json\n"
+                + json.dumps(frontier_payload, indent=2)
+                + "\n```"
+            )
             import_res = await ac.post(
                 f"/api/v1/system-design/sessions/{session_id}/import-evaluation",
                 json={"raw_response": frontier_pasted},
@@ -549,11 +662,333 @@ async def test_web_search_grounding_and_frontier_packet_round_trip(
             imported = import_res.json()
             assert imported["stage"] == "COMPLETED"
             assert imported["status"] == "COMPLETED"
-            assert imported["overall_score"] == 91.5
+            assert imported["overall_score"] == 95.0
             assert imported["readiness_rating"] == "STRONG_HIRE"
-            assert (
-                imported["final_evaluation"]["rubric_scores"][0]["dimension"]
-                == "Caching & Latency Optimization"
+            assert len(imported["final_evaluation"]["rubric_scores"]) == 12
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case_name,bad_raw_builder",
+    [
+        (
+            "invalid_1_to_10_dimension_score",
+            lambda: json.dumps(
+                {
+                    **_build_valid_eval_payload([4] * 12),
+                    "rubric_scores": [
+                        {
+                            **_build_full_rubric_scores([4] * 12)[0],
+                            "score": 8,
+                        },
+                        *_build_full_rubric_scores([4] * 12)[1:],
+                    ],
+                }
+            ),
+        ),
+        (
+            "overall_score_scale_violation",
+            lambda: json.dumps(
+                _build_valid_eval_payload([4] * 12, overall_score=105.0)
+            ),
+        ),
+        (
+            "missing_dimensions",
+            lambda: json.dumps(
+                {
+                    **_build_valid_eval_payload([4] * 12),
+                    "rubric_scores": _build_full_rubric_scores([4] * 12)[:11],
+                }
+            ),
+        ),
+        (
+            "truncated_json_output",
+            lambda: (
+                '{"overall_score": 80, "rubric_scores": [{"dimension": "Requirements Clarity", "score": 4'
+            ),
+        ),
+        (
+            "truncated_inside_think_block",
+            lambda: "<think>Starting deep reasoning about architecture without closing",
+        ),
+        (
+            "contradictory_overall_and_dimension_scores",
+            lambda: json.dumps(_build_valid_eval_payload([2] * 12, overall_score=95.0)),
+        ),
+    ],
+)
+async def test_f01_final_evaluation_rejects_invalid_and_repairs_once(
+    db_session: AsyncSession, tmp_path, monkeypatch, case_name: str, bad_raw_builder
+):
+    """F-01: Invalid scores, missing dimensions, truncated JSON, and contradictions trigger one repair retry; failure keeps session incomplete."""
+    import app.services.system_design_service as sd_service_module
+
+    monkeypatch.setattr(sd_service_module, "SYSTEM_DESIGN_DATA_DIR", tmp_path)
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            ch_res = await ac.get("/api/v1/system-design/challenges/spotify-100k")
+            challenge_id = ch_res.json()["id"]
+
+            # 1) Invalid initial output followed by successful controlled repair retry
+            s1 = (
+                await ac.post(
+                    "/api/v1/system-design/sessions",
+                    json={"challenge_id": challenge_id},
+                )
+            ).json()["id"]
+            await _advance_session_to_defence(ac, s1)
+
+            bad_msg = AsyncMock()
+            bad_msg.content = bad_raw_builder()
+            good_msg = AsyncMock()
+            good_msg.content = json.dumps(_build_valid_eval_payload([4] * 12))
+
+            with patch(
+                "app.services.system_design_service.get_task_chat_model"
+            ) as mock_get:
+                mock_model = AsyncMock()
+                mock_model.ainvoke.side_effect = [bad_msg, good_msg]
+                mock_get.return_value = mock_model
+
+                res1 = await ac.post(f"/api/v1/system-design/sessions/{s1}/evaluate")
+            assert res1.status_code == 202, case_name
+            assert mock_model.ainvoke.call_count == 2
+
+            repaired_session = (
+                await ac.get(f"/api/v1/system-design/sessions/{s1}")
+            ).json()
+            assert repaired_session["status"] == "COMPLETED"
+            assert repaired_session["stage"] == "COMPLETED"
+            assert repaired_session["overall_score"] == 80.0
+            assert len(repaired_session["final_evaluation"]["rubric_scores"]) == 12
+
+            # 2) Failed repair marks task FAILED and preserves non-completed DEFENCE session
+            s2 = (
+                await ac.post(
+                    "/api/v1/system-design/sessions",
+                    json={"challenge_id": challenge_id},
+                )
+            ).json()["id"]
+            await _advance_session_to_defence(ac, s2)
+
+            bad_msg_2 = AsyncMock()
+            bad_msg_2.content = bad_raw_builder()
+            bad_repair_msg = AsyncMock()
+            bad_repair_msg.content = bad_raw_builder()
+
+            with patch(
+                "app.services.system_design_service.get_task_chat_model"
+            ) as mock_get:
+                mock_model_fail = AsyncMock()
+                mock_model_fail.ainvoke.side_effect = [bad_msg_2, bad_repair_msg]
+                mock_get.return_value = mock_model_fail
+
+                res2 = await ac.post(f"/api/v1/system-design/sessions/{s2}/evaluate")
+            assert res2.status_code == 202
+            assert mock_model_fail.ainvoke.call_count == 2
+
+            failed_session = (
+                await ac.get(f"/api/v1/system-design/sessions/{s2}")
+            ).json()
+            assert failed_session["status"] == "IN_PROGRESS"
+            assert failed_session["stage"] == "DEFENCE"
+            assert failed_session["final_evaluation"] is None
+            assert failed_session["active_task_status"] == "FAILED"
+            assert failed_session["active_task_error"] is not None
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_f03_configurable_storage_dir_and_permission_error(
+    db_session: AsyncSession, tmp_path, monkeypatch
+):
+    """F-03: SYSTEM_DESIGN_DATA_DIR controls diagram disk storage; unwritable dir raises actionable 500 without silent fallback."""
+    from app.core.config import settings
+
+    configured_dir = tmp_path / "custom_sd_root"
+    monkeypatch.setattr(settings, "SYSTEM_DESIGN_DATA_DIR", str(configured_dir))
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            ch_res = await ac.get("/api/v1/system-design/challenges/url-shortener")
+            challenge_id = ch_res.json()["id"]
+
+            session_id = (
+                await ac.post(
+                    "/api/v1/system-design/sessions",
+                    json={"challenge_id": challenge_id},
+                )
+            ).json()["id"]
+            await ac.put(
+                f"/api/v1/system-design/sessions/{session_id}/requirements/ledger",
+                json={
+                    "functional_requirements": ["Shorten URLs"],
+                    "non_functional_requirements": [],
+                    "scale_estimates": {"read_qps": "5000"},
+                    "out_of_scope": [],
+                    "is_locked": True,
+                },
             )
+
+            up_res = await ac.post(
+                f"/api/v1/system-design/sessions/{session_id}/diagrams",
+                files={"file": ("arch.png", FAKE_PNG_BYTES, "image/png")},
+                data={"notes": "Configured storage check"},
+            )
+            assert up_res.status_code == 201
+            stored_file = configured_dir / f"session_{session_id}" / "v1.png"
+            assert stored_file.is_file()
+
+            img_res = await ac.get(
+                f"/api/v1/system-design/sessions/{session_id}/diagrams/1/image"
+            )
+            assert img_res.status_code == 200
+            assert img_res.content == FAKE_PNG_BYTES
+
+            readonly_root = tmp_path / "readonly_sd_root"
+            readonly_root.mkdir(parents=True, exist_ok=True)
+            os.chmod(readonly_root, 0o500)
+            monkeypatch.setattr(settings, "SYSTEM_DESIGN_DATA_DIR", str(readonly_root))
+            try:
+                if os.geteuid() != 0:
+                    fail_res = await ac.post(
+                        f"/api/v1/system-design/sessions/{session_id}/diagrams",
+                        files={"file": ("v2.png", FAKE_PNG_BYTES, "image/png")},
+                        data={"notes": "Should fail"},
+                    )
+                    assert fail_res.status_code == 500
+                    assert "SYSTEM_DESIGN_DATA_DIR" in fail_res.json()["detail"]
+            finally:
+                os.chmod(readonly_root, 0o700)
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_f04_nonblocking_queue_enqueue_cancel_and_retry(
+    db_session: AsyncSession, tmp_path, monkeypatch
+):
+    """F-04: Review and evaluation enqueue QUEUED tasks immediately, support cancellation and retry with ANALYZING stage."""
+    import app.services.system_design_service as sd_service_module
+    from app.services.evaluation_worker import process_evaluation_task
+
+    monkeypatch.setattr(sd_service_module, "SYSTEM_DESIGN_DATA_DIR", tmp_path)
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            ch_res = await ac.get("/api/v1/system-design/challenges/spotify-100k")
+            challenge_id = ch_res.json()["id"]
+            session_id = (
+                await ac.post(
+                    "/api/v1/system-design/sessions",
+                    json={"challenge_id": challenge_id},
+                )
+            ).json()["id"]
+
+            await ac.put(
+                f"/api/v1/system-design/sessions/{session_id}/requirements/ledger",
+                json={
+                    "functional_requirements": ["Stream audio"],
+                    "non_functional_requirements": ["p99 < 300ms"],
+                    "scale_estimates": {"dau": "30000"},
+                    "out_of_scope": [],
+                    "is_locked": True,
+                },
+            )
+            await ac.post(
+                f"/api/v1/system-design/sessions/{session_id}/diagrams",
+                files={"file": ("v1.png", FAKE_PNG_BYTES, "image/png")},
+                data={"notes": "Queue lifecycle diagram"},
+            )
+
+            with patch("fastapi.BackgroundTasks.add_task") as mock_add_task:
+                rev_q = await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/review"
+                )
+            assert rev_q.status_code == 202
+            assert mock_add_task.call_count == 1
+            rev_body = rev_q.json()
+            rev_task_id = rev_body["active_task_id"]
+            assert rev_body["active_task_status"] == "QUEUED"
+            assert rev_body["active_task_stage"] == "QUEUED"
+
+            # Concurrent duplicate enqueue while QUEUED must fail cleanly with 400
+            dup_res = await ac.post(
+                f"/api/v1/system-design/sessions/{session_id}/review"
+            )
+            assert dup_res.status_code == 400
+
+            cancel_res = await ac.post(
+                f"/api/v1/intake/evaluations/{rev_task_id}/cancel"
+            )
+            assert cancel_res.status_code == 200
+            assert cancel_res.json()["status"] == "CANCELLED"
+
+            with patch("fastapi.BackgroundTasks.add_task") as mock_retry_bg:
+                retry_res = await ac.post(
+                    f"/api/v1/intake/evaluations/{rev_task_id}/retry"
+                )
+            assert retry_res.status_code == 200
+            assert mock_retry_bg.call_count == 1
+            retried = retry_res.json()
+            assert retried["status"] == "QUEUED"
+            assert retried["stage"] == "ANALYZING"
+
+            mock_rev = AsyncMock()
+            mock_rev.content = json.dumps(
+                {
+                    "interpreted_components": ["API", "CDN"],
+                    "interpreted_data_flows": ["Client -> CDN"],
+                    "visual_clarifications_needed": [],
+                    "strengths": ["Clean separation"],
+                    "missing_components": [],
+                    "bottlenecks_and_spofs": ["Primary DB"],
+                    "unnecessary_complexity": [],
+                    "requirement_gaps": [],
+                    "overall_impression": "Baseline verified.",
+                    "suggested_defence_topics": ["How do you scale metadata reads?"],
+                }
+            )
+            mock_def = AsyncMock()
+            mock_def.content = "Good read replica caching explanation."
+            with patch(
+                "app.services.system_design_service.get_task_chat_model",
+                return_value=AsyncMock(
+                    ainvoke=AsyncMock(side_effect=[mock_rev, mock_def])
+                ),
+            ):
+                await process_evaluation_task(rev_task_id)
+                def_res = await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/defence/message",
+                    json={"message": "Read replicas plus Redis metadata cache."},
+                )
+                assert def_res.status_code == 200
+
+            with patch("fastapi.BackgroundTasks.add_task") as mock_eval_bg:
+                eval_q = await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/evaluate"
+                )
+            assert eval_q.status_code == 202
+            assert mock_eval_bg.call_count == 1
+            eval_task_id = eval_q.json()["active_task_id"]
+            assert eval_q.json()["active_task_status"] == "QUEUED"
+
+            assert (
+                await ac.post(f"/api/v1/intake/evaluations/{eval_task_id}/cancel")
+            ).json()["status"] == "CANCELLED"
+            with patch("fastapi.BackgroundTasks.add_task"):
+                eval_retry = (
+                    await ac.post(f"/api/v1/intake/evaluations/{eval_task_id}/retry")
+                ).json()
+            assert eval_retry["status"] == "QUEUED"
+            assert eval_retry["stage"] == "ANALYZING"
     finally:
         app.dependency_overrides.clear()

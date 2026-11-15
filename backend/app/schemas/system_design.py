@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 SystemDesignMode = Literal["ADAPTIVE", "INTERVIEW", "PRACTICE"]
 SystemDesignStage = Literal["REQUIREMENTS", "DESIGN", "REVIEW", "DEFENCE", "COMPLETED"]
@@ -13,6 +13,8 @@ class SystemDesignChallengeRead(BaseModel):
 
     Explicitly omits ``interviewer_brief`` so hidden scale targets, expected
     architecture components, and scoring criteria never leak to candidates.
+    For user-created custom challenges (``is_builtin=False``), exposes editable
+    ``expected_components`` and ``scale_notes`` so the edit dialog preserves them.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -26,7 +28,61 @@ class SystemDesignChallengeRead(BaseModel):
     initial_prompt: str
     tags: list[str] = Field(default_factory=list)
     is_builtin: bool
+    is_archived: bool = False
+    expected_components: list[str] = Field(default_factory=list)
+    scale_notes: str = ""
     created_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def _populate_custom_editable_fields(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            result = dict(value)
+            is_builtin = bool(result.get("is_builtin", True))
+            if is_builtin:
+                result["expected_components"] = []
+                result["scale_notes"] = ""
+            elif "interviewer_brief" in result:
+                brief = result.get("interviewer_brief") or {}
+                hidden = brief.get("hidden_context") or {}
+                if "expected_components" not in result:
+                    result["expected_components"] = [
+                        str(item)
+                        for item in (brief.get("expected_components") or [])
+                        if str(item).strip()
+                    ]
+                if "scale_notes" not in result:
+                    result["scale_notes"] = str(hidden.get("scale_notes") or "")
+            return result
+
+        is_builtin = bool(getattr(value, "is_builtin", True))
+        expected_components: list[str] = []
+        scale_notes = ""
+        if not is_builtin:
+            brief = getattr(value, "interviewer_brief", None) or {}
+            hidden = brief.get("hidden_context") or {}
+            expected_components = [
+                str(item)
+                for item in (brief.get("expected_components") or [])
+                if str(item).strip()
+            ]
+            scale_notes = str(hidden.get("scale_notes") or "")
+
+        return {
+            "id": value.id,
+            "slug": value.slug,
+            "title": value.title,
+            "category": value.category,
+            "difficulty": value.difficulty,
+            "prompt_summary": value.prompt_summary,
+            "initial_prompt": value.initial_prompt,
+            "tags": list(value.tags or []),
+            "is_builtin": is_builtin,
+            "is_archived": bool(getattr(value, "is_archived", False)),
+            "expected_components": expected_components,
+            "scale_notes": scale_notes,
+            "created_at": value.created_at,
+        }
 
 
 class RequirementsLedgerSchema(BaseModel):
@@ -139,9 +195,9 @@ class SystemDesignChallengeUpdate(BaseModel):
     difficulty: str = Field("MEDIUM", min_length=2, max_length=32)
     prompt_summary: str = Field(..., min_length=5, max_length=1500)
     initial_prompt: str = Field(..., min_length=10, max_length=4000)
-    tags: list[str] = Field(default_factory=list)
-    expected_components: list[str] = Field(default_factory=list)
-    scale_notes: str = Field("", max_length=2000)
+    tags: list[str] | None = None
+    expected_components: list[str] | None = None
+    scale_notes: str | None = Field(None, max_length=2000)
 
 
 class SystemDesignChallengeGenerateRequest(BaseModel):
@@ -248,3 +304,8 @@ class SystemDesignSessionRead(BaseModel):
     updated_at: datetime
     completed_at: datetime | None = None
     challenge: SystemDesignChallengeRead | None = None
+    active_task_id: int | None = None
+    active_task_status: str | None = None
+    active_task_stage: str | None = None
+    active_task_type: str | None = None
+    active_task_error: str | None = None

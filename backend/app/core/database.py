@@ -210,6 +210,22 @@ async def ensure_db_schema() -> None:
                             "ALTER TABLE candidate_cvs DROP COLUMN IF EXISTS is_active;"
                         )
                     )
+            if "system_design_challenges" in table_names:
+                cols = [
+                    c["name"] for c in inspector.get_columns("system_design_challenges")
+                ]
+                if "is_archived" not in cols:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE system_design_challenges ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE;"
+                        )
+                    )
+            if "system_design_sessions" in table_names:
+                connection.execute(
+                    text(
+                        "ALTER TABLE system_design_sessions ALTER COLUMN mode SET DEFAULT 'ADAPTIVE';"
+                    )
+                )
 
         await conn.run_sync(_sync_schema_columns)
 

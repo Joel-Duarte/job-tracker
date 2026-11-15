@@ -453,7 +453,7 @@ async def test_custom_manual_and_ai_generated_challenges_lifecycle(
             assert "interviewer_brief" not in generated
             assert generated["difficulty"] == "HARD"
 
-            # Edit the AI-generated custom challenge via PUT
+            # Edit the AI-generated custom challenge via PUT and verify custom editable fields preserved
             edit_res = await ac.put(
                 f"/api/v1/system-design/challenges/{generated['id']}",
                 json={
@@ -471,22 +471,62 @@ async def test_custom_manual_and_ai_generated_challenges_lifecycle(
             edited = edit_res.json()
             assert edited["title"] == "Design a Global Edge Feature Flag Platform"
             assert "interviewer_brief" not in edited
+            assert edited["tags"] == ["feature-flags", "edge", "sse"]
+            assert edited["expected_components"] == ["Control Plane", "Edge CDN"]
+            assert edited["scale_notes"] == "1M evaluations/sec global peak"
 
-            # Start a session on the custom challenge then verify deletion cascades cleanly
+            # F-07: Omitting tags preserves existing tags instead of overwriting with defaults
+            preserve_res = await ac.put(
+                f"/api/v1/system-design/challenges/{generated['id']}",
+                json={
+                    "title": "Design a Global Edge Feature Flag Platform v2",
+                    "category": "DATA_INFRASTRUCTURE",
+                    "difficulty": "HARD",
+                    "prompt_summary": "Updated summary v2: ultra-low-latency flag evaluation.",
+                    "initial_prompt": "Updated prompt v2: design a multi-region feature flag service.",
+                },
+            )
+            assert preserve_res.status_code == 200
+            preserved = preserve_res.json()
+            assert preserved["tags"] == ["feature-flags", "edge", "sse"]
+            assert preserved["expected_components"] == ["Control Plane", "Edge CDN"]
+            assert preserved["scale_notes"] == "1M evaluations/sec global peak"
+
+            # F-05: Start sessions on custom and built-in challenges, then verify deletion archives
+            # rather than cascade-deleting session history or stored diagrams.
             sess_res = await ac.post(
                 "/api/v1/system-design/sessions",
                 json={"challenge_id": manual["id"]},
             )
             assert sess_res.status_code == 201
+            manual_session_id = sess_res.json()["id"]
 
             del_manual = await ac.delete(
                 f"/api/v1/system-design/challenges/{manual['id']}"
             )
             assert del_manual.status_code == 204
 
-            # Any challenge (including built-ins) can now be deleted by the user
+            # Session linked to deleted/archived custom challenge MUST remain accessible
+            hist_res = await ac.get(
+                f"/api/v1/system-design/sessions/{manual_session_id}"
+            )
+            assert hist_res.status_code == 200
+            assert hist_res.json()["challenge"]["id"] == manual["id"]
+
+            # Built-in challenge deletion also archives cleanly & protects interviewer_brief
             builtin_res = await ac.get("/api/v1/system-design/challenges/spotify-100k")
-            builtin_id = builtin_res.json()["id"]
+            builtin_data = builtin_res.json()
+            assert builtin_data["expected_components"] == []
+            assert builtin_data["scale_notes"] == ""
+            builtin_id = builtin_data["id"]
+
+            builtin_sess_res = await ac.post(
+                "/api/v1/system-design/sessions",
+                json={"challenge_id": builtin_id},
+            )
+            assert builtin_sess_res.status_code == 201
+            builtin_session_id = builtin_sess_res.json()["id"]
+
             del_builtin = await ac.delete(
                 f"/api/v1/system-design/challenges/{builtin_id}"
             )
@@ -499,14 +539,267 @@ async def test_custom_manual_and_ai_generated_challenges_lifecycle(
             ]
             assert len(remaining_builtins) == 7
 
-            # Reset defaults restores all 8 built-in challenges while preserving custom ones
+            # Session linked to archived built-in challenge also remains intact
+            assert (
+                await ac.get(f"/api/v1/system-design/sessions/{builtin_session_id}")
+            ).status_code == 200
+
+            # Reset defaults unarchives all 8 built-in challenges while preserving custom & sessions
             reset_res = await ac.post("/api/v1/system-design/challenges/reset-defaults")
             assert reset_res.status_code == 200
             reset_items = reset_res.json()
             assert len([c for c in reset_items if c["is_builtin"] is True]) == 8
             assert any(
-                c["title"] == "Design a Global Edge Feature Flag Platform"
+                c["title"] == "Design a Global Edge Feature Flag Platform v2"
                 for c in reset_items
             )
+            assert (
+                await ac.get(f"/api/v1/system-design/sessions/{builtin_session_id}")
+            ).status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_f02_backend_stage_enforcement_and_completed_immutability(
+    db_session: AsyncSession, tmp_path, monkeypatch
+):
+    """F-02: Enforces strict server-side stage transitions and rejects mutations on COMPLETED sessions."""
+    import json
+
+    import app.services.system_design_service as sd_service_module
+    from app.services.system_design_service import DEFAULT_RUBRIC_DIMENSIONS
+
+    monkeypatch.setattr(sd_service_module, "SYSTEM_DESIGN_DATA_DIR", tmp_path)
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    fake_png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDRfake-png"
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            ch_res = await ac.get("/api/v1/system-design/challenges/url-shortener")
+            challenge_id = ch_res.json()["id"]
+            session_id = (
+                await ac.post(
+                    "/api/v1/system-design/sessions",
+                    json={"challenge_id": challenge_id},
+                )
+            ).json()["id"]
+
+            # 1. Locking an empty ledger must fail with 400
+            empty_lock = await ac.put(
+                f"/api/v1/system-design/sessions/{session_id}/requirements/ledger",
+                json={
+                    "functional_requirements": [],
+                    "non_functional_requirements": [],
+                    "scale_estimates": {},
+                    "out_of_scope": [],
+                    "is_locked": True,
+                },
+            )
+            assert empty_lock.status_code == 400
+
+            # 2. Diagram upload, review, defence, evaluate before locking must fail with 400
+            assert (
+                await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/diagrams",
+                    files={"file": ("v1.png", fake_png, "image/png")},
+                    data={"notes": "Early"},
+                )
+            ).status_code == 400
+            assert (
+                await ac.post(f"/api/v1/system-design/sessions/{session_id}/review")
+            ).status_code == 400
+            assert (
+                await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/defence/message",
+                    json={"message": "Skip directly to defence"},
+                )
+            ).status_code == 400
+            assert (
+                await ac.post(f"/api/v1/system-design/sessions/{session_id}/evaluate")
+            ).status_code == 400
+
+            # Lock valid requirements -> DESIGN stage
+            assert (
+                await ac.put(
+                    f"/api/v1/system-design/sessions/{session_id}/requirements/ledger",
+                    json={
+                        "functional_requirements": ["Create short URL"],
+                        "non_functional_requirements": ["p99 < 30ms"],
+                        "scale_estimates": {"read_qps": "10000"},
+                        "out_of_scope": [],
+                        "is_locked": True,
+                    },
+                )
+            ).status_code == 200
+
+            # 3. Requirements discovery & extraction rejected once locked / in DESIGN stage
+            assert (
+                await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/requirements/message",
+                    json={"message": "More requirements"},
+                )
+            ).status_code == 400
+            assert (
+                await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/requirements/extract"
+                )
+            ).status_code == 400
+
+            # 4. Upload diagram in DESIGN -> unlocking ledger rejected once diagram exists; defence/evaluate still rejected before review
+            assert (
+                await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/diagrams",
+                    files={"file": ("v1.png", fake_png, "image/png")},
+                    data={"notes": "Arch v1"},
+                )
+            ).status_code == 201
+            assert (
+                await ac.put(
+                    f"/api/v1/system-design/sessions/{session_id}/requirements/ledger",
+                    json={
+                        "functional_requirements": ["Create short URL"],
+                        "non_functional_requirements": ["p99 < 30ms"],
+                        "scale_estimates": {"read_qps": "10000"},
+                        "out_of_scope": [],
+                        "is_locked": False,
+                    },
+                )
+            ).status_code == 400
+            assert (
+                await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/defence/message",
+                    json={"message": "Early defence"},
+                )
+            ).status_code == 400
+            assert (
+                await ac.post(f"/api/v1/system-design/sessions/{session_id}/evaluate")
+            ).status_code == 400
+
+            # 5. Complete review -> REVIEW stage, evaluate still rejected without candidate defence turn
+            rev_reply = AsyncMock()
+            rev_reply.content = json.dumps(
+                {
+                    "interpreted_components": ["API", "Redis", "Postgres"],
+                    "interpreted_data_flows": ["Client -> API -> Redis"],
+                    "visual_clarifications_needed": [],
+                    "strengths": ["Fast redirect path via Redis"],
+                    "missing_components": [],
+                    "bottlenecks_and_spofs": ["Single Redis primary"],
+                    "unnecessary_complexity": [],
+                    "requirement_gaps": [],
+                    "overall_impression": "Good baseline.",
+                    "suggested_defence_topics": ["How do you handle Redis failover?"],
+                }
+            )
+            def_reply = AsyncMock()
+            def_reply.content = "Makes sense on Sentinel failover."
+            eval_reply = AsyncMock()
+            eval_reply.content = json.dumps(
+                {
+                    "overall_score": 80.0,
+                    "readiness_rating": "INTERVIEW_READY",
+                    "executive_summary": "Solid design with clear caching and persistence trade-offs.",
+                    "rubric_scores": [
+                        {
+                            "dimension": d,
+                            "score": 4,
+                            "evidence": f"Candidate demonstrated {d} cleanly in ledger and diagram.",
+                            "critique": f"Add quantitative bounds for {d}.",
+                        }
+                        for d in DEFAULT_RUBRIC_DIMENSIONS
+                    ],
+                    "key_strengths": ["Low-latency redirect caching"],
+                    "critical_gaps": ["Document failover latency bounds"],
+                    "recommended_next_steps": ["Add health check annotations"],
+                }
+            )
+            mock_model = AsyncMock()
+            mock_model.ainvoke.side_effect = [rev_reply, def_reply, eval_reply]
+            with patch(
+                "app.services.system_design_service.get_task_chat_model",
+                return_value=mock_model,
+            ):
+                assert (
+                    await ac.post(f"/api/v1/system-design/sessions/{session_id}/review")
+                ).status_code == 202
+                # Evaluate before candidate defence turn must return 400
+                assert (
+                    await ac.post(
+                        f"/api/v1/system-design/sessions/{session_id}/evaluate"
+                    )
+                ).status_code == 400
+
+                # Participate in defence -> DEFENCE stage -> then complete evaluation
+                assert (
+                    await ac.post(
+                        f"/api/v1/system-design/sessions/{session_id}/defence/message",
+                        json={
+                            "message": "We use Redis Sentinel with Postgres fallback on cache miss."
+                        },
+                    )
+                ).status_code == 200
+                assert (
+                    await ac.post(
+                        f"/api/v1/system-design/sessions/{session_id}/evaluate"
+                    )
+                ).status_code == 202
+
+            # 6. COMPLETED session rejects all further mutations with 400
+            done_session = (
+                await ac.get(f"/api/v1/system-design/sessions/{session_id}")
+            ).json()
+            assert done_session["status"] == "COMPLETED"
+            assert done_session["stage"] == "COMPLETED"
+
+            assert (
+                await ac.patch(
+                    f"/api/v1/system-design/sessions/{session_id}/mode",
+                    json={"mode": "PRACTICE"},
+                )
+            ).status_code == 400
+            assert (
+                await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/requirements/message",
+                    json={"message": "Post completion"},
+                )
+            ).status_code == 400
+            assert (
+                await ac.put(
+                    f"/api/v1/system-design/sessions/{session_id}/requirements/ledger",
+                    json={
+                        "functional_requirements": ["Create short URL"],
+                        "non_functional_requirements": [],
+                        "scale_estimates": {},
+                        "out_of_scope": [],
+                        "is_locked": True,
+                    },
+                )
+            ).status_code == 400
+            assert (
+                await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/diagrams",
+                    files={"file": ("v2.png", fake_png, "image/png")},
+                    data={"notes": "Post completion"},
+                )
+            ).status_code == 400
+            assert (
+                await ac.post(f"/api/v1/system-design/sessions/{session_id}/review")
+            ).status_code == 400
+            assert (
+                await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/defence/message",
+                    json={"message": "Post completion"},
+                )
+            ).status_code == 400
+            assert (
+                await ac.post(f"/api/v1/system-design/sessions/{session_id}/evaluate")
+            ).status_code == 400
+            assert (
+                await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/import-evaluation",
+                    json={"raw_response": '{"rubric_scores": []}'},
+                )
+            ).status_code == 400
     finally:
         app.dependency_overrides.clear()

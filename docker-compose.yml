@@ -101,10 +101,11 @@ services:
       PUBLIC_FRONTEND_URL: ${PUBLIC_FRONTEND_URL:-}
       CAMOUFOX_ENDPOINT: http://scraper-api:9377
       SCRAPER_EGRESS_PROXY: http://scraper-egress:3128
+      SYSTEM_DESIGN_DATA_DIR: /app/data/system_design
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./backend/data/system_design:/app/data/system_design
+      - system_design_data:/app/data/system_design
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
@@ -143,6 +144,8 @@ services:
 volumes:
   postgres_data:
     name: job_tracker_postgres_data
+  system_design_data:
+    name: job_tracker_system_design_data
 
 networks:
   job-tracker-net:

@@ -524,6 +524,7 @@ async def seed_system_design_challenges(db: AsyncSession) -> int:
             existing.initial_prompt = item["initial_prompt"]
             existing.tags = list(item["tags"])
             existing.interviewer_brief = dict(item["interviewer_brief"])
+            existing.is_archived = False
 
     await db.commit()
     return inserted

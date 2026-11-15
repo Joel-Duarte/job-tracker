@@ -41,7 +41,6 @@ FORBIDDEN_SECRET_KEYS = (
     "hidden_context",
     "expected_functional_requirements",
     "expected_non_functional_requirements",
-    "expected_components",
     "common_bottlenecks_and_spofs",
     "over_engineering_traps",
     "defence_questions",
@@ -49,7 +48,7 @@ FORBIDDEN_SECRET_KEYS = (
 
 
 def test_alembic_migration_metadata_integrity():
-    """Verify the new migration chains cleanly from 4f6e8a1c3d5b as the single head."""
+    """Verify the system design migration chain resolves cleanly to 6b8c0d2e4f1a as single head."""
     backend_dir = Path(__file__).resolve().parents[2]
     alembic_ini = backend_dir / "alembic.ini"
     cfg = Config(str(alembic_ini))
@@ -57,11 +56,15 @@ def test_alembic_migration_metadata_integrity():
 
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
-    assert heads == ["5a7b9c1d3e5f"]
+    assert heads == ["6b8c0d2e4f1a"]
 
-    rev = script.get_revision("5a7b9c1d3e5f")
-    assert rev is not None
-    assert rev.down_revision == "4f6e8a1c3d5b"
+    rev_sd = script.get_revision("5a7b9c1d3e5f")
+    assert rev_sd is not None
+    assert rev_sd.down_revision == "4f6e8a1c3d5b"
+
+    rev_arch = script.get_revision("6b8c0d2e4f1a")
+    assert rev_arch is not None
+    assert rev_arch.down_revision == "5a7b9c1d3e5f"
 
 
 def test_evidence_based_rubric_requires_concrete_evidence():
@@ -99,7 +102,7 @@ def test_evidence_based_rubric_requires_concrete_evidence():
 
 
 def test_candidate_challenge_schema_strips_hidden_brief():
-    """Even if validated from a dict containing interviewer_brief, schema strips it."""
+    """Even if validated from a dict containing interviewer_brief, schema strips hidden built-in brief."""
     sample = dict(CURATED_CHALLENGES[0])
     sample.update({"id": 1, "is_builtin": True, "created_at": "2026-11-15T00:00:00Z"})
 
@@ -108,9 +111,20 @@ def test_candidate_challenge_schema_strips_hidden_brief():
     dumped_json = projected.model_dump_json()
 
     assert "interviewer_brief" not in dumped
+    assert projected.expected_components == []
+    assert projected.scale_notes == ""
     for secret_key in FORBIDDEN_SECRET_KEYS:
         assert secret_key not in dumped
         assert secret_key not in dumped_json
+
+    custom_sample = dict(sample)
+    custom_sample["is_builtin"] = False
+    custom_projected = SystemDesignChallengeRead.model_validate(custom_sample)
+    assert custom_projected.expected_components == list(
+        sample["interviewer_brief"].get("expected_components", [])
+    )
+    for secret_key in FORBIDDEN_SECRET_KEYS:
+        assert secret_key not in custom_projected.model_dump()
 
 
 @pytest.mark.asyncio
@@ -151,6 +165,8 @@ async def test_hidden_interviewer_brief_never_leaks_from_orm(
         challenge_dict = challenge_dto.model_dump()
         challenge_json = challenge_dto.model_dump_json()
 
+        assert challenge_dto.expected_components == []
+        assert challenge_dto.scale_notes == ""
         for secret_key in FORBIDDEN_SECRET_KEYS:
             assert secret_key not in challenge_dict
             assert secret_key not in challenge_json

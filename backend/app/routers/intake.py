@@ -52,7 +52,10 @@ from app.schemas.intake import (
 from app.schemas.llm import JobAssessmentResult
 from app.services.company_resolver import resolve_or_create_company
 from app.services.email_fetcher import fetch_emails_from_account
-from app.services.evaluation_worker import process_evaluation_task
+from app.services.evaluation_worker import (
+    _initial_stage_for_task,
+    process_evaluation_task,
+)
 from app.services.file_parser import parse_uploaded_file
 from app.services.llm import assess_job_posting
 from app.services.scraper import scrape_job_url
@@ -1469,7 +1472,7 @@ async def retry_evaluation_task(
 
     task.status = "QUEUED"
     if not task.stage or task.stage in ["FAILED", "CANCELLED", "QUEUED"]:
-        task.stage = "FETCHING" if task.task_type != "CV_EXTRACTION" else "SCRUBBING"
+        task.stage = _initial_stage_for_task(task.task_type)
     task.error_message = None
     task.completed_at = None
     task.created_at = datetime.now(UTC)
@@ -1589,9 +1592,7 @@ async def bulk_retry_evaluation_tasks(
 
             task.status = "QUEUED"
             if not task.stage or task.stage in ["FAILED", "CANCELLED", "QUEUED"]:
-                task.stage = (
-                    "FETCHING" if task.task_type != "CV_EXTRACTION" else "SCRUBBING"
-                )
+                task.stage = _initial_stage_for_task(task.task_type)
             task.error_message = None
             task.completed_at = None
             task.created_at = datetime.now(UTC)

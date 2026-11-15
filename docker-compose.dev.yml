@@ -23,9 +23,9 @@ services:
   backend:
     volumes:
       - ./backend/app:/app/app
-      - ./backend/data/system_design:/app/data/system_design
     environment:
       ENVIRONMENT: development
+      SYSTEM_DESIGN_DATA_DIR: /app/data/system_design
       SEED_DEV_DATA: "true"
       LOG_LEVEL: DEBUG
       SECRET_KEY: ${SECRET_KEY:-development-only-secret-key}
