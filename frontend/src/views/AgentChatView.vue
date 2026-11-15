@@ -273,6 +273,41 @@ async function handleRetentionChange() {
   }
 }
 
+let isSyncingFromRoute = false
+
+function buildSdRouteQuery(sessionId = null) {
+  const nextQuery = { ...route.query, mode: 'system_design' }
+  if (sessionId) {
+    nextQuery.sessionId = String(sessionId)
+  } else {
+    delete nextQuery.sessionId
+  }
+  return nextQuery
+}
+
+async function syncSystemDesignSessionFromRoute(sessionIdParam) {
+  if (!systemDesignStore.challenges.length) {
+    await systemDesignStore.fetchChallenges()
+  }
+  if (!systemDesignStore.sessions.length) {
+    await systemDesignStore.fetchSessions()
+  }
+  const targetId = sessionIdParam ? Number(sessionIdParam) : null
+  if (targetId && Number.isFinite(targetId)) {
+    if (Number(systemDesignStore.activeSession?.id) !== targetId) {
+      try {
+        await systemDesignStore.loadSession(targetId)
+      } catch (err) {
+        uiStore.showToast(err.message || 'Could not restore requested system design session', 'error')
+        systemDesignStore.clearActiveSession()
+        await router.replace({ query: buildSdRouteQuery(null) })
+      }
+    }
+  } else if (systemDesignStore.activeSession) {
+    systemDesignStore.clearActiveSession()
+  }
+}
+
 onMounted(async () => {
   if (window.innerWidth < 768) {
     isSidebarCollapsed.value = true
@@ -282,14 +317,27 @@ onMounted(async () => {
   await interviewStore.fetchSessions()
   await uiStore.fetchSystemSettings()
 
-  // Handle URL deep-linking (?mode=system_design, ?mock=true, ?appId=X)
+  // Handle URL deep-linking (?mode=system_design&sessionId=X, ?mock=true, ?appId=X)
   if (route.query.mode === 'system_design') {
-    activeMode.value = 'system_design'
-    await Promise.all([systemDesignStore.fetchChallenges(), systemDesignStore.fetchSessions()])
+    isSyncingFromRoute = true
+    try {
+      activeMode.value = 'system_design'
+      await Promise.all([systemDesignStore.fetchChallenges(), systemDesignStore.fetchSessions()])
+      await syncSystemDesignSessionFromRoute(route.query.sessionId)
+    } finally {
+      await nextTick()
+      isSyncingFromRoute = false
+    }
   } else if (route.query.mode === 'interview' || route.query.mock === 'true' || route.query.appId) {
-    activeMode.value = 'interview'
-    if (route.query.appId) {
-      mockAppId.value = parseInt(route.query.appId)
+    isSyncingFromRoute = true
+    try {
+      activeMode.value = 'interview'
+      if (route.query.appId) {
+        mockAppId.value = parseInt(route.query.appId)
+      }
+    } finally {
+      await nextTick()
+      isSyncingFromRoute = false
     }
   }
 
@@ -338,10 +386,43 @@ watch(activeMode, async (mode) => {
     if (!systemDesignStore.sessions.length) {
       await systemDesignStore.fetchSessions()
     }
+    if (!isSyncingFromRoute) {
+      const targetQuery = buildSdRouteQuery(systemDesignStore.activeSession?.id || null)
+      if (
+        route.query.mode !== 'system_design' ||
+        String(route.query.sessionId || '') !== String(targetQuery.sessionId || '')
+      ) {
+        await router.push({ query: targetQuery })
+      }
+    }
     return
+  }
+  if (!isSyncingFromRoute && (route.query.mode === 'system_design' || route.query.sessionId)) {
+    const nextQuery = { ...route.query }
+    delete nextQuery.sessionId
+    if (mode === 'interview') {
+      nextQuery.mode = 'interview'
+    } else {
+      delete nextQuery.mode
+    }
+    await router.push({ query: nextQuery })
   }
   scrollToBottom()
 })
+
+watch(
+  () => systemDesignStore.activeSession?.id,
+  async (newId) => {
+    if (isSyncingFromRoute || activeMode.value !== 'system_design') return
+    if (newId) {
+      if (route.query.mode !== 'system_design' || String(route.query.sessionId || '') !== String(newId)) {
+        await router.push({ query: buildSdRouteQuery(newId) })
+      }
+    } else if (route.query.sessionId) {
+      await router.push({ query: buildSdRouteQuery(null) })
+    }
+  }
+)
 
 watch(() => chatStore.chatId, () => {
   scrollToBottom()
@@ -363,17 +444,30 @@ watch([() => chatStore.isSending, () => interviewStore.isEvaluating, () => inter
   scrollToBottom()
 })
 
-watch(() => route.query, async (newQuery) => {
-  if (newQuery.mode === 'system_design') {
-    activeMode.value = 'system_design'
-  } else if (newQuery.mode === 'interview' || newQuery.mock === 'true' || newQuery.appId) {
-    activeMode.value = 'interview'
-    if (newQuery.appId) {
-      mockAppId.value = parseInt(newQuery.appId)
+watch(
+  () => [route.query.mode, route.query.sessionId, route.query.mock, route.query.appId],
+  async ([modeParam, sessionIdParam, mockParam, appIdParam]) => {
+    isSyncingFromRoute = true
+    try {
+      if (modeParam === 'system_design') {
+        activeMode.value = 'system_design'
+        await syncSystemDesignSessionFromRoute(sessionIdParam)
+      } else if (modeParam === 'interview' || mockParam === 'true' || appIdParam) {
+        activeMode.value = 'interview'
+        if (appIdParam) {
+          mockAppId.value = parseInt(appIdParam)
+        }
+        scrollToBottom()
+      } else if (activeMode.value === 'system_design' && !modeParam) {
+        activeMode.value = 'assistant'
+        scrollToBottom()
+      }
+    } finally {
+      await nextTick()
+      isSyncingFromRoute = false
     }
-    scrollToBottom()
   }
-})
+)
 
 function toggleVoiceInput() {
   if (!speechSupported.value || !recognitionInstance) return

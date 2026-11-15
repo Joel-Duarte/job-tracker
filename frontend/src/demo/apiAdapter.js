@@ -2893,15 +2893,22 @@ export async function handleDemoRequest(config) {
   if (urlPath.startsWith('/system-design')) {
     ensureDemoSystemDesignData(db)
 
+    const serializeChallenge = (c) => ({
+      ...c,
+      is_archived: Boolean(c.is_archived),
+      expected_components: c.is_builtin ? [] : Array.isArray(c.expected_components) ? c.expected_components : [],
+      scale_notes: c.is_builtin ? '' : String(c.scale_notes || ''),
+    })
+
     if (urlPath === '/system-design/challenges' && method === 'get') {
-      let items = [...db.system_design_challenges]
+      let items = (db.system_design_challenges || []).filter((c) => !c.is_archived)
       if (params.category) {
         items = items.filter((c) => c.category === params.category)
       }
       if (params.difficulty) {
         items = items.filter((c) => c.difficulty === params.difficulty)
       }
-      return ok(items)
+      return ok(items.map(serializeChallenge))
     }
 
     if (urlPath === '/system-design/challenges' && method === 'post') {
@@ -2917,12 +2924,15 @@ export async function handleDemoRequest(config) {
         prompt_summary: data.prompt_summary || 'Custom system design scenario.',
         initial_prompt: data.initial_prompt || `Design ${title}. Clarify scale and core constraints first.`,
         tags: Array.isArray(data.tags) && data.tags.length ? data.tags : ['custom'],
+        expected_components: Array.isArray(data.expected_components) ? data.expected_components : [],
+        scale_notes: String(data.scale_notes || '').trim(),
         is_builtin: false,
+        is_archived: false,
         created_at: new Date().toISOString(),
       }
       db.system_design_challenges.push(created)
       saveDemoDb(db)
-      return ok(created, 201)
+      return ok(serializeChallenge(created), 201)
     }
 
     if (urlPath === '/system-design/challenges/generate' && method === 'post') {
@@ -2944,20 +2954,23 @@ export async function handleDemoRequest(config) {
           : `AI-tailored scenario focusing on ${titleBase}.`,
         initial_prompt: `Design ${titleBase}. Start by clarifying expected traffic, durability guarantees, and key latency SLAs.`,
         tags: ['ai-generated', ...(data.use_web_search ? ['web-grounded'] : []), ...(appObj ? [appObj.company_name] : [])],
+        expected_components: [],
+        scale_notes: '',
         is_builtin: false,
+        is_archived: false,
         created_at: new Date().toISOString(),
       }
       db.system_design_challenges.push(created)
       saveDemoDb(db)
-      return ok(created, 201)
+      return ok(serializeChallenge(created), 201)
     }
 
     if (urlPath === '/system-design/challenges/reset-defaults' && method === 'post') {
-      const defaults = getDefaultDemoSystemDesignChallenges()
+      const defaults = getDefaultDemoSystemDesignChallenges().map((d) => ({ ...d, is_archived: false }))
       const customChallenges = (db.system_design_challenges || []).filter((c) => !c.is_builtin)
       db.system_design_challenges = [...defaults, ...customChallenges]
       saveDemoDb(db)
-      return ok([...db.system_design_challenges])
+      return ok(db.system_design_challenges.filter((c) => !c.is_archived).map(serializeChallenge))
     }
 
     const sdChallengeMatch = urlPath.match(/^\/system-design\/challenges\/([^/]+)$/)
@@ -2970,7 +2983,7 @@ export async function handleDemoRequest(config) {
         return { status: 404, data: { detail: 'System design challenge not found' } }
       }
       if (method === 'get') {
-        return ok(db.system_design_challenges[idx])
+        return ok(serializeChallenge(db.system_design_challenges[idx]))
       }
       if (method === 'put') {
         const ch = db.system_design_challenges[idx]
@@ -2981,21 +2994,34 @@ export async function handleDemoRequest(config) {
           difficulty: String(data.difficulty || ch.difficulty).trim().toUpperCase(),
           prompt_summary: String(data.prompt_summary || ch.prompt_summary).trim(),
           initial_prompt: String(data.initial_prompt || ch.initial_prompt).trim(),
-          tags: Array.isArray(data.tags) && data.tags.length ? data.tags : ch.tags,
+          tags: Array.isArray(data.tags) ? data.tags : ch.tags,
+          ...(!ch.is_builtin
+            ? {
+                expected_components: Array.isArray(data.expected_components)
+                  ? data.expected_components
+                  : ch.expected_components || [],
+                scale_notes:
+                  data.scale_notes !== undefined ? String(data.scale_notes || '').trim() : ch.scale_notes || '',
+              }
+            : {}),
         }
         db.system_design_challenges[idx] = updated
         db.system_design_sessions = (db.system_design_sessions || []).map((s) =>
-          Number(s.challenge_id) === Number(ch.id) ? { ...s, challenge: updated } : s
+          Number(s.challenge_id) === Number(ch.id) ? { ...s, challenge: serializeChallenge(updated) } : s
         )
         saveDemoDb(db)
-        return ok(updated)
+        return ok(serializeChallenge(updated))
       }
       if (method === 'delete') {
         const ch = db.system_design_challenges[idx]
-        db.system_design_challenges.splice(idx, 1)
-        db.system_design_sessions = (db.system_design_sessions || []).filter(
-          (s) => Number(s.challenge_id) !== Number(ch.id)
+        const hasSessions = (db.system_design_sessions || []).some(
+          (s) => Number(s.challenge_id) === Number(ch.id)
         )
+        if (ch.is_builtin || hasSessions) {
+          db.system_design_challenges[idx] = { ...ch, is_archived: true }
+        } else {
+          db.system_design_challenges.splice(idx, 1)
+        }
         saveDemoDb(db)
         return ok(null, 204)
       }

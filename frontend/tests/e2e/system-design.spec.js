@@ -230,3 +230,93 @@ test('completes full 5-stage adaptive loop with gated stepper, sleek input bar, 
 
   expect(errors).toEqual([])
 })
+
+test('preserves URL session recovery (F-06), custom challenge fields on edit (F-07), session history on delete (F-05), and Queue SD filters (F-04)', async ({
+  page,
+  isMobile,
+}) => {
+  const errors = []
+  page.on('pageerror', (err) => errors.push(err.message))
+  page.on('console', (msg) => {
+    if (msg.type() === 'warning' && msg.text().includes('[Vue warn]')) {
+      errors.push(msg.text())
+    }
+  })
+
+  await page.goto('/chat?mode=system_design')
+  await expect(page.getByRole('heading', { name: 'Interview Challenge Scenarios' })).toBeVisible()
+
+  // F-07: Create custom manual challenge with tags, expected components, and scale notes
+  await page.getByTestId('open-new-challenge-modal-btn').click()
+  await page.getByTestId('tab-manual-challenge').click()
+  await page.getByTestId('manual-title-input').fill('Design a Webhook Audit Bus')
+  await page.getByTestId('manual-summary-input').fill('Reliable webhook delivery with audit persistence.')
+  await page.getByTestId('manual-prompt-input').fill('Design an audit-grade webhook delivery pipeline.')
+  await page.getByTestId('manual-tags-input').fill('webhooks, queues')
+  await page.getByTestId('manual-expected-components-input').fill('API Gateway\nRetry Queue')
+  await page.getByTestId('manual-scale-notes-input').fill('5k events/sec peak, 100ms p99')
+  await page.getByTestId('submit-manual-challenge-btn').click()
+  await expect(page.getByText('Design a Webhook Audit Bus')).toBeVisible()
+
+  const customCard = page.locator('.challenge-card', { hasText: 'Design a Webhook Audit Bus' })
+
+  // Edit custom challenge -> pre-populated fields must appear and preserve updates
+  await customCard.getByTestId('edit-challenge-btn').click()
+  await expect(page.getByTestId('manual-tags-input')).toHaveValue('webhooks, queues')
+  await expect(page.getByTestId('manual-expected-components-input')).toHaveValue('API Gateway\nRetry Queue')
+  await expect(page.getByTestId('manual-scale-notes-input')).toHaveValue('5k events/sec peak, 100ms p99')
+  await page.getByTestId('manual-expected-components-input').fill('API Gateway\nRetry Queue\nDead-Letter Store')
+  await page.getByTestId('manual-scale-notes-input').fill('10k events/sec peak, 99.99% delivery')
+  await page.getByTestId('submit-manual-challenge-btn').click()
+
+  await customCard.getByTestId('edit-challenge-btn').click()
+  await expect(page.getByTestId('manual-expected-components-input')).toHaveValue(
+    'API Gateway\nRetry Queue\nDead-Letter Store'
+  )
+  await expect(page.getByTestId('manual-scale-notes-input')).toHaveValue('10k events/sec peak, 99.99% delivery')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+
+  // F-06: Start challenge -> URL gets ?mode=system_design&sessionId=...
+  await customCard.getByTestId('start-challenge-btn').click()
+  await expect(page.getByTestId('back-to-challenges-btn')).toBeVisible()
+  await expect(page).toHaveURL(/mode=system_design.*sessionId=\d+/)
+
+  // Reload page -> recovers the exact active session
+  await page.reload()
+  await expect(page.getByTestId('back-to-challenges-btn')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Design a Webhook Audit Bus' })).toBeVisible()
+
+  // Browser Back -> returns to lobby without sessionId; Browser Forward -> reopens session
+  await page.goBack()
+  await expect(page.getByRole('heading', { name: 'Interview Challenge Scenarios' })).toBeVisible()
+  await expect(page).not.toHaveURL(/sessionId=/)
+  await page.goForward()
+  await expect(page.getByTestId('back-to-challenges-btn')).toBeVisible()
+  await page.getByTestId('back-to-challenges-btn').click()
+  await expect(page.getByRole('heading', { name: 'Interview Challenge Scenarios' })).toBeVisible()
+
+  // F-05: Deleting a challenge that has a session archives the card but keeps session history accessible
+  await customCard.getByTestId('delete-challenge-btn').click()
+  await expect(page.locator('.challenge-card', { hasText: 'Design a Webhook Audit Bus' })).toHaveCount(0)
+  if (isMobile) {
+    const expandBtn = page.locator('.btn-expand-sidebar')
+    if (await expandBtn.isVisible()) {
+      await expandBtn.click()
+    }
+  }
+  const sidebarSessionItem = page
+    .locator('.chat-list-item.interview-session-item', { hasText: 'Design a Webhook Audit Bus' })
+    .first()
+  await expect(sidebarSessionItem).toBeVisible()
+  await sidebarSessionItem.click()
+  await expect(page.getByTestId('back-to-challenges-btn')).toBeVisible()
+
+  // F-04: QueueView exposes SD Review and SD Eval filters
+  await page.goto('/queue')
+  await expect(page.getByTestId('queue-filter-sd-review')).toBeVisible()
+  await expect(page.getByTestId('queue-filter-sd-eval')).toBeVisible()
+  await page.getByTestId('queue-filter-sd-review').click()
+  await page.getByTestId('queue-filter-sd-eval').click()
+
+  expect(errors).toEqual([])
+})

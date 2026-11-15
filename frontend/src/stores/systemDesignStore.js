@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { SystemDesignAPI } from '../api/endpoints'
+import { IntakeAPI, SystemDesignAPI } from '../api/endpoints'
+import { useQueueStore } from './queueStore'
 
 export const useSystemDesignStore = defineStore('systemDesign', () => {
   const challenges = ref([])
@@ -137,11 +138,6 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     try {
       await SystemDesignAPI.deleteChallenge(challengeId)
       challenges.value = challenges.value.filter((c) => c.id !== challengeId)
-      sessions.value = sessions.value.filter((s) => s.challenge_id !== challengeId)
-      if (activeSession.value?.challenge_id === challengeId) {
-        activeSession.value = null
-        frontierPacket.value = null
-      }
     } catch (err) {
       error.value = err.message
       throw err
@@ -183,12 +179,95 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     }
   }
 
+  let _pollToken = 0
+  const ACTIVE_QUEUE_STATUSES = new Set(['QUEUED', 'RUNNING', 'PROCESSING'])
+
+  function _refreshQueueStore() {
+    try {
+      const queueStore = useQueueStore()
+      Promise.resolve(queueStore.fetchTasks()).catch(() => {})
+    } catch {
+      // Queue store may not be mounted in isolated unit tests
+    }
+  }
+
+  async function _awaitActiveTaskCompletion(session, { silent = false } = {}) {
+    if (!session?.active_task_id || !ACTIVE_QUEUE_STATUSES.has(session.active_task_status)) {
+      return session
+    }
+    const taskId = session.active_task_id
+    const sessionId = session.id
+    const token = ++_pollToken
+    _refreshQueueStore()
+
+    for (let attempt = 0; attempt < 600; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 450))
+      if (token !== _pollToken || activeSession.value?.id !== sessionId) {
+        return activeSession.value
+      }
+      let task = null
+      try {
+        const taskRes = await IntakeAPI.getEvaluation(taskId)
+        task = taskRes?.data
+      } catch {
+        continue
+      }
+      if (!task) continue
+      if (activeSession.value?.id === sessionId) {
+        activeSession.value = {
+          ...activeSession.value,
+          active_task_id: task.id,
+          active_task_status: task.status,
+          active_task_stage: task.stage,
+          active_task_type: task.task_type,
+          active_task_error: task.error_message || null,
+        }
+      }
+      if (task.status === 'COMPLETED') {
+        const fresh = await SystemDesignAPI.getSession(sessionId)
+        _syncSessionInList(fresh.data)
+        _refreshQueueStore()
+        return fresh.data
+      }
+      if (task.status === 'FAILED' || task.status === 'CANCELLED') {
+        const fresh = await SystemDesignAPI.getSession(sessionId)
+        _syncSessionInList(fresh.data)
+        _refreshQueueStore()
+        const msg = task.error_message || `Background task ${task.status.toLowerCase()}`
+        error.value = msg
+        if (!silent) {
+          throw new Error(msg)
+        }
+        return fresh.data
+      }
+    }
+    const timeoutMsg = 'Background AI task timed out waiting for completion. Check the Queue view for progress.'
+    error.value = timeoutMsg
+    if (!silent) throw new Error(timeoutMsg)
+    return activeSession.value
+  }
+
   async function loadSession(sessionId) {
+    _pollToken++
+    reviewingDiagram.value = false
+    evaluatingSession.value = false
     loadingSession.value = true
     error.value = null
     try {
       const res = await SystemDesignAPI.getSession(sessionId)
       _syncSessionInList(res.data)
+      if (res.data?.active_task_id && ACTIVE_QUEUE_STATUSES.has(res.data.active_task_status)) {
+        const isReview = res.data.active_task_type === 'SYSTEM_DESIGN_REVIEW'
+        const isEval = res.data.active_task_type === 'SYSTEM_DESIGN_EVALUATION'
+        if (isReview) reviewingDiagram.value = true
+        if (isEval) evaluatingSession.value = true
+        _awaitActiveTaskCompletion(res.data, { silent: true })
+          .catch(() => {})
+          .finally(() => {
+            if (isReview) reviewingDiagram.value = false
+            if (isEval) evaluatingSession.value = false
+          })
+      }
       return res.data
     } catch (err) {
       error.value = err.message
@@ -204,6 +283,7 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
       await SystemDesignAPI.deleteSession(sessionId)
       sessions.value = sessions.value.filter((s) => s.id !== sessionId)
       if (activeSession.value?.id === sessionId) {
+        _pollToken++
         activeSession.value = null
       }
     } catch (err) {
@@ -213,6 +293,9 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
   }
 
   function clearActiveSession() {
+    _pollToken++
+    reviewingDiagram.value = false
+    evaluatingSession.value = false
     activeSession.value = null
     frontierPacket.value = null
   }
@@ -315,7 +398,7 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
       }
       const res = await SystemDesignAPI.reviewDiagram(activeSession.value.id, payload)
       _syncSessionInList(res.data)
-      return res.data
+      return await _awaitActiveTaskCompletion(res.data)
     } catch (err) {
       error.value = err.message
       throw err
@@ -347,12 +430,49 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     try {
       const res = await SystemDesignAPI.evaluateSession(activeSession.value.id)
       _syncSessionInList(res.data)
-      return res.data
+      return await _awaitActiveTaskCompletion(res.data)
     } catch (err) {
       error.value = err.message
       throw err
     } finally {
       evaluatingSession.value = false
+    }
+  }
+
+  async function cancelActiveTask() {
+    const taskId = activeSession.value?.active_task_id
+    const sessionId = activeSession.value?.id
+    if (!taskId || !sessionId) return null
+    error.value = null
+    _pollToken++
+    await IntakeAPI.cancelEvaluation(taskId)
+    reviewingDiagram.value = false
+    evaluatingSession.value = false
+    _refreshQueueStore()
+    return await loadSession(sessionId)
+  }
+
+  async function retryActiveTask() {
+    const taskId = activeSession.value?.active_task_id
+    const sessionId = activeSession.value?.id
+    const taskType = activeSession.value?.active_task_type
+    if (!taskId || !sessionId) return null
+    error.value = null
+    const isReview = taskType === 'SYSTEM_DESIGN_REVIEW'
+    const isEval = taskType === 'SYSTEM_DESIGN_EVALUATION'
+    if (isReview) reviewingDiagram.value = true
+    if (isEval) evaluatingSession.value = true
+    try {
+      await IntakeAPI.retryEvaluation(taskId)
+      const fresh = await SystemDesignAPI.getSession(sessionId)
+      _syncSessionInList(fresh.data)
+      return await _awaitActiveTaskCompletion(fresh.data)
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      if (isReview) reviewingDiagram.value = false
+      if (isEval) evaluatingSession.value = false
     }
   }
 
@@ -434,6 +554,8 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     reviewDiagram,
     sendDefenceMessage,
     evaluateSession,
+    cancelActiveTask,
+    retryActiveTask,
     fetchFrontierPacket,
     importEvaluation,
   }

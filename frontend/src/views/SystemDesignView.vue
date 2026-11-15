@@ -56,6 +56,7 @@ const evalSubTab = ref('scorecard')
 // Custom & AI Challenge modal state
 const showCreateChallengeModal = ref(false)
 const editingChallengeId = ref(null)
+const editingChallengeIsBuiltin = ref(false)
 const createModalTab = ref('generate')
 const generateForm = ref({
   topic: '',
@@ -304,6 +305,7 @@ async function handleStartChallenge(challenge) {
 
 async function openCreateChallengeModal() {
   editingChallengeId.value = null
+  editingChallengeIsBuiltin.value = false
   createModalTab.value = 'generate'
   manualForm.value = {
     title: '',
@@ -327,6 +329,7 @@ async function openCreateChallengeModal() {
 
 function openEditChallengeModal(challenge) {
   editingChallengeId.value = challenge.id
+  editingChallengeIsBuiltin.value = Boolean(challenge.is_builtin)
   createModalTab.value = 'manual'
   manualForm.value = {
     title: challenge.title || '',
@@ -335,8 +338,8 @@ function openEditChallengeModal(challenge) {
     promptSummary: challenge.prompt_summary || '',
     initialPrompt: challenge.initial_prompt || '',
     tagsText: (challenge.tags || []).join(', '),
-    expectedComponentsText: '',
-    scaleNotes: '',
+    expectedComponentsText: (challenge.expected_components || []).join('\n'),
+    scaleNotes: challenge.scale_notes || '',
   }
   showCreateChallengeModal.value = true
 }
@@ -354,6 +357,7 @@ async function handleCreateManualChallenge() {
     .split(/[,\n]/)
     .map((t) => t.trim())
     .filter(Boolean)
+  const includeCustomRubricFields = !editingChallengeId.value || !editingChallengeIsBuiltin.value
   const payload = {
     title: manualForm.value.title.trim(),
     category: manualForm.value.category,
@@ -361,8 +365,12 @@ async function handleCreateManualChallenge() {
     prompt_summary: manualForm.value.promptSummary.trim(),
     initial_prompt: manualForm.value.initialPrompt.trim(),
     tags: parsedTags,
-    expected_components: parseLines(manualForm.value.expectedComponentsText),
-    scale_notes: manualForm.value.scaleNotes.trim(),
+    ...(includeCustomRubricFields
+      ? {
+          expected_components: parseLines(manualForm.value.expectedComponentsText),
+          scale_notes: manualForm.value.scaleNotes.trim(),
+        }
+      : {}),
   }
   try {
     if (editingChallengeId.value) {
@@ -374,6 +382,7 @@ async function handleCreateManualChallenge() {
     }
     showCreateChallengeModal.value = false
     editingChallengeId.value = null
+    editingChallengeIsBuiltin.value = false
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to save challenge', 'error')
   }
@@ -570,6 +579,31 @@ async function handleEvaluateSession() {
     uiStore.showToast('Final evaluation scorecard ready!', 'success')
   } catch (err) {
     uiStore.showToast(err.message || 'Failed to generate final evaluation', 'error')
+  }
+}
+
+async function handleCancelActiveTask() {
+  try {
+    await store.cancelActiveTask()
+    uiStore.showToast('Background task cancelled.', 'info')
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to cancel background task', 'error')
+  }
+}
+
+async function handleRetryActiveTask() {
+  const wasEval = store.activeSession?.active_task_type === 'SYSTEM_DESIGN_EVALUATION'
+  try {
+    await store.retryActiveTask()
+    if (wasEval && store.activeFinalEvaluation) {
+      activeStageTab.value = 'COMPLETED'
+      evalSubTab.value = 'scorecard'
+    } else if (!wasEval && store.activeReviews.length) {
+      activeStageTab.value = 'REVIEW'
+    }
+    uiStore.showToast('Background task completed!', 'success')
+  } catch (err) {
+    uiStore.showToast(err.message || 'Retry failed', 'error')
   }
 }
 
@@ -939,25 +973,29 @@ onUnmounted(() => {
               />
             </label>
 
-            <label class="sd-field">
-              <span>Expected Core Components (one per line, optional hidden rubric)</span>
-              <textarea
-                v-model="manualForm.expectedComponentsText"
-                class="form-textarea"
-                rows="2"
-                placeholder="API Gateway&#10;Retry Queue&#10;Dead-Letter Store"
-              />
-            </label>
+            <template v-if="!editingChallengeId || !editingChallengeIsBuiltin">
+              <label class="sd-field">
+                <span>Expected Core Components (one per line, optional hidden rubric)</span>
+                <textarea
+                  v-model="manualForm.expectedComponentsText"
+                  class="form-textarea"
+                  rows="2"
+                  data-testid="manual-expected-components-input"
+                  placeholder="API Gateway&#10;Retry Queue&#10;Dead-Letter Store"
+                />
+              </label>
 
-            <label class="sd-field">
-              <span>Hidden Scale Targets (revealed only when candidate asks)</span>
-              <input
-                v-model="manualForm.scaleNotes"
-                type="text"
-                class="form-input"
-                placeholder="e.g., 5,000 events/sec peak, 10k tenants, 99.95% delivery SLA"
-              />
-            </label>
+              <label class="sd-field">
+                <span>Hidden Scale Targets (revealed only when candidate asks)</span>
+                <input
+                  v-model="manualForm.scaleNotes"
+                  type="text"
+                  class="form-input"
+                  data-testid="manual-scale-notes-input"
+                  placeholder="e.g., 5,000 events/sec peak, 10k tenants, 99.95% delivery SLA"
+                />
+              </label>
+            </template>
 
             <div class="sd-modal-actions">
               <button
@@ -1029,6 +1067,61 @@ onUnmounted(() => {
             <span>{{ st.label }}</span>
           </button>
         </nav>
+
+        <!-- Background Queue Task Banner (F-04) -->
+        <div
+          v-if="['QUEUED', 'RUNNING', 'PROCESSING', 'FAILED', 'CANCELLED'].includes(activeSession.active_task_status)"
+          class="sd-task-banner"
+          :class="{
+            'is-failed': ['FAILED', 'CANCELLED'].includes(activeSession.active_task_status),
+          }"
+          data-testid="sd-active-task-banner"
+        >
+          <div class="sd-task-banner-info">
+            <Loader2
+              v-if="['QUEUED', 'RUNNING', 'PROCESSING'].includes(activeSession.active_task_status)"
+              :size="15"
+              class="spin"
+            />
+            <AlertTriangle v-else :size="15" />
+            <div>
+              <strong>
+                {{
+                  activeSession.active_task_type === 'SYSTEM_DESIGN_EVALUATION'
+                    ? 'Final Evaluation Task'
+                    : 'Architecture Review Task'
+                }}
+                • {{ activeSession.active_task_status }}
+                <span v-if="activeSession.active_task_stage">({{ activeSession.active_task_stage }})</span>
+              </strong>
+              <p v-if="activeSession.active_task_error" class="sd-task-banner-error">
+                {{ activeSession.active_task_error }}
+              </p>
+            </div>
+          </div>
+          <div class="sd-task-banner-actions">
+            <button
+              v-if="['QUEUED', 'RUNNING', 'PROCESSING'].includes(activeSession.active_task_status)"
+              type="button"
+              class="btn btn-secondary btn-xs"
+              data-testid="sd-cancel-task-btn"
+              @click="handleCancelActiveTask"
+            >
+              <X :size="12" />
+              <span>Cancel Task</span>
+            </button>
+            <button
+              v-else
+              type="button"
+              class="btn btn-primary btn-xs"
+              data-testid="sd-retry-task-btn"
+              @click="handleRetryActiveTask"
+            >
+              <RotateCcw :size="12" />
+              <span>Retry Task</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- ==============================================================
@@ -2748,6 +2841,44 @@ onUnmounted(() => {
 .sd-packet-preview {
   font-family: var(--font-mono, monospace);
   font-size: 12px;
+}
+
+.sd-task-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--status-interview-bg);
+  color: var(--status-interview-text);
+  border: 1px solid var(--status-interview-border);
+  font-size: 13px;
+}
+
+.sd-task-banner.is-failed {
+  background: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+  border-color: var(--status-rejected-border);
+}
+
+.sd-task-banner-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.sd-task-banner-error {
+  margin: 4px 0 0;
+  font-size: 12px;
+  opacity: 0.92;
+}
+
+.sd-task-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 @media (max-width: 900px) {

@@ -570,6 +570,24 @@ onMounted(() => {
             <Mail :size="12" />
             <span>Email Sync</span>
           </button>
+          <button
+            class="type-pill"
+            :class="{ active: typeFilter === 'SYSTEM_DESIGN_REVIEW' }"
+            data-testid="queue-filter-sd-review"
+            @click="typeFilter = 'SYSTEM_DESIGN_REVIEW'"
+          >
+            <Layers :size="12" />
+            <span>SD Review</span>
+          </button>
+          <button
+            class="type-pill"
+            :class="{ active: typeFilter === 'SYSTEM_DESIGN_EVALUATION' }"
+            data-testid="queue-filter-sd-eval"
+            @click="typeFilter = 'SYSTEM_DESIGN_EVALUATION'"
+          >
+            <ShieldCheck :size="12" />
+            <span>SD Eval</span>
+          </button>
         </div>
 
         <!-- Actions: Slot Saturation, VRAM Release, Search, Refresh, Clear Completed -->
@@ -857,7 +875,9 @@ onMounted(() => {
                   'type-qa': task.task_type === 'APPLICATION_QA',
                   'type-dossier': task.task_type === 'ROLE_ALIGNMENT_DOSSIER',
                   'type-company-research': task.task_type === 'COMPANY_RESEARCH',
-                  'type-email-sync': task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE'
+                  'type-email-sync': task.task_type === 'EMAIL_SYNC' || task.task_type === 'EMAIL_INTAKE',
+                  'type-sd-review': task.task_type === 'SYSTEM_DESIGN_REVIEW',
+                  'type-sd-eval': task.task_type === 'SYSTEM_DESIGN_EVALUATION'
                 }"
               >
                 <component :is="getTaskTypeIcon(task.task_type)" :size="12" />
@@ -920,7 +940,7 @@ onMounted(() => {
           <!-- DEDICATED PIPELINE STEPPERS -->
           <div class="task-pipeline-container">
             <!-- 1. JOB ASSESSMENT STEPPER (Conditional 5 or 6 Stages based on enableAutoCoverLetter) -->
-            <div v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'COMPANY_RESEARCH', 'EMAIL_SYNC', 'EMAIL_INTAKE'].includes(task.task_type)" class="pipeline-stepper job-stepper">
+            <div v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'COMPANY_RESEARCH', 'EMAIL_SYNC', 'EMAIL_INTAKE', 'SYSTEM_DESIGN_REVIEW', 'SYSTEM_DESIGN_EVALUATION'].includes(task.task_type)" class="pipeline-stepper job-stepper">
               <div
                 class="stepper-node"
                 :class="{
@@ -1402,6 +1422,41 @@ onMounted(() => {
                 </div>
               </div>
             </div>
+
+            <!-- 9. SYSTEM DESIGN REVIEW & EVALUATION STEPPER (3 Stages) -->
+            <div v-else-if="['SYSTEM_DESIGN_REVIEW', 'SYSTEM_DESIGN_EVALUATION'].includes(task.task_type)" class="pipeline-stepper sd-stepper">
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'QUEUED',
+                  done: ['ANALYZING', 'COMPLETE'].includes(task.stage) || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">1</div>
+                <span class="node-label">Queued</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  active: task.stage === 'ANALYZING',
+                  done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">2</div>
+                <span class="node-label">{{ task.task_type === 'SYSTEM_DESIGN_REVIEW' ? 'Analyzing Architecture' : 'Evaluating Rubric' }}</span>
+              </div>
+
+              <div
+                class="stepper-node"
+                :class="{
+                  done: task.stage === 'COMPLETE' || task.status === 'COMPLETED',
+                }"
+              >
+                <div class="node-bullet">3</div>
+                <span class="node-label">Complete</span>
+              </div>
+            </div>
           </div>
           
           <!-- Error Alert Banner with Provide/Edit Description & Retry Actions -->
@@ -1436,7 +1491,7 @@ onMounted(() => {
           <!-- Result Footer & Contextual Actions -->
           <div v-else-if="task.status === 'COMPLETED' && task.result_json" class="task-card-footer">
             <!-- Job Assessment Context -->
-            <template v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'COMPANY_RESEARCH', 'EMAIL_SYNC', 'EMAIL_INTAKE'].includes(task.task_type)">
+            <template v-if="!['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER', 'APPLICATION_QA', 'ROLE_ALIGNMENT_DOSSIER', 'COMPANY_RESEARCH', 'EMAIL_SYNC', 'EMAIL_INTAKE', 'SYSTEM_DESIGN_REVIEW', 'SYSTEM_DESIGN_EVALUATION'].includes(task.task_type)">
               <div class="footer-left">
                 <span class="score-badge algo-score-badge">
                   Algo: {{ getFitScores(task.result_json).computedText }}
@@ -1604,6 +1659,32 @@ onMounted(() => {
                 >
                   <Building2 :size="12" />
                   <span>View Companies &rarr;</span>
+                </router-link>
+              </div>
+            </template>
+
+            <!-- System Design Review / Evaluation Context -->
+            <template v-else-if="['SYSTEM_DESIGN_REVIEW', 'SYSTEM_DESIGN_EVALUATION'].includes(task.task_type)">
+              <div class="footer-left">
+                <span class="badge-cv-ready">
+                  <ShieldCheck v-if="task.task_type === 'SYSTEM_DESIGN_EVALUATION'" :size="12" />
+                  <Layers v-else :size="12" />
+                  <span>{{ task.task_type === 'SYSTEM_DESIGN_REVIEW' ? 'Architecture Reviewed' : 'Final Evaluation Ready' }}</span>
+                </span>
+                <span v-if="task.task_type === 'SYSTEM_DESIGN_EVALUATION' && task.result_json?.overall_score !== undefined" class="footer-meta-text">
+                  Score: {{ Math.round(task.result_json.overall_score) }}/100 ({{ task.result_json.readiness_rating || 'GRADED' }})
+                </span>
+                <span v-else-if="task.result_json?.diagram_version" class="footer-meta-text">
+                  Revision v{{ task.result_json.diagram_version }}
+                </span>
+              </div>
+              <div class="footer-right">
+                <router-link
+                  :to="task.result_json?.session_id ? `/agent?mode=system_design&sessionId=${task.result_json.session_id}` : '/agent?mode=system_design'"
+                  class="btn btn-primary btn-xs"
+                >
+                  <Layers :size="12" />
+                  <span>Open Session &rarr;</span>
                 </router-link>
               </div>
             </template>
@@ -2070,6 +2151,18 @@ onMounted(() => {
   background-color: var(--primary-subtle);
   color: var(--primary);
   border: 1px solid var(--primary-glow);
+}
+
+.task-type-tag.type-sd-review {
+  background-color: var(--status-interview-bg);
+  color: var(--status-interview-text);
+  border: 1px solid var(--status-interview-border);
+}
+
+.task-type-tag.type-sd-eval {
+  background-color: var(--status-offer-bg);
+  color: var(--status-offer-text);
+  border: 1px solid var(--status-offer-border);
 }
 
 .pipeline-stepper-box {
