@@ -249,6 +249,26 @@ class SystemDesignChallengeGenerateRequest(BaseModel):
     application_id: int | None = None
     difficulty: str = Field(default="MEDIUM", max_length=40)
     use_web_search: bool = True
+    extra_context: str = Field(default="", max_length=3000)
+    allow_duplicate: bool = False
+
+
+class ChallengeFrontierPromptResponse(BaseModel):
+    """Self-contained Markdown prompt to generate a tailored challenge in any frontier chat."""
+
+    filename: str
+    markdown_prompt: str
+    context_signals: list[str] = Field(default_factory=list)
+    existing_challenge_titles: list[str] = Field(default_factory=list)
+
+
+class ImportFrontierChallengeRequest(BaseModel):
+    """Import a challenge JSON payload produced by an external frontier chat model."""
+
+    raw_response: str = Field(..., min_length=20, max_length=100000)
+    application_id: int | None = None
+    difficulty: str = Field(default="MEDIUM", max_length=40)
+    allow_duplicate: bool = False
 
 
 def _strip_non_empty_text(value: str) -> str:

@@ -208,6 +208,9 @@ export const SystemDesignAPI = {
   getChallenge: (slugOrId) => apiClient.get(`/system-design/challenges/${slugOrId}`),
   createChallenge: (data) => apiClient.post('/system-design/challenges', data),
   generateChallenge: (data) => apiClient.post('/system-design/challenges/generate', data),
+  prepareFrontierChallengePrompt: (data) =>
+    apiClient.post('/system-design/challenges/frontier-prompt', data),
+  importFrontierChallenge: (data) => apiClient.post('/system-design/challenges/import', data),
   updateChallenge: (challengeId, data) =>
     apiClient.put(`/system-design/challenges/${challengeId}`, data),
   resetDefaultChallenges: () => apiClient.post('/system-design/challenges/reset-defaults'),

@@ -8,6 +8,7 @@ import secrets
 import shutil
 import tempfile
 from datetime import UTC, datetime
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -32,9 +33,11 @@ from app.models.system_design import (
 )
 from app.schemas.system_design import (
     ArchitectureReviewSchema,
+    ChallengeFrontierPromptResponse,
     DiagramRevisionRead,
     FinalEvaluationSchema,
     FrontierEvaluationPacketRead,
+    ImportFrontierChallengeRequest,
     RequirementsLedgerSchema,
     RequirementsLedgerUpdateRequest,
     RubricDimensionScore,
@@ -219,6 +222,11 @@ MODE_INSTRUCTIONS: dict[str, str] = {
 
 CUSTOM_CHALLENGE_GENERATE_PROMPT = """You are a Staff System Design Interview Architect designing a tailored system design interview challenge with 3 genuinely distinct architectural requirement variants.
 
+CRITICAL RULES:
+1. UNIQUENESS: Never duplicate or lightly re-skin any challenge in the provided EXISTING CHALLENGES list. Pick a concrete, role-relevant system design problem with a genuinely different problem domain and architectural bottleneck.
+2. CONTEXT GROUNDING & PRIVACY: If job application notes, company research, job description, match gap analysis, or interview email clues are provided, use them to target the company's real technical domain, scale pressures, and probable interview focus. NEVER copy private compensation figures, recruiter contacts, or verbatim personal notes into candidate-facing `title`, `prompt_summary`, or `initial_prompt`.
+3. NO ANSWER LEAKS: Keep `prompt_summary` and `initial_prompt` intentionally broad so the candidate still discovers scale, SLAs, and trade-offs during Stage 1 requirements interview.
+
 Respond ONLY with a valid JSON object matching this exact schema (no markdown fences):
 {{
   "title": "<concise realistic challenge title, e.g. Design a Real-Time Fraud Scoring Pipeline>",
@@ -304,6 +312,144 @@ _HINT_REQUEST_RE = re.compile(
 def _slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return slug[:80] or "custom-challenge"
+
+
+class DuplicateChallengeError(ValueError):
+    """Raised when a generated or imported challenge closely overlaps an existing active challenge."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        existing_title: str = "",
+        existing_slug: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.existing_title = existing_title
+        self.existing_slug = existing_slug
+
+
+_TITLE_WRAPPER_STOPWORDS = {
+    "design",
+    "build",
+    "create",
+    "architect",
+    "implement",
+    "a",
+    "an",
+    "the",
+    "system",
+    "service",
+    "platform",
+    "architecture",
+    "engine",
+    "pipeline",
+    "for",
+    "of",
+    "and",
+    "with",
+    "to",
+    "in",
+    "on",
+}
+
+
+def _tokenize_title_domain(title: str) -> tuple[str, set[str]]:
+    raw_words = re.findall(r"[a-z0-9]+", str(title or "").lower())
+    domain_words = [w for w in raw_words if w not in _TITLE_WRAPPER_STOPWORDS]
+    effective = domain_words or raw_words
+    return (" ".join(effective), set(effective))
+
+
+def _find_similar_challenge(
+    title: str,
+    existing_challenges: list[dict[str, str]],
+) -> dict[str, str] | None:
+    """Detect whether a candidate challenge title duplicates an existing active challenge."""
+    cand_slug = _slugify(title)
+    cand_clean, cand_tokens = _tokenize_title_domain(title)
+    if not cand_clean:
+        return None
+
+    for item in existing_challenges:
+        ex_title = str(item.get("title") or "").strip()
+        ex_slug = str(item.get("slug") or _slugify(ex_title)).strip()
+        if not ex_title:
+            continue
+        if cand_slug == ex_slug:
+            return item
+        ex_clean, ex_tokens = _tokenize_title_domain(ex_title)
+        if not ex_clean:
+            continue
+        if cand_clean == ex_clean:
+            return item
+        union = cand_tokens | ex_tokens
+        inter = cand_tokens & ex_tokens
+        jaccard = (len(inter) / len(union)) if union else 0.0
+        ratio = SequenceMatcher(None, cand_clean, ex_clean).ratio()
+        if jaccard >= 0.72 and len(inter) >= 2:
+            return item
+        if ratio >= 0.84:
+            return item
+        # Stemmed containment check (e.g. shortener vs shortening, rate limiter vs rate limiting)
+        if len(cand_tokens) >= 2 and len(ex_tokens) >= 2:
+            if (cand_tokens <= ex_tokens or ex_tokens <= cand_tokens) and ratio >= 0.65:
+                return item
+    return None
+
+
+def _validate_generated_challenge_payload(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Validate completeness of an AI-generated or Frontier-imported challenge payload."""
+    if not isinstance(parsed, dict):
+        raise ValueError("Challenge payload must be a JSON object.")
+
+    title = str(parsed.get("title") or "").strip()
+    prompt_summary = str(parsed.get("prompt_summary") or "").strip()
+    initial_prompt = str(parsed.get("initial_prompt") or "").strip()
+
+    for label, text, min_len in (
+        ("title", title, 5),
+        ("prompt_summary", prompt_summary, 12),
+        ("initial_prompt", initial_prompt, 15),
+    ):
+        if len(text) < min_len or text.lower() in _PLACEHOLDER_STRINGS:
+            raise ValueError(
+                f"Challenge field '{label}' must be meaningful (>= {min_len} chars, non-placeholder)."
+            )
+
+    raw_brief = parsed.get("interviewer_brief")
+    if not isinstance(raw_brief, dict) or not raw_brief:
+        raise ValueError(
+            "Challenge payload must include a non-empty 'interviewer_brief' object."
+        )
+
+    variants = _extract_brief_variants(raw_brief)
+    if "variants" in raw_brief and raw_brief.get("variants") is not None:
+        if len(variants) < 2:
+            raise ValueError(
+                "Challenge interviewer_brief.variants must define at least 2 distinct scenario variants."
+            )
+        for idx, var in enumerate(variants, start=1):
+            has_scope = bool(
+                _normalize_string_list(var.get("functional_requirements"))
+                or _normalize_string_list(var.get("expected_components"))
+            )
+            has_questions = bool(_normalize_string_list(var.get("defence_questions")))
+            if not has_scope or not has_questions:
+                raise ValueError(
+                    f"Variant {idx} ('{var.get('title')}') must include expected_components/functional_requirements and defence_questions."
+                )
+    else:
+        expected_components = _normalize_string_list(
+            raw_brief.get("expected_components")
+        )
+        defence_questions = _normalize_string_list(raw_brief.get("defence_questions"))
+        if not expected_components or not defence_questions:
+            raise ValueError(
+                "Challenge interviewer_brief must include either 2+ structured variants or non-empty expected_components and defence_questions."
+            )
+
+    return parsed
 
 
 _VARIANT_BRIEF_COPY_KEYS = (
@@ -960,19 +1106,45 @@ class SystemDesignService:
         return challenge
 
     @staticmethod
-    async def prepare_challenge_gen_context(
-        db: AsyncSession, payload_dict: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Step 1 for SYSTEM_DESIGN_CHALLENGE_GEN: validate input, load app context, and fetch web snippets."""
-        await SystemDesignService._ensure_challenges_seeded(db)
-        topic_text = str(payload_dict.get("topic") or "").strip()
-        application_id = payload_dict.get("application_id")
-        difficulty = (
-            str(payload_dict.get("difficulty") or "MEDIUM").strip().upper() or "MEDIUM"
+    async def _list_active_challenge_summaries(
+        db: AsyncSession,
+    ) -> list[dict[str, str]]:
+        """Return active (non-archived) challenge titles, slugs, and short summaries."""
+        stmt = (
+            select(SystemDesignChallengeModel)
+            .where(SystemDesignChallengeModel.is_archived.is_(False))
+            .order_by(SystemDesignChallengeModel.id.asc())
         )
-        use_web_search = bool(payload_dict.get("use_web_search", False))
+        rows = (await db.execute(stmt)).scalars().all()
+        return [
+            {
+                "slug": str(row.slug),
+                "title": str(row.title),
+                "prompt_summary": str(row.prompt_summary or "").strip(),
+            }
+            for row in rows
+        ]
+
+    @staticmethod
+    async def _assemble_challenge_prompt_context(
+        db: AsyncSession,
+        *,
+        topic: str = "",
+        application_id: int | None = None,
+        difficulty: str = "MEDIUM",
+        extra_context: str = "",
+        use_web_search: bool = False,
+        allow_duplicate: bool = False,
+    ) -> dict[str, Any]:
+        """Build shared rich role/notes/anti-duplication context for Local AI or Frontier Chat."""
+        await SystemDesignService._ensure_challenges_seeded(db)
+        topic_text = str(topic or "").strip()
+        extra_text = str(extra_context or "").strip()
+        norm_difficulty = str(difficulty or "MEDIUM").strip().upper() or "MEDIUM"
         app_context_parts: list[str] = []
+        context_signals: list[str] = []
         search_seed = topic_text
+        app_slug_hint = "custom"
 
         if application_id is not None:
             app_stmt = (
@@ -980,36 +1152,126 @@ class SystemDesignService:
                 .options(
                     selectinload(ApplicationModel.company),
                     selectinload(ApplicationModel.job_posting),
+                    selectinload(ApplicationModel.events),
                 )
                 .where(ApplicationModel.id == int(application_id))
             )
             application = (await db.execute(app_stmt)).scalar_one_or_none()
             if not application:
                 raise ValueError(f"Application {application_id} not found.")
-            company_name = (
-                application.company.name if application.company else "Target Company"
-            )
+            company = application.company
+            company_name = company.name if company else "Target Company"
             role_title = application.position or "Software Engineer"
+            app_slug_hint = _slugify(f"{company_name}-{role_title}")
             search_seed = f"{company_name} {role_title} {topic_text}".strip()
             app_context_parts.append(
                 f"Target Role: {role_title} at {company_name} (status: {application.status})"
             )
-            if application.job_posting:
-                skills = application.job_posting.required_skills or []
+
+            if application.notes and application.notes.strip():
+                context_signals.append("Application Notes")
+                app_context_parts.append(
+                    "Candidate Application Notes (use for interview clues only; do not copy private details verbatim):\n"
+                    + application.notes.strip()[:1200]
+                )
+
+            posting = application.job_posting
+            if posting:
+                has_posting_signal = False
+                skills = posting.required_skills or []
                 if skills:
+                    has_posting_signal = True
                     app_context_parts.append(
-                        f"Required Skills: {', '.join(str(s) for s in skills[:12])}"
+                        f"Required Skills: {', '.join(str(s) for s in skills[:15])}"
                     )
-                if application.job_posting.description_markdown:
+                if posting.structured_spec and isinstance(
+                    posting.structured_spec, dict
+                ):
+                    has_posting_signal = True
+                    app_context_parts.append(
+                        "Structured Job Spec:\n"
+                        + json.dumps(posting.structured_spec, ensure_ascii=False)[:1000]
+                    )
+                if (
+                    posting.description_markdown
+                    and posting.description_markdown.strip()
+                ):
+                    has_posting_signal = True
                     app_context_parts.append(
                         "Job Description Excerpt:\n"
-                        + application.job_posting.description_markdown[:1500]
+                        + posting.description_markdown.strip()[:1800]
                     )
+                if has_posting_signal:
+                    context_signals.append("Job Posting & Skills")
 
-        if not topic_text and not app_context_parts:
-            raise ValueError(
-                "Provide either a challenge topic or link an application_id."
+            if company:
+                company_bits: list[str] = []
+                if company.notes and company.notes.strip():
+                    company_bits.append(f"Company Notes: {company.notes.strip()[:800]}")
+                pros_items = _normalize_string_list(company.pros)
+                if pros_items:
+                    company_bits.append(
+                        f"Engineering Highlights: {', '.join(pros_items)[:500]}"
+                    )
+                if company.company_research and isinstance(
+                    company.company_research, dict
+                ):
+                    company_bits.append(
+                        "Company Research: "
+                        + json.dumps(company.company_research, ensure_ascii=False)[
+                            :1000
+                        ]
+                    )
+                if company_bits:
+                    context_signals.append("Company Research")
+                    app_context_parts.append("\n".join(company_bits))
+
+            if application.match_analysis_payload and isinstance(
+                application.match_analysis_payload, dict
+            ):
+                context_signals.append("Match Gap Analysis")
+                app_context_parts.append(
+                    "Candidate Match / Focus Signals:\n"
+                    + json.dumps(
+                        application.match_analysis_payload, ensure_ascii=False
+                    )[:900]
+                )
+
+            events = sorted(
+                list(application.events or []),
+                key=lambda ev: (
+                    ev.email_received_at.timestamp() if ev.email_received_at else 0.0,
+                    ev.id or 0,
+                ),
+                reverse=True,
             )
+            email_clues: list[str] = []
+            for ev in events:
+                subj = str(ev.email_subject or "").strip()
+                summ = str(ev.email_summary or "").strip()
+                if subj or summ:
+                    label = f"[{ev.email_event_type or 'EMAIL'}] {subj}: {summ[:240]}".strip()
+                    email_clues.append(f"- {label}")
+                if len(email_clues) >= 5:
+                    break
+            if email_clues:
+                context_signals.append("Interview Email Clues")
+                app_context_parts.append(
+                    "Recent Application / Interview Email Clues:\n"
+                    + "\n".join(email_clues)
+                )
+
+        if extra_text:
+            context_signals.append("Extra Focus Clues")
+
+        if not topic_text and not app_context_parts and not extra_text:
+            raise ValueError(
+                "Provide either a challenge topic, extra focus notes, or link an application_id."
+            )
+
+        existing_challenges = (
+            await SystemDesignService._list_active_challenge_summaries(db)
+        )
 
         web_snippets = ""
         if use_web_search and search_seed:
@@ -1017,65 +1279,143 @@ class SystemDesignService:
                 db,
                 f"{search_seed} system design architecture engineering blog scale",
             )
+            if web_snippets:
+                context_signals.append("Web Grounding")
 
-        sys_prompt = CUSTOM_CHALLENGE_GENERATE_PROMPT.format(difficulty=difficulty)
-        user_sections = []
+        sys_prompt = CUSTOM_CHALLENGE_GENERATE_PROMPT.format(difficulty=norm_difficulty)
+        user_sections: list[str] = []
         if topic_text:
             user_sections.append(f"Requested Topic / Scenario:\n{topic_text}")
         if app_context_parts:
             user_sections.append(
-                "Job Application Context:\n" + "\n".join(app_context_parts)
+                "Job Application Context:\n" + "\n\n".join(app_context_parts)
+            )
+        if extra_text:
+            user_sections.append(
+                "Candidate Extra Focus / Interviewer Clues:\n" + extra_text
             )
         if web_snippets:
             user_sections.append(
                 "Recent Web Search Context (ground engineering constraints cleanly):\n"
                 + web_snippets
             )
+        if existing_challenges:
+            dedup_lines = [
+                f"- {item['title']} — {item['prompt_summary'][:140]}"
+                if item["prompt_summary"]
+                else f"- {item['title']}"
+                for item in existing_challenges
+            ]
+            user_sections.append(
+                "EXISTING CHALLENGES — DO NOT DUPLICATE (choose a genuinely distinct system design domain & bottleneck):\n"
+                + "\n".join(dedup_lines)
+            )
 
         return {
             "topic_text": topic_text,
-            "difficulty": difficulty,
+            "extra_context": extra_text,
+            "difficulty": norm_difficulty,
+            "allow_duplicate": bool(allow_duplicate),
+            "app_slug_hint": app_slug_hint,
+            "context_signals": context_signals,
+            "existing_challenges": existing_challenges,
             "sys_prompt": sys_prompt,
             "user_prompt": "\n\n".join(user_sections),
         }
 
     @staticmethod
+    async def prepare_challenge_gen_context(
+        db: AsyncSession, payload_dict: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Step 1 for SYSTEM_DESIGN_CHALLENGE_GEN: validate input, load app context, and fetch web snippets."""
+        app_id = payload_dict.get("application_id")
+        return await SystemDesignService._assemble_challenge_prompt_context(
+            db,
+            topic=str(payload_dict.get("topic") or ""),
+            application_id=int(app_id) if app_id is not None else None,
+            difficulty=str(payload_dict.get("difficulty") or "MEDIUM"),
+            extra_context=str(payload_dict.get("extra_context") or ""),
+            use_web_search=bool(payload_dict.get("use_web_search", False)),
+            allow_duplicate=bool(payload_dict.get("allow_duplicate", False)),
+        )
+
+    @staticmethod
     async def run_challenge_gen_inference(
         db: AsyncSession, prepared_ctx: dict[str, Any]
     ) -> dict[str, Any]:
-        """Step 2 for SYSTEM_DESIGN_CHALLENGE_GEN: invoke AI model and parse JSON payload."""
+        """Step 2 for SYSTEM_DESIGN_CHALLENGE_GEN: invoke AI model, validate, and repair once if needed."""
         tracer = PostgresTracer()
         chat_model = await get_task_chat_model(
             db, task_type="SYSTEM_DESIGN_INTERVIEWER"
         )
-        llm_res = await _invoke_llm_adaptive(
-            chat_model,
-            [
-                SystemMessage(content=str(prepared_ctx["sys_prompt"])),
-                HumanMessage(content=str(prepared_ctx["user_prompt"])),
-            ],
-            tracer,
-            db,
-            task_type="SYSTEM_DESIGN_INTERVIEWER",
-        )
-        raw_text = strip_reasoning_tags(_extract_text_content(llm_res.content))
-        parsed = _extract_json_object(raw_text)
-        return {
-            "parsed": parsed,
-            "provider_telemetry": get_model_telemetry_metadata(
-                chat_model, "SYSTEM_DESIGN_INTERVIEWER"
-            ),
-        }
+        existing_challenges = list(prepared_ctx.get("existing_challenges") or [])
+        allow_duplicate = bool(prepared_ctx.get("allow_duplicate", False))
+        messages: list[Any] = [
+            SystemMessage(content=str(prepared_ctx["sys_prompt"])),
+            HumanMessage(content=str(prepared_ctx["user_prompt"])),
+        ]
+
+        last_error: ValueError | None = None
+        for attempt in range(2):
+            llm_res = await _invoke_llm_adaptive(
+                chat_model,
+                messages,
+                tracer,
+                db,
+                task_type="SYSTEM_DESIGN_INTERVIEWER",
+            )
+            raw_text = strip_reasoning_tags(_extract_text_content(llm_res.content))
+            try:
+                parsed = _parse_strict_json_object(raw_text)
+                _validate_generated_challenge_payload(parsed)
+                if not allow_duplicate:
+                    dup = _find_similar_challenge(
+                        str(parsed.get("title") or ""), existing_challenges
+                    )
+                    if dup:
+                        raise DuplicateChallengeError(
+                            f"Generated challenge '{parsed.get('title')}' closely overlaps existing challenge '{dup['title']}'.",
+                            existing_title=dup["title"],
+                            existing_slug=dup["slug"],
+                        )
+                return {
+                    "parsed": parsed,
+                    "provider_telemetry": get_model_telemetry_metadata(
+                        chat_model, "SYSTEM_DESIGN_INTERVIEWER"
+                    ),
+                }
+            except ValueError as err:
+                last_error = err
+                if attempt == 0:
+                    messages.append(AIMessage(content=raw_text or "(empty response)"))
+                    messages.append(
+                        HumanMessage(
+                            content=(
+                                f"REPAIR REQUIRED: {err}\n"
+                                "Return a complete, valid JSON challenge object matching the schema, "
+                                "with 3 distinct variants and a title/domain that does NOT overlap any existing challenge."
+                            )
+                        )
+                    )
+                    continue
+                raise err
+
+        assert last_error is not None
+        raise last_error
 
     @staticmethod
-    async def persist_generated_challenge(
+    async def _persist_validated_challenge(
         db: AsyncSession,
-        prepared_ctx: dict[str, Any],
         parsed: dict[str, Any],
+        *,
+        topic_text: str = "",
+        difficulty: str = "MEDIUM",
+        allow_duplicate: bool = False,
+        default_tags: list[str] | None = None,
     ) -> SystemDesignChallengeModel:
-        """Step 3 for SYSTEM_DESIGN_CHALLENGE_GEN: persist the generated challenge row."""
-        topic_text = str(prepared_ctx.get("topic_text") or "").strip()
-        difficulty = str(prepared_ctx.get("difficulty") or "MEDIUM").strip().upper()
+        """Validate, enforce uniqueness against active DB challenges, and persist row."""
+        await SystemDesignService._ensure_challenges_seeded(db)
+        _validate_generated_challenge_payload(parsed)
         title = str(
             parsed.get("title")
             or (
@@ -1084,6 +1424,17 @@ class SystemDesignService:
                 else "Tailored Role System Design"
             )
         ).strip()
+
+        if not allow_duplicate:
+            existing = await SystemDesignService._list_active_challenge_summaries(db)
+            dup = _find_similar_challenge(title, existing)
+            if dup:
+                raise DuplicateChallengeError(
+                    f"Challenge '{title}' closely overlaps existing challenge '{dup['title']}'. Pass allow_duplicate=True or adjust your topic to create anyway.",
+                    existing_title=dup["title"],
+                    existing_slug=dup["slug"],
+                )
+
         slug = await SystemDesignService._unique_challenge_slug(db, title)
         raw_brief = parsed.get("interviewer_brief")
         interviewer_brief = _normalize_generated_brief(raw_brief)
@@ -1104,7 +1455,8 @@ class SystemDesignService:
                 parsed.get("initial_prompt")
                 or f"Design {title}. Start by clarifying requirements, expected scale, and key constraints."
             ).strip(),
-            tags=_normalize_string_list(parsed.get("tags")) or ["ai-generated"],
+            tags=_normalize_string_list(parsed.get("tags"))
+            or list(default_tags or ["ai-generated"]),
             interviewer_brief=interviewer_brief,
             is_builtin=False,
         )
@@ -1112,6 +1464,76 @@ class SystemDesignService:
         await db.commit()
         await db.refresh(challenge)
         return challenge
+
+    @staticmethod
+    async def persist_generated_challenge(
+        db: AsyncSession,
+        prepared_ctx: dict[str, Any],
+        parsed: dict[str, Any],
+    ) -> SystemDesignChallengeModel:
+        """Step 3 for SYSTEM_DESIGN_CHALLENGE_GEN: persist the generated challenge row."""
+        return await SystemDesignService._persist_validated_challenge(
+            db,
+            parsed,
+            topic_text=str(prepared_ctx.get("topic_text") or "").strip(),
+            difficulty=str(prepared_ctx.get("difficulty") or "MEDIUM").strip().upper(),
+            allow_duplicate=bool(prepared_ctx.get("allow_duplicate", False)),
+            default_tags=["ai-generated"],
+        )
+
+    @staticmethod
+    async def prepare_frontier_challenge_prompt(
+        db: AsyncSession, payload: SystemDesignChallengeGenerateRequest
+    ) -> ChallengeFrontierPromptResponse:
+        """Assemble a copyable Markdown prompt for external Frontier models (Claude/ChatGPT/Gemini)."""
+        ctx = await SystemDesignService._assemble_challenge_prompt_context(
+            db,
+            topic=payload.topic,
+            application_id=payload.application_id,
+            difficulty=payload.difficulty,
+            extra_context=payload.extra_context,
+            use_web_search=payload.use_web_search,
+            allow_duplicate=payload.allow_duplicate,
+        )
+        existing_titles = [item["title"] for item in ctx["existing_challenges"]]
+        markdown_prompt = "\n\n".join(
+            [
+                "# Tailored System Design Challenge Generator Prompt",
+                "Copy and paste this entire prompt into Claude, ChatGPT, or Gemini. Then copy the returned JSON back into Job Tracker's **Import Challenge JSON** panel.",
+                "---",
+                "## System Instructions & Required JSON Schema",
+                ctx["sys_prompt"],
+                "---",
+                "## Role, Application & Anti-Duplication Context",
+                ctx["user_prompt"],
+            ]
+        )
+        slug_base = _slugify(ctx["topic_text"] or ctx["app_slug_hint"] or "challenge")
+        return ChallengeFrontierPromptResponse(
+            filename=f"{slug_base}-frontier-challenge-prompt.md",
+            markdown_prompt=markdown_prompt,
+            context_signals=ctx["context_signals"],
+            existing_challenge_titles=existing_titles,
+        )
+
+    @staticmethod
+    async def import_frontier_challenge(
+        db: AsyncSession, payload: ImportFrontierChallengeRequest
+    ) -> SystemDesignChallengeModel:
+        """Validate and persist a challenge JSON response produced by an external frontier chat."""
+        parsed = _parse_strict_json_object(payload.raw_response)
+        difficulty = (
+            str(parsed.get("difficulty") or payload.difficulty or "MEDIUM")
+            .strip()
+            .upper()
+        )
+        return await SystemDesignService._persist_validated_challenge(
+            db,
+            parsed,
+            difficulty=difficulty,
+            allow_duplicate=bool(payload.allow_duplicate),
+            default_tags=["frontier-imported"],
+        )
 
     @staticmethod
     async def generate_custom_challenge(
@@ -1141,7 +1563,17 @@ class SystemDesignService:
         if task.status != "COMPLETED":
             err = task.error_message or "Challenge generation failed."
             lower = err.lower()
-            if "not found" in lower or "provide either" in lower:
+            if "closely overlaps existing challenge" in lower:
+                raise DuplicateChallengeError(err)
+            if (
+                "not found" in lower
+                or "provide either" in lower
+                or "must be meaningful" in lower
+                or "must include" in lower
+                or "must define at least" in lower
+                or "truncated" in lower
+                or "json" in lower
+            ):
                 raise ValueError(err)
             raise RuntimeError(err)
 

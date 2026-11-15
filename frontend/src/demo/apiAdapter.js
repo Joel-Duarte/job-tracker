@@ -2945,25 +2945,237 @@ export async function handleDemoRequest(config) {
       return ok(serializeChallenge(created), 201)
     }
 
+    const findDemoChallengeDuplicate = (candidateTitle, challengesList) => {
+      const stripStop = (t) =>
+        String(t || '')
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, ' ')
+          .split(/\s+/)
+          .filter(
+            (w) =>
+              w &&
+              ![
+                'design',
+                'build',
+                'create',
+                'architect',
+                'implement',
+                'a',
+                'an',
+                'the',
+                'system',
+                'service',
+                'platform',
+                'architecture',
+                'engine',
+                'pipeline',
+                'for',
+                'of',
+                'and',
+                'with',
+                'to',
+                'in',
+                'on',
+              ].includes(w)
+          )
+      const candWords = stripStop(candidateTitle)
+      if (!candWords.length) return null
+      const candSet = new Set(candWords)
+      const candNorm = candWords.join(' ')
+      for (const ch of challengesList || []) {
+        if (ch.is_archived) continue
+        const exWords = stripStop(ch.title)
+        if (!exWords.length) continue
+        const exNorm = exWords.join(' ')
+        if (candNorm === exNorm) return ch
+        const exSet = new Set(exWords)
+        let inter = 0
+        for (const w of candSet) {
+          if (exSet.has(w)) inter++
+        }
+        const union = candSet.size + exSet.size - inter
+        const jaccard = union > 0 ? inter / union : 0
+        if (jaccard >= 0.72 && inter >= 2) return ch
+        const candSubset = [...candSet].every((w) => exSet.has(w))
+        const exSubset = [...exSet].every((w) => candSet.has(w))
+        if ((candSubset || exSubset) && inter >= 2) return ch
+      }
+      return null
+    }
+
+    if (urlPath === '/system-design/challenges/frontier-prompt' && method === 'post') {
+      const appObj = data.application_id
+        ? (db.applications || []).find((a) => Number(a.id) === Number(data.application_id))
+        : null
+      const topic = String(data.topic || '').trim()
+      const extraContext = String(data.extra_context || '').trim()
+      if (!topic && !appObj && !extraContext) {
+        return {
+          status: 400,
+          data: { detail: 'Provide either a challenge topic, extra focus notes, or link an application_id.' },
+        }
+      }
+      const companyObj = appObj?.company_id
+        ? (db.companies || []).find((c) => Number(c.id) === Number(appObj.company_id))
+        : null
+      const companyName = appObj?.company?.name || appObj?.company_name || companyObj?.name || 'Target Company'
+      const roleTitle = appObj?.position || 'Software Engineer'
+      const signals = []
+      const contextSections = []
+      if (topic) {
+        contextSections.push(`## Requested Topic\n${topic}`)
+      }
+      if (appObj) {
+        contextSections.push(`## Target Role\n${roleTitle} at ${companyName} (status: ${appObj.status || 'APPLIED'})`)
+        if (appObj.notes && String(appObj.notes).trim()) {
+          signals.push('Application Notes')
+          contextSections.push(`## Application Notes (Clues Only)\n${String(appObj.notes).trim()}`)
+        }
+        const desc = appObj.job_posting?.description_markdown || appObj.job_description || ''
+        const skills = appObj.job_posting?.required_skills || appObj.required_skills || []
+        if (desc || (Array.isArray(skills) && skills.length)) {
+          signals.push('Job Posting & Skills')
+          contextSections.push(
+            `## Job Posting & Skills\n${skills.length ? `Skills: ${skills.join(', ')}\n` : ''}${String(desc).slice(0, 1200)}`
+          )
+        }
+        const compPros = Array.isArray(companyObj?.pros)
+          ? companyObj.pros.join(', ')
+          : companyObj?.pros || ''
+        const compNotes = companyObj?.notes || compPros || appObj.company_research || ''
+        if (compNotes) {
+          signals.push('Company Research')
+          contextSections.push(`## Company Research\n${typeof compNotes === 'string' ? compNotes : JSON.stringify(compNotes)}`)
+        }
+        if (appObj.match_analysis_payload) {
+          signals.push('Match Gap Analysis')
+        }
+      }
+      if (extraContext) {
+        signals.push('Extra Focus Clues')
+        contextSections.push(`## Candidate Extra Focus Clues\n${extraContext}`)
+      }
+      if (data.use_web_search) {
+        signals.push('Web Grounding')
+      }
+      const activeChallenges = (db.system_design_challenges || []).filter((c) => !c.is_archived)
+      const dedupLines = activeChallenges.map((c) => `- ${c.title} — ${c.prompt_summary || ''}`.trim())
+      const markdownPrompt = [
+        '# Tailored System Design Challenge Generator Prompt',
+        `Target Difficulty: ${data.difficulty || 'MEDIUM'}`,
+        'Return ONLY a valid JSON object matching the 3-variant System Design challenge schema.',
+        ...contextSections,
+        '## EXISTING CHALLENGES — DO NOT DUPLICATE',
+        ...dedupLines,
+      ].join('\n\n')
+      const slugBase = (topic || `${companyName}-${roleTitle}` || 'challenge')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+      return ok({
+        filename: `${slugBase || 'challenge'}-frontier-challenge-prompt.md`,
+        markdown_prompt: markdownPrompt,
+        context_signals: signals,
+        existing_challenge_titles: activeChallenges.map((c) => c.title),
+      })
+    }
+
+    if (urlPath === '/system-design/challenges/import' && method === 'post') {
+      const raw = String(data.raw_response || '').trim()
+      let parsed = null
+      const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
+      const candidates = [fenced ? fenced[1].trim() : null, raw].filter(Boolean)
+      const firstBrace = raw.indexOf('{')
+      const lastBrace = raw.lastIndexOf('}')
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        candidates.push(raw.slice(firstBrace, lastBrace + 1))
+      }
+      for (const candidate of candidates) {
+        try {
+          const obj = JSON.parse(candidate)
+          if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+            parsed = obj
+            break
+          }
+        } catch {
+          // continue
+        }
+      }
+      if (!parsed || !parsed.title || !parsed.prompt_summary || !parsed.initial_prompt || !parsed.interviewer_brief) {
+        return {
+          status: 400,
+          data: { detail: 'Challenge JSON must include title, prompt_summary, initial_prompt, and interviewer_brief.' },
+        }
+      }
+      if (!data.allow_duplicate) {
+        const dup = findDemoChallengeDuplicate(parsed.title, db.system_design_challenges)
+        if (dup) {
+          return {
+            status: 409,
+            data: {
+              detail: `Challenge '${parsed.title}' closely overlaps existing challenge '${dup.title}'. Pass allow_duplicate=True or adjust your topic to create anyway.`,
+            },
+          }
+        }
+      }
+      const nextId = db.system_design_challenges.reduce((m, c) => Math.max(m, Number(c.id) || 0), 0) + 1
+      const slug =
+        String(parsed.title)
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '') || `frontier-custom-${nextId}`
+      const created = {
+        id: nextId,
+        slug: `${slug}-${nextId}`,
+        title: String(parsed.title).trim(),
+        category: String(parsed.category || 'DISTRIBUTED_SYSTEMS').trim().toUpperCase(),
+        difficulty: String(parsed.difficulty || data.difficulty || 'MEDIUM').trim().toUpperCase(),
+        prompt_summary: String(parsed.prompt_summary).trim(),
+        initial_prompt: String(parsed.initial_prompt).trim(),
+        tags: Array.isArray(parsed.tags) && parsed.tags.length ? parsed.tags : ['frontier-imported'],
+        expected_components: [],
+        scale_notes: '',
+        interviewer_brief: parsed.interviewer_brief,
+        is_builtin: false,
+        is_archived: false,
+        created_at: new Date().toISOString(),
+      }
+      db.system_design_challenges.push(created)
+      saveDemoDb(db)
+      return ok(serializeChallenge(created), 201)
+    }
+
     if (urlPath === '/system-design/challenges/generate' && method === 'post') {
       const appObj = data.application_id
         ? (db.applications || []).find((a) => Number(a.id) === Number(data.application_id))
         : null
       const topic = String(data.topic || '').trim()
-      const roleCtx = appObj ? `${appObj.company_name || 'Target'} ${appObj.position || 'Engineer'}` : ''
+      const roleCtx = appObj ? `${appObj.company_name || appObj.company?.name || 'Target'} ${appObj.position || 'Engineer'}` : ''
       const titleBase = topic || (roleCtx ? `${roleCtx} Core Platform` : 'Distributed Event Pipeline')
+      const candidateTitle = titleBase.startsWith('Design') ? titleBase : `Design ${titleBase}`
+      if (!data.allow_duplicate) {
+        const dup = findDemoChallengeDuplicate(candidateTitle, db.system_design_challenges)
+        if (dup) {
+          return {
+            status: 409,
+            data: {
+              detail: `Challenge '${candidateTitle}' closely overlaps existing challenge '${dup.title}'. Pass allow_duplicate=True or adjust your topic to create anyway.`,
+            },
+          }
+        }
+      }
       const nextId = db.system_design_challenges.reduce((m, c) => Math.max(m, Number(c.id) || 0), 0) + 1
       const created = {
         id: nextId,
         slug: `ai-custom-${nextId}`,
-        title: titleBase.startsWith('Design') ? titleBase : `Design ${titleBase}`,
+        title: candidateTitle,
         category: 'DISTRIBUTED_SYSTEMS',
         difficulty: data.difficulty || 'MEDIUM',
         prompt_summary: data.use_web_search
           ? `Web-grounded scenario tailored for ${titleBase}.`
           : `AI-tailored scenario focusing on ${titleBase}.`,
         initial_prompt: `Design ${titleBase}. Start by clarifying expected traffic, durability guarantees, and key latency SLAs.`,
-        tags: ['ai-generated', ...(data.use_web_search ? ['web-grounded'] : []), ...(appObj ? [appObj.company_name] : [])],
+        tags: ['ai-generated', ...(data.use_web_search ? ['web-grounded'] : []), ...(appObj ? [appObj.company_name || appObj.company?.name] : [])].filter(Boolean),
         expected_components: [],
         scale_notes: '',
         is_builtin: false,

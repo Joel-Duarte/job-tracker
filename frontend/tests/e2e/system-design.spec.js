@@ -433,3 +433,143 @@ test('supports seeded blind starts, explicit variant picker, sidebar seed displa
 
   expect(errors).toEqual([])
 })
+
+test('Tailored Challenge Modal filters active apps with fuzzy search, prepares Frontier Prompt, detects 409 duplicates, and imports JSON', async ({
+  page,
+}) => {
+  const errors = []
+  page.on('pageerror', (err) => errors.push(err.message))
+
+  await page.goto('/chat?mode=system_design')
+  await page.evaluate(() => {
+    const raw = localStorage.getItem('jt_demo_db_v1')
+    const db = raw ? JSON.parse(raw) : {}
+    const apps = [
+      {
+        id: 8101,
+        company_id: 8101,
+        company_name: 'Rejected Legacy Co',
+        company: { id: 8101, name: 'Rejected Legacy Co', notes: 'Old notes' },
+        position: 'Legacy Backend Engineer',
+        status: 'REJECTED',
+        notes: 'Should never appear in ongoing picker',
+      },
+      {
+        id: 8102,
+        company_id: 8102,
+        company_name: 'Applied Cloud Startup',
+        company: { id: 8102, name: 'Applied Cloud Startup' },
+        position: 'Platform Engineer',
+        status: 'APPLIED',
+        notes: '',
+      },
+      {
+        id: 8103,
+        company_id: 8103,
+        company_name: 'Stripe Infrastructure',
+        company: {
+          id: 8103,
+          name: 'Stripe Infrastructure',
+          notes: 'Multi-region ledger cells and idempotency keys',
+        },
+        position: 'Staff Systems Engineer',
+        status: 'TECHNICAL_INTERVIEW',
+        notes: 'Recruiter hinted deep focus on webhook ordering and Kafka DLQs',
+        job_posting: {
+          description_markdown: 'Build resilient global payment event pipelines.',
+          required_skills: ['Go', 'Kafka', 'PostgreSQL'],
+        },
+      },
+    ]
+    db.applications = apps
+    localStorage.setItem('jt_demo_db_v1', JSON.stringify(db))
+  })
+  await page.reload()
+  await expect(page.locator('.sd-challenges-grid')).toBeVisible()
+
+  await page.getByTestId('open-new-challenge-modal-btn').click()
+  await expect(page.getByTestId('new-challenge-modal')).toBeVisible()
+
+  const pickerList = page.getByTestId('tailor-app-picker-list')
+  await expect(pickerList).not.toContainText('Rejected Legacy Co')
+  await expect(pickerList).toContainText('Applied Cloud Startup')
+  await expect(pickerList).toContainText('Stripe Infrastructure')
+
+  // Switch to Interview & OA Only -> hides APPLIED, retains TECHNICAL_INTERVIEW
+  await page.getByTestId('app-stage-filter-interview').click()
+  await expect(pickerList).not.toContainText('Applied Cloud Startup')
+  await expect(pickerList).toContainText('Stripe Infrastructure')
+
+  // Switch back to Active Ongoing & verify fuzzy match finds Stripe Infrastructure
+  await page.getByTestId('app-stage-filter-active').click()
+  await page.getByTestId('challenge-app-search-input').fill('strp infra')
+  await expect(pickerList).toContainText('Stripe Infrastructure')
+  await expect(pickerList).not.toContainText('Applied Cloud Startup')
+
+  await page.getByTestId('tailor-app-option-8103').click()
+  await expect(page.getByTestId('selected-tailor-app')).toContainText('Stripe Infrastructure')
+  await expect(page.getByTestId('challenge-context-signals')).toContainText('Application Notes')
+
+  await page
+    .getByTestId('generate-extra-context-input')
+    .fill('Emphasize transactional outbox vs CDC trade-offs.')
+  await expect(page.getByTestId('challenge-context-signals')).toContainText('Extra Focus Clues')
+
+  // Prepare Frontier Prompt -> verifies rich context + anti-duplication list
+  await page.getByTestId('prepare-frontier-challenge-prompt-btn').click()
+  const promptPreview = page.getByTestId('frontier-challenge-prompt-preview')
+  await expect(promptPreview).toBeVisible()
+  const promptVal = await promptPreview.inputValue()
+  expect(promptVal).toContain('Recruiter hinted deep focus on webhook ordering')
+  expect(promptVal).toContain('EXISTING CHALLENGES — DO NOT DUPLICATE')
+  expect(promptVal).toContain('Design a URL Shortener')
+
+  // Attempt importing a duplicate overlapping URL Shortener -> triggers 409 warning banner + Create Anyway
+  const dupPayload = JSON.stringify({
+    title: 'Build a URL Shortener Service',
+    category: 'DISTRIBUTED_SYSTEMS',
+    difficulty: 'MEDIUM',
+    prompt_summary: 'Shorten links cleanly with low latency redirects.',
+    initial_prompt: 'Design a short link platform.',
+    interviewer_brief: { expected_components: ['API', 'KV'], defence_questions: ['How handle hot keys?'] },
+  })
+  await page.getByTestId('import-frontier-challenge-input').fill(dupPayload)
+  await page.getByTestId('import-frontier-challenge-submit-btn').click()
+  await expect(page.getByTestId('duplicate-challenge-warning')).toBeVisible()
+  await expect(page.getByTestId('create-anyway-challenge-btn')).toBeVisible()
+
+  // Replace with distinct frontier-generated challenge JSON & import cleanly
+  const validPayload = JSON.stringify({
+    title: 'Design a Stripe Webhook Delivery Ledger',
+    category: 'DISTRIBUTED_SYSTEMS',
+    difficulty: 'HARD',
+    prompt_summary: 'Ordered, idempotent webhook fanout and DLQ isolation at payment scale.',
+    initial_prompt: 'Design a multi-tenant webhook delivery ledger for payment state transitions.',
+    tags: ['webhooks', 'stripe', 'frontier-imported'],
+    interviewer_brief: {
+      variants: [
+        {
+          variant_id: 'burst-dlq',
+          title: 'Merchant Burst & Tenant DLQ',
+          focus_summary: 'Noisy neighbor queue isolation under traffic spikes.',
+          expected_components: ['Outbox Poller', 'Partitioned Queue', 'Tenant DLQ'],
+          defence_questions: ['How do you isolate one slow merchant webhook endpoint?'],
+        },
+        {
+          variant_id: 'strict-ordering',
+          title: 'Strict Event Ordering Profile',
+          focus_summary: 'Per-account sequence guarantees without head-of-line stalling.',
+          expected_components: ['Sequence Ledger', 'Circuit Breaker'],
+          defence_questions: ['How do you recover sequence gaps after regional failover?'],
+        },
+      ],
+    },
+  })
+  await page.getByTestId('import-frontier-challenge-input').fill(`\`\`\`json\n${validPayload}\n\`\`\``)
+  await page.getByTestId('import-frontier-challenge-submit-btn').click()
+
+  await expect(page.getByTestId('new-challenge-modal')).toBeHidden()
+  await expect(page.locator('.sd-challenges-grid')).toContainText('Design a Stripe Webhook Delivery Ledger')
+
+  expect(errors).toEqual([])
+})

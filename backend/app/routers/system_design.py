@@ -17,9 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.schemas.system_design import (
+    ChallengeFrontierPromptResponse,
     DefenceMessageRequest,
     DiagramReviewRequest,
     FrontierEvaluationPacketRead,
+    ImportFrontierChallengeRequest,
     ImportFrontierEvaluationRequest,
     RequirementsLedgerUpdateRequest,
     RequirementsMessageRequest,
@@ -32,7 +34,10 @@ from app.schemas.system_design import (
     SystemDesignSessionRead,
 )
 from app.services.evaluation_worker import process_evaluation_task
-from app.services.system_design_service import SystemDesignService
+from app.services.system_design_service import (
+    DuplicateChallengeError,
+    SystemDesignService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,20 +116,54 @@ async def generate_custom_challenge(
             db=db, payload=payload
         )
         return SystemDesignChallengeRead.model_validate(challenge)
+    except DuplicateChallengeError as dce:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(dce))
     except ValueError as ve:
-        msg = str(ve)
-        code = (
-            status.HTTP_404_NOT_FOUND
-            if "not found" in msg.lower()
-            else status.HTTP_400_BAD_REQUEST
-        )
-        raise HTTPException(status_code=code, detail=msg)
+        raise _http_error_from_value_error(ve)
     except Exception as exc:
         logger.error("Failed generating custom challenge: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed generating custom challenge: {exc}",
         )
+
+
+@router.post(
+    "/challenges/frontier-prompt",
+    response_model=ChallengeFrontierPromptResponse,
+)
+async def prepare_frontier_challenge_prompt(
+    payload: SystemDesignChallengeGenerateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Build a self-contained Markdown prompt to run in Claude/ChatGPT/Gemini web chat."""
+    try:
+        return await SystemDesignService.prepare_frontier_challenge_prompt(
+            db=db, payload=payload
+        )
+    except ValueError as ve:
+        raise _http_error_from_value_error(ve)
+
+
+@router.post(
+    "/challenges/import",
+    response_model=SystemDesignChallengeRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def import_frontier_challenge(
+    payload: ImportFrontierChallengeRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Validate and save a custom challenge JSON response generated in a frontier chat."""
+    try:
+        challenge = await SystemDesignService.import_frontier_challenge(
+            db=db, payload=payload
+        )
+        return SystemDesignChallengeRead.model_validate(challenge)
+    except DuplicateChallengeError as dce:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(dce))
+    except ValueError as ve:
+        raise _http_error_from_value_error(ve)
 
 
 @router.post(

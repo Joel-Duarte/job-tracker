@@ -22,6 +22,7 @@ import {
   Plus,
   RotateCcw,
   Save,
+  Search,
   Send,
   ShieldAlert,
   Shuffle,
@@ -31,6 +32,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import { SystemDesignAPI } from '../api/endpoints'
+import { fuzzyFilterApplications } from '../utils/fuzzyMatch'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useSystemDesignStore } from '../stores/systemDesignStore'
 import { useUIStore } from '../stores/uiStore'
@@ -64,7 +66,93 @@ const generateForm = ref({
   applicationId: '',
   difficulty: 'MEDIUM',
   useWebSearch: true,
+  extraContext: '',
 })
+const appFilterStage = ref('ACTIVE')
+const appSearchQuery = ref('')
+const challengeImportText = ref('')
+const challengePromptCopied = ref(false)
+const duplicateChallengeWarning = ref(null)
+
+const ACTIVE_APP_STAGE_PRIORITY = {
+  TECHNICAL_INTERVIEW: 0,
+  ONLINE_ASSESSMENT: 1,
+  APPLIED: 2,
+}
+
+const filteredTailorApplications = computed(() => {
+  const allowedStatuses =
+    appFilterStage.value === 'INTERVIEW'
+      ? new Set(['TECHNICAL_INTERVIEW', 'ONLINE_ASSESSMENT'])
+      : new Set(['TECHNICAL_INTERVIEW', 'ONLINE_ASSESSMENT', 'APPLIED'])
+  const eligible = (appStore.applications || [])
+    .filter((app) => allowedStatuses.has(app.status))
+    .slice()
+    .sort((a, b) => {
+      const pa = ACTIVE_APP_STAGE_PRIORITY[a.status] ?? 9
+      const pb = ACTIVE_APP_STAGE_PRIORITY[b.status] ?? 9
+      if (pa !== pb) return pa - pb
+      return Number(b.id || 0) - Number(a.id || 0)
+    })
+  const query = appSearchQuery.value.trim()
+  return query ? fuzzyFilterApplications(eligible, query, 0.25) : eligible
+})
+
+const selectedTailorApp = computed(() => {
+  if (!generateForm.value.applicationId) return null
+  return (
+    (appStore.applications || []).find(
+      (a) => String(a.id) === String(generateForm.value.applicationId)
+    ) || null
+  )
+})
+
+const detectedTailorSignals = computed(() => {
+  const signals = []
+  const app = selectedTailorApp.value
+  if (app) {
+    if (app.notes && String(app.notes).trim()) signals.push('Application Notes')
+    if (
+      app.job_posting?.description_markdown ||
+      app.job_description ||
+      (app.job_posting?.required_skills || app.required_skills || []).length
+    ) {
+      signals.push('Job Posting & Skills')
+    }
+    if (
+      app.company?.notes ||
+      (Array.isArray(app.company?.pros) ? app.company.pros.length > 0 : Boolean(app.company?.pros)) ||
+      app.company?.company_research ||
+      app.company_research
+    ) {
+      signals.push('Company Research')
+    }
+    if (app.match_analysis_payload) {
+      signals.push('Match Gap Analysis')
+    }
+    if (Array.isArray(app.events) && app.events.some((e) => e.email_subject || e.email_summary)) {
+      signals.push('Interview Email Clues')
+    }
+  }
+  if (generateForm.value.extraContext.trim()) {
+    signals.push('Extra Focus Clues')
+  }
+  if (generateForm.value.useWebSearch) {
+    signals.push('Web Search')
+  }
+  return signals
+})
+
+watch(
+  () => [
+    generateForm.value.topic,
+    generateForm.value.applicationId,
+    generateForm.value.extraContext,
+  ],
+  () => {
+    duplicateChallengeWarning.value = null
+  }
+)
 const manualForm = ref({
   title: '',
   category: 'DISTRIBUTED_SYSTEMS',
@@ -380,6 +468,13 @@ async function openCreateChallengeModal() {
   editingChallengeId.value = null
   editingChallengeIsBuiltin.value = false
   createModalTab.value = 'generate'
+  appFilterStage.value = 'ACTIVE'
+  appSearchQuery.value = ''
+  generateForm.value.extraContext = ''
+  challengeImportText.value = ''
+  challengePromptCopied.value = false
+  duplicateChallengeWarning.value = null
+  store.challengeFrontierPrompt = null
   manualForm.value = {
     title: '',
     category: 'DISTRIBUTED_SYSTEMS',
@@ -470,26 +565,116 @@ async function handleResetDefaultChallenges() {
   }
 }
 
-async function handleGenerateChallenge() {
-  if (!generateForm.value.topic.trim() && !generateForm.value.applicationId) {
-    uiStore.showToast('Enter a topic or pick a tracked application to tailor from.', 'error')
+function _buildChallengeTailorPayload(allowDuplicate = false) {
+  return {
+    topic: generateForm.value.topic.trim(),
+    application_id: generateForm.value.applicationId
+      ? Number(generateForm.value.applicationId)
+      : null,
+    difficulty: generateForm.value.difficulty,
+    use_web_search: Boolean(generateForm.value.useWebSearch),
+    extra_context: generateForm.value.extraContext.trim(),
+    allow_duplicate: Boolean(allowDuplicate),
+  }
+}
+
+function _hasChallengeTailorInput() {
+  return Boolean(
+    generateForm.value.topic.trim() ||
+      generateForm.value.applicationId ||
+      generateForm.value.extraContext.trim()
+  )
+}
+
+async function handleGenerateChallenge(allowDuplicate = false) {
+  if (!_hasChallengeTailorInput()) {
+    uiStore.showToast(
+      'Enter a topic, extra focus notes, or pick a tracked application to tailor from.',
+      'error'
+    )
+    return
+  }
+  duplicateChallengeWarning.value = null
+  try {
+    await store.generateChallenge(_buildChallengeTailorPayload(allowDuplicate))
+    showCreateChallengeModal.value = false
+    generateForm.value.topic = ''
+    generateForm.value.extraContext = ''
+    duplicateChallengeWarning.value = null
+    uiStore.showToast('Custom challenge generated!', 'success')
+  } catch (err) {
+    if (err.status === 409) {
+      duplicateChallengeWarning.value = {
+        message: err.message,
+        source: 'generate',
+      }
+      uiStore.showToast('Similar challenge already exists — review warning or create anyway.', 'info')
+      return
+    }
+    uiStore.showToast(err.message || 'Failed to generate challenge', 'error')
+  }
+}
+
+async function handlePrepareChallengeFrontierPrompt() {
+  if (!_hasChallengeTailorInput()) {
+    uiStore.showToast(
+      'Enter a topic, extra focus notes, or pick a tracked application first.',
+      'error'
+    )
     return
   }
   try {
-    await store.generateChallenge({
-      topic: generateForm.value.topic.trim(),
+    await store.prepareChallengeFrontierPrompt(_buildChallengeTailorPayload(false))
+    challengePromptCopied.value = false
+    uiStore.showToast(
+      'Frontier challenge prompt ready! Copy or download for Claude, ChatGPT, or Gemini.',
+      'success'
+    )
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to prepare frontier prompt', 'error')
+  }
+}
+
+async function handleImportFrontierChallenge(allowDuplicate = false) {
+  const raw = challengeImportText.value.trim()
+  if (!raw || store.importingChallenge) return
+  duplicateChallengeWarning.value = null
+  try {
+    await store.importFrontierChallenge({
+      raw_response: raw,
       application_id: generateForm.value.applicationId
         ? Number(generateForm.value.applicationId)
         : null,
       difficulty: generateForm.value.difficulty,
-      use_web_search: Boolean(generateForm.value.useWebSearch),
+      allow_duplicate: Boolean(allowDuplicate),
     })
     showCreateChallengeModal.value = false
+    challengeImportText.value = ''
     generateForm.value.topic = ''
-    uiStore.showToast('Custom challenge generated!', 'success')
+    generateForm.value.extraContext = ''
+    duplicateChallengeWarning.value = null
+    uiStore.showToast('Frontier challenge imported!', 'success')
   } catch (err) {
-    uiStore.showToast(err.message || 'Failed to generate challenge', 'error')
+    if (err.status === 409) {
+      duplicateChallengeWarning.value = {
+        message: err.message,
+        source: 'import',
+      }
+      uiStore.showToast('Similar challenge already exists — click Create Anyway to override.', 'info')
+      return
+    }
+    uiStore.showToast(
+      err.message || 'Could not parse challenge JSON. Ensure a valid JSON object was pasted.',
+      'error'
+    )
   }
+}
+
+function handleCreateAnywayDuplicate() {
+  if (duplicateChallengeWarning.value?.source === 'import') {
+    return handleImportFrontierChallenge(true)
+  }
+  return handleGenerateChallenge(true)
 }
 
 async function handleDeleteChallenge(challenge) {
@@ -692,28 +877,56 @@ async function handlePrepareFrontierPacket() {
   }
 }
 
-async function handleCopyFrontierPacket() {
-  const text = store.frontierPacket?.markdown_packet
+async function _copyMarkdownText(text, copiedFlagRef, successMessage) {
   if (!text) return
   try {
     await navigator.clipboard.writeText(text)
-    frontierCopied.value = true
-    uiStore.showToast('Copied packet to clipboard! Paste into Claude, ChatGPT, or Gemini with your diagram.', 'success')
+    copiedFlagRef.value = true
+    uiStore.showToast(successMessage, 'success')
   } catch {
-    uiStore.showToast('Clipboard write blocked; use Download .md Packet instead.', 'info')
+    uiStore.showToast('Clipboard write blocked; use Download .md instead.', 'info')
   }
 }
 
-function handleDownloadFrontierPacket() {
-  const packet = store.frontierPacket
-  if (!packet?.markdown_packet) return
-  const blob = new Blob([packet.markdown_packet], { type: 'text/markdown;charset=utf-8' })
+function _downloadMarkdownFile(text, filename) {
+  if (!text) return
+  const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = packet.filename || 'system-design-frontier-packet.md'
+  link.download = filename
   link.click()
   URL.revokeObjectURL(url)
+}
+
+async function handleCopyChallengePrompt() {
+  return _copyMarkdownText(
+    store.challengeFrontierPrompt?.markdown_prompt,
+    challengePromptCopied,
+    'Copied Frontier Challenge Prompt! Paste into Claude, ChatGPT, or Gemini, then paste JSON below.'
+  )
+}
+
+function handleDownloadChallengePrompt() {
+  return _downloadMarkdownFile(
+    store.challengeFrontierPrompt?.markdown_prompt,
+    store.challengeFrontierPrompt?.filename || 'system-design-challenge-prompt.md'
+  )
+}
+
+async function handleCopyFrontierPacket() {
+  return _copyMarkdownText(
+    store.frontierPacket?.markdown_packet,
+    frontierCopied,
+    'Copied packet to clipboard! Paste into Claude, ChatGPT, or Gemini with your diagram.'
+  )
+}
+
+function handleDownloadFrontierPacket() {
+  return _downloadMarkdownFile(
+    store.frontierPacket?.markdown_packet,
+    store.frontierPacket?.filename || 'system-design-frontier-packet.md'
+  )
 }
 
 async function handleImportFrontierEvaluation() {
@@ -903,7 +1116,7 @@ onUnmounted(() => {
               @click="createModalTab = 'generate'"
             >
               <Sparkles :size="13" />
-              <span>AI Generate</span>
+              <span>Tailored AI / Frontier</span>
             </button>
             <button
               type="button"
@@ -920,52 +1133,169 @@ onUnmounted(() => {
           <form
             v-if="createModalTab === 'generate' && !editingChallengeId"
             class="sd-form-stack"
-            @submit.prevent="handleGenerateChallenge"
+            @submit.prevent="handleGenerateChallenge(false)"
           >
             <label class="sd-field">
-              <span>Topic / Scenario Description</span>
+              <span>Topic / Scenario Focus</span>
               <input
                 v-model="generateForm.topic"
                 type="text"
                 class="form-input"
                 data-testid="generate-topic-input"
-                placeholder="e.g., Design a multi-tenant real-time fraud scoring pipeline"
+                placeholder="Optional if an application is selected (e.g., Real-time fraud scoring pipeline)"
               />
             </label>
 
-            <label class="sd-field">
-              <span>Optional: Tailor to Tracked Job Application</span>
-              <select v-model="generateForm.applicationId" class="form-input">
-                <option value="">None (Use topic only)</option>
-                <option
-                  v-for="app in (appStore.applications || [])"
-                  :key="app.id"
-                  :value="String(app.id)"
+            <div class="sd-field">
+              <div class="sd-field-header-row">
+                <span>Tailor to Ongoing Job Application (Optional)</span>
+                <div class="mode-toggle-compact" role="group" aria-label="Filter application stage">
+                  <button
+                    type="button"
+                    class="mode-pill"
+                    :class="{ active: appFilterStage === 'ACTIVE' }"
+                    data-testid="app-stage-filter-active"
+                    @click="appFilterStage = 'ACTIVE'"
+                  >
+                    Active Ongoing
+                  </button>
+                  <button
+                    type="button"
+                    class="mode-pill"
+                    :class="{ active: appFilterStage === 'INTERVIEW' }"
+                    data-testid="app-stage-filter-interview"
+                    @click="appFilterStage = 'INTERVIEW'"
+                  >
+                    Interview &amp; OA Only
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="selectedTailorApp" class="sd-selected-app-banner" data-testid="selected-tailor-app">
+                <div class="sd-selected-app-info">
+                  <strong>{{ selectedTailorApp.company?.name || selectedTailorApp.company_name || 'Company' }}</strong>
+                  <span>— {{ selectedTailorApp.position || 'Role' }}</span>
+                  <span class="sd-stage-chip">{{ selectedTailorApp.status }}</span>
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  data-testid="clear-tailor-app-btn"
+                  @click="generateForm.applicationId = ''"
                 >
-                  {{ app.company?.name || 'Company' }} — {{ app.position || 'Role' }}
-                </option>
-              </select>
-            </label>
+                  Clear
+                </button>
+              </div>
+
+              <div class="sd-app-search-wrap">
+                <Search :size="14" class="sd-search-icon" />
+                <input
+                  v-model="appSearchQuery"
+                  type="text"
+                  class="form-input sd-app-search-input"
+                  data-testid="challenge-app-search-input"
+                  placeholder="Fuzzy search ongoing applications by company, role, notes..."
+                />
+              </div>
+
+              <div class="sd-app-picker-list" data-testid="tailor-app-picker-list">
+                <button
+                  v-for="app in filteredTailorApplications"
+                  :key="app.id"
+                  type="button"
+                  class="sd-app-picker-item"
+                  :class="{ selected: String(generateForm.applicationId) === String(app.id) }"
+                  :data-testid="`tailor-app-option-${app.id}`"
+                  @click="
+                    generateForm.applicationId =
+                      String(generateForm.applicationId) === String(app.id) ? '' : String(app.id)
+                  "
+                >
+                  <div class="sd-app-picker-main">
+                    <span class="sd-app-picker-title">
+                      {{ app.company?.name || app.company_name || 'Company' }} — {{ app.position || 'Role' }}
+                    </span>
+                    <div class="sd-app-picker-badges">
+                      <span class="sd-stage-chip">{{ app.status }}</span>
+                      <span v-if="app.notes && String(app.notes).trim()" class="sd-note-chip">
+                        Has Notes
+                      </span>
+                    </div>
+                  </div>
+                </button>
+                <p v-if="!filteredTailorApplications.length" class="sd-muted sd-empty-picker">
+                  No matching ongoing applications in this filter.
+                </p>
+              </div>
+            </div>
+
+            <div
+              v-if="detectedTailorSignals.length"
+              class="sd-signal-row"
+              data-testid="challenge-context-signals"
+            >
+              <span class="sd-signal-label">Context signals:</span>
+              <span v-for="sig in detectedTailorSignals" :key="sig" class="sd-signal-pill">
+                {{ sig }}
+              </span>
+            </div>
 
             <label class="sd-field">
-              <span>Target Difficulty</span>
-              <select v-model="generateForm.difficulty" class="form-input">
-                <option value="EASY">Easy</option>
-                <option value="MEDIUM">Medium</option>
-                <option value="HARD">Hard</option>
-              </select>
+              <span>Extra Focus / Interviewer Clues (Optional)</span>
+              <textarea
+                v-model="generateForm.extraContext"
+                rows="2"
+                class="form-input"
+                data-testid="generate-extra-context-input"
+                placeholder="e.g., Recruiter hinted heavy Kafka event replay, multi-region ledger consistency, or teams on Go + Postgres..."
+              ></textarea>
             </label>
 
-            <label class="sd-checkbox-row">
-              <input v-model="generateForm.useWebSearch" type="checkbox" />
-              <Globe :size="14" class="sd-primary-icon" />
-              <span>Ground scenario with Web Search references</span>
-            </label>
+            <div class="sd-inline-options">
+              <label class="sd-field">
+                <span>Target Difficulty</span>
+                <select v-model="generateForm.difficulty" class="form-input">
+                  <option value="EASY">Easy</option>
+                  <option value="MEDIUM">Medium</option>
+                  <option value="HARD">Hard</option>
+                </select>
+              </label>
+
+              <label class="sd-checkbox-row sd-checkbox-inline">
+                <input v-model="generateForm.useWebSearch" type="checkbox" />
+                <Globe :size="14" class="sd-primary-icon" />
+                <span>Ground scenario with Web Search</span>
+              </label>
+            </div>
+
+            <div
+              v-if="duplicateChallengeWarning"
+              class="sd-duplicate-warning"
+              data-testid="duplicate-challenge-warning"
+            >
+              <div class="sd-duplicate-warning-body">
+                <AlertTriangle :size="16" />
+                <div>
+                  <strong>Duplicate / Overlapping Challenge Detected</strong>
+                  <p>{{ duplicateChallengeWarning.message }}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                data-testid="create-anyway-challenge-btn"
+                :disabled="store.generatingChallenge || store.importingChallenge"
+                @click="handleCreateAnywayDuplicate"
+              >
+                Create Anyway
+              </button>
+            </div>
+
             <p class="sd-muted">
-              AI generation automatically creates 3 distinct requirement variants for seeded replay.
+              Both Local AI and Frontier Chat generate 3 distinct requirement variants and guard against duplicating existing challenges.
             </p>
 
-            <div class="sd-modal-actions">
+            <div class="sd-modal-actions sd-modal-actions-wrap">
               <button
                 type="button"
                 class="btn btn-secondary"
@@ -974,15 +1304,88 @@ onUnmounted(() => {
                 Cancel
               </button>
               <button
+                type="button"
+                class="btn btn-secondary"
+                data-testid="prepare-frontier-challenge-prompt-btn"
+                :disabled="store.loadingChallengePrompt || store.generatingChallenge"
+                @click="handlePrepareChallengeFrontierPrompt"
+              >
+                <Loader2 v-if="store.loadingChallengePrompt" :size="14" class="spin" />
+                <FileCode v-else :size="14" />
+                <span>Prepare Frontier Prompt</span>
+              </button>
+              <button
                 type="submit"
                 class="btn btn-primary"
                 data-testid="submit-generate-challenge-btn"
-                :disabled="store.generatingChallenge"
+                :disabled="store.generatingChallenge || store.loadingChallengePrompt"
               >
                 <Loader2 v-if="store.generatingChallenge" :size="14" class="spin" />
                 <Sparkles v-else :size="14" />
-                <span>Generate Challenge</span>
+                <span>Generate with Local AI</span>
               </button>
+            </div>
+
+            <div class="sd-frontier-challenge-box" data-testid="frontier-challenge-panel">
+              <div class="sd-frontier-box-header">
+                <strong>Frontier Chat Mode (Claude / ChatGPT / Gemini)</strong>
+                <span class="sd-muted">Prepare the prompt above, run it in any chat UI, and paste the JSON response below.</span>
+              </div>
+
+              <div v-if="store.challengeFrontierPrompt" class="sd-frontier-prompt-ready">
+                <div class="sd-packet-actions">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    data-testid="copy-frontier-challenge-prompt-btn"
+                    @click="handleCopyChallengePrompt"
+                  >
+                    <Copy :size="13" />
+                    <span>{{ challengePromptCopied ? 'Copied!' : 'Copy Prompt' }}</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    data-testid="download-frontier-challenge-prompt-btn"
+                    @click="handleDownloadChallengePrompt"
+                  >
+                    <Download :size="13" />
+                    <span>Download .md</span>
+                  </button>
+                </div>
+                <textarea
+                  readonly
+                  rows="5"
+                  class="form-input sd-packet-preview"
+                  data-testid="frontier-challenge-prompt-preview"
+                  :value="store.challengeFrontierPrompt.markdown_prompt"
+                ></textarea>
+              </div>
+
+              <label class="sd-field">
+                <span>Import Challenge JSON from Frontier Chat</span>
+                <textarea
+                  v-model="challengeImportText"
+                  rows="4"
+                  class="form-input sd-packet-preview"
+                  data-testid="import-frontier-challenge-input"
+                  placeholder="Paste the JSON response (or ```json fenced block) from Claude, ChatGPT, or Gemini..."
+                ></textarea>
+              </label>
+
+              <div class="sd-modal-actions">
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  data-testid="import-frontier-challenge-submit-btn"
+                  :disabled="store.importingChallenge || !challengeImportText.trim()"
+                  @click="handleImportFrontierChallenge(false)"
+                >
+                  <Loader2 v-if="store.importingChallenge" :size="13" class="spin" />
+                  <Upload v-else :size="13" />
+                  <span>Import Challenge JSON</span>
+                </button>
+              </div>
             </div>
           </form>
 
@@ -3231,6 +3634,207 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+
+.sd-field-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sd-selected-app-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-subtle);
+  border: 1px solid var(--primary);
+  font-size: 12.5px;
+}
+
+.sd-selected-app-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sd-app-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.sd-search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.sd-app-search-input {
+  padding-left: 30px;
+}
+
+.sd-app-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 148px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+}
+
+.sd-app-picker-item {
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.sd-app-picker-item:hover {
+  border-color: var(--border-focus);
+  background: var(--bg-surface-hover);
+}
+
+.sd-app-picker-item.selected {
+  border-color: var(--primary);
+  background: var(--primary-subtle);
+}
+
+.sd-app-picker-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sd-app-picker-title {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.sd-app-picker-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sd-stage-chip,
+.sd-note-chip,
+.sd-signal-pill {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+}
+
+.sd-note-chip {
+  background: var(--status-interview-bg);
+  color: var(--status-interview-text);
+  border-color: var(--status-interview-border);
+}
+
+.sd-signal-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.sd-signal-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.sd-signal-pill {
+  background: var(--primary-subtle);
+  color: var(--text-primary);
+  border-color: var(--primary);
+}
+
+.sd-inline-options {
+  display: grid;
+  grid-template-columns: minmax(140px, 190px) 1fr;
+  gap: 12px;
+  align-items: end;
+}
+
+.sd-checkbox-inline {
+  padding-bottom: 8px;
+}
+
+.sd-duplicate-warning {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--status-rejected-bg);
+  color: var(--status-rejected-text);
+  border: 1px solid var(--status-rejected-border);
+  font-size: 12.5px;
+}
+
+.sd-duplicate-warning-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.sd-duplicate-warning-body p {
+  margin: 4px 0 0;
+  opacity: 0.92;
+}
+
+.sd-modal-actions-wrap {
+  flex-wrap: wrap;
+}
+
+.sd-frontier-challenge-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--bg-elevated);
+}
+
+.sd-frontier-box-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12.5px;
+}
+
+.sd-frontier-prompt-ready {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sd-empty-picker {
+  padding: 6px 4px;
+  margin: 0;
 }
 
 @media (max-width: 900px) {

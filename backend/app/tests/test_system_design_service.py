@@ -1421,3 +1421,249 @@ async def test_ai_challenge_generation_normalizes_three_variants(
     assert session.session_brief["scale_estimates"]["qps"] == "4,000 withdrawals/s peak"
     assert "variants" not in session.session_brief
     assert "global-card-network" not in json.dumps(session.session_brief)
+
+
+@pytest.mark.asyncio
+async def test_challenge_context_and_frontier_prompt_include_notes_research_emails_and_dedup(
+    db_session: AsyncSession,
+):
+    """Frontier challenge prompt and context builder pull app notes, research, emails, and existing challenge list."""
+    from datetime import UTC, datetime
+
+    from app.models.applications import (
+        ApplicationEventModel,
+        ApplicationModel,
+        CompanyModel,
+        JobPostingModel,
+    )
+
+    company = CompanyModel(
+        name="Stripe",
+        name_normalized="stripe",
+        notes="Heavy Go/Java/Ruby ledger reliability focus",
+        pros=["High-throughput webhook & billing infrastructure"],
+        company_research={"architecture": "Cell-based multi-region payment pods"},
+    )
+    db_session.add(company)
+    await db_session.flush()
+
+    application = ApplicationModel(
+        company_id=company.id,
+        position="Staff Backend Engineer, Ledger",
+        status="TECHNICAL_INTERVIEW",
+        notes="Recruiter note: expects deep dive on webhook ordering, DLQs, and private salary target $280k.",
+        match_analysis_payload={"focus_gaps": ["Double-entry ledger sharding"]},
+    )
+    db_session.add(application)
+    await db_session.flush()
+
+    posting = JobPostingModel(
+        application_id=application.id,
+        job_url="https://stripe.com/jobs/listing/staff-backend-ledger",
+        description_markdown="Own idempotent multi-region payment clearing and event pipelines.",
+        required_skills=["Distributed Systems", "PostgreSQL", "Kafka", "Idempotency"],
+        structured_spec={"domain": "payments-clearing", "sla": "99.999%"},
+    )
+    db_session.add(posting)
+
+    event = ApplicationEventModel(
+        email_application_id=application.id,
+        email_event_type="INTERVIEW_INVITE",
+        email_subject="Stripe Architecture Loop Scheduling",
+        email_summary="60m system design round covering high-reliability webhook fanout & ledger reconciliation.",
+        email_received_at=datetime.now(UTC),
+    )
+    db_session.add(event)
+    await db_session.commit()
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            res = await ac.post(
+                "/api/v1/system-design/challenges/frontier-prompt",
+                json={
+                    "application_id": application.id,
+                    "difficulty": "HARD",
+                    "use_web_search": False,
+                    "extra_context": "Focus on outbox pattern vs CDC trade-offs.",
+                },
+            )
+            assert res.status_code == 200
+            data = res.json()
+            assert data["filename"].startswith("stripe-")
+            assert set(data["context_signals"]) >= {
+                "Application Notes",
+                "Job Posting & Skills",
+                "Company Research",
+                "Match Gap Analysis",
+                "Interview Email Clues",
+                "Extra Focus Clues",
+            }
+            prompt = data["markdown_prompt"]
+            assert "EXISTING CHALLENGES — DO NOT DUPLICATE" in prompt
+            assert "Design a URL Shortener" in prompt
+            assert "Recruiter note: expects deep dive on webhook ordering" in prompt
+            assert "Cell-based multi-region payment pods" in prompt
+            assert (
+                "60m system design round covering high-reliability webhook fanout"
+                in prompt
+            )
+            assert "Focus on outbox pattern vs CDC trade-offs." in prompt
+            assert "NEVER copy private compensation figures" in prompt
+            assert "Design a URL Shortener" in data["existing_challenge_titles"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_generate_and_import_challenge_duplicate_detection_repair_and_override(
+    db_session: AsyncSession,
+):
+    """Enforce duplicate 409 handling, 1 controlled repair retry in AI generation, and allow_duplicate override."""
+    import json as _json
+
+    def _make_variant_payload(title: str, slug_prefix: str) -> dict:
+        def _v(vid: str, vtitle: str, goal: str, qps: str) -> dict:
+            return {
+                "variant_id": vid,
+                "title": vtitle,
+                "focus_summary": goal,
+                "business_context": {
+                    "product_goal": goal,
+                    "target_users": "Developers",
+                },
+                "scale_estimates": {"dau": "1M", "daily_volume": "100M", "qps": qps},
+                "functional_requirements": [f"{vtitle} ingestion", "Audit trail"],
+                "non_functional_requirements": ["p99 < 40ms", "99.99% availability"],
+                "constraints": ["Zero silent data loss"],
+                "priorities": ["P0: Idempotency"],
+                "out_of_scope": ["Billing UI"],
+                "hidden_context": {
+                    "scale_targets": qps,
+                    "key_constraints": ["Ordered delivery"],
+                },
+                "expected_components": ["API Gateway", "Kafka", "Ledger DB"],
+                "over_engineering_traps": ["Two-phase commit across internet webhooks"],
+                "defence_questions": [
+                    f"How does {vtitle} avoid duplicate side effects?"
+                ],
+            }
+
+        return {
+            "title": title,
+            "category": "DISTRIBUTED_SYSTEMS",
+            "difficulty": "HARD",
+            "prompt_summary": f"Architect {title} with strong operational guarantees and clear failure boundaries.",
+            "initial_prompt": f"Let us design {title}. Begin by clarifying requirements, expected throughput, and consistency SLAs.",
+            "tags": [slug_prefix, "distributed"],
+            "interviewer_brief": {
+                "variants": [
+                    _v(
+                        f"{slug_prefix}-mvp",
+                        "Cost-Optimized Core",
+                        "Single-region reliable baseline",
+                        "5k QPS",
+                    ),
+                    _v(
+                        f"{slug_prefix}-scale",
+                        "Global Multi-Region",
+                        "Active-active low latency",
+                        "250k QPS",
+                    ),
+                    _v(
+                        f"{slug_prefix}-strict",
+                        "Audit-Strict Ledger",
+                        "Strong consistency & replay",
+                        "40k QPS",
+                    ),
+                ]
+            },
+        }
+
+    dup_reply = AsyncMock()
+    dup_reply.content = _json.dumps(
+        _make_variant_payload("Build a URL Shortener Service", "url-dup")
+    )
+    distinct_reply = AsyncMock()
+    distinct_reply.content = _json.dumps(
+        _make_variant_payload(
+            "Design a Multi-Region Ledger Idempotency Engine", "ledger-idem"
+        )
+    )
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            # 1) Import rejecting duplicate against built-in URL Shortener -> 409
+            import_dup_res = await ac.post(
+                "/api/v1/system-design/challenges/import",
+                json={
+                    "raw_response": f"```json\n{dup_reply.content}\n```",
+                    "difficulty": "MEDIUM",
+                    "allow_duplicate": False,
+                },
+            )
+            assert import_dup_res.status_code == 409
+            assert "Design a URL Shortener" in import_dup_res.json()["detail"]
+
+            # 2) Import with malformed/incomplete variants -> 400
+            bad_import = await ac.post(
+                "/api/v1/system-design/challenges/import",
+                json={
+                    "raw_response": '{"title": "Valid Enough Title", "prompt_summary": "Summary is valid enough.", "initial_prompt": "Design something real for users.", "interviewer_brief": {"variants": [{"title": "Only One"}]}}',
+                },
+            )
+            assert bad_import.status_code == 400
+
+            # 3) Local AI repair retry: Attempt 1 overlaps built-in URL Shortener, Attempt 2 returns distinct challenge
+            repair_ainvoke = AsyncMock(side_effect=[dup_reply, distinct_reply])
+            with patch(
+                "app.services.system_design_service.get_task_chat_model",
+                return_value=AsyncMock(ainvoke=repair_ainvoke),
+            ):
+                repaired_res = await ac.post(
+                    "/api/v1/system-design/challenges/generate",
+                    json={
+                        "topic": "Payment ledger idempotency",
+                        "difficulty": "HARD",
+                        "use_web_search": False,
+                    },
+                )
+            assert repaired_res.status_code == 201
+            assert (
+                repaired_res.json()["title"]
+                == "Design a Multi-Region Ledger Idempotency Engine"
+            )
+            assert repair_ainvoke.await_count == 2
+
+            # 4) Residual duplicate across both AI attempts -> 409 Conflict
+            stuck_ainvoke = AsyncMock(side_effect=[dup_reply, dup_reply])
+            with patch(
+                "app.services.system_design_service.get_task_chat_model",
+                return_value=AsyncMock(ainvoke=stuck_ainvoke),
+            ):
+                conflict_res = await ac.post(
+                    "/api/v1/system-design/challenges/generate",
+                    json={
+                        "topic": "Short links",
+                        "difficulty": "MEDIUM",
+                        "use_web_search": False,
+                    },
+                )
+            assert conflict_res.status_code == 409
+
+            # 5) Explicit allow_duplicate=True succeeds on import -> 201
+            override_res = await ac.post(
+                "/api/v1/system-design/challenges/import",
+                json={
+                    "raw_response": dup_reply.content,
+                    "difficulty": "MEDIUM",
+                    "allow_duplicate": True,
+                },
+            )
+            assert override_res.status_code == 201
+            assert override_res.json()["title"] == "Build a URL Shortener Service"
+    finally:
+        app.dependency_overrides.clear()

@@ -26,6 +26,9 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
   const loadingFrontierPacket = ref(false)
   const importingEvaluation = ref(false)
   const frontierPacket = ref(null)
+  const loadingChallengePrompt = ref(false)
+  const importingChallenge = ref(false)
+  const challengeFrontierPrompt = ref(null)
   const error = ref(null)
 
   const activeLedger = computed(() => activeSession.value?.requirements_ledger || {})
@@ -93,6 +96,37 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
       throw err
     } finally {
       generatingChallenge.value = false
+    }
+  }
+
+  async function prepareChallengeFrontierPrompt(payload) {
+    loadingChallengePrompt.value = true
+    error.value = null
+    try {
+      const res = await SystemDesignAPI.prepareFrontierChallengePrompt(payload)
+      challengeFrontierPrompt.value = res.data
+      return res.data
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      loadingChallengePrompt.value = false
+    }
+  }
+
+  async function importFrontierChallenge(payload) {
+    importingChallenge.value = true
+    error.value = null
+    try {
+      const res = await SystemDesignAPI.importFrontierChallenge(payload)
+      const created = res.data
+      challenges.value = [...challenges.value, created]
+      return created
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      importingChallenge.value = false
     }
   }
 
@@ -548,6 +582,9 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     loadingFrontierPacket,
     importingEvaluation,
     frontierPacket,
+    loadingChallengePrompt,
+    importingChallenge,
+    challengeFrontierPrompt,
     error,
     activeLedger,
     activeDiagrams,
@@ -556,6 +593,8 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     fetchChallenges,
     createChallenge,
     generateChallenge,
+    prepareChallengeFrontierPrompt,
+    importFrontierChallenge,
     updateChallenge,
     resetDefaultChallenges,
     deleteChallenge,
