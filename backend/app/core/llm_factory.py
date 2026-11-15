@@ -526,6 +526,16 @@ TASK_RECOMMENDED_DEFAULTS = {
         "reasoning_effort": "none",
         "max_tokens": 1500,
     },
+    "SYSTEM_DESIGN_INTERVIEWER": {
+        "temperature": 0.2,
+        "reasoning_effort": "none",
+        "max_tokens": 2048,
+    },
+    "SYSTEM_DESIGN_REVIEWER": {
+        "temperature": 0.1,
+        "reasoning_effort": "none",
+        "max_tokens": 3000,
+    },
 }
 
 

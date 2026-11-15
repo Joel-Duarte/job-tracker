@@ -27,6 +27,7 @@ from app.routers import (
     search,
     staging,
     system,
+    system_design,
     system_settings,
 )
 
@@ -147,6 +148,7 @@ app.include_router(system.router, prefix="/api/v1")
 app.include_router(diagnostics.router, prefix="/api/v1")
 app.include_router(llm.router, prefix="/api/v1")
 app.include_router(interview_simulator.router)
+app.include_router(system_design.router)
 
 
 @app.get("/health", tags=["Health"])

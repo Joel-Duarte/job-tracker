@@ -23,6 +23,7 @@ services:
   backend:
     volumes:
       - ./backend/app:/app/app
+      - ./backend/data/system_design:/app/data/system_design
     environment:
       ENVIRONMENT: development
       SEED_DEV_DATA: "true"

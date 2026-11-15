@@ -103,6 +103,8 @@ services:
       SCRAPER_EGRESS_PROXY: http://scraper-egress:3128
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend/data/system_design:/app/data/system_design
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s

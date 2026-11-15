@@ -1064,6 +1064,160 @@ async def _execute_email_sync_steps(
         await db.commit()
 
 
+def _resolve_worker_binding_type(task_type: str) -> str:
+    if task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]:
+        return "EMAIL_EXTRACTION"
+    if task_type in ["APPLICATION_ASSESSMENT"]:
+        return "JOB_ASSESSMENT"
+    if task_type in ["SYSTEM_DESIGN_REVIEW", "SYSTEM_DESIGN_EVALUATION"]:
+        return "SYSTEM_DESIGN_REVIEWER"
+    return task_type
+
+
+def _initial_stage_for_task(task_type: str | None) -> str:
+    stage_map = {
+        "CV_EXTRACTION": "SCRUBBING",
+        "COVER_LETTER": "GENERATING",
+        "ROLE_ALIGNMENT_DOSSIER": "SYNTHESIZING",
+        "COMPANY_RESEARCH": "WEB_SEARCH",
+        "EMAIL_SYNC": "PARSING",
+        "EMAIL_INTAKE": "PARSING",
+        "SYSTEM_DESIGN_REVIEW": "ANALYZING",
+        "SYSTEM_DESIGN_EVALUATION": "ANALYZING",
+    }
+    return stage_map.get(task_type or "", "FETCHING")
+
+
+async def _execute_system_design_review_steps(
+    task: IntakeEvaluationTaskModel, db: AsyncSession
+) -> None:
+    task_id = int(task.id)
+    try:
+        payload = task.result_json or {}
+        session_id = payload.get("session_id")
+        diagram_version = payload.get("diagram_version")
+        if not session_id:
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = "No session_id found for SYSTEM_DESIGN_REVIEW task."
+            task.completed_at = datetime.now(UTC)
+            await db.commit()
+            return
+
+        task.stage = "ANALYZING"
+        await db.commit()
+
+        from app.services.system_design_service import SystemDesignService
+
+        session = await SystemDesignService.analyze_diagram_architecture(
+            db,
+            session_id=int(session_id),
+            diagram_version=int(diagram_version)
+            if diagram_version is not None
+            else None,
+            use_web_search=bool(payload.get("use_web_search", False)),
+        )
+
+        task.status = "COMPLETED"
+        task.stage = "COMPLETE"
+        task.completed_at = datetime.now(UTC)
+        task.result_json = {
+            **payload,
+            "reviews_count": len(session.architecture_reviews or []),
+        }
+        flag_modified(task, "result_json")
+        await db.commit()
+    except Exception as err:
+        logger.error(
+            "Failed processing system design review task %d: %s",
+            task_id,
+            err,
+            exc_info=True,
+        )
+        try:
+            await db.rollback()
+            refreshed = await db.get(IntakeEvaluationTaskModel, task_id)
+            target_task = (
+                refreshed if isinstance(refreshed, IntakeEvaluationTaskModel) else task
+            )
+            target_task.status = "FAILED"
+            target_task.stage = "FAILED"
+            target_task.error_message = str(err)
+            target_task.completed_at = datetime.now(UTC)
+            await db.commit()
+        except Exception as rollback_err:
+            logger.error(
+                "Error setting failure state for system design review task %d: %s",
+                task_id,
+                rollback_err,
+            )
+
+
+async def _execute_system_design_evaluation_steps(
+    task: IntakeEvaluationTaskModel, db: AsyncSession
+) -> None:
+    """Executes Stage F evidence-based final rubric evaluation for System Design Lab."""
+    task_id = int(task.id)
+    try:
+        payload = dict(task.result_json or {})
+        session_id = payload.get("session_id")
+        if not session_id:
+            task.status = "FAILED"
+            task.stage = "FAILED"
+            task.error_message = (
+                "No session_id found for SYSTEM_DESIGN_EVALUATION task."
+            )
+            task.completed_at = datetime.now(UTC)
+            await db.commit()
+            return
+
+        task.stage = "ANALYZING"
+        await db.commit()
+
+        from app.services.system_design_service import SystemDesignService
+
+        updated_session = await SystemDesignService.evaluate_session(
+            db,
+            session_id=int(session_id),
+        )
+
+        task.status = "COMPLETED"
+        task.stage = "COMPLETE"
+        task.completed_at = datetime.now(UTC)
+        task.result_json = {
+            **payload,
+            "overall_score": updated_session.overall_score,
+            "readiness_rating": updated_session.readiness_rating,
+            "final_evaluation": updated_session.final_evaluation,
+        }
+        flag_modified(task, "result_json")
+        await db.commit()
+    except Exception as err:
+        logger.error(
+            "Failed processing system design evaluation task %d: %s",
+            task_id,
+            err,
+            exc_info=True,
+        )
+        try:
+            await db.rollback()
+            refreshed = await db.get(IntakeEvaluationTaskModel, task_id)
+            target_task = (
+                refreshed if isinstance(refreshed, IntakeEvaluationTaskModel) else task
+            )
+            target_task.status = "FAILED"
+            target_task.stage = "FAILED"
+            target_task.error_message = str(err)
+            target_task.completed_at = datetime.now(UTC)
+            await db.commit()
+        except Exception as rollback_err:
+            logger.error(
+                "Error setting failure state for system design evaluation task %d: %s",
+                task_id,
+                rollback_err,
+            )
+
+
 async def _execute_evaluation_steps(
     task: IntakeEvaluationTaskModel, db: AsyncSession
 ) -> None:
@@ -1122,6 +1276,20 @@ async def _execute_evaluation_steps(
 
         if task.task_type == "COMPANY_RESEARCH":
             await _execute_company_research_steps(task, db)
+            ctx["outputs"] = {"status": task.status, "stage": task.stage}
+            if task.status == "FAILED":
+                ctx["error"] = task.error_message
+            return
+
+        if task.task_type == "SYSTEM_DESIGN_REVIEW":
+            await _execute_system_design_review_steps(task, db)
+            ctx["outputs"] = {"status": task.status, "stage": task.stage}
+            if task.status == "FAILED":
+                ctx["error"] = task.error_message
+            return
+
+        if task.task_type == "SYSTEM_DESIGN_EVALUATION":
+            await _execute_system_design_evaluation_steps(task, db)
             ctx["outputs"] = {"status": task.status, "stage": task.stage}
             if task.status == "FAILED":
                 ctx["error"] = task.error_message
@@ -1553,12 +1721,7 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
                 return
 
             task_type = task.task_type or "JOB_ASSESSMENT"
-            if task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]:
-                target_binding_type = "EMAIL_EXTRACTION"
-            elif task_type in ["APPLICATION_ASSESSMENT"]:
-                target_binding_type = "JOB_ASSESSMENT"
-            else:
-                target_binding_type = task_type
+            target_binding_type = _resolve_worker_binding_type(task_type)
 
             binding_stmt = (
                 select(AITaskBindingModel, AIProviderModel)
@@ -1593,28 +1756,7 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
             ):
                 task.status = "PROCESSING"
                 if not task.stage or task.stage in ["QUEUED", "FAILED", "CANCELLED"]:
-                    task.stage = (
-                        "SCRUBBING"
-                        if task.task_type == "CV_EXTRACTION"
-                        else (
-                            "GENERATING"
-                            if task.task_type == "COVER_LETTER"
-                            else (
-                                "SYNTHESIZING"
-                                if task.task_type == "ROLE_ALIGNMENT_DOSSIER"
-                                else (
-                                    "WEB_SEARCH"
-                                    if task.task_type == "COMPANY_RESEARCH"
-                                    else (
-                                        "PARSING"
-                                        if task.task_type
-                                        in ["EMAIL_SYNC", "EMAIL_INTAKE"]
-                                        else "FETCHING"
-                                    )
-                                )
-                            )
-                        )
-                    )
+                    task.stage = _initial_stage_for_task(task.task_type)
                 await db.commit()
                 await _execute_evaluation_steps(task, db)
                 return
@@ -1631,12 +1773,7 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
                 return
 
             task_type = task.task_type or "JOB_ASSESSMENT"
-            if task_type in ["EMAIL_SYNC", "EMAIL_INTAKE"]:
-                target_binding_type = "EMAIL_EXTRACTION"
-            elif task_type in ["APPLICATION_ASSESSMENT"]:
-                target_binding_type = "JOB_ASSESSMENT"
-            else:
-                target_binding_type = task_type
+            target_binding_type = _resolve_worker_binding_type(task_type)
 
             # 1. Resolve Provider and Concurrency Limit for this task_type (or GLOBAL_DEFAULT)
             binding_stmt = (
@@ -1678,28 +1815,7 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
 
                 task.status = "PROCESSING"
                 if not task.stage or task.stage in ["QUEUED", "FAILED", "CANCELLED"]:
-                    task.stage = (
-                        "SCRUBBING"
-                        if task.task_type == "CV_EXTRACTION"
-                        else (
-                            "GENERATING"
-                            if task.task_type == "COVER_LETTER"
-                            else (
-                                "SYNTHESIZING"
-                                if task.task_type == "ROLE_ALIGNMENT_DOSSIER"
-                                else (
-                                    "WEB_SEARCH"
-                                    if task.task_type == "COMPANY_RESEARCH"
-                                    else (
-                                        "PARSING"
-                                        if task.task_type
-                                        in ["EMAIL_SYNC", "EMAIL_INTAKE"]
-                                        else "FETCHING"
-                                    )
-                                )
-                            )
-                        )
-                    )
+                    task.stage = _initial_stage_for_task(task.task_type)
                 await session.commit()
 
                 await _execute_evaluation_steps(task, session)

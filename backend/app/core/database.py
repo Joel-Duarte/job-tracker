@@ -215,10 +215,12 @@ async def ensure_db_schema() -> None:
 
         logger.info("Database schema check completed.")
 
-    # 3. Seed default prompts and system settings if missing
+    # 3. Seed default prompts, system settings, and curated challenges if missing
     async with AsyncSessionLocal() as session:
         from app.core.config_manager import load_settings
         from app.core.prompts import seed_default_prompts
+        from app.services.system_design_seed import seed_system_design_challenges
 
         await seed_default_prompts(session)
         await load_settings(session)
+        await seed_system_design_challenges(session)

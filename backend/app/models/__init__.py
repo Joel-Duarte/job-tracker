@@ -20,6 +20,10 @@ from app.models.processed_email import ProcessedEmailModel
 from app.models.prompts import PromptModel
 from app.models.role_alignment_dossier import RoleAlignmentDossierModel
 from app.models.staging import StagingItemModel
+from app.models.system_design import (
+    SystemDesignChallengeModel,
+    SystemDesignSessionModel,
+)
 from app.models.system_settings import SystemSettingsModel
 
 __all__ = [
@@ -42,6 +46,8 @@ __all__ = [
     "PromptModel",
     "RoleAlignmentDossierModel",
     "StagingItemModel",
+    "SystemDesignChallengeModel",
+    "SystemDesignSessionModel",
     "AgentChatModel",
     "TraceEventModel",
     "SystemSettingsModel",
