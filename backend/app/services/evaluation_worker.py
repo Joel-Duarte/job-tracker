@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import socket
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -14,6 +14,7 @@ from sqlalchemy.orm.attributes import flag_modified
 import app.core.database as db_module
 from app.core.ai_queue import (
     concurrency_manager,
+    get_worker_instance_id,
     is_shutting_down,
     is_task_running_locally,
     register_running_task,
@@ -1124,6 +1125,26 @@ def _resume_stage_for_task(
     return _initial_stage_for_task(task_type)
 
 
+DEFAULT_LEASE_TTL_SECONDS = 60
+DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 15.0
+
+
+class _LeaseLostError(Exception):
+    """Raised when a worker loses task ownership/lease before or during execution."""
+
+
+def _parse_iso_ts(raw: Any) -> datetime | None:
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
+
+
 def _is_transient_ai_error(exc: Exception) -> bool:
     """Classify transient provider/network/rate-limit failures vs permanent validation errors."""
     if isinstance(
@@ -1135,6 +1156,7 @@ def _is_transient_ai_error(exc: Exception) -> bool:
             PermissionError,
             json.JSONDecodeError,
             _TaskCancelledError,
+            _LeaseLostError,
             asyncio.CancelledError,
         ),
     ):
@@ -1176,7 +1198,10 @@ def _is_transient_ai_error(exc: Exception) -> bool:
 
 
 def _ensure_checkpoint_meta(
-    task: IntakeEvaluationTaskModel, *, increment_attempt: bool = False
+    task: IntakeEvaluationTaskModel,
+    *,
+    increment_attempt: bool = False,
+    worker_id: str | None = None,
 ) -> dict[str, Any]:
     """Ensure task.result_json['_checkpoint'] contains consistent durability & telemetry metadata."""
     now_iso = datetime.now(UTC).isoformat()
@@ -1190,12 +1215,124 @@ def _ensure_checkpoint_meta(
     checkpoint["last_activity_at"] = now_iso
     checkpoint["worker_host"] = socket.gethostname()
     checkpoint["worker_pid"] = os.getpid()
+    checkpoint["worker_instance_id"] = worker_id or get_worker_instance_id()
     if increment_attempt:
         checkpoint["attempt_count"] = int(checkpoint["attempt_count"]) + 1
     payload["_checkpoint"] = checkpoint
     task.result_json = payload
     flag_modified(task, "result_json")
     return checkpoint
+
+
+def _acquire_lease_on_checkpoint(
+    task: IntakeEvaluationTaskModel,
+    worker_id: str,
+    *,
+    ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS,
+    increment_attempt: bool = False,
+) -> dict[str, Any]:
+    """Record ownership lease metadata in task.result_json['_checkpoint']."""
+    now = datetime.now(UTC)
+    now_iso = now.isoformat()
+    expires_iso = (now + timedelta(seconds=ttl_seconds)).isoformat()
+    checkpoint = _ensure_checkpoint_meta(
+        task, increment_attempt=increment_attempt, worker_id=worker_id
+    )
+    checkpoint["lease_owner"] = worker_id
+    checkpoint["lease_acquired_at"] = now_iso
+    checkpoint["heartbeat_at"] = now_iso
+    checkpoint["lease_expires_at"] = expires_iso
+    checkpoint["lease_ttl_seconds"] = int(ttl_seconds)
+    flag_modified(task, "result_json")
+    return checkpoint
+
+
+def _clear_lease_on_checkpoint(task: IntakeEvaluationTaskModel) -> dict[str, Any]:
+    """Clear active lease ownership metadata from task.result_json['_checkpoint']."""
+    payload = dict(task.result_json or {})
+    existing = payload.get("_checkpoint")
+    if not isinstance(existing, dict):
+        return {}
+    checkpoint = dict(existing)
+    checkpoint["lease_owner"] = None
+    checkpoint["lease_expires_at"] = None
+    payload["_checkpoint"] = checkpoint
+    task.result_json = payload
+    flag_modified(task, "result_json")
+    return checkpoint
+
+
+async def renew_task_lease(
+    task_id: int,
+    worker_id: str,
+    ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS,
+    session_factory: Any = None,
+) -> bool:
+    """Renew an active PROCESSING task lease only if this worker_id still owns it."""
+    factory = session_factory or db_module.AsyncSessionLocal
+    async with factory() as session:
+        stmt = select(IntakeEvaluationTaskModel).where(
+            IntakeEvaluationTaskModel.id == task_id
+        )
+        if session.bind and session.bind.dialect.name == "postgresql":
+            stmt = stmt.with_for_update()
+        task = (await session.execute(stmt)).scalar_one_or_none()
+        if not task or task.status != "PROCESSING":
+            return False
+        payload = dict(task.result_json or {})
+        existing = payload.get("_checkpoint")
+        checkpoint = dict(existing) if isinstance(existing, dict) else {}
+        if checkpoint.get("lease_owner") != worker_id:
+            return False
+        now = datetime.now(UTC)
+        now_iso = now.isoformat()
+        checkpoint["heartbeat_at"] = now_iso
+        checkpoint["last_activity_at"] = now_iso
+        checkpoint["lease_expires_at"] = (
+            now + timedelta(seconds=ttl_seconds)
+        ).isoformat()
+        checkpoint["lease_ttl_seconds"] = int(ttl_seconds)
+        payload["_checkpoint"] = checkpoint
+        task.result_json = payload
+        flag_modified(task, "result_json")
+        await session.commit()
+        return True
+
+
+async def _lease_heartbeat_loop(
+    task_id: int,
+    worker_id: str,
+    ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS,
+    interval_seconds: float = DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+) -> None:
+    """Periodically renew the worker's PostgreSQL lease while a task is in flight."""
+    while not is_shutting_down():
+        try:
+            await asyncio.sleep(interval_seconds)
+        except asyncio.CancelledError:
+            break
+        if is_shutting_down():
+            break
+        try:
+            renewed = await renew_task_lease(
+                task_id, worker_id, ttl_seconds=ttl_seconds
+            )
+            if not renewed:
+                logger.warning(
+                    "Worker %s lost lease renewal for task %d; stopping heartbeat.",
+                    worker_id,
+                    task_id,
+                )
+                break
+        except asyncio.CancelledError:
+            break
+        except Exception as err:
+            logger.warning(
+                "Heartbeat renewal error for task %d (worker %s): %s",
+                task_id,
+                worker_id,
+                err,
+            )
 
 
 async def _assert_not_cancelled(task_id: int, db: AsyncSession) -> None:
@@ -1211,13 +1348,49 @@ async def _assert_not_cancelled(task_id: int, db: AsyncSession) -> None:
         raise _TaskCancelledError(f"Task {task_id} was cancelled in database.")
 
 
+async def _assert_owns_lease(
+    task_id: int,
+    db: AsyncSession,
+    worker_id: str | None = None,
+    *,
+    for_update: bool = False,
+    allow_cancelled: bool = False,
+) -> None:
+    """Verify the task is still PROCESSING and owned by worker_id (optional row lock)."""
+    stmt = select(
+        IntakeEvaluationTaskModel.status, IntakeEvaluationTaskModel.result_json
+    ).where(IntakeEvaluationTaskModel.id == task_id)
+    if for_update and db.bind and db.bind.dialect.name == "postgresql":
+        stmt = stmt.with_for_update()
+    row = (await db.execute(stmt)).first()
+    if row is None:
+        raise _LeaseLostError(f"Task {task_id} no longer exists.")
+    status_val, result_json = row
+    if status_val == "CANCELLED":
+        if not allow_cancelled:
+            raise _TaskCancelledError(f"Task {task_id} was cancelled in database.")
+    elif status_val != "PROCESSING":
+        raise _LeaseLostError(
+            f"Task {task_id} is {status_val} (no longer PROCESSING); aborting stale worker."
+        )
+    cp = result_json.get("_checkpoint") if isinstance(result_json, dict) else None
+    lease_owner = cp.get("lease_owner") if isinstance(cp, dict) else None
+    if worker_id and lease_owner and lease_owner != worker_id:
+        raise _LeaseLostError(
+            f"Task {task_id} lease owned by {lease_owner}, not {worker_id}."
+        )
+
+
 async def _begin_step(
-    task: IntakeEvaluationTaskModel, db: AsyncSession, step_name: str
+    task: IntakeEvaluationTaskModel,
+    db: AsyncSession,
+    step_name: str,
+    worker_id: str | None = None,
 ) -> dict[str, Any]:
-    """Assert active status, record step start metadata, and flush/commit stage transition."""
-    await _assert_not_cancelled(int(task.id), db)
+    """Assert active lease ownership, record step start metadata, and commit stage transition."""
+    await _assert_owns_lease(int(task.id), db, worker_id)
     now_iso = datetime.now(UTC).isoformat()
-    checkpoint = _ensure_checkpoint_meta(task)
+    checkpoint = _ensure_checkpoint_meta(task, worker_id=worker_id)
     timestamps = dict(checkpoint.get("step_timestamps") or {})
     entry = dict(timestamps.get(step_name) or {})
     entry["started_at"] = now_iso
@@ -1237,11 +1410,15 @@ async def _complete_step(
     task: IntakeEvaluationTaskModel,
     db: AsyncSession,
     step_name: str,
+    worker_id: str | None = None,
     **extra_checkpoint_fields: Any,
 ) -> dict[str, Any]:
     """Persist intermediate step outputs and mark step completed in _checkpoint."""
+    await _assert_owns_lease(
+        int(task.id), db, worker_id, for_update=True, allow_cancelled=True
+    )
     now_iso = datetime.now(UTC).isoformat()
-    checkpoint = _ensure_checkpoint_meta(task)
+    checkpoint = _ensure_checkpoint_meta(task, worker_id=worker_id)
     completed = [str(s) for s in (checkpoint.get("completed_steps") or [])]
     if step_name not in completed:
         completed.append(step_name)
@@ -1265,11 +1442,12 @@ async def _run_with_transient_retry(
     coro_factory: Any,
     task: IntakeEvaluationTaskModel,
     db: AsyncSession,
+    worker_id: str | None = None,
 ) -> Any:
     """Run an AI/IO step with bounded backoff retries only on transient errors."""
     delays = _TRANSIENT_RETRY_DELAYS
     for attempt_idx in range(len(delays) + 1):
-        await _assert_not_cancelled(task_id, db)
+        await _assert_owns_lease(task_id, db, worker_id)
         try:
             return await coro_factory()
         except Exception as exc:
@@ -1323,6 +1501,19 @@ async def _handle_step_exception(
             pass
         return
 
+    if isinstance(err, _LeaseLostError):
+        logger.warning(
+            "%s task %d aborted due to lost lease ownership (%s); leaving DB untouched.",
+            label,
+            task_id,
+            err,
+        )
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        return
+
     logger.error("Failed processing %s task %d: %s", label, task_id, err, exc_info=True)
     try:
         await db.rollback()
@@ -1334,6 +1525,7 @@ async def _handle_step_exception(
             return
         cp = _ensure_checkpoint_meta(target_task)
         cp["last_error"] = str(err)[:500]
+        _clear_lease_on_checkpoint(target_task)
         target_task.status = "FAILED"
         target_task.stage = "FAILED"
         target_task.error_message = str(err)
@@ -1350,15 +1542,20 @@ async def _handle_step_exception(
 
 
 async def _execute_system_design_review_steps(
-    task: IntakeEvaluationTaskModel, db: AsyncSession
+    task: IntakeEvaluationTaskModel,
+    db: AsyncSession,
+    *,
+    worker_id: str | None = None,
 ) -> None:
     """Checkpointed 3-step pipeline for SYSTEM_DESIGN_REVIEW: PREPARING -> ANALYZING -> SAVING."""
     task_id = int(task.id)
+    effective_worker_id = worker_id or get_worker_instance_id()
     try:
         payload = dict(task.result_json or {})
         session_id = payload.get("session_id")
         diagram_version = payload.get("diagram_version")
         if not session_id:
+            _clear_lease_on_checkpoint(task)
             task.status = "FAILED"
             task.stage = "FAILED"
             task.error_message = "No session_id found for SYSTEM_DESIGN_REVIEW task."
@@ -1368,11 +1565,11 @@ async def _execute_system_design_review_steps(
 
         from app.services.system_design_service import SystemDesignService
 
-        checkpoint = _ensure_checkpoint_meta(task)
+        checkpoint = _ensure_checkpoint_meta(task, worker_id=effective_worker_id)
         completed_steps = set(str(s) for s in (checkpoint.get("completed_steps") or []))
 
         if "PREPARING" not in completed_steps or not checkpoint.get("prepared_ctx"):
-            await _begin_step(task, db, "PREPARING")
+            await _begin_step(task, db, "PREPARING", worker_id=effective_worker_id)
             prepared_ctx = await SystemDesignService.prepare_diagram_review_context(
                 db,
                 session_id=int(session_id),
@@ -1382,20 +1579,25 @@ async def _execute_system_design_review_steps(
                 use_web_search=bool(payload.get("use_web_search", False)),
             )
             checkpoint = await _complete_step(
-                task, db, "PREPARING", prepared_ctx=prepared_ctx
+                task,
+                db,
+                "PREPARING",
+                worker_id=effective_worker_id,
+                prepared_ctx=prepared_ctx,
             )
         else:
             prepared_ctx = dict(checkpoint["prepared_ctx"])
 
         completed_steps = set(str(s) for s in (checkpoint.get("completed_steps") or []))
         if "ANALYZING" not in completed_steps or not checkpoint.get("review_result"):
-            await _begin_step(task, db, "ANALYZING")
+            await _begin_step(task, db, "ANALYZING", worker_id=effective_worker_id)
             inference_out = await _run_with_transient_retry(
                 task_id,
                 "ANALYZING",
                 lambda: SystemDesignService.run_diagram_vlm_inference(db, prepared_ctx),
                 task,
                 db,
+                worker_id=effective_worker_id,
             )
             review_result = inference_out["review"]
             provider_telemetry = inference_out["provider_telemetry"]
@@ -1403,6 +1605,7 @@ async def _execute_system_design_review_steps(
                 task,
                 db,
                 "ANALYZING",
+                worker_id=effective_worker_id,
                 review_result=review_result,
                 provider_telemetry=provider_telemetry,
             )
@@ -1411,8 +1614,8 @@ async def _execute_system_design_review_steps(
 
         completed_steps = set(str(s) for s in (checkpoint.get("completed_steps") or []))
         if "SAVING" not in completed_steps:
-            await _begin_step(task, db, "SAVING")
-            await _assert_not_cancelled(task_id, db)
+            await _begin_step(task, db, "SAVING", worker_id=effective_worker_id)
+            await _assert_owns_lease(task_id, db, effective_worker_id, for_update=True)
             session = await SystemDesignService.persist_architecture_review(
                 db, session_id=int(session_id), review_dict=review_result
             )
@@ -1420,16 +1623,18 @@ async def _execute_system_design_review_steps(
                 task,
                 db,
                 "SAVING",
+                worker_id=effective_worker_id,
                 reviews_count=len(session.architecture_reviews or []),
             )
         else:
             session = await SystemDesignService.get_session(db, int(session_id))
 
-        await _assert_not_cancelled(task_id, db)
+        await _assert_owns_lease(task_id, db, effective_worker_id, for_update=True)
         latest_payload = dict(task.result_json or payload)
         latest_payload["reviews_count"] = len(session.architecture_reviews or [])
         latest_payload["_checkpoint"] = checkpoint
         task.result_json = latest_payload
+        _clear_lease_on_checkpoint(task)
         task.status = "COMPLETED"
         task.stage = "COMPLETE"
         task.error_message = None
@@ -1441,14 +1646,19 @@ async def _execute_system_design_review_steps(
 
 
 async def _execute_system_design_evaluation_steps(
-    task: IntakeEvaluationTaskModel, db: AsyncSession
+    task: IntakeEvaluationTaskModel,
+    db: AsyncSession,
+    *,
+    worker_id: str | None = None,
 ) -> None:
     """Checkpointed 3-step pipeline for SYSTEM_DESIGN_EVALUATION: PREPARING -> EVALUATING -> SAVING."""
     task_id = int(task.id)
+    effective_worker_id = worker_id or get_worker_instance_id()
     try:
         payload = dict(task.result_json or {})
         session_id = payload.get("session_id")
         if not session_id:
+            _clear_lease_on_checkpoint(task)
             task.status = "FAILED"
             task.stage = "FAILED"
             task.error_message = (
@@ -1460,16 +1670,20 @@ async def _execute_system_design_evaluation_steps(
 
         from app.services.system_design_service import SystemDesignService
 
-        checkpoint = _ensure_checkpoint_meta(task)
+        checkpoint = _ensure_checkpoint_meta(task, worker_id=effective_worker_id)
         completed_steps = set(str(s) for s in (checkpoint.get("completed_steps") or []))
 
         if "PREPARING" not in completed_steps or not checkpoint.get("prepared_ctx"):
-            await _begin_step(task, db, "PREPARING")
+            await _begin_step(task, db, "PREPARING", worker_id=effective_worker_id)
             prepared_ctx = await SystemDesignService.prepare_final_evaluation_context(
                 db, session_id=int(session_id)
             )
             checkpoint = await _complete_step(
-                task, db, "PREPARING", prepared_ctx=prepared_ctx
+                task,
+                db,
+                "PREPARING",
+                worker_id=effective_worker_id,
+                prepared_ctx=prepared_ctx,
             )
         else:
             prepared_ctx = dict(checkpoint["prepared_ctx"])
@@ -1478,7 +1692,7 @@ async def _execute_system_design_evaluation_steps(
         if "EVALUATING" not in completed_steps or not checkpoint.get(
             "evaluation_result"
         ):
-            await _begin_step(task, db, "EVALUATING")
+            await _begin_step(task, db, "EVALUATING", worker_id=effective_worker_id)
             inference_out = await _run_with_transient_retry(
                 task_id,
                 "EVALUATING",
@@ -1487,6 +1701,7 @@ async def _execute_system_design_evaluation_steps(
                 ),
                 task,
                 db,
+                worker_id=effective_worker_id,
             )
             evaluation_result = inference_out["evaluation"]
             provider_telemetry = inference_out["provider_telemetry"]
@@ -1494,6 +1709,7 @@ async def _execute_system_design_evaluation_steps(
                 task,
                 db,
                 "EVALUATING",
+                worker_id=effective_worker_id,
                 evaluation_result=evaluation_result,
                 provider_telemetry=provider_telemetry,
             )
@@ -1502,25 +1718,28 @@ async def _execute_system_design_evaluation_steps(
 
         completed_steps = set(str(s) for s in (checkpoint.get("completed_steps") or []))
         if "SAVING" not in completed_steps:
-            await _begin_step(task, db, "SAVING")
-            await _assert_not_cancelled(task_id, db)
+            await _begin_step(task, db, "SAVING", worker_id=effective_worker_id)
+            await _assert_owns_lease(task_id, db, effective_worker_id, for_update=True)
             updated_session = await SystemDesignService.persist_final_evaluation(
                 db,
                 session_id=int(session_id),
                 eval_dict=evaluation_result,
                 idempotent_if_completed=True,
             )
-            checkpoint = await _complete_step(task, db, "SAVING")
+            checkpoint = await _complete_step(
+                task, db, "SAVING", worker_id=effective_worker_id
+            )
         else:
             updated_session = await SystemDesignService.get_session(db, int(session_id))
 
-        await _assert_not_cancelled(task_id, db)
+        await _assert_owns_lease(task_id, db, effective_worker_id, for_update=True)
         latest_payload = dict(task.result_json or payload)
         latest_payload["overall_score"] = updated_session.overall_score
         latest_payload["readiness_rating"] = updated_session.readiness_rating
         latest_payload["final_evaluation"] = updated_session.final_evaluation
         latest_payload["_checkpoint"] = checkpoint
         task.result_json = latest_payload
+        _clear_lease_on_checkpoint(task)
         task.status = "COMPLETED"
         task.stage = "COMPLETE"
         task.error_message = None
@@ -1532,26 +1751,34 @@ async def _execute_system_design_evaluation_steps(
 
 
 async def _execute_system_design_challenge_gen_steps(
-    task: IntakeEvaluationTaskModel, db: AsyncSession
+    task: IntakeEvaluationTaskModel,
+    db: AsyncSession,
+    *,
+    worker_id: str | None = None,
 ) -> None:
     """Checkpointed 3-step pipeline for SYSTEM_DESIGN_CHALLENGE_GEN: PREPARING -> GENERATING -> SAVING."""
     task_id = int(task.id)
+    effective_worker_id = worker_id or get_worker_instance_id()
     try:
         payload = dict(task.result_json or {})
         request_payload = dict(payload.get("request_payload") or {})
 
         from app.services.system_design_service import SystemDesignService
 
-        checkpoint = _ensure_checkpoint_meta(task)
+        checkpoint = _ensure_checkpoint_meta(task, worker_id=effective_worker_id)
         completed_steps = set(str(s) for s in (checkpoint.get("completed_steps") or []))
 
         if "PREPARING" not in completed_steps or not checkpoint.get("prepared_ctx"):
-            await _begin_step(task, db, "PREPARING")
+            await _begin_step(task, db, "PREPARING", worker_id=effective_worker_id)
             prepared_ctx = await SystemDesignService.prepare_challenge_gen_context(
                 db, request_payload
             )
             checkpoint = await _complete_step(
-                task, db, "PREPARING", prepared_ctx=prepared_ctx
+                task,
+                db,
+                "PREPARING",
+                worker_id=effective_worker_id,
+                prepared_ctx=prepared_ctx,
             )
         else:
             prepared_ctx = dict(checkpoint["prepared_ctx"])
@@ -1560,7 +1787,7 @@ async def _execute_system_design_challenge_gen_steps(
         if "GENERATING" not in completed_steps or not checkpoint.get(
             "parsed_challenge"
         ):
-            await _begin_step(task, db, "GENERATING")
+            await _begin_step(task, db, "GENERATING", worker_id=effective_worker_id)
             inference_out = await _run_with_transient_retry(
                 task_id,
                 "GENERATING",
@@ -1569,6 +1796,7 @@ async def _execute_system_design_challenge_gen_steps(
                 ),
                 task,
                 db,
+                worker_id=effective_worker_id,
             )
             parsed_challenge = inference_out["parsed"]
             provider_telemetry = inference_out["provider_telemetry"]
@@ -1576,6 +1804,7 @@ async def _execute_system_design_challenge_gen_steps(
                 task,
                 db,
                 "GENERATING",
+                worker_id=effective_worker_id,
                 parsed_challenge=parsed_challenge,
                 provider_telemetry=provider_telemetry,
             )
@@ -1584,8 +1813,8 @@ async def _execute_system_design_challenge_gen_steps(
 
         completed_steps = set(str(s) for s in (checkpoint.get("completed_steps") or []))
         if "SAVING" not in completed_steps or not checkpoint.get("challenge_id"):
-            await _begin_step(task, db, "SAVING")
-            await _assert_not_cancelled(task_id, db)
+            await _begin_step(task, db, "SAVING", worker_id=effective_worker_id)
+            await _assert_owns_lease(task_id, db, effective_worker_id, for_update=True)
             challenge = await SystemDesignService.persist_generated_challenge(
                 db, prepared_ctx, parsed_challenge
             )
@@ -1593,13 +1822,14 @@ async def _execute_system_design_challenge_gen_steps(
                 task,
                 db,
                 "SAVING",
+                worker_id=effective_worker_id,
                 challenge_id=int(challenge.id),
                 challenge_slug=str(challenge.slug),
             )
         else:
             challenge = None
 
-        await _assert_not_cancelled(task_id, db)
+        await _assert_owns_lease(task_id, db, effective_worker_id, for_update=True)
         latest_payload = dict(task.result_json or payload)
         latest_payload["challenge_id"] = int(
             checkpoint.get("challenge_id") or (challenge.id if challenge else 0)
@@ -1609,6 +1839,7 @@ async def _execute_system_design_challenge_gen_steps(
         )
         latest_payload["_checkpoint"] = checkpoint
         task.result_json = latest_payload
+        _clear_lease_on_checkpoint(task)
         task.status = "COMPLETED"
         task.stage = "COMPLETE"
         task.error_message = None
@@ -1622,7 +1853,10 @@ async def _execute_system_design_challenge_gen_steps(
 
 
 async def _execute_evaluation_steps(
-    task: IntakeEvaluationTaskModel, db: AsyncSession
+    task: IntakeEvaluationTaskModel,
+    db: AsyncSession,
+    *,
+    worker_id: str | None = None,
 ) -> None:
     task_id = int(task.id)
     async with trace_operation(
@@ -1685,21 +1919,23 @@ async def _execute_evaluation_steps(
             return
 
         if task.task_type == "SYSTEM_DESIGN_REVIEW":
-            await _execute_system_design_review_steps(task, db)
+            await _execute_system_design_review_steps(task, db, worker_id=worker_id)
             ctx["outputs"] = {"status": task.status, "stage": task.stage}
             if task.status == "FAILED":
                 ctx["error"] = task.error_message
             return
 
         if task.task_type == "SYSTEM_DESIGN_EVALUATION":
-            await _execute_system_design_evaluation_steps(task, db)
+            await _execute_system_design_evaluation_steps(task, db, worker_id=worker_id)
             ctx["outputs"] = {"status": task.status, "stage": task.stage}
             if task.status == "FAILED":
                 ctx["error"] = task.error_message
             return
 
         if task.task_type == "SYSTEM_DESIGN_CHALLENGE_GEN":
-            await _execute_system_design_challenge_gen_steps(task, db)
+            await _execute_system_design_challenge_gen_steps(
+                task, db, worker_id=worker_id
+            )
             ctx["outputs"] = {"status": task.status, "stage": task.stage}
             if task.status == "FAILED":
                 ctx["error"] = task.error_message
@@ -2138,9 +2374,12 @@ async def _resolve_provider_concurrency(
 
 
 async def _requeue_task_on_shutdown(
-    task_id: int, db: AsyncSession | None = None
+    task_id: int,
+    db: AsyncSession | None = None,
+    *,
+    worker_id: str | None = None,
 ) -> None:
-    """Re-queue an interrupted PROCESSING task on graceful shutdown while keeping _checkpoint."""
+    """Re-queue an interrupted PROCESSING task on graceful shutdown if this worker still owns its lease."""
     try:
         if db is not None:
             try:
@@ -2149,8 +2388,18 @@ async def _requeue_task_on_shutdown(
                 pass
             t = await db.get(IntakeEvaluationTaskModel, task_id)
             if t and t.status == "PROCESSING":
-                cp = _ensure_checkpoint_meta(t)
+                existing_cp = (
+                    dict(t.result_json.get("_checkpoint"))
+                    if isinstance(t.result_json, dict)
+                    and isinstance(t.result_json.get("_checkpoint"), dict)
+                    else {}
+                )
+                owner = existing_cp.get("lease_owner")
+                if worker_id and owner and owner != worker_id:
+                    return
+                cp = _ensure_checkpoint_meta(t, worker_id=worker_id)
                 cp["interrupted_by_shutdown_at"] = datetime.now(UTC).isoformat()
+                _clear_lease_on_checkpoint(t)
                 t.status = "QUEUED"
                 t.stage = _resume_stage_for_task(t.task_type, t.result_json)
                 t.error_message = "Paused cleanly during server shutdown; queued for automatic resume."
@@ -2160,10 +2409,28 @@ async def _requeue_task_on_shutdown(
             return
 
         async with db_module.AsyncSessionLocal() as recovery_session:
-            t = await recovery_session.get(IntakeEvaluationTaskModel, task_id)
+            stmt = select(IntakeEvaluationTaskModel).where(
+                IntakeEvaluationTaskModel.id == task_id
+            )
+            if (
+                recovery_session.bind
+                and recovery_session.bind.dialect.name == "postgresql"
+            ):
+                stmt = stmt.with_for_update(skip_locked=True)
+            t = (await recovery_session.execute(stmt)).scalar_one_or_none()
             if t and t.status == "PROCESSING":
-                cp = _ensure_checkpoint_meta(t)
+                existing_cp = (
+                    dict(t.result_json.get("_checkpoint"))
+                    if isinstance(t.result_json, dict)
+                    and isinstance(t.result_json.get("_checkpoint"), dict)
+                    else {}
+                )
+                owner = existing_cp.get("lease_owner")
+                if worker_id and owner and owner != worker_id:
+                    return
+                cp = _ensure_checkpoint_meta(t, worker_id=worker_id)
                 cp["interrupted_by_shutdown_at"] = datetime.now(UTC).isoformat()
+                _clear_lease_on_checkpoint(t)
                 t.status = "QUEUED"
                 t.stage = _resume_stage_for_task(t.task_type, t.result_json)
                 t.error_message = "Paused cleanly during server shutdown; queued for automatic resume."
@@ -2176,7 +2443,12 @@ async def _requeue_task_on_shutdown(
         )
 
 
-async def _mark_task_cancelled(task_id: int, db: AsyncSession | None = None) -> None:
+async def _mark_task_cancelled(
+    task_id: int,
+    db: AsyncSession | None = None,
+    *,
+    worker_id: str | None = None,
+) -> None:
     """Persist CANCELLED status cleanly when an in-flight task receives cancellation."""
     try:
         if db is not None:
@@ -2186,6 +2458,16 @@ async def _mark_task_cancelled(task_id: int, db: AsyncSession | None = None) -> 
                 pass
             t = await db.get(IntakeEvaluationTaskModel, task_id)
             if t and t.status != "CANCELLED":
+                existing_cp = (
+                    dict(t.result_json.get("_checkpoint"))
+                    if isinstance(t.result_json, dict)
+                    and isinstance(t.result_json.get("_checkpoint"), dict)
+                    else {}
+                )
+                owner = existing_cp.get("lease_owner")
+                if worker_id and owner and owner != worker_id:
+                    return
+                _clear_lease_on_checkpoint(t)
                 t.status = "CANCELLED"
                 t.stage = "CANCELLED"
                 t.error_message = "Task stopped by user"
@@ -2196,6 +2478,16 @@ async def _mark_task_cancelled(task_id: int, db: AsyncSession | None = None) -> 
         async with db_module.AsyncSessionLocal() as cancel_session:
             t = await cancel_session.get(IntakeEvaluationTaskModel, task_id)
             if t and t.status != "CANCELLED":
+                existing_cp = (
+                    dict(t.result_json.get("_checkpoint"))
+                    if isinstance(t.result_json, dict)
+                    and isinstance(t.result_json.get("_checkpoint"), dict)
+                    else {}
+                )
+                owner = existing_cp.get("lease_owner")
+                if worker_id and owner and owner != worker_id:
+                    return
+                _clear_lease_on_checkpoint(t)
                 t.status = "CANCELLED"
                 t.stage = "CANCELLED"
                 t.error_message = "Task stopped by user"
@@ -2209,11 +2501,17 @@ async def _mark_task_cancelled(task_id: int, db: AsyncSession | None = None) -> 
         )
 
 
-async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) -> None:
+async def process_evaluation_task(
+    task_id: int,
+    db: AsyncSession | None = None,
+    *,
+    worker_id: str | None = None,
+) -> None:
     """
     Atomically claims and processes a single QUEUED evaluation task within
-    the provider's configured concurrency limits, recording checkpoint telemetry.
+    the provider's configured concurrency limits, maintaining a renewable lease.
     """
+    effective_worker_id = worker_id or get_worker_instance_id()
     async with _CLAIM_LOCK:
         if task_id in _IN_PROCESS_CLAIMED:
             logger.info(
@@ -2227,6 +2525,7 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
     if curr_task:
         register_running_task(task_id, curr_task)
 
+    heartbeat_task: asyncio.Task[None] | None = None
     try:
         if db is not None:
             stmt = select(IntakeEvaluationTaskModel).where(
@@ -2251,7 +2550,9 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
             task.status = "PROCESSING"
             if not task.stage or task.stage in ["QUEUED", "FAILED", "CANCELLED"]:
                 task.stage = _resume_stage_for_task(task.task_type, task.result_json)
-            _ensure_checkpoint_meta(task, increment_attempt=True)
+            _acquire_lease_on_checkpoint(
+                task, effective_worker_id, increment_attempt=True
+            )
             await db.commit()
 
             async with concurrency_manager.acquire(
@@ -2266,7 +2567,7 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
                 ).scalar_one_or_none()
                 if status_val == "CANCELLED":
                     return
-                await _execute_evaluation_steps(task, db)
+                await _execute_evaluation_steps(task, db, worker_id=effective_worker_id)
                 return
 
         async with db_module.AsyncSessionLocal() as session:
@@ -2294,8 +2595,14 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
             task.status = "PROCESSING"
             if not task.stage or task.stage in ["QUEUED", "FAILED", "CANCELLED"]:
                 task.stage = _resume_stage_for_task(task.task_type, task.result_json)
-            _ensure_checkpoint_meta(task, increment_attempt=True)
+            _acquire_lease_on_checkpoint(
+                task, effective_worker_id, increment_attempt=True
+            )
             await session.commit()
+
+        heartbeat_task = asyncio.create_task(
+            _lease_heartbeat_loop(task_id, effective_worker_id)
+        )
 
         # Acquire provider semaphore strictly bounding concurrent execution
         async with concurrency_manager.acquire(
@@ -2305,24 +2612,49 @@ async def process_evaluation_task(task_id: int, db: AsyncSession | None = None) 
                 task = await session.get(IntakeEvaluationTaskModel, task_id)
                 if not task or task.status != "PROCESSING":
                     return
+                cp = (
+                    dict(task.result_json.get("_checkpoint"))
+                    if isinstance(task.result_json, dict)
+                    and isinstance(task.result_json.get("_checkpoint"), dict)
+                    else {}
+                )
+                if cp.get("lease_owner") != effective_worker_id:
+                    logger.warning(
+                        "Worker %s lost lease for task %d before execution started.",
+                        effective_worker_id,
+                        task_id,
+                    )
+                    return
 
-                _ensure_checkpoint_meta(task)
+                _acquire_lease_on_checkpoint(task, effective_worker_id)
                 await session.commit()
-                await _execute_evaluation_steps(task, session)
+                await _execute_evaluation_steps(
+                    task, session, worker_id=effective_worker_id
+                )
     except asyncio.CancelledError:
         if is_shutting_down():
             logger.info(
                 "Evaluation task %d interrupted by graceful shutdown; re-queuing with checkpoint preserved.",
                 task_id,
             )
-            await _requeue_task_on_shutdown(task_id, db=db)
+            await _requeue_task_on_shutdown(
+                task_id, db=db, worker_id=effective_worker_id
+            )
         else:
             logger.info(
                 "Evaluation task %d received in-flight cancellation signal.", task_id
             )
-            await _mark_task_cancelled(task_id, db=db)
+            await _mark_task_cancelled(task_id, db=db, worker_id=effective_worker_id)
         raise
     finally:
+        if heartbeat_task is not None and not heartbeat_task.done():
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
         unregister_running_task(task_id)
         async with _CLAIM_LOCK:
             _IN_PROCESS_CLAIMED.discard(task_id)
@@ -2336,16 +2668,14 @@ async def recover_and_dispatch_queue_tasks(
     dispatch_limit: int = 20,
 ) -> dict[str, Any]:
     """
-    Recover orphaned PROCESSING tasks from crashed/restarted workers and dispatch QUEUED tasks.
-    On startup=True, any PROCESSING task without a live local runner belonging to this host
-    (or legacy task missing worker_host) is immediately re-queued with its checkpoint preserved.
+    Recover orphaned PROCESSING tasks whose renewable lease has expired and dispatch QUEUED tasks.
+    Uses SELECT ... FOR UPDATE SKIP LOCKED on PostgreSQL so sibling containers never collide.
     """
     if is_shutting_down():
         return {"recovered_count": 0, "dispatched_count": 0, "dispatched_task_ids": []}
 
     factory = session_factory or db_module.AsyncSessionLocal
     now = datetime.now(UTC)
-    current_host = socket.gethostname()
     recovered_count = 0
     queued_ids_to_dispatch: list[int] = []
 
@@ -2353,6 +2683,8 @@ async def recover_and_dispatch_queue_tasks(
         proc_stmt = select(IntakeEvaluationTaskModel).where(
             IntakeEvaluationTaskModel.status == "PROCESSING"
         )
+        if session.bind and session.bind.dialect.name == "postgresql":
+            proc_stmt = proc_stmt.with_for_update(skip_locked=True)
         processing_tasks = (await session.execute(proc_stmt)).scalars().all()
         for task in processing_tasks:
             tid = int(task.id)
@@ -2365,27 +2697,24 @@ async def recover_and_dispatch_queue_tasks(
                 and isinstance(task.result_json.get("_checkpoint"), dict)
                 else {}
             )
-            activity_raw = cp.get("last_activity_at")
-            activity_ts: datetime | None = None
-            if isinstance(activity_raw, str) and activity_raw:
-                try:
-                    activity_ts = datetime.fromisoformat(activity_raw)
-                except ValueError:
-                    activity_ts = None
-            if activity_ts is None:
-                activity_ts = task.created_at
-            if activity_ts is not None and activity_ts.tzinfo is None:
-                activity_ts = activity_ts.replace(tzinfo=UTC)
-
-            age_seconds = (
-                (now - activity_ts).total_seconds() if activity_ts is not None else 0.0
-            )
-            worker_host = cp.get("worker_host")
+            lease_expires_ts = _parse_iso_ts(cp.get("lease_expires_at"))
             should_recover = False
-            if startup and (worker_host is None or worker_host == current_host):
-                should_recover = True
-            elif age_seconds >= float(stale_after_seconds):
-                should_recover = True
+            if lease_expires_ts is not None:
+                # Renewable lease is authoritative: only recover once lease genuinely expires.
+                should_recover = now >= lease_expires_ts
+            else:
+                activity_ts = (
+                    _parse_iso_ts(cp.get("last_activity_at")) or task.created_at
+                )
+                if activity_ts is not None and activity_ts.tzinfo is None:
+                    activity_ts = activity_ts.replace(tzinfo=UTC)
+                age_seconds = (
+                    (now - activity_ts).total_seconds()
+                    if activity_ts is not None
+                    else 0.0
+                )
+                if startup or age_seconds >= float(stale_after_seconds):
+                    should_recover = True
 
             if should_recover:
                 updated_cp = _ensure_checkpoint_meta(task)
@@ -2393,10 +2722,11 @@ async def recover_and_dispatch_queue_tasks(
                     int(updated_cp.get("recovery_count", 0)) + 1
                 )
                 updated_cp["last_recovered_at"] = now.isoformat()
+                _clear_lease_on_checkpoint(task)
                 task.status = "QUEUED"
                 task.stage = _resume_stage_for_task(task.task_type, task.result_json)
                 task.error_message = (
-                    "Recovered interrupted task after restart/timeout; resuming."
+                    "Recovered interrupted task after lease expiry; resuming."
                 )
                 task.completed_at = None
                 flag_modified(task, "result_json")
@@ -2443,7 +2773,7 @@ async def recover_and_dispatch_queue_tasks(
 async def queue_recovery_and_dispatcher_loop(
     session_factory: Any = None,
     *,
-    poll_interval_seconds: float = 10.0,
+    poll_interval_seconds: float = 3.0,
     stale_after_seconds: int = 300,
 ) -> None:
     """Background loop that recovers orphaned tasks at startup and periodically dispatches QUEUED work."""

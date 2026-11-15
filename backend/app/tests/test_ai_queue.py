@@ -593,7 +593,7 @@ async def test_startup_recovery_duplicate_claim_and_graceful_shutdown(
     # Scenario D: Duplicate claim / concurrent worker guard & completed idempotency
     exec_count = 0
 
-    async def counting_steps(task, db):
+    async def counting_steps(task, db, **kwargs):
         nonlocal exec_count
         exec_count += 1
         await asyncio.sleep(0.05)
@@ -643,7 +643,7 @@ async def test_startup_recovery_duplicate_claim_and_graceful_shutdown(
 
     started_event = asyncio.Event()
 
-    async def slow_eval_steps(task, db):
+    async def slow_eval_steps(task, db, **kwargs):
         started_event.set()
         await asyncio.sleep(10.0)
 
@@ -681,6 +681,7 @@ async def test_transient_retry_vs_permanent_error_policy():
 
     mock_exec_res = AsyncMock()
     mock_exec_res.scalar_one_or_none = lambda: "PROCESSING"
+    mock_exec_res.first = lambda: ("PROCESSING", {"_checkpoint": {}})
     mock_db = AsyncMock()
     mock_db.execute = AsyncMock(return_value=mock_exec_res)
     mock_db.get = AsyncMock(return_value=task)
@@ -716,3 +717,231 @@ async def test_transient_retry_vs_permanent_error_policy():
             909, "ANALYZING", permanent_validation_err, task, mock_db
         )
     assert perm_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_worker_instance_id_and_lease_renewal_ownership(db_session: AsyncSession):
+    from datetime import UTC, datetime, timedelta
+
+    from app.core.ai_queue import get_worker_instance_id
+    from app.services.evaluation_worker import renew_task_lease
+
+    wid = get_worker_instance_id()
+    assert wid and wid.count(":") >= 2
+    assert wid == get_worker_instance_id()
+
+    old_exp = (datetime.now(UTC) + timedelta(seconds=10)).isoformat()
+    task = IntakeEvaluationTaskModel(
+        task_type="SYSTEM_DESIGN_REVIEW",
+        title_hint="Lease Renewal Test",
+        status="PROCESSING",
+        stage="ANALYZING",
+        result_json={
+            "_checkpoint": {
+                "lease_owner": "worker-owner-1",
+                "lease_expires_at": old_exp,
+            }
+        },
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    # Non-owner cannot renew
+    assert await renew_task_lease(task.id, "worker-intruder-2", ttl_seconds=60) is False
+    await db_session.refresh(task)
+    assert task.result_json["_checkpoint"]["lease_expires_at"] == old_exp
+
+    # Owner renews and extends lease_expires_at
+    assert await renew_task_lease(task.id, "worker-owner-1", ttl_seconds=120) is True
+    await db_session.refresh(task)
+    new_exp = task.result_json["_checkpoint"]["lease_expires_at"]
+    assert new_exp != old_exp
+    assert task.result_json["_checkpoint"]["lease_owner"] == "worker-owner-1"
+
+
+@pytest.mark.asyncio
+async def test_active_lease_not_recovered_and_expired_lease_recovers(
+    db_session: AsyncSession,
+):
+    from datetime import UTC, datetime, timedelta
+
+    from app.services.evaluation_worker import recover_and_dispatch_queue_tasks
+
+    ten_mins_ago = (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
+    future_lease = (datetime.now(UTC) + timedelta(seconds=45)).isoformat()
+    expired_lease = (datetime.now(UTC) - timedelta(seconds=5)).isoformat()
+
+    active_long_task = IntakeEvaluationTaskModel(
+        task_type="SYSTEM_DESIGN_REVIEW",
+        title_hint="Long active VLM (>5m) with live lease",
+        status="PROCESSING",
+        stage="ANALYZING",
+        result_json={
+            "session_id": 201,
+            "_checkpoint": {
+                "completed_steps": ["PREPARING"],
+                "last_activity_at": ten_mins_ago,
+                "lease_owner": "sibling-container-worker",
+                "lease_expires_at": future_lease,
+            },
+        },
+    )
+    expired_task = IntakeEvaluationTaskModel(
+        task_type="SYSTEM_DESIGN_EVALUATION",
+        title_hint="Crashed worker expired lease",
+        status="PROCESSING",
+        stage="EVALUATING",
+        result_json={
+            "session_id": 202,
+            "_checkpoint": {
+                "completed_steps": ["PREPARING"],
+                "last_activity_at": ten_mins_ago,
+                "lease_owner": "dead-container-worker",
+                "lease_expires_at": expired_lease,
+            },
+        },
+    )
+    db_session.add_all([active_long_task, expired_task])
+    await db_session.commit()
+    await db_session.refresh(active_long_task)
+    await db_session.refresh(expired_task)
+
+    with patch("app.services.evaluation_worker.process_evaluation_task"):
+        summary = await recover_and_dispatch_queue_tasks(
+            startup=True, stale_after_seconds=300
+        )
+        await asyncio.sleep(0.05)
+
+    assert summary["recovered_count"] == 1
+    assert expired_task.id in summary["dispatched_task_ids"]
+    assert active_long_task.id not in summary["dispatched_task_ids"]
+
+    await db_session.refresh(active_long_task)
+    await db_session.refresh(expired_task)
+    assert active_long_task.status == "PROCESSING"
+    assert (
+        active_long_task.result_json["_checkpoint"]["lease_owner"]
+        == "sibling-container-worker"
+    )
+    assert expired_task.status == "QUEUED"
+    assert expired_task.result_json["_checkpoint"]["lease_owner"] is None
+    assert expired_task.result_json["_checkpoint"]["recovery_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_fenced_worker_cannot_commit_after_lease_loss(db_session: AsyncSession):
+    import app.core.database as db_module
+    from app.services.evaluation_worker import _execute_system_design_evaluation_steps
+    from app.services.system_design_service import SystemDesignService
+
+    task = IntakeEvaluationTaskModel(
+        task_type="SYSTEM_DESIGN_EVALUATION",
+        title_hint="Fencing Test",
+        status="PROCESSING",
+        stage="EVALUATING",
+        result_json={
+            "session_id": 303,
+            "_checkpoint": {
+                "completed_steps": ["PREPARING"],
+                "prepared_ctx": {"session_id": 303},
+                "lease_owner": "worker-old",
+            },
+        },
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    async def hijack_lease_in_other_session(db, ctx):
+        async with db_module.AsyncSessionLocal() as s2:
+            other = await s2.get(IntakeEvaluationTaskModel, task.id)
+            cp = dict(other.result_json["_checkpoint"])
+            cp["lease_owner"] = "worker-new"
+            other.result_json = {**other.result_json, "_checkpoint": cp}
+            await s2.commit()
+        return {
+            "evaluation": {"overall_score": 88},
+            "provider_telemetry": {"primary_provider": "mock"},
+        }
+
+    with (
+        patch.object(
+            SystemDesignService,
+            "run_final_evaluation_inference",
+            new=AsyncMock(side_effect=hijack_lease_in_other_session),
+        ),
+        patch.object(
+            SystemDesignService,
+            "persist_final_evaluation",
+            new=AsyncMock(),
+        ) as mock_persist,
+    ):
+        await _execute_system_design_evaluation_steps(
+            task, db_session, worker_id="worker-old"
+        )
+
+    mock_persist.assert_not_called()
+    await db_session.refresh(task)
+    assert task.status == "PROCESSING"
+    assert task.result_json["_checkpoint"]["lease_owner"] == "worker-new"
+    assert "EVALUATING" not in task.result_json["_checkpoint"]["completed_steps"]
+
+
+@pytest.mark.asyncio
+async def test_atomic_claim_skip_locked_across_sessions(db_session: AsyncSession):
+    import app.core.database as db_module
+
+    task = IntakeEvaluationTaskModel(
+        task_type="JOB_ASSESSMENT",
+        title_hint="Skip Locked Contention",
+        status="QUEUED",
+        stage="QUEUED",
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    async with db_module.AsyncSessionLocal() as lock_session:
+        # Hold PostgreSQL FOR UPDATE row lock in session 1
+        locked = (
+            await lock_session.execute(
+                select(IntakeEvaluationTaskModel)
+                .where(IntakeEvaluationTaskModel.id == task.id)
+                .with_for_update()
+            )
+        ).scalar_one()
+        assert locked.id == task.id
+
+        # Competing worker using a different session must immediately skip via SKIP LOCKED
+        exec_count = 0
+
+        async def should_not_run(*args, **kwargs):
+            nonlocal exec_count
+            exec_count += 1
+
+        with patch(
+            "app.services.evaluation_worker._execute_evaluation_steps",
+            side_effect=should_not_run,
+        ):
+            await process_evaluation_task(task.id, worker_id="worker-beta")
+
+        assert exec_count == 0
+        await lock_session.rollback()
+
+    # Once lock is released, worker-alpha claims and completes it once
+    completed_workers: list[str] = []
+
+    async def complete_steps(t, db, *, worker_id=None, **kwargs):
+        completed_workers.append(worker_id or "")
+        t.status = "COMPLETED"
+        t.stage = "COMPLETE"
+        await db.commit()
+
+    with patch(
+        "app.services.evaluation_worker._execute_evaluation_steps",
+        side_effect=complete_steps,
+    ):
+        await process_evaluation_task(task.id, worker_id="worker-alpha")
+
+    assert completed_workers == ["worker-alpha"]

@@ -1,11 +1,21 @@
 import asyncio
 import heapq
 import logging
+import os
+import socket
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
+
+_WORKER_INSTANCE_ID = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:12]}"
+
+
+def get_worker_instance_id() -> str:
+    """Returns a process-unique worker instance identifier (hostname:pid:uuid)."""
+    return _WORKER_INSTANCE_ID
 
 
 class PrioritySemaphore:
