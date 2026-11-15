@@ -1763,8 +1763,9 @@ onMounted(() => {
               </div>
               <div class="footer-right">
                 <router-link
-                  :to="task.result_json?.session_id ? `/agent?mode=system_design&sessionId=${task.result_json.session_id}` : '/agent?mode=system_design'"
+                  :to="task.result_json?.session_id ? `/chat?mode=system_design&sessionId=${task.result_json.session_id}` : '/chat?mode=system_design'"
                   class="btn btn-primary btn-xs"
+                  data-testid="queue-open-sd-session-btn"
                 >
                   <Layers :size="12" />
                   <span>{{ task.result_json?.session_id ? 'Open Session' : 'Open Lab' }} &rarr;</span>

@@ -122,10 +122,6 @@ const selectedChallengeVariants = computed(
   () => selectedSeedChallenge.value?.available_variants || []
 )
 
-const sortedSessions = computed(() =>
-  [...(store.sessions || [])].sort((a, b) => Number(b.id) - Number(a.id))
-)
-
 const activeSession = computed(() => store.activeSession)
 
 const activeStageIndex = computed(() => {
@@ -869,75 +865,6 @@ onUnmounted(() => {
                   <Trash2 :size="14" />
                 </button>
               </div>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <!-- Recent & Completed Sessions -->
-      <section v-if="sortedSessions.length" class="sd-section" data-testid="past-sessions-section">
-        <div class="sd-section-header">
-          <div class="sd-header-title-group">
-            <h2>Past &amp; Active Sessions</h2>
-            <span class="sd-muted">{{ sortedSessions.length }} session(s)</span>
-          </div>
-          <button
-            type="button"
-            class="btn btn-secondary btn-xs"
-            data-testid="open-seed-modal-history-btn"
-            @click="openSeedLauncherModal()"
-          >
-            <Shuffle :size="13" />
-            <span>Start with Seed / Variant</span>
-          </button>
-        </div>
-
-        <div class="sd-sessions-list">
-          <article
-            v-for="s in sortedSessions"
-            :key="s.id"
-            class="sd-card session-row-card"
-            :data-testid="`past-session-row-${s.id}`"
-          >
-            <div>
-              <div class="session-row-title-row">
-                <strong>{{ s.challenge?.title || `Challenge #${s.challenge_id}` }}</strong>
-                <span class="sd-tag">{{ s.stage }}</span>
-                <span v-if="s.brief_seed" class="sd-tag sd-seed-pill">
-                  Seed: #{{ s.brief_seed }}
-                </span>
-                <span v-if="s.variant_title" class="sd-tag sd-variant-pill">
-                  {{ s.variant_title }}
-                </span>
-                <span v-else-if="s.status !== 'COMPLETED'" class="sd-tag sd-blind-pill">
-                  Blind Profile
-                </span>
-                <span v-if="s.overall_score !== null && s.overall_score !== undefined" class="sd-tag">
-                  Score: {{ Math.round(s.overall_score) }}/100
-                </span>
-              </div>
-              <p v-if="s.variant_focus" class="sd-muted">{{ s.variant_focus }}</p>
-            </div>
-            <div class="session-row-actions">
-              <button
-                v-if="s.brief_seed && s.challenge"
-                type="button"
-                class="btn btn-secondary btn-xs"
-                :data-testid="`replay-session-seed-btn-${s.id}`"
-                @click="openSeedLauncherModal(s.challenge, s.brief_seed)"
-              >
-                <Shuffle :size="12" />
-                <span>Replay Seed</span>
-              </button>
-              <button
-                type="button"
-                class="btn btn-primary btn-xs"
-                :data-testid="`open-session-btn-${s.id}`"
-                @click="store.loadSession(s.id)"
-              >
-                <span>{{ s.status === 'COMPLETED' ? 'View Scorecard' : 'Resume' }}</span>
-                <ArrowRight :size="12" />
-              </button>
             </div>
           </article>
         </div>

@@ -70,7 +70,11 @@ async def test_start_session_and_requirements_interview_flow(
 
             start_res = await ac.post(
                 "/api/v1/system-design/sessions",
-                json={"challenge_id": challenge["id"], "mode": "INTERVIEW"},
+                json={
+                    "challenge_id": challenge["id"],
+                    "mode": "INTERVIEW",
+                    "variant_id": "lean-100k-streaming",
+                },
             )
             assert start_res.status_code == 201
             session_data = start_res.json()

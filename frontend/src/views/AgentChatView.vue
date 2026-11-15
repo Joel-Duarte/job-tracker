@@ -135,7 +135,9 @@ const filteredSdSessions = computed(() => {
   return list.filter((s) => {
     const title = (s.challenge?.title || `Session #${s.id}`).toLowerCase()
     const stage = (s.stage || '').toLowerCase()
-    return title.includes(q) || stage.includes(q)
+    const seed = (s.brief_seed || '').toLowerCase()
+    const variant = (s.variant_title || '').toLowerCase()
+    return title.includes(q) || stage.includes(q) || seed.includes(q) || variant.includes(q)
   })
 })
 
@@ -1110,6 +1112,20 @@ function getScoreBadgeClass(score) {
                   <div class="session-sidebar-meta">
                     <span v-if="session.status === 'COMPLETED'" class="session-status-tag session-status-closed">Done</span>
                     <span v-else class="session-status-tag">{{ session.stage }}</span>
+                    <span
+                      v-if="session.brief_seed"
+                      class="session-status-tag session-seed-tag"
+                      :title="session.variant_title || 'Blind scenario seed'"
+                    >
+                      #{{ session.brief_seed }}
+                    </span>
+                    <span
+                      v-if="session.variant_title"
+                      class="session-status-tag session-variant-tag"
+                      :title="session.variant_focus || session.variant_title"
+                    >
+                      {{ session.variant_title }}
+                    </span>
                     <span
                       v-if="session.overall_score !== null && session.overall_score !== undefined"
                       class="session-score-tag"
@@ -3073,6 +3089,23 @@ function getScoreBadgeClass(score) {
   background-color: var(--bg-surface-hover);
   color: var(--text-muted);
   border: 1px solid var(--border-color);
+}
+
+.session-seed-tag {
+  font-family: var(--font-mono, monospace);
+  background-color: var(--bg-input);
+  color: var(--text-secondary);
+  border-color: var(--border-color);
+}
+
+.session-variant-tag {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background-color: var(--primary-subtle);
+  color: var(--text-primary);
+  border-color: var(--primary);
 }
 
 .session-date-tag {

@@ -321,8 +321,9 @@ test('preserves URL session recovery (F-06), custom challenge fields on edit (F-
   expect(errors).toEqual([])
 })
 
-test('supports seeded blind starts, explicit variant picker, and seed replay via launcher modal', async ({
+test('supports seeded blind starts, explicit variant picker, sidebar seed display, seed replay, and QueueView deep-link', async ({
   page,
+  isMobile,
 }) => {
   const errors = []
   page.on('pageerror', (err) => errors.push(err.message))
@@ -355,20 +356,80 @@ test('supports seeded blind starts, explicit variant picker, and seed replay via
   await expect(page.getByTestId('active-session-variant-badge')).toHaveText(
     'Enterprise Compliance Profile'
   )
+  const explicitSessionUrl = page.url()
+  const explicitSessionIdMatch = explicitSessionUrl.match(/sessionId=(\d+)/)
+  expect(explicitSessionIdMatch).not.toBeNull()
+  const explicitSessionId = Number(explicitSessionIdMatch[1])
 
-  // Back to challenges -> Past & Active Sessions shows seeds and allows one-click Replay Seed
+  // Back to challenges -> no duplicate bottom session list; AgentChatView sidebar shows seeds & revealed variant
   await page.getByTestId('back-to-challenges-btn').click()
-  await expect(page.getByTestId('past-sessions-section')).toBeVisible()
-  await expect(
-    page.getByTestId('past-sessions-section').getByText(`Seed: #${rolledSeed}`)
-  ).toBeVisible()
+  await expect(page.getByTestId('past-sessions-section')).toHaveCount(0)
 
-  await page.getByTestId('open-seed-modal-history-btn').click()
+  if (isMobile) {
+    const expandBtn = page.locator('.btn-expand-sidebar')
+    if (await expandBtn.isVisible()) {
+      await expandBtn.click()
+    }
+  }
+  const sidebarItems = page.locator('.chat-list-item.interview-session-item')
+  await expect(sidebarItems.filter({ hasText: `#${rolledSeed}` })).toBeVisible()
+  await expect(sidebarItems.filter({ hasText: 'Enterprise Compliance Profile' })).toBeVisible()
+
+  // Close sidebar on mobile before opening Lobby seed modal
+  if (isMobile) {
+    const closeSidebarBtn = page.locator('.btn-icon-sidebar[title="Collapse Sidebar"]')
+    if (await closeSidebarBtn.isVisible()) {
+      await closeSidebarBtn.click()
+    }
+  }
+
+  // Replay rolledSeed via Lobby modal -> keeps profile blind while matching deterministic seed
+  await page.getByTestId('open-seed-modal-lobby-btn').click()
   await page.getByTestId('seed-mode-seed-btn').click()
   await page.getByTestId('seed-modal-seed-input').fill(rolledSeed)
   await page.getByTestId('seed-modal-launch-btn').click()
   await expect(page.getByTestId('active-session-seed-badge')).toHaveText(`Seed: #${rolledSeed}`)
   await expect(page.getByTestId('active-session-blind-badge')).toBeVisible()
+
+  // QueueView -> System Design task links directly to /chat?mode=system_design&sessionId=... (not /agent)
+  await page.evaluate((sid) => {
+    const raw = localStorage.getItem('jt_demo_db_v1')
+    const db = raw ? JSON.parse(raw) : {}
+    db.intake_evaluations = [
+      {
+        id: 9901,
+        task_type: 'SYSTEM_DESIGN_EVALUATION',
+        status: 'COMPLETED',
+        stage: 'COMPLETED',
+        progress: 100,
+        company_name: 'System Design Lab',
+        role_title: 'Design a URL Shortener',
+        result_json: {
+          session_id: sid,
+          overall_score: 91,
+          readiness_rating: 'STRONG_HIRE',
+        },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      ...(db.intake_evaluations || []),
+    ]
+    localStorage.setItem('jt_demo_db_v1', JSON.stringify(db))
+  }, explicitSessionId)
+
+  await page.goto('/queue')
+  await page.getByTestId('queue-filter-sd-eval').click()
+  const openSessionLink = page.getByTestId('queue-open-sd-session-btn').first()
+  await expect(openSessionLink).toBeVisible()
+  await expect(openSessionLink).toHaveAttribute(
+    'href',
+    `/chat?mode=system_design&sessionId=${explicitSessionId}`
+  )
+  await openSessionLink.click()
+  await expect(page).toHaveURL(new RegExp(`/chat\\?mode=system_design&sessionId=${explicitSessionId}`))
+  await expect(page.getByTestId('active-session-variant-badge')).toHaveText(
+    'Enterprise Compliance Profile'
+  )
 
   expect(errors).toEqual([])
 })
