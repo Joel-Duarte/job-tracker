@@ -133,10 +133,22 @@ const categoryLabel = computed(
 }
 
 .sd-node-handle {
-  width: 9px;
-  height: 9px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   background: var(--node-accent, #3b82f6);
   border: 2px solid var(--bg-surface, #1e293b);
+  transition: transform 0.12s ease;
+  touch-action: none;
+}
+
+.sd-node-handle::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+}
+
+.sd-node-handle:hover {
+  transform: scale(1.3);
 }
 </style>

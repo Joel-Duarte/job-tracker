@@ -190,7 +190,7 @@ class DiagramFlowEdge(BaseModel):
     target: str = Field(..., min_length=1, max_length=100)
     source_handle: str | None = Field(default=None, max_length=60)
     target_handle: str | None = Field(default=None, max_length=60)
-    protocol: str = Field(default="HTTPS", max_length=60)
+    protocol: str = Field(default="", max_length=60)
     delivery_mode: Literal["sync", "async"] = "sync"
     label: str = Field(default="", max_length=160)
 

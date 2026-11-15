@@ -74,6 +74,12 @@ const routes = [
     component: DiagnosticsView,
   },
   {
+    path: '/system-design/:sessionId/design',
+    name: 'SystemDesignStudio',
+    component: () => import('../views/SystemDesignStudioView.vue'),
+    meta: { hideNavbar: true },
+  },
+  {
     path: '/system-design',
     redirect: '/chat?mode=system_design',
   },

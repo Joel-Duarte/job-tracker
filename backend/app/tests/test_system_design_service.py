@@ -2023,3 +2023,127 @@ async def test_canvas_builder_hints_flow_review_and_penalty_scoring(
             assert final_data["final_evaluation"]["guidance_penalty"] == 18.0
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_live_turn_by_turn_ledger_sync_and_clean_reply(db_session: AsyncSession):
+    """Turn-by-turn stakeholder replies merge <ledger_json> updates into the ledger and strip tags from transcript."""
+    import json
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            ch_res = await ac.get("/api/v1/system-design/challenges/url-shortener")
+            challenge_id = ch_res.json()["id"]
+            sess_res = await ac.post(
+                "/api/v1/system-design/sessions",
+                json={"challenge_id": challenge_id, "mode": "ADAPTIVE"},
+            )
+            session_id = sess_res.json()["id"]
+
+            # Seed an existing manual edit so we verify turn-by-turn merge preserves user edits
+            seed_res = await ac.put(
+                f"/api/v1/system-design/sessions/{session_id}/requirements/ledger",
+                json={
+                    "functional_requirements": ["Custom manual requirement"],
+                    "non_functional_requirements": [],
+                    "scale_estimates": {"custom_quota": "10 req/min per IP"},
+                    "out_of_scope": [],
+                    "assumptions": [],
+                    "unresolved_questions": [],
+                    "notes": "Keep manual notes",
+                    "is_locked": False,
+                },
+            )
+            assert seed_res.status_code == 200
+
+            turn_1_reply = (
+                "Expect 80M MAU, ~20M DAU, and 12,000 peak redirect QPS with p99 under 30ms.\n"
+                "<ledger_json>\n"
+                + json.dumps(
+                    {
+                        "functional_requirements": [
+                            "custom manual requirement",  # case-insensitive duplicate ignored
+                            "Redirect short links via 302",
+                        ],
+                        "non_functional_requirements": ["p99 redirect latency < 30ms"],
+                        "scale_estimates": {"peak_redirect_qps": "12,000 QPS"},
+                        "out_of_scope": ["Custom SSL vanity certs"],
+                        "assumptions": [
+                            "Eventual consistency acceptable for click counts"
+                        ],
+                        "unresolved_questions": [
+                            "Do anonymous users get custom aliases?"
+                        ],
+                    }
+                )
+                + "\n</ledger_json>"
+            )
+
+            turn_2_reply = "Yes, anonymous callers get random 7-char Base62 codes."
+
+            replies = iter([turn_1_reply, turn_2_reply])
+
+            async def fake_invoke(*_args, **_kwargs):
+                return MagicMock(content=next(replies))
+
+            with (
+                patch(
+                    "app.services.system_design_service.get_task_chat_model",
+                    new=AsyncMock(return_value=MagicMock()),
+                ),
+                patch(
+                    "app.services.system_design_service._invoke_llm_adaptive",
+                    side_effect=fake_invoke,
+                ),
+            ):
+                res1 = await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/requirements/message",
+                    json={
+                        "message": "What DAU, QPS, and redirect latency SLAs do we need?"
+                    },
+                )
+                assert res1.status_code == 200
+                data1 = res1.json()
+                assert (
+                    "<ledger_json>"
+                    not in data1["requirements_transcript"][-1]["content"]
+                )
+                assert (
+                    "12,000 peak redirect QPS"
+                    in data1["requirements_transcript"][-1]["content"]
+                )
+                ledger1 = data1["requirements_ledger"]
+                assert ledger1["functional_requirements"] == [
+                    "Custom manual requirement",
+                    "Redirect short links via 302",
+                ]
+                assert ledger1["non_functional_requirements"] == [
+                    "p99 redirect latency < 30ms"
+                ]
+                assert ledger1["scale_estimates"] == {
+                    "custom_quota": "10 req/min per IP",
+                    "peak_redirect_qps": "12,000 QPS",
+                }
+                assert ledger1["out_of_scope"] == ["Custom SSL vanity certs"]
+                assert ledger1["assumptions"] == [
+                    "Eventual consistency acceptable for click counts"
+                ]
+                assert ledger1["unresolved_questions"] == [
+                    "Do anonymous users get custom aliases?"
+                ]
+                assert ledger1["notes"] == "Keep manual notes"
+
+                # Turn 2 has no <ledger_json> trailer -> existing ledger must stay intact
+                res2 = await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/requirements/message",
+                    json={"message": "Are anonymous users allowed custom aliases?"},
+                )
+                assert res2.status_code == 200
+                data2 = res2.json()
+                assert data2["requirements_transcript"][-1]["content"] == turn_2_reply
+                assert data2["requirements_ledger"] == ledger1
+    finally:
+        app.dependency_overrides.clear()

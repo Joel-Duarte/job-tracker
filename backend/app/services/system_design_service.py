@@ -785,6 +785,108 @@ Requirements Transcript:
 {transcript_text}
 """
 
+LIVE_LEDGER_SYNC_INSTRUCTION = """
+LIVE REQUIREMENTS LEDGER SYNC:
+After writing your concise, natural stakeholder reply for the candidate, append a `<ledger_json>` XML block at the very end updating the structured requirements ledger with everything discovered, assumed, or left unresolved up through this turn (preserve valid entries already present in CURRENT REQUIREMENTS LEDGER and do not leak unasked hidden brief details).
+Format EXACTLY:
+<ledger_json>{"functional_requirements":[],"non_functional_requirements":[],"scale_estimates":{},"out_of_scope":[],"assumptions":[],"unresolved_questions":[],"notes":""}</ledger_json>"""
+
+
+def _merge_unique_str_lists(existing: list[str], additions: list[str]) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for item in [*existing, *additions]:
+        cleaned = str(item or "").strip()
+        if not cleaned:
+            continue
+        key = cleaned.lower()
+        if key not in seen:
+            seen.add(key)
+            merged.append(cleaned)
+    return merged
+
+
+def _build_merged_ledger_dict(
+    existing_ledger: dict[str, Any],
+    parsed: dict[str, Any],
+    *,
+    merge_with_existing: bool = True,
+) -> dict[str, Any]:
+    """Validate and merge extracted ledger fields while preserving user lock state."""
+    ext_func = _normalize_string_list(parsed.get("functional_requirements"))
+    ext_nfr = _normalize_string_list(parsed.get("non_functional_requirements"))
+    ext_scale = _normalize_scale_dict(parsed.get("scale_estimates"))
+    ext_oos = _normalize_string_list(parsed.get("out_of_scope"))
+    ext_assump = _normalize_string_list(parsed.get("assumptions"))
+    ext_unres = _normalize_string_list(parsed.get("unresolved_questions"))
+
+    if merge_with_existing and isinstance(existing_ledger, dict):
+        ext_func = _merge_unique_str_lists(
+            _normalize_string_list(existing_ledger.get("functional_requirements")),
+            ext_func,
+        )
+        ext_nfr = _merge_unique_str_lists(
+            _normalize_string_list(existing_ledger.get("non_functional_requirements")),
+            ext_nfr,
+        )
+        merged_scale = _normalize_scale_dict(existing_ledger.get("scale_estimates"))
+        merged_scale.update(ext_scale)
+        ext_scale = merged_scale
+        ext_oos = _merge_unique_str_lists(
+            _normalize_string_list(existing_ledger.get("out_of_scope")), ext_oos
+        )
+        ext_assump = _merge_unique_str_lists(
+            _normalize_string_list(existing_ledger.get("assumptions")), ext_assump
+        )
+        ext_unres = _merge_unique_str_lists(
+            _normalize_string_list(existing_ledger.get("unresolved_questions")),
+            ext_unres,
+        )
+
+    ledger = RequirementsLedgerSchema(
+        functional_requirements=ext_func,
+        non_functional_requirements=ext_nfr,
+        scale_estimates=ext_scale,
+        out_of_scope=ext_oos,
+        assumptions=ext_assump,
+        unresolved_questions=ext_unres,
+        notes=str(parsed.get("notes") or existing_ledger.get("notes") or "").strip(),
+        is_locked=bool((existing_ledger or {}).get("is_locked", False)),
+    )
+    return ledger.model_dump()
+
+
+_LEDGER_JSON_BLOCK_RE = re.compile(
+    r"<ledger_json>\s*(.*?)\s*</ledger_json>",
+    re.IGNORECASE | re.DOTALL,
+)
+_LEDGER_JSON_UNCLOSED_RE = re.compile(
+    r"<ledger_json>[\s\S]*$",
+    re.IGNORECASE,
+)
+
+
+def _split_reply_and_ledger_patch(
+    raw_reply: str, existing_ledger: dict[str, Any]
+) -> tuple[str, dict[str, Any] | None]:
+    """Strip any `<ledger_json>` trailer from the stakeholder reply and return merged ledger dict if valid."""
+    text = str(raw_reply or "").strip()
+    match = _LEDGER_JSON_BLOCK_RE.search(text)
+    parsed_ledger: dict[str, Any] | None = None
+    if match:
+        candidate_json = match.group(1).strip()
+        try:
+            parsed_obj = _parse_strict_json_object(candidate_json)
+            parsed_ledger = _build_merged_ledger_dict(
+                existing_ledger, parsed_obj, merge_with_existing=True
+            )
+        except ValueError as exc:
+            logger.debug("Skipping malformed inline <ledger_json> trailer: %s", exc)
+        text = _LEDGER_JSON_BLOCK_RE.sub("", text).strip()
+    else:
+        text = _LEDGER_JSON_UNCLOSED_RE.sub("", text).strip()
+    return text, parsed_ledger
+
 
 def _detect_image_format(data: bytes) -> tuple[str, str]:
     """Validate image magic bytes and return ``(mime_type, file_extension)``."""
@@ -2089,6 +2191,7 @@ class SystemDesignService:
                 session.requirements_ledger or {}, indent=2
             ),
         )
+        sys_prompt = f"{sys_prompt.rstrip()}\n{LIVE_LEDGER_SYNC_INSTRUCTION}"
 
         messages = _build_chat_messages(sys_prompt, transcript)
 
@@ -2103,7 +2206,10 @@ class SystemDesignService:
             db,
             task_type="SYSTEM_DESIGN_INTERVIEWER",
         )
-        reply_text = strip_reasoning_tags(_extract_text_content(llm_res.content))
+        raw_reply_text = strip_reasoning_tags(_extract_text_content(llm_res.content))
+        reply_text, updated_ledger = _split_reply_and_ledger_patch(
+            raw_reply_text, session.requirements_ledger or {}
+        )
         if not reply_text:
             reply_text = "I can share details on expected traffic, creation volume, retention/TTL, privacy, analytics, or latency SLAs—which requirement would you like to clarify first?"
 
@@ -2119,6 +2225,9 @@ class SystemDesignService:
 
         session.requirements_transcript = transcript
         flag_modified(session, "requirements_transcript")
+        if updated_ledger is not None:
+            session.requirements_ledger = updated_ledger
+            flag_modified(session, "requirements_ledger")
         await db.commit()
         return await SystemDesignService.get_session(db, session_id)
 
@@ -2168,27 +2277,9 @@ class SystemDesignService:
 
         raw_text = _extract_text_content(llm_res.content)
         parsed = _parse_strict_json_object(raw_text)
-
-        ledger = RequirementsLedgerSchema(
-            functional_requirements=_normalize_string_list(
-                parsed.get("functional_requirements")
-            ),
-            non_functional_requirements=_normalize_string_list(
-                parsed.get("non_functional_requirements")
-            ),
-            scale_estimates=_normalize_scale_dict(parsed.get("scale_estimates")),
-            out_of_scope=_normalize_string_list(parsed.get("out_of_scope")),
-            assumptions=_normalize_string_list(parsed.get("assumptions")),
-            unresolved_questions=_normalize_string_list(
-                parsed.get("unresolved_questions")
-            ),
-            notes=str(
-                parsed.get("notes") or existing_ledger.get("notes") or ""
-            ).strip(),
-            is_locked=bool(existing_ledger.get("is_locked", False)),
+        session.requirements_ledger = _build_merged_ledger_dict(
+            existing_ledger, parsed, merge_with_existing=False
         )
-
-        session.requirements_ledger = ledger.model_dump()
         flag_modified(session, "requirements_ledger")
         await db.commit()
         return await SystemDesignService.get_session(db, session_id)

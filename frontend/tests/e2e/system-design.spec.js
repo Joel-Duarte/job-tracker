@@ -141,14 +141,19 @@ test('completes full 5-stage adaptive loop with gated stepper, sleek input bar, 
   await page.getByTestId('req-hint-btn').click()
   await expect(page.locator('.sd-hint-tag').first()).toBeVisible()
 
-  // Auto-extract into ledger & lock requirements to unlock Stage 2
-  await page.getByRole('button', { name: 'Auto-Extract from Chat' }).click()
+  // Turn-by-turn live ledger sync already populated requirements; Re-sync Ledger remains available
+  await expect(page.getByTestId('live-sync-pill')).toBeVisible()
+  await expect(page.locator('textarea').nth(1)).toHaveValue(/high read fan-out|Core API/)
+  await page.getByTestId('resync-ledger-btn').click()
   await expect(page.locator('textarea').nth(1)).toHaveValue(/Core API endpoint to create\/ingest primary entities/)
   await page.getByRole('button', { name: 'Lock Requirements & Proceed to Diagram' }).click()
 
-  // Stage 2: Interactive Canvas Builder is default; switch to Upload / Paste Image sibling tab
-  await expect(page.getByTestId('diagram-canvas-builder')).toBeVisible()
-  await page.getByTestId('design-mode-upload-btn').click()
+  // Locking Stage 1 opens the dedicated full-screen Design Studio; Back returns to Stage 2 card for image upload
+  await expect(page).toHaveURL(/\/system-design\/\d+\/design/)
+  await expect(page.getByTestId('design-studio-page')).toBeVisible()
+  await page.getByTestId('studio-back-btn').click()
+
+  await expect(page.getByTestId('open-design-studio-btn')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Upload Architecture Diagram' })).toBeVisible()
   await expect(page.getByTestId('stage-step-DESIGN')).toBeEnabled()
   await expect(page.getByTestId('stage-step-REVIEW')).toBeDisabled()
@@ -592,7 +597,7 @@ test('Tailored Challenge Modal filters active apps with fuzzy search, prepares F
 
 test('builds architecture in Interactive Canvas Builder with custom blocks, guided hints, Flow JSON review, and Stage 5 penalty breakdown', async ({
   page,
-}) => {
+}, testInfo) => {
   const errors = []
   page.on('pageerror', (err) => errors.push(err.message))
   page.on('console', (msg) => {
@@ -604,16 +609,19 @@ test('builds architecture in Interactive Canvas Builder with custom blocks, guid
   await page.goto('/chat?mode=system_design')
   await page.getByTestId('challenge-card-url-shortener').getByTestId('start-challenge-btn').click()
 
-  // Lock Stage 1 quickly via extract + lock
+  // Lock Stage 1 after a Q&A turn verifies live ledger auto-population without manual extraction
   await page.getByTestId('req-chat-input').fill('What read/write traffic targets apply?')
   await page.getByTestId('req-send-btn').click()
-  await page.getByRole('button', { name: 'Auto-Extract from Chat' }).click()
+  await expect(page.locator('textarea').nth(1)).toHaveValue(/Core API/)
   await page.getByRole('button', { name: 'Lock Requirements & Proceed to Diagram' }).click()
 
-  // Verify Interactive Canvas Builder is open by default
+  // Dedicated full-screen Design Studio route hides global stepper/chat chrome
+  await expect(page).toHaveURL(/\/system-design\/\d+\/design/)
+  await expect(page.getByTestId('design-studio-page')).toBeVisible()
   await expect(page.getByTestId('diagram-canvas-builder')).toBeVisible()
+  await expect(page.getByTestId('stage-step-DESIGN')).toHaveCount(0)
 
-  // Strict INTERVIEW mode blocks full bank reveal; ADAPTIVE allows Next Hint (-3 pts) & Reveal Bank (-18 pts cap)
+  // Adaptive hints: Next Hint (-3 pts) & Reveal Bank (-18 pts cap)
   await page.getByTestId('hint-next-component-btn').click()
   await expect(page.getByTestId('diagram-hint-tray')).toBeVisible()
   await expect(page.getByTestId('guidance-penalty-badge')).toContainText('-3 pts')
@@ -636,24 +644,55 @@ test('builds architecture in Interactive Canvas Builder with custom blocks, guid
   await expect(page.getByTestId('canvas-node-api_gateway')).toBeVisible()
   await expect(page.getByTestId('canvas-node-custom')).toBeVisible()
 
-  // Wire directed edge using Quick Connect bar & inspect live Flow JSON preview
-  const srcSelect = page.getByTestId('qc-source-select')
-  const dstSelect = page.getByTestId('qc-target-select')
-  const firstVal = await srcSelect.locator('option').nth(1).getAttribute('value')
-  const secondVal = await dstSelect.locator('option').nth(2).getAttribute('value')
-  await srcSelect.selectOption(firstVal)
-  await dstSelect.selectOption(secondVal)
-  await page.getByTestId('qc-protocol-select').selectOption('gRPC')
-  await page.getByTestId('quick-connect-btn').click()
+  // Fit view then wire handle-to-handle directly on the canvas -> opens inline wire popover automatically
+  await page.getByRole('button', { name: 'Fit' }).click()
+  const srcHandle = page
+    .getByTestId('canvas-node-distributed_cache')
+    .locator('.vue-flow__handle.source')
+    .first()
+  const dstHandle = page
+    .getByTestId('canvas-node-api_gateway')
+    .locator('.vue-flow__handle.target')
+    .first()
+  await srcHandle.scrollIntoViewIfNeeded()
+  await dstHandle.scrollIntoViewIfNeeded()
+  if (testInfo.project.name.includes('mobile')) {
+    await srcHandle.dispatchEvent('click')
+    await dstHandle.dispatchEvent('click')
+  } else {
+    const srcBox = await srcHandle.boundingBox()
+    const dstBox = await dstHandle.boundingBox()
+    await page.mouse.move(srcBox.x + srcBox.width / 2, srcBox.y + srcBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(dstBox.x + dstBox.width / 2, dstBox.y + dstBox.height / 2, { steps: 12 })
+    await page.mouse.up()
+  }
 
-  await page.getByTestId('canvas-notes-input').fill('Edge gateway routes hot lookups to Redis Cluster and key leases via gRPC.')
+  await expect(page.getByTestId('edge-popover')).toBeVisible()
+  await page.getByTestId('edge-label-input').fill('Invalidates key cache')
+  await page.getByTestId('edge-async-checkbox').check()
+  await page.getByTestId('edge-popover').getByRole('button', { name: 'Done' }).click()
+  await expect(page.getByTestId('edge-popover')).toHaveCount(0)
+
+  // Clicking the drawn wire label re-opens inline popover with saved label
+  await page.locator('.vue-flow__edge-textwrapper').first().click()
+  await expect(page.getByTestId('edge-popover')).toBeVisible()
+  await expect(page.getByTestId('edge-label-input')).toHaveValue('Invalidates key cache')
+  await page.getByTestId('edge-popover').getByRole('button', { name: 'Done' }).click()
+
+  // Open Notes & Flow JSON drawer to add summary notes and verify structured flow
+  await page.getByTestId('toggle-studio-notes-btn').click()
+  await expect(page.getByTestId('studio-notes-drawer')).toBeVisible()
+  await page
+    .getByTestId('canvas-notes-input')
+    .fill('Edge gateway routes hot lookups to Redis Cluster and async key invalidation.')
   await expect(page.getByTestId('flow-json-preview')).toContainText('3 blocks, 1 flows')
 
-  // Save Canvas Revision v1 & run Stage 3 Review (zero file upload needed)
+  // Save Canvas Revision v1 & run Stage 3 Review -> redirects cleanly back to Stage 3 critique
   await page.getByTestId('save-canvas-btn').click()
-  await expect(page.getByTestId('analyze-canvas-btn')).toBeVisible()
   await page.getByTestId('analyze-canvas-btn').click()
 
+  await expect(page).toHaveURL(/\/chat\?mode=system_design.*stage=REVIEW/)
   await expect(page.getByRole('heading', { name: 'Architecture Critique' })).toBeVisible()
   await expect(page.getByText('Visual Clarifications Needed')).toHaveCount(0)
 

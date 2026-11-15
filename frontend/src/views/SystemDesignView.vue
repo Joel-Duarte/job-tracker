@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -18,6 +19,7 @@ import {
   Lightbulb,
   Loader2,
   Lock,
+  Maximize2,
   MessageSquare,
   Plus,
   RotateCcw,
@@ -32,7 +34,6 @@ import {
   X,
 } from 'lucide-vue-next'
 import { SystemDesignAPI } from '../api/endpoints'
-import DiagramCanvasBuilder from '../components/system-design/DiagramCanvasBuilder.vue'
 import { fuzzyFilterApplications } from '../utils/fuzzyMatch'
 import { useApplicationsStore } from '../stores/applicationsStore'
 import { useSystemDesignStore } from '../stores/systemDesignStore'
@@ -42,6 +43,8 @@ defineProps({
   embedded: { type: Boolean, default: false },
 })
 
+const route = useRoute()
+const router = useRouter()
 const store = useSystemDesignStore()
 const appStore = useApplicationsStore()
 const uiStore = useUIStore()
@@ -185,10 +188,7 @@ const ledgerForm = ref({
   isLocked: false,
 })
 
-// Stage 2 & 3: Diagram canvas / upload & grounded review state
-const designInputMode = ref('canvas')
-const loadedCanvasFlow = ref(null)
-const loadedCanvasRevisionVersion = ref(null)
+// Stage 2 & 3: Diagram studio / upload & grounded review state
 const stagedDiagramFile = ref(null)
 const stagedPreviewUrl = ref('')
 const diagramNotesInput = ref('')
@@ -306,15 +306,33 @@ watch(
 
     if (!prevSession || prevSession.id !== session.id) {
       evalSubTab.value = 'scorecard'
-      loadedCanvasFlow.value = null
-      loadedCanvasRevisionVersion.value = null
     }
 
-    if (!prevSession || prevSession.id !== session.id || prevSession.stage !== session.stage) {
+    const requestedStage = route.query?.stage ? String(route.query.stage).toUpperCase() : ''
+    if (requestedStage && isStageUnlocked(requestedStage)) {
+      activeStageTab.value = requestedStage
+      const nextQuery = { ...route.query }
+      delete nextQuery.stage
+      router.replace({ query: nextQuery })
+    } else if (!prevSession || prevSession.id !== session.id || prevSession.stage !== session.stage) {
       activeStageTab.value = session.stage || 'REQUIREMENTS'
     }
   },
   { immediate: true, deep: false }
+)
+
+watch(
+  () => route.query?.stage,
+  (nextStage) => {
+    if (!nextStage || !activeSession.value) return
+    const normalized = String(nextStage).toUpperCase()
+    if (isStageUnlocked(normalized)) {
+      activeStageTab.value = normalized
+      const nextQuery = { ...route.query }
+      delete nextQuery.stage
+      router.replace({ query: nextQuery })
+    }
+  }
 )
 
 watch(
@@ -754,7 +772,13 @@ async function handleSaveLedger(lock = false) {
     await store.updateRequirementsLedger(payload)
     if (lock) {
       activeStageTab.value = 'DESIGN'
-      uiStore.showToast('Requirements locked! Ready for architecture diagram upload.', 'success')
+      uiStore.showToast('Requirements locked! Opening Design Studio...', 'success')
+      if (activeSession.value?.id) {
+        await router.push({
+          name: 'SystemDesignStudio',
+          params: { sessionId: activeSession.value.id },
+        })
+      }
     } else {
       uiStore.showToast('Requirements draft saved.', 'success')
     }
@@ -823,44 +847,17 @@ async function handleUploadDiagram() {
   }
 }
 
-async function handleSubmitCanvasDiagram(payload) {
-  if (store.uploadingDiagram) return
-  try {
-    const updated = await store.submitCanvasDiagram(payload)
-    const latest = (updated?.diagrams_metadata || []).slice(-1)[0]
-    if (latest) {
-      selectedDiagramVersion.value = latest.version
-      loadedCanvasRevisionVersion.value = latest.version
-    }
-    uiStore.showToast('Canvas diagram revision saved!', 'success')
-  } catch (err) {
-    uiStore.showToast(err.message || 'Failed to save canvas diagram', 'error')
-  }
+function openDesignStudio(version = null) {
+  if (!activeSession.value?.id) return
+  router.push({
+    name: 'SystemDesignStudio',
+    params: { sessionId: activeSession.value.id },
+    query: version ? { version: String(version) } : undefined,
+  })
 }
 
-async function handleRequestDiagramHint({ hint_mode, current_nodes }) {
-  if (store.loadingDiagramHint) return
-  try {
-    const res = await store.requestDiagramHint(hint_mode, current_nodes)
-    uiStore.showToast(res?.message || 'Component hint unlocked!', 'info')
-  } catch (err) {
-    uiStore.showToast(err.message || 'Unable to unlock diagram hint', 'error')
-  }
-}
-
-async function handleLoadRevisionIntoCanvas(rev) {
-  if (!rev || rev.diagram_kind !== 'canvas') return
-  try {
-    const flow = await store.loadDiagramFlow(rev.version)
-    loadedCanvasFlow.value = flow
-    loadedCanvasRevisionVersion.value = rev.version
-    selectedDiagramVersion.value = rev.version
-    designInputMode.value = 'canvas'
-    activeStageTab.value = 'DESIGN'
-    uiStore.showToast(`Loaded revision v${rev.version} into Canvas Builder.`, 'info')
-  } catch (err) {
-    uiStore.showToast(err.message || 'Failed to load canvas flow revision', 'error')
-  }
+function handleLoadRevisionIntoCanvas(rev) {
+  openDesignStudio(rev?.version || null)
 }
 
 async function handleAnalyzeArchitecture(version = null) {
@@ -1889,19 +1886,25 @@ onUnmounted(() => {
         <!-- Editable Requirements Ledger -->
         <section class="sd-card sd-ledger-panel">
           <div class="sd-card-header">
-            <h3>
-              <ClipboardCheck :size="16" />
-              <span>Requirements Ledger</span>
-            </h3>
+            <div class="sd-ledger-title-group">
+              <h3>
+                <ClipboardCheck :size="16" />
+                <span>Requirements Ledger</span>
+              </h3>
+              <span class="sd-live-sync-pill" data-testid="live-sync-pill">
+                Live-synced on every turn
+              </span>
+            </div>
             <button
               type="button"
               class="btn btn-secondary"
+              data-testid="resync-ledger-btn"
               :disabled="store.extractingLedger"
               @click="handleExtractLedger"
             >
               <Loader2 v-if="store.extractingLedger" :size="14" class="spin" />
-              <Sparkles v-else :size="14" />
-              <span>Auto-Extract from Chat</span>
+              <RotateCcw v-else :size="14" />
+              <span>Re-sync Ledger</span>
             </button>
           </div>
 
@@ -2002,172 +2005,153 @@ onUnmounted(() => {
       </div>
 
       <!-- ==============================================================
-           STAGE 2: INTERACTIVE CANVAS BUILDER OR EXTERNAL UPLOAD (v1..vN)
+           STAGE 2: DESIGN STUDIO LAUNCHER & EXTERNAL UPLOAD (v1..vN)
            ============================================================== -->
       <div v-else-if="activeStageTab === 'DESIGN'" class="sd-design-stage">
-        <div class="sd-design-mode-bar">
-          <div class="sd-design-mode-tabs" role="tablist" aria-label="Diagram authoring mode">
-            <button
-              type="button"
-              class="mode-pill"
-              :class="{ active: designInputMode === 'canvas' }"
-              data-testid="design-mode-canvas-btn"
-              @click="designInputMode = 'canvas'"
-            >
-              <Layers :size="14" />
-              <span>Interactive Canvas Builder (Flow JSON)</span>
-            </button>
-            <button
-              type="button"
-              class="mode-pill"
-              :class="{ active: designInputMode === 'upload' }"
-              data-testid="design-mode-upload-btn"
-              @click="designInputMode = 'upload'"
-            >
-              <Upload :size="14" />
-              <span>Upload / Paste Image (PNG / JPEG / WebP)</span>
-            </button>
-          </div>
-          <span class="sd-muted">
-            {{
-              designInputMode === 'canvas'
-                ? 'Build directly in-app for fast structured topology review'
-                : 'External diagrams from Excalidraw, Draw.io, or paper sketches'
-            }}
-          </span>
-        </div>
-
-        <!-- Tab 1: Interactive Canvas Builder -->
-        <template v-if="designInputMode === 'canvas'">
-          <DiagramCanvasBuilder
-            :session="activeSession"
-            :catalog="store.diagramCatalog"
-            :saving="store.uploadingDiagram"
-            :hint-loading="store.loadingDiagramHint"
-            :reviewing="store.reviewingDiagram"
-            :loaded-flow="loadedCanvasFlow"
-            :loaded-revision-version="loadedCanvasRevisionVersion"
-            @submit-canvas="handleSubmitCanvasDiagram"
-            @request-hint="handleRequestDiagramHint"
-            @analyze-latest="handleAnalyzeArchitecture()"
-            @switch-to-upload="designInputMode = 'upload'"
-          />
-
-          <section v-if="store.activeDiagrams.length" class="sd-card sd-canvas-revisions-card">
+        <div class="sd-two-col">
+          <!-- Interactive Full-Screen Design Studio Launcher & Revisions -->
+          <section class="sd-card sd-studio-launch-card">
             <div class="sd-card-header">
               <h3>
                 <Layers :size="16" />
-                <span>Saved Diagram Revisions ({{ store.activeDiagrams.length }})</span>
+                <span>Interactive Design Studio</span>
               </h3>
-              <label class="sd-checkbox-row">
-                <input
-                  v-model="useWebSearchReview"
-                  type="checkbox"
-                  data-testid="review-web-search-checkbox"
-                />
-                <Globe :size="14" class="sd-primary-icon" />
-                <span>Ground critique with Web Search</span>
-              </label>
+              <span class="badge badge-assessment">Full-Screen Canvas</span>
             </div>
 
-            <div class="sd-revision-tabs">
-              <button
-                v-for="rev in store.activeDiagrams"
-                :key="rev.version"
-                type="button"
-                class="mode-pill"
-                :class="{ active: selectedRevision?.version === rev.version }"
-                @click="selectedDiagramVersion = rev.version"
-              >
-                <span>v{{ rev.version }} ({{ rev.diagram_kind === 'canvas' ? 'Canvas' : 'Image' }})</span>
-              </button>
-            </div>
+            <p class="sd-muted sd-helper-copy">
+              Open the dedicated full-screen workspace to drag components from the palette, connect handles and label wires inline, unlock guided component hints, and save Flow JSON revisions.
+            </p>
 
-            <div v-if="selectedRevision" class="sd-canvas-revision-detail">
-              <template v-if="selectedRevision.diagram_kind === 'canvas'">
-                <div class="sd-canvas-rev-meta">
-                  <span class="badge badge-assessment">
-                    Flow JSON · {{ selectedRevision.node_count || 0 }} block(s) · {{ selectedRevision.edge_count || 0 }} flow(s)
-                  </span>
-                  <div v-if="selectedRevision.components_preview?.length" class="challenge-tags">
-                    <span
-                      v-for="comp in selectedRevision.components_preview"
-                      :key="comp"
-                      class="sd-tag"
+            <button
+              type="button"
+              class="btn btn-primary sd-launch-studio-btn"
+              data-testid="open-design-studio-btn"
+              @click="openDesignStudio()"
+            >
+              <Maximize2 :size="15" />
+              <span>Open Design Studio</span>
+            </button>
+
+            <div class="sd-studio-revisions-block">
+              <div class="sd-card-header">
+                <h4>
+                  <span>Saved Revisions ({{ store.activeDiagrams.length }})</span>
+                </h4>
+                <label class="sd-checkbox-row">
+                  <input
+                    v-model="useWebSearchReview"
+                    type="checkbox"
+                    data-testid="review-web-search-checkbox"
+                  />
+                  <Globe :size="14" class="sd-primary-icon" />
+                  <span>Ground with Web Search</span>
+                </label>
+              </div>
+
+              <div v-if="!store.activeDiagrams.length" class="sd-empty-box">
+                <Layers :size="22" />
+                <p>No diagram saved yet. Launch the Design Studio or upload an exported image on the right.</p>
+              </div>
+
+              <template v-else>
+                <div class="sd-revision-tabs">
+                  <button
+                    v-for="rev in store.activeDiagrams"
+                    :key="rev.version"
+                    type="button"
+                    class="mode-pill"
+                    :class="{ active: selectedRevision?.version === rev.version }"
+                    @click="selectedDiagramVersion = rev.version"
+                  >
+                    <span>v{{ rev.version }} ({{ rev.diagram_kind === 'canvas' ? 'Canvas' : 'Image' }})</span>
+                  </button>
+                </div>
+
+                <div v-if="selectedRevision" class="sd-canvas-revision-detail">
+                  <template v-if="selectedRevision.diagram_kind === 'canvas'">
+                    <div class="sd-canvas-rev-meta">
+                      <span class="badge badge-assessment">
+                        Flow JSON · {{ selectedRevision.node_count || 0 }} block(s) · {{ selectedRevision.edge_count || 0 }} flow(s)
+                      </span>
+                      <div v-if="selectedRevision.components_preview?.length" class="challenge-tags">
+                        <span
+                          v-for="comp in selectedRevision.components_preview"
+                          :key="comp"
+                          class="sd-tag"
+                        >
+                          {{ comp }}
+                        </span>
+                      </div>
+                    </div>
+                  </template>
+                  <img
+                    v-else
+                    :src="getRevisionImageUrl(selectedRevision)"
+                    :alt="`Diagram revision v${selectedRevision.version}`"
+                    class="sd-preview-img"
+                  />
+
+                  <p v-if="selectedRevision.notes" class="sd-muted">
+                    <strong>Notes:</strong> {{ selectedRevision.notes }}
+                  </p>
+
+                  <div
+                    v-if="selectedReview && Number(selectedReview.diagram_version) === Number(selectedRevision.version)"
+                    class="sd-diagram-review-summary"
+                    data-testid="diagram-review-summary"
+                  >
+                    <div class="sd-review-summary-head">
+                      <span class="sd-review-status-pill">
+                        <CheckCircle2 :size="13" class="sd-success-icon" />
+                        <strong>Reviewed (v{{ selectedReview.diagram_version }})</strong>
+                      </span>
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        @click="selectStage('REVIEW')"
+                      >
+                        <span>Open Full Critique</span>
+                        <ArrowRight :size="13" />
+                      </button>
+                    </div>
+                    <p class="sd-review-summary-copy">{{ selectedReview.overall_impression }}</p>
+                    <div class="challenge-tags">
+                      <span class="sd-tag">{{ (selectedReview.strengths || []).length }} strengths</span>
+                      <span class="sd-tag">{{ (selectedReview.bottlenecks_and_spofs || []).length }} bottlenecks</span>
+                      <span class="sd-tag">{{ (selectedReview.missing_components || []).length }} missing</span>
+                    </div>
+                  </div>
+
+                  <div class="sd-canvas-rev-actions">
+                    <button
+                      v-if="selectedRevision.diagram_kind === 'canvas'"
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      data-testid="load-canvas-revision-btn"
+                      @click="handleLoadRevisionIntoCanvas(selectedRevision)"
                     >
-                      {{ comp }}
-                    </span>
+                      <Edit3 :size="14" />
+                      <span>Edit v{{ selectedRevision.version }} in Studio</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      data-testid="analyze-selected-revision-btn"
+                      :disabled="store.reviewingDiagram"
+                      @click="handleAnalyzeArchitecture(selectedRevision.version)"
+                    >
+                      <Loader2 v-if="store.reviewingDiagram" :size="14" class="spin" />
+                      <Sparkles v-else :size="14" />
+                      <span>Analyze Architecture (v{{ selectedRevision.version }})</span>
+                    </button>
                   </div>
                 </div>
               </template>
-              <img
-                v-else
-                :src="getRevisionImageUrl(selectedRevision)"
-                :alt="`Diagram revision v${selectedRevision.version}`"
-                class="sd-preview-img"
-              />
-
-              <p v-if="selectedRevision.notes" class="sd-muted">
-                <strong>Notes:</strong> {{ selectedRevision.notes }}
-              </p>
-
-              <div
-                v-if="selectedReview && Number(selectedReview.diagram_version) === Number(selectedRevision.version)"
-                class="sd-diagram-review-summary"
-                data-testid="diagram-review-summary"
-              >
-                <div class="sd-review-summary-head">
-                  <span class="sd-review-status-pill">
-                    <CheckCircle2 :size="13" class="sd-success-icon" />
-                    <strong>Reviewed (v{{ selectedReview.diagram_version }})</strong>
-                  </span>
-                  <button
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    @click="selectStage('REVIEW')"
-                  >
-                    <span>Open Full Critique</span>
-                    <ArrowRight :size="13" />
-                  </button>
-                </div>
-                <p class="sd-review-summary-copy">{{ selectedReview.overall_impression }}</p>
-                <div class="challenge-tags">
-                  <span class="sd-tag">{{ (selectedReview.strengths || []).length }} strengths</span>
-                  <span class="sd-tag">{{ (selectedReview.bottlenecks_and_spofs || []).length }} bottlenecks</span>
-                  <span class="sd-tag">{{ (selectedReview.missing_components || []).length }} missing</span>
-                </div>
-              </div>
-
-              <div class="sd-canvas-rev-actions">
-                <button
-                  v-if="selectedRevision.diagram_kind === 'canvas'"
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  data-testid="load-canvas-revision-btn"
-                  @click="handleLoadRevisionIntoCanvas(selectedRevision)"
-                >
-                  <Edit3 :size="14" />
-                  <span>Load v{{ selectedRevision.version }} into Editor</span>
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-primary btn-sm"
-                  data-testid="analyze-selected-revision-btn"
-                  :disabled="store.reviewingDiagram"
-                  @click="handleAnalyzeArchitecture(selectedRevision.version)"
-                >
-                  <Loader2 v-if="store.reviewingDiagram" :size="14" class="spin" />
-                  <Sparkles v-else :size="14" />
-                  <span>Analyze Architecture (v{{ selectedRevision.version }})</span>
-                </button>
-              </div>
             </div>
           </section>
-        </template>
 
-        <!-- Tab 2: External Image Upload & Paste -->
-        <div v-else class="sd-two-col">
-          <!-- Upload & Paste Box -->
+          <!-- External Image Upload & Paste -->
           <section class="sd-card">
             <div class="sd-card-header">
               <h3>
@@ -2178,7 +2162,7 @@ onUnmounted(() => {
             </div>
 
             <p class="sd-muted sd-helper-copy">
-              Design your architecture in Excalidraw, Draw.io, Miro, or on paper, then upload the exported image or press <strong>Ctrl+V</strong> to paste it directly from your clipboard.
+              Prefer Excalidraw, Draw.io, Miro, or paper sketches? Upload the exported image or press <strong>Ctrl+V</strong> to paste directly from your clipboard.
             </p>
 
             <div
@@ -2225,114 +2209,6 @@ onUnmounted(() => {
                 <span>Upload Diagram Revision</span>
               </button>
             </div>
-          </section>
-
-          <!-- Uploaded Revisions Preview & Analyze Action -->
-          <section class="sd-card">
-            <div class="sd-card-header">
-              <h3>
-                <Layers :size="16" />
-                <span>Submitted Diagram Revisions</span>
-              </h3>
-              <span class="sd-muted">{{ store.activeDiagrams.length }} version(s)</span>
-            </div>
-
-            <div v-if="!store.activeDiagrams.length" class="sd-empty-box">
-              <FileImage :size="24" />
-              <p>No diagram uploaded yet. Upload v1 on the left to submit it for multimodal architecture review.</p>
-            </div>
-
-            <template v-else>
-              <div class="sd-revision-tabs">
-                <button
-                  v-for="rev in store.activeDiagrams"
-                  :key="rev.version"
-                  type="button"
-                  class="mode-pill"
-                  :class="{ active: selectedRevision?.version === rev.version }"
-                  @click="selectedDiagramVersion = rev.version"
-                >
-                  <span>v{{ rev.version }}</span>
-                </button>
-              </div>
-
-              <div v-if="selectedRevision" class="sd-revision-viewer">
-                <div v-if="selectedRevision.diagram_kind === 'canvas'" class="sd-canvas-rev-meta">
-                  <span class="badge badge-assessment">
-                    Interactive Canvas · {{ selectedRevision.node_count || 0 }} block(s) · {{ selectedRevision.edge_count || 0 }} flow(s)
-                  </span>
-                  <div v-if="selectedRevision.components_preview?.length" class="challenge-tags">
-                    <span
-                      v-for="comp in selectedRevision.components_preview"
-                      :key="comp"
-                      class="sd-tag"
-                    >
-                      {{ comp }}
-                    </span>
-                  </div>
-                </div>
-                <img
-                  v-else
-                  :src="getRevisionImageUrl(selectedRevision)"
-                  :alt="`Diagram revision v${selectedRevision.version}`"
-                  class="sd-preview-img"
-                />
-                <p v-if="selectedRevision.notes" class="sd-muted">
-                  <strong>Notes:</strong> {{ selectedRevision.notes }}
-                </p>
-
-                <div
-                  v-if="selectedReview && Number(selectedReview.diagram_version) === Number(selectedRevision.version)"
-                  class="sd-diagram-review-summary"
-                  data-testid="diagram-review-summary"
-                >
-                  <div class="sd-review-summary-head">
-                    <span class="sd-review-status-pill">
-                      <CheckCircle2 :size="13" class="sd-success-icon" />
-                      <strong>Reviewed (v{{ selectedReview.diagram_version }})</strong>
-                    </span>
-                    <button
-                      type="button"
-                      class="btn btn-secondary btn-sm"
-                      @click="selectStage('REVIEW')"
-                    >
-                      <span>Open Full Critique</span>
-                      <ArrowRight :size="13" />
-                    </button>
-                  </div>
-                  <p class="sd-review-summary-copy">{{ selectedReview.overall_impression }}</p>
-                  <div class="challenge-tags">
-                    <span class="sd-tag">{{ (selectedReview.strengths || []).length }} strengths</span>
-                    <span class="sd-tag">{{ (selectedReview.bottlenecks_and_spofs || []).length }} bottlenecks</span>
-                    <span class="sd-tag">{{ (selectedReview.missing_components || []).length }} missing</span>
-                  </div>
-                </div>
-                <p v-else class="sd-muted">
-                  Not yet reviewed — click Analyze Architecture below to generate critique.
-                </p>
-
-                <label class="sd-checkbox-row">
-                  <input
-                    v-model="useWebSearchReview"
-                    type="checkbox"
-                    data-testid="review-web-search-checkbox"
-                  />
-                  <Globe :size="14" class="sd-primary-icon" />
-                  <span>Ground critique with Web Search (benchmarks &amp; failure modes)</span>
-                </label>
-
-                <button
-                  type="button"
-                  class="btn btn-primary w-full"
-                  :disabled="store.reviewingDiagram"
-                  @click="handleAnalyzeArchitecture(selectedRevision.version)"
-                >
-                  <Loader2 v-if="store.reviewingDiagram" :size="14" class="spin" />
-                  <Sparkles v-else :size="14" />
-                  <span>Analyze Architecture (v{{ selectedRevision.version }})</span>
-                </button>
-              </div>
-            </template>
           </section>
         </div>
       </div>
@@ -4270,6 +4146,50 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.sd-live-sync-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--status-offer-text);
+  background: var(--status-offer-bg);
+  border: 1px solid var(--status-offer-border);
+}
+
+.sd-ledger-title-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.sd-studio-launch-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sd-launch-studio-btn {
+  width: fit-content;
+}
+
+.sd-studio-revisions-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
+
+.sd-studio-revisions-block h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .sd-canvas-revisions-card,

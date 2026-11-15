@@ -3437,6 +3437,58 @@ export async function handleDemoRequest(config) {
         assisted,
         timestamp: nowIso,
       })
+      const existingLedger = session.requirements_ledger || {}
+      const mergeStrList = (prev, next) => {
+        const seen = new Set()
+        const out = []
+        for (const item of [...(prev || []), ...(next || [])]) {
+          const clean = String(item || '').trim()
+          const key = clean.toLowerCase()
+          if (clean && !seen.has(key)) {
+            seen.add(key)
+            out.push(clean)
+          }
+        }
+        return out
+      }
+      const patchFunctional = []
+      const patchNfr = [
+        '99.95% availability target',
+        'p99 read latency under 50ms',
+      ]
+      const patchScale = {
+        traffic_pattern: '10:1 read-to-write ratio',
+        monthly_active_users: '~50M MAU (demo baseline)',
+      }
+      const patchOutOfScope = []
+      const patchAssumptions = []
+      if (/url|short|redirect|link/i.test(msgText + (session.challenge?.title || ''))) {
+        patchFunctional.push('Core API for creating and resolving resources with high read fan-out')
+      } else {
+        patchFunctional.push(`Core API & workflow for ${session.challenge?.title || 'system design'}`)
+      }
+      if (/scale|qps|dau|mau|traffic|read|write/i.test(msgText)) {
+        patchScale.peak_write_estimate = '~2k–5k writes/sec'
+      }
+      if (/latency|availability|sla|p99|durability/i.test(msgText)) {
+        patchAssumptions.push('Reads can tolerate brief async replication lag unless strong consistency is specified')
+      }
+      if (/scope|billing|analytics|auth/i.test(msgText)) {
+        patchOutOfScope.push('Billing and multi-region active-active conflict resolution')
+      }
+      session.requirements_ledger = {
+        functional_requirements: mergeStrList(existingLedger.functional_requirements, patchFunctional),
+        non_functional_requirements: mergeStrList(existingLedger.non_functional_requirements, patchNfr),
+        scale_estimates: {
+          ...patchScale,
+          ...(existingLedger.scale_estimates || {}),
+        },
+        out_of_scope: mergeStrList(existingLedger.out_of_scope, patchOutOfScope),
+        assumptions: mergeStrList(existingLedger.assumptions, patchAssumptions),
+        unresolved_questions: existingLedger.unresolved_questions || [],
+        notes: existingLedger.notes || '',
+        is_locked: Boolean(existingLedger.is_locked),
+      }
       session.requirements_transcript = transcript
       session.updated_at = nowIso
       saveDemoDb(db)
@@ -3448,22 +3500,41 @@ export async function handleDemoRequest(config) {
       const sid = Number(sdReqExtractMatch[1])
       const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
       if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const existing = session.requirements_ledger || {}
+      const mergeUnique = (a, b) => {
+        const seen = new Set()
+        const out = []
+        for (const v of [...(a || []), ...(b || [])]) {
+          const clean = String(v || '').trim()
+          const key = clean.toLowerCase()
+          if (clean && !seen.has(key)) {
+            seen.add(key)
+            out.push(clean)
+          }
+        }
+        return out
+      }
       session.requirements_ledger = {
-        functional_requirements: [
+        functional_requirements: mergeUnique(existing.functional_requirements, [
           'Core API endpoint to create/ingest primary entities',
           'Low-latency read/lookup path for active items',
-        ],
-        non_functional_requirements: [
+        ]),
+        non_functional_requirements: mergeUnique(existing.non_functional_requirements, [
           '99.95% availability target',
           'p99 read latency under 50ms',
-        ],
+        ]),
         scale_estimates: {
           traffic_pattern: '10:1 read-to-write ratio',
           monthly_active_users: '~50M MAU (demo baseline)',
+          ...(existing.scale_estimates || {}),
         },
-        out_of_scope: ['Billing and multi-region active-active conflict resolution'],
-        notes: `Extracted from ${session.requirements_transcript.length} conversation turns.`,
-        is_locked: Boolean(session.requirements_ledger?.is_locked),
+        out_of_scope: mergeUnique(existing.out_of_scope, [
+          'Billing and multi-region active-active conflict resolution',
+        ]),
+        assumptions: existing.assumptions || [],
+        unresolved_questions: existing.unresolved_questions || [],
+        notes: existing.notes || `Extracted from ${session.requirements_transcript.length} conversation turns.`,
+        is_locked: Boolean(existing.is_locked),
       }
       session.updated_at = new Date().toISOString()
       saveDemoDb(db)
@@ -3480,6 +3551,8 @@ export async function handleDemoRequest(config) {
         non_functional_requirements: data.non_functional_requirements || [],
         scale_estimates: data.scale_estimates || {},
         out_of_scope: data.out_of_scope || [],
+        assumptions: data.assumptions || [],
+        unresolved_questions: data.unresolved_questions || [],
         notes: data.notes || '',
         is_locked: Boolean(data.is_locked),
       }

@@ -642,7 +642,7 @@ def normalize_flow_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
                 "target": target,
                 "source_handle": str(edge.get("source_handle") or "").strip() or None,
                 "target_handle": str(edge.get("target_handle") or "").strip() or None,
-                "protocol": str(edge.get("protocol") or "HTTPS").strip() or "HTTPS",
+                "protocol": str(edge.get("protocol") or "").strip(),
                 "delivery_mode": mode,
                 "label": str(edge.get("label") or "").strip(),
             }
@@ -678,10 +678,11 @@ def summarize_diagram_flow(flow_payload: dict[str, Any]) -> dict[str, Any]:
         incoming[dst_id] += 1
         src_label = node_map[src_id].get("label", src_id)
         dst_label = node_map[dst_id].get("label", dst_id)
-        protocol = edge.get("protocol") or "HTTPS"
+        protocol = str(edge.get("protocol") or "").strip()
         mode = edge.get("delivery_mode") or "sync"
         label = str(edge.get("label") or "").strip()
-        desc = f"{src_label} -> {dst_label} [{protocol}, {mode}]"
+        meta = ", ".join(part for part in (protocol, mode) if part)
+        desc = f"{src_label} -> {dst_label} [{meta}]"
         if label:
             desc += f": {label}"
         flows_readable.append(desc)

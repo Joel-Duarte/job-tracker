@@ -190,14 +190,19 @@ export function serializeFlowEdges(vueFlowEdges) {
     target: String(e.target),
     source_handle: e.sourceHandle || null,
     target_handle: e.targetHandle || null,
-    protocol: String(e.data?.protocol || 'HTTPS'),
+    protocol: String(e.data?.protocol || ''),
     delivery_mode: e.data?.delivery_mode === 'async' ? 'async' : 'sync',
     label: String(e.data?.text_label || ''),
   }))
 }
 
 export function formatEdgeDisplayLabel(protocol, deliveryMode, labelText) {
-  const modePrefix = deliveryMode === 'async' ? 'async' : 'sync'
-  const base = `${protocol || 'HTTPS'} (${modePrefix})`
-  return labelText ? `${base} · ${labelText}` : base
+  const trimmed = String(labelText || '').trim()
+  const isAsync = deliveryMode === 'async'
+  const protoPart = String(protocol || '').trim()
+  if (trimmed && isAsync) return `${trimmed} (async)`
+  if (trimmed) return trimmed
+  if (protoPart && isAsync) return `${protoPart} (async)`
+  if (protoPart) return protoPart
+  return isAsync ? 'Async flow' : ''
 }
