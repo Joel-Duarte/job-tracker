@@ -322,8 +322,7 @@ async def resolve_email_match_tiebreaker(
             [
                 (
                     "system",
-                    "You are a high-precision entity-resolution tiebreaker. "
-                    "Select an application ID ONLY when confident; otherwise return null.",
+                    "You are an entity-resolution tiebreaker. Match the email to the right candidate application when the company/brand alias and role discipline align (allowing normal recruiter title abbreviations); return null only when the company is unrelated or roles are genuinely indistinguishable.",
                 ),
                 ("human", template_str),
             ]

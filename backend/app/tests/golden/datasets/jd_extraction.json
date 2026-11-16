@@ -47,5 +47,17 @@
     "expected_company": "Hays",
     "banned_companies": ["Hybrid", "Technical Bar", "Remote", "On-site"],
     "required_skills_any": ["Python", "FastAPI", "PostgreSQL", "Docker"]
+  },
+  {
+    "id": "jd_ats_greenhouse_linkedin_wrapper",
+    "pipeline": "jd_extraction",
+    "human_rationale": "Scraped job posting containing ATS ('Powered by Greenhouse') and job-board ('Apply on LinkedIn') boilerplate plus 'Remote' header must extract 'Beacon Analytics' as company.",
+    "title_hint": "Senior ML Platform Engineer",
+    "page_title": "Senior ML Platform Engineer - Beacon Analytics | Greenhouse",
+    "raw_webpage_data": "Apply on LinkedIn | Back to Jobs\nBeacon Analytics\nSenior ML Platform Engineer\nRemote\n\nResponsibilities:\n- Build scalable PyTorch and FastAPI model serving pipelines on Kubernetes.\n- Maintain PostgreSQL feature stores and CI/CD workflows.\n\nRequirements:\n- 4+ years Python, FastAPI, Docker, and PostgreSQL.\n\nPowered by Greenhouse",
+    "expect_job_found": true,
+    "expected_company": "Beacon Analytics",
+    "banned_companies": ["Greenhouse", "LinkedIn", "Remote", "Hybrid", "Technical Bar"],
+    "required_skills_any": ["Python", "FastAPI", "PostgreSQL", "Kubernetes"]
   }
 ]

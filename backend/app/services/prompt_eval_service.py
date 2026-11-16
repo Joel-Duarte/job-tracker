@@ -383,6 +383,13 @@ async def evaluate_pipeline_scenario(
         exp_company = scenario.get("expect_company")
         if exp_company and exp_company.lower() not in (res.company or "").lower():
             failures.append(f"Expected company '{exp_company}', got {res.company!r}")
+        exp_email_types = scenario.get("expect_email_type_any") or []
+        if exp_email_types and (res.email_type or "").upper() not in [
+            t.upper() for t in exp_email_types
+        ]:
+            failures.append(
+                f"Expected email_type in {exp_email_types}, got {res.email_type!r}"
+            )
         exp_status = scenario.get("expected_status_any") or []
         if exp_status and (res.status or "").upper() not in [
             s.upper() for s in exp_status

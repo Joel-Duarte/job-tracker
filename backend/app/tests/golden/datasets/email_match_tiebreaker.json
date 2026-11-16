@@ -30,12 +30,12 @@
   {
     "id": "tiebreaker_multiple_active_roles",
     "pipeline": "email_match_tiebreaker",
-    "human_rationale": "Candidate has two active roles at Orbital Cloud; email mentions Kubernetes/backend API team so must pick the Backend & AI role over Frontend.",
+    "human_rationale": "Candidate has two active roles at Orbital Cloud; email uses generic title 'Senior Software Engineer' with Backend/Platform team context so must pick Backend & AI Platform over Frontend.",
     "sender": "talent@orbital-cloud.invalid",
-    "subject": "Chat with our Backend & Kubernetes Infra Team",
+    "subject": "Chat with our Backend & AI Platform Team",
     "extracted_company": "Orbital Cloud",
-    "extracted_position": "Software Engineer",
-    "summary": "Hiring manager from the Kubernetes and FastAPI platform team wants to schedule a 45-minute technical call.",
+    "extracted_position": "Senior Software Engineer",
+    "summary": "Hiring manager from the FastAPI and AI platform team wants to schedule a 45-minute technical call.",
     "candidates": [
       {
         "application_id": 201,
@@ -110,5 +110,89 @@
     ],
     "expected_application_id": null,
     "max_confidence": 0.84
+  },
+  {
+    "id": "tiebreaker_delayed_reply_to_archived",
+    "pipeline": "email_match_tiebreaker",
+    "human_rationale": "When no active application exists for NovaTech, a delayed follow-up/rejection for NovaTech must match the auto-archived (no-response) application instead of creating a staging item.",
+    "sender": "careers@novatech.invalid",
+    "subject": "Update on your Senior AI Engineer application at NovaTech",
+    "extracted_company": "NovaTech",
+    "extracted_position": "Senior AI Engineer",
+    "summary": "NovaTech sent a delayed update thanking the candidate and closing out the Senior AI Engineer application.",
+    "candidates": [
+      {
+        "application_id": 311,
+        "company": "NovaTech",
+        "position": "Senior AI Engineer",
+        "status": "ARCHIVED",
+        "last_activity_at": "2026-09-20"
+      },
+      {
+        "application_id": 312,
+        "company": "Google",
+        "position": "Staff Distributed Systems Engineer",
+        "status": "APPLIED",
+        "last_activity_at": "2026-11-12"
+      }
+    ],
+    "expected_application_id": 311,
+    "min_confidence": 0.85
+  },
+  {
+    "id": "tiebreaker_ambiguous_same_discipline_must_reject",
+    "pipeline": "email_match_tiebreaker",
+    "human_rationale": "When two active applications at the same company share the exact same discipline and the email has no distinguishing team/role clue, must return null or confidence < 0.85 so it routes to staging.",
+    "sender": "talent@orbital-cloud.invalid",
+    "subject": "Update on your Senior Backend Engineer application",
+    "extracted_company": "Orbital Cloud",
+    "extracted_position": "Senior Backend Engineer",
+    "summary": "Thank you for your interest in the Senior Backend Engineer role at Orbital Cloud; our team will follow up soon.",
+    "candidates": [
+      {
+        "application_id": 321,
+        "company": "Orbital Cloud",
+        "position": "Senior Backend Engineer (Billing)",
+        "status": "APPLIED",
+        "last_activity_at": "2026-11-10"
+      },
+      {
+        "application_id": 322,
+        "company": "Orbital Cloud",
+        "position": "Senior Backend Engineer (Core API)",
+        "status": "APPLIED",
+        "last_activity_at": "2026-11-12"
+      }
+    ],
+    "expected_application_id": null,
+    "max_confidence": 0.84
+  },
+  {
+    "id": "tiebreaker_ats_sender_alias",
+    "pipeline": "email_match_tiebreaker",
+    "human_rationale": "Email sent from generic ATS domain (no-reply@greenhouse.invalid) must still match the candidate application named in subject/summary.",
+    "sender": "no-reply@greenhouse.invalid",
+    "subject": "Scheduling your technical interview with Beacon Analytics",
+    "extracted_company": "Beacon Analytics",
+    "extracted_position": "ML Platform Engineer",
+    "summary": "Greenhouse notification to schedule a technical interview with Beacon Analytics for ML Platform Engineer.",
+    "candidates": [
+      {
+        "application_id": 331,
+        "company": "Beacon Analytics",
+        "position": "Senior ML Platform Engineer",
+        "status": "APPLIED",
+        "last_activity_at": "2026-11-11"
+      },
+      {
+        "application_id": 332,
+        "company": "Google",
+        "position": "Staff Distributed Systems Engineer",
+        "status": "APPLIED",
+        "last_activity_at": "2026-11-12"
+      }
+    ],
+    "expected_application_id": 331,
+    "min_confidence": 0.85
   }
 ]

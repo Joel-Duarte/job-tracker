@@ -44,10 +44,47 @@
     "sender": "talent@novatech.invalid",
     "subject": "Re: Software Engineer AI - NovaTech",
     "date": "2026-11-16T12:15:00Z",
-    "email_content": "Hi Alex,\n\nGreat speaking with you! I have sent over the calendar invite for our 30-minute introductory phone screen tomorrow at 11:00 UTC.\n\nBest,\nJordan",
+    "email_content": "Hi Alex,\n\nThank you for confirming our 30-minute introductory phone screen tomorrow at 11:00 UTC. No action is required from you prior to the call.\n\nBest,\nJordan",
     "expect_company": "NovaTech",
     "expect_action_required": false,
     "expected_status_any": ["PHONE_SCREEN", "RECRUITER_CONTACT", "TECHNICAL_INTERVIEW"],
+    "expect_null_fields": ["due_date"]
+  },
+  {
+    "id": "email_job_alert_digest",
+    "pipeline": "email_extraction",
+    "human_rationale": "Automated job board digest must be classified as JOB_ALERT or NEWSLETTER with action_required=False.",
+    "sender": "alerts@jobboard.invalid",
+    "subject": "12 new Senior Python Engineer jobs matching your alert",
+    "date": "2026-11-15T08:00:00Z",
+    "email_content": "Your daily job alert: 12 new Senior Python Engineer roles posted today.\n1. Backend Engineer at ExampleCo - Remote\n2. Platform Engineer at DemoCorp - Hybrid\nUnsubscribe or manage alert preferences.",
+    "expect_email_type_any": ["JOB_ALERT", "NEWSLETTER"],
+    "expect_action_required": false,
+    "expect_null_fields": ["due_date"]
+  },
+  {
+    "id": "email_staffing_agency_named_client",
+    "pipeline": "email_extraction",
+    "human_rationale": "Staffing agency recruiting on behalf of a named client ('Luminous Workspace') must extract the client company rather than an ATS.",
+    "sender": "recruiter@hays-agency.invalid",
+    "subject": "Senior Frontend Engineer opportunity at Luminous Workspace",
+    "date": "2026-11-15T11:00:00Z",
+    "email_content": "Hi Elena,\n\nI am recruiting on behalf of our client Luminous Workspace for a Senior Frontend Engineer (React / TypeScript). Could you share your availability this week for a 20-minute intro call?\n\nBest,\nSam",
+    "expect_company": "Luminous Workspace",
+    "expect_action_required": true,
+    "expect_null_fields": ["due_date"]
+  },
+  {
+    "id": "email_portuguese_interview_invite",
+    "pipeline": "email_extraction",
+    "human_rationale": "Non-English (Portuguese) interview invitation must extract company, interview status, and action_required=True.",
+    "sender": "talento@lusitania-pay.invalid",
+    "subject": "Convite para entrevista tecnica - Lusitania Pay",
+    "date": "2026-11-15T14:00:00Z",
+    "email_content": "Ola Marcus,\n\nA equipa da Lusitania Pay gostaria de agendar uma entrevista tecnica de 45 minutos para a vaga de Engenheiro Backend. Por favor indique a sua disponibilidade para esta quinta-feira.\n\nObrigado,\nEquipa de Talento",
+    "expect_company": "Lusitania Pay",
+    "expect_action_required": true,
+    "expected_status_any": ["TECHNICAL_INTERVIEW", "PHONE_SCREEN", "INTERVIEW"],
     "expect_null_fields": ["due_date"]
   }
 ]

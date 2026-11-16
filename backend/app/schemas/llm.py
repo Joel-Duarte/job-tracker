@@ -30,6 +30,10 @@ class EmailExtractionResult(BaseModel):
 
 
 class EmailMatchTiebreakerResult(BaseModel):
+    reason: str = Field(
+        default="",
+        description="Brief evidence-based rationale citing sender domain, company alias, role title, or active/archived status.",
+    )
     matched_application_id: int | None = Field(
         default=None,
         description="Exact integer ID of the matching candidate application from the provided list, or null if none clearly match.",
@@ -39,10 +43,6 @@ class EmailMatchTiebreakerResult(BaseModel):
         ge=0.0,
         le=1.0,
         description="Match confidence from 0.0 (no match) to 1.0 (certain match).",
-    )
-    reason: str = Field(
-        default="",
-        description="Brief evidence-based rationale citing sender domain, company alias, role title, or team context.",
     )
 
 
