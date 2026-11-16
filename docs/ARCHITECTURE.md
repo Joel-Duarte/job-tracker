@@ -530,3 +530,19 @@ flowchart TD
 - **Credential Storage:** IMAP passwords and OAuth tokens are stored in the database with AES-256 encryption at rest.
 - **Local AI Sovereignty:** Support for LM Studio, Ollama, and local endpoints ensures sensitive resume details and compensation numbers never leave your local network.
 - **CORS & Domain Protection:** Configurable allowed origins with strict preflight verification.
+
+
+---
+
+## System Design Lab & Evaluation Architecture (PR #243)
+
+### System Design Lab (`backend/app/routers/system_design.py`, `backend/app/models/system_design.py`)
+- **`SystemDesignChallengeModel`**: Stores curated system design scenarios (`system_design_seed.py`, 24 blueprints) alongside hidden `interviewer_brief` criteria (excluded from candidate-facing schemas).
+- **`SystemDesignSessionModel`**: Persists authoritative session state (`requirements_transcript`, `requirements_ledger`, `diagrams_metadata`, `architecture_reviews`, `defence_transcript`, `final_evaluation`) while diagram image binaries are stored on disk under `backend/data/system_design/session_{id}/v{N}.{ext}`.
+- **`diagram_catalog.py`**: Manages diagram blueprint metadata and visual guidance.
+
+### Prompt Evals, Frontier Bridges & Email Tiebreaker
+- **`prompt_eval_service.py`**: Runs offline golden-dataset A/B prompt evaluations and concurrent multi-pipeline checks.
+- **`deliverable_frontier_service.py`**: Bridges structured deliverable generation/import with frontier models.
+- **`llm_judge.py`**: Automated zero-hallucination auditor validating generated deliverables against verified candidate CV facts with trace persistence.
+- **Email Match Tiebreaker**: Gray-zone LLM tiebreaker for ambiguous email-to-application matching, complementing `company_resolver.py` deduplication guardrails.

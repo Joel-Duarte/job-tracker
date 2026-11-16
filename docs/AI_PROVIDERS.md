@@ -342,3 +342,12 @@ Autonomous company research relies on web search capabilities configured in **Se
 - **Search Provider**: Choose between **DuckDuckGo** (`ddgs`) or a self-hosted **SearXNG** meta-search engine.
 - **SearXNG URL**: If using SearXNG, set the endpoint (e.g. `http://searxng:8080` or `http://localhost:8888`).
 - **Rate Limiting & Safety**: Built-in async token bucket (`web_limiter.py`) throttles queries to prevent search engine rate limits and IP bans.
+
+
+---
+
+## System Design, Prompt Evals & Frontier Bridges
+
+- **System Design Lab Tasks**: Multimodal diagram review (`SYSTEM_DESIGN_REVIEW`) and final rubric evaluation (`SYSTEM_DESIGN_EVALUATION`) execute asynchronously via `evaluation_worker.py` using your configured AI provider bindings.
+- **Prompt Eval Studio**: Use Settings -> Prompts to run A/B comparisons against offline golden datasets (`prompt_eval_service.py`) before promoting prompt edits.
+- **Frontier Deliverable Bridges**: `deliverable_frontier_service.py` supports exporting structured context briefs for external frontier models and importing results back into the pipeline.

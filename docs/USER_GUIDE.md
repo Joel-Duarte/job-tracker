@@ -757,3 +757,22 @@ When automated scrapers or emails ingest variations of the same employer (e.g., 
 ---
 
 *Job Tracker — Built for high-leverage job searching.*
+
+
+---
+
+## System Design Lab (`/system-design`)
+
+The **System Design Lab** provides an interactive, 6-stage system design practice environment backed by 24 curated blueprints:
+
+1. **Challenge Selection**: Browse curated system design scenarios (each with hidden `interviewer_brief` rubric criteria). You can also launch a session directly from Agent Chat via the `start_system_design` tool.
+2. **Requirements Discovery & Lockable Ledger**: Clarify functional and non-functional requirements, back-of-the-envelope estimates, and constraints in an editable, lockable requirements ledger.
+3. **Architecture Diagramming (`v1..vN`)**: Upload or paste architecture diagrams (stored on disk as versioned `v1..vN` revisions) or use the interactive diagramming canvas.
+4. **Multimodal Vision Review**: Queue-backed `SYSTEM_DESIGN_REVIEW` tasks evaluate your diagram against the locked requirements ledger.
+5. **Trade-Off Defence**: Defend architectural choices, bottlenecks, and failure modes in a multi-turn interactive defence.
+6. **Final Scorecard**: Evidence-based `SYSTEM_DESIGN_EVALUATION` rubric scoring across requirements, architecture, scalability, and trade-offs.
+
+## Prompt Eval Studio & Frontier Deliverable Bridges
+
+- **Prompt Eval Studio**: Available in **Settings**, allowing A/B comparison of system prompts against 5 offline golden datasets before saving changes.
+- **Frontier Deliverable Bridges**: Export structured briefs for external frontier models and import structured deliverables back into Job Tracker.
