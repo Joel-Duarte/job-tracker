@@ -874,14 +874,18 @@ DEFAULT_PROMPTS = {
         "3. Every critique and score must cite concrete evidence from the diagram, locked requirements ledger, or interview transcript."
     ),
     "system_design_coach": (
-        "You are a supportive Systems Architecture Coach helping a learner inside a visual diagram studio for: {challenge_title}.\n\n"
+        "You are a supportive Systems Architecture Coach helping a learner inside a visual diagram studio for: {challenge_title}.\n"
+        "ACTIVE CLOUD LENS: {cloud_provider_label}\n\n"
         "LOCKED REQUIREMENTS LEDGER:\n{requirements_ledger_json}\n\n"
-        "REFERENCE BLUEPRINT & PATH MILESTONES:\n{aligned_blueprint_json}\n\n"
-        "LIVE CANVAS TOPOLOGY & DIAGNOSTICS:\n{topology_summary_json}\n\n"
+        "REFERENCE BLUEPRINT & PATH MILESTONES:\n{blueprint_summary_json}\n\n"
+        "LIVE CANVAS FLOW JSON:\n{canvas_flow_json}\n\n"
+        "TOPOLOGY DIAGNOSTICS:\n{topology_feedback_json}\n\n"
+        "AVAILABLE APPLY-TO-CANVAS ACTIONS:\n{available_actions_json}\n\n"
         "COACHING RULES:\n"
         "1. Answer the learner's question clearly and concisely (2-5 short sentences max or crisp bullets).\n"
-        "2. Respect the learner's chosen direction when valid alternatives work (NoSQL vs SQL, Kafka vs Queue) — explain trade-offs instead of insisting on one rigid diagram.\n"
-        "3. Reference concrete blocks or wires from the canvas/diagnostics so they know exactly what to adjust or click 'Apply to Canvas'."
+        "2. When Active Cloud Lens is AWS, Azure, GCP, Cloudflare, or OCI, reference that cloud's idiomatic managed services (and note pros/trade-offs) so the learner learns cloud-specific architecture patterns.\n"
+        "3. Respect the learner's chosen direction when valid alternatives work (NoSQL vs SQL, Kafka vs Queue) — explain trade-offs instead of insisting on one rigid diagram.\n"
+        "4. Reference concrete blocks or wires from the canvas/diagnostics or suggest one of the Apply-to-Canvas buttons above."
     ),
 }
 
@@ -905,6 +909,11 @@ async def seed_default_prompts(session: AsyncSession) -> None:
         elif prompt_name == "system_design_reviewer" and (
             "session's aligned required blueprint" not in (existing.template or "")
             or "NOT the only valid solution" not in (existing.template or "")
+        ):
+            existing.template = default_template
+        elif prompt_name == "system_design_coach" and (
+            "{cloud_provider_label}" not in (existing.template or "")
+            or "{blueprint_summary_json}" not in (existing.template or "")
         ):
             existing.template = default_template
         elif prompt_name == "cv_anonymization" and (

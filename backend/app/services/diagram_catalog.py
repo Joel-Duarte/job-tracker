@@ -475,9 +475,301 @@ CANONICAL_DIAGRAM_BLOCKS: list[dict[str, Any]] = [
     },
 ]
 
+CLOUD_PROVIDERS: list[dict[str, str]] = [
+    {"id": "generic", "label": "Generic (Cloud-Agnostic)", "short_label": "Generic"},
+    {"id": "aws", "label": "Amazon Web Services (AWS)", "short_label": "AWS"},
+    {"id": "azure", "label": "Microsoft Azure", "short_label": "Azure"},
+    {"id": "gcp", "label": "Google Cloud (GCP)", "short_label": "GCP"},
+    {"id": "cloudflare", "label": "Cloudflare", "short_label": "CF"},
+    {"id": "oci", "label": "Oracle Cloud (OCI)", "short_label": "OCI"},
+]
+
+VALID_CLOUD_PROVIDER_IDS: set[str] = {p["id"] for p in CLOUD_PROVIDERS}
+
+CLOUD_EQUIVALENTS_BY_TYPE: dict[str, dict[str, str]] = {
+    "web_client": {
+        "aws": "CloudFront + S3 SPA / Amplify",
+        "azure": "Azure Static Web Apps",
+        "gcp": "Firebase Hosting / Cloud Storage SPA",
+        "cloudflare": "Cloudflare Pages",
+        "oci": "OCI Object Storage + Web App",
+    },
+    "mobile_client": {
+        "aws": "AWS Amplify / Mobile SDK",
+        "azure": "Azure Mobile Apps / App Center",
+        "gcp": "Firebase Mobile SDK",
+        "cloudflare": "Mobile App + Cloudflare Edge",
+        "oci": "Mobile Client + OCI Edge",
+    },
+    "dns": {
+        "aws": "Amazon Route 53",
+        "azure": "Azure DNS / Traffic Manager",
+        "gcp": "Google Cloud DNS",
+        "cloudflare": "Cloudflare Authoritative DNS",
+        "oci": "OCI DNS & Traffic Management",
+    },
+    "cdn": {
+        "aws": "Amazon CloudFront",
+        "azure": "Azure Front Door / CDN",
+        "gcp": "Google Cloud CDN",
+        "cloudflare": "Cloudflare Global CDN",
+        "oci": "OCI Edge / Akamai CDN",
+    },
+    "waf_ddos": {
+        "aws": "AWS WAF & Shield Advanced",
+        "azure": "Azure WAF & DDoS Protection",
+        "gcp": "Google Cloud Armor",
+        "cloudflare": "Cloudflare WAF & DDoS",
+        "oci": "OCI Web Application Firewall",
+    },
+    "load_balancer": {
+        "aws": "AWS ALB / NLB (ELB)",
+        "azure": "Azure Application Gateway / Load Balancer",
+        "gcp": "Google Cloud Load Balancing",
+        "cloudflare": "Cloudflare Load Balancing",
+        "oci": "OCI Flexible Load Balancer",
+    },
+    "api_gateway": {
+        "aws": "Amazon API Gateway",
+        "azure": "Azure API Management (APIM)",
+        "gcp": "Apigee / GCP API Gateway",
+        "cloudflare": "Cloudflare API Gateway",
+        "oci": "OCI API Gateway",
+    },
+    "rate_limiter": {
+        "aws": "AWS WAF / API GW Usage Plans",
+        "azure": "Azure APIM Rate-Limit Policy",
+        "gcp": "Cloud Armor Rate Limiting",
+        "cloudflare": "Cloudflare Rate Limiting",
+        "oci": "OCI API Gateway Rate Limit",
+    },
+    "auth_service": {
+        "aws": "Amazon Cognito / AWS IAM",
+        "azure": "Microsoft Entra ID (Azure AD)",
+        "gcp": "GCP Identity Platform / Firebase Auth",
+        "cloudflare": "Cloudflare Access (Zero Trust)",
+        "oci": "OCI IAM Identity Domains",
+    },
+    "realtime_gateway": {
+        "aws": "API Gateway WebSockets / IoT Core",
+        "azure": "Azure Web PubSub / SignalR",
+        "gcp": "Cloud Run WebSockets / Firebase RTDB",
+        "cloudflare": "Cloudflare Durable Objects (WS)",
+        "oci": "OCI API GW / Load Balancer WS",
+    },
+    "content_filter": {
+        "aws": "AWS GuardDuty / Lambda Safe Filter",
+        "azure": "Azure AI Content Safety",
+        "gcp": "Google Web Risk API",
+        "cloudflare": "Cloudflare Gateway / URL Scanner",
+        "oci": "OCI Threat Intelligence / Functions",
+    },
+    "app_service": {
+        "aws": "AWS ECS / EKS / EC2 Auto Scaling",
+        "azure": "Azure App Service / AKS / Container Apps",
+        "gcp": "Google Cloud Run / GKE",
+        "cloudflare": "Cloudflare Workers",
+        "oci": "OCI Container Engine (OKE)",
+    },
+    "async_worker": {
+        "aws": "AWS Lambda / ECS SQS Workers",
+        "azure": "Azure Functions / Container Apps",
+        "gcp": "Cloud Run / Cloud Functions Workers",
+        "cloudflare": "Cloudflare Queue Consumer Workers",
+        "oci": "OCI Functions / Container Instances",
+    },
+    "scheduler": {
+        "aws": "Amazon EventBridge Scheduler",
+        "azure": "Azure Logic Apps / Timer Functions",
+        "gcp": "Google Cloud Scheduler",
+        "cloudflare": "Cloudflare Cron Triggers",
+        "oci": "OCI Resource Scheduler / Functions",
+    },
+    "id_generator": {
+        "aws": "ECS Key Service + DynamoDB Counter",
+        "azure": "Azure Container Apps Key Service",
+        "gcp": "Cloud Run Key Range Allocator",
+        "cloudflare": "Cloudflare Durable Objects Coordinator",
+        "oci": "OKE Key Generator Service",
+    },
+    "ml_inference": {
+        "aws": "Amazon SageMaker / Bedrock",
+        "azure": "Azure Machine Learning / OpenAI Service",
+        "gcp": "Google Vertex AI",
+        "cloudflare": "Cloudflare Workers AI",
+        "oci": "OCI Data Science / Generative AI",
+    },
+    "media_transcoder": {
+        "aws": "AWS Elemental MediaConvert",
+        "azure": "Azure Media / Container Batch",
+        "gcp": "Google Transcoder API",
+        "cloudflare": "Cloudflare Stream",
+        "oci": "OCI Vision / Media Services",
+    },
+    "distributed_cache": {
+        "aws": "Amazon ElastiCache (Redis)",
+        "azure": "Azure Cache for Redis",
+        "gcp": "Google Cloud Memorystore (Redis)",
+        "cloudflare": "Cloudflare Workers KV / Durable Objects",
+        "oci": "OCI Cache (Managed Redis)",
+    },
+    "local_cache": {
+        "aws": "In-Process Cache (ECS/EKS Pod RAM)",
+        "azure": "In-Memory Cache (App Service / AKS)",
+        "gcp": "In-Process Memory (Cloud Run / GKE)",
+        "cloudflare": "Cloudflare Edge Cache API",
+        "oci": "In-Process Cache (OKE Pod RAM)",
+    },
+    "feature_store": {
+        "aws": "SageMaker Feature Store / DynamoDB",
+        "azure": "Azure Managed Redis / Cosmos DB",
+        "gcp": "Vertex AI Feature Store",
+        "cloudflare": "Workers KV Online State",
+        "oci": "OCI NoSQL / Cache Store",
+    },
+    "bloom_filter": {
+        "aws": "ElastiCache RedisBloom",
+        "azure": "Azure Managed Redis (RedisBloom)",
+        "gcp": "Memorystore / In-Memory Filter",
+        "cloudflare": "Durable Objects / Workers Filter",
+        "oci": "OCI Cache (Redis Modules)",
+    },
+    "relational_db": {
+        "aws": "Amazon RDS / Aurora PostgreSQL",
+        "azure": "Azure Database for PostgreSQL / SQL",
+        "gcp": "Google Cloud SQL / Cloud Spanner",
+        "cloudflare": "Cloudflare D1 (Serverless SQLite)",
+        "oci": "OCI Autonomous Database / MySQL HeatWave",
+    },
+    "read_replica": {
+        "aws": "Amazon Aurora / RDS Read Replica",
+        "azure": "Azure SQL / PostgreSQL Read Replica",
+        "gcp": "Google Cloud SQL Read Replica",
+        "cloudflare": "Cloudflare D1 Read Replication",
+        "oci": "OCI MySQL / Autonomous Read Replica",
+    },
+    "nosql_kv": {
+        "aws": "Amazon DynamoDB",
+        "azure": "Azure Cosmos DB",
+        "gcp": "Google Firestore / Cloud Bigtable",
+        "cloudflare": "Cloudflare Workers KV / Durable Objects",
+        "oci": "OCI NoSQL Database Cloud",
+    },
+    "object_storage": {
+        "aws": "Amazon S3",
+        "azure": "Azure Blob Storage",
+        "gcp": "Google Cloud Storage (GCS)",
+        "cloudflare": "Cloudflare R2",
+        "oci": "OCI Object Storage",
+    },
+    "timeseries_db": {
+        "aws": "Amazon Timestream",
+        "azure": "Azure Data Explorer (Kusto)",
+        "gcp": "Cloud Bigtable Time-Series",
+        "cloudflare": "Cloudflare Analytics Engine",
+        "oci": "OCI Logging Analytics / Monitoring TS",
+    },
+    "vector_db": {
+        "aws": "Amazon OpenSearch Vector / Aurora pgvector",
+        "azure": "Azure AI Search Vector / Cosmos pgvector",
+        "gcp": "Vertex AI Vector Search",
+        "cloudflare": "Cloudflare Vectorize",
+        "oci": "OCI Database 23ai AI Vector Search",
+    },
+    "consensus_store": {
+        "aws": "AWS etcd / DynamoDB Lock Table",
+        "azure": "Azure Blob Leases / etcd on AKS",
+        "gcp": "Cloud Spanner / etcd on GKE",
+        "cloudflare": "Cloudflare Durable Objects Coordination",
+        "oci": "OCI etcd on OKE / Autonomous Lock",
+    },
+    "message_queue": {
+        "aws": "Amazon SQS",
+        "azure": "Azure Service Bus Queues",
+        "gcp": "Google Cloud Tasks / Pub/Sub",
+        "cloudflare": "Cloudflare Queues",
+        "oci": "OCI Queue Service",
+    },
+    "event_stream": {
+        "aws": "Amazon Kinesis / MSK (Kafka)",
+        "azure": "Azure Event Hubs",
+        "gcp": "Google Cloud Pub/Sub",
+        "cloudflare": "Cloudflare Pipelines",
+        "oci": "OCI Streaming (Kafka-compatible)",
+    },
+    "pubsub_bus": {
+        "aws": "Amazon SNS",
+        "azure": "Azure Event Grid / Service Bus Topics",
+        "gcp": "Google Cloud Pub/Sub Topics",
+        "cloudflare": "Cloudflare Queues Multi-Consumer",
+        "oci": "OCI Notifications & Streaming",
+    },
+    "stream_processor": {
+        "aws": "Amazon Managed Service for Apache Flink",
+        "azure": "Azure Stream Analytics",
+        "gcp": "Google Cloud Dataflow",
+        "cloudflare": "Cloudflare Pipelines / Workers Stream",
+        "oci": "OCI GoldenGate Stream Analytics",
+    },
+    "dlq": {
+        "aws": "Amazon SQS Dead-Letter Queue",
+        "azure": "Azure Service Bus DLQ",
+        "gcp": "Google Pub/Sub Dead-Letter Topic",
+        "cloudflare": "Cloudflare Queue DLQ",
+        "oci": "OCI Queue Dead-Letter Channel",
+    },
+    "search_engine": {
+        "aws": "Amazon OpenSearch Service",
+        "azure": "Azure AI Search",
+        "gcp": "Vertex AI Search / Elastic Cloud",
+        "cloudflare": "Cloudflare Vectorize / D1 FTS",
+        "oci": "OCI Search Service with OpenSearch",
+    },
+    "olap_warehouse": {
+        "aws": "Amazon Redshift / Athena",
+        "azure": "Azure Synapse Analytics / Fabric",
+        "gcp": "Google BigQuery",
+        "cloudflare": "Cloudflare R2 + Workers Analytics",
+        "oci": "OCI Autonomous Data Warehouse",
+    },
+    "cdc_connector": {
+        "aws": "AWS DMS / MSK Connect Debezium",
+        "azure": "Azure Data Factory CDC / Event Hubs",
+        "gcp": "Google Datastream (CDC)",
+        "cloudflare": "D1 Export / Worker Outbox",
+        "oci": "OCI GoldenGate CDC",
+    },
+    "observability": {
+        "aws": "Amazon CloudWatch & AWS X-Ray",
+        "azure": "Azure Monitor & Application Insights",
+        "gcp": "Google Cloud Monitoring & Cloud Trace",
+        "cloudflare": "Cloudflare Logpush & Workers Analytics",
+        "oci": "OCI Monitoring, Logging & APM",
+    },
+}
+
+for _block in CANONICAL_DIAGRAM_BLOCKS:
+    _block["cloud_equivalents"] = dict(
+        CLOUD_EQUIVALENTS_BY_TYPE.get(_block["type_id"], {})
+    )
+
 BLOCKS_BY_TYPE_ID: dict[str, dict[str, Any]] = {
     block["type_id"]: block for block in CANONICAL_DIAGRAM_BLOCKS
 }
+
+
+def normalize_cloud_provider(provider: str | None) -> str:
+    """Normalize a cloud lens identifier onto the canonical provider set."""
+    cleaned = str(provider or "generic").strip().lower()
+    return cleaned if cleaned in VALID_CLOUD_PROVIDER_IDS else "generic"
+
+
+def get_cloud_service_name(type_id: str, cloud_provider: str | None) -> str:
+    """Return the provider-specific service label for a canonical component type."""
+    norm = normalize_cloud_provider(cloud_provider)
+    if norm == "generic":
+        return ""
+    return str(CLOUD_EQUIVALENTS_BY_TYPE.get(type_id, {}).get(norm, "")).strip()
 
 
 def _tokenize(text: str) -> set[str]:
@@ -613,9 +905,10 @@ def node_matches_expected(node: dict[str, Any], expected_name: str) -> bool:
 
 
 def normalize_flow_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
-    """Canonicalize submitted canvas nodes, edges, notes, and viewport into normalized Flow JSON."""
+    """Canonicalize submitted canvas nodes, edges, notes, cloud_provider, and viewport into Flow JSON."""
     raw_nodes = list(raw_payload.get("nodes") or [])
     raw_edges = list(raw_payload.get("edges") or [])
+    flow_cloud = normalize_cloud_provider(raw_payload.get("cloud_provider"))
 
     normalized_nodes: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
@@ -632,6 +925,11 @@ def normalize_flow_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
         label = str(node.get("label") or "").strip() or (
             catalog_meta["label"] if catalog_meta else f"Component {idx}"
         )
+        generic_label = str(
+            node.get("generic_label")
+            or (catalog_meta["label"] if catalog_meta else label)
+        ).strip()
+        node_cloud = normalize_cloud_provider(node.get("cloud_provider") or flow_cloud)
         category = str(
             node.get("category")
             or (catalog_meta["category"] if catalog_meta else "compute_services")
@@ -648,6 +946,8 @@ def normalize_flow_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
                 "id": node_id,
                 "type_id": type_id,
                 "label": label,
+                "generic_label": generic_label,
+                "cloud_provider": node_cloud,
                 "category": category,
                 "icon": icon,
                 "tech_stack": str(node.get("tech_stack") or "").strip(),
@@ -691,6 +991,7 @@ def normalize_flow_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "schema_version": 1,
+        "cloud_provider": flow_cloud,
         "nodes": normalized_nodes,
         "edges": normalized_edges,
         "notes": str(raw_payload.get("notes") or "").strip(),
@@ -700,6 +1001,7 @@ def normalize_flow_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
 
 def summarize_diagram_flow(flow_payload: dict[str, Any]) -> dict[str, Any]:
     """Produce deterministic components, directed flows, and topology diagnostics from Flow JSON."""
+    cloud_provider = normalize_cloud_provider(flow_payload.get("cloud_provider"))
     nodes = list(flow_payload.get("nodes") or [])
     edges = list(flow_payload.get("edges") or [])
     node_map = {
@@ -766,6 +1068,7 @@ def summarize_diagram_flow(flow_payload: dict[str, Any]) -> dict[str, Any]:
         )
 
     return {
+        "cloud_provider": cloud_provider,
         "node_count": len(nodes),
         "edge_count": len(edges),
         "components": components_list,
@@ -1047,6 +1350,9 @@ def _build_component_entry(
         **matched,
         "why_required": why_required or matched.get("hint_role") or "",
         "config_checklist": checklist,
+        "cloud_equivalents": dict(
+            CLOUD_EQUIVALENTS_BY_TYPE.get(matched["type_id"], {})
+        ),
     }
 
 
@@ -1801,8 +2107,12 @@ def build_coach_canvas_actions(
     resolved_blueprint: dict[str, Any],
     flow_payload: dict[str, Any],
     user_message: str = "",
+    cloud_provider: str | None = None,
 ) -> list[dict[str, Any]]:
     """Build non-destructive executable Apply-to-Canvas actions prioritized by the learner's question."""
+    active_cloud = normalize_cloud_provider(
+        cloud_provider or flow_payload.get("cloud_provider")
+    )
     nodes = [n for n in (flow_payload.get("nodes") or []) if isinstance(n, dict)]
     edges = [e for e in (flow_payload.get("edges") or []) if isinstance(e, dict)]
     placed_types = {str(n.get("type_id") or "") for n in nodes}
@@ -1860,12 +2170,24 @@ def build_coach_canvas_actions(
                     }
                 )
 
+        def _cloudify_block(spec_dict: dict[str, Any]) -> dict[str, Any]:
+            item = dict(spec_dict)
+            tid = str(item.get("type_id") or "")
+            svc = get_cloud_service_name(tid, active_cloud)
+            generic_lbl = str(item.get("label") or item.get("name") or "")
+            item["generic_label"] = generic_lbl
+            item["cloud_provider"] = active_cloud
+            if svc:
+                item["label"] = svc
+                item["tech_stack"] = svc
+            return item
+
         needed_blocks: list[dict[str, Any]] = []
         for tid in path_type_ids:
             if tid not in placed_types:
                 spec = by_type.get(tid) or BLOCKS_BY_TYPE_ID.get(tid)
                 if spec:
-                    needed_blocks.append(dict(spec))
+                    needed_blocks.append(_cloudify_block(spec))
 
         if needed_blocks or needed_edges:
             path_actions.append(
@@ -1888,13 +2210,24 @@ def build_coach_canvas_actions(
         )
     ]
     if missing_specs and len(path_actions) < 3:
+        cloudified_missing = []
+        for spec in missing_specs:
+            item = dict(spec)
+            tid = str(item.get("type_id") or "")
+            svc = get_cloud_service_name(tid, active_cloud)
+            item["generic_label"] = str(item.get("label") or item.get("name") or "")
+            item["cloud_provider"] = active_cloud
+            if svc:
+                item["label"] = svc
+                item["tech_stack"] = svc
+            cloudified_missing.append(item)
         path_actions.append(
             {
                 "id": "add_missing_components",
                 "title": f"Place Missing Blocks ({len(missing_specs)})",
                 "description": ", ".join(s["label"] for s in missing_specs[:5])
                 + ("..." if len(missing_specs) > 5 else ""),
-                "blocks": missing_specs,
+                "blocks": cloudified_missing,
                 "edges": [],
             }
         )

@@ -201,11 +201,13 @@ async function handleRequestHint(hintMode) {
   try {
     const currentNodes = canvasBuilderRef.value?.getCurrentNodes?.() || flowSnapshot.value.nodes || []
     const currentEdges = canvasBuilderRef.value?.getCurrentEdges?.() || flowSnapshot.value.edges || []
+    const cloudProv = flowSnapshot.value?.cloud_provider || 'generic'
     const res = await store.requestDiagramHint(
       hintMode,
       currentNodes,
       currentEdges,
-      canvasNotes.value
+      canvasNotes.value,
+      cloudProv
     )
     uiStore.showToast(res?.message || 'Coaching updated!', 'info')
   } catch (err) {
@@ -222,7 +224,8 @@ async function handleSendCoachChat(overridePrompt = null) {
   try {
     const currentNodes = canvasBuilderRef.value?.getCurrentNodes?.() || flowSnapshot.value.nodes || []
     const currentEdges = canvasBuilderRef.value?.getCurrentEdges?.() || flowSnapshot.value.edges || []
-    await store.sendDiagramCoachMessage(msg, currentNodes, currentEdges, canvasNotes.value)
+    const cloudProv = flowSnapshot.value?.cloud_provider || 'generic'
+    await store.sendDiagramCoachMessage(msg, currentNodes, currentEdges, canvasNotes.value, cloudProv)
   } catch (err) {
     uiStore.showToast(err.message || 'Coach chat failed', 'error')
   }

@@ -2,7 +2,12 @@ import { getDemoAgentReply } from './agentReplies.js'
 import { getDemoQualityStats } from './qualityAudits.js'
 import { getDemoDb, saveDemoDb } from './demoStorage.js'
 import { scoreApplicationMatch, normalizeCompanyText } from '../utils/fuzzyMatch.js'
-import { DEFAULT_DIAGRAM_BLOCKS, DEFAULT_DIAGRAM_CATEGORIES } from '../utils/diagramCatalog.js'
+import {
+  CLOUD_EQUIVALENTS_BY_TYPE,
+  DEFAULT_CLOUD_PROVIDERS,
+  DEFAULT_DIAGRAM_BLOCKS,
+  DEFAULT_DIAGRAM_CATEGORIES,
+} from '../utils/diagramCatalog.js'
 
 function filterDemoTraces(traces, params) {
   return traces.filter(t =>
@@ -2897,7 +2902,11 @@ export async function handleDemoRequest(config) {
     if (urlPath === '/system-design/catalog' && method === 'get') {
       return ok({
         categories: DEFAULT_DIAGRAM_CATEGORIES,
-        blocks: DEFAULT_DIAGRAM_BLOCKS,
+        providers: DEFAULT_CLOUD_PROVIDERS,
+        blocks: DEFAULT_DIAGRAM_BLOCKS.map((b) => ({
+          ...b,
+          cloud_equivalents: CLOUD_EQUIVALENTS_BY_TYPE[b.type_id] || {},
+        })),
       })
     }
 
@@ -3304,17 +3313,24 @@ export async function handleDemoRequest(config) {
       }
     }
 
-    const demoBuildCoachActions = (expectedItems, pathMilestones, messageText = '') => {
+    const demoBuildCoachActions = (expectedItems, pathMilestones, messageText = '', cloudProvider = 'generic') => {
       const actions = []
       const itemByType = new Map(expectedItems.map((i) => [i.type_id, i]))
       const makeBlockSpec = (typeId, fallbackLabel) => {
         const match = itemByType.get(typeId) || DEFAULT_DIAGRAM_BLOCKS.find((b) => b.type_id === typeId)
+        const genericLbl = match?.label || fallbackLabel || demoBlockLabel(typeId)
+        const cloudSvc =
+          cloudProvider && cloudProvider !== 'generic'
+            ? CLOUD_EQUIVALENTS_BY_TYPE[typeId]?.[cloudProvider] || ''
+            : ''
         return {
           type_id: typeId,
-          label: match?.label || fallbackLabel || demoBlockLabel(typeId),
+          label: cloudSvc || genericLbl,
+          generic_label: genericLbl,
+          cloud_provider: cloudSvc ? cloudProvider : 'generic',
           category: match?.category || 'compute_services',
           icon: match?.icon || 'box',
-          tech_stack: match?.tech_stack || '',
+          tech_stack: cloudSvc || match?.tech_stack || '',
         }
       }
 
@@ -4271,6 +4287,7 @@ export async function handleDemoRequest(config) {
       const currentNodes = Array.isArray(data.current_nodes) ? data.current_nodes : []
       const currentEdges = Array.isArray(data.current_edges) ? data.current_edges : []
       const currentNotes = String(data.current_notes || '')
+      const cloudProvider = String(data.cloud_provider || session.diagram_guidance?.cloud_provider || 'generic').toLowerCase()
       const topologyFeedback = demoEvaluateTopology(
         expectedItems,
         expectedPaths,
@@ -4279,16 +4296,18 @@ export async function handleDemoRequest(config) {
         currentNotes
       )
       const pathMilestones = topologyFeedback.path_milestones || expectedPaths
-      const suggestedActions = demoBuildCoachActions(expectedItems, pathMilestones, msgText)
+      const suggestedActions = demoBuildCoachActions(expectedItems, pathMilestones, msgText, cloudProvider)
 
       const missing = topologyFeedback.missing_components || []
       const parts = []
+      const cloudLabel = DEFAULT_CLOUD_PROVIDERS.find((p) => p.id === cloudProvider)?.short_label
+      const cloudPrefix = cloudProvider !== 'generic' && cloudLabel ? `[${cloudLabel}] ` : ''
       if (/write|create|shorten|post/i.test(msgText)) {
-        parts.push('For the Write Path, route client traffic through the Load Balancer and API Gateway, validate payloads, compute in the App Service, generate an ID, and persist durably (SQL or NoSQL KV).')
+        parts.push(`${cloudPrefix}For the Write Path, route client traffic through the Load Balancer and API Gateway, validate payloads, compute in the App Service, generate an ID, and persist durably (SQL or NoSQL KV).`)
       } else if (missing.length) {
-        parts.push(`Right now your canvas is missing ${missing.slice(0, 3).join(', ')}. Remember that equivalent components like NoSQL KV or Event Stream are valid alternatives too!`)
+        parts.push(`${cloudPrefix}Right now your canvas is missing ${missing.slice(0, 3).join(', ')}. Remember that equivalent components like NoSQL KV or Event Stream are valid alternatives too!`)
       } else {
-        parts.push('Your core components are in place! Focus on documenting capacity bounds, cache eviction/TTL, and failover in Canvas Notes.')
+        parts.push(`${cloudPrefix}Your core components are in place! Focus on documenting capacity bounds, cache eviction/TTL, and failover in Canvas Notes.`)
       }
       if (suggestedActions.length) {
         parts.push(`Click "${suggestedActions[0].title}" below if you want me to place and wire that increment onto your canvas.`)

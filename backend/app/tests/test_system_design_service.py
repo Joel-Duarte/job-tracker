@@ -2292,9 +2292,29 @@ async def test_reveal_requirements_coach_chat_alternatives_and_solo_xp(
                 for f in alt_findings
             )
 
-            # Coach chat returns grounded reply + clickable Apply actions
+            # Catalog exposes 6 cloud providers and cross-cloud equivalents on blocks
+            cat_res = await ac.get("/api/v1/system-design/catalog")
+            assert cat_res.status_code == 200
+            cat_data = cat_res.json()
+            assert [p["id"] for p in cat_data["providers"]] == [
+                "generic",
+                "aws",
+                "azure",
+                "gcp",
+                "cloudflare",
+                "oci",
+            ]
+            lb_block = next(
+                b for b in cat_data["blocks"] if b["type_id"] == "load_balancer"
+            )
+            assert lb_block["cloud_equivalents"]["aws"].startswith("AWS ALB")
+            assert "Azure" in lb_block["cloud_equivalents"]["azure"]
+
+            # Coach chat with AWS cloud lens returns grounded reply + cloud-labeled Apply actions
             mock_msg = MagicMock()
-            mock_msg.content = "Connect API Gateway -> Stateless App Service -> ID Generator -> Storage."
+            mock_msg.content = (
+                "Connect Amazon API Gateway -> AWS ECS -> ID Generator -> Aurora."
+            )
             with (
                 patch(
                     "app.services.system_design_service.get_task_chat_model",
@@ -2311,6 +2331,7 @@ async def test_reveal_requirements_coach_chat_alternatives_and_solo_xp(
                     f"/api/v1/system-design/sessions/{session_id}/diagrams/coach-chat",
                     json={
                         "message": "Show me how to structure the Write Path.",
+                        "cloud_provider": "aws",
                         "current_nodes": [],
                         "current_edges": [],
                         "current_notes": "",
@@ -2318,10 +2339,11 @@ async def test_reveal_requirements_coach_chat_alternatives_and_solo_xp(
                 )
             assert chat_res.status_code == 200
             chat_data = chat_res.json()
-            assert "Stateless App Service" in chat_data["reply"]
+            assert "Amazon API Gateway" in chat_data["reply"]
             assert len(chat_data["suggested_actions"]) >= 1
             first_act = chat_data["suggested_actions"][0]
             assert len(first_act["blocks"]) >= 2
+            assert any(b.get("cloud_provider") == "aws" for b in first_act["blocks"])
             assert len(first_act["edges"]) >= 1
             assert len(chat_data["session"]["diagram_guidance"]["coach_messages"]) == 2
 

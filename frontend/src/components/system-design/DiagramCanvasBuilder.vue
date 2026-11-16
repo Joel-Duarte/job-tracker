@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Cloud,
   HelpCircle,
   Layers,
   Lightbulb,
@@ -23,10 +24,15 @@ import {
 import { computed, nextTick, ref, watch } from 'vue'
 import {
   CATEGORY_ACCENTS,
+  CLOUD_EQUIVALENTS_BY_TYPE,
   CUSTOM_ICON_OPTIONS,
+  DEFAULT_CLOUD_PROVIDERS,
   DEFAULT_DIAGRAM_BLOCKS,
   DEFAULT_DIAGRAM_CATEGORIES,
   formatEdgeDisplayLabel,
+  getBlockEquivalents,
+  getProviderShortLabel,
+  resolveBlockCloudDisplay,
   resolveDiagramIcon,
   serializeFlowEdges,
   serializeFlowNodes,
@@ -48,6 +54,7 @@ const nodes = ref([])
 const edges = ref([])
 
 const paletteCollapsed = ref(false)
+const cloudProvider = ref(props.session?.diagram_guidance?.cloud_provider || 'generic')
 const searchQuery = ref('')
 const selectedCategory = ref('all')
 const showCustomCreator = ref(false)
@@ -72,6 +79,24 @@ const categories = computed(() =>
 const catalogBlocks = computed(() =>
   props.catalog?.blocks?.length ? props.catalog.blocks : DEFAULT_DIAGRAM_BLOCKS
 )
+const providers = computed(() =>
+  props.catalog?.providers?.length ? props.catalog.providers : DEFAULT_CLOUD_PROVIDERS
+)
+const activeCloudShortLabel = computed(() => getProviderShortLabel(cloudProvider.value, providers.value))
+
+function blockCloudMeta(item) {
+  return resolveBlockCloudDisplay(item, cloudProvider.value, catalogBlocks.value, providers.value)
+}
+
+const selectedNodeEquivalents = computed(() => {
+  if (!selectedNode.value?.data?.type_id) return []
+  return getBlockEquivalents(selectedNode.value.data.type_id, catalogBlocks.value)
+})
+
+const activeHintEquivalents = computed(() => {
+  if (!activeHintDetail.value?.type_id) return []
+  return getBlockEquivalents(activeHintDetail.value.type_id, catalogBlocks.value)
+})
 
 const filteredBlocks = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
@@ -80,7 +105,8 @@ const filteredBlocks = computed(() => {
       return false
     }
     if (!q) return true
-    const haystack = `${block.label} ${block.default_role || ''} ${(block.keywords || []).join(' ')}`.toLowerCase()
+    const eqValues = Object.values(block.cloud_equivalents || CLOUD_EQUIVALENTS_BY_TYPE[block.type_id] || {}).join(' ')
+    const haystack = `${block.label} ${block.default_role || ''} ${(block.keywords || []).join(' ')} ${eqValues}`.toLowerCase()
     return haystack.includes(q)
   })
 })
@@ -115,6 +141,7 @@ const popoverStyle = computed(() => {
 
 function buildFlowSnapshot() {
   return {
+    cloud_provider: cloudProvider.value,
     nodes: serializeFlowNodes(nodes.value),
     edges: serializeFlowEdges(edges.value),
     notes: String(props.notes || '').trim(),
@@ -122,7 +149,7 @@ function buildFlowSnapshot() {
 }
 
 watch(
-  [nodes, edges],
+  [nodes, edges, cloudProvider],
   () => {
     emit('flow-change', buildFlowSnapshot())
   },
@@ -170,16 +197,27 @@ function addBlockToCanvas(block, explicitPos = null, skipUndo = false) {
   }
   const pos = explicitPos || nextPlacementPosition()
   const id = `node-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+  const resolved = block.is_custom || block.type_id === 'custom'
+    ? {
+        displayTitle: block.label || block.name || 'Custom Block',
+        genericLabel: '',
+        cloudProvider: 'generic',
+        cloudService: '',
+      }
+    : resolveBlockCloudDisplay(block, cloudProvider.value, catalogBlocks.value, providers.value)
+
   const newNode = {
     id,
     type: 'architecture',
     position: pos,
     data: {
       type_id: block.type_id || 'custom',
-      label: block.label || block.name || 'Custom Block',
+      label: block.label && block.cloud_provider && block.cloud_provider !== 'generic' ? block.label : resolved.displayTitle,
+      generic_label: resolved.genericLabel,
+      cloud_provider: resolved.cloudProvider,
       category: block.category || 'compute_services',
       icon: block.icon || 'box',
-      tech_stack: block.tech_stack || '',
+      tech_stack: block.tech_stack || resolved.cloudService || '',
       notes: block.notes || '',
       is_custom: Boolean(block.is_custom || block.type_id === 'custom'),
     },
@@ -188,6 +226,40 @@ function addBlockToCanvas(block, explicitPos = null, skipUndo = false) {
   selectedEdgeId.value = null
   selectedNodeId.value = null
   return newNode
+}
+
+function handleCloudProviderChange(nextCloud) {
+  const prevCloud = cloudProvider.value
+  const target = nextCloud || 'generic'
+  if (prevCloud === target) return
+  if (nodes.value.length) {
+    pushUndoSnapshot()
+  }
+  cloudProvider.value = target
+  nodes.value = nodes.value.map((node) => {
+    const tid = node.data?.type_id || 'custom'
+    if (node.data?.is_custom || tid === 'custom') return node
+    const prevDisplay = resolveBlockCloudDisplay(node.data, prevCloud, catalogBlocks.value, providers.value)
+    const nextDisplay = resolveBlockCloudDisplay(node.data, target, catalogBlocks.value, providers.value)
+    const allKnownNames = new Set([
+      prevDisplay.genericLabel,
+      ...prevDisplay.equivalentsList.map((e) => e.serviceName),
+    ])
+    const currentLabel = String(node.data?.label || '').trim()
+    const currentTech = String(node.data?.tech_stack || '').trim()
+    const shouldTranslateLabel = !currentLabel || allKnownNames.has(currentLabel)
+    const shouldTranslateTech = !currentTech || allKnownNames.has(currentTech)
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        label: shouldTranslateLabel ? nextDisplay.displayTitle : currentLabel,
+        generic_label: nextDisplay.genericLabel,
+        cloud_provider: nextDisplay.cloudProvider,
+        tech_stack: shouldTranslateTech ? (nextDisplay.cloudService || '') : currentTech,
+      },
+    }
+  })
 }
 
 function handleAddCustomBlock() {
@@ -418,6 +490,9 @@ function hydrateFromFlow(flow, resetUndo = true) {
     undoStack.value = []
   }
   if (!flow || !Array.isArray(flow.nodes)) return
+  if (flow.cloud_provider) {
+    cloudProvider.value = flow.cloud_provider
+  }
   nodes.value = flow.nodes.map((n, idx) => ({
     id: String(n.id || `node-${idx + 1}`),
     type: 'architecture',
@@ -428,6 +503,8 @@ function hydrateFromFlow(flow, resetUndo = true) {
     data: {
       type_id: n.type_id || 'custom',
       label: n.label || `Component ${idx + 1}`,
+      generic_label: n.generic_label || '',
+      cloud_provider: n.cloud_provider || flow.cloud_provider || 'generic',
       category: n.category || 'compute_services',
       icon: n.icon || 'box',
       tech_stack: n.tech_stack || '',
@@ -501,7 +578,8 @@ defineExpose({
         <button
           type="button"
           class="sd-palette-collapse-btn"
-          :title="paletteCollapsed ? 'Show component palette' : 'Hide component palette'"
+          data-testid="palette-collapse-btn"
+          :title="paletteCollapsed ? 'Expand component palette' : 'Collapse to icon rail'"
           @click="paletteCollapsed = !paletteCollapsed"
         >
           <ChevronRight v-if="paletteCollapsed" :size="15" />
@@ -509,7 +587,66 @@ defineExpose({
         </button>
       </div>
 
-      <template v-if="!paletteCollapsed">
+      <!-- Collapsed Left Rail (clickable + draggable icons + Cloud indicator) -->
+      <div
+        v-if="paletteCollapsed"
+        class="sd-palette-rail"
+        data-testid="palette-collapsed-rail"
+      >
+        <button
+          type="button"
+          class="sd-rail-cloud-pill"
+          :title="`Active cloud: ${activeCloudShortLabel} (click to expand palette and switch)`"
+          @click="paletteCollapsed = false"
+        >
+          {{ activeCloudShortLabel === 'Generic' ? 'GEN' : activeCloudShortLabel }}
+        </button>
+        <button
+          type="button"
+          class="sd-rail-btn sd-rail-custom-btn"
+          title="Add custom block"
+          @click="paletteCollapsed = false; showCustomCreator = true"
+        >
+          <Plus :size="15" />
+        </button>
+        <div class="sd-rail-scroll">
+          <button
+            v-for="block in filteredBlocks"
+            :key="`rail-${block.type_id}`"
+            type="button"
+            class="sd-rail-btn"
+            draggable="true"
+            :data-testid="`palette-rail-block-${block.type_id}`"
+            :style="{ color: CATEGORY_ACCENTS[block.category]?.color || '#3b82f6' }"
+            :title="`${blockCloudMeta(block).displayTitle}${blockCloudMeta(block).genericLabel !== blockCloudMeta(block).displayTitle ? ` (${blockCloudMeta(block).genericLabel})` : ''} — ${block.default_role}`"
+            @dragstart="handleDragStart($event, block)"
+            @click="addBlockToCanvas(block)"
+          >
+            <component :is="resolveDiagramIcon(block.icon)" :size="16" />
+          </button>
+        </div>
+      </div>
+
+      <template v-else>
+        <!-- Cloud Provider Lens Selector -->
+        <div class="sd-cloud-lens-box">
+          <label class="sd-cloud-lens-label">
+            <Cloud :size="13" />
+            <span>Cloud</span>
+            <select
+              :value="cloudProvider"
+              class="form-select sd-cloud-select"
+              data-testid="cloud-provider-select"
+              aria-label="Cloud provider lens"
+              @change="handleCloudProviderChange($event.target.value)"
+            >
+              <option v-for="prov in providers" :key="prov.id" :value="prov.id">
+                {{ prov.label }}
+              </option>
+            </select>
+          </label>
+        </div>
+
         <div class="sd-palette-search">
           <Search :size="14" />
           <input
@@ -607,7 +744,15 @@ defineExpose({
             >
               <component :is="resolveDiagramIcon(block.icon)" :size="15" />
             </span>
-            <span class="sd-palette-item-name">{{ block.label }}</span>
+            <span class="sd-palette-item-text">
+              <span class="sd-palette-item-name">{{ blockCloudMeta(block).displayTitle }}</span>
+              <span
+                v-if="blockCloudMeta(block).genericLabel && blockCloudMeta(block).genericLabel !== blockCloudMeta(block).displayTitle"
+                class="sd-palette-item-role"
+              >
+                {{ blockCloudMeta(block).genericLabel }}
+              </span>
+            </span>
             <Plus :size="13" class="sd-palette-plus" />
           </button>
         </div>
@@ -656,7 +801,7 @@ defineExpose({
               @click="addBlockToCanvas(item)"
             >
               <component :is="resolveDiagramIcon(item.icon)" :size="14" />
-              <span>{{ item.label }}</span>
+              <span>{{ blockCloudMeta(item).displayTitle }}</span>
               <CheckCircle2 v-if="isRevealedPlaced(item)" :size="13" class="sd-placed-check" />
               <Plus v-else :size="13" />
             </button>
@@ -721,6 +866,14 @@ defineExpose({
               {{ checkItem }}
             </li>
           </ul>
+          <div v-if="activeHintEquivalents.length" class="sd-cloud-eq-section" data-testid="hint-cloud-equivalents">
+            <span class="sd-cloud-eq-title">Cross-Cloud Services</span>
+            <div class="sd-cloud-eq-grid">
+              <div v-for="eq in activeHintEquivalents" :key="eq.id" class="sd-cloud-eq-chip">
+                <strong>{{ eq.shortLabel }}:</strong> {{ eq.serviceName }}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -838,6 +991,14 @@ defineExpose({
               placeholder="Sharding, TTL, replication..."
             />
           </label>
+          <div v-if="selectedNodeEquivalents.length" class="sd-cloud-eq-section" data-testid="node-cloud-equivalents">
+            <span class="sd-cloud-eq-title">Cross-Cloud Equivalents</span>
+            <div class="sd-cloud-eq-grid">
+              <div v-for="eq in selectedNodeEquivalents" :key="eq.id" class="sd-cloud-eq-chip">
+                <strong>{{ eq.shortLabel }}:</strong> {{ eq.serviceName }}
+              </div>
+            </div>
+          </div>
           <button type="button" class="btn btn-primary btn-sm w-full" @click="closePopovers">
             Done
           </button>
@@ -932,9 +1093,83 @@ defineExpose({
 }
 
 .sd-studio-palette.collapsed {
-  width: 44px;
-  padding: 8px 6px;
+  width: 54px;
+  padding: 8px 5px;
   align-items: center;
+}
+
+.sd-palette-rail {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.sd-rail-cloud-pill {
+  padding: 2px 5px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 45%, var(--border-subtle, #334155));
+  background: color-mix(in srgb, var(--accent, #3b82f6) 14%, transparent);
+  color: var(--accent, #2563eb);
+  font-size: 0.62rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sd-rail-scroll {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  overflow-y: auto;
+  padding-bottom: 4px;
+}
+
+.sd-rail-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 32px;
+  border-radius: 7px;
+  border: 1px solid var(--border-subtle, #334155);
+  background: var(--bg-elevated, rgba(148, 163, 184, 0.06));
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sd-rail-btn:hover {
+  border-color: var(--accent, #3b82f6);
+}
+
+.sd-rail-custom-btn {
+  color: var(--text-main, #f8fafc);
+}
+
+.sd-cloud-lens-box {
+  display: flex;
+  flex-direction: column;
+}
+
+.sd-cloud-lens-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.74rem;
+  font-weight: 650;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.sd-cloud-select {
+  flex: 1;
+  font-size: 0.76rem;
+  padding: 4px 8px;
 }
 
 .sd-palette-top-row {
@@ -1033,9 +1268,58 @@ defineExpose({
   border-radius: 8px;
   border: 1px solid var(--border-subtle, #334155);
   background: var(--bg-elevated, rgba(148, 163, 184, 0.06));
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-main, #f8fafc);
   font-size: 0.78rem;
   cursor: pointer;
+}
+
+.sd-palette-item-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sd-palette-item-name {
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.sd-palette-item-role {
+  font-size: 0.67rem;
+  color: var(--text-secondary, #94a3b8);
+  line-height: 1.15;
+}
+
+.sd-cloud-eq-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--border-subtle, #334155) 70%, transparent);
+}
+
+.sd-cloud-eq-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.sd-cloud-eq-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sd-cloud-eq-chip {
+  padding: 2px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--border-subtle, #334155);
+  background: var(--bg-elevated, rgba(148, 163, 184, 0.08));
+  font-size: 0.68rem;
+  color: var(--text-main, #f8fafc);
 }
 
 .sd-palette-item:hover {
@@ -1305,10 +1589,39 @@ defineExpose({
     overflow: auto;
   }
 
-  .sd-studio-palette,
+  .sd-studio-palette {
+    width: 100%;
+    max-height: 310px;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+
+  .sd-palette-list {
+    flex: none;
+    max-height: 140px;
+  }
+
   .sd-studio-palette.collapsed {
     width: 100%;
-    max-height: 220px;
+    height: auto;
+    max-height: 54px;
+    flex-direction: row;
+    padding: 6px 8px;
+    overflow: hidden;
+  }
+
+  .sd-studio-palette.collapsed .sd-palette-rail {
+    flex-direction: row;
+    width: auto;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .sd-studio-palette.collapsed .sd-rail-scroll {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 0;
   }
 
   .sd-flow-stage {

@@ -174,6 +174,8 @@ class DiagramFlowNode(BaseModel):
     id: str = Field(..., min_length=1, max_length=100)
     type_id: str = Field(default="custom", max_length=80)
     label: str = Field(..., min_length=1, max_length=120)
+    generic_label: str = Field(default="", max_length=120)
+    cloud_provider: str = Field(default="generic", max_length=40)
     category: str = Field(default="compute_services", max_length=80)
     icon: str = Field(default="box", max_length=60)
     tech_stack: str = Field(default="", max_length=120)
@@ -198,6 +200,7 @@ class DiagramFlowEdge(BaseModel):
 class CanvasDiagramSubmitRequest(BaseModel):
     """Payload submitted by the Stage 2 Interactive Canvas Builder."""
 
+    cloud_provider: str = Field(default="generic", max_length=40)
     nodes: list[DiagramFlowNode] = Field(default_factory=list)
     edges: list[DiagramFlowEdge] = Field(default_factory=list)
     notes: str = Field(default="", max_length=4000)
@@ -205,7 +208,7 @@ class CanvasDiagramSubmitRequest(BaseModel):
 
 
 class DiagramHintRequest(BaseModel):
-    """Request for guided component/topology hints in ADAPTIVE / PRACTICE mode."""
+    """Request for guided component/topology hints in the Design Studio."""
 
     hint_mode: Literal[
         "next_component",
@@ -213,6 +216,7 @@ class DiagramHintRequest(BaseModel):
         "next_connection",
         "check_topology",
     ] = "next_component"
+    cloud_provider: str = Field(default="generic", max_length=40)
     current_nodes: list[dict[str, Any]] = Field(default_factory=list)
     current_edges: list[dict[str, Any]] = Field(default_factory=list)
     current_notes: str = Field(default="", max_length=4000)
@@ -229,6 +233,7 @@ class RevealedComponentHint(BaseModel):
     hint_role: str
     why_required: str = ""
     config_checklist: list[str] = Field(default_factory=list)
+    cloud_equivalents: dict[str, str] = Field(default_factory=dict)
     is_custom: bool = False
 
 
@@ -270,6 +275,7 @@ class DiagramCoachChatRequest(BaseModel):
     """Candidate message sent to the interactive Studio Coach alongside live canvas state."""
 
     message: str = Field(..., min_length=1, max_length=2000)
+    cloud_provider: str = Field(default="generic", max_length=40)
     current_nodes: list[dict[str, Any]] = Field(default_factory=list)
     current_edges: list[dict[str, Any]] = Field(default_factory=list)
     current_notes: str = Field(default="", max_length=4000)
@@ -296,6 +302,15 @@ class DiagramCatalogBlock(BaseModel):
     icon: str
     default_role: str
     keywords: list[str] = Field(default_factory=list)
+    cloud_equivalents: dict[str, str] = Field(default_factory=dict)
+
+
+class DiagramProviderInfo(BaseModel):
+    """Selectable cloud provider lens metadata."""
+
+    id: str
+    label: str
+    short_label: str
 
 
 class DiagramCatalogCategory(BaseModel):
@@ -310,6 +325,7 @@ class DiagramCatalogResponse(BaseModel):
 
     categories: list[DiagramCatalogCategory]
     blocks: list[DiagramCatalogBlock]
+    providers: list[DiagramProviderInfo] = Field(default_factory=list)
 
 
 class ArchitectureReviewSchema(BaseModel):

@@ -1,7 +1,7 @@
 <script setup>
 import { Handle, Position } from '@vue-flow/core'
 import { computed } from 'vue'
-import { CATEGORY_ACCENTS, resolveDiagramIcon } from '../../utils/diagramCatalog'
+import { CATEGORY_ACCENTS, getProviderShortLabel, resolveDiagramIcon } from '../../utils/diagramCatalog'
 
 const props = defineProps({
   id: { type: String, required: true },
@@ -16,6 +16,11 @@ const accentColor = computed(
 const categoryLabel = computed(
   () => CATEGORY_ACCENTS[props.data?.category]?.label || 'Custom Block'
 )
+const cloudBadgeLabel = computed(() => {
+  const prov = props.data?.cloud_provider
+  if (!prov || prov === 'generic') return ''
+  return getProviderShortLabel(prov)
+})
 </script>
 
 <template>
@@ -33,11 +38,24 @@ const categoryLabel = computed(
         <component :is="iconComponent" :size="15" />
       </span>
       <span class="sd-arch-node-cat">{{ categoryLabel }}</span>
+      <span
+        v-if="cloudBadgeLabel"
+        class="sd-arch-node-cloud-badge"
+        :data-testid="`node-cloud-badge-${data.type_id || 'custom'}`"
+      >
+        {{ cloudBadgeLabel }}
+      </span>
     </div>
 
     <div class="sd-arch-node-title">{{ data.label || 'Component' }}</div>
+    <div
+      v-if="data.generic_label && data.generic_label !== data.label"
+      class="sd-arch-node-role"
+    >
+      {{ data.generic_label }}
+    </div>
 
-    <div v-if="data.tech_stack" class="sd-arch-node-tech">
+    <div v-if="data.tech_stack && data.tech_stack !== data.label" class="sd-arch-node-tech">
       {{ data.tech_stack }}
     </div>
     <div v-else-if="data.notes" class="sd-arch-node-note">
@@ -97,6 +115,19 @@ const categoryLabel = computed(
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+}
+
+.sd-arch-node-cloud-badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: color-mix(in srgb, var(--node-accent, #3b82f6) 16%, transparent);
+  color: var(--node-accent, #3b82f6);
+  border: 1px solid color-mix(in srgb, var(--node-accent, #3b82f6) 40%, transparent);
+  flex-shrink: 0;
 }
 
 .sd-arch-node-title {
@@ -104,6 +135,13 @@ const categoryLabel = computed(
   font-weight: 650;
   line-height: 1.25;
   word-break: break-word;
+}
+
+.sd-arch-node-role {
+  margin-top: 2px;
+  font-size: 0.7rem;
+  color: var(--text-secondary, #94a3b8);
+  line-height: 1.2;
 }
 
 .sd-arch-node-tech {

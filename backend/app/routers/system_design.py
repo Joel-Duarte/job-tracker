@@ -43,6 +43,7 @@ from app.schemas.system_design import (
 from app.services.diagram_catalog import (
     CANONICAL_CATEGORIES,
     CANONICAL_DIAGRAM_BLOCKS,
+    CLOUD_PROVIDERS,
 )
 from app.services.evaluation_worker import process_evaluation_task
 from app.services.system_design_service import (
@@ -67,10 +68,11 @@ def _http_error_from_value_error(ve: ValueError) -> HTTPException:
 
 @router.get("/catalog", response_model=DiagramCatalogResponse)
 async def get_diagram_catalog():
-    """Return canonical architecture component categories and blocks for the Canvas Builder."""
+    """Return canonical architecture component categories, blocks, and cloud providers for the Canvas Builder."""
     return {
         "categories": CANONICAL_CATEGORIES,
         "blocks": CANONICAL_DIAGRAM_BLOCKS,
+        "providers": CLOUD_PROVIDERS,
     }
 
 

@@ -169,11 +169,97 @@ export const DEFAULT_DIAGRAM_BLOCKS = [
   { type_id: 'observability', label: 'Metrics, Logs & Tracing', category: 'search_analytics_ops', icon: 'eye', default_role: 'Collects OpenTelemetry traces, p99 latency SLO metrics, alerts, and audit logs.' },
 ]
 
+export const DEFAULT_CLOUD_PROVIDERS = [
+  { id: 'generic', label: 'Generic (Cloud-Agnostic)', short_label: 'Generic' },
+  { id: 'aws', label: 'Amazon Web Services (AWS)', short_label: 'AWS' },
+  { id: 'azure', label: 'Microsoft Azure', short_label: 'Azure' },
+  { id: 'gcp', label: 'Google Cloud (GCP)', short_label: 'GCP' },
+  { id: 'cloudflare', label: 'Cloudflare', short_label: 'CF' },
+  { id: 'oci', label: 'Oracle Cloud (OCI)', short_label: 'OCI' },
+]
+
+export const CLOUD_EQUIVALENTS_BY_TYPE = {
+  web_client: { aws: 'CloudFront + S3 SPA / Amplify', azure: 'Azure Static Web Apps', gcp: 'Firebase Hosting / GCS SPA', cloudflare: 'Cloudflare Pages', oci: 'OCI Object Storage + Web App' },
+  mobile_client: { aws: 'AWS Amplify / Mobile SDK', azure: 'Azure Mobile Apps', gcp: 'Firebase Mobile SDK', cloudflare: 'Mobile App + Cloudflare Edge', oci: 'Mobile Client + OCI Edge' },
+  dns: { aws: 'Amazon Route 53', azure: 'Azure DNS / Traffic Manager', gcp: 'Google Cloud DNS', cloudflare: 'Cloudflare Authoritative DNS', oci: 'OCI DNS & Traffic Management' },
+  cdn: { aws: 'Amazon CloudFront', azure: 'Azure Front Door / CDN', gcp: 'Google Cloud CDN', cloudflare: 'Cloudflare Global CDN', oci: 'OCI Edge / Akamai CDN' },
+  waf_ddos: { aws: 'AWS WAF & Shield Advanced', azure: 'Azure WAF & DDoS Protection', gcp: 'Google Cloud Armor', cloudflare: 'Cloudflare WAF & DDoS', oci: 'OCI Web Application Firewall' },
+  load_balancer: { aws: 'AWS ALB / NLB (ELB)', azure: 'Azure Application Gateway / LB', gcp: 'Google Cloud Load Balancing', cloudflare: 'Cloudflare Load Balancing', oci: 'OCI Flexible Load Balancer' },
+  api_gateway: { aws: 'Amazon API Gateway', azure: 'Azure API Management (APIM)', gcp: 'Apigee / GCP API Gateway', cloudflare: 'Cloudflare API Gateway', oci: 'OCI API Gateway' },
+  rate_limiter: { aws: 'AWS WAF / API GW Usage Plans', azure: 'Azure APIM Rate-Limit Policy', gcp: 'Cloud Armor Rate Limiting', cloudflare: 'Cloudflare Rate Limiting', oci: 'OCI API Gateway Rate Limit' },
+  auth_service: { aws: 'Amazon Cognito / AWS IAM', azure: 'Microsoft Entra ID (Azure AD)', gcp: 'GCP Identity Platform', cloudflare: 'Cloudflare Access (Zero Trust)', oci: 'OCI IAM Identity Domains' },
+  realtime_gateway: { aws: 'API Gateway WebSockets', azure: 'Azure Web PubSub / SignalR', gcp: 'Cloud Run WebSockets', cloudflare: 'Cloudflare Durable Objects (WS)', oci: 'OCI API GW / LB WebSockets' },
+  content_filter: { aws: 'AWS GuardDuty / Lambda Filter', azure: 'Azure AI Content Safety', gcp: 'Google Web Risk API', cloudflare: 'Cloudflare Gateway / URL Scanner', oci: 'OCI Threat Intel / Functions' },
+  app_service: { aws: 'AWS ECS / EKS / EC2', azure: 'Azure App Service / AKS', gcp: 'Google Cloud Run / GKE', cloudflare: 'Cloudflare Workers', oci: 'OCI Container Engine (OKE)' },
+  async_worker: { aws: 'AWS Lambda / ECS Workers', azure: 'Azure Functions / Container Apps', gcp: 'Cloud Run / Cloud Functions Workers', cloudflare: 'Cloudflare Queue Consumer Workers', oci: 'OCI Functions / Container Instances' },
+  scheduler: { aws: 'Amazon EventBridge Scheduler', azure: 'Azure Logic Apps / Timer Functions', gcp: 'Google Cloud Scheduler', cloudflare: 'Cloudflare Cron Triggers', oci: 'OCI Resource Scheduler' },
+  id_generator: { aws: 'ECS Key Service + DynamoDB Counter', azure: 'Azure Container Apps Key Service', gcp: 'Cloud Run Key Range Allocator', cloudflare: 'Durable Objects Coordinator', oci: 'OKE Key Generator Service' },
+  ml_inference: { aws: 'Amazon SageMaker / Bedrock', azure: 'Azure ML / OpenAI Service', gcp: 'Google Vertex AI', cloudflare: 'Cloudflare Workers AI', oci: 'OCI Data Science / GenAI' },
+  media_transcoder: { aws: 'AWS Elemental MediaConvert', azure: 'Azure Media / Container Batch', gcp: 'Google Transcoder API', cloudflare: 'Cloudflare Stream', oci: 'OCI Vision / Media Services' },
+  distributed_cache: { aws: 'Amazon ElastiCache (Redis)', azure: 'Azure Cache for Redis', gcp: 'Google Cloud Memorystore', cloudflare: 'Cloudflare Workers KV / Durable Objects', oci: 'OCI Cache (Managed Redis)' },
+  local_cache: { aws: 'In-Process RAM (ECS/EKS Pod)', azure: 'In-Memory Cache (App Service)', gcp: 'In-Process Memory (Cloud Run)', cloudflare: 'Cloudflare Edge Cache API', oci: 'In-Process Cache (OKE Pod)' },
+  feature_store: { aws: 'SageMaker Feature Store', azure: 'Azure Managed Redis / Cosmos', gcp: 'Vertex AI Feature Store', cloudflare: 'Workers KV Online State', oci: 'OCI NoSQL / Cache Store' },
+  bloom_filter: { aws: 'ElastiCache RedisBloom', azure: 'Azure Managed Redis (RedisBloom)', gcp: 'Memorystore / In-Memory Filter', cloudflare: 'Durable Objects / Workers Filter', oci: 'OCI Cache (Redis Modules)' },
+  relational_db: { aws: 'Amazon RDS / Aurora PostgreSQL', azure: 'Azure Database for PostgreSQL', gcp: 'Google Cloud SQL / Spanner', cloudflare: 'Cloudflare D1', oci: 'OCI Autonomous Database' },
+  read_replica: { aws: 'Amazon Aurora / RDS Read Replica', azure: 'Azure PostgreSQL Read Replica', gcp: 'Cloud SQL Read Replica', cloudflare: 'Cloudflare D1 Read Replication', oci: 'OCI MySQL / Autonomous Replica' },
+  nosql_kv: { aws: 'Amazon DynamoDB', azure: 'Azure Cosmos DB', gcp: 'Google Firestore / Bigtable', cloudflare: 'Cloudflare Workers KV / DO', oci: 'OCI NoSQL Database Cloud' },
+  object_storage: { aws: 'Amazon S3', azure: 'Azure Blob Storage', gcp: 'Google Cloud Storage (GCS)', cloudflare: 'Cloudflare R2', oci: 'OCI Object Storage' },
+  timeseries_db: { aws: 'Amazon Timestream', azure: 'Azure Data Explorer (Kusto)', gcp: 'Cloud Bigtable Time-Series', cloudflare: 'Cloudflare Analytics Engine', oci: 'OCI Logging Analytics TS' },
+  vector_db: { aws: 'OpenSearch Vector / Aurora pgvector', azure: 'Azure AI Search / Cosmos pgvector', gcp: 'Vertex AI Vector Search', cloudflare: 'Cloudflare Vectorize', oci: 'OCI Database 23ai Vector Search' },
+  consensus_store: { aws: 'AWS etcd / DynamoDB Lock Table', azure: 'Azure Blob Leases / etcd', gcp: 'Cloud Spanner / etcd', cloudflare: 'Durable Objects Coordination', oci: 'OCI etcd / Autonomous Lock' },
+  message_queue: { aws: 'Amazon SQS', azure: 'Azure Service Bus Queues', gcp: 'Google Cloud Tasks / Pub/Sub', cloudflare: 'Cloudflare Queues', oci: 'OCI Queue Service' },
+  event_stream: { aws: 'Amazon Kinesis / MSK (Kafka)', azure: 'Azure Event Hubs', gcp: 'Google Cloud Pub/Sub', cloudflare: 'Cloudflare Pipelines', oci: 'OCI Streaming (Kafka-compat)' },
+  pubsub_bus: { aws: 'Amazon SNS', azure: 'Azure Event Grid / Service Bus', gcp: 'Google Cloud Pub/Sub Topics', cloudflare: 'Cloudflare Queues Fan-out', oci: 'OCI Notifications & Streaming' },
+  stream_processor: { aws: 'AWS Managed Apache Flink', azure: 'Azure Stream Analytics', gcp: 'Google Cloud Dataflow', cloudflare: 'Cloudflare Pipelines Stream', oci: 'OCI GoldenGate Stream Analytics' },
+  dlq: { aws: 'Amazon SQS DLQ', azure: 'Azure Service Bus DLQ', gcp: 'Google Pub/Sub Dead-Letter', cloudflare: 'Cloudflare Queue DLQ', oci: 'OCI Queue Dead-Letter Channel' },
+  search_engine: { aws: 'Amazon OpenSearch Service', azure: 'Azure AI Search', gcp: 'Vertex AI Search / Elastic', cloudflare: 'Cloudflare Vectorize / D1 FTS', oci: 'OCI Search Service (OpenSearch)' },
+  olap_warehouse: { aws: 'Amazon Redshift / Athena', azure: 'Azure Synapse / Fabric', gcp: 'Google BigQuery', cloudflare: 'R2 + Workers Analytics Engine', oci: 'OCI Autonomous Data Warehouse' },
+  cdc_connector: { aws: 'AWS DMS / MSK Debezium', azure: 'Azure Data Factory CDC / Event Hubs', gcp: 'Google Datastream (CDC)', cloudflare: 'D1 Export / Worker Outbox', oci: 'OCI GoldenGate CDC' },
+  observability: { aws: 'Amazon CloudWatch & X-Ray', azure: 'Azure Monitor & App Insights', gcp: 'Google Cloud Monitoring & Trace', cloudflare: 'Cloudflare Logpush & Analytics', oci: 'OCI Monitoring, Logging & APM' },
+}
+
+export function getProviderShortLabel(providerId, providers = DEFAULT_CLOUD_PROVIDERS) {
+  const list = providers?.length ? providers : DEFAULT_CLOUD_PROVIDERS
+  const found = list.find((p) => p.id === providerId)
+  return found ? found.short_label : 'Generic'
+}
+
+export function getBlockEquivalents(typeId, catalogBlocks = []) {
+  const fromCatalog = (catalogBlocks || []).find((b) => b.type_id === typeId)?.cloud_equivalents
+  const map = fromCatalog && Object.keys(fromCatalog).length ? fromCatalog : CLOUD_EQUIVALENTS_BY_TYPE[typeId]
+  if (!map) return []
+  return DEFAULT_CLOUD_PROVIDERS.filter((p) => p.id !== 'generic' && map[p.id]).map((p) => ({
+    id: p.id,
+    shortLabel: p.short_label,
+    label: p.label,
+    serviceName: map[p.id],
+  }))
+}
+
+export function resolveBlockCloudDisplay(item, cloudProvider = 'generic', catalogBlocks = [], providers = DEFAULT_CLOUD_PROVIDERS) {
+  const typeId = String(item?.type_id || 'custom')
+  const catalogBlock = (catalogBlocks || []).find((b) => b.type_id === typeId) ||
+    DEFAULT_DIAGRAM_BLOCKS.find((b) => b.type_id === typeId)
+  const genericLabel = String(item?.generic_label || catalogBlock?.label || item?.label || item?.name || 'Custom Block')
+  const eqs = getBlockEquivalents(typeId, catalogBlocks)
+  const activeEq = cloudProvider && cloudProvider !== 'generic' ? eqs.find((e) => e.id === cloudProvider) : null
+  return {
+    displayTitle: activeEq ? activeEq.serviceName : genericLabel,
+    genericLabel,
+    cloudProvider: activeEq ? cloudProvider : 'generic',
+    cloudBadge: activeEq ? getProviderShortLabel(cloudProvider, providers) : '',
+    cloudService: activeEq ? activeEq.serviceName : '',
+    equivalentsList: eqs,
+  }
+}
+
 export function serializeFlowNodes(vueFlowNodes) {
   return (vueFlowNodes || []).map((n) => ({
     id: String(n.id),
     type_id: String(n.data?.type_id || 'custom'),
     label: String(n.data?.label || 'Component'),
+    generic_label: String(n.data?.generic_label || ''),
+    cloud_provider: String(n.data?.cloud_provider || 'generic'),
     category: String(n.data?.category || 'compute_services'),
     icon: String(n.data?.icon || 'box'),
     tech_stack: String(n.data?.tech_stack || ''),

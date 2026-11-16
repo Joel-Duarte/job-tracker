@@ -612,7 +612,8 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     hintMode = 'next_component',
     currentNodes = [],
     currentEdges = [],
-    currentNotes = ''
+    currentNotes = '',
+    cloudProvider = 'generic'
   ) {
     if (!activeSession.value) return null
     loadingDiagramHint.value = true
@@ -620,6 +621,7 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     try {
       const res = await SystemDesignAPI.requestDiagramHint(activeSession.value.id, {
         hint_mode: hintMode,
+        cloud_provider: cloudProvider || 'generic',
         current_nodes: currentNodes,
         current_edges: currentEdges,
         current_notes: currentNotes || '',
@@ -651,7 +653,8 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     message,
     currentNodes = [],
     currentEdges = [],
-    currentNotes = ''
+    currentNotes = '',
+    cloudProvider = 'generic'
   ) {
     if (!activeSession.value) return null
     sendingCoachChat.value = true
@@ -659,6 +662,7 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     try {
       const res = await SystemDesignAPI.sendDiagramCoachMessage(activeSession.value.id, {
         message,
+        cloud_provider: cloudProvider || 'generic',
         current_nodes: currentNodes,
         current_edges: currentEdges,
         current_notes: currentNotes || '',

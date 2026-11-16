@@ -673,15 +673,35 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
     await expect(page.getByTestId('toggle-coach-drawer-btn')).toHaveCount(0)
   }
 
-  // Inspect ? explanation popover inside Guided Bank
+  // Inspect ? explanation popover + Cross-Cloud Equivalents inside Guided Bank
   await page.getByTestId('hint-info-btn').first().click()
   await expect(page.getByTestId('hint-info-popover')).toBeVisible()
+  await expect(page.getByTestId('hint-cloud-equivalents')).toContainText('AWS:')
+  await expect(page.getByTestId('hint-cloud-equivalents')).toContainText('Azure:')
 
-  // Add canonical blocks from palette + create a Custom Block
-  await page.getByTestId('palette-search-input').fill('Redis')
+  // Switch Cloud Provider Lens -> AWS, verify palette & placed node translate live, then test Collapsed Icon Rail
+  await page.getByTestId('cloud-provider-select').selectOption('aws')
+  await page.getByTestId('palette-search-input').fill('ElastiCache')
   await page.getByTestId('palette-block-distributed_cache').click()
   await page.getByTestId('palette-search-input').fill('')
-  await page.getByTestId('palette-block-api_gateway').click()
+  await expect(page.getByTestId('canvas-node-distributed_cache')).toContainText('Amazon ElastiCache (Redis)')
+  await expect(page.getByTestId('node-cloud-badge-distributed_cache')).toHaveText('AWS')
+
+  // Collapse Left Palette -> usable Icon Rail allows placing API Gateway while collapsed
+  await page.getByTestId('palette-collapse-btn').click()
+  await expect(page.getByTestId('palette-collapsed-rail')).toBeVisible()
+  await page.getByTestId('palette-rail-block-api_gateway').click()
+  await expect(page.getByTestId('canvas-node-api_gateway')).toContainText('Amazon API Gateway')
+  await page.getByTestId('palette-collapse-btn').click()
+
+  // Switch Cloud Provider Lens to Azure -> live-translates placed canonical nodes & shows Cross-Cloud Equivalents on click
+  await page.getByTestId('cloud-provider-select').selectOption('azure')
+  await expect(page.getByTestId('canvas-node-api_gateway')).toContainText('Azure API Management (APIM)')
+  await expect(page.getByTestId('node-cloud-badge-api_gateway')).toHaveText('Azure')
+  await page.getByTestId('canvas-node-api_gateway').click()
+  await expect(page.getByTestId('node-popover')).toBeVisible()
+  await expect(page.getByTestId('node-cloud-equivalents')).toContainText('OCI API Gateway')
+  await page.getByTestId('node-popover').getByRole('button', { name: 'Done' }).click()
 
   await page.getByTestId('open-custom-block-btn').click()
   await page.getByTestId('custom-block-name-input').fill('Base62 Key Ring')

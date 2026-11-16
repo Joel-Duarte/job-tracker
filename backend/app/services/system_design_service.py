@@ -54,11 +54,12 @@ from app.schemas.system_design import (
     SystemDesignSessionRead,
 )
 from app.services.diagram_catalog import (
-    CANONICAL_DIAGRAM_BLOCKS,
+    CLOUD_PROVIDERS,
     build_coach_canvas_actions,
     compute_diagram_hint_penalty,
     evaluate_canvas_topology,
     node_matches_expected,
+    normalize_cloud_provider,
     normalize_flow_payload,
     resolve_challenge_blueprint,
     summarize_diagram_flow,
@@ -2562,6 +2563,10 @@ class SystemDesignService:
 
         session.diagrams_metadata = diagrams
         flag_modified(session, "diagrams_metadata")
+        guidance = dict(session.diagram_guidance or {})
+        guidance["cloud_provider"] = normalized.get("cloud_provider", "generic")
+        session.diagram_guidance = guidance
+        flag_modified(session, "diagram_guidance")
         await db.commit()
         return await SystemDesignService.get_session(db, session_id)
 
@@ -2760,7 +2765,12 @@ class SystemDesignService:
         penalty_points = compute_diagram_hint_penalty(
             hints_used_count, revealed_all_bank, mode=session.mode
         )
+        req_cloud = normalize_cloud_provider(
+            getattr(payload, "cloud_provider", None) or guidance.get("cloud_provider")
+        )
         updated_guidance = {
+            **guidance,
+            "cloud_provider": req_cloud,
             "hints_used_count": hints_used_count,
             "revealed_all_bank": revealed_all_bank,
             "revealed_components": already_revealed,
@@ -2834,14 +2844,26 @@ class SystemDesignService:
         current_edges = [
             e for e in (payload.current_edges or []) if isinstance(e, dict)
         ]
+        cloud_provider = normalize_cloud_provider(
+            getattr(payload, "cloud_provider", None)
+            or (session.diagram_guidance or {}).get("cloud_provider")
+        )
+        cloud_provider_map = {p["id"]: p["label"] for p in CLOUD_PROVIDERS}
+        cloud_provider_label = cloud_provider_map.get(
+            cloud_provider, "Generic (Cloud-Agnostic)"
+        )
         flow_snapshot = {
+            "cloud_provider": cloud_provider,
             "nodes": current_nodes,
             "edges": current_edges,
             "notes": payload.current_notes or "",
         }
         topology_feedback = evaluate_canvas_topology(flow_snapshot, blueprint, brief)
         action_dicts = build_coach_canvas_actions(
-            blueprint, flow_snapshot, user_message=user_message
+            blueprint,
+            flow_snapshot,
+            user_message=user_message,
+            cloud_provider=cloud_provider,
         )
         suggested_actions = [CoachCanvasAction(**act) for act in action_dicts]
 
@@ -2852,15 +2874,15 @@ class SystemDesignService:
             {"role": "user", "content": user_message, "timestamp": now_iso}
         )
 
-        # Build concise architectural context so the LLM coach gives grounded, flexible guidance
-        catalog_blocks = ", ".join(
-            f"{b['type_id']} ({b['label']})" for b in CANONICAL_DIAGRAM_BLOCKS
-        )
+        # Build concise architectural context so the LLM coach gives grounded, cloud-aware guidance
         compact_canvas = {
+            "cloud_provider": cloud_provider_label,
             "nodes": [
                 {
                     "type_id": n.get("type_id") or (n.get("data") or {}).get("type_id"),
                     "label": n.get("label") or (n.get("data") or {}).get("label"),
+                    "generic_label": n.get("generic_label")
+                    or (n.get("data") or {}).get("generic_label"),
                     "tech_stack": n.get("tech_stack")
                     or (n.get("data") or {}).get("tech_stack"),
                 }
@@ -2885,6 +2907,7 @@ class SystemDesignService:
             "system_design_coach",
             DEFAULT_PROMPTS["system_design_coach"],
             challenge_title=challenge.title,
+            cloud_provider_label=cloud_provider_label,
             requirements_ledger_json=json.dumps(
                 session.requirements_ledger or {}, indent=2
             ),
@@ -2905,7 +2928,6 @@ class SystemDesignService:
             canvas_flow_json=json.dumps(compact_canvas, indent=2),
             topology_feedback_json=json.dumps(topology_feedback, indent=2),
             available_actions_json=json.dumps(action_dicts, indent=2),
-            canonical_blocks=catalog_blocks,
         )
         llm_messages = [SystemMessage(content=sys_prompt)]
         for turn in coach_history[-8:]:
@@ -2981,6 +3003,7 @@ class SystemDesignService:
         )
         updated_guidance = {
             **guidance,
+            "cloud_provider": cloud_provider,
             "hints_used_count": hints_used_count,
             "revealed_all_bank": revealed_all_bank,
             "revealed_components": list(guidance.get("revealed_components") or []),
@@ -3149,10 +3172,21 @@ class SystemDesignService:
         )
         canvas_note = ""
         if diagram_kind == "canvas":
+            cloud_label = "Generic (Cloud-Agnostic)"
+            try:
+                flow_data = json.loads(file_path.read_text(encoding="utf-8"))
+                c_id = normalize_cloud_provider(flow_data.get("cloud_provider"))
+                cloud_label = next(
+                    (p["label"] for p in CLOUD_PROVIDERS if p["id"] == c_id),
+                    cloud_label,
+                )
+            except Exception:
+                pass
             canvas_note = (
-                "\n\nCANVAS FLOW JSON INPUT:\n"
+                f"\n\nCANVAS FLOW JSON INPUT (CLOUD LENS: {cloud_label}):\n"
                 "The candidate built this architecture in the interactive Canvas Builder and supplied exact "
-                "component nodes, tech stacks, directed connections (protocol + sync/async), and topology diagnostics. "
+                "component nodes, cloud/tech stacks, directed connections (protocol + sync/async), and topology diagnostics. "
+                "When a specific cloud lens is chosen, evaluate whether the chosen managed services fit the scale & requirements cleanly. "
                 "Because structure and connections are unambiguous, leave `visual_clarifications_needed` empty unless "
                 "a node's notes/purpose itself is unclear."
             )
