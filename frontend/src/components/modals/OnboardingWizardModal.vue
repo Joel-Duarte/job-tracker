@@ -1038,6 +1038,7 @@ async function loadExistingState() {
 }
 
 function handleOAuthMessage(event) {
+  if (event.origin !== window.location.origin) return
   if (event.data?.type === 'oauth_success') {
     handleOAuthSuccess()
   }

@@ -2513,6 +2513,7 @@ async function handleOAuthSuccessMessage() {
 }
 
 function onWindowOAuthMessage(event) {
+  if (event.origin !== window.location.origin) return
   if (event.data?.type === 'oauth_success') {
     handleOAuthSuccessMessage()
   }

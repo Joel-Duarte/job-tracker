@@ -815,7 +815,7 @@ def _parse_strict_json_object(raw_text: str) -> dict[str, Any]:
 
     # Closed markdown JSON fences (e.g. from Frontier copy/paste)
     complete_blocks = re.findall(
-        r"```(?:json)?\s*([\s\S]*?)```", cleaned, re.IGNORECASE
+        r"```(?:json)?\s*((?:[^`]|`(?!``))*)```", cleaned, re.IGNORECASE
     )
     for block in complete_blocks:
         try:

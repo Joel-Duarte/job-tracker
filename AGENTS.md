@@ -281,13 +281,22 @@ Before committing or completing tasks, agents and developers must execute and pa
 #### Backend Checks (Run in `backend/`)
 1. **Format Check:** `uv run ruff format --check .` (Fix with `uv run ruff format .`)
 2. **Lint Check:** `uv run ruff check .` (Fix with `uv run ruff check --fix .`)
-3. **Test Suite:** `uv run pytest` (Runs full test suite including database tests; use `uv run pytest -m "not docker"` only if Docker is strictly absent)
+3. **Test Suite:** `uv run pytest -m "not llm_eval"` (Runs full test suite including database tests while skipping opt-in live LLM evals; use `uv run pytest -m "not docker and not llm_eval"` only if Docker is strictly absent)
 
 #### Frontend Checks (Run in `frontend/`)
-1. **Build Check:** `npm run build` (Ensures TypeScript types, templates, and bundling compile without errors)
-2. **Lint Check:** `npm run lint --if-present`
+1. **Lint & Unit Tests:** `npm run lint --if-present && npm run test:unit --if-present -- --timeout=60000`
+2. **Build Check:** `npm run build` (Ensures TypeScript types, templates, and bundling compile without errors)
 3. **Browser QA:** `npm run test:e2e` (Playwright starts `VITE_DEMO_MODE=true npm run dev` and checks desktop/mobile behavior.)
 4. **Front end visual checks:** `VITE_DEMO_MODE=true npm run dev` when manual visual review is needed.
+
+#### Security & Vulnerability Checks (Before Merging / Pushing)
+1. **Dependency Audits:**
+   - Backend (`backend/`): `uv --preview-features audit-command audit --frozen`
+   - Frontend (`frontend/`): `npm audit --audit-level=high`
+2. **Local CodeQL (when `codeql` CLI is installed):**
+   - Store temporary DBs/SARIFs under `/tmp/` (never inside the workspace).
+   - Python: `codeql database create /tmp/codeql-py --language=python --source-root=. --overwrite && codeql database analyze /tmp/codeql-py codeql/python-queries:codeql-suites/python-security-and-quality.qls --format=sarif-latest --output=/tmp/codeql-py.sarif`
+   - JS/TS: `codeql database create /tmp/codeql-js --language=javascript-typescript --source-root=. --overwrite && codeql database analyze /tmp/codeql-js codeql/javascript-queries:codeql-suites/javascript-security-and-quality.qls --format=sarif-latest --output=/tmp/codeql-js.sarif`
 ---
 
 ## Workflow Execution (For Automated Agents)

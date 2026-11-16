@@ -928,7 +928,7 @@ def match_component_to_catalog(
     # Exact or substring keyword match against canonical blocks.
     best_block: dict[str, Any] | None = None
     best_score = 0
-    outside_parens = re.sub(r"\([^)]*\)", "", cleaned).strip().lower()
+    outside_parens = re.sub(r"\([^()]*\)", "", cleaned).strip().lower()
     name_tokens = _tokenize(cleaned)
 
     for block in CANONICAL_DIAGRAM_BLOCKS:

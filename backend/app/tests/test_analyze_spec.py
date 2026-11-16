@@ -217,8 +217,12 @@ async def test_worker_skips_keyword_check_for_user_provided_jd(db_session):
     await db_session.commit()
     await db_session.refresh(application)
 
-    # Arbitrary user notes without standard keywords (e.g. no "responsibilities", "requirements", etc.)
-    user_jd_text = "Looking for a hacker to build cool stuff with us from day one."
+    # Arbitrary user notes without standard keywords (>= 100 chars minimum threshold,
+    # e.g. no "responsibilities", "requirements", etc.)
+    user_jd_text = (
+        "Looking for a hacker to build cool stuff with us from day one. "
+        "Come ship bold prototypes and iterate directly with early customers."
+    )
 
     task = IntakeEvaluationTaskModel(
         task_type="APPLICATION_ASSESSMENT",

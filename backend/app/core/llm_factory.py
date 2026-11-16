@@ -14,7 +14,7 @@ from sqlalchemy.orm import joinedload, selectinload
 
 logger = logging.getLogger(__name__)
 
-THINK_TAG_REGEX = re.compile(r"<think>[\s\S]*?</think>", re.IGNORECASE)
+THINK_TAG_REGEX = re.compile(r"<think>(?:[^<]|<(?!/think>))*</think>", re.IGNORECASE)
 
 
 def strip_reasoning_tags(text: str | None) -> str:
