@@ -814,12 +814,14 @@ def _parse_strict_json_object(raw_text: str) -> dict[str, Any]:
         pass
 
     # Closed markdown JSON fences (e.g. from Frontier copy/paste)
-    complete_blocks = re.findall(
-        r"```(?:json)?\s*((?:[^`]|`(?!``))*)```", cleaned, re.IGNORECASE
-    )
+    fence_parts = cleaned.split("```")
+    complete_blocks = [fence_parts[idx] for idx in range(1, len(fence_parts) - 1, 2)]
     for block in complete_blocks:
+        stripped = block.lstrip()
+        if stripped[:4].lower() == "json":
+            stripped = stripped[4:].lstrip()
         try:
-            candidate = json.loads(block.strip())
+            candidate = json.loads(stripped)
             if isinstance(candidate, dict):
                 return candidate
         except json.JSONDecodeError:
