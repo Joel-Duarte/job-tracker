@@ -928,12 +928,16 @@ def match_component_to_catalog(
     # Exact or substring keyword match against canonical blocks.
     best_block: dict[str, Any] | None = None
     best_score = 0
+    outside_parens = re.sub(r"\([^)]*\)", "", cleaned).strip().lower()
     name_tokens = _tokenize(cleaned)
 
     for block in CANONICAL_DIAGRAM_BLOCKS:
         score = 0
-        if block["label"].lower() == lower_name or block["type_id"] == lower_name:
-            score += 100
+        block_lbl = block["label"].lower()
+        if block_lbl == lower_name or block["type_id"] == lower_name:
+            score += 500
+        elif outside_parens and block_lbl == outside_parens:
+            score += 400
         for kw in block.get("keywords", []):
             if kw in lower_name:
                 score += 20 + len(kw)
@@ -1460,6 +1464,12 @@ def _split_composite_component_specs(raw_name: str) -> list[str]:
     # Keep single-component tech alternatives like "Primary database (PostgreSQL / DynamoDB)" together,
     # while stripping parens to inspect architectural layer slashes/arrows outside parentheses.
     outside_parens = re.sub(r"\([^)]*\)", "", cleaned).strip()
+    outside_lower = outside_parens.lower()
+    if any(
+        b["label"].lower() == lower or b["label"].lower() == outside_lower
+        for b in CANONICAL_DIAGRAM_BLOCKS
+    ):
+        return [cleaned]
     if "->" in outside_parens:
         arrow_parts = [
             p.strip() for p in re.split(r"\s*->\s*", outside_parens) if p.strip()
@@ -2007,53 +2017,66 @@ def resolve_challenge_blueprint(
                 )
 
     # 2. Dynamically synthesize missing blocks implied by Challenge Constraints + Locked Stage 1 Ledger
-    for rule in _SYNTHESIS_RULES:
-        tid = rule["type_id"]
-        if tid in seen_type_ids:
-            continue
-        patterns = rule.get("patterns") or ()
-        if not patterns:
-            continue
-        if any(pat in corpus for pat in patterns):
-            # Do not infer Read Replica if the challenge has no persistent primary DB at all
-            if tid == "read_replica" and not (
-                "relational_db" in seen_type_ids or "nosql_kv" in seen_type_ids
-            ):
+    # Skip fuzzy regex guessing when the challenge variant already supplies both curated components & curated paths.
+    raw_paths_preview = safe_brief.get("expected_paths")
+    has_curated_spec = (
+        isinstance(raw_paths_preview, list)
+        and len(raw_paths_preview) > 0
+        and isinstance(raw_expected, list)
+        and len(raw_expected) > 0
+    )
+    if not has_curated_spec:
+        for rule in _SYNTHESIS_RULES:
+            tid = rule["type_id"]
+            if tid in seen_type_ids:
                 continue
-            # Do not suggest public CDN when explicitly excluded or flagged private-only
-            if tid == "cdn" and (
-                "cdn" in out_of_scope_text
-                or "never publicly cache" in corpus
-                or "no public cdn" in corpus
-            ):
+            patterns = rule.get("patterns") or ()
+            if not patterns:
                 continue
-            block_meta = BLOCKS_BY_TYPE_ID.get(tid)
-            if not block_meta:
-                continue
-            _register(
-                _build_component_entry(
-                    block_meta["label"],
-                    palette_extensions,
-                    why_required=rule["why"],
-                    extra_checklist=rule.get("checklist"),
+            if any(pat in corpus for pat in patterns):
+                # Do not infer Read Replica if the challenge has no persistent primary DB at all
+                if tid == "read_replica" and not (
+                    "relational_db" in seen_type_ids or "nosql_kv" in seen_type_ids
+                ):
+                    continue
+                # Do not suggest public CDN when explicitly excluded or flagged private-only
+                if tid == "cdn" and (
+                    "cdn" in out_of_scope_text
+                    or "never publicly cache" in corpus
+                    or "no public cdn" in corpus
+                ):
+                    continue
+                block_meta = BLOCKS_BY_TYPE_ID.get(tid)
+                if not block_meta:
+                    continue
+                _register(
+                    _build_component_entry(
+                        block_meta["label"],
+                        palette_extensions,
+                        why_required=rule["why"],
+                        extra_checklist=rule.get("checklist"),
+                    )
                 )
-            )
 
-    # 3. Ensure baseline stateless compute & client entry point when backend/ingress components exist
-    if not any(
-        t in seen_type_ids
-        for t in ("app_service", "serverless_fn", "microservice", "llm_gateway")
-    ) and any(
-        t in seen_type_ids
-        for t in (
-            "load_balancer",
-            "api_gateway",
-            "relational_db",
-            "nosql_kv",
-            "distributed_cache",
-            "message_queue",
-            "event_stream",
-            "geo_index",
+    # 3. Ensure baseline stateless compute & client entry point when backend/ingress components exist (for non-curated/legacy briefs)
+    if (
+        not has_curated_spec
+        and not any(
+            t in seen_type_ids
+            for t in ("app_service", "serverless_fn", "microservice", "llm_gateway")
+        )
+        and any(
+            t in seen_type_ids
+            for t in (
+                "load_balancer",
+                "api_gateway",
+                "relational_db",
+                "nosql_kv",
+                "distributed_cache",
+                "message_queue",
+                "event_stream",
+                "geo_index",
+            )
         )
     ):
         app_meta = BLOCKS_BY_TYPE_ID["app_service"]
@@ -2698,10 +2721,17 @@ def evaluate_canvas_topology(
             )
 
     # 4. Over-engineering check aligned with challenge out-of-scope / traps
-    if "stream_processor" in placed_type_ids and (
-        "real-time" in out_of_scope_text
-        or "sub-second" in out_of_scope_text
-        or "message_queue" in {r["type_id"] for r in required_components}
+    req_tids_set = {r["type_id"] for r in required_components}
+    is_streaming_excluded = bool(
+        re.search(
+            r"(?:real-time|sub-second).{0,30}(?:analytics|stream|dashboard)",
+            out_of_scope_text,
+        )
+    )
+    if (
+        "stream_processor" in placed_type_ids
+        and "stream_processor" not in req_tids_set
+        and (is_streaming_excluded or "message_queue" in req_tids_set)
     ):
         findings.append(
             {

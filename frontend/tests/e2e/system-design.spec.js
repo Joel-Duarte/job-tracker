@@ -678,6 +678,24 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await page.getByTestId('studio-undo-btn').click()
   await expect(page.getByTestId('canvas-node-web_client')).toHaveCount(0)
 
+  // Verify Reqs Scale Math, Bank Study Notes, and External Coach workflow while sidebar is open
+  await page.getByTestId('studio-tab-reqs').click()
+  await expect(page.getByTestId('studio-scale-math-card')).toBeVisible()
+
+  await page.getByTestId('coach-tab-bank').click()
+  await expect(page.getByTestId('bank-study-notes')).toBeVisible()
+
+  await page.getByTestId('coach-tab-chat').click()
+  await page.getByTestId('toggle-external-coach-btn').click()
+  await page.getByTestId('copy-external-coach-initial-btn').click()
+  await expect(page.getByTestId('frontier-coach-prompt-preview')).toHaveValue(/External System Design Studio Coach/)
+  await page.getByTestId('external-coach-action-input').fill('{"blocks":[{"type_id":"load_balancer","label":"Load Balancer"}],"edges":[]}')
+  await page.getByTestId('apply-external-coach-action-btn').click()
+  await expect(page.getByTestId('canvas-node-load_balancer')).toBeVisible()
+  await page.getByTestId('studio-undo-btn').click()
+  await expect(page.getByTestId('canvas-node-load_balancer')).toHaveCount(0)
+  await page.getByTestId('coach-tab-bank').click()
+
   // Collapse sidebar on mobile (or test desktop collapse/reopen cycle) before canvas interactions
   await page.getByTestId('collapse-studio-sidebar-btn').click()
   await expect(page.getByTestId('learning-coach-drawer')).toHaveCount(0)
@@ -768,6 +786,8 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await page.getByTestId('canvas-node-api_gateway').click()
   await expect(page.getByTestId('node-popover')).toBeVisible()
   await expect(page.getByTestId('node-cloud-equivalents')).toContainText('OCI API Gateway')
+  await page.getByTestId('node-resilience-chip').first().click()
+  await expect(page.getByTestId('inspector-node-notes')).not.toHaveValue('')
   await page.getByTestId('node-popover').getByRole('button', { name: 'Done' }).click()
 
   await page.getByTestId('open-custom-block-btn').click()
@@ -826,8 +846,13 @@ test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, 
   await page.getByTestId('studio-back-btn').click()
   await page.getByTestId('stage-step-REVIEW').click()
 
-  // Proceed through Stage 4 Defence to Stage 5 Evaluation & check zero penalty + Coached Run + 100 XP
+  // Proceed through Stage 4 Defence (also exercising External Defence Sparring) to Stage 5 Evaluation
   await page.getByRole('button', { name: 'Proceed to Architecture Defence' }).click()
+  await page.getByTestId('toggle-stage4-external-defence-btn').click()
+  await page.getByTestId('copy-frontier-defence-prompt-btn').click()
+  await expect(page.getByTestId('frontier-defence-prompt-preview')).toHaveValue(/External Stage 4 Architecture Defence/)
+  await page.getByTestId('import-frontier-defence-textarea').fill('Defended Redis LRU + Read Replica cache-aside fallback under 50ms p99.')
+  await page.getByTestId('import-frontier-defence-submit-btn').click()
   await page.getByTestId('defence-chat-input').fill('Cache misses fall back cleanly to read replicas with singleflight coalescing.')
   await page.getByTestId('defence-send-btn').click()
   await page.getByTestId('evaluate-session-btn').click()

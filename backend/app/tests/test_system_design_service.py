@@ -2851,3 +2851,250 @@ async def test_full_system_paths_zero_warning_checks_and_defendable_variance(
             )
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_24_blueprint_invariants_slim_packet_and_external_frontier_bridges(
+    db_session: AsyncSession,
+):
+    """Verify all 24 seed blueprints have 0 issues, Frontier Dossier is slimmed, study_notes unlock safely, and External Coach/Review/Defence APIs work."""
+    import json as _json
+
+    from app.services.diagram_catalog import (
+        BLOCKS_BY_TYPE_ID,
+        evaluate_canvas_topology,
+        resolve_challenge_blueprint,
+    )
+    from app.services.system_design_seed import CURATED_CHALLENGES
+
+    # 1) Exhaustively verify all 24 curated challenge variants have clean paths, capabilities, and 0 warnings
+    for ch in CURATED_CHALLENGES:
+        for variant in ch["interviewer_brief"]["variants"]:
+            bp = resolve_challenge_blueprint(variant, None)
+            steps = [s for p in bp["expected_paths"] for s in p["steps"]]
+            node_types = list(
+                dict.fromkeys(
+                    [s["source_type_id"] for s in steps]
+                    + [s["target_type_id"] for s in steps]
+                )
+            )
+            nodes = [
+                {
+                    "id": f"n-{tid}",
+                    "type_id": tid,
+                    "label": BLOCKS_BY_TYPE_ID.get(tid, {}).get("label", tid),
+                    "notes": "Multi-AZ shard pre-alloc replica singleflight lru cluster failover",
+                }
+                for tid in node_types
+            ]
+            edges = [
+                {
+                    "id": f"e-{i}",
+                    "source": f"n-{st['source_type_id']}",
+                    "target": f"n-{st['target_type_id']}",
+                    "label": st.get("suggested_label", "call"),
+                }
+                for i, st in enumerate(steps)
+            ]
+            topo = evaluate_canvas_topology(
+                {"nodes": nodes, "edges": edges, "notes": ""}, bp, variant
+            )
+            vid = f"{ch['slug']}/{variant.get('variant_id')}"
+            assert [
+                c["id"] for c in topo["capability_checks"] if c["status"] != "met"
+            ] == [], f"Unmet capabilities in {vid}"
+            assert [
+                f["title"] for f in topo["findings"] if f.get("severity") != "info"
+            ] == [], f"False warnings in {vid}"
+            assert [
+                r["type_id"]
+                for r in bp["required_components"]
+                if r["type_id"] not in set(node_types)
+            ] == [], f"Unpathed required components in {vid}"
+
+    # 2) External Frontier Coach, Stage 3 Review Import, Stage 4 Defence Import & slim Stage 5 Frontier Packet
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            ch_res = await ac.get("/api/v1/system-design/challenges/url-shortener")
+            assert ch_res.status_code == 200
+            start_res = await ac.post(
+                "/api/v1/system-design/sessions",
+                json={
+                    "challenge_id": ch_res.json()["id"],
+                    "mode": "ADAPTIVE",
+                    "variant_id": "public-consumer-shortener",
+                },
+            )
+            assert start_res.status_code == 201
+            sess = start_res.json()
+            sid = sess["id"]
+            assert sess["study_notes"] == {}
+
+            await ac.post(
+                f"/api/v1/system-design/sessions/{sid}/requirements/reveal",
+                json={"lock_and_proceed": True},
+            )
+
+            # Reveal Bank unlocks study_notes cleanly
+            hint_res = await ac.post(
+                f"/api/v1/system-design/sessions/{sid}/diagrams/hint",
+                json={
+                    "hint_mode": "reveal_all",
+                    "current_nodes": [],
+                    "current_edges": [],
+                },
+            )
+            assert hint_res.status_code == 200
+            assert (
+                len(hint_res.json()["study_notes"]["common_bottlenecks_and_spofs"]) >= 1
+            )
+
+            # External Frontier Coach prompt (initial + compact delta) marks Coached
+            coach_init = await ac.post(
+                f"/api/v1/system-design/sessions/{sid}/diagrams/frontier-coach-prompt",
+                json={
+                    "prompt_kind": "initial",
+                    "cloud_provider": "aws",
+                    "current_nodes": [
+                        {
+                            "id": "n1",
+                            "type_id": "web_client",
+                            "label": "Web / Browser Client",
+                        }
+                    ],
+                    "current_edges": [],
+                    "question": "Should I use DynamoDB or Aurora here?",
+                },
+            )
+            assert coach_init.status_code == 200
+            assert (
+                "External System Design Studio Coach"
+                in coach_init.json()["markdown_prompt"]
+            )
+            assert coach_init.json()["is_coached"] is True
+
+            coach_delta = await ac.post(
+                f"/api/v1/system-design/sessions/{sid}/diagrams/frontier-coach-prompt",
+                json={
+                    "prompt_kind": "delta",
+                    "cloud_provider": "aws",
+                    "current_nodes": [
+                        {
+                            "id": "n1",
+                            "type_id": "web_client",
+                            "label": "Web / Browser Client",
+                        },
+                        {
+                            "id": "n2",
+                            "type_id": "api_gateway",
+                            "label": "Amazon API Gateway",
+                        },
+                    ],
+                    "current_edges": [
+                        {"id": "e1", "source": "n1", "target": "n2", "label": "HTTPS"}
+                    ],
+                },
+            )
+            assert coach_delta.status_code == 200
+            assert len(coach_delta.json()["markdown_prompt"]) < len(
+                coach_init.json()["markdown_prompt"]
+            )
+
+            # Save Canvas, export Stage 3 Review prompt, and import external Stage 3 JSON review
+            await ac.post(
+                f"/api/v1/system-design/sessions/{sid}/diagrams/canvas",
+                json={
+                    "nodes": [
+                        {
+                            "id": "n1",
+                            "type_id": "web_client",
+                            "label": "Web / Browser Client",
+                        },
+                        {"id": "n2", "type_id": "api_gateway", "label": "API Gateway"},
+                        {"id": "n3", "type_id": "app_service", "label": "App Service"},
+                    ],
+                    "edges": [
+                        {"id": "e1", "source": "n1", "target": "n2", "label": "HTTPS"},
+                        {"id": "e2", "source": "n2", "target": "n3", "label": "Route"},
+                    ],
+                },
+            )
+            rev_prompt = await ac.post(
+                f"/api/v1/system-design/sessions/{sid}/review/frontier-prompt",
+                json={},
+            )
+            assert rev_prompt.status_code == 200
+            assert (
+                "External Stage 3 Architecture Review"
+                in rev_prompt.json()["markdown_prompt"]
+            )
+            assert "Serverless Functions" in rev_prompt.json()["markdown_prompt"]
+
+            rev_imp = await ac.post(
+                f"/api/v1/system-design/sessions/{sid}/review/import",
+                json={
+                    "raw_response": _json.dumps(
+                        {
+                            "interpreted_components": [
+                                "Web Client",
+                                "API Gateway",
+                                "App Service",
+                            ],
+                            "interpreted_data_flows": ["Client -> Gateway -> App"],
+                            "visual_clarifications_needed": [],
+                            "strengths": ["Clean API ingress path"],
+                            "missing_components": [],
+                            "bottlenecks_and_spofs": ["Add Redis + durable storage"],
+                            "unnecessary_complexity": [],
+                            "requirement_gaps": ["Missing persistence & TTL layer"],
+                            "overall_impression": "Good skeleton; needs storage and caching.",
+                            "suggested_defence_topics": [
+                                "How will you persist 300M mappings?"
+                            ],
+                        }
+                    )
+                },
+            )
+            assert rev_imp.status_code == 200
+            assert rev_imp.json()["stage"] == "REVIEW"
+            assert (
+                rev_imp.json()["architecture_reviews"][-1]["overall_impression"]
+                == "Good skeleton; needs storage and caching."
+            )
+
+            # Export Stage 4 Defence prompt and import external Defence Q&A summary
+            def_prompt = await ac.post(
+                f"/api/v1/system-design/sessions/{sid}/defence/frontier-prompt"
+            )
+            assert def_prompt.status_code == 200
+            assert (
+                "External Stage 4 Architecture Defence"
+                in def_prompt.json()["markdown_prompt"]
+            )
+
+            def_imp = await ac.post(
+                f"/api/v1/system-design/sessions/{sid}/defence/import",
+                json={
+                    "summary_or_transcript": "Defended HTTP 302 for analytics tracking and partitioned Postgres + Redis LRU."
+                },
+            )
+            assert def_imp.status_code == 200
+            assert def_imp.json()["stage"] == "DEFENCE"
+            assert any(
+                t.get("external_frontier") is True
+                for t in def_imp.json()["defence_transcript"]
+            )
+
+            # Verify Stage 5 Frontier Packet is slimmed cleanly (no raw revealed_components checklist spam)
+            pkt_res = await ac.get(
+                f"/api/v1/system-design/sessions/{sid}/frontier-packet"
+            )
+            assert pkt_res.status_code == 200
+            md_pkt = pkt_res.json()["markdown_packet"]
+            assert '"coaching_summary"' in md_pkt
+            assert '"revealed_components"' not in md_pkt
+            assert len(md_pkt) < 25000
+    finally:
+        app.dependency_overrides.clear()

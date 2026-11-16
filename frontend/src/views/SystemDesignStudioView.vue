@@ -6,6 +6,8 @@ import {
   ClipboardList,
   Code2,
   Compass,
+  Copy,
+  ExternalLink,
   FileImage,
   FileText,
   GitBranch,
@@ -60,6 +62,9 @@ const stagedPreviewUrl = ref('')
 const imageNotesInput = ref('')
 const checkedFixIds = ref({})
 const coachChatInput = ref('')
+const showExternalCoach = ref(false)
+const externalActionJsonInput = ref('')
+const externalPromptCopied = ref(false)
 const moreMenuRef = ref(null)
 
 const sessionId = computed(() => Number(route.params.sessionId))
@@ -68,6 +73,33 @@ const challengeTitle = computed(() => session.value?.challenge?.title || 'Archit
 const isCoached = computed(() => store.isActiveSessionCoached)
 const canUndoCanvas = computed(() => Boolean(canvasBuilderRef.value?.canUndo))
 const sessionLedger = computed(() => session.value?.requirements_ledger || {})
+const activeStudyNotes = computed(() => {
+  const sn = store.studyNotes || session.value?.study_notes || {}
+  return {
+    bottlenecks: Array.isArray(sn.common_bottlenecks_and_spofs) ? sn.common_bottlenecks_and_spofs : [],
+    traps: Array.isArray(sn.over_engineering_traps) ? sn.over_engineering_traps : [],
+    questions: Array.isArray(sn.defence_questions) ? sn.defence_questions : [],
+  }
+})
+const hasStudyNotes = computed(
+  () =>
+    activeStudyNotes.value.bottlenecks.length > 0 ||
+    activeStudyNotes.value.traps.length > 0 ||
+    activeStudyNotes.value.questions.length > 0
+)
+const scaleMathSummary = computed(() => {
+  const estimates = sessionLedger.value?.scale_estimates || {}
+  const entries = Object.entries(estimates).filter(([, v]) => String(v || '').trim())
+  const nfrs = sessionLedger.value?.non_functional_requirements || []
+  const latencyLine = nfrs.find((n) => /ms|latency|p99|p95|sla|availability|%/i.test(n)) || ''
+  return {
+    items: entries.slice(0, 4).map(([k, v]) => ({
+      label: k.replace(/_/g, ' '),
+      value: String(v),
+    })),
+    latencyLine,
+  }
+})
 const placedNodeTypeSet = computed(
   () => new Set((flowSnapshot.value?.nodes || []).map((n) => n.type_id))
 )
@@ -455,6 +487,71 @@ async function handleBuildFullReference() {
   }
 }
 
+async function handleExportExternalCoach(promptKind = 'initial') {
+  try {
+    const currentNodes = canvasBuilderRef.value?.getCurrentNodes?.() || flowSnapshot.value.nodes || []
+    const currentEdges = canvasBuilderRef.value?.getCurrentEdges?.() || flowSnapshot.value.edges || []
+    const cloudProv = flowSnapshot.value?.cloud_provider || 'generic'
+    const res = await store.prepareFrontierCoachPrompt(
+      promptKind,
+      currentNodes,
+      currentEdges,
+      canvasNotes.value,
+      cloudProv,
+      coachChatInput.value.trim()
+    )
+    if (res?.markdown_prompt) {
+      try {
+        await navigator.clipboard?.writeText(res.markdown_prompt)
+        externalPromptCopied.value = true
+        setTimeout(() => {
+          externalPromptCopied.value = false
+        }, 2500)
+      } catch {
+        // Preview textarea still displays prompt cleanly
+      }
+      uiStore.showToast(
+        promptKind === 'delta'
+          ? 'Updated canvas snapshot ready! Paste into your external ChatGPT/Claude thread.'
+          : 'External Coach prompt ready! Paste into ChatGPT, Claude, or Gemini.',
+        'success'
+      )
+    }
+  } catch (err) {
+    uiStore.showToast(err.message || 'Unable to prepare external Coach prompt', 'error')
+  }
+}
+
+function handleApplyExternalActionJson() {
+  const raw = String(externalActionJsonInput.value || '').trim()
+  if (!raw) return
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  const candidates = [fenced ? fenced[1].trim() : null, raw].filter(Boolean)
+  const first = raw.indexOf('{')
+  const last = raw.lastIndexOf('}')
+  if (first !== -1 && last > first) {
+    candidates.push(raw.slice(first, last + 1))
+  }
+  let parsed = null
+  for (const cand of candidates) {
+    try {
+      const obj = JSON.parse(cand)
+      if (obj && typeof obj === 'object' && (Array.isArray(obj.blocks) || Array.isArray(obj.edges))) {
+        parsed = obj
+        break
+      }
+    } catch {
+      // try next candidate
+    }
+  }
+  if (!parsed) {
+    uiStore.showToast('Paste a valid JSON object containing "blocks" and/or "edges".', 'error')
+    return
+  }
+  handleApplyCoachAction(parsed)
+  externalActionJsonInput.value = ''
+}
+
 async function handleSaveCanvas() {
   const snapshot = canvasBuilderRef.value?.getFlowSnapshot?.() || flowSnapshot.value
   if (!snapshot?.nodes?.length || store.uploadingDiagram) {
@@ -813,6 +910,24 @@ onUnmounted(() => {
         <!-- TAB 1: Session Requirements, Notes & Review Settings -->
         <div v-if="activeSidebarTab === 'reqs'" class="sd-coach-tab-body sd-reqs-tab-body" data-testid="studio-reqs-panel">
           <section
+            v-if="scaleMathSummary.items.length || scaleMathSummary.latencyLine"
+            class="sd-scale-math-card"
+            data-testid="studio-scale-math-card"
+          >
+            <div class="sd-scale-math-head">
+              <strong>Back-of-the-Envelope Numbers</strong>
+            </div>
+            <div class="sd-ledger-scale-grid">
+              <div v-for="item in scaleMathSummary.items" :key="item.label" class="sd-scale-chip">
+                <strong>{{ item.label }}:</strong> {{ item.value }}
+              </div>
+              <div v-if="scaleMathSummary.latencyLine" class="sd-scale-chip">
+                <strong>SLA Target:</strong> {{ scaleMathSummary.latencyLine }}
+              </div>
+            </div>
+          </section>
+
+          <section
             v-if="
               sessionLedger.functional_requirements?.length ||
               sessionLedger.non_functional_requirements?.length ||
@@ -898,6 +1013,15 @@ onUnmounted(() => {
             <button
               type="button"
               class="sd-starter-chip"
+              data-testid="coach-starter-write-path"
+              :disabled="store.sendingCoachChat"
+              @click="handleSendCoachChat('Walk me through the core Write Path step by step.')"
+            >
+              Walk through Write Path
+            </button>
+            <button
+              type="button"
+              class="sd-starter-chip"
               data-testid="coach-starter-guide"
               :disabled="store.sendingCoachChat"
               @click="handleSendCoachChat('Guide me step-by-step from where I am now.')"
@@ -906,14 +1030,74 @@ onUnmounted(() => {
             </button>
             <button
               type="button"
-              class="sd-starter-chip"
-              data-testid="coach-starter-write-path"
-              :disabled="store.sendingCoachChat"
-              @click="handleSendCoachChat('Show me how to structure and wire the Write Path.')"
+              class="sd-starter-chip sd-external-coach-toggle"
+              :class="{ active: showExternalCoach }"
+              data-testid="toggle-external-coach-btn"
+              @click="showExternalCoach = !showExternalCoach"
             >
-              Draw the Write Path
+              <ExternalLink :size="11" />
+              <span>{{ showExternalCoach ? 'Hide External AI' : 'Use External AI (ChatGPT/Claude)' }}</span>
             </button>
           </div>
+
+          <section
+            v-if="showExternalCoach"
+            class="sd-external-coach-box"
+            data-testid="external-coach-panel"
+          >
+            <div class="sd-external-coach-head">
+              <strong>Coach Externally (Free Browser AI)</strong>
+              <span class="sd-muted">Copy canvas context → chat in Claude/ChatGPT</span>
+            </div>
+            <div class="sd-external-coach-btns">
+              <button
+                type="button"
+                class="btn btn-secondary btn-xs"
+                data-testid="copy-external-coach-initial-btn"
+                :disabled="store.loadingChallengePrompt"
+                @click="handleExportExternalCoach('initial')"
+              >
+                <Copy :size="11" />
+                <span>{{ externalPromptCopied ? 'Copied!' : 'Copy Full Coach Prompt' }}</span>
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-xs"
+                data-testid="copy-external-coach-delta-btn"
+                :disabled="store.loadingChallengePrompt"
+                @click="handleExportExternalCoach('delta')"
+              >
+                <Copy :size="11" />
+                <span>Copy Canvas Update</span>
+              </button>
+            </div>
+            <textarea
+              v-if="store.frontierCoachPrompt?.markdown_prompt"
+              :value="store.frontierCoachPrompt.markdown_prompt"
+              readonly
+              rows="4"
+              class="form-textarea sd-external-preview"
+              data-testid="frontier-coach-prompt-preview"
+            />
+            <div class="sd-external-import-row">
+              <input
+                v-model="externalActionJsonInput"
+                type="text"
+                class="form-input"
+                data-testid="external-coach-action-input"
+                placeholder='Optional: paste AI {"blocks": [...], "edges": [...]} JSON'
+              />
+              <button
+                type="button"
+                class="btn btn-secondary btn-xs"
+                data-testid="apply-external-coach-action-btn"
+                :disabled="!externalActionJsonInput.trim()"
+                @click="handleApplyExternalActionJson"
+              >
+                Apply JSON
+              </button>
+            </div>
+          </section>
 
           <div class="sd-coach-thread" data-testid="coach-chat-thread">
             <div v-if="!store.coachMessages.length" class="sd-coach-welcome">
@@ -1103,6 +1287,34 @@ onUnmounted(() => {
               Click <strong>Reveal All Required</strong> or <strong>Next Wire</strong> to inspect the reference flow checklist. (Alternative valid architectures are welcomed during Analyze.)
             </p>
           </section>
+
+          <details
+            v-if="hasStudyNotes"
+            class="sd-study-notes-box"
+            data-testid="bank-study-notes"
+          >
+            <summary>
+              <strong>Why This Fails at Scale &amp; Defence Traps</strong>
+            </summary>
+            <div v-if="activeStudyNotes.bottlenecks.length" class="sd-study-group">
+              <span>Common Bottlenecks &amp; SPOFs</span>
+              <ul>
+                <li v-for="b in activeStudyNotes.bottlenecks" :key="b">{{ b }}</li>
+              </ul>
+            </div>
+            <div v-if="activeStudyNotes.traps.length" class="sd-study-group">
+              <span>Over-Engineering Traps</span>
+              <ul>
+                <li v-for="t in activeStudyNotes.traps" :key="t">{{ t }}</li>
+              </ul>
+            </div>
+            <div v-if="activeStudyNotes.questions.length" class="sd-study-group">
+              <span>Sample Defence Questions</span>
+              <ul>
+                <li v-for="q in activeStudyNotes.questions" :key="q">{{ q }}</li>
+              </ul>
+            </div>
+          </details>
         </div>
 
         <!-- TAB 4: Topology Diagnostics & Stage 3 Critique Fix Checklist -->
@@ -2163,5 +2375,101 @@ onUnmounted(() => {
 .sd-finding-card.sev-info .sd-finding-badge {
   background: rgba(59, 130, 246, 0.18);
   color: #2563eb;
+}
+
+.sd-scale-math-card {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 30%, var(--border-subtle, #334155));
+  background: color-mix(in srgb, var(--accent, #3b82f6) 6%, var(--bg-elevated, #0f172a));
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.sd-scale-math-head {
+  font-size: 0.74rem;
+  color: var(--text-main, #f8fafc);
+}
+
+.sd-external-coach-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sd-external-coach-toggle.active {
+  border-color: var(--accent, #3b82f6);
+  background: color-mix(in srgb, var(--accent, #3b82f6) 16%, transparent);
+}
+
+.sd-external-coach-box {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle, #334155);
+  background: var(--bg-elevated, #0f172a);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sd-external-coach-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.75rem;
+  color: var(--text-main, #f8fafc);
+}
+
+.sd-external-coach-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sd-external-preview {
+  font-family: ui-monospace, monospace;
+  font-size: 0.71rem;
+  line-height: 1.35;
+}
+
+.sd-external-import-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.sd-study-notes-box {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle, #334155);
+  background: var(--bg-elevated, #0f172a);
+  font-size: 0.75rem;
+  color: var(--text-main, #f8fafc);
+}
+
+.sd-study-notes-box summary {
+  cursor: pointer;
+}
+
+.sd-study-group {
+  margin-top: 6px;
+}
+
+.sd-study-group span {
+  display: block;
+  font-weight: 700;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: var(--text-secondary, #94a3b8);
+  margin-bottom: 2px;
+}
+
+.sd-study-group ul {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 </style>

@@ -265,4 +265,21 @@ export const SystemDesignAPI = {
     apiClient.post(`/system-design/sessions/${sessionId}/import-evaluation`, {
       raw_response: rawResponse,
     }),
+  prepareFrontierCoachPrompt: (sessionId, payload) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/diagrams/frontier-coach-prompt`, payload),
+  prepareFrontierReviewPrompt: (sessionId, diagramVersion = null) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/review/frontier-prompt`, {
+      diagram_version: diagramVersion,
+    }),
+  importFrontierReview: (sessionId, rawResponse, diagramVersion = null) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/review/import`, {
+      diagram_version: diagramVersion,
+      raw_response: rawResponse,
+    }),
+  prepareFrontierDefencePrompt: (sessionId) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/defence/frontier-prompt`),
+  importFrontierDefence: (sessionId, summaryOrTranscript) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/defence/import`, {
+      summary_or_transcript: summaryOrTranscript,
+    }),
 }

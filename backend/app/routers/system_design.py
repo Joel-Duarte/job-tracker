@@ -26,9 +26,16 @@ from app.schemas.system_design import (
     DiagramHintRequest,
     DiagramHintResponse,
     DiagramReviewRequest,
+    FrontierCoachPromptRequest,
+    FrontierCoachPromptResponse,
+    FrontierDefencePromptResponse,
     FrontierEvaluationPacketRead,
+    FrontierReviewPromptRequest,
+    FrontierReviewPromptResponse,
     ImportFrontierChallengeRequest,
+    ImportFrontierDefenceRequest,
     ImportFrontierEvaluationRequest,
+    ImportFrontierReviewRequest,
     RequirementsLedgerUpdateRequest,
     RequirementsMessageRequest,
     RequirementsRevealRequest,
@@ -657,6 +664,104 @@ async def import_frontier_evaluation(
     try:
         session = await SystemDesignService.import_frontier_evaluation(
             db=db, session_id=session_id, raw_response=payload.raw_response
+        )
+        return SystemDesignSessionRead.model_validate(session)
+    except ValueError as ve:
+        raise _http_error_from_value_error(ve)
+
+
+@router.post(
+    "/sessions/{session_id}/diagrams/frontier-coach-prompt",
+    response_model=FrontierCoachPromptResponse,
+)
+async def prepare_frontier_coach_prompt(
+    session_id: int,
+    payload: FrontierCoachPromptRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export a compact Coach prompt (initial snapshot or canvas delta) for external browser chats."""
+    try:
+        return await SystemDesignService.prepare_frontier_coach_prompt(
+            db=db, session_id=session_id, payload=payload
+        )
+    except ValueError as ve:
+        raise _http_error_from_value_error(ve)
+
+
+@router.post(
+    "/sessions/{session_id}/review/frontier-prompt",
+    response_model=FrontierReviewPromptResponse,
+)
+async def prepare_frontier_review_prompt(
+    session_id: int,
+    payload: FrontierReviewPromptRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export a Stage 3 Architecture Review prompt ready for external browser chat."""
+    try:
+        return await SystemDesignService.prepare_frontier_review_prompt(
+            db=db,
+            session_id=session_id,
+            diagram_version=payload.diagram_version if payload else None,
+        )
+    except ValueError as ve:
+        raise _http_error_from_value_error(ve)
+
+
+@router.post(
+    "/sessions/{session_id}/review/import",
+    response_model=SystemDesignSessionRead,
+)
+async def import_frontier_review(
+    session_id: int,
+    payload: ImportFrontierReviewRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Import an external frontier Stage 3 Architecture Review JSON onto the session."""
+    try:
+        session = await SystemDesignService.import_frontier_review(
+            db=db,
+            session_id=session_id,
+            raw_response=payload.raw_response,
+            diagram_version=payload.diagram_version,
+        )
+        return SystemDesignSessionRead.model_validate(session)
+    except ValueError as ve:
+        raise _http_error_from_value_error(ve)
+
+
+@router.post(
+    "/sessions/{session_id}/defence/frontier-prompt",
+    response_model=FrontierDefencePromptResponse,
+)
+async def prepare_frontier_defence_prompt(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export a self-contained Stage 4 Architecture Defence prompt for external browser chat."""
+    try:
+        return await SystemDesignService.prepare_frontier_defence_prompt(
+            db=db, session_id=session_id
+        )
+    except ValueError as ve:
+        raise _http_error_from_value_error(ve)
+
+
+@router.post(
+    "/sessions/{session_id}/defence/import",
+    response_model=SystemDesignSessionRead,
+)
+async def import_frontier_defence(
+    session_id: int,
+    payload: ImportFrontierDefenceRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Import an external frontier Defence summary/transcript onto the session for Stage 5 scoring."""
+    try:
+        session = await SystemDesignService.import_frontier_defence(
+            db=db,
+            session_id=session_id,
+            summary_or_transcript=payload.summary_or_transcript,
         )
         return SystemDesignSessionRead.model_validate(session)
     except ValueError as ve:

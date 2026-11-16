@@ -36,6 +36,10 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
   const lastTopologyFeedback = ref(null)
   const expectedPaths = ref([])
   const referenceActions = ref([])
+  const studyNotes = ref({})
+  const frontierCoachPrompt = ref(null)
+  const frontierReviewPrompt = ref(null)
+  const frontierDefencePrompt = ref(null)
   const nextConnectionHint = ref(null)
   const coachMessages = ref([])
   const suggestedCoachActions = ref([])
@@ -123,6 +127,11 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     } else if (!session) {
       expectedPaths.value = []
     }
+    if (session?.study_notes && Object.keys(session.study_notes).length) {
+      studyNotes.value = session.study_notes
+    } else if (!session) {
+      studyNotes.value = {}
+    }
     if (guidance.last_topology_feedback) {
       lastTopologyFeedback.value = guidance.last_topology_feedback
     } else if (!session) {
@@ -146,9 +155,13 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     if (!session || !session.id) return
     if (activeSession.value?.id !== session.id) {
       frontierPacket.value = null
+      frontierCoachPrompt.value = null
+      frontierReviewPrompt.value = null
+      frontierDefencePrompt.value = null
       lastTopologyFeedback.value = null
       expectedPaths.value = []
       referenceActions.value = []
+      studyNotes.value = {}
       nextConnectionHint.value = null
       coachMessages.value = []
       suggestedCoachActions.value = []
@@ -640,6 +653,9 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
       if (Array.isArray(res.data?.reference_actions)) {
         referenceActions.value = res.data.reference_actions
       }
+      if (res.data?.study_notes && Object.keys(res.data.study_notes).length) {
+        studyNotes.value = res.data.study_notes
+      }
       if (res.data?.topology_feedback) {
         lastTopologyFeedback.value = res.data.topology_feedback
       }
@@ -683,6 +699,9 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
       }
       if (Array.isArray(res.data?.reference_actions)) {
         referenceActions.value = res.data.reference_actions
+      }
+      if (res.data?.study_notes && Object.keys(res.data.study_notes).length) {
+        studyNotes.value = res.data.study_notes
       }
       if (res.data?.topology_feedback) {
         lastTopologyFeedback.value = res.data.topology_feedback
@@ -823,6 +842,113 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     }
   }
 
+  async function prepareFrontierCoachPrompt(
+    promptKind = 'initial',
+    currentNodes = [],
+    currentEdges = [],
+    currentNotes = '',
+    cloudProvider = 'generic',
+    question = ''
+  ) {
+    if (!activeSession.value) return null
+    loadingChallengePrompt.value = true
+    error.value = null
+    try {
+      const res = await SystemDesignAPI.prepareFrontierCoachPrompt(activeSession.value.id, {
+        prompt_kind: promptKind,
+        cloud_provider: cloudProvider || 'generic',
+        current_nodes: currentNodes,
+        current_edges: currentEdges,
+        current_notes: currentNotes || '',
+        question: question || '',
+      })
+      frontierCoachPrompt.value = res.data
+      if (res.data?.session) {
+        _syncSessionInList(res.data.session)
+      }
+      return res.data
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      loadingChallengePrompt.value = false
+    }
+  }
+
+  async function prepareFrontierReviewPrompt(diagramVersion = null) {
+    if (!activeSession.value) return null
+    loadingFrontierPacket.value = true
+    error.value = null
+    try {
+      const res = await SystemDesignAPI.prepareFrontierReviewPrompt(
+        activeSession.value.id,
+        diagramVersion
+      )
+      frontierReviewPrompt.value = res.data
+      return res.data
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      loadingFrontierPacket.value = false
+    }
+  }
+
+  async function importFrontierReview(rawResponse, diagramVersion = null) {
+    if (!activeSession.value) return null
+    reviewingDiagram.value = true
+    error.value = null
+    try {
+      const res = await SystemDesignAPI.importFrontierReview(
+        activeSession.value.id,
+        rawResponse,
+        diagramVersion
+      )
+      _syncSessionInList(res.data)
+      return res.data
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      reviewingDiagram.value = false
+    }
+  }
+
+  async function prepareFrontierDefencePrompt() {
+    if (!activeSession.value) return null
+    loadingFrontierPacket.value = true
+    error.value = null
+    try {
+      const res = await SystemDesignAPI.prepareFrontierDefencePrompt(activeSession.value.id)
+      frontierDefencePrompt.value = res.data
+      return res.data
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      loadingFrontierPacket.value = false
+    }
+  }
+
+  async function importFrontierDefence(summaryOrTranscript) {
+    if (!activeSession.value) return null
+    sendingDefence.value = true
+    error.value = null
+    try {
+      const res = await SystemDesignAPI.importFrontierDefence(
+        activeSession.value.id,
+        summaryOrTranscript
+      )
+      _syncSessionInList(res.data)
+      return res.data
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      sendingDefence.value = false
+    }
+  }
+
   return {
     challenges,
     diagramCatalog,
@@ -855,6 +981,10 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     lastTopologyFeedback,
     expectedPaths,
     referenceActions,
+    studyNotes,
+    frontierCoachPrompt,
+    frontierReviewPrompt,
+    frontierDefencePrompt,
     capabilitiesChecklist,
     nextConnectionHint,
     coachMessages,
@@ -898,5 +1028,10 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     retryActiveTask,
     fetchFrontierPacket,
     importEvaluation,
+    prepareFrontierCoachPrompt,
+    prepareFrontierReviewPrompt,
+    importFrontierReview,
+    prepareFrontierDefencePrompt,
+    importFrontierDefence,
   }
 })

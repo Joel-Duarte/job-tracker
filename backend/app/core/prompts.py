@@ -870,8 +870,9 @@ DEFAULT_PROMPTS = {
         "CANDIDATE NOTES:\n{candidate_notes}\n\n"
         "CRITICAL EVALUATION RULES:\n"
         "1. Separate visual/diagram notation ambiguities (illegible labels, missing arrow directions) into 'visual_clarifications_needed' instead of penalizing them as architectural failures.\n"
-        "2. Treat the ALIGNED SESSION BLUEPRINT as one proven reference architecture, NOT the only valid solution. Accept equivalent architectural choices (e.g., NoSQL vs SQL+Read Replica, Kafka/PubSub vs Task Queue, edge workers vs gateway) when they cleanly meet functional & NFR requirements. Flag both real bottlenecks/SPOFs and extreme over-engineering traps, and never penalize a component as unnecessary complexity if it is explicitly part of the session's aligned required blueprint for an active requirement.\n"
-        "3. Every critique and score must cite concrete evidence from the diagram, locked requirements ledger, or interview transcript."
+        "2. Treat the ALIGNED SESSION BLUEPRINT as one proven reference architecture, NOT the only valid solution. Accept equivalent architectural choices (e.g., NoSQL vs SQL+Read Replica, Kafka/PubSub vs Task Queue, edge workers/API Gateway+Serverless vs Load Balancer+App Service) when they satisfy capability checks & requirements.\n"
+        "3. ARCHITECTURE COHERENCE RULES: Never demand a separate Load Balancer between managed API Gateway/CDN and Serverless Functions (managed gateways terminate and scale invocations directly). Never penalize a component as unnecessary complexity (such as Stream Processor/Flink, NoSQL, or L1 Cache) when the session brief or aligned reference blueprint actively calls for sub-5s windowed stream analytics, extreme hot-key traffic, or matching SLA needs. Conversely, catch real flaws: single-DB bottlenecks without read scaling/sharding under heavy read/write load, inverted cache-aside flows (DB -> Cache), bypassing ingress directly to internal storage/Redis, and unmitigated SPOFs.\n"
+        "4. Every critique and score must cite concrete evidence from the diagram, locked requirements ledger, or interview transcript."
     ),
     "system_design_coach": (
         "You are a supportive Systems Architecture Coach helping a learner inside a visual diagram studio for: {challenge_title}.\n"
@@ -909,6 +910,7 @@ async def seed_default_prompts(session: AsyncSession) -> None:
         elif prompt_name == "system_design_reviewer" and (
             "session's aligned required blueprint" not in (existing.template or "")
             or "NOT the only valid solution" not in (existing.template or "")
+            or "Serverless Functions" not in (existing.template or "")
         ):
             existing.template = default_template
         elif prompt_name == "system_design_coach" and (

@@ -316,8 +316,8 @@ const _WIRE_ALTERNATIVES = {
 const _SOUND_WIRE_RULES = [
   {
     src: ['web_client', 'mobile_client', 'webhook_actor'],
-    dst: ['dns', 'cdn', 'waf_ddos', 'load_balancer', 'api_gateway', 'realtime_gateway', 'static_hosting'],
-    rationale: 'Client/external entry traffic cleanly enters through edge security, CDN, or load-balanced API gateways.',
+    dst: ['dns', 'cdn', 'waf_ddos', 'load_balancer', 'api_gateway', 'realtime_gateway', 'static_hosting', 'auth_service', 'object_storage', 'event_stream', 'media_transcoder'],
+    rationale: 'Client/external traffic enters via edge routing, direct pre-signed object upload, auth, or streaming ingest cleanly.',
   },
   {
     src: ['dns', 'waf_ddos'],
@@ -336,38 +336,38 @@ const _SOUND_WIRE_RULES = [
   },
   {
     src: ['api_gateway', 'circuit_breaker'],
-    dst: ['app_service', 'serverless_fn', 'rate_limiter', 'auth_service', 'content_filter', 'llm_gateway', 'microservice', 'id_generator'],
-    rationale: 'Gateway/mesh enforces auth, rate limits, and safety filtering before delegating to backend compute.',
+    dst: ['app_service', 'serverless_fn', 'rate_limiter', 'auth_service', 'content_filter', 'llm_gateway', 'microservice', 'id_generator', 'webhook_actor', 'notification_hub'],
+    rationale: 'Gateway/circuit-breaker enforces auth, quotas, filtering, and protected external dispatch cleanly.',
   },
   {
     src: ['rate_limiter', 'auth_service', 'content_filter'],
-    dst: ['app_service', 'distributed_cache', 'llm_gateway', 'relational_db', 'nosql_kv'],
-    rationale: 'Security/throttling guards verify policy state (e.g. Redis counters/tokens) before forwarding valid work.',
+    dst: ['app_service', 'distributed_cache', 'llm_gateway', 'relational_db', 'nosql_kv', 'consensus_store', 'event_stream', 'pubsub_bus', 'cdn'],
+    rationale: 'Security/throttling guards verify policy state (Redis/Raft/audit) or protect downstream compute cleanly.',
   },
   {
     src: ['app_service', 'serverless_fn', 'realtime_gateway'],
-    dst: ['distributed_cache', 'local_cache', 'feature_store', 'bloom_filter', 'relational_db', 'read_replica', 'nosql_kv', 'object_storage', 'timeseries_db', 'vector_db', 'geo_index', 'consensus_store', 'id_generator', 'ml_inference', 'llm_gateway', 'media_transcoder', 'message_queue', 'event_stream', 'pubsub_bus', 'notification_hub', 'search_engine'],
-    rationale: 'Stateless compute orchestrates fast cache-aside lookups, durable persistence, AI/geo queries, or async event publishing.',
+    dst: ['app_service', 'distributed_cache', 'local_cache', 'feature_store', 'bloom_filter', 'relational_db', 'read_replica', 'nosql_kv', 'object_storage', 'timeseries_db', 'vector_db', 'geo_index', 'consensus_store', 'id_generator', 'ml_inference', 'llm_gateway', 'media_transcoder', 'message_queue', 'event_stream', 'pubsub_bus', 'notification_hub', 'search_engine', 'cdc_connector', 'rate_limiter', 'content_filter', 'realtime_gateway', 'mobile_client', 'web_client'],
+    rationale: 'Compute & real-time gateways orchestrate cache-aside lookups, persistence, safety guards, pub/sub routing, and async events.',
   },
   {
     src: ['llm_gateway', 'ml_inference'],
     dst: ['vector_db', 'feature_store', 'distributed_cache', 'object_storage', 'observability'],
-    rationale: 'AI inference/gateway retrieves embeddings/features (RAG) or caches semantic responses cleanly.',
+    rationale: 'AI inference/gateway retrieves embeddings/features (RAG), settles token usage, or caches semantic responses cleanly.',
   },
   {
     src: ['message_queue', 'event_stream', 'pubsub_bus'],
-    dst: ['async_worker', 'stream_processor', 'dlq', 'notification_hub', 'olap_warehouse', 'media_transcoder'],
-    rationale: 'Async messaging decouples heavy retries, multi-channel notifications, stream rollups, and dead-letter handling.',
+    dst: ['async_worker', 'stream_processor', 'dlq', 'notification_hub', 'olap_warehouse', 'media_transcoder', 'realtime_gateway', 'object_storage', 'pubsub_bus', 'search_engine'],
+    rationale: 'Async messaging decouples heavy retries, WebSocket topic fan-out, search indexing, transcoding, and stream rollups.',
   },
   {
-    src: ['async_worker', 'stream_processor', 'scheduler', 'cdc_connector', 'media_transcoder'],
-    dst: ['relational_db', 'nosql_kv', 'object_storage', 'olap_warehouse', 'search_engine', 'notification_hub', 'distributed_cache', 'dlq'],
-    rationale: 'Background workers persist materialized results, trigger notifications, or sink analytical rollups off the hot path.',
+    src: ['async_worker', 'stream_processor', 'scheduler', 'cdc_connector', 'media_transcoder', 'notification_hub', 'consensus_store'],
+    dst: ['relational_db', 'nosql_kv', 'object_storage', 'olap_warehouse', 'search_engine', 'notification_hub', 'distributed_cache', 'local_cache', 'dlq', 'event_stream', 'async_worker', 'geo_index', 'observability', 'circuit_breaker', 'mobile_client', 'web_client'],
+    rationale: 'Workers, schedulers, media processors, CDC, and delivery hubs materialize state, sink analytics, and deliver client alerts.',
   },
   {
-    src: ['relational_db'],
-    dst: ['read_replica', 'cdc_connector', 'olap_warehouse'],
-    rationale: 'Primary database replicates read capacity safely or streams immutable WAL events via CDC.',
+    src: ['relational_db', 'object_storage'],
+    dst: ['read_replica', 'cdc_connector', 'olap_warehouse', 'object_storage', 'message_queue'],
+    rationale: 'Primary stores replicate reads, archive cold partitions to object storage, emit CDC streams, or trigger upload queues cleanly.',
   },
 ]
 

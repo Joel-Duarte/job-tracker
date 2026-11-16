@@ -254,6 +254,7 @@ class DiagramHintResponse(BaseModel):
     revealed_components: list[dict[str, Any]] = Field(default_factory=list)
     expected_paths: list[dict[str, Any]] = Field(default_factory=list)
     reference_actions: list[CoachCanvasAction] = Field(default_factory=list)
+    study_notes: dict[str, Any] = Field(default_factory=dict)
     topology_feedback: dict[str, Any] | None = None
     next_connection_hint: dict[str, Any] | None = None
     is_practice_run: bool = False
@@ -292,6 +293,63 @@ class DiagramCoachChatResponse(BaseModel):
     topology_feedback: dict[str, Any] | None = None
     is_coached: bool = True
     session: dict[str, Any] | None = None
+
+
+class FrontierCoachPromptRequest(BaseModel):
+    """Request to export a compact External Frontier Coach prompt for ChatGPT/Claude."""
+
+    prompt_kind: Literal["initial", "delta"] = "initial"
+    cloud_provider: str = Field(default="generic", max_length=40)
+    current_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    current_edges: list[dict[str, Any]] = Field(default_factory=list)
+    current_notes: str = Field(default="", max_length=4000)
+    question: str = Field(default="", max_length=1000)
+
+
+class FrontierCoachPromptResponse(BaseModel):
+    """Compact Markdown prompt for interactive Studio coaching in external frontier chat."""
+
+    session_id: int
+    filename: str
+    markdown_prompt: str
+    is_coached: bool = True
+    session: dict[str, Any] | None = None
+
+
+class FrontierReviewPromptRequest(BaseModel):
+    """Optional request specifying which diagram revision to export for external review."""
+
+    diagram_version: int | None = None
+
+
+class FrontierReviewPromptResponse(BaseModel):
+    """Self-contained Markdown prompt to run Stage 3 Architecture Review in any frontier chat."""
+
+    session_id: int
+    diagram_version: int
+    filename: str
+    markdown_prompt: str
+
+
+class ImportFrontierReviewRequest(BaseModel):
+    """Raw JSON response pasted back from an external frontier Stage 3 Architecture Review."""
+
+    diagram_version: int | None = None
+    raw_response: str = Field(..., min_length=2)
+
+
+class FrontierDefencePromptResponse(BaseModel):
+    """Self-contained Markdown prompt to conduct Stage 4 Defence sparring externally."""
+
+    session_id: int
+    filename: str
+    markdown_prompt: str
+
+
+class ImportFrontierDefenceRequest(BaseModel):
+    """Pasted external Defence Q&A summary or transcript log for Stage 5 grading evidence."""
+
+    summary_or_transcript: str = Field(..., min_length=5, max_length=12000)
 
 
 class DiagramCatalogBlock(BaseModel):
@@ -543,6 +601,7 @@ class SystemDesignSessionRead(BaseModel):
     diagram_guidance: dict[str, Any] = Field(default_factory=dict)
     palette_extensions: list[dict[str, Any]] = Field(default_factory=list)
     capabilities_checklist: list[dict[str, Any]] = Field(default_factory=list)
+    study_notes: dict[str, Any] = Field(default_factory=dict)
     architecture_reviews: list[dict[str, Any]] = Field(default_factory=list)
     defence_transcript: list[dict[str, Any]] = Field(default_factory=list)
     final_evaluation: dict[str, Any] | None = None
@@ -665,6 +724,21 @@ class SystemDesignSessionRead(BaseModel):
             for c in (blueprint_for_caps.get("required_capabilities") or [])
             if isinstance(c, dict)
         ]
+        guidance_dict = _get("diagram_guidance") or {}
+        if isinstance(guidance_dict, dict) and guidance_dict.get("revealed_all_bank"):
+            data["study_notes"] = {
+                "common_bottlenecks_and_spofs": list(
+                    session_brief.get("common_bottlenecks_and_spofs") or []
+                )[:5],
+                "over_engineering_traps": list(
+                    session_brief.get("over_engineering_traps") or []
+                )[:4],
+                "defence_questions": list(session_brief.get("defence_questions") or [])[
+                    :4
+                ],
+            }
+        else:
+            data["study_notes"] = {}
         data.pop("session_brief", None)
         if reveal_variant:
             data["variant_title"] = session_brief.get("variant_title") or data.get(

@@ -42,7 +42,11 @@ from app.schemas.system_design import (
     DiagramHintResponse,
     DiagramRevisionRead,
     FinalEvaluationSchema,
+    FrontierCoachPromptRequest,
+    FrontierCoachPromptResponse,
+    FrontierDefencePromptResponse,
     FrontierEvaluationPacketRead,
+    FrontierReviewPromptResponse,
     ImportFrontierChallengeRequest,
     RequirementsLedgerSchema,
     RequirementsLedgerUpdateRequest,
@@ -186,7 +190,8 @@ HIDDEN INTERVIEWER BRIEF (GROUND TRUTH RUBRIC):
 
 STRICT SCORING & OUTPUT RULES:
 1. Score the candidate ONLY on demonstrated evidence in their requirements conversation, locked requirements ledger, submitted diagram reviews, and defence responses below.
-2. SCALE: Every dimension `score` MUST be an integer in 1..5 ONLY (1=poor/missing, 2=weak, 3=acceptable, 4=strong, 5=exceptional Staff level). NEVER use a 1-10 scale.
+2. SCALE: Every dimension `score` MUST be an integer in 1..5 ONLY (1=poor/missing, 2=weak, 3=acceptable, 4=strong, 5=exceptional Staff level). NEVER use a 1-10 scale and NEVER copy placeholder `3` for flawed areas.
+   - Anti-pattern / flaw calibration: If `architecture_reviews` or canvas evidence shows missing core tiers, single points of failure, synchronous bottlenecks violating latency SLAs, or shallow/dismissive defence answers, assign `1` or `2` to every affected dimension (do NOT grade-inflate broken designs to `3`-`4`). Conversely, honor valid alternative architectures (e.g. Managed API Gateway -> Serverless Functions, or Postgres-first YAGNI) with `4`-`5` when requirements and trade-offs are met.
 3. OVERALL SCORE: `overall_score` MUST be on a 0..100 scale and MUST match `round((sum(all 12 scores) / 60) * 100, 1)`.
    - `STRONG_HIRE`: 88.0 - 100.0
    - `INTERVIEW_READY`: 70.0 - 87.9
@@ -197,11 +202,8 @@ STRICT SCORING & OUTPUT RULES:
 5. EVIDENCE & ADVICE: Every single rubric item MUST have concise, concrete `evidence` (>= 5 chars referencing session artifacts) AND actionable `critique` advice (>= 5 chars explaining improvement or strength).
 6. TOKEN EFFICIENCY: Output the complete JSON object immediately with concise strings (1-2 sentences per field). Do NOT output `<think>` reasoning or markdown fences.
 
-Respond ONLY with a single complete JSON object matching this exact schema:
+Respond ONLY with a single complete JSON object matching this exact schema (compute `rubric_scores` first so `overall_score` matches their exact sum):
 {{
-  "overall_score": 0,
-  "readiness_rating": "NEEDS_PRACTICE | DEVELOPING | INTERVIEW_READY | STRONG_HIRE",
-  "executive_summary": "<2-3 sentence overall assessment>",
   "rubric_scores": [
     {{
       "dimension": "<exact dimension name from the 12 listed above>",
@@ -210,6 +212,9 @@ Respond ONLY with a single complete JSON object matching this exact schema:
       "critique": "<specific strength or gap and actionable improvement advice>"
     }}
   ],
+  "overall_score": 0,
+  "readiness_rating": "NEEDS_PRACTICE | DEVELOPING | INTERVIEW_READY | STRONG_HIRE",
+  "executive_summary": "<2-3 sentence overall assessment>",
   "key_strengths": ["<evidence-backed strength>"],
   "critical_gaps": ["<evidence-backed gap>"],
   "recommended_next_steps": ["<concrete practice or revision action>"]
@@ -998,6 +1003,40 @@ def _normalize_string_list(value: Any) -> list[str]:
     return []
 
 
+def _build_architecture_review_dict(
+    target_version: int, parsed: dict[str, Any]
+) -> dict[str, Any]:
+    """Validate and normalize a Stage 3 architecture review JSON payload."""
+    review = ArchitectureReviewSchema(
+        diagram_version=target_version,
+        interpreted_components=_normalize_string_list(
+            parsed.get("interpreted_components")
+        ),
+        interpreted_data_flows=_normalize_string_list(
+            parsed.get("interpreted_data_flows")
+        ),
+        visual_clarifications_needed=_normalize_string_list(
+            parsed.get("visual_clarifications_needed")
+        ),
+        strengths=_normalize_string_list(parsed.get("strengths")),
+        missing_components=_normalize_string_list(parsed.get("missing_components")),
+        bottlenecks_and_spofs=_normalize_string_list(
+            parsed.get("bottlenecks_and_spofs")
+        ),
+        unnecessary_complexity=_normalize_string_list(
+            parsed.get("unnecessary_complexity")
+        ),
+        requirement_gaps=_normalize_string_list(parsed.get("requirement_gaps")),
+        overall_impression=str(
+            parsed.get("overall_impression") or "Architecture review completed."
+        ).strip(),
+        suggested_defence_topics=_normalize_string_list(
+            parsed.get("suggested_defence_topics")
+        ),
+    )
+    return review.model_dump()
+
+
 def _normalize_scale_dict(value: Any) -> dict[str, str]:
     if not isinstance(value, dict):
         return {}
@@ -1015,6 +1054,38 @@ _RATING_TIERS = {
     "INTERVIEW_READY": 2,
     "STRONG_HIRE": 3,
 }
+
+
+def _compact_guidance_summary(raw_guidance: dict[str, Any] | None) -> dict[str, Any]:
+    """Return compact coaching telemetry and capability readiness without raw bank/path dumps."""
+    guidance = dict(raw_guidance or {})
+    raw_topo = guidance.get("last_topology_feedback")
+    return {
+        "is_coached": bool(guidance.get("is_coached")),
+        "hints_used_count": int(guidance.get("hints_used_count") or 0),
+        "revealed_all_bank": bool(guidance.get("revealed_all_bank")),
+        "coach_messages": [
+            {
+                "role": m.get("role"),
+                "content": str(m.get("content") or "")[:400],
+            }
+            for m in (guidance.get("coach_messages") or [])[-8:]
+            if isinstance(m, dict)
+        ],
+        "capability_checks": (
+            [
+                {
+                    "title": c.get("title"),
+                    "status": c.get("status"),
+                    "satisfied_by": c.get("satisfied_by"),
+                }
+                for c in (raw_topo.get("capability_checks") or [])
+                if isinstance(c, dict)
+            ]
+            if isinstance(raw_topo, dict)
+            else []
+        ),
+    }
 
 
 def _derive_readiness_rating(overall_score: float) -> str:
@@ -1166,7 +1237,12 @@ def _validate_final_evaluation_payload(raw_data: dict[str, Any]) -> dict[str, An
         numeric_overall = float(raw_overall)
         if numeric_overall < 0.0 or numeric_overall > 100.0:
             raise ValueError(f"overall_score {numeric_overall} violates 0..100 range.")
-        if abs(numeric_overall - computed_overall) > 15.0:
+        raw_overall_tier = _RATING_TIERS[_derive_readiness_rating(numeric_overall)]
+        computed_tier = _RATING_TIERS[_derive_readiness_rating(computed_overall)]
+        if abs(numeric_overall - computed_overall) > 35.0 or (
+            abs(numeric_overall - computed_overall) > 15.0
+            and abs(raw_overall_tier - computed_tier) >= 2
+        ):
             raise ValueError(
                 f"Contradictory overall_score ({numeric_overall}) vs rubric dimensions average "
                 f"({computed_overall} computed from 12 dimensions)."
@@ -2857,11 +2933,25 @@ class SystemDesignService:
             )
             else []
         )
+        study_notes = (
+            {
+                "common_bottlenecks_and_spofs": list(
+                    brief.get("common_bottlenecks_and_spofs") or []
+                )[:5],
+                "over_engineering_traps": list(
+                    brief.get("over_engineering_traps") or []
+                )[:4],
+                "defence_questions": list(brief.get("defence_questions") or [])[:4],
+            }
+            if revealed_all_bank
+            else {}
+        )
         return DiagramHintResponse(
             newly_revealed=newly_revealed,
             revealed_components=already_revealed,
             expected_paths=updated_guidance["expected_paths"],
             reference_actions=reference_actions,
+            study_notes=study_notes,
             topology_feedback=topology_feedback,
             next_connection_hint=next_connection_hint,
             is_coached=True,
@@ -3373,35 +3463,8 @@ class SystemDesignService:
         raw_text = _extract_text_content(llm_res.content)
         parsed = _parse_strict_json_object(raw_text)
 
-        review = ArchitectureReviewSchema(
-            diagram_version=target_version,
-            interpreted_components=_normalize_string_list(
-                parsed.get("interpreted_components")
-            ),
-            interpreted_data_flows=_normalize_string_list(
-                parsed.get("interpreted_data_flows")
-            ),
-            visual_clarifications_needed=_normalize_string_list(
-                parsed.get("visual_clarifications_needed")
-            ),
-            strengths=_normalize_string_list(parsed.get("strengths")),
-            missing_components=_normalize_string_list(parsed.get("missing_components")),
-            bottlenecks_and_spofs=_normalize_string_list(
-                parsed.get("bottlenecks_and_spofs")
-            ),
-            unnecessary_complexity=_normalize_string_list(
-                parsed.get("unnecessary_complexity")
-            ),
-            requirement_gaps=_normalize_string_list(parsed.get("requirement_gaps")),
-            overall_impression=str(
-                parsed.get("overall_impression") or "Architecture review completed."
-            ).strip(),
-            suggested_defence_topics=_normalize_string_list(
-                parsed.get("suggested_defence_topics")
-            ),
-        )
         return {
-            "review": review.model_dump(),
+            "review": _build_architecture_review_dict(target_version, parsed),
             "provider_telemetry": get_model_telemetry_metadata(
                 chat_model, "SYSTEM_DESIGN_REVIEWER"
             ),
@@ -3716,7 +3779,7 @@ class SystemDesignService:
         canvas_flows = SystemDesignService._collect_canvas_flow_summaries(
             session_id, diagrams_meta
         )
-        diagram_guidance = dict(session.diagram_guidance or {})
+        compact_guidance = _compact_guidance_summary(session.diagram_guidance)
 
         context_payload = {
             "mode": session.mode,
@@ -3724,7 +3787,7 @@ class SystemDesignService:
             "initial_prompt": challenge.initial_prompt,
             "assisted_turns_count": assisted_turns_count,
             "independent_turns_count": independent_turns_count,
-            "diagram_guidance": diagram_guidance,
+            "coaching_summary": compact_guidance,
             "requirements_transcript": session.requirements_transcript or [],
             "requirements_ledger": session.requirements_ledger or {},
             "diagram_revisions": diagrams_meta,
@@ -3777,18 +3840,28 @@ class SystemDesignService:
                 initial_err,
             )
             repair_used = True
+            evidence_excerpt = json.dumps(
+                {
+                    "architecture_reviews": context_payload.get("architecture_reviews")
+                    or [],
+                    "defence_transcript": context_payload.get("defence_transcript")
+                    or [],
+                },
+                indent=2,
+            )[:2500]
             repair_prompt = (
                 "Your previous JSON evaluation failed strict validation and was rejected.\n"
                 f"Validation Error: {initial_err}\n\n"
                 "REPAIR INSTRUCTIONS:\n"
                 "1. Output ONLY one complete valid JSON object (no markdown fences, no `<think>` reasoning).\n"
-                "2. Include ALL 12 exact rubric dimension names in `rubric_scores`:\n"
+                "2. Include ALL 12 exact rubric dimension names in `rubric_scores` FIRST:\n"
                 + "\n".join(f"- {dim}" for dim in DEFAULT_RUBRIC_DIMENSIONS)
-                + "\n3. Every dimension `score` MUST be an integer from 1 to 5 (NEVER 1-10).\n"
+                + "\n3. Every dimension `score` MUST be an integer from 1 to 5 (NEVER 1-10). Do NOT inflate scores above what the session evidence supports.\n"
                 "4. `overall_score` MUST be 0..100 equal to `round((sum(all 12 scores) / 60) * 100, 1)`.\n"
                 "5. Every dimension MUST include concrete `evidence` (>= 5 chars) and actionable `critique` advice (>= 5 chars).\n"
                 "6. Keep every string concise (1 sentence) so the JSON completes cleanly.\n\n"
-                f"Previous invalid output excerpt:\n{raw_text[:2500]}"
+                f"Grounded review & defence evidence excerpt:\n{evidence_excerpt}\n\n"
+                f"Previous invalid output excerpt:\n{raw_text[:2000]}"
             )
             repair_res = await _invoke_llm_adaptive(
                 chat_model,
@@ -3850,6 +3923,330 @@ class SystemDesignService:
         session.completed_at = now
         session.updated_at = now
         flag_modified(session, "final_evaluation")
+        await db.commit()
+        return await SystemDesignService.get_session(db, session_id)
+
+    @staticmethod
+    async def prepare_frontier_coach_prompt(
+        db: AsyncSession,
+        session_id: int,
+        payload: FrontierCoachPromptRequest,
+    ) -> FrontierCoachPromptResponse:
+        """Build a compact external Coach prompt (initial snapshot or canvas delta) and mark Coached."""
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+        SystemDesignService._ensure_requirements_locked(session)
+        if session.stage not in ("DESIGN", "REVIEW", "DEFENCE"):
+            raise ValueError(
+                f"External Coach prompts are available during Design stage (current: {session.stage})."
+            )
+
+        challenge = session.challenge
+        brief = SystemDesignService._get_session_brief(session)
+        blueprint = resolve_challenge_blueprint(
+            brief, session.requirements_ledger or {}
+        )
+        req_cloud = normalize_cloud_provider(payload.cloud_provider)
+        cloud_label = next(
+            (p["label"] for p in CLOUD_PROVIDERS if p["id"] == req_cloud),
+            "Generic (Cloud-Agnostic)",
+        )
+        flow_snapshot = {
+            "cloud_provider": req_cloud,
+            "nodes": [n for n in (payload.current_nodes or []) if isinstance(n, dict)],
+            "edges": [e for e in (payload.current_edges or []) if isinstance(e, dict)],
+            "notes": payload.current_notes or "",
+        }
+        flow_summary = summarize_diagram_flow(flow_snapshot)
+        topo_eval = evaluate_canvas_topology(flow_snapshot, blueprint, brief)
+        compact_caps = [
+            {
+                "title": c.get("title"),
+                "status": c.get("status"),
+                "satisfied_by": c.get("satisfied_by") or "",
+            }
+            for c in (topo_eval.get("capability_checks") or [])
+        ]
+        compact_warnings = [
+            {
+                "severity": f.get("severity"),
+                "title": f.get("title"),
+                "detail": f.get("detail"),
+            }
+            for f in (topo_eval.get("findings") or [])
+        ]
+
+        question_line = (
+            f"\n**Learner Question:** {payload.question.strip()}\n"
+            if str(payload.question or "").strip()
+            else "\n**Learner Request:** Coach me on my current canvas, validate trade-offs, and suggest next concrete steps without forcing a single rigid stack.\n"
+        )
+
+        if payload.prompt_kind == "delta":
+            sections = [
+                f"# Updated Canvas Snapshot — {challenge.title}",
+                f"- **Active Cloud Lens**: {cloud_label}",
+                f"- **Components ({len(flow_summary.get('components', []))})**: "
+                + (", ".join(flow_summary.get("components", [])) or "_Empty canvas_"),
+                "- **Wires**: "
+                + (
+                    " | ".join(flow_summary.get("directed_flows", []))
+                    or "_No wires yet_"
+                ),
+                f"- **Canvas Notes**: {payload.current_notes or 'None'}",
+                "",
+                "## Updated Capability Readiness & Diagnostics",
+                "```json",
+                json.dumps(
+                    {"capabilities": compact_caps, "diagnostics": compact_warnings},
+                    indent=2,
+                ),
+                "```",
+                question_line,
+            ]
+        else:
+            sections = [
+                f"# External System Design Studio Coach — {challenge.title}",
+                "",
+                "> **Instructions for Coach (ChatGPT / Claude / Gemini)**:",
+                "> 1. Act as a supportive, Socratic Staff Systems Architect coaching the learner visually as they build their diagram.",
+                "> 2. Respect defendable alternative architectures (e.g., Serverless vs App Service, NoSQL vs SQL+Replica, Queue vs Stream) whenever capabilities and SLAs are satisfied.",
+                f"> 3. Frame managed services idiomatically for Active Cloud Lens: **{cloud_label}**.",
+                '> 4. Optionally include a compact `CoachCanvasAction` JSON snippet if proposing blocks/edges to paste back into Studio (`{"id": "coach-step", "title": "...", "blocks": [{"type_id": "distributed_cache", "label": "Redis"}], "edges": [{"source_type_id": "app_service", "target_type_id": "distributed_cache", "label": "Cache lookup", "delivery_mode": "sync"}]}`).',
+                "",
+                f"## Scenario & Variant Focus\n- **Title**: {challenge.title}\n- **Cloud Lens**: {cloud_label}",
+                "",
+                "## Locked Stage 1 Requirements Ledger",
+                "```json",
+                json.dumps(session.requirements_ledger or {}, indent=2),
+                "```",
+                "",
+                "## Current Canvas Topology & Capability Readiness",
+                "```json",
+                json.dumps(
+                    {
+                        "components": flow_summary.get("components", []),
+                        "directed_flows": flow_summary.get("directed_flows", []),
+                        "notes": payload.current_notes or "",
+                        "capabilities": compact_caps,
+                        "diagnostics": compact_warnings,
+                    },
+                    indent=2,
+                ),
+                "```",
+                question_line,
+            ]
+
+        guidance = dict(session.diagram_guidance or {})
+        guidance["cloud_provider"] = req_cloud
+        guidance["is_coached"] = True
+        guidance["is_practice_run"] = True
+        guidance["last_topology_feedback"] = topo_eval
+        session.diagram_guidance = guidance
+        session.updated_at = datetime.now(UTC)
+        flag_modified(session, "diagram_guidance")
+        await db.commit()
+
+        refreshed = await SystemDesignService.get_session(db, session_id)
+        return FrontierCoachPromptResponse(
+            session_id=session.id,
+            filename=f"{challenge.slug}-studio-coach-{payload.prompt_kind}.md",
+            markdown_prompt="\n".join(sections),
+            is_coached=True,
+            session=SystemDesignSessionRead.model_validate(refreshed).model_dump(
+                mode="json"
+            ),
+        )
+
+    @staticmethod
+    async def prepare_frontier_review_prompt(
+        db: AsyncSession, session_id: int, diagram_version: int | None = None
+    ) -> FrontierReviewPromptResponse:
+        """Build a Stage 3 Architecture Review Markdown prompt ready for external frontier chat."""
+        ctx = await SystemDesignService.prepare_diagram_review_context(
+            db,
+            session_id=session_id,
+            diagram_version=diagram_version,
+            use_web_search=False,
+        )
+        session = await SystemDesignService.get_session(db, session_id)
+        target_version = int(ctx["target_version"])
+        diagram_kind = str(ctx["diagram_kind"])
+        file_path = Path(str(ctx["file_path"]))
+
+        sections = [
+            f"# External Stage 3 Architecture Review — {session.challenge.title} (Revision v{target_version})",
+            "",
+            str(ctx["sys_prompt"]),
+        ]
+        if diagram_kind == "canvas" and file_path.is_file():
+            flow_data = json.loads(file_path.read_text(encoding="utf-8"))
+            flow_summary = flow_data.get("flow_summary") or summarize_diagram_flow(
+                flow_data
+            )
+            sections.extend(
+                [
+                    "",
+                    "## Candidate Submitted Canvas Flow JSON",
+                    "```json",
+                    json.dumps(
+                        {
+                            "topology_summary": flow_summary,
+                            "nodes": flow_data.get("nodes", []),
+                            "edges": flow_data.get("edges", []),
+                            "notes": flow_data.get("notes", ""),
+                        },
+                        indent=2,
+                    ),
+                    "```",
+                ]
+            )
+        else:
+            sections.extend(
+                [
+                    "",
+                    "## Attached Diagram Image Notice",
+                    "Please upload/attach the exported diagram image alongside this prompt and inspect components, arrows, caches, databases, and SPOFs visually before answering with the JSON object.",
+                ]
+            )
+
+        return FrontierReviewPromptResponse(
+            session_id=session.id,
+            diagram_version=target_version,
+            filename=f"{session.challenge.slug}-v{target_version}-review-prompt.md",
+            markdown_prompt="\n".join(sections),
+        )
+
+    @staticmethod
+    async def import_frontier_review(
+        db: AsyncSession,
+        session_id: int,
+        raw_response: str,
+        diagram_version: int | None = None,
+    ) -> SystemDesignSessionModel:
+        """Validate & persist a Stage 3 Architecture Review JSON returned from an external frontier LLM."""
+        session = await SystemDesignService.get_session(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+        SystemDesignService._ensure_requirements_locked(session)
+        SystemDesignService._ensure_diagram_uploaded(session)
+        diagrams = list(session.diagrams_metadata or [])
+        target_version = (
+            int(diagram_version)
+            if diagram_version is not None
+            else int(diagrams[-1]["version"])
+        )
+        parsed = _parse_strict_json_object(raw_response)
+        review_dict = _build_architecture_review_dict(target_version, parsed)
+        return await SystemDesignService.persist_architecture_review(
+            db, session_id, review_dict
+        )
+
+    @staticmethod
+    async def prepare_frontier_defence_prompt(
+        db: AsyncSession, session_id: int
+    ) -> FrontierDefencePromptResponse:
+        """Build a self-contained Stage 4 Architecture Defence sparring prompt for external chat."""
+        session = await SystemDesignService.get_session(db, session_id)
+        SystemDesignService._ensure_requirements_locked(session)
+        SystemDesignService._ensure_diagram_uploaded(session)
+        SystemDesignService._ensure_review_completed(session)
+
+        challenge = session.challenge
+        session_brief = SystemDesignService._get_session_brief(session)
+        latest_review = (session.architecture_reviews or [])[-1]
+        canvas_flows = SystemDesignService._collect_canvas_flow_summaries(
+            session.id, list(session.diagrams_metadata or [])
+        )
+        sections = [
+            f"# External Stage 4 Architecture Defence — {challenge.title}",
+            "",
+            "> **Instructions for Interviewer (ChatGPT / Claude / Gemini)**:",
+            "> 1. Conduct an interactive Staff-level Architecture Defence against the candidate's submitted architecture below.",
+            "> 2. Probe ONE focused trade-off, failure mode, scaling bottleneck, or SPOF at a time. Honor valid equivalent stacks when defended rigorously.",
+            "> 3. When the candidate finishes sparring, produce a brief Q&A Defence Summary so they can paste it back into Job Tracker Stage 4 before Stage 5 scoring.",
+            "",
+            "## Locked Stage 1 Requirements",
+            "```json",
+            json.dumps(session.requirements_ledger or {}, indent=2),
+            "```",
+            "",
+            "## Latest Stage 3 Architecture Review",
+            "```json",
+            json.dumps(latest_review, indent=2),
+            "```",
+            "",
+            "## Submitted Diagram Flow Summaries",
+            "```json",
+            json.dumps(canvas_flows, indent=2),
+            "```",
+            "",
+            "## Hidden Defence Reference Probes",
+            "```json",
+            json.dumps(
+                {
+                    "common_bottlenecks_and_spofs": session_brief.get(
+                        "common_bottlenecks_and_spofs", []
+                    ),
+                    "defence_questions": session_brief.get("defence_questions", []),
+                },
+                indent=2,
+            ),
+            "```",
+        ]
+        return FrontierDefencePromptResponse(
+            session_id=session.id,
+            filename=f"{challenge.slug}-session-{session.id}-defence-prompt.md",
+            markdown_prompt="\n".join(sections),
+        )
+
+    @staticmethod
+    async def import_frontier_defence(
+        db: AsyncSession, session_id: int, summary_or_transcript: str
+    ) -> SystemDesignSessionModel:
+        """Record an external Defence sparring summary/transcript onto the session for Stage 5 grading."""
+        cleaned = str(summary_or_transcript or "").strip()
+        if len(cleaned) < 5:
+            raise ValueError(
+                "Defence summary/transcript must contain at least 5 characters."
+            )
+
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+        SystemDesignService._ensure_requirements_locked(session)
+        SystemDesignService._ensure_diagram_uploaded(session)
+        SystemDesignService._ensure_review_completed(session)
+        if session.stage not in ("REVIEW", "DEFENCE"):
+            raise ValueError(
+                f"External defence import requires a completed review (current stage: {session.stage})."
+            )
+
+        transcript = list(session.defence_transcript or [])
+        now_iso = datetime.now(UTC).isoformat()
+        transcript.append(
+            {
+                "turn_index": len(transcript) + 1,
+                "role": "candidate",
+                "content": cleaned,
+                "stage": "DEFENCE",
+                "assisted": False,
+                "external_frontier": True,
+                "timestamp": now_iso,
+            }
+        )
+        transcript.append(
+            {
+                "turn_index": len(transcript) + 1,
+                "role": "interviewer",
+                "content": "External Frontier Defence transcript logged for Stage 5 evidence evaluation. You may continue sparring or proceed to Final Evaluation.",
+                "stage": "DEFENCE",
+                "assisted": False,
+                "timestamp": now_iso,
+            }
+        )
+        session.defence_transcript = transcript
+        session.stage = "DEFENCE"
+        session.updated_at = datetime.now(UTC)
+        flag_modified(session, "defence_transcript")
         await db.commit()
         return await SystemDesignService.get_session(db, session_id)
 
@@ -3937,7 +4334,7 @@ class SystemDesignService:
         canvas_flows = SystemDesignService._collect_canvas_flow_summaries(
             session.id, diagrams
         )
-        diagram_guidance = dict(session.diagram_guidance or {})
+        compact_guidance = _compact_guidance_summary(session.diagram_guidance)
         latest_version = int(diagrams[-1]["version"]) if diagrams else None
         dimensions_md = "\n".join(f"- `{dim}`" for dim in DEFAULT_RUBRIC_DIMENSIONS)
 
@@ -3967,7 +4364,7 @@ class SystemDesignService:
             "",
             "> **Instructions for Frontier Evaluator (Claude / ChatGPT / Gemini)**:",
             "> 1. If the candidate uploaded their architecture diagram image alongside this prompt, inspect the image visually FIRST (check component boxes, arrows, stores, queues, replication, failure boundaries) before relying on local review summaries.",
-            "> 2. Score strictly on demonstrated evidence in the attached diagram, locked requirements ledger, requirements discovery transcript, and defence answers.",
+            "> 2. Score strictly on demonstrated evidence in the attached diagram, locked requirements ledger, requirements discovery transcript, and defence answers. Honor valid alternative architectures when capabilities and SLAs are met.",
             f"> 3. Note coaching telemetry: **{independent_count} independent** candidate turn(s) vs **{assisted_count} assisted/hint-requested** turn(s).",
             "> 4. Respond with a rigorous critique AND include ONE valid JSON code block matching the schema at the bottom so the candidate can import your scorecard directly back into Job Tracker.",
             "",
@@ -3989,13 +4386,13 @@ class SystemDesignService:
             json.dumps(session.requirements_ledger or {}, indent=2),
             "```",
             "",
-            "## 4. Submitted Diagram Revisions & Local AI Review Notes (Stages C & D)",
+            "## 4. Submitted Diagram Revisions & Review Summary (Stages C & D)",
             "```json",
             json.dumps(
                 {
                     "diagrams_metadata": diagrams,
                     "canvas_flows": canvas_flows,
-                    "diagram_guidance": diagram_guidance,
+                    "coaching_summary": compact_guidance,
                     "architecture_reviews": session.architecture_reviews or [],
                 },
                 indent=2,

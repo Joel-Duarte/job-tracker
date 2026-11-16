@@ -206,6 +206,12 @@ const useWebSearchDefence = ref(false)
 // Stage 4 & 5: Frontier Model Packet export/import state
 const importEvaluationText = ref('')
 const frontierCopied = ref(false)
+const showStage3ExternalReview = ref(false)
+const stage3ImportReviewText = ref('')
+const stage3ReviewCopied = ref(false)
+const showStage4ExternalDefence = ref(false)
+const stage4ImportDefenceText = ref('')
+const stage4DefenceCopied = ref(false)
 
 // Seed & Variant Launcher modal state
 const showSeedModal = ref(false)
@@ -1034,6 +1040,58 @@ async function handleImportFrontierEvaluation() {
       err.message || 'Could not parse JSON scorecard. Make sure a valid JSON evaluation block is included.',
       'error'
     )
+  }
+}
+
+async function handleCopyStage3ReviewPrompt() {
+  try {
+    const res = await store.prepareFrontierReviewPrompt(selectedDiagramVersion.value)
+    await _copyMarkdownText(
+      res?.markdown_prompt,
+      stage3ReviewCopied,
+      'Stage 3 Review prompt ready! Paste into ChatGPT/Claude (with diagram image if uploaded), then paste the JSON review back below.'
+    )
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to prepare Stage 3 review prompt', 'error')
+  }
+}
+
+async function handleImportStage3Review() {
+  const raw = stage3ImportReviewText.value.trim()
+  if (!raw || store.reviewingDiagram) return
+  try {
+    await store.importFrontierReview(raw, selectedDiagramVersion.value)
+    stage3ImportReviewText.value = ''
+    showStage3ExternalReview.value = false
+    uiStore.showToast('External Stage 3 Architecture Review imported!', 'success')
+  } catch (err) {
+    uiStore.showToast(err.message || 'Could not parse Stage 3 review JSON.', 'error')
+  }
+}
+
+async function handleCopyStage4DefencePrompt() {
+  try {
+    const res = await store.prepareFrontierDefencePrompt()
+    await _copyMarkdownText(
+      res?.markdown_prompt,
+      stage4DefenceCopied,
+      'Stage 4 Defence sparring prompt ready! Paste into ChatGPT/Claude to practice live, then log your summary below.'
+    )
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to prepare Stage 4 defence prompt', 'error')
+  }
+}
+
+async function handleImportStage4Defence() {
+  const raw = stage4ImportDefenceText.value.trim()
+  if (!raw || store.sendingDefence) return
+  try {
+    await store.importFrontierDefence(raw)
+    stage4ImportDefenceText.value = ''
+    showStage4ExternalDefence.value = false
+    uiStore.showToast('External Defence sparring logged for Stage 5 grading!', 'success')
+  } catch (err) {
+    uiStore.showToast(err.message || 'Unable to log Defence summary.', 'error')
   }
 }
 
@@ -2296,15 +2354,69 @@ onUnmounted(() => {
             <Globe :size="14" class="sd-primary-icon" />
             <span>Ground critique with Web Search</span>
           </label>
-          <button
-            type="button"
-            class="btn btn-primary"
-            :disabled="!store.activeDiagrams.length || store.reviewingDiagram"
-            @click="store.activeDiagrams.length ? handleAnalyzeArchitecture() : (activeStageTab = 'DESIGN')"
+          <div class="sd-empty-review-actions">
+            <button
+              type="button"
+              class="btn btn-primary"
+              :disabled="!store.activeDiagrams.length || store.reviewingDiagram"
+              @click="store.activeDiagrams.length ? handleAnalyzeArchitecture() : (activeStageTab = 'DESIGN')"
+            >
+              <Loader2 v-if="store.reviewingDiagram" :size="14" class="spin" />
+              <span>{{ store.activeDiagrams.length ? 'Analyze Latest Diagram' : 'Go Upload a Diagram' }}</span>
+            </button>
+            <button
+              v-if="store.activeDiagrams.length"
+              type="button"
+              class="btn btn-secondary"
+              data-testid="toggle-stage3-external-review-btn"
+              @click="showStage3ExternalReview = !showStage3ExternalReview"
+            >
+              <FileCode :size="14" />
+              <span>{{ showStage3ExternalReview ? 'Hide External AI Review' : 'Use External AI (ChatGPT/Claude)' }}</span>
+            </button>
+          </div>
+          <div
+            v-if="showStage3ExternalReview && store.activeDiagrams.length"
+            class="sd-external-bridge-box"
+            data-testid="stage3-external-review-panel"
           >
-            <Loader2 v-if="store.reviewingDiagram" :size="14" class="spin" />
-            <span>{{ store.activeDiagrams.length ? 'Analyze Latest Diagram' : 'Go Upload a Diagram' }}</span>
-          </button>
+            <div class="sd-external-bridge-actions">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                data-testid="copy-frontier-review-prompt-btn"
+                :disabled="store.loadingFrontierPacket"
+                @click="handleCopyStage3ReviewPrompt"
+              >
+                <Copy :size="13" />
+                <span>{{ stage3ReviewCopied ? 'Copied Review Prompt!' : 'Copy Stage 3 Review Prompt' }}</span>
+              </button>
+            </div>
+            <textarea
+              v-if="store.frontierReviewPrompt?.markdown_prompt"
+              :value="store.frontierReviewPrompt.markdown_prompt"
+              readonly
+              rows="4"
+              class="form-textarea sd-code-textarea"
+              data-testid="frontier-review-prompt-preview"
+            />
+            <textarea
+              v-model="stage3ImportReviewText"
+              rows="4"
+              class="form-textarea"
+              data-testid="import-frontier-review-textarea"
+              placeholder="Paste the Stage 3 Review JSON object from ChatGPT / Claude / Gemini..."
+            />
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              data-testid="import-frontier-review-submit-btn"
+              :disabled="!stage3ImportReviewText.trim() || store.reviewingDiagram"
+              @click="handleImportStage3Review"
+            >
+              <span>Import External Review JSON</span>
+            </button>
+          </div>
         </div>
 
         <template v-else>
@@ -2568,6 +2680,55 @@ onUnmounted(() => {
               <RotateCcw :size="14" />
               <span>Revise in Design Studio (v{{ (store.activeDiagrams.length || 0) + 1 }})</span>
             </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm w-full"
+              data-testid="toggle-stage4-external-defence-btn"
+              @click="showStage4ExternalDefence = !showStage4ExternalDefence"
+            >
+              <FileCode :size="13" />
+              <span>{{ showStage4ExternalDefence ? 'Hide External Defence' : 'Spar in External AI (ChatGPT/Claude)' }}</span>
+            </button>
+            <div
+              v-if="showStage4ExternalDefence"
+              class="sd-external-bridge-box"
+              data-testid="stage4-external-defence-panel"
+            >
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm w-full"
+                data-testid="copy-frontier-defence-prompt-btn"
+                :disabled="store.loadingFrontierPacket"
+                @click="handleCopyStage4DefencePrompt"
+              >
+                <Copy :size="13" />
+                <span>{{ stage4DefenceCopied ? 'Copied Defence Prompt!' : 'Copy Defence Sparring Prompt' }}</span>
+              </button>
+              <textarea
+                v-if="store.frontierDefencePrompt?.markdown_prompt"
+                :value="store.frontierDefencePrompt.markdown_prompt"
+                readonly
+                rows="3"
+                class="form-textarea sd-code-textarea"
+                data-testid="frontier-defence-prompt-preview"
+              />
+              <textarea
+                v-model="stage4ImportDefenceText"
+                rows="3"
+                class="form-textarea"
+                data-testid="import-frontier-defence-textarea"
+                placeholder="Paste your external Defence Q&A summary for Stage 5 grading..."
+              />
+              <button
+                type="button"
+                class="btn btn-primary btn-sm w-full"
+                data-testid="import-frontier-defence-submit-btn"
+                :disabled="!stage4ImportDefenceText.trim() || store.sendingDefence"
+                @click="handleImportStage4Defence"
+              >
+                <span>Log External Defence</span>
+              </button>
+            </div>
             <button
               type="button"
               class="btn btn-primary w-full"
@@ -4336,5 +4497,32 @@ onUnmounted(() => {
   .stage-stepper {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+.sd-empty-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.sd-external-bridge-box {
+  width: 100%;
+  max-width: 680px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.sd-external-bridge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 </style>

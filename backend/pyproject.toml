@@ -54,6 +54,7 @@ testpaths = ["app/tests"]
 asyncio_mode = "auto"
 markers = [
     "docker: marks tests requiring Docker or a live PostgreSQL database",
+    "llm_eval: marks live local LLM golden evaluation benchmarks (opt-in)",
 ]
 
 [tool.ruff]

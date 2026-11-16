@@ -4439,12 +4439,28 @@ export async function handleDemoRequest(config) {
               data.cloud_provider || 'generic'
             )
           : []
+      const demoStudyNotes = revealedAll
+        ? {
+            common_bottlenecks_and_spofs: [
+              'Single primary DB sequence or hot cache key saturation under traffic bursts.',
+              'Synchronous analytics writes inside redirect/critical read paths.',
+            ],
+            over_engineering_traps: [
+              'Adding heavyweight distributed streaming engines when simple async batching suffices.',
+            ],
+            defence_questions: [
+              'How does your architecture survive single-shard hot keys and cache stampedes?',
+            ],
+          }
+        : {}
+      session.study_notes = demoStudyNotes
       saveDemoDb(db)
       return ok({
         newly_revealed: newlyRevealed,
         revealed_components: alreadyRevealed,
         expected_paths: pathMilestones,
         reference_actions: referenceActions,
+        study_notes: demoStudyNotes,
         topology_feedback: topologyFeedback,
         next_connection_hint: nextConnectionHint,
         hints_used_count: hintsCount,
@@ -4875,6 +4891,157 @@ export async function handleDemoRequest(config) {
       session.updated_at = nowIso
       saveDemoDb(db)
       return ok(session)
+    }
+
+    const sdFrontierCoachMatch = urlPath.match(
+      /^\/system-design\/sessions\/([^/]+)\/diagrams\/frontier-coach-prompt$/
+    )
+    if (sdFrontierCoachMatch && method === 'post') {
+      const sid = Number(sdFrontierCoachMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const kind = data.prompt_kind === 'delta' ? 'delta' : 'initial'
+      const nodes = Array.isArray(data.current_nodes) ? data.current_nodes : []
+      const edges = Array.isArray(data.current_edges) ? data.current_edges : []
+      const { expectedItems, expectedPaths } = demoResolveExpectedBlueprint(session.challenge, session)
+      const topoFeedback = demoEvaluateTopology(expectedItems, expectedPaths, nodes, edges, data.current_notes || '')
+      session.diagram_guidance = {
+        ...(session.diagram_guidance || {}),
+        is_coached: true,
+        is_practice_run: true,
+        last_topology_feedback: topoFeedback,
+      }
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      const md = [
+        kind === 'delta'
+          ? `# Updated Canvas Snapshot — ${session.challenge?.title || 'System Design'}`
+          : `# External System Design Studio Coach — ${session.challenge?.title || 'System Design'}`,
+        `- Cloud Lens: ${data.cloud_provider || 'generic'}`,
+        `- Placed Components (${nodes.length}): ${nodes.map((n) => n.label || n.type_id).join(', ') || 'None'}`,
+        `- Wires (${edges.length})`,
+        `- Capabilities: ${JSON.stringify(topoFeedback.capability_checks || [])}`,
+      ].join('\n')
+      return ok({
+        session_id: sid,
+        filename: `${session.challenge?.slug || 'system-design'}-studio-coach-${kind}.md`,
+        markdown_prompt: md,
+        is_coached: true,
+        session: demoAttachPaletteExtensions(session),
+      })
+    }
+
+    const sdFrontierReviewPromptMatch = urlPath.match(
+      /^\/system-design\/sessions\/([^/]+)\/review\/frontier-prompt$/
+    )
+    if (sdFrontierReviewPromptMatch && method === 'post') {
+      const sid = Number(sdFrontierReviewPromptMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const diagrams = session.diagrams_metadata || []
+      const latestVersion = diagrams.length ? Number(diagrams[diagrams.length - 1].version || 1) : 1
+      return ok({
+        session_id: sid,
+        diagram_version: Number(data.diagram_version || latestVersion),
+        filename: `${session.challenge?.slug || 'system-design'}-v${latestVersion}-review-prompt.md`,
+        markdown_prompt: `# External Stage 3 Architecture Review — ${session.challenge?.title || 'System Design'}\nReturn a valid Stage 3 Review JSON object.`,
+      })
+    }
+
+    const sdImportReviewMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/review\/import$/)
+    if (sdImportReviewMatch && method === 'post') {
+      const sid = Number(sdImportReviewMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const raw = String(data.raw_response || '').trim()
+      let parsed = null
+      const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
+      for (const cand of [fenced ? fenced[1].trim() : null, raw].filter(Boolean)) {
+        try {
+          const obj = JSON.parse(cand)
+          if (obj && typeof obj === 'object') {
+            parsed = obj
+            break
+          }
+        } catch {
+          // continue
+        }
+      }
+      if (!parsed) return { status: 400, data: { detail: 'Could not extract a valid JSON review object.' } }
+      const diagrams = session.diagrams_metadata || []
+      const targetVersion = Number(
+        data.diagram_version || (diagrams.length ? diagrams[diagrams.length - 1].version : 1)
+      )
+      const reviewObj = {
+        diagram_version: targetVersion,
+        interpreted_components: Array.isArray(parsed.interpreted_components) ? parsed.interpreted_components : [],
+        interpreted_data_flows: Array.isArray(parsed.interpreted_data_flows) ? parsed.interpreted_data_flows : [],
+        visual_clarifications_needed: Array.isArray(parsed.visual_clarifications_needed) ? parsed.visual_clarifications_needed : [],
+        strengths: Array.isArray(parsed.strengths) ? parsed.strengths : [],
+        missing_components: Array.isArray(parsed.missing_components) ? parsed.missing_components : [],
+        bottlenecks_and_spofs: Array.isArray(parsed.bottlenecks_and_spofs) ? parsed.bottlenecks_and_spofs : [],
+        unnecessary_complexity: Array.isArray(parsed.unnecessary_complexity) ? parsed.unnecessary_complexity : [],
+        requirement_gaps: Array.isArray(parsed.requirement_gaps) ? parsed.requirement_gaps : [],
+        overall_impression: String(parsed.overall_impression || 'External Stage 3 review imported.'),
+        suggested_defence_topics: Array.isArray(parsed.suggested_defence_topics) ? parsed.suggested_defence_topics : [],
+      }
+      session.architecture_reviews = [
+        ...(session.architecture_reviews || []).filter((r) => Number(r.diagram_version) !== targetVersion),
+        reviewObj,
+      ]
+      if (session.stage === 'DESIGN') session.stage = 'REVIEW'
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(demoAttachPaletteExtensions(session))
+    }
+
+    const sdFrontierDefencePromptMatch = urlPath.match(
+      /^\/system-design\/sessions\/([^/]+)\/defence\/frontier-prompt$/
+    )
+    if (sdFrontierDefencePromptMatch && method === 'post') {
+      const sid = Number(sdFrontierDefencePromptMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      return ok({
+        session_id: sid,
+        filename: `${session.challenge?.slug || 'system-design'}-session-${sid}-defence-prompt.md`,
+        markdown_prompt: `# External Stage 4 Architecture Defence — ${session.challenge?.title || 'System Design'}\nSpar on trade-offs & failure modes, then paste summary back.`,
+      })
+    }
+
+    const sdImportDefenceMatch = urlPath.match(
+      /^\/system-design\/sessions\/([^/]+)\/defence\/import$/
+    )
+    if (sdImportDefenceMatch && method === 'post') {
+      const sid = Number(sdImportDefenceMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const text = String(data.summary_or_transcript || '').trim()
+      if (text.length < 5) return { status: 400, data: { detail: 'Defence summary too short.' } }
+      const transcript = session.defence_transcript || []
+      const nowIso = new Date().toISOString()
+      transcript.push({
+        turn_index: transcript.length + 1,
+        role: 'candidate',
+        content: text,
+        stage: 'DEFENCE',
+        assisted: false,
+        external_frontier: true,
+        timestamp: nowIso,
+      })
+      transcript.push({
+        turn_index: transcript.length + 1,
+        role: 'interviewer',
+        content: 'External Frontier Defence transcript logged for Stage 5 evidence evaluation.',
+        stage: 'DEFENCE',
+        assisted: false,
+        timestamp: nowIso,
+      })
+      session.defence_transcript = transcript
+      session.stage = 'DEFENCE'
+      session.updated_at = nowIso
+      saveDemoDb(db)
+      return ok(demoAttachPaletteExtensions(session))
     }
   }
 

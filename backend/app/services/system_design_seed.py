@@ -1155,6 +1155,12 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
                                 ),
                                 _step(
                                     "app_service",
+                                    "distributed_cache",
+                                    "Cache active room state",
+                                    "Keep active room definitions fast in Redis.",
+                                ),
+                                _step(
+                                    "app_service",
                                     "relational_db",
                                     "Query track & room metadata",
                                     "Store durable catalog & active room definitions.",
@@ -1541,6 +1547,12 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
                                     "Dispatch with signed payload and delivery receipt.",
                                 ),
                                 _step(
+                                    "notification_hub",
+                                    "mobile_client",
+                                    "Alert trader device (<500ms)",
+                                    "Deliver cryptographically signed execution/fraud alert to client.",
+                                ),
+                                _step(
                                     "async_worker",
                                     "object_storage",
                                     "Append immutable WORM audit",
@@ -1672,6 +1684,12 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
                                     "Consume sharded token batch",
                                     "Read pre-materialized push segments without hitting primary DB.",
                                     "async",
+                                ),
+                                _step(
+                                    "async_worker",
+                                    "distributed_cache",
+                                    "Read sharded token segments",
+                                    "Fetch cached push target batches cleanly without DB joins.",
                                 ),
                                 _step(
                                     "async_worker",
@@ -3446,6 +3464,18 @@ CURATED_CHALLENGES: list[dict[str, Any]] = [
                             "id": "large_channel_fanout",
                             "title": "Multiplexed Large-Channel Broadcast Path (25k Users)",
                             "steps": [
+                                _step(
+                                    "web_client",
+                                    "api_gateway",
+                                    "Workspace boot & SSO",
+                                    "Lazy-hydrate workspace metadata via tenant gateway.",
+                                ),
+                                _step(
+                                    "api_gateway",
+                                    "app_service",
+                                    "Load workspace metadata",
+                                    "Fetch joined channels cleanly with tenant ACLs.",
+                                ),
                                 _step(
                                     "web_client",
                                     "realtime_gateway",

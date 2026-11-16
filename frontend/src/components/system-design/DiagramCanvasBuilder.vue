@@ -98,6 +98,38 @@ const selectedNodeEquivalents = computed(() => {
   return getBlockEquivalents(selectedNode.value.data.type_id, catalogBlocks.value)
 })
 
+const RESILIENCE_CHIPS_BY_TYPE = {
+  id_generator: ['Pre-allocated Base62 key ranges', 'Active-active standby KGS nodes', 'ZooKeeper/etcd range leases'],
+  relational_db: ['Multi-AZ Primary-Replica failover', 'Sharded partition key + TTL index', 'Connection pool (PgBouncer)'],
+  nosql_kv: ['Partitioned for high-QPS key distribution', 'Multi-AZ quorum replication', 'Native item TTL lifecycle'],
+  read_replica: ['Absorb cold cache-miss reads', 'Async replication lag tolerated'],
+  distributed_cache: ['LRU eviction + bounded TTL', 'Singleflight stampede guard', 'Cluster shard + hot-key replication'],
+  local_cache: ['Short 5s in-memory hot-key TTL', 'Caps single-key shard spikes'],
+  app_service: ['Stateless horizontal autoscaling', 'Circuit-broken downstream timeouts'],
+  serverless_fn: ['Provisioned concurrency for tail SLA', 'Pooled DB / RDS Proxy connections'],
+  message_queue: ['At-least-once + idempotency key', 'Dead-Letter Queue + exponential backoff'],
+  event_stream: ['Partitioned by entity/tenant ID', 'Consumer checkpoint + lag monitoring'],
+  stream_processor: ['Tumbling/sliding state checkpoints', 'GDPR PII anonymization before sink'],
+}
+
+const selectedNodeNoteChips = computed(() => {
+  const tid = selectedNode.value?.data?.type_id || ''
+  return (
+    RESILIENCE_CHIPS_BY_TYPE[tid] || [
+      'Multi-AZ redundancy & health checks',
+      'Bounded timeouts + graceful degradation',
+    ]
+  )
+})
+
+function appendResilienceChip(chipText) {
+  if (!selectedNode.value) return
+  pushUndoSnapshot()
+  const current = String(selectedNode.value.data.notes || '').trim()
+  if (current.toLowerCase().includes(chipText.toLowerCase())) return
+  selectedNode.value.data.notes = current ? `${current}; ${chipText}` : chipText
+}
+
 const activeHintEquivalents = computed(() => {
   if (!activeHintDetail.value?.type_id) return []
   return getBlockEquivalents(activeHintDetail.value.type_id, catalogBlocks.value)
@@ -1058,6 +1090,19 @@ defineExpose({
               placeholder="Sharding, TTL, replication..."
             />
           </label>
+          <div class="sd-resilience-chips" data-testid="node-resilience-chips">
+            <button
+              v-for="chip in selectedNodeNoteChips"
+              :key="chip"
+              type="button"
+              class="sd-resilience-chip-btn"
+              data-testid="node-resilience-chip"
+              title="Click to document this trade-off / hardening pattern"
+              @click="appendResilienceChip(chip)"
+            >
+              + {{ chip }}
+            </button>
+          </div>
           <div v-if="selectedNodeEquivalents.length" class="sd-cloud-eq-section" data-testid="node-cloud-equivalents">
             <span class="sd-cloud-eq-title">Cross-Cloud Equivalents</span>
             <div class="sd-cloud-eq-grid">
@@ -1719,5 +1764,27 @@ defineExpose({
   .sd-flow-stage {
     min-height: 460px;
   }
+}
+
+.sd-resilience-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.sd-resilience-chip-btn {
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px dashed color-mix(in srgb, var(--accent, #3b82f6) 45%, var(--border-subtle, #334155));
+  background: color-mix(in srgb, var(--accent, #3b82f6) 8%, transparent);
+  color: var(--text-main, #f8fafc);
+  font-size: 0.69rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sd-resilience-chip-btn:hover {
+  background: color-mix(in srgb, var(--accent, #3b82f6) 16%, transparent);
 }
 </style>
