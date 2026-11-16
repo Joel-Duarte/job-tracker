@@ -1,0 +1,52 @@
+[
+  {
+    "id": "application_qa_proudest_and_honest_gap",
+    "pipeline": "application_qa",
+    "persona_id": "marcus_ai_backend",
+    "human_rationale": "Real DB form prompt mix: 'What is your proudest engineering moment?' (must cite real FastAPI/LangGraph/PostgreSQL work with zero fabricated % metrics) + direct missing-skill question ('Do you have production Rust experience?') requiring honest disclosure.",
+    "company_name": "Orbital Cloud",
+    "position": "Senior Backend Engineer",
+    "job_description": "Seeking backend engineer with FastAPI, PostgreSQL, Redis; Rust is a bonus.",
+    "questions": [
+      {
+        "id": "q_proudest",
+        "question": "What is your proudest engineering project or moment?",
+        "word_limit": 120
+      },
+      {
+        "id": "q_rust",
+        "question": "Do you have production experience with Rust?",
+        "word_limit": 80
+      }
+    ],
+    "q1_must_include_any": ["FastAPI", "PostgreSQL", "Redis", "LangGraph", "Kubernetes", "pgvector", "Go"],
+    "q2_must_acknowledge_gap_any": ["no ", "not ", "lack", "don't", "do not", "haven't", "without", "unlisted", "absent", "instead", "python", "go"],
+    "q2_must_not_claim": ["years of production rust", "expert in rust", "built production services in rust"],
+    "ban_unverified_percentages": true
+  },
+  {
+    "id": "application_qa_motivational_why_company",
+    "pipeline": "application_qa",
+    "persona_id": "elena_frontend_react",
+    "human_rationale": "Real DB form archetype ('Why SignalWave UI?'): must ground in provided company_research facts & respect tight 80-word limit without hallucinating unprovided revenue or team headcount.",
+    "company_name": "SignalWave UI",
+    "position": "Frontend Engineer",
+    "job_description": "Frontend Engineer working on accessible React 19 and Playwright test automation.",
+    "company_research": {
+      "summary": "SignalWave UI builds web observability dashboards and is migrating to React 19 with Vite.",
+      "verified_facts": [
+        "Migrating web observability console to React 19 and Vite",
+        "Prioritizes WCAG AA UI accessibility"
+      ]
+    },
+    "questions": [
+      {
+        "id": "q_why",
+        "question": "Why are you excited to join SignalWave UI?",
+        "word_limit": 80
+      }
+    ],
+    "q1_must_include_any": ["React", "Vite", "TypeScript", "accessibility", "observability", "WCAG", "Playwright"],
+    "max_words_q1": 100
+  }
+]

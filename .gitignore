@@ -156,6 +156,5 @@ skills-lock.json
 # Local product showcase workspace (source, captures, audio, and exports)
 /product-video/
 
-# Local DB golden dataset staging exports (scrubbed for manual review before promoting)
-backend/data/golden_staging/
+# Local golden eval reports
 backend/.eval_reports/

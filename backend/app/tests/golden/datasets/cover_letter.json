@@ -1,0 +1,39 @@
+[
+  {
+    "id": "cover_letter_strict_grounding_no_metrics",
+    "pipeline": "cover_letter",
+    "persona_id": "marcus_ai_backend",
+    "human_rationale": "Marcus's CV lists zero percentage/latency numbers; cover letter must cite FastAPI/PostgreSQL/Redis accurately without claiming production Elixir/Rust or inventing fake metrics like '40% latency reduction'.",
+    "company_name": "Orbital Cloud",
+    "position": "Senior Backend Engineer",
+    "job_description": "We are seeking a Senior Backend Engineer experienced with Python, FastAPI, PostgreSQL, and Redis. Bonus nice-to-have skills: Rust, Elixir.",
+    "must_include_any": ["FastAPI", "PostgreSQL", "Redis", "Python"],
+    "must_not_claim_unverified": [
+      "years of rust",
+      "production rust",
+      "built rust",
+      "years of elixir",
+      "production elixir",
+      "built elixir"
+    ],
+    "ban_unverified_percentages": true
+  },
+  {
+    "id": "cover_letter_elena_company_research",
+    "pipeline": "cover_letter",
+    "persona_id": "elena_frontend_react",
+    "human_rationale": "Cover letter using Elena's React/TypeScript CV + verified company_research hook ('migrating legacy dashboard to React 19 + Vite') without fabricating funding numbers or backend skills.",
+    "company_name": "SignalWave UI",
+    "position": "Frontend Platform Engineer",
+    "job_description": "Build high-accessibility design systems and responsive analytics portals in React, TypeScript, Vite, and Playwright.",
+    "company_research": {
+      "summary": "SignalWave UI builds observability consoles for web engineering teams and is currently migrating its legacy dashboard to React 19 and Vite.",
+      "verified_facts": [
+        "Migrating legacy dashboard architecture to React 19 and Vite",
+        "Focused on WCAG AA accessible enterprise analytics components"
+      ]
+    },
+    "must_include_any": ["React", "TypeScript", "Vite", "Playwright"],
+    "must_not_claim_unverified": ["kubernetes", "rust", "series c", "$50m"]
+  }
+]

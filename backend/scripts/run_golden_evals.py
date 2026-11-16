@@ -16,6 +16,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -98,6 +99,14 @@ async def evaluate_pipeline_scenario(
                 failures.append(f"Expected salary_min={exp_min}, got {res.salary_min}")
             if exp_max is not None and res.salary_max != exp_max:
                 failures.append(f"Expected salary_max={exp_max}, got {res.salary_max}")
+            exp_cur = scenario.get("expected_currency")
+            if exp_cur and (res.currency or "").upper() != exp_cur.upper():
+                failures.append(f"Expected currency={exp_cur}, got {res.currency!r}")
+            exp_per = scenario.get("expected_salary_period")
+            if exp_per and (res.salary_period or "").upper() != exp_per.upper():
+                failures.append(
+                    f"Expected salary_period={exp_per}, got {res.salary_period!r}"
+                )
             for field_name in scenario.get("must_be_null_if_unstated") or []:
                 if getattr(res, field_name, None):
                     failures.append(
@@ -110,14 +119,19 @@ async def evaluate_pipeline_scenario(
             job_description=scenario["job_description"],
             candidate_skills=scenario.get("candidate_skills"),
             candidate_cv=scenario.get("candidate_cv"),
+            candidate_spoken_languages=scenario.get("candidate_spoken_languages"),
             candidate_years_of_experience=scenario.get("candidate_years_of_experience"),
             programmatic_baseline=scenario.get("programmatic_baseline"),
             matching_skills=scenario.get("matching_skills"),
             missing_skills=scenario.get("missing_skills"),
         )
+        lang_res = res.language_match
         details = {
             "fit_score": res.fit_score,
             "recommendation": res.recommendation,
+            "seniority_fit": res.seniority_fit,
+            "lang_matched": lang_res.is_matched if lang_res else None,
+            "missing_mandatory_langs": lang_res.missing_mandatory if lang_res else [],
             "critical_risks": res.critical_risks,
         }
         if (
@@ -132,6 +146,44 @@ async def evaluate_pipeline_scenario(
             failures.append(
                 f"recommendation '{res.recommendation}' not in {allowed_recs}"
             )
+        exp_seniority = scenario.get("expected_seniority_fit")
+        if exp_seniority and (res.seniority_fit or "").upper() != exp_seniority.upper():
+            failures.append(
+                f"Expected seniority_fit={exp_seniority}, got {res.seniority_fit!r}"
+            )
+        exp_lang_match = scenario.get("expect_language_matched")
+        if exp_lang_match is not None and lang_res is not None:
+            if bool(lang_res.is_matched) != bool(exp_lang_match):
+                failures.append(
+                    f"Expected language_match.is_matched={exp_lang_match}, got {lang_res.is_matched} (missing={lang_res.missing_mandatory})"
+                )
+        if "expect_missing_mandatory_langs" in scenario and lang_res is not None:
+            if (lang_res.missing_mandatory or []) != scenario[
+                "expect_missing_mandatory_langs"
+            ]:
+                failures.append(
+                    f"Expected missing_mandatory={scenario['expect_missing_mandatory_langs']}, got {lang_res.missing_mandatory}"
+                )
+        req_missing_langs = scenario.get("expect_missing_mandatory_any") or []
+        if req_missing_langs and lang_res is not None:
+            mm_blob = " ".join(
+                (lang_res.missing_mandatory or []) + (res.critical_risks or [])
+            ).lower()
+            if not any(t.lower() in mm_blob for t in req_missing_langs):
+                failures.append(
+                    f"Expected any of {req_missing_langs} in missing_mandatory/risks, got {lang_res.missing_mandatory}"
+                )
+        banned_risks = scenario.get("banned_risk_substrings") or []
+        if banned_risks:
+            risk_blob = " ".join(
+                (res.critical_risks or [])
+                + (res.cons or [])
+                + ([lang_res.warning] if lang_res and lang_res.warning else [])
+                + (lang_res.missing_mandatory if lang_res else [])
+            ).lower()
+            for b in banned_risks:
+                if b.lower() in risk_blob:
+                    failures.append(f"Banned false risk leaked: '{b}'")
         gap_terms = scenario.get("expect_gap_terms_any") or []
         if gap_terms:
             gap_blob = " ".join(
@@ -172,6 +224,16 @@ async def evaluate_pipeline_scenario(
         exp_company = scenario.get("expect_company")
         if exp_company and exp_company.lower() not in (res.company or "").lower():
             failures.append(f"Expected company '{exp_company}', got {res.company!r}")
+        exp_status = scenario.get("expected_status_any") or []
+        if exp_status and (res.status or "").upper() not in [
+            s.upper() for s in exp_status
+        ]:
+            failures.append(f"Expected status in {exp_status}, got {res.status!r}")
+        for banned_st in scenario.get("banned_status_values") or []:
+            if (res.status or "").upper() == banned_st.upper():
+                failures.append(
+                    f"Thread-isolation leak: got banned status {res.status!r}"
+                )
         for fld in scenario.get("expect_non_empty_fields") or []:
             if not getattr(res, fld, None):
                 failures.append(f"Expected non-empty '{fld}', got None/empty")
@@ -186,6 +248,7 @@ async def evaluate_pipeline_scenario(
             position=scenario["position"],
             job_description=scenario["job_description"],
             candidate_cv=scenario["candidate_cv"],
+            company_research=scenario.get("company_research"),
         )
         low = text.lower()
         details = {"length": len(text)}
@@ -199,6 +262,12 @@ async def evaluate_pipeline_scenario(
         for bad in scenario.get("must_not_claim_unverified") or []:
             if bad.lower() in low:
                 failures.append(f"Fabricated unverified claim detected: '{bad}'")
+        if scenario.get("ban_unverified_percentages"):
+            pct_hits = re.findall(r"\b\d+(?:\.\d+)?%", text)
+            if pct_hits:
+                failures.append(
+                    f"Fabricated unverified percentage metric(s): {pct_hits}"
+                )
 
     elif pipeline == "application_qa":
         answers = await generate_application_answers(
@@ -208,6 +277,7 @@ async def evaluate_pipeline_scenario(
             job_description=scenario["job_description"],
             candidate_cv=scenario["candidate_cv"],
             questions=scenario["questions"],
+            company_research=scenario.get("company_research"),
         )
         details = {"answers_count": len(answers)}
         if len(answers) < len(scenario["questions"]):
@@ -215,23 +285,35 @@ async def evaluate_pipeline_scenario(
                 f"Expected {len(scenario['questions'])} answers, got {len(answers)}"
             )
         else:
-            a1 = str(answers[0].get("answer") or "").lower()
-            a2 = str(answers[1].get("answer") or "").lower()
+            a1 = str(answers[0].get("answer") or "")
+            a1_low = a1.lower()
             if not any(
-                t.lower() in a1 for t in scenario.get("q1_must_include_any") or []
+                t.lower() in a1_low for t in scenario.get("q1_must_include_any") or []
             ):
-                failures.append("Answer 1 did not cite any grounded CV technology")
-            if not any(
-                t in a2 for t in scenario.get("q2_must_acknowledge_gap_any") or []
-            ):
+                failures.append("Answer 1 did not cite any grounded CV/research term")
+            max_w = scenario.get("max_words_q1")
+            if max_w is not None and len(a1.split()) > int(max_w):
                 failures.append(
-                    f"Answer 2 did not honestly acknowledge missing Rust gap: {a2[:200]}"
+                    f"Answer 1 exceeded max_words_q1={max_w}: got {len(a1.split())} words"
                 )
-            for bad in scenario.get("q2_must_not_claim") or []:
-                if bad.lower() in a2:
+            if scenario.get("ban_unverified_percentages"):
+                pct_hits = re.findall(r"\b\d+(?:\.\d+)?%", a1)
+                if pct_hits:
                     failures.append(
-                        f"Answer 2 fabricated unverified Rust claim: '{bad}'"
+                        f"Answer 1 fabricated unverified percentage metric(s): {pct_hits}"
                     )
+            if len(answers) >= 2:
+                a2_low = str(answers[1].get("answer") or "").lower()
+                gap_any = scenario.get("q2_must_acknowledge_gap_any") or []
+                if gap_any and not any(t in a2_low for t in gap_any):
+                    failures.append(
+                        f"Answer 2 did not honestly acknowledge missing gap: {a2_low[:200]}"
+                    )
+                for bad in scenario.get("q2_must_not_claim") or []:
+                    if bad.lower() in a2_low:
+                        failures.append(
+                            f"Answer 2 fabricated unverified claim: '{bad}'"
+                        )
     else:
         failures.append(f"Unknown pipeline '{pipeline}'")
 
