@@ -241,11 +241,49 @@ class DiagramHintResponse(BaseModel):
     topology_feedback: dict[str, Any] | None = None
     next_connection_hint: dict[str, Any] | None = None
     is_practice_run: bool = False
+    is_coached: bool = True
     hints_used_count: int = 0
     revealed_all_bank: bool = False
     penalty_points: float = 0.0
     remaining_expected_count: int = 0
     message: str = ""
+    session: dict[str, Any] | None = None
+
+
+class RequirementsRevealRequest(BaseModel):
+    """Optional request payload for Stage 1 Reveal Requirements shortcut."""
+
+    lock_and_proceed: bool = False
+
+
+class CoachCanvasAction(BaseModel):
+    """Executable non-destructive canvas placement/wiring suggestion from the Studio Coach."""
+
+    id: str
+    title: str
+    description: str = ""
+    blocks: list[dict[str, Any]] = Field(default_factory=list)
+    edges: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class DiagramCoachChatRequest(BaseModel):
+    """Candidate message sent to the interactive Studio Coach alongside live canvas state."""
+
+    message: str = Field(..., min_length=1, max_length=2000)
+    current_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    current_edges: list[dict[str, Any]] = Field(default_factory=list)
+    current_notes: str = Field(default="", max_length=4000)
+
+
+class DiagramCoachChatResponse(BaseModel):
+    """Interactive Coach reply plus clickable Apply-to-Canvas architecture actions."""
+
+    reply: str
+    suggested_actions: list[CoachCanvasAction] = Field(default_factory=list)
+    coach_messages: list[dict[str, Any]] = Field(default_factory=list)
+    expected_paths: list[dict[str, Any]] = Field(default_factory=list)
+    topology_feedback: dict[str, Any] | None = None
+    is_coached: bool = True
     session: dict[str, Any] | None = None
 
 
@@ -315,6 +353,8 @@ class FinalEvaluationSchema(BaseModel):
     overall_score: float = Field(ge=0.0, le=100.0)
     raw_score: float | None = Field(default=None, ge=0.0, le=100.0)
     guidance_penalty: float = Field(default=0.0, ge=0.0, le=100.0)
+    assistance_mode: Literal["SOLO", "COACHED"] = "SOLO"
+    xp_earned: int = Field(default=100, ge=0)
     readiness_rating: Literal[
         "NEEDS_PRACTICE", "DEVELOPING", "INTERVIEW_READY", "STRONG_HIRE"
     ]

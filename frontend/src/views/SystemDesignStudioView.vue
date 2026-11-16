@@ -13,9 +13,14 @@ import {
   Layers,
   Lightbulb,
   Loader2,
+  MessageSquare,
+  MoreHorizontal,
   Save,
+  Send,
   Sparkles,
+  Undo2,
   Upload,
+  Wand2,
   X,
 } from 'lucide-vue-next'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -37,30 +42,85 @@ const flowSnapshot = ref({ nodes: [], edges: [], notes: '' })
 
 const showNotesDrawer = ref(false)
 const showCoachDrawer = ref(false)
+const activeCoachTab = ref('chat')
+const showMoreMenu = ref(false)
 const showImageUploadModal = ref(false)
 const useWebSearchReview = ref(false)
 const stagedDiagramFile = ref(null)
 const stagedPreviewUrl = ref('')
 const imageNotesInput = ref('')
 const checkedFixIds = ref({})
-const switchingMode = ref(false)
+const coachChatInput = ref('')
+const moreMenuRef = ref(null)
 
 const sessionId = computed(() => Number(route.params.sessionId))
 const session = computed(() => store.activeSession)
 const challengeTitle = computed(() => session.value?.challenge?.title || 'Architecture Design Studio')
-const guidancePenalty = computed(() => Number(session.value?.diagram_guidance?.penalty_points || 0))
-const currentMode = computed(() => String(session.value?.mode || 'ADAPTIVE').toUpperCase())
-const isStrictInterview = computed(() => currentMode.value === 'INTERVIEW')
-const isPracticeMode = computed(() => currentMode.value === 'PRACTICE')
-const revealedAllBank = computed(() => Boolean(session.value?.diagram_guidance?.revealed_all_bank))
-const canCheckTopology = computed(
-  () => !isStrictInterview.value && (isPracticeMode.value || revealedAllBank.value)
-)
+const isCoached = computed(() => store.isActiveSessionCoached)
+const canUndoCanvas = computed(() => Boolean(canvasBuilderRef.value?.canUndo))
+const sessionLedger = computed(() => session.value?.requirements_ledger || {})
 const placedNodeTypeSet = computed(
   () => new Set((flowSnapshot.value?.nodes || []).map((n) => n.type_id))
 )
+const normalizedExpectedPaths = computed(() => {
+  const satisfiedIds = new Set(store.lastTopologyFeedback?.satisfied_paths || [])
+  return (store.expectedPaths || []).map((path, pIdx) => {
+    const id = path?.id || path?.name || `path-${pIdx}`
+    const title = path?.title || path?.name || `Path ${pIdx + 1}`
+    const steps = (path?.steps || []).map((step, sIdx) => {
+      if (typeof step === 'string') {
+        const clean = step.replace(/_/g, ' ')
+        return {
+          key: `${id}-${step}-${sIdx}`,
+          label: clean,
+          sublabel: '',
+          satisfied: placedNodeTypeSet.value.has(step),
+          placedBoth: placedNodeTypeSet.value.has(step),
+        }
+      }
+      if (step && typeof step === 'object') {
+        const src = step.source_label || step.source_type_id || 'Source'
+        const tgt = step.target_label || step.target_type_id || 'Target'
+        return {
+          key: `${id}-${step.source_type_id || src}-${step.target_type_id || tgt}-${sIdx}`,
+          label: `${src} → ${tgt}`,
+          sublabel: step.suggested_label || '',
+          satisfied: Boolean(step.satisfied),
+          placedBoth: Boolean(step.placed_both),
+        }
+      }
+      return {
+        key: `${id}-step-${sIdx}`,
+        label: String(step || ''),
+        sublabel: '',
+        satisfied: false,
+        placedBoth: false,
+      }
+    })
+    const completed =
+      typeof path?.completed === 'number'
+        ? path.completed
+        : steps.filter((s) => s.satisfied).length
+    const total = typeof path?.total === 'number' ? path.total : steps.length
+    const satisfied =
+      typeof path?.satisfied === 'boolean'
+        ? path.satisfied
+        : satisfiedIds.has(id) || satisfiedIds.has(title) || (total > 0 && completed >= total)
+    return {
+      id,
+      title,
+      description: path?.description || '',
+      completed,
+      total,
+      satisfied,
+      steps,
+    }
+  })
+})
 const coachBadgeCount = computed(() => {
-  const findingsCount = store.lastTopologyFeedback?.findings?.length || 0
+  const findingsCount = (store.lastTopologyFeedback?.findings || []).filter(
+    (f) => f.severity !== 'info'
+  ).length
   const pendingFixes = (store.reviewFixChecklist || []).filter(
     (item) => !checkedFixIds.value[item.id]
   ).length
@@ -102,25 +162,6 @@ function handleStartBlankCanvas() {
   canvasBuilderRef.value?.clearCanvas()
 }
 
-async function handleModeSwitch(mode) {
-  if (!session.value || switchingMode.value || currentMode.value === mode) return
-  switchingMode.value = true
-  try {
-    await store.updateMode(mode)
-    if (mode === 'PRACTICE') {
-      uiStore.showToast('Switched to Practice mode (0-pt coaching enabled).', 'info')
-    } else if (mode === 'ADAPTIVE') {
-      uiStore.showToast('Switched to Adaptive mode.', 'info')
-    } else {
-      uiStore.showToast('Switched to Strict Interview mode.', 'info')
-    }
-  } catch (err) {
-    uiStore.showToast(err.message || 'Failed to update session mode', 'error')
-  } finally {
-    switchingMode.value = false
-  }
-}
-
 function toggleFixChecklistItem(id) {
   checkedFixIds.value = {
     ...checkedFixIds.value,
@@ -131,15 +172,34 @@ function toggleFixChecklistItem(id) {
 function toggleNotesDrawer() {
   showNotesDrawer.value = !showNotesDrawer.value
   if (showNotesDrawer.value) showCoachDrawer.value = false
+  showMoreMenu.value = false
 }
 
 function toggleCoachDrawer() {
   showCoachDrawer.value = !showCoachDrawer.value
   if (showCoachDrawer.value) showNotesDrawer.value = false
+  showMoreMenu.value = false
+}
+
+function openImageModalFromMore() {
+  showMoreMenu.value = false
+  showImageUploadModal.value = true
+}
+
+function handleUndoCanvas() {
+  const ok = canvasBuilderRef.value?.undoLastChange?.()
+  if (ok) {
+    uiStore.showToast('Undid last canvas change.', 'info')
+  }
 }
 
 async function handleRequestHint(hintMode) {
   if (store.loadingDiagramHint) return
+  if (hintMode === 'reveal_all' || hintMode === 'next_connection') {
+    activeCoachTab.value = 'bank'
+  } else if (hintMode === 'check_topology') {
+    activeCoachTab.value = 'checks'
+  }
   try {
     const currentNodes = canvasBuilderRef.value?.getCurrentNodes?.() || flowSnapshot.value.nodes || []
     const currentEdges = canvasBuilderRef.value?.getCurrentEdges?.() || flowSnapshot.value.edges || []
@@ -149,13 +209,34 @@ async function handleRequestHint(hintMode) {
       currentEdges,
       canvasNotes.value
     )
-    if (['reveal_all', 'check_topology', 'next_connection'].includes(hintMode)) {
-      showCoachDrawer.value = true
-      showNotesDrawer.value = false
-    }
-    uiStore.showToast(res?.message || 'Component hint unlocked!', 'info')
+    uiStore.showToast(res?.message || 'Coaching updated!', 'info')
   } catch (err) {
-    uiStore.showToast(err.message || 'Unable to unlock diagram hint', 'error')
+    uiStore.showToast(err.message || 'Unable to unlock diagram guidance', 'error')
+  }
+}
+
+async function handleSendCoachChat(overridePrompt = null) {
+  const msg = String(overridePrompt ?? coachChatInput.value).trim()
+  if (!msg || store.sendingCoachChat) return
+  if (overridePrompt === null) {
+    coachChatInput.value = ''
+  }
+  try {
+    const currentNodes = canvasBuilderRef.value?.getCurrentNodes?.() || flowSnapshot.value.nodes || []
+    const currentEdges = canvasBuilderRef.value?.getCurrentEdges?.() || flowSnapshot.value.edges || []
+    await store.sendDiagramCoachMessage(msg, currentNodes, currentEdges, canvasNotes.value)
+  } catch (err) {
+    uiStore.showToast(err.message || 'Coach chat failed', 'error')
+  }
+}
+
+function handleApplyCoachAction(action) {
+  const actionName = action?.title || action?.label || 'Coach Suggestion'
+  const applied = canvasBuilderRef.value?.applyCoachAction?.(action)
+  if (applied) {
+    uiStore.showToast(`Applied "${actionName}" to canvas (Undo available).`, 'success')
+  } else {
+    uiStore.showToast(`"${actionName}" components and wires are already on your canvas.`, 'info')
   }
 }
 
@@ -267,6 +348,7 @@ watch(
       await handleSelectRevision(targetCanvas.version)
     }
     if (String(route.query?.fixReview || '') === '1' && store.reviewFixChecklist?.length) {
+      activeCoachTab.value = 'checks'
       showCoachDrawer.value = true
       showNotesDrawer.value = false
     }
@@ -274,19 +356,27 @@ watch(
   { immediate: true }
 )
 
+function handleDocumentClick(event) {
+  if (showMoreMenu.value && moreMenuRef.value && !moreMenuRef.value.contains(event.target)) {
+    showMoreMenu.value = false
+  }
+}
+
 onMounted(() => {
   window.addEventListener('paste', handleStudioPaste)
+  document.addEventListener('click', handleDocumentClick)
 })
 
 onUnmounted(() => {
   window.removeEventListener('paste', handleStudioPaste)
+  document.removeEventListener('click', handleDocumentClick)
   if (stagedPreviewUrl.value) URL.revokeObjectURL(stagedPreviewUrl.value)
 })
 </script>
 
 <template>
   <div class="sd-studio-page" data-testid="design-studio-page">
-    <!-- Dedicated Slim Top Control Bar -->
+    <!-- Minimal 6-Control Top Header -->
     <header class="sd-studio-header" data-testid="design-studio-header">
       <div class="sd-studio-header-left">
         <button
@@ -301,50 +391,18 @@ onUnmounted(() => {
 
         <div class="sd-studio-title-wrap">
           <h1 class="sd-studio-title">{{ challengeTitle }}</h1>
-          <div
-            v-if="session"
-            class="sd-studio-mode-group"
-            role="group"
-            aria-label="Session mode"
-            data-testid="studio-mode-switcher"
-          >
-            <button
-              type="button"
-              class="sd-mode-chip"
-              :class="{ active: currentMode === 'INTERVIEW' }"
-              data-testid="studio-mode-interview-btn"
-              :disabled="switchingMode"
-              @click="handleModeSwitch('INTERVIEW')"
-            >
-              Interview
-            </button>
-            <button
-              type="button"
-              class="sd-mode-chip"
-              :class="{ active: currentMode === 'ADAPTIVE' }"
-              data-testid="studio-mode-adaptive-btn"
-              :disabled="switchingMode"
-              @click="handleModeSwitch('ADAPTIVE')"
-            >
-              Adaptive
-            </button>
-            <button
-              type="button"
-              class="sd-mode-chip is-practice"
-              :class="{ active: isPracticeMode }"
-              data-testid="studio-mode-practice-btn"
-              :disabled="switchingMode"
-              @click="handleModeSwitch('PRACTICE')"
-            >
-              Practice
-            </button>
-          </div>
           <span
-            v-if="isPracticeMode"
-            class="sd-practice-pill"
-            data-testid="practice-zero-penalty-badge"
+            v-if="session"
+            class="sd-assistance-pill"
+            :class="{ coached: isCoached }"
+            data-testid="studio-assistance-pill"
+            :title="
+              isCoached
+                ? 'Coached Run: You used AI Coach / Bank guidance (100 XP on completion).'
+                : 'Solo Run: Designing unassisted so far (150 XP bonus on completion).'
+            "
           >
-            Practice Run · 0-pt Coaching
+            {{ isCoached ? 'Coached (100 XP)' : 'Solo (150 XP)' }}
           </span>
         </div>
 
@@ -367,53 +425,17 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="sd-studio-header-center">
+      <div class="sd-studio-header-right">
         <button
+          v-if="canUndoCanvas"
           type="button"
           class="btn btn-secondary btn-sm"
-          data-testid="hint-next-component-btn"
-          :disabled="store.loadingDiagramHint"
-          @click="handleRequestHint('next_component')"
+          data-testid="studio-undo-btn"
+          title="Undo last block, wire, or coach action"
+          @click="handleUndoCanvas"
         >
-          <Loader2 v-if="store.loadingDiagramHint" :size="14" class="spin" />
-          <Lightbulb v-else :size="14" />
-          <span>{{ isPracticeMode ? 'Hint Block (0 pts)' : 'Hint Block (-3 pts)' }}</span>
-        </button>
-
-        <button
-          type="button"
-          class="btn btn-secondary btn-sm"
-          data-testid="reveal-bank-btn"
-          :disabled="store.loadingDiagramHint || isStrictInterview"
-          :title="
-            isStrictInterview
-              ? 'Disabled in strict INTERVIEW mode.'
-              : isPracticeMode
-                ? 'Reveal all expected components & Path Milestones (0 pts)'
-                : 'Reveal all expected components (-18 pts base penalty)'
-          "
-          @click="handleRequestHint('reveal_all')"
-        >
-          <Layers :size="14" />
-          <span>Required Bank</span>
-        </button>
-
-        <button
-          type="button"
-          class="btn btn-secondary btn-sm"
-          data-testid="check-topology-btn"
-          :disabled="store.loadingDiagramHint || !canCheckTopology"
-          :title="
-            isStrictInterview
-              ? 'Disabled in strict INTERVIEW mode.'
-              : !canCheckTopology
-                ? 'Click Required Bank or switch to Practice first.'
-                : 'Inspect canvas flows, missing blocks, SPOFs, and get path diagnostics'
-          "
-          @click="handleRequestHint('check_topology')"
-        >
-          <Compass :size="14" />
-          <span>Check Topology</span>
+          <Undo2 :size="14" />
+          <span>Undo</span>
         </button>
 
         <button
@@ -423,42 +445,45 @@ onUnmounted(() => {
           data-testid="toggle-coach-drawer-btn"
           @click="toggleCoachDrawer"
         >
-          <ClipboardList :size="14" />
+          <Compass :size="14" />
           <span>Coach</span>
           <span v-if="coachBadgeCount > 0" class="sd-coach-count-pill">
             {{ coachBadgeCount }}
           </span>
         </button>
 
-        <span
-          v-if="guidancePenalty > 0"
-          class="badge badge-interview"
-          data-testid="guidance-penalty-badge"
-        >
-          -{{ guidancePenalty }} pts
-        </span>
-      </div>
-
-      <div class="sd-studio-header-right">
-        <button
-          type="button"
-          class="btn btn-secondary btn-sm"
-          data-testid="toggle-studio-notes-btn"
-          @click="toggleNotesDrawer"
-        >
-          <FileText :size="14" />
-          <span>Notes &amp; JSON</span>
-        </button>
-
-        <button
-          type="button"
-          class="btn btn-secondary btn-sm"
-          data-testid="open-image-upload-modal-btn"
-          @click="showImageUploadModal = true"
-        >
-          <Upload :size="14" />
-          <span>Upload Image</span>
-        </button>
+        <div ref="moreMenuRef" class="sd-more-menu-wrap">
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            data-testid="studio-more-btn"
+            aria-expanded="showMoreMenu"
+            @click.stop="showMoreMenu = !showMoreMenu"
+          >
+            <MoreHorizontal :size="14" />
+            <span>More</span>
+          </button>
+          <div v-if="showMoreMenu" class="sd-more-dropdown" data-testid="studio-more-dropdown">
+            <button
+              type="button"
+              class="sd-more-item"
+              data-testid="toggle-studio-notes-btn"
+              @click="toggleNotesDrawer"
+            >
+              <FileText :size="14" />
+              <span>Requirements, Notes &amp; JSON</span>
+            </button>
+            <button
+              type="button"
+              class="sd-more-item"
+              data-testid="open-image-upload-modal-btn"
+              @click="openImageModalFromMore"
+            >
+              <Upload :size="14" />
+              <span>Upload External Image</span>
+            </button>
+          </div>
+        </div>
 
         <button
           type="button"
@@ -497,7 +522,7 @@ onUnmounted(() => {
         @flow-change="flowSnapshot = $event"
       />
 
-      <!-- Learning Coach Slide-Over Drawer (Path Milestones, Topology Diagnostics, Review Fixes) -->
+      <!-- Unified 3-Tab Coach Drawer (Chat | Bank & Paths | Checks & Fixes) -->
       <aside
         v-if="showCoachDrawer"
         class="sd-studio-drawer sd-coach-drawer"
@@ -506,152 +531,375 @@ onUnmounted(() => {
         <div class="sd-drawer-head">
           <h3>
             <Compass :size="15" />
-            <span>Learning Coach</span>
+            <span>Studio Coach</span>
           </h3>
           <button type="button" class="sd-icon-close" @click="showCoachDrawer = false">
             <X :size="15" />
           </button>
         </div>
 
-        <!-- Stage 3 Critique Fix Checklist (when revising after AI critique) -->
-        <section
-          v-if="store.reviewFixChecklist.length"
-          class="sd-coach-section"
-          data-testid="review-fix-checklist"
-        >
-          <div class="sd-coach-section-head">
-            <strong>Stage 3 Fix Checklist ({{ store.reviewFixChecklist.length }})</strong>
-          </div>
-          <div class="sd-fix-list">
-            <label
-              v-for="item in store.reviewFixChecklist"
-              :key="item.id"
-              class="sd-fix-item"
-              :class="{ done: checkedFixIds[item.id] }"
-            >
-              <input
-                type="checkbox"
-                :checked="Boolean(checkedFixIds[item.id])"
-                @change="toggleFixChecklistItem(item.id)"
-              />
-              <div>
-                <span class="sd-fix-cat">{{ item.category }}</span>
-                <p>{{ item.text }}</p>
-              </div>
-            </label>
-          </div>
-        </section>
+        <div class="sd-coach-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            class="sd-coach-tab"
+            :class="{ active: activeCoachTab === 'chat' }"
+            data-testid="coach-tab-chat"
+            @click="activeCoachTab = 'chat'"
+          >
+            <MessageSquare :size="13" />
+            <span>Chat</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="sd-coach-tab"
+            :class="{ active: activeCoachTab === 'bank' }"
+            data-testid="coach-tab-bank"
+            @click="activeCoachTab = 'bank'"
+          >
+            <Layers :size="13" />
+            <span>Bank &amp; Paths</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="sd-coach-tab"
+            :class="{ active: activeCoachTab === 'checks' }"
+            data-testid="coach-tab-checks"
+            @click="activeCoachTab = 'checks'"
+          >
+            <ClipboardList :size="13" />
+            <span>Checks</span>
+            <span v-if="coachBadgeCount > 0" class="sd-tab-badge">{{ coachBadgeCount }}</span>
+          </button>
+        </div>
 
-        <!-- Path Milestones & Next Connection Hint -->
-        <section class="sd-coach-section" data-testid="path-milestones-section">
-          <div class="sd-coach-section-head">
-            <strong>
-              <GitBranch :size="13" />
-              <span>Path Milestones</span>
-            </strong>
+        <!-- TAB 1: Interactive Coach Chat + Apply to Canvas -->
+        <div v-if="activeCoachTab === 'chat'" class="sd-coach-tab-body" data-testid="coach-chat-panel">
+          <div class="sd-coach-starter-chips">
             <button
               type="button"
-              class="btn btn-secondary btn-xs"
-              data-testid="next-connection-btn"
-              :disabled="store.loadingDiagramHint || !canCheckTopology"
-              @click="handleRequestHint('next_connection')"
+              class="sd-starter-chip"
+              data-testid="coach-starter-missing"
+              :disabled="store.sendingCoachChat"
+              @click="handleSendCoachChat('Am I missing anything on my canvas right now?')"
             >
-              <span>{{ isPracticeMode ? 'Next Wire (0 pts)' : 'Next Wire (-3 pts)' }}</span>
+              Am I missing anything?
+            </button>
+            <button
+              type="button"
+              class="sd-starter-chip"
+              data-testid="coach-starter-guide"
+              :disabled="store.sendingCoachChat"
+              @click="handleSendCoachChat('Guide me step-by-step from where I am now.')"
+            >
+              Guide me step-by-step
+            </button>
+            <button
+              type="button"
+              class="sd-starter-chip"
+              data-testid="coach-starter-write-path"
+              :disabled="store.sendingCoachChat"
+              @click="handleSendCoachChat('Show me how to structure and wire the Write Path.')"
+            >
+              Draw the Write Path
             </button>
           </div>
 
-          <div
-            v-if="store.nextConnectionHint"
-            class="sd-next-connection-box"
-            data-testid="next-connection-hint-box"
-          >
-            <strong>
-              {{ store.nextConnectionHint.from_label }} &rarr; {{ store.nextConnectionHint.to_label }}
-            </strong>
-            <p>{{ store.nextConnectionHint.rationale }}</p>
-          </div>
-
-          <div v-if="store.expectedPaths.length" class="sd-path-list">
+          <div class="sd-coach-thread" data-testid="coach-chat-thread">
+            <div v-if="!store.coachMessages.length" class="sd-coach-welcome">
+              <strong>Ask your Coach anything</strong>
+              <p>
+                Get targeted feedback on your live canvas, explore alternative architectures, or apply suggested path increments directly onto your canvas.
+              </p>
+            </div>
             <div
-              v-for="path in store.expectedPaths"
-              :key="path.name"
-              class="sd-path-card"
-              :class="{
-                satisfied: store.lastTopologyFeedback?.satisfied_paths?.includes(path.name),
-              }"
+              v-for="(turn, idx) in store.coachMessages"
+              :key="`${turn.timestamp || idx}-${turn.role}`"
+              class="sd-coach-msg"
+              :class="turn.role"
             >
-              <div class="sd-path-card-head">
-                <strong>{{ path.name }}</strong>
-                <CheckCircle2
-                  v-if="store.lastTopologyFeedback?.satisfied_paths?.includes(path.name)"
-                  :size="14"
-                  class="sd-path-ok"
-                />
+              <div class="sd-coach-msg-role">
+                {{ turn.role === 'user' ? 'You' : 'Coach' }}
               </div>
-              <p class="sd-path-desc">{{ path.description }}</p>
-              <div class="sd-path-steps">
-                <span
-                  v-for="stepType in path.steps"
-                  :key="`${path.name}-${stepType}`"
-                  class="sd-path-step-tag"
-                  :class="{ placed: placedNodeTypeSet.has(stepType) }"
+              <p class="sd-coach-msg-text">{{ turn.content }}</p>
+              <div
+                v-if="turn.role === 'coach' && turn.actions?.length"
+                class="sd-coach-actions-list"
+              >
+                <button
+                  v-for="act in turn.actions"
+                  :key="act.id"
+                  type="button"
+                  class="sd-apply-action-btn"
+                  data-testid="coach-apply-action-btn"
+                  :title="act.description"
+                  @click="handleApplyCoachAction(act)"
                 >
-                  {{ stepType.replace(/_/g, ' ') }}
-                </span>
+                  <Wand2 :size="12" />
+                  <span>{{ act.title || act.label }}</span>
+                </button>
               </div>
             </div>
           </div>
-          <p v-else class="sd-muted sd-coach-empty">
-            Click <strong>Required Bank</strong> or <strong>Check Topology</strong> to load request &amp; lifecycle path milestones.
-          </p>
-        </section>
 
-        <!-- Topology Diagnostics -->
-        <section
-          v-if="store.lastTopologyFeedback"
-          class="sd-coach-section"
-          data-testid="topology-diagnostics-section"
-        >
-          <div class="sd-coach-section-head">
-            <strong>
-              <AlertTriangle :size="13" />
-              <span>Topology Diagnostics</span>
-            </strong>
-          </div>
-          <p class="sd-topo-summary">{{ store.lastTopologyFeedback.summary }}</p>
-          <div
-            v-if="store.lastTopologyFeedback.findings?.length"
-            class="sd-finding-list"
-          >
-            <article
-              v-for="(finding, idx) in store.lastTopologyFeedback.findings"
-              :key="`${finding.title}-${idx}`"
-              class="sd-finding-card"
-              :class="`sev-${finding.severity || 'warning'}`"
+          <div v-if="store.suggestedCoachActions.length && !store.coachMessages.length" class="sd-coach-actions-list">
+            <button
+              v-for="act in store.suggestedCoachActions"
+              :key="act.id"
+              type="button"
+              class="sd-apply-action-btn"
+              data-testid="coach-apply-action-btn"
+              @click="handleApplyCoachAction(act)"
             >
-              <div class="sd-finding-head">
-                <span class="sd-finding-badge">{{ finding.category || finding.severity }}</span>
-                <strong>{{ finding.title }}</strong>
-              </div>
-              <p>{{ finding.detail }}</p>
-            </article>
+              <Wand2 :size="12" />
+              <span>{{ act.title || act.label }}</span>
+            </button>
           </div>
-          <p v-else class="sd-topo-clean">No structural or flow errors detected.</p>
-        </section>
+
+          <form class="sd-coach-composer" @submit.prevent="handleSendCoachChat()">
+            <input
+              v-model="coachChatInput"
+              type="text"
+              class="form-input sd-coach-input"
+              data-testid="coach-chat-input"
+              placeholder="Ask Coach for guidance or a flow suggestion..."
+              :disabled="store.sendingCoachChat"
+            />
+            <button
+              type="submit"
+              class="btn btn-primary btn-sm"
+              data-testid="coach-chat-send-btn"
+              :disabled="store.sendingCoachChat || !coachChatInput.trim()"
+            >
+              <Loader2 v-if="store.sendingCoachChat" :size="14" class="spin" />
+              <Send v-else :size="14" />
+            </button>
+          </form>
+        </div>
+
+        <!-- TAB 2: Guided Bank + Path Milestones -->
+        <div v-else-if="activeCoachTab === 'bank'" class="sd-coach-tab-body" data-testid="coach-bank-panel">
+          <div class="sd-coach-toolbar">
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              data-testid="hint-next-component-btn"
+              :disabled="store.loadingDiagramHint"
+              @click="handleRequestHint('next_component')"
+            >
+              <Loader2 v-if="store.loadingDiagramHint" :size="13" class="spin" />
+              <Lightbulb v-else :size="13" />
+              <span>Hint Next Block</span>
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              data-testid="reveal-bank-btn"
+              :disabled="store.loadingDiagramHint"
+              @click="handleRequestHint('reveal_all')"
+            >
+              <Layers :size="13" />
+              <span>Reveal All Required</span>
+            </button>
+          </div>
+
+          <section class="sd-coach-section" data-testid="path-milestones-section">
+            <div class="sd-coach-section-head">
+              <strong>
+                <GitBranch :size="13" />
+                <span>Reference Path Milestones</span>
+              </strong>
+              <button
+                type="button"
+                class="btn btn-secondary btn-xs"
+                data-testid="next-connection-btn"
+                :disabled="store.loadingDiagramHint"
+                @click="handleRequestHint('next_connection')"
+              >
+                <span>Next Wire</span>
+              </button>
+            </div>
+
+            <div
+              v-if="store.nextConnectionHint"
+              class="sd-next-connection-box"
+              data-testid="next-connection-hint-box"
+            >
+              <strong>
+                {{ store.nextConnectionHint.source_label || store.nextConnectionHint.from_label }}
+                &rarr;
+                {{ store.nextConnectionHint.target_label || store.nextConnectionHint.to_label }}
+              </strong>
+              <div v-if="store.nextConnectionHint.suggested_label" class="sd-next-wire-proto">
+                Label: <code>{{ store.nextConnectionHint.suggested_label }}</code>
+              </div>
+              <p>{{ store.nextConnectionHint.rationale }}</p>
+            </div>
+
+            <div v-if="normalizedExpectedPaths.length" class="sd-path-list">
+              <div
+                v-for="path in normalizedExpectedPaths"
+                :key="path.id"
+                class="sd-path-card"
+                :class="{ satisfied: path.satisfied }"
+              >
+                <div class="sd-path-card-head">
+                  <strong>{{ path.title }}</strong>
+                  <span class="sd-path-progress">
+                    {{ path.completed }}/{{ path.total }}
+                    <CheckCircle2 v-if="path.satisfied" :size="13" class="sd-path-ok" />
+                  </span>
+                </div>
+                <p v-if="path.description" class="sd-path-desc">{{ path.description }}</p>
+                <div class="sd-path-steps">
+                  <span
+                    v-for="step in path.steps"
+                    :key="step.key"
+                    class="sd-path-step-tag"
+                    :class="{ placed: step.satisfied, ready: !step.satisfied && step.placedBoth }"
+                    :title="step.sublabel"
+                  >
+                    {{ step.label }}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <p v-else class="sd-muted sd-coach-empty">
+              Click <strong>Reveal All Required</strong> or <strong>Next Wire</strong> to inspect the reference flow checklist. (Alternative valid architectures are welcomed during Analyze.)
+            </p>
+          </section>
+        </div>
+
+        <!-- TAB 3: Topology Diagnostics & Stage 3 Critique Fix Checklist -->
+        <div v-else class="sd-coach-tab-body" data-testid="coach-checks-panel">
+          <div class="sd-coach-toolbar">
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              data-testid="check-topology-btn"
+              :disabled="store.loadingDiagramHint"
+              @click="handleRequestHint('check_topology')"
+            >
+              <Loader2 v-if="store.loadingDiagramHint" :size="13" class="spin" />
+              <Compass v-else :size="13" />
+              <span>Run Topology Check</span>
+            </button>
+          </div>
+
+          <section
+            v-if="store.reviewFixChecklist.length"
+            class="sd-coach-section"
+            data-testid="review-fix-checklist"
+          >
+            <div class="sd-coach-section-head">
+              <strong>Stage 3 Fix Checklist ({{ store.reviewFixChecklist.length }})</strong>
+            </div>
+            <div class="sd-fix-list">
+              <label
+                v-for="item in store.reviewFixChecklist"
+                :key="item.id"
+                class="sd-fix-item"
+                :class="{ done: checkedFixIds[item.id] }"
+              >
+                <input
+                  type="checkbox"
+                  :checked="Boolean(checkedFixIds[item.id])"
+                  @change="toggleFixChecklistItem(item.id)"
+                />
+                <div>
+                  <span class="sd-fix-cat">{{ item.category }}</span>
+                  <p>{{ item.text }}</p>
+                </div>
+              </label>
+            </div>
+          </section>
+
+          <section
+            v-if="store.lastTopologyFeedback"
+            class="sd-coach-section"
+            data-testid="topology-diagnostics-section"
+          >
+            <div class="sd-coach-section-head">
+              <strong>
+                <AlertTriangle :size="13" />
+                <span>Topology Diagnostics</span>
+              </strong>
+            </div>
+            <p class="sd-topo-summary">{{ store.lastTopologyFeedback.summary }}</p>
+            <div
+              v-if="store.lastTopologyFeedback.findings?.length"
+              class="sd-finding-list"
+            >
+              <article
+                v-for="(finding, idx) in store.lastTopologyFeedback.findings"
+                :key="`${finding.title}-${idx}`"
+                class="sd-finding-card"
+                :class="`sev-${finding.severity || 'warning'}`"
+              >
+                <div class="sd-finding-head">
+                  <span class="sd-finding-badge">{{ finding.category || finding.severity }}</span>
+                  <strong>{{ finding.title }}</strong>
+                </div>
+                <p>{{ finding.detail }}</p>
+              </article>
+            </div>
+            <p v-else class="sd-topo-clean">No structural or flow gaps detected.</p>
+          </section>
+          <p
+            v-else-if="!store.reviewFixChecklist.length"
+            class="sd-muted sd-coach-empty"
+          >
+            Click <strong>Run Topology Check</strong> to inspect wiring, bottlenecks, and valid alternatives before running Analyze.
+          </p>
+        </div>
       </aside>
 
-      <!-- Optional Slide-Over Notes & Flow JSON Drawer (closed by default) -->
+      <!-- Slide-Over Requirements, Notes & Flow JSON Drawer (inside More menu) -->
       <aside
         v-if="showNotesDrawer"
         class="sd-studio-drawer"
         data-testid="studio-notes-drawer"
       >
         <div class="sd-drawer-head">
-          <h3>Notes &amp; Flow JSON</h3>
+          <h3>Requirements, Notes &amp; JSON</h3>
           <button type="button" class="sd-icon-close" @click="showNotesDrawer = false">
             <X :size="15" />
           </button>
         </div>
+
+        <section
+          v-if="
+            sessionLedger.functional_requirements?.length ||
+            sessionLedger.non_functional_requirements?.length ||
+            Object.keys(sessionLedger.scale_estimates || {}).length
+          "
+          class="sd-notes-ledger-box"
+          data-testid="studio-requirements-reference"
+        >
+          <strong>Session Requirements</strong>
+          <div v-if="sessionLedger.functional_requirements?.length" class="sd-ledger-ref-group">
+            <span class="sd-ledger-ref-label">Functional</span>
+            <ul>
+              <li v-for="fr in sessionLedger.functional_requirements" :key="fr">{{ fr }}</li>
+            </ul>
+          </div>
+          <div v-if="sessionLedger.non_functional_requirements?.length" class="sd-ledger-ref-group">
+            <span class="sd-ledger-ref-label">Non-Functional</span>
+            <ul>
+              <li v-for="nfr in sessionLedger.non_functional_requirements" :key="nfr">{{ nfr }}</li>
+            </ul>
+          </div>
+          <div v-if="Object.keys(sessionLedger.scale_estimates || {}).length" class="sd-ledger-ref-group">
+            <span class="sd-ledger-ref-label">Scale Estimates</span>
+            <div class="sd-ledger-scale-grid">
+              <div v-for="(val, key) in sessionLedger.scale_estimates" :key="key" class="sd-scale-chip">
+                <strong>{{ key }}:</strong> {{ val }}
+              </div>
+            </div>
+          </div>
+        </section>
 
         <label class="sd-field-label">
           <span>Architecture Summary Notes</span>
@@ -757,7 +1005,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   background: var(--bg-app, #0b1120);
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-main, #f8fafc);
   overflow: hidden;
 }
 
@@ -775,7 +1023,6 @@ onUnmounted(() => {
 }
 
 .sd-studio-header-left,
-.sd-studio-header-center,
 .sd-studio-header-right {
   display: flex;
   flex-wrap: wrap;
@@ -790,45 +1037,59 @@ onUnmounted(() => {
   gap: 8px;
 }
 
-.sd-studio-mode-group {
-  display: inline-flex;
-  align-items: center;
+.sd-assistance-pill {
+  padding: 2px 9px;
   border-radius: 999px;
-  border: 1px solid var(--border-subtle, #334155);
-  background: var(--bg-elevated, #0f172a);
-  padding: 2px;
-  gap: 2px;
+  background: color-mix(in srgb, #10b981 16%, transparent);
+  border: 1px solid color-mix(in srgb, #10b981 42%, transparent);
+  color: #15803d;
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
-.sd-mode-chip {
+.sd-assistance-pill.coached {
+  background: color-mix(in srgb, var(--accent, #3b82f6) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 40%, transparent);
+  color: var(--accent, #2563eb);
+}
+
+.sd-more-menu-wrap {
+  position: relative;
+}
+
+.sd-more-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 225px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle, #334155);
+  background: var(--bg-surface, #1e293b);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sd-more-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
   border: none;
+  border-radius: 7px;
   background: transparent;
-  color: var(--text-secondary, #94a3b8);
-  font-size: 0.72rem;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 999px;
+  color: var(--text-main, #f8fafc);
+  font-size: 0.8rem;
+  text-align: left;
   cursor: pointer;
 }
 
-.sd-mode-chip.active {
-  background: var(--accent, #3b82f6);
-  color: #ffffff;
-}
-
-.sd-mode-chip.is-practice.active {
-  background: #10b981;
-  color: #06281c;
-}
-
-.sd-practice-pill {
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: color-mix(in srgb, #10b981 18%, transparent);
-  border: 1px solid color-mix(in srgb, #10b981 45%, transparent);
-  color: #34d399;
-  font-size: 0.72rem;
-  font-weight: 600;
+.sd-more-item:hover {
+  background: color-mix(in srgb, var(--accent, #3b82f6) 14%, transparent);
 }
 
 .sd-coach-count-pill {
@@ -951,7 +1212,244 @@ onUnmounted(() => {
 }
 
 .sd-coach-drawer {
-  width: 360px;
+  width: 390px;
+  max-width: 92vw;
+}
+
+.sd-coach-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--bg-elevated, #0f172a);
+  border: 1px solid var(--border-subtle, #334155);
+  flex-shrink: 0;
+}
+
+.sd-coach-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary, #94a3b8);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sd-coach-tab.active {
+  background: var(--bg-surface, #1e293b);
+  color: var(--text-main, #f8fafc);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.sd-tab-badge {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #f59e0b 25%, transparent);
+  color: #b45309;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.sd-coach-tab-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+.sd-coach-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sd-coach-starter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sd-starter-chip {
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle, #334155);
+  background: var(--bg-elevated, #0f172a);
+  color: var(--text-main, #f8fafc);
+  font-size: 0.73rem;
+  cursor: pointer;
+}
+
+.sd-starter-chip:hover {
+  border-color: var(--accent, #3b82f6);
+}
+
+.sd-coach-thread {
+  flex: 1;
+  min-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 2px;
+}
+
+.sd-coach-welcome {
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px dashed var(--border-subtle, #334155);
+  background: var(--bg-elevated, #0f172a);
+  font-size: 0.78rem;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.sd-coach-welcome strong {
+  display: block;
+  color: var(--text-main, #f8fafc);
+  margin-bottom: 4px;
+}
+
+.sd-coach-welcome p {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.sd-coach-msg {
+  padding: 9px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--border-subtle, #334155);
+  background: var(--bg-elevated, #0f172a);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sd-coach-msg.user {
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 45%, var(--border-subtle, #334155));
+  background: color-mix(in srgb, var(--accent, #3b82f6) 10%, var(--bg-elevated, #0f172a));
+}
+
+.sd-coach-msg-role {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.sd-coach-msg-text {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-main, #f8fafc);
+  white-space: pre-wrap;
+}
+
+.sd-coach-actions-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sd-apply-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 50%, var(--border-subtle, #334155));
+  background: color-mix(in srgb, var(--accent, #3b82f6) 14%, transparent);
+  color: var(--text-main, #f8fafc);
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sd-apply-action-btn:hover {
+  background: color-mix(in srgb, var(--accent, #3b82f6) 24%, transparent);
+}
+
+.sd-coach-composer {
+  display: flex;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--border-subtle, #334155) 65%, transparent);
+}
+
+.sd-coach-input {
+  flex: 1;
+  font-size: 0.8rem;
+}
+
+.sd-next-wire-proto {
+  margin-top: 3px;
+  font-size: 0.74rem;
+}
+
+.sd-path-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.sd-path-step-tag.ready {
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 55%, var(--border-subtle, #334155));
+  color: var(--text-main, #f8fafc);
+}
+
+.sd-finding-card.sev-info {
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 50%, var(--border-subtle, #334155));
+}
+
+.sd-finding-card.sev-info .sd-finding-badge {
+  background: color-mix(in srgb, var(--accent, #3b82f6) 18%, transparent);
+  color: var(--accent, #2563eb);
+}
+
+.sd-notes-ledger-box {
+  padding: 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border-subtle, #334155);
+  background: var(--bg-elevated, #0f172a);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 0.76rem;
+}
+
+.sd-ledger-ref-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.sd-ledger-ref-group ul {
+  margin: 3px 0 0;
+  padding-left: 16px;
+  line-height: 1.38;
+}
+
+.sd-ledger-scale-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 3px;
+}
+
+.sd-scale-chip {
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--bg-surface, #1e293b);
+  border: 1px solid var(--border-subtle, #334155);
 }
 
 .sd-coach-section {
@@ -1134,7 +1632,7 @@ onUnmounted(() => {
 
 .sd-fix-item p {
   margin: 0;
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-main, #f8fafc);
   line-height: 1.35;
 }
 

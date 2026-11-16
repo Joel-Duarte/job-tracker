@@ -2958,28 +2958,84 @@ export async function handleDemoRequest(config) {
       }
     }
 
-    const demoComputePenalty = (hintsCount, revealedAll, mode = 'ADAPTIVE') => {
-      if (String(mode || '').toUpperCase() === 'PRACTICE') return 0
-      const single = Math.max(0, Number(hintsCount || 0)) * 3
-      const raw = revealedAll ? Math.max(18, single) : single
-      return Math.round(Math.min(25, raw) * 10) / 10
+    const demoComputePenalty = () => 0
+
+    const demoBlockLabel = (typeId) => {
+      const found = DEFAULT_DIAGRAM_BLOCKS.find((b) => b.type_id === typeId)
+      return found ? found.label : String(typeId || 'Component')
     }
+
+    const demoStepObj = (sourceTypeId, targetTypeId, suggestedLabel, deliveryMode = 'sync', rationale = '') => ({
+      source_type_id: sourceTypeId,
+      source_label: demoBlockLabel(sourceTypeId),
+      target_type_id: targetTypeId,
+      target_label: demoBlockLabel(targetTypeId),
+      suggested_label: suggestedLabel,
+      delivery_mode: deliveryMode,
+      rationale: rationale || `Connect ${demoBlockLabel(sourceTypeId)} -> ${demoBlockLabel(targetTypeId)} (${suggestedLabel}).`,
+    })
 
     const demoBuildUrlShortenerPaths = () => [
       {
-        name: 'Read Path',
-        steps: ['web_client', 'cdn', 'load_balancer', 'api_gateway', 'app_service', 'distributed_cache', 'read_replica'],
+        id: 'read_path',
+        title: 'Read Path (Low-Latency Redirect)',
         description: 'Client -> CDN -> Load Balancer -> API Gateway -> App Service -> Redis (miss -> Read Replica)',
+        steps: [
+          demoStepObj('web_client', 'cdn', 'GET /{code}', 'sync'),
+          demoStepObj('cdn', 'load_balancer', 'Edge Miss (HTTPS)', 'sync'),
+          demoStepObj('load_balancer', 'api_gateway', 'Route (HTTPS)', 'sync'),
+          demoStepObj('api_gateway', 'app_service', 'Forward (HTTPS)', 'sync'),
+          demoStepObj('app_service', 'distributed_cache', 'Lookup (Redis GET)', 'sync'),
+          demoStepObj('app_service', 'read_replica', 'Cache Miss (SQL SELECT)', 'sync'),
+        ],
       },
       {
-        name: 'Write Path',
-        steps: ['web_client', 'load_balancer', 'api_gateway', 'content_filter', 'app_service', 'id_generator', 'relational_db'],
+        id: 'write_path',
+        title: 'Write Path (Shorten URL)',
         description: 'Client -> LB -> API Gateway -> Safety Filter -> App Service -> ID Generator & Primary DB',
+        steps: [
+          demoStepObj('web_client', 'load_balancer', 'POST /shorten', 'sync'),
+          demoStepObj('load_balancer', 'api_gateway', 'HTTPS', 'sync'),
+          demoStepObj('api_gateway', 'content_filter', 'Malicious URL Check', 'sync'),
+          demoStepObj('content_filter', 'app_service', 'Verified Payload', 'sync'),
+          demoStepObj('app_service', 'id_generator', 'Allocate Key', 'sync'),
+          demoStepObj('app_service', 'relational_db', 'INSERT Mapping', 'sync'),
+        ],
       },
       {
-        name: 'Async & Lifecycle',
-        steps: ['app_service', 'message_queue', 'async_worker', 'scheduler', 'relational_db'],
+        id: 'async_lifecycle',
+        title: 'Async & Lifecycle Path',
         description: 'App Service -> Task Queue -> Async Worker (analytics) & Scheduler / TTL Sweeper -> DB',
+        steps: [
+          demoStepObj('app_service', 'message_queue', 'Publish Click Event', 'async'),
+          demoStepObj('message_queue', 'async_worker', 'Consume Batch', 'async'),
+          demoStepObj('scheduler', 'relational_db', 'Expire TTL Rows', 'async'),
+        ],
+      },
+    ]
+
+    const demoBuildGenericPaths = () => [
+      {
+        id: 'primary_read_write',
+        title: 'Primary Request Path',
+        description: 'Client -> LB -> API Gateway -> App Service -> Cache / Primary DB',
+        steps: [
+          demoStepObj('web_client', 'load_balancer', 'HTTPS Request', 'sync'),
+          demoStepObj('load_balancer', 'api_gateway', 'Route', 'sync'),
+          demoStepObj('api_gateway', 'app_service', 'Forward', 'sync'),
+          demoStepObj('app_service', 'distributed_cache', 'Cache Lookup', 'sync'),
+          demoStepObj('app_service', 'relational_db', 'Persist / Query', 'sync'),
+        ],
+      },
+      {
+        id: 'async_background',
+        title: 'Async Background Path',
+        description: 'App Service -> Task Queue -> Background Worker -> DB',
+        steps: [
+          demoStepObj('app_service', 'message_queue', 'Enqueue Job', 'async'),
+          demoStepObj('message_queue', 'async_worker', 'Process Async', 'async'),
+          demoStepObj('async_worker', 'relational_db', 'Write Result', 'sync'),
+        ],
       },
     ]
 
@@ -3076,44 +3132,57 @@ export async function handleDemoRequest(config) {
       const expectedPaths =
         slug === 'url-shortener'
           ? demoBuildUrlShortenerPaths()
-          : [
-              {
-                name: 'Primary Request Path',
-                steps: ['web_client', 'load_balancer', 'api_gateway', 'app_service', 'distributed_cache', 'relational_db'],
-                description: 'Client -> LB -> API Gateway -> App Service -> Cache / Primary DB',
-              },
-              {
-                name: 'Async Background Path',
-                steps: ['app_service', 'message_queue', 'async_worker', 'relational_db'],
-                description: 'App Service -> Task Queue -> Background Worker -> DB',
-              },
-            ]
+          : demoBuildGenericPaths()
 
       return { expectedItems, expectedPaths }
+    }
+
+    const DEMO_EQUIVALENT_ALTERNATIVES = {
+      relational_db: ['nosql_kv'],
+      read_replica: ['nosql_kv', 'relational_db'],
+      message_queue: ['event_stream', 'pubsub_bus'],
+      async_worker: ['stream_processor'],
     }
 
     const demoEvaluateTopology = (expectedItems, expectedPaths, currentNodes, currentEdges, currentNotes) => {
       const nodeById = new Map((currentNodes || []).map((n) => [String(n.id), n]))
       const placedTypes = new Set((currentNodes || []).map((n) => n.type_id))
-      const missingComponents = expectedItems
-        .filter(
-          (item) =>
-            !(
-              (item.type_id !== 'custom' && placedTypes.has(item.type_id)) ||
-              (currentNodes || []).some((n) =>
-                `${n.label || ''} ${n.tech_stack || ''}`.toLowerCase().includes(item.name.toLowerCase())
-              )
-            )
-        )
-        .map((i) => i.name)
-
+      const missingComponents = []
       const findings = []
+      const alternativeNotes = []
+
+      for (const item of expectedItems) {
+        const directMatch =
+          (item.type_id !== 'custom' && placedTypes.has(item.type_id)) ||
+          (currentNodes || []).some((n) =>
+            `${n.label || ''} ${n.tech_stack || ''}`.toLowerCase().includes(item.name.toLowerCase())
+          )
+        if (directMatch) continue
+        const alts = DEMO_EQUIVALENT_ALTERNATIVES[item.type_id] || []
+        const usedAlt = alts.find((altId) => placedTypes.has(altId))
+        if (usedAlt) {
+          alternativeNotes.push(`${demoBlockLabel(usedAlt)} covering ${item.label}`)
+          continue
+        }
+        missingComponents.push(item.name)
+      }
+
+      if (alternativeNotes.length) {
+        findings.push({
+          severity: 'info',
+          category: 'alternative',
+          title: 'Valid Alternative Choice',
+          detail: `Using ${alternativeNotes.join('; ')}. Justify consistency/latency trade-offs in notes or defence.`,
+          related_type_ids: [],
+        })
+      }
+
       if (missingComponents.length) {
         findings.push({
           severity: 'warning',
           category: 'missing',
           title: `${missingComponents.length} expected component(s) not yet on canvas`,
-          detail: `Place: ${missingComponents.slice(0, 6).join(', ')}${missingComponents.length > 6 ? '...' : ''}.`,
+          detail: `Consider placing: ${missingComponents.slice(0, 6).join(', ')}${missingComponents.length > 6 ? '...' : ''} (or document an equivalent alternative).`,
           related_type_ids: [],
         })
       }
@@ -3156,16 +3225,6 @@ export async function handleDemoRequest(config) {
         }
       }
 
-      if (placedTypes.has('stream_processor') && !expectedItems.some((i) => i.type_id === 'stream_processor')) {
-        findings.push({
-          severity: 'warning',
-          category: 'complexity',
-          title: 'Heavy Stream Processor (Flink) for simple async queue work',
-          detail: 'Replace Flink with Task Queue + Background Worker Pool unless stateful windowed stream joins are required.',
-          related_type_ids: ['stream_processor'],
-        })
-      }
-
       const idNode = (currentNodes || []).find((n) => n.type_id === 'id_generator')
       if (idNode && !/replica|range|pre-alloc|ha|cluster|snowflake|multi/i.test(`${idNode.notes || ''} ${currentNotes || ''}`)) {
         findings.push({
@@ -3178,43 +3237,137 @@ export async function handleDemoRequest(config) {
       }
 
       const satisfiedPaths = []
+      const pathMilestones = []
       let nextConnectionHint = null
-      for (const path of expectedPaths || []) {
-        const steps = path.steps || []
-        let allConnected = steps.length > 1
-        for (let i = 0; i < steps.length - 1; i++) {
-          const a = steps[i]
-          const b = steps[i + 1]
-          if (!edgePairs.has(`${a}->${b}`)) {
-            allConnected = false
-            if (!nextConnectionHint && placedTypes.has(a) && placedTypes.has(b)) {
-              const bBlock = DEFAULT_DIAGRAM_BLOCKS.find((blk) => blk.type_id === b)
-              const aBlock = DEFAULT_DIAGRAM_BLOCKS.find((blk) => blk.type_id === a)
-              nextConnectionHint = {
-                path_name: path.name,
-                from_type_id: a,
-                from_label: aBlock?.label || a,
-                to_type_id: b,
-                to_label: bBlock?.label || b,
-                rationale: `Connect ${aBlock?.label || a} -> ${bBlock?.label || b} to complete the ${path.name}.`,
-              }
-            }
-          }
-        }
-        if (allConnected) satisfiedPaths.push(path.name)
+
+      const matchesWithAlt = (typeId) =>
+        placedTypes.has(typeId) ||
+        (DEMO_EQUIVALENT_ALTERNATIVES[typeId] || []).some((alt) => placedTypes.has(alt))
+
+      const edgeExistsWithAlt = (srcType, tgtType) => {
+        const srcs = [srcType, ...(DEMO_EQUIVALENT_ALTERNATIVES[srcType] || [])]
+        const tgts = [tgtType, ...(DEMO_EQUIVALENT_ALTERNATIVES[tgtType] || [])]
+        return srcs.some((s) => tgts.some((t) => edgePairs.has(`${s}->${t}`)))
       }
 
-      const summary = findings.length
-        ? `Found ${findings.length} topology/completeness issue(s) across ${(currentNodes || []).length} block(s).`
-        : 'All expected blocks are placed and critical request flows look sound!'
+      for (const path of expectedPaths || []) {
+        const enrichedSteps = (path.steps || []).map((step) => {
+          const placedBoth =
+            matchesWithAlt(step.source_type_id) && matchesWithAlt(step.target_type_id)
+          const satisfied = edgeExistsWithAlt(step.source_type_id, step.target_type_id)
+          if (!satisfied && !nextConnectionHint && placedBoth) {
+            nextConnectionHint = {
+              path_id: path.id,
+              path_title: path.title,
+              source_type_id: step.source_type_id,
+              source_label: step.source_label,
+              target_type_id: step.target_type_id,
+              target_label: step.target_label,
+              suggested_label: step.suggested_label,
+              delivery_mode: step.delivery_mode,
+              rationale: step.rationale,
+            }
+          }
+          return {
+            ...step,
+            placed_both: placedBoth,
+            satisfied,
+          }
+        })
+        const completed = enrichedSteps.filter((s) => s.satisfied).length
+        const total = enrichedSteps.length
+        const pathSatisfied = total > 0 && completed >= total
+        if (pathSatisfied) satisfiedPaths.push(path.id)
+        pathMilestones.push({
+          id: path.id,
+          title: path.title,
+          description: path.description,
+          completed,
+          total,
+          satisfied: pathSatisfied,
+          steps: enrichedSteps,
+        })
+      }
+
+      const actionableCount = findings.filter((f) => f.severity !== 'info').length
+      const summary = actionableCount
+        ? `Found ${actionableCount} topology item(s) to check across ${(currentNodes || []).length} block(s).`
+        : 'Core request flows and blocks look sound!'
 
       return {
         summary,
         missing_components: missingComponents,
         findings,
         satisfied_paths: satisfiedPaths,
+        path_milestones: pathMilestones,
         next_connection_hint: nextConnectionHint,
       }
+    }
+
+    const demoBuildCoachActions = (expectedItems, pathMilestones, messageText = '') => {
+      const actions = []
+      const itemByType = new Map(expectedItems.map((i) => [i.type_id, i]))
+      const makeBlockSpec = (typeId, fallbackLabel) => {
+        const match = itemByType.get(typeId) || DEFAULT_DIAGRAM_BLOCKS.find((b) => b.type_id === typeId)
+        return {
+          type_id: typeId,
+          label: match?.label || fallbackLabel || demoBlockLabel(typeId),
+          category: match?.category || 'compute_services',
+          icon: match?.icon || 'box',
+          tech_stack: match?.tech_stack || '',
+        }
+      }
+
+      const lower = String(messageText || '').toLowerCase()
+      const ordered = [...(pathMilestones || [])].sort((a, b) => {
+        if (lower.includes('write') && a.id.includes('write')) return -1
+        if (lower.includes('read') && a.id.includes('read')) return -1
+        if (lower.includes('async') && a.id.includes('async')) return -1
+        return 0
+      })
+
+      for (const path of ordered) {
+        const missingSteps = (path.steps || []).filter((s) => !s.satisfied)
+        if (!missingSteps.length) continue
+        const blockMap = new Map()
+        const edges = []
+        for (const step of missingSteps) {
+          blockMap.set(step.source_type_id, makeBlockSpec(step.source_type_id, step.source_label))
+          blockMap.set(step.target_type_id, makeBlockSpec(step.target_type_id, step.target_label))
+          edges.push({
+            source_type_id: step.source_type_id,
+            source_label: step.source_label,
+            target_type_id: step.target_type_id,
+            target_label: step.target_label,
+            protocol: step.delivery_mode === 'async' ? 'Async Event' : 'HTTPS',
+            delivery_mode: step.delivery_mode || 'sync',
+            label: step.suggested_label || '',
+          })
+        }
+        actions.push({
+          id: `apply-${path.id}`,
+          title: `Draw ${path.title}`,
+          description: `Places missing blocks and wires ${missingSteps.length} step(s) for ${path.title}.`,
+          blocks: [...blockMap.values()],
+          edges,
+        })
+        if (actions.length >= 2) break
+      }
+
+      return actions
+    }
+
+    const demoIsSessionCoached = (session) => {
+      const guidance = session?.diagram_guidance || {}
+      return Boolean(
+        guidance.is_coached ||
+          guidance.revealed_all_bank ||
+          guidance.requirements_revealed ||
+          Number(guidance.hints_used_count || 0) > 0 ||
+          (Array.isArray(guidance.coach_messages) && guidance.coach_messages.length > 0) ||
+          (session?.requirements_transcript || []).some((t) => t?.assisted) ||
+          (session?.defence_transcript || []).some((t) => t?.assisted)
+      )
     }
 
     const demoDeriveRating = (score) =>
@@ -3952,23 +4105,57 @@ export async function handleDemoRequest(config) {
       return ok(entry.flow_payload)
     }
 
+    const sdReqRevealMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/requirements\/reveal$/)
+    if (sdReqRevealMatch && method === 'post') {
+      const sid = Number(sdReqRevealMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const rawChallenge =
+        db.system_design_challenges.find((c) => Number(c.id) === Number(session.challenge_id)) || {}
+      const existing = session.requirements_ledger || {}
+      const brief = session.session_brief || rawChallenge || {}
+      const lockAndProceed = Boolean(data.lock_and_proceed)
+      session.requirements_ledger = {
+        functional_requirements:
+          brief.functional_requirements?.length
+            ? [...brief.functional_requirements]
+            : ['Core create/write API', 'Low-latency read / lookup API'],
+        non_functional_requirements:
+          brief.non_functional_requirements?.length
+            ? [...brief.non_functional_requirements]
+            : ['99.95% availability target', 'p99 latency under 50ms'],
+        scale_estimates:
+          brief.scale_estimates && Object.keys(brief.scale_estimates).length
+            ? { ...brief.scale_estimates }
+            : { traffic_pattern: '10:1 read/write ratio', mau: '50M MAU' },
+        out_of_scope: [...(brief.out_of_scope || ['Multi-region billing portal'])],
+        assumptions: [
+          ...(brief.constraints || brief.assumptions || existing.assumptions || []),
+        ],
+        unresolved_questions: [],
+        notes: existing.notes || '',
+        is_locked: lockAndProceed || Boolean(existing.is_locked),
+      }
+      session.diagram_guidance = {
+        ...(session.diagram_guidance || {}),
+        requirements_revealed: true,
+        is_coached: true,
+        penalty_points: 0,
+      }
+      if (lockAndProceed) {
+        session.stage = 'DESIGN'
+      }
+      session.updated_at = new Date().toISOString()
+      saveDemoDb(db)
+      return ok(session)
+    }
+
     const sdHintMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/diagrams\/hint$/)
     if (sdHintMatch && method === 'post') {
       const sid = Number(sdHintMatch[1])
       const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
       if (!session) return { status: 404, data: { detail: 'Session not found' } }
       const hintMode = data.hint_mode || 'next_component'
-      const upperMode = String(session.mode || 'ADAPTIVE').toUpperCase()
-      const isPracticeRun = upperMode === 'PRACTICE'
-      if (upperMode === 'INTERVIEW' && hintMode !== 'next_component') {
-        return {
-          status: 400,
-          data: {
-            detail:
-              'Coaching hints beyond a single next-component nudge are disabled in strict INTERVIEW mode. Switch to ADAPTIVE or PRACTICE mode.',
-          },
-        }
-      }
       const rawChallenge =
         db.system_design_challenges.find((c) => Number(c.id) === Number(session.challenge_id)) || {}
       const { expectedItems, expectedPaths } = demoResolveExpectedBlueprint(rawChallenge, session)
@@ -3982,16 +4169,6 @@ export async function handleDemoRequest(config) {
         ? [...guidance.revealed_components]
         : []
       const revealedSet = new Set(alreadyRevealed.map((r) => String(r.name || '').toLowerCase()))
-
-      if (upperMode === 'ADAPTIVE' && hintMode === 'check_topology' && !revealedAll) {
-        return {
-          status: 400,
-          data: {
-            detail:
-              'Unlock "Show All Required" (or switch to PRACTICE) before running Check Topology in ADAPTIVE mode.',
-          },
-        }
-      }
 
       const nodeMatches = (item) => {
         const expLow = item.name.toLowerCase()
@@ -4007,7 +4184,14 @@ export async function handleDemoRequest(config) {
       )
       const newlyRevealed = []
       let message = ''
-      let topologyFeedback = guidance.last_topology_feedback || null
+      const topologyFeedback = demoEvaluateTopology(
+        expectedItems,
+        expectedPaths,
+        currentNodes,
+        currentEdges,
+        currentNotes
+      )
+      const pathMilestones = topologyFeedback.path_milestones || expectedPaths
       let nextConnectionHint = null
 
       if (hintMode === 'next_component') {
@@ -4016,9 +4200,7 @@ export async function handleDemoRequest(config) {
           alreadyRevealed.push(item)
           newlyRevealed.push(item)
           hintsCount += 1
-          message = isPracticeRun
-            ? `Practice Hint: Unlocked ${item.label} (0-pt coaching).`
-            : `Unlocked expected block: ${item.label} (-3 pts).`
+          message = `Unlocked guided block: ${item.label}.`
         } else {
           message = 'All expected components are already revealed or placed.'
         }
@@ -4031,50 +4213,29 @@ export async function handleDemoRequest(config) {
             revealedSet.add(item.name.toLowerCase())
           }
         }
-        topologyFeedback = demoEvaluateTopology(
-          expectedItems,
-          expectedPaths,
-          currentNodes,
-          currentEdges,
-          currentNotes
-        )
-        message = isPracticeRun
-          ? `Practice Coach unlocked all ${alreadyRevealed.length} required components & Path Milestones (0 pts).`
-          : `Unlocked all ${alreadyRevealed.length} required components & Path Milestones (-18 pts min).`
+        message = `Unlocked all ${alreadyRevealed.length} recommended components & Path Milestones.`
       } else if (hintMode === 'check_topology') {
-        topologyFeedback = demoEvaluateTopology(
-          expectedItems,
-          expectedPaths,
-          currentNodes,
-          currentEdges,
-          currentNotes
-        )
         nextConnectionHint = topologyFeedback.next_connection_hint || null
         message = topologyFeedback.summary
       } else if (hintMode === 'next_connection') {
-        topologyFeedback = demoEvaluateTopology(
-          expectedItems,
-          expectedPaths,
-          currentNodes,
-          currentEdges,
-          currentNotes
-        )
         nextConnectionHint = topologyFeedback.next_connection_hint || null
-        if (nextConnectionHint && !isPracticeRun) {
-          hintsCount += 1
-        }
+        if (nextConnectionHint) hintsCount += 1
         message = nextConnectionHint
           ? nextConnectionHint.rationale
-          : 'All placed milestone components are already wired — check Topology Diagnostics for missing blocks or notes.'
+          : 'All placed milestone components are already wired!'
       }
 
-      const penaltyPoints = demoComputePenalty(hintsCount, revealedAll, session.mode)
+      const penaltyPoints = demoComputePenalty()
       session.diagram_guidance = {
+        ...guidance,
         hints_used_count: hintsCount,
         revealed_all_bank: revealedAll,
         revealed_components: alreadyRevealed,
-        expected_paths: expectedPaths,
+        expected_paths: pathMilestones,
+        coach_messages: Array.isArray(guidance.coach_messages) ? guidance.coach_messages : [],
         last_topology_feedback: topologyFeedback,
+        is_coached: true,
+        is_practice_run: true,
         penalty_points: penaltyPoints,
       }
       session.updated_at = new Date().toISOString()
@@ -4082,15 +4243,81 @@ export async function handleDemoRequest(config) {
       return ok({
         newly_revealed: newlyRevealed,
         revealed_components: alreadyRevealed,
-        expected_paths: expectedPaths,
+        expected_paths: pathMilestones,
         topology_feedback: topologyFeedback,
         next_connection_hint: nextConnectionHint,
         hints_used_count: hintsCount,
         revealed_all_bank: revealedAll,
         penalty_points: penaltyPoints,
-        is_practice_run: isPracticeRun,
+        is_coached: true,
+        is_practice_run: true,
         remaining_expected_count: Math.max(0, unrevealed.length - newlyRevealed.length),
         message,
+        session,
+      })
+    }
+
+    const sdCoachChatMatch = urlPath.match(/^\/system-design\/sessions\/([^/]+)\/diagrams\/coach-chat$/)
+    if (sdCoachChatMatch && method === 'post') {
+      const sid = Number(sdCoachChatMatch[1])
+      const session = db.system_design_sessions.find((s) => Number(s.id) === sid)
+      if (!session) return { status: 404, data: { detail: 'Session not found' } }
+      const msgText = String(data.message || '').trim()
+      if (!msgText) return { status: 400, data: { detail: 'Coach message cannot be empty.' } }
+
+      const rawChallenge =
+        db.system_design_challenges.find((c) => Number(c.id) === Number(session.challenge_id)) || {}
+      const { expectedItems, expectedPaths } = demoResolveExpectedBlueprint(rawChallenge, session)
+      const currentNodes = Array.isArray(data.current_nodes) ? data.current_nodes : []
+      const currentEdges = Array.isArray(data.current_edges) ? data.current_edges : []
+      const currentNotes = String(data.current_notes || '')
+      const topologyFeedback = demoEvaluateTopology(
+        expectedItems,
+        expectedPaths,
+        currentNodes,
+        currentEdges,
+        currentNotes
+      )
+      const pathMilestones = topologyFeedback.path_milestones || expectedPaths
+      const suggestedActions = demoBuildCoachActions(expectedItems, pathMilestones, msgText)
+
+      const missing = topologyFeedback.missing_components || []
+      const parts = []
+      if (/write|create|shorten|post/i.test(msgText)) {
+        parts.push('For the Write Path, route client traffic through the Load Balancer and API Gateway, validate payloads, compute in the App Service, generate an ID, and persist durably (SQL or NoSQL KV).')
+      } else if (missing.length) {
+        parts.push(`Right now your canvas is missing ${missing.slice(0, 3).join(', ')}. Remember that equivalent components like NoSQL KV or Event Stream are valid alternatives too!`)
+      } else {
+        parts.push('Your core components are in place! Focus on documenting capacity bounds, cache eviction/TTL, and failover in Canvas Notes.')
+      }
+      if (suggestedActions.length) {
+        parts.push(`Click "${suggestedActions[0].title}" below if you want me to place and wire that increment onto your canvas.`)
+      }
+      const reply = parts.join(' ')
+
+      const guidance = { ...(session.diagram_guidance || {}) }
+      const history = Array.isArray(guidance.coach_messages) ? [...guidance.coach_messages] : []
+      const nowIso = new Date().toISOString()
+      history.push({ role: 'user', content: msgText, timestamp: nowIso })
+      history.push({ role: 'coach', content: reply, actions: suggestedActions, timestamp: nowIso })
+
+      session.diagram_guidance = {
+        ...guidance,
+        hints_used_count: Number(guidance.hints_used_count || 0) + 1,
+        expected_paths: pathMilestones,
+        coach_messages: history.slice(-24),
+        last_topology_feedback: topologyFeedback,
+        is_coached: true,
+        is_practice_run: true,
+        penalty_points: 0,
+      }
+      session.updated_at = nowIso
+      saveDemoDb(db)
+      return ok({
+        reply,
+        suggested_actions: suggestedActions,
+        topology_feedback: topologyFeedback,
+        expected_paths: pathMilestones,
         session,
       })
     }
@@ -4230,13 +4457,16 @@ export async function handleDemoRequest(config) {
         ['Defence Communication Under Pressure', 4, 'Directly answered bottlenecks highlighted in the architecture review.', 'Concise and structured explanations.'],
       ]
       const rawScore = 86
-      const penalty = Number(session.diagram_guidance?.penalty_points || 0)
-      const netScore = Math.round(Math.max(0, rawScore - penalty) * 10) / 10
+      const penalty = 0
+      const netScore = rawScore
+      const isCoached = demoIsSessionCoached(session)
       const rating = demoDeriveRating(netScore)
       const finalEvaluation = {
         overall_score: netScore,
         raw_score: rawScore,
         guidance_penalty: penalty,
+        assistance_mode: isCoached ? 'COACHED' : 'SOLO',
+        xp_earned: isCoached ? 100 : 150,
         readiness_rating: rating,
         executive_summary:
           `Demonstrated strong end-to-end systems thinking across ${diagramsCount || 1} diagram revision(s) and ${defTurns} defence turn(s), keeping the core read/write path clean and appropriately scaled.`,
@@ -4410,13 +4640,16 @@ export async function handleDemoRequest(config) {
           }))
         : []
       const rawScore = Number(parsed.overall_score ?? 85)
-      const penalty = Number(session.diagram_guidance?.penalty_points || 0)
-      const overallScore = Math.round(Math.max(0, rawScore - penalty) * 10) / 10
+      const penalty = 0
+      const overallScore = Math.round(Math.max(0, rawScore) * 10) / 10
+      const isCoached = demoIsSessionCoached(session)
       const rating = demoDeriveRating(overallScore)
       const normalized = {
         overall_score: overallScore,
         raw_score: rawScore,
         guidance_penalty: penalty,
+        assistance_mode: isCoached ? 'COACHED' : 'SOLO',
+        xp_earned: isCoached ? 100 : 150,
         readiness_rating: rating,
         executive_summary: String(
           parsed.executive_summary || 'External frontier evaluation imported.'

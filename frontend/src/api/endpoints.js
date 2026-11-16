@@ -229,6 +229,10 @@ export const SystemDesignAPI = {
     }),
   extractRequirementsLedger: (sessionId) =>
     apiClient.post(`/system-design/sessions/${sessionId}/requirements/extract`),
+  revealRequirementsLedger: (sessionId, lockAndProceed = false) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/requirements/reveal`, {
+      lock_and_proceed: Boolean(lockAndProceed),
+    }),
   updateRequirementsLedger: (sessionId, ledgerPayload) =>
     apiClient.put(`/system-design/sessions/${sessionId}/requirements/ledger`, ledgerPayload),
   uploadDiagram: (sessionId, formData) =>
@@ -241,6 +245,8 @@ export const SystemDesignAPI = {
     apiClient.get(`/system-design/sessions/${sessionId}/diagrams/${version}/flow`),
   requestDiagramHint: (sessionId, payload) =>
     apiClient.post(`/system-design/sessions/${sessionId}/diagrams/hint`, payload),
+  sendDiagramCoachMessage: (sessionId, payload) =>
+    apiClient.post(`/system-design/sessions/${sessionId}/diagrams/coach-chat`, payload),
   getDiagramImageUrl: (sessionId, version) =>
     `/api/v1/system-design/sessions/${sessionId}/diagrams/${version}/image`,
   reviewDiagram: (sessionId, data = {}) =>

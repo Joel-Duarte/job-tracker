@@ -5,14 +5,17 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  Award,
   Bot,
   CheckCircle2,
   ClipboardCheck,
   Copy,
   Download,
   Edit3,
+  Eye,
   FileCode,
   FileImage,
+  Flame,
   Globe,
   HelpCircle,
   Layers,
@@ -757,6 +760,28 @@ async function handleExtractLedger() {
   }
 }
 
+async function handleRevealRequirements(lockAndProceed = false) {
+  if (store.revealingRequirements) return
+  try {
+    const updated = await store.revealRequirementsLedger(lockAndProceed)
+    uiStore.showToast(
+      lockAndProceed
+        ? 'Requirements revealed & locked! Opening Design Studio...'
+        : 'Revealed scenario requirements into your ledger.',
+      'info'
+    )
+    if (lockAndProceed && updated?.id) {
+      activeStageTab.value = 'DESIGN'
+      await router.push({
+        name: 'SystemDesignStudio',
+        params: { sessionId: updated.id },
+      })
+    }
+  } catch (err) {
+    uiStore.showToast(err.message || 'Failed to reveal requirements ledger', 'error')
+  }
+}
+
 async function handleSaveLedger(lock = false) {
   const payload = {
     functional_requirements: parseLines(ledgerForm.value.functionalText),
@@ -1040,6 +1065,17 @@ onUnmounted(() => {
           <div class="sd-header-title-group">
             <h2>Interview Challenge Scenarios</h2>
             <span class="sd-muted">{{ store.challenges.length }} scenarios available</span>
+            <span
+              v-if="store.sessionGamificationStats.completedCount > 0"
+              class="sd-xp-lobby-pill"
+              data-testid="lobby-xp-stats"
+            >
+              <Award :size="13" />
+              <span>{{ store.sessionGamificationStats.totalXp }} XP</span>
+              <span class="sd-dot">•</span>
+              <Flame :size="13" />
+              <span>{{ store.sessionGamificationStats.streakCount }} completed</span>
+            </span>
           </div>
           <div class="sd-header-actions">
             <button
@@ -1712,11 +1748,11 @@ onUnmounted(() => {
                 Blind Profile
               </span>
               <span
-                v-if="String(activeSession.mode || '').toUpperCase() === 'PRACTICE'"
-                class="badge badge-offer"
-                data-testid="practice-mode-badge"
+                class="badge"
+                :class="store.isActiveSessionCoached ? 'badge-applied' : 'badge-offer'"
+                data-testid="session-assistance-badge"
               >
-                Practice Run (Assisted)
+                {{ store.isActiveSessionCoached ? 'Coached Run · 100 XP' : 'Solo Run · 150 XP' }}
               </span>
             </div>
             <p class="sd-muted">{{ activeSession.challenge?.initial_prompt }}</p>
@@ -1905,17 +1941,31 @@ onUnmounted(() => {
                 Live-synced on every turn
               </span>
             </div>
-            <button
-              type="button"
-              class="btn btn-secondary"
-              data-testid="resync-ledger-btn"
-              :disabled="store.extractingLedger"
-              @click="handleExtractLedger"
-            >
-              <Loader2 v-if="store.extractingLedger" :size="14" class="spin" />
-              <RotateCcw v-else :size="14" />
-              <span>Re-sync Ledger</span>
-            </button>
+            <div class="sd-ledger-head-actions">
+              <button
+                type="button"
+                class="btn btn-secondary"
+                data-testid="reveal-requirements-btn"
+                :disabled="store.revealingRequirements"
+                title="Reveal all brief requirements into the ledger (switches session to Coached Run, 0 score penalty)"
+                @click="handleRevealRequirements(false)"
+              >
+                <Loader2 v-if="store.revealingRequirements" :size="14" class="spin" />
+                <Eye v-else :size="14" />
+                <span>Reveal Requirements</span>
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary"
+                data-testid="resync-ledger-btn"
+                :disabled="store.extractingLedger"
+                @click="handleExtractLedger"
+              >
+                <Loader2 v-if="store.extractingLedger" :size="14" class="spin" />
+                <RotateCcw v-else :size="14" />
+                <span>Re-sync Ledger</span>
+              </button>
+            </div>
           </div>
 
           <div class="sd-form-stack">
@@ -2002,13 +2052,24 @@ onUnmounted(() => {
             </button>
             <button
               type="button"
+              class="btn btn-secondary"
+              data-testid="jump-to-studio-btn"
+              :disabled="store.revealingRequirements || store.savingLedger"
+              @click="handleRevealRequirements(true)"
+            >
+              <Loader2 v-if="store.revealingRequirements" :size="14" class="spin" />
+              <Maximize2 v-else :size="14" />
+              <span>Reveal &amp; Jump to Studio</span>
+            </button>
+            <button
+              type="button"
               class="btn btn-primary"
               :disabled="store.savingLedger"
               @click="handleSaveLedger(true)"
             >
               <Loader2 v-if="store.savingLedger" :size="14" class="spin" />
               <Lock v-else :size="14" />
-              <span>Lock Requirements & Proceed to Diagram</span>
+              <span>Lock Requirements &amp; Proceed to Diagram</span>
             </button>
           </div>
         </section>
@@ -2583,21 +2644,37 @@ onUnmounted(() => {
                   </span>
                   <h2>Final Interview Scorecard</h2>
                   <span
-                    v-if="String(activeSession?.mode || '').toUpperCase() === 'PRACTICE'"
-                    class="badge badge-offer"
-                    data-testid="eval-practice-badge"
+                    class="badge"
+                    :class="
+                      (store.activeFinalEvaluation.assistance_mode ||
+                        (store.isActiveSessionCoached ? 'COACHED' : 'SOLO')) === 'SOLO'
+                        ? 'badge-offer'
+                        : 'badge-applied'
+                    "
+                    data-testid="eval-assistance-badge"
                   >
-                    Practice Run (Assisted)
+                    {{
+                      (store.activeFinalEvaluation.assistance_mode ||
+                        (store.isActiveSessionCoached ? 'COACHED' : 'SOLO')) === 'SOLO'
+                        ? 'Solo Run'
+                        : 'Coached Run'
+                    }}
                   </span>
-                  <span
-                    v-if="Number(store.activeFinalEvaluation.guidance_penalty || 0) > 0"
-                    class="badge badge-interview"
-                    data-testid="eval-penalty-breakdown"
-                  >
-                    Raw {{ Math.round(store.activeFinalEvaluation.raw_score ?? store.activeFinalEvaluation.overall_score) }} − {{ store.activeFinalEvaluation.guidance_penalty }} hint pts
+                  <span class="sd-xp-earned-pill" data-testid="eval-xp-badge">
+                    <Award :size="13" />
+                    <span>
+                      +{{
+                        store.activeFinalEvaluation.xp_earned ??
+                        ((store.activeFinalEvaluation.assistance_mode ||
+                          (store.isActiveSessionCoached ? 'COACHED' : 'SOLO')) === 'SOLO'
+                          ? 150
+                          : 100)
+                      }}
+                      XP
+                    </span>
                   </span>
                   <span v-if="assistedTurnCount > 0" class="sd-tag">
-                    {{ assistedTurnCount }} coaching hint(s) used
+                    {{ assistedTurnCount }} coaching prompt(s) used
                   </span>
                 </div>
                 <p>{{ store.activeFinalEvaluation.executive_summary }}</p>
@@ -4228,11 +4305,26 @@ onUnmounted(() => {
 }
 
 .sd-canvas-rev-meta,
-.sd-canvas-rev-actions {
+.sd-canvas-rev-actions,
+.sd-ledger-head-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+.sd-xp-lobby-pill,
+.sd-xp-earned-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--status-offer-text);
+  background: var(--status-offer-bg);
+  border: 1px solid var(--status-offer-border);
 }
 
 @media (max-width: 900px) {

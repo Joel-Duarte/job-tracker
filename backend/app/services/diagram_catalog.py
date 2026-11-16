@@ -782,15 +782,9 @@ def compute_diagram_hint_penalty(
     revealed_all_bank: bool,
     mode: str = "ADAPTIVE",
 ) -> float:
-    """Compute cumulative capped score penalty for diagram guidance (0.0 in PRACTICE mode)."""
-    if str(mode or "ADAPTIVE").strip().upper() == "PRACTICE":
-        return 0.0
-    single_penalty = max(0, int(hints_used_count)) * DIAGRAM_HINT_SINGLE_PENALTY
-    if revealed_all_bank:
-        raw = max(DIAGRAM_HINT_BULK_MIN_PENALTY, single_penalty)
-    else:
-        raw = single_penalty
-    return round(min(DIAGRAM_HINT_MAX_PENALTY, raw), 1)
+    """Guidance hints never deduct score points (Solo vs Coached tracking replaces penalties)."""
+    _ = (hints_used_count, revealed_all_bank, mode)
+    return 0.0
 
 
 _SYNTHESIS_RULES: list[dict[str, Any]] = [
@@ -1483,6 +1477,11 @@ def resolve_challenge_blueprint(
                 )
     if not expected_paths:
         expected_paths = _synthesize_expected_paths(required_components)
+    for path_item in expected_paths:
+        if not path_item.get("description"):
+            path_item["description"] = _describe_path_steps(
+                path_item.get("steps") or []
+            )
 
     return {
         "required_components": required_components,
@@ -1512,12 +1511,36 @@ def _edges_match_step(
     return False
 
 
+_EQUIVALENT_COMPONENT_ALTERNATIVES: dict[str, set[str]] = {
+    "relational_db": {"nosql_kv"},
+    "nosql_kv": {"relational_db"},
+    "read_replica": {"nosql_kv"},
+    "message_queue": {"event_stream", "pubsub_bus"},
+    "event_stream": {"message_queue", "pubsub_bus"},
+}
+
+
+def _describe_path_steps(steps: list[dict[str, Any]]) -> str:
+    """Build a compact readable chain summary (A -> B -> C) from structured step dicts."""
+    if not steps:
+        return ""
+    parts: list[str] = []
+    for idx, step in enumerate(steps):
+        src = str(step.get("source_label") or step.get("source_type_id") or "").strip()
+        dst = str(step.get("target_label") or step.get("target_type_id") or "").strip()
+        if idx == 0 and src:
+            parts.append(src)
+        if dst and (not parts or parts[-1] != dst):
+            parts.append(dst)
+    return " -> ".join(parts)
+
+
 def evaluate_canvas_topology(
     flow_payload: dict[str, Any],
     resolved_blueprint: dict[str, Any],
     brief: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run deterministic pre-flight coaching checks on nodes, edges, SPOFs, and NFR coverage."""
+    """Run deterministic pre-flight coaching checks on nodes, edges, SPOFs, and valid alternatives."""
     nodes = [n for n in (flow_payload.get("nodes") or []) if isinstance(n, dict)]
     edges = [e for e in (flow_payload.get("edges") or []) if isinstance(e, dict)]
     canvas_notes = str(flow_payload.get("notes") or "").lower()
@@ -1528,17 +1551,28 @@ def evaluate_canvas_topology(
     node_by_id = {str(n.get("id")): n for n in nodes if n.get("id")}
     placed_type_ids = {str(n.get("type_id") or "") for n in nodes}
 
-    # 1. Required component coverage
+    # 1. Required capability coverage (tolerating functionally equivalent alternatives)
     missing_required: list[dict[str, Any]] = []
     placed_required_count = 0
+    alternative_notes: list[str] = []
     for req in required_components:
+        req_tid = str(req.get("type_id") or "")
         is_present = any(
             node_matches_expected(n, req["name"])
-            or (req["type_id"] != "custom" and n.get("type_id") == req["type_id"])
+            or (req_tid != "custom" and n.get("type_id") == req_tid)
             for n in nodes
         )
+        alt_types = _EQUIVALENT_COMPONENT_ALTERNATIVES.get(req_tid, set())
+        matched_alt = next((alt for alt in alt_types if alt in placed_type_ids), None)
         if is_present:
             placed_required_count += 1
+        elif matched_alt:
+            placed_required_count += 1
+            alt_block = BLOCKS_BY_TYPE_ID.get(matched_alt)
+            alt_label = alt_block["label"] if alt_block else matched_alt
+            alternative_notes.append(
+                f"Using {alt_label} cleanly covers {req['label']} responsibilities."
+            )
         else:
             missing_required.append(req)
 
@@ -1548,6 +1582,14 @@ def evaluate_canvas_topology(
     )
 
     findings: list[dict[str, Any]] = []
+    for alt_msg in alternative_notes:
+        findings.append(
+            {
+                "severity": "info",
+                "title": "Valid Alternative Choice",
+                "detail": alt_msg,
+            }
+        )
     for req in missing_required:
         findings.append(
             {
@@ -1712,7 +1754,8 @@ def evaluate_canvas_topology(
     for path in expected_paths:
         step_results: list[dict[str, Any]] = []
         completed_steps = 0
-        for step in path.get("steps") or []:
+        raw_steps = path.get("steps") or []
+        for step in raw_steps:
             src_tid = str(step.get("source_type_id") or "")
             dst_tid = str(step.get("target_type_id") or "")
             satisfied = _edges_match_step(nodes, edges, src_tid, dst_tid)
@@ -1723,13 +1766,23 @@ def evaluate_canvas_topology(
                     "path_title": path.get("title") or "Architecture Flow",
                     **step,
                 }
-            step_results.append({**step, "satisfied": satisfied})
+            step_results.append(
+                {
+                    **step,
+                    "satisfied": satisfied,
+                    "placed_both": src_tid in placed_type_ids
+                    and dst_tid in placed_type_ids,
+                }
+            )
         path_milestones.append(
             {
                 "id": path.get("id") or "path",
                 "title": path.get("title") or "Path",
+                "description": _describe_path_steps(step_results),
                 "completed": completed_steps,
                 "total": len(step_results),
+                "satisfied": bool(step_results)
+                and completed_steps == len(step_results),
                 "steps": step_results,
             }
         )
@@ -1742,3 +1795,108 @@ def evaluate_canvas_topology(
         "findings": findings,
         "next_connection_hint": next_connection_hint,
     }
+
+
+def build_coach_canvas_actions(
+    resolved_blueprint: dict[str, Any],
+    flow_payload: dict[str, Any],
+    user_message: str = "",
+) -> list[dict[str, Any]]:
+    """Build non-destructive executable Apply-to-Canvas actions prioritized by the learner's question."""
+    nodes = [n for n in (flow_payload.get("nodes") or []) if isinstance(n, dict)]
+    edges = [e for e in (flow_payload.get("edges") or []) if isinstance(e, dict)]
+    placed_types = {str(n.get("type_id") or "") for n in nodes}
+    required_components = list(resolved_blueprint.get("required_components") or [])
+    expected_paths = list(resolved_blueprint.get("expected_paths") or [])
+    by_type = {
+        str(c.get("type_id") or ""): c for c in required_components if c.get("type_id")
+    }
+
+    path_actions: list[dict[str, Any]] = []
+    lower_msg = str(user_message or "").lower()
+
+    # Draw / wire individual reference paths first (prioritized if matching user's prompt)
+    def _path_priority(path_item: dict[str, Any]) -> int:
+        text = f"{path_item.get('id', '')} {path_item.get('title', '')}".lower()
+        if "write" in lower_msg and "write" in text:
+            return 0
+        if "read" in lower_msg and "read" in text:
+            return 0
+        if any(k in lower_msg for k in ("async", "ttl", "queue", "worker")) and any(
+            k in text for k in ("async", "ttl", "lifecycle", "background")
+        ):
+            return 0
+        return 1
+
+    for path in sorted(expected_paths, key=_path_priority):
+        pid = str(path.get("id") or "path")
+        ptitle = str(path.get("title") or "Architecture Path")
+        raw_steps = [s for s in (path.get("steps") or []) if isinstance(s, dict)]
+        if not raw_steps:
+            continue
+
+        needed_edges = []
+        path_type_ids: list[str] = []
+        for step in raw_steps:
+            src_tid = str(step.get("source_type_id") or "")
+            dst_tid = str(step.get("target_type_id") or "")
+            if src_tid and src_tid not in path_type_ids:
+                path_type_ids.append(src_tid)
+            if dst_tid and dst_tid not in path_type_ids:
+                path_type_ids.append(dst_tid)
+            if (
+                src_tid
+                and dst_tid
+                and not _edges_match_step(nodes, edges, src_tid, dst_tid)
+            ):
+                needed_edges.append(
+                    {
+                        "source_type_id": src_tid,
+                        "source_label": str(step.get("source_label") or src_tid),
+                        "target_type_id": dst_tid,
+                        "target_label": str(step.get("target_label") or dst_tid),
+                        "label": str(step.get("suggested_label") or ""),
+                        "delivery_mode": str(step.get("delivery_mode") or "sync"),
+                    }
+                )
+
+        needed_blocks: list[dict[str, Any]] = []
+        for tid in path_type_ids:
+            if tid not in placed_types:
+                spec = by_type.get(tid) or BLOCKS_BY_TYPE_ID.get(tid)
+                if spec:
+                    needed_blocks.append(dict(spec))
+
+        if needed_blocks or needed_edges:
+            path_actions.append(
+                {
+                    "id": f"apply_{pid}",
+                    "title": f"Draw {ptitle}",
+                    "description": _describe_path_steps(raw_steps),
+                    "blocks": needed_blocks,
+                    "edges": needed_edges,
+                }
+            )
+
+    missing_specs = [
+        spec
+        for spec in required_components
+        if not any(
+            node_matches_expected(n, spec["name"])
+            or (spec["type_id"] != "custom" and n.get("type_id") == spec["type_id"])
+            for n in nodes
+        )
+    ]
+    if missing_specs and len(path_actions) < 3:
+        path_actions.append(
+            {
+                "id": "add_missing_components",
+                "title": f"Place Missing Blocks ({len(missing_specs)})",
+                "description": ", ".join(s["label"] for s in missing_specs[:5])
+                + ("..." if len(missing_specs) > 5 else ""),
+                "blocks": missing_specs,
+                "edges": [],
+            }
+        )
+
+    return path_actions[:4]

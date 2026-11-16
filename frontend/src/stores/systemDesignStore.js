@@ -19,9 +19,11 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
   const resettingChallenges = ref(false)
   const sendingRequirements = ref(false)
   const extractingLedger = ref(false)
+  const revealingRequirements = ref(false)
   const savingLedger = ref(false)
   const uploadingDiagram = ref(false)
   const loadingDiagramHint = ref(false)
+  const sendingCoachChat = ref(false)
   const reviewingDiagram = ref(false)
   const sendingDefence = ref(false)
   const evaluatingSession = ref(false)
@@ -34,12 +36,59 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
   const lastTopologyFeedback = ref(null)
   const expectedPaths = ref([])
   const nextConnectionHint = ref(null)
+  const coachMessages = ref([])
+  const suggestedCoachActions = ref([])
   const error = ref(null)
 
   const activeLedger = computed(() => activeSession.value?.requirements_ledger || {})
   const activeDiagrams = computed(() => activeSession.value?.diagrams_metadata || [])
   const activeReviews = computed(() => activeSession.value?.architecture_reviews || [])
   const activeFinalEvaluation = computed(() => activeSession.value?.final_evaluation || null)
+  const isActiveSessionCoached = computed(() => {
+    const s = activeSession.value
+    if (!s) return false
+    const guidance = s.diagram_guidance || {}
+    if (s.final_evaluation?.assistance_mode === 'COACHED') return true
+    if (s.final_evaluation?.assistance_mode === 'SOLO') return false
+    return Boolean(
+      guidance.is_coached ||
+        guidance.revealed_all_bank ||
+        guidance.requirements_revealed ||
+        Number(guidance.hints_used_count || 0) > 0 ||
+        (Array.isArray(guidance.coach_messages) && guidance.coach_messages.length > 0) ||
+        (s.requirements_transcript || []).some((t) => t?.assisted) ||
+        (s.defence_transcript || []).some((t) => t?.assisted)
+    )
+  })
+  const sessionGamificationStats = computed(() => {
+    const list = sessions.value || []
+    const completed = list.filter((s) => s.stage === 'COMPLETED')
+    let totalXp = 0
+    let soloCount = 0
+    for (const s of completed) {
+      const ev = s.final_evaluation || {}
+      const coached =
+        ev.assistance_mode === 'COACHED' ||
+        Boolean(
+          s.diagram_guidance?.is_coached ||
+            s.diagram_guidance?.revealed_all_bank ||
+            s.diagram_guidance?.requirements_revealed
+        )
+      if (!coached && ev.assistance_mode !== 'COACHED') soloCount += 1
+      totalXp += Number(ev.xp_earned ?? (coached ? 100 : 150))
+    }
+    const sortedCompleted = [...completed].sort((a, b) =>
+      String(b.updated_at || b.created_at || '').localeCompare(
+        String(a.updated_at || a.created_at || '')
+      )
+    )
+    return {
+      totalXp,
+      completedCount: sortedCompleted.length,
+      soloCount,
+      streakCount: sortedCompleted.length,
+    }
+  })
   const reviewFixChecklist = computed(() => {
     const reviews = activeReviews.value || []
     if (!reviews.length) return []
@@ -72,6 +121,18 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     } else if (!session) {
       lastTopologyFeedback.value = null
     }
+    if (Array.isArray(guidance.coach_messages)) {
+      coachMessages.value = guidance.coach_messages
+      const lastCoach = [...guidance.coach_messages]
+        .reverse()
+        .find((m) => m?.role === 'coach' && Array.isArray(m?.actions))
+      if (lastCoach) {
+        suggestedCoachActions.value = lastCoach.actions
+      }
+    } else if (!session) {
+      coachMessages.value = []
+      suggestedCoachActions.value = []
+    }
   }
 
   function _syncSessionInList(session) {
@@ -81,6 +142,8 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
       lastTopologyFeedback.value = null
       expectedPaths.value = []
       nextConnectionHint.value = null
+      coachMessages.value = []
+      suggestedCoachActions.value = []
     }
     activeSession.value = session
     _syncCoachStateFromSession(session)
@@ -407,6 +470,8 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     lastTopologyFeedback.value = null
     expectedPaths.value = []
     nextConnectionHint.value = null
+    coachMessages.value = []
+    suggestedCoachActions.value = []
   }
 
   async function updateMode(mode) {
@@ -455,6 +520,25 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
       throw err
     } finally {
       extractingLedger.value = false
+    }
+  }
+
+  async function revealRequirementsLedger(lockAndProceed = false) {
+    if (!activeSession.value) return null
+    revealingRequirements.value = true
+    error.value = null
+    try {
+      const res = await SystemDesignAPI.revealRequirementsLedger(
+        activeSession.value.id,
+        lockAndProceed
+      )
+      _syncSessionInList(res.data)
+      return res.data
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      revealingRequirements.value = false
     }
   }
 
@@ -560,6 +644,43 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
       throw err
     } finally {
       loadingDiagramHint.value = false
+    }
+  }
+
+  async function sendDiagramCoachMessage(
+    message,
+    currentNodes = [],
+    currentEdges = [],
+    currentNotes = ''
+  ) {
+    if (!activeSession.value) return null
+    sendingCoachChat.value = true
+    error.value = null
+    try {
+      const res = await SystemDesignAPI.sendDiagramCoachMessage(activeSession.value.id, {
+        message,
+        current_nodes: currentNodes,
+        current_edges: currentEdges,
+        current_notes: currentNotes || '',
+      })
+      if (Array.isArray(res.data?.expected_paths)) {
+        expectedPaths.value = res.data.expected_paths
+      }
+      if (res.data?.topology_feedback) {
+        lastTopologyFeedback.value = res.data.topology_feedback
+      }
+      if (Array.isArray(res.data?.suggested_actions)) {
+        suggestedCoachActions.value = res.data.suggested_actions
+      }
+      if (res.data?.session) {
+        _syncSessionInList(res.data.session)
+      }
+      return res.data
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      sendingCoachChat.value = false
     }
   }
 
@@ -699,9 +820,11 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     resettingChallenges,
     sendingRequirements,
     extractingLedger,
+    revealingRequirements,
     savingLedger,
     uploadingDiagram,
     loadingDiagramHint,
+    sendingCoachChat,
     reviewingDiagram,
     sendingDefence,
     evaluatingSession,
@@ -714,11 +837,15 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     lastTopologyFeedback,
     expectedPaths,
     nextConnectionHint,
+    coachMessages,
+    suggestedCoachActions,
     error,
     activeLedger,
     activeDiagrams,
     activeReviews,
     activeFinalEvaluation,
+    isActiveSessionCoached,
+    sessionGamificationStats,
     reviewFixChecklist,
     fetchDiagramCatalog,
     fetchChallenges,
@@ -737,11 +864,13 @@ export const useSystemDesignStore = defineStore('systemDesign', () => {
     updateMode,
     sendRequirementsMessage,
     extractRequirementsLedger,
+    revealRequirementsLedger,
     updateRequirementsLedger,
     uploadDiagram,
     submitCanvasDiagram,
     loadDiagramFlow,
     requestDiagramHint,
+    sendDiagramCoachMessage,
     reviewDiagram,
     sendDefenceMessage,
     evaluateSession,

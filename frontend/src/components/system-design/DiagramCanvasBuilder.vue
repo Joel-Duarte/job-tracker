@@ -7,8 +7,10 @@ import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import {
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   HelpCircle,
   Layers,
   Lightbulb,
@@ -60,6 +62,9 @@ const selectedEdgeId = ref(null)
 const popoverAnchor = ref(null)
 const canvasStageEl = ref(null)
 const edgeLabelInputEl = ref(null)
+const bankCollapsed = ref(false)
+const undoStack = ref([])
+const canUndo = computed(() => undoStack.value.length > 0)
 
 const categories = computed(() =>
   props.catalog?.categories?.length ? props.catalog.categories : DEFAULT_DIAGRAM_CATEGORIES
@@ -154,7 +159,15 @@ function nextPlacementPosition() {
   return { x: 90 + col * 245, y: 80 + row * 145 }
 }
 
-function addBlockToCanvas(block, explicitPos = null) {
+function pushUndoSnapshot() {
+  const snapshot = buildFlowSnapshot()
+  undoStack.value = [...undoStack.value.slice(-24), snapshot]
+}
+
+function addBlockToCanvas(block, explicitPos = null, skipUndo = false) {
+  if (!skipUndo) {
+    pushUndoSnapshot()
+  }
   const pos = explicitPos || nextPlacementPosition()
   const id = `node-${Date.now()}-${Math.floor(Math.random() * 1000)}`
   const newNode = {
@@ -174,6 +187,7 @@ function addBlockToCanvas(block, explicitPos = null) {
   nodes.value = [...nodes.value, newNode]
   selectedEdgeId.value = null
   selectedNodeId.value = null
+  return newNode
 }
 
 function handleAddCustomBlock() {
@@ -214,6 +228,7 @@ function handleCanvasDrop(event) {
 
 function handleVueFlowConnect(params) {
   if (!params?.source || !params?.target || params.source === params.target) return
+  pushUndoSnapshot()
   const id = `edge-${params.source}-${params.target}-${Date.now()}`
   const newEdge = {
     id,
@@ -284,6 +299,7 @@ function toggleSelectedEdgeAsync(checked) {
 
 function removeSelectedNode() {
   if (!selectedNodeId.value) return
+  pushUndoSnapshot()
   const id = selectedNodeId.value
   nodes.value = nodes.value.filter((n) => n.id !== id)
   edges.value = edges.value.filter((e) => e.source !== id && e.target !== id)
@@ -292,18 +308,115 @@ function removeSelectedNode() {
 
 function removeSelectedEdge() {
   if (!selectedEdgeId.value) return
+  pushUndoSnapshot()
   edges.value = edges.value.filter((e) => e.id !== selectedEdgeId.value)
   closePopovers()
 }
 
 function clearCanvas() {
+  if (nodes.value.length || edges.value.length || props.notes) {
+    pushUndoSnapshot()
+  }
   nodes.value = []
   edges.value = []
   emit('update:notes', '')
   closePopovers()
 }
 
-function hydrateFromFlow(flow) {
+function _nodeMatchesActionSpec(node, typeId, label) {
+  const nType = String(node?.data?.type_id || '')
+  const specType = String(typeId || '')
+  if (specType && specType !== 'custom' && nType === specType) return true
+  const needle = String(label || '').trim().toLowerCase()
+  if (!needle) return false
+  const haystack = `${node?.data?.label || ''} ${node?.data?.tech_stack || ''}`.toLowerCase()
+  return haystack.includes(needle)
+}
+
+function applyCoachAction(action) {
+  if (!action || typeof action !== 'object') return false
+  pushUndoSnapshot()
+  let changed = false
+
+  for (const block of action.blocks || []) {
+    const existing = nodes.value.find((n) =>
+      _nodeMatchesActionSpec(n, block.type_id, block.label || block.name)
+    )
+    if (!existing) {
+      const catalogMatch = catalogBlocks.value.find((b) => b.type_id === block.type_id)
+      addBlockToCanvas(
+        {
+          ...(catalogMatch || {}),
+          ...block,
+        },
+        null,
+        true
+      )
+      changed = true
+    }
+  }
+
+  for (const edgeSpec of action.edges || []) {
+    const srcNode = nodes.value.find((n) =>
+      _nodeMatchesActionSpec(n, edgeSpec.source_type_id, edgeSpec.source_label)
+    )
+    const tgtNode = nodes.value.find((n) =>
+      _nodeMatchesActionSpec(n, edgeSpec.target_type_id, edgeSpec.target_label)
+    )
+    if (!srcNode || !tgtNode || srcNode.id === tgtNode.id) continue
+    const alreadyWired = edges.value.some(
+      (e) => e.source === srcNode.id && e.target === tgtNode.id
+    )
+    if (alreadyWired) continue
+    const mode = edgeSpec.delivery_mode === 'async' ? 'async' : 'sync'
+    const proto = String(edgeSpec.protocol || '')
+    const textLabel = String(edgeSpec.label || '')
+    const id = `edge-coach-${srcNode.id}-${tgtNode.id}-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+    edges.value = [
+      ...edges.value,
+      {
+        id,
+        source: srcNode.id,
+        target: tgtNode.id,
+        sourceHandle: null,
+        targetHandle: null,
+        type: 'smoothstep',
+        animated: mode === 'async',
+        label: formatEdgeDisplayLabel(proto, mode, textLabel),
+        markerEnd: MarkerType.ArrowClosed,
+        style: mode === 'async' ? { strokeDasharray: '6 4', strokeWidth: 2 } : { strokeWidth: 2 },
+        data: {
+          protocol: proto,
+          delivery_mode: mode,
+          text_label: textLabel,
+        },
+      },
+    ]
+    changed = true
+  }
+
+  if (!changed) {
+    undoStack.value = undoStack.value.slice(0, -1)
+    return false
+  }
+  nextTick(() => {
+    fitView({ padding: 0.2 })
+  })
+  return true
+}
+
+function undoLastChange() {
+  if (!undoStack.value.length) return false
+  const prev = undoStack.value[undoStack.value.length - 1]
+  undoStack.value = undoStack.value.slice(0, -1)
+  hydrateFromFlow(prev, false)
+  return true
+}
+
+function hydrateFromFlow(flow, resetUndo = true) {
+  if (resetUndo) {
+    undoStack.value = []
+  }
   if (!flow || !Array.isArray(flow.nodes)) return
   nodes.value = flow.nodes.map((n, idx) => ({
     id: String(n.id || `node-${idx + 1}`),
@@ -366,6 +479,9 @@ defineExpose({
   clearCanvas,
   fitCanvas: () => fitView({ padding: 0.2 }),
   addBlockToCanvas,
+  applyCoachAction,
+  undoLastChange,
+  canUndo,
 })
 </script>
 
@@ -511,9 +627,21 @@ defineExpose({
             <Lightbulb :size="14" />
             <span>Guided Bank ({{ placedGuidedCount }}/{{ revealedComponents.length }} placed)</span>
           </strong>
-          <span class="sd-muted">Click a block to place it, or ? for why &amp; checklist</span>
+          <div class="sd-hint-tray-head-right">
+            <span class="sd-muted">Click a block to place it, or ? for why &amp; checklist</span>
+            <button
+              type="button"
+              class="btn btn-secondary btn-xs"
+              data-testid="toggle-guided-bank-btn"
+              @click="bankCollapsed = !bankCollapsed"
+            >
+              <ChevronDown v-if="bankCollapsed" :size="12" />
+              <ChevronUp v-else :size="12" />
+              <span>{{ bankCollapsed ? 'Expand' : 'Collapse' }}</span>
+            </button>
+          </div>
         </div>
-        <div class="sd-hint-pills">
+        <div v-show="!bankCollapsed" class="sd-hint-pills">
           <div
             v-for="item in revealedComponents"
             :key="`${item.name}-${item.type_id}`"
@@ -963,6 +1091,13 @@ defineExpose({
   align-items: center;
   gap: 6px;
   font-size: 0.82rem;
+  color: var(--text-main, #f8fafc);
+}
+
+.sd-hint-tray-head-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .sd-hint-pills {
@@ -991,7 +1126,7 @@ defineExpose({
   padding: 4px 8px;
   border: none;
   background: transparent;
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-main, #f8fafc);
   font-size: 0.78rem;
   cursor: pointer;
 }

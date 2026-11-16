@@ -870,8 +870,18 @@ DEFAULT_PROMPTS = {
         "CANDIDATE NOTES:\n{candidate_notes}\n\n"
         "CRITICAL EVALUATION RULES:\n"
         "1. Separate visual/diagram notation ambiguities (illegible labels, missing arrow directions) into 'visual_clarifications_needed' instead of penalizing them as architectural failures.\n"
-        "2. Evaluate whether the architecture right-sizes complexity to the locked scale estimates (flag both bottlenecks/SPOFs and over-engineering traps). Never penalize a component as unnecessary complexity if it is explicitly part of the session's aligned required blueprint for an active requirement.\n"
+        "2. Treat the ALIGNED SESSION BLUEPRINT as one proven reference architecture, NOT the only valid solution. Accept equivalent architectural choices (e.g., NoSQL vs SQL+Read Replica, Kafka/PubSub vs Task Queue, edge workers vs gateway) when they cleanly meet functional & NFR requirements. Flag both real bottlenecks/SPOFs and extreme over-engineering traps, and never penalize a component as unnecessary complexity if it is explicitly part of the session's aligned required blueprint for an active requirement.\n"
         "3. Every critique and score must cite concrete evidence from the diagram, locked requirements ledger, or interview transcript."
+    ),
+    "system_design_coach": (
+        "You are a supportive Systems Architecture Coach helping a learner inside a visual diagram studio for: {challenge_title}.\n\n"
+        "LOCKED REQUIREMENTS LEDGER:\n{requirements_ledger_json}\n\n"
+        "REFERENCE BLUEPRINT & PATH MILESTONES:\n{aligned_blueprint_json}\n\n"
+        "LIVE CANVAS TOPOLOGY & DIAGNOSTICS:\n{topology_summary_json}\n\n"
+        "COACHING RULES:\n"
+        "1. Answer the learner's question clearly and concisely (2-5 short sentences max or crisp bullets).\n"
+        "2. Respect the learner's chosen direction when valid alternatives work (NoSQL vs SQL, Kafka vs Queue) — explain trade-offs instead of insisting on one rigid diagram.\n"
+        "3. Reference concrete blocks or wires from the canvas/diagnostics so they know exactly what to adjust or click 'Apply to Canvas'."
     ),
 }
 
@@ -894,6 +904,7 @@ async def seed_default_prompts(session: AsyncSession) -> None:
             existing.template = default_template
         elif prompt_name == "system_design_reviewer" and (
             "session's aligned required blueprint" not in (existing.template or "")
+            or "NOT the only valid solution" not in (existing.template or "")
         ):
             existing.template = default_template
         elif prompt_name == "cv_anonymization" and (

@@ -1776,7 +1776,7 @@ async def test_canvas_builder_hints_flow_review_and_penalty_scoring(
             )
             assert lock_res.status_code == 200
 
-            # 3) Request 1st next_component hint -> reveals 1 component, -3 pts
+            # 3) Request 1st next_component hint -> reveals 1 component at 0-pt deduction (Coached)
             hint1 = await ac.post(
                 f"/api/v1/system-design/sessions/{session_id}/diagrams/hint",
                 json={"hint_mode": "next_component", "current_nodes": []},
@@ -1785,25 +1785,10 @@ async def test_canvas_builder_hints_flow_review_and_penalty_scoring(
             h1_data = hint1.json()
             assert len(h1_data["newly_revealed"]) == 1
             assert h1_data["hints_used_count"] == 1
-            assert h1_data["penalty_points"] == 3.0
+            assert h1_data["penalty_points"] == 0.0
+            assert h1_data["is_coached"] is True
 
-            # Requesting reveal_all in INTERVIEW mode must fail with 400
-            mode_iv = await ac.patch(
-                f"/api/v1/system-design/sessions/{session_id}/mode",
-                json={"mode": "INTERVIEW"},
-            )
-            assert mode_iv.status_code == 200
-            blocked_reveal = await ac.post(
-                f"/api/v1/system-design/sessions/{session_id}/diagrams/hint",
-                json={"hint_mode": "reveal_all", "current_nodes": []},
-            )
-            assert blocked_reveal.status_code == 400
-
-            # Switch back to ADAPTIVE & trigger reveal_all -> unlocks remaining components, penalty >= 18 and <= 25
-            await ac.patch(
-                f"/api/v1/system-design/sessions/{session_id}/mode",
-                json={"mode": "ADAPTIVE"},
-            )
+            # Calling reveal_all works in any mode and remains idempotent at 0.0 penalty
             reveal_res = await ac.post(
                 f"/api/v1/system-design/sessions/{session_id}/diagrams/hint",
                 json={"hint_mode": "reveal_all", "current_nodes": []},
@@ -1811,15 +1796,18 @@ async def test_canvas_builder_hints_flow_review_and_penalty_scoring(
             assert reveal_res.status_code == 200
             rev_data = reveal_res.json()
             assert rev_data["revealed_all_bank"] is True
-            assert rev_data["penalty_points"] == 18.0
+            assert rev_data["penalty_points"] == 0.0
+            assert rev_data["expected_paths"]
+            first_step = rev_data["expected_paths"][0]["steps"][0]
+            assert isinstance(first_step, dict)
+            assert "source_label" in first_step and "target_label" in first_step
 
-            # Calling reveal_all again stays idempotent at 18.0 penalty
             repeat_reveal = await ac.post(
                 f"/api/v1/system-design/sessions/{session_id}/diagrams/hint",
                 json={"hint_mode": "reveal_all", "current_nodes": []},
             )
             assert repeat_reveal.status_code == 200
-            assert repeat_reveal.json()["penalty_points"] == 18.0
+            assert repeat_reveal.json()["penalty_points"] == 0.0
 
             # 4) Reject empty canvas submission
             empty_canvas = await ac.post(
@@ -2022,10 +2010,12 @@ async def test_canvas_builder_hints_flow_review_and_penalty_scoring(
             )
             assert import_res.status_code == 200
             final_data = import_res.json()
-            assert final_data["overall_score"] == 72.0
-            assert final_data["readiness_rating"] == "INTERVIEW_READY"
+            assert final_data["overall_score"] == 90.0
+            assert final_data["readiness_rating"] == "STRONG_HIRE"
             assert final_data["final_evaluation"]["raw_score"] == 90.0
-            assert final_data["final_evaluation"]["guidance_penalty"] == 18.0
+            assert final_data["final_evaluation"]["guidance_penalty"] == 0.0
+            assert final_data["final_evaluation"]["assistance_mode"] == "COACHED"
+            assert final_data["final_evaluation"]["xp_earned"] == 100
     finally:
         app.dependency_overrides.clear()
 
@@ -2230,10 +2220,17 @@ def test_diagram_catalog_queue_vs_flink_and_blueprint_synthesis():
 
 
 @pytest.mark.asyncio
-async def test_diagram_hint_practice_mode_zero_penalty_and_mode_toggle(
+async def test_reveal_requirements_coach_chat_alternatives_and_solo_xp(
     db_session: AsyncSession,
 ):
-    """PRACTICE grants full coaching & check_topology at 0-pt penalty; toggling ADAPTIVE <-> PRACTICE recalculates penalty."""
+    """Test /requirements/reveal shortcut, /diagrams/coach-chat actions, valid DB/queue alternatives, and Solo 150 XP."""
+    import json as _json
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from app.services.system_design_service import SystemDesignService
+
     app.dependency_overrides[get_db] = lambda: db_session
     transport = ASGITransport(app=app)
     try:
@@ -2244,114 +2241,194 @@ async def test_diagram_hint_practice_mode_zero_penalty_and_mode_toggle(
             assert challenge_res.status_code == 200
             challenge_id = challenge_res.json()["id"]
 
+            # 1) Session A: Reveal Requirements & jump straight to DESIGN + Studio Coach Chat
             start_res = await ac.post(
                 "/api/v1/system-design/sessions",
                 json={
                     "challenge_id": challenge_id,
-                    "mode": "PRACTICE",
+                    "mode": "ADAPTIVE",
                     "variant_id": "public-consumer-shortener",
                 },
             )
             assert start_res.status_code == 201
             session_id = start_res.json()["id"]
 
-            lock_res = await ac.put(
-                f"/api/v1/system-design/sessions/{session_id}/requirements/ledger",
-                json={
-                    "functional_requirements": [
-                        "Shorten URLs with optional expiration TTL"
-                    ],
-                    "non_functional_requirements": [
-                        "Block malicious/phishing URLs before redirect",
-                        "p99 redirect latency < 30ms",
-                    ],
-                    "is_locked": True,
-                },
+            reveal_req = await ac.post(
+                f"/api/v1/system-design/sessions/{session_id}/requirements/reveal",
+                json={"lock_and_proceed": True},
             )
-            assert lock_res.status_code == 200
+            assert reveal_req.status_code == 200
+            rev_sess = reveal_req.json()
+            assert rev_sess["stage"] == "DESIGN"
+            assert rev_sess["requirements_ledger"]["is_locked"] is True
+            assert len(rev_sess["requirements_ledger"]["functional_requirements"]) >= 1
+            assert rev_sess["diagram_guidance"]["requirements_revealed"] is True
+            assert rev_sess["diagram_guidance"]["is_coached"] is True
 
-            reveal_res = await ac.post(
-                f"/api/v1/system-design/sessions/{session_id}/diagrams/hint",
-                json={
-                    "hint_mode": "reveal_all",
-                    "current_nodes": [],
-                    "current_edges": [],
-                },
-            )
-            assert reveal_res.status_code == 200
-            reveal_data = reveal_res.json()
-            assert reveal_data["penalty_points"] == 0.0
-            assert reveal_data["is_practice_run"] is True
-            revealed_types = [c["type_id"] for c in reveal_data["revealed_components"]]
-            assert "content_filter" in revealed_types
-            assert "scheduler" in revealed_types
-            assert "read_replica" in revealed_types
-            assert "message_queue" in revealed_types
-            assert "stream_processor" not in revealed_types
-            assert len(reveal_data["expected_paths"]) >= 3
-
-            # Check Topology in PRACTICE catches broken flows at 0 penalty
-            topo_res = await ac.post(
+            # Valid alternatives (NoSQL KV + Event Stream) produce info card rather than missing errors
+            alt_topo = await ac.post(
                 f"/api/v1/system-design/sessions/{session_id}/diagrams/hint",
                 json={
                     "hint_mode": "check_topology",
                     "current_nodes": [
                         {
-                            "id": "db",
-                            "type_id": "relational_db",
-                            "label": "Primary Relational DB",
+                            "id": "kv",
+                            "type_id": "nosql_kv",
+                            "label": "DynamoDB KV Store",
                         },
                         {
-                            "id": "redis",
-                            "type_id": "distributed_cache",
-                            "label": "Distributed Cache (Redis)",
+                            "id": "kafka",
+                            "type_id": "event_stream",
+                            "label": "Kafka Click Stream",
                         },
                     ],
-                    "current_edges": [
-                        {
-                            "id": "e1",
-                            "source": "db",
-                            "target": "redis",
-                            "label": "pushes",
-                        }
-                    ],
-                },
-            )
-            assert topo_res.status_code == 200
-            topo_data = topo_res.json()
-            assert topo_data["penalty_points"] == 0.0
-            assert len(topo_data["topology_feedback"]["findings"]) >= 1
-
-            # Toggle PRACTICE -> ADAPTIVE restores computed reveal_all penalty (18.0)
-            to_adaptive = await ac.patch(
-                f"/api/v1/system-design/sessions/{session_id}/mode",
-                json={"mode": "ADAPTIVE"},
-            )
-            assert to_adaptive.status_code == 200
-            assert to_adaptive.json()["diagram_guidance"]["penalty_points"] == 18.0
-
-            # Toggle ADAPTIVE -> PRACTICE waives penalty back to 0.0
-            to_practice = await ac.patch(
-                f"/api/v1/system-design/sessions/{session_id}/mode",
-                json={"mode": "PRACTICE"},
-            )
-            assert to_practice.status_code == 200
-            assert to_practice.json()["diagram_guidance"]["penalty_points"] == 0.0
-
-            # Strict INTERVIEW blocks check_topology & next_connection
-            to_interview = await ac.patch(
-                f"/api/v1/system-design/sessions/{session_id}/mode",
-                json={"mode": "INTERVIEW"},
-            )
-            assert to_interview.status_code == 200
-            blocked_res = await ac.post(
-                f"/api/v1/system-design/sessions/{session_id}/diagrams/hint",
-                json={
-                    "hint_mode": "check_topology",
-                    "current_nodes": [],
                     "current_edges": [],
                 },
             )
-            assert blocked_res.status_code == 400
+            assert alt_topo.status_code == 200
+            alt_findings = alt_topo.json()["topology_feedback"]["findings"]
+            assert any(
+                f["severity"] == "info" and "Alternative" in f["title"]
+                for f in alt_findings
+            )
+
+            # Coach chat returns grounded reply + clickable Apply actions
+            mock_msg = MagicMock()
+            mock_msg.content = "Connect API Gateway -> Stateless App Service -> ID Generator -> Storage."
+            with (
+                patch(
+                    "app.services.system_design_service.get_task_chat_model",
+                    new_callable=AsyncMock,
+                    return_value=MagicMock(),
+                ),
+                patch(
+                    "app.services.system_design_service._invoke_llm_adaptive",
+                    new_callable=AsyncMock,
+                    return_value=mock_msg,
+                ),
+            ):
+                chat_res = await ac.post(
+                    f"/api/v1/system-design/sessions/{session_id}/diagrams/coach-chat",
+                    json={
+                        "message": "Show me how to structure the Write Path.",
+                        "current_nodes": [],
+                        "current_edges": [],
+                        "current_notes": "",
+                    },
+                )
+            assert chat_res.status_code == 200
+            chat_data = chat_res.json()
+            assert "Stateless App Service" in chat_data["reply"]
+            assert len(chat_data["suggested_actions"]) >= 1
+            first_act = chat_data["suggested_actions"][0]
+            assert len(first_act["blocks"]) >= 2
+            assert len(first_act["edges"]) >= 1
+            assert len(chat_data["session"]["diagram_guidance"]["coach_messages"]) == 2
+
+            # 2) Session B: Pure Solo run earns 150 XP with 0 guidance penalty
+            solo_start = await ac.post(
+                "/api/v1/system-design/sessions",
+                json={"challenge_id": challenge_id, "mode": "ADAPTIVE"},
+            )
+            assert solo_start.status_code == 201
+            solo_id = solo_start.json()["id"]
+            await ac.put(
+                f"/api/v1/system-design/sessions/{solo_id}/requirements/ledger",
+                json={
+                    "functional_requirements": ["Shorten URLs"],
+                    "non_functional_requirements": ["<50ms p99"],
+                    "is_locked": True,
+                },
+            )
+            await ac.post(
+                f"/api/v1/system-design/sessions/{solo_id}/diagrams/canvas",
+                json={
+                    "nodes": [
+                        {
+                            "id": "n1",
+                            "type_id": "app_service",
+                            "label": "App Service",
+                        }
+                    ],
+                    "edges": [],
+                },
+            )
+            solo_obj = await SystemDesignService._get_session_for_update(
+                db_session, solo_id
+            )
+            solo_obj.architecture_reviews = [
+                {
+                    "diagram_version": 1,
+                    "summary": "Solo canvas looks solid.",
+                    "strengths": ["Clear gateway and service"],
+                    "bottlenecks_and_spofs": [],
+                    "missing_components": [],
+                    "requirement_gaps": [],
+                    "unnecessary_complexity": [],
+                    "interpreted_components": ["Stateless App Service"],
+                    "interpreted_data_flows": [],
+                    "visual_clarifications_needed": [],
+                    "created_at": "2026-11-16T00:00:00Z",
+                }
+            ]
+            flag_modified(solo_obj, "architecture_reviews")
+            solo_obj.stage = "DEFENCE"
+            solo_obj.defence_transcript = [
+                {
+                    "turn_index": 1,
+                    "role": "candidate",
+                    "content": "Unassisted architectural defence.",
+                    "stage": "DEFENCE",
+                    "assisted": False,
+                    "timestamp": "2026-11-16T00:00:00Z",
+                }
+            ]
+            flag_modified(solo_obj, "defence_transcript")
+            await db_session.commit()
+
+            dimensions = [
+                "Requirements Clarity",
+                "Scope & Prioritization",
+                "Back-of-the-Envelope Estimation",
+                "API & Interface Design",
+                "Data Model & Storage Choice",
+                "High-Level Architecture",
+                "Scalability & Partitioning",
+                "Reliability & Fault Tolerance",
+                "Caching & Latency Optimization",
+                "Right-Sizing & Simplicity (YAGNI)",
+                "Trade-off Justification",
+                "Defence Communication Under Pressure",
+            ]
+            rubric_rows = [
+                {
+                    "dimension": dim,
+                    "score": 5 if idx < 6 else 4,
+                    "evidence": f"Solo evidence for {dim}.",
+                    "critique": f"Solid execution on {dim}.",
+                }
+                for idx, dim in enumerate(dimensions)
+            ]
+            solo_eval = await ac.post(
+                f"/api/v1/system-design/sessions/{solo_id}/import-evaluation",
+                json={
+                    "raw_response": _json.dumps(
+                        {
+                            "overall_score": 90.0,
+                            "readiness_rating": "STRONG_HIRE",
+                            "executive_summary": "Solo design excellence.",
+                            "rubric_scores": rubric_rows,
+                            "key_strengths": ["Independent design"],
+                            "critical_gaps": ["None major"],
+                            "recommended_next_steps": ["Keep practicing"],
+                        }
+                    )
+                },
+            )
+            assert solo_eval.status_code == 200
+            solo_data = solo_eval.json()
+            assert solo_data["overall_score"] == 90.0
+            assert solo_data["final_evaluation"]["assistance_mode"] == "SOLO"
+            assert solo_data["final_evaluation"]["xp_earned"] == 150
     finally:
         app.dependency_overrides.clear()

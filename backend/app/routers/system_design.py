@@ -21,6 +21,8 @@ from app.schemas.system_design import (
     ChallengeFrontierPromptResponse,
     DefenceMessageRequest,
     DiagramCatalogResponse,
+    DiagramCoachChatRequest,
+    DiagramCoachChatResponse,
     DiagramHintRequest,
     DiagramHintResponse,
     DiagramReviewRequest,
@@ -29,6 +31,7 @@ from app.schemas.system_design import (
     ImportFrontierEvaluationRequest,
     RequirementsLedgerUpdateRequest,
     RequirementsMessageRequest,
+    RequirementsRevealRequest,
     SessionModeUpdateRequest,
     SystemDesignChallengeCreate,
     SystemDesignChallengeGenerateRequest,
@@ -368,6 +371,26 @@ async def extract_requirements_ledger(
         )
 
 
+@router.post(
+    "/sessions/{session_id}/requirements/reveal",
+    response_model=SystemDesignSessionRead,
+)
+async def reveal_requirements_ledger(
+    session_id: int,
+    payload: RequirementsRevealRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Reveal the session brief's requirements into the ledger so learners can study or jump straight to Studio."""
+    try:
+        lock_and_proceed = bool(payload.lock_and_proceed) if payload else False
+        session = await SystemDesignService.reveal_requirements_ledger(
+            db=db, session_id=session_id, lock_and_proceed=lock_and_proceed
+        )
+        return SystemDesignSessionRead.model_validate(session)
+    except ValueError as ve:
+        raise _http_error_from_value_error(ve)
+
+
 @router.put(
     "/sessions/{session_id}/requirements/ledger",
     response_model=SystemDesignSessionRead,
@@ -465,9 +488,27 @@ async def request_diagram_hint(
     payload: DiagramHintRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Reveal one expected component (-3 pts) or the full required bank (ADAPTIVE / PRACTICE only)."""
+    """Unlock guided blocks, path checklists, next wire hints, or live topology diagnostics."""
     try:
         return await SystemDesignService.request_diagram_hint(
+            db=db, session_id=session_id, payload=payload
+        )
+    except ValueError as ve:
+        raise _http_error_from_value_error(ve)
+
+
+@router.post(
+    "/sessions/{session_id}/diagrams/coach-chat",
+    response_model=DiagramCoachChatResponse,
+)
+async def send_diagram_coach_message(
+    session_id: int,
+    payload: DiagramCoachChatRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Converse with the Studio Coach and receive optional click-to-apply canvas increments."""
+    try:
+        return await SystemDesignService.send_diagram_coach_message(
             db=db, session_id=session_id, payload=payload
         )
     except ValueError as ve:

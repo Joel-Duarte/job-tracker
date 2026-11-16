@@ -595,7 +595,7 @@ test('Tailored Challenge Modal filters active apps with fuzzy search, prepares F
   expect(errors).toEqual([])
 })
 
-test('builds architecture in Interactive Canvas Builder with custom blocks, guided hints, Flow JSON review, and Stage 5 penalty breakdown', async ({
+test('builds architecture in Interactive Canvas Builder with Studio Coach Chat, Undo, Reveal Requirements, and Solo/Coached XP', async ({
   page,
 }, testInfo) => {
   const errors = []
@@ -609,45 +609,54 @@ test('builds architecture in Interactive Canvas Builder with custom blocks, guid
   await page.goto('/chat?mode=system_design')
   await page.getByTestId('challenge-card-url-shortener').getByTestId('start-challenge-btn').click()
 
-  // Lock Stage 1 after a Q&A turn verifies live ledger auto-population without manual extraction
+  // Stage 1: Verify Reveal Requirements shortcut & live Q&A ledger population, then lock and jump to Studio
+  await expect(page.getByTestId('reveal-requirements-btn')).toBeVisible()
+  await expect(page.getByTestId('jump-to-studio-btn')).toBeVisible()
   await page.getByTestId('req-chat-input').fill('What read/write traffic targets apply?')
   await page.getByTestId('req-send-btn').click()
   await expect(page.locator('textarea').nth(1)).toHaveValue(/Core API/)
   await page.getByRole('button', { name: 'Lock Requirements & Proceed to Diagram' }).click()
 
-  // Dedicated full-screen Design Studio route hides global stepper/chat chrome
+  // Dedicated full-screen Design Studio route with minimal header (no 3-mode switcher, no -pts badge)
   await expect(page).toHaveURL(/\/system-design\/\d+\/design/)
   await expect(page.getByTestId('design-studio-page')).toBeVisible()
   await expect(page.getByTestId('diagram-canvas-builder')).toBeVisible()
   await expect(page.getByTestId('stage-step-DESIGN')).toHaveCount(0)
+  await expect(page.getByTestId('studio-mode-switcher')).toHaveCount(0)
+  await expect(page.getByTestId('guidance-penalty-badge')).toHaveCount(0)
+  await expect(page.getByTestId('studio-assistance-pill')).toContainText('Solo')
 
-  // Adaptive hints: Next Hint (-3 pts) & Reveal Bank (-18 pts cap)
+  // Open Unified 3-Tab Coach Drawer -> Chat tab works cleanly with Apply to Canvas + Undo
+  await page.getByTestId('toggle-coach-drawer-btn').click()
+  await expect(page.getByTestId('learning-coach-drawer')).toBeVisible()
+  await page.getByTestId('coach-starter-write-path').click()
+  await expect(page.getByTestId('coach-chat-thread')).toContainText('Write Path')
+  await page.getByTestId('coach-apply-action-btn').first().click()
+  await expect(page.getByTestId('studio-undo-btn')).toBeVisible()
+  await expect(page.getByTestId('studio-assistance-pill')).toContainText('Coached')
+  await page.getByTestId('studio-undo-btn').click()
+  await expect(page.getByTestId('studio-undo-btn')).toHaveCount(0)
+
+  // Bank & Paths tab: Next Hint & Reveal All Required (clicking twice does NOT crash!)
+  await page.getByTestId('coach-tab-bank').click()
   await page.getByTestId('hint-next-component-btn').click()
   await expect(page.getByTestId('diagram-hint-tray')).toBeVisible()
-  await expect(page.getByTestId('guidance-penalty-badge')).toContainText('-3 pts')
 
   await page.getByTestId('reveal-bank-btn').click()
-  await expect(page.getByTestId('guidance-penalty-badge')).toContainText('-18 pts')
-  await expect(page.getByTestId('learning-coach-drawer')).toBeVisible()
-  await expect(page.getByTestId('path-milestones-section')).toContainText('Read Path')
   await expect(page.getByTestId('diagram-hint-tray')).toContainText('URL / Payload Safety Filter')
+  await page.getByTestId('reveal-bank-btn').click()
+  await expect(page.getByTestId('reveal-bank-btn')).toBeEnabled()
+  await expect(page.getByTestId('path-milestones-section')).toContainText('Read Path')
   await expect(page.getByTestId('diagram-hint-tray')).toContainText('Task Queue')
   await expect(page.getByTestId('diagram-hint-tray')).not.toContainText('Flink')
 
-  // Close Coach slide-over drawer before interacting with Guided Bank / canvas (especially on narrow viewports)
+  // Close Coach slide-over drawer before interacting with Guided Bank / canvas
   await page.getByTestId('toggle-coach-drawer-btn').click()
   await expect(page.getByTestId('learning-coach-drawer')).toHaveCount(0)
 
   // Inspect ? explanation popover inside Guided Bank
   await page.getByTestId('hint-info-btn').first().click()
   await expect(page.getByTestId('hint-info-popover')).toBeVisible()
-
-  // Toggle Practice mode (0-pt coaching) in Studio header and back to Adaptive
-  await page.getByTestId('studio-mode-practice-btn').click()
-  await expect(page.getByTestId('practice-zero-penalty-badge')).toBeVisible()
-  await expect(page.getByTestId('guidance-penalty-badge')).toHaveCount(0)
-  await page.getByTestId('studio-mode-adaptive-btn').click()
-  await expect(page.getByTestId('guidance-penalty-badge')).toContainText('-18 pts')
 
   // Add canonical blocks from palette + create a Custom Block
   await page.getByTestId('palette-search-input').fill('Redis')
@@ -700,15 +709,19 @@ test('builds architecture in Interactive Canvas Builder with custom blocks, guid
   await expect(page.getByTestId('edge-label-input')).toHaveValue('Invalidates key cache')
   await page.getByTestId('edge-popover').getByRole('button', { name: 'Done' }).click()
 
-  // Open Notes & Flow JSON drawer to add summary notes and verify structured flow
+  // Open More -> Requirements, Notes & JSON drawer to inspect locked requirements & structured flow
+  await page.getByTestId('studio-more-btn').click()
   await page.getByTestId('toggle-studio-notes-btn').click()
   await expect(page.getByTestId('studio-notes-drawer')).toBeVisible()
+  await expect(page.getByTestId('studio-requirements-reference')).toBeVisible()
   await page
     .getByTestId('canvas-notes-input')
     .fill('Edge gateway routes hot lookups to Redis Cluster and async key invalidation.')
   await expect(page.getByTestId('flow-json-preview')).toContainText('3 blocks, 1 flows')
 
-  // Check Topology opens Learning Coach diagnostics
+  // Open Coach -> Checks tab & run Check Topology
+  await page.getByTestId('toggle-coach-drawer-btn').click()
+  await page.getByTestId('coach-tab-checks').click()
   await page.getByTestId('check-topology-btn').click()
   await expect(page.getByTestId('topology-diagnostics-section')).toBeVisible()
 
@@ -720,21 +733,22 @@ test('builds architecture in Interactive Canvas Builder with custom blocks, guid
   await expect(page.getByRole('heading', { name: 'Architecture Critique' })).toBeVisible()
   await expect(page.getByText('Visual Clarifications Needed')).toHaveCount(0)
 
-  // Clicking Revise in Design Studio opens Studio with Stage 3 Fix Checklist drawer open
+  // Clicking Revise in Design Studio opens Studio with Stage 3 Fix Checklist open in Checks tab
   await page.getByTestId('revise-in-studio-btn').click()
   await expect(page).toHaveURL(/\/system-design\/\d+\/design.*fixReview=1/)
   await expect(page.getByTestId('review-fix-checklist')).toBeVisible()
   await page.getByTestId('studio-back-btn').click()
   await page.getByTestId('stage-step-REVIEW').click()
 
-  // Proceed through Stage 4 Defence to Stage 5 Evaluation & check Raw vs Net Penalty (-18 pts -> 86 - 18 = 68)
+  // Proceed through Stage 4 Defence to Stage 5 Evaluation & check zero penalty + Coached Run + 100 XP
   await page.getByRole('button', { name: 'Proceed to Architecture Defence' }).click()
   await page.getByTestId('defence-chat-input').fill('Cache misses fall back cleanly to read replicas with singleflight coalescing.')
   await page.getByTestId('defence-send-btn').click()
   await page.getByTestId('evaluate-session-btn').click()
 
-  await expect(page.locator('.eval-score-value')).toHaveText('68')
-  await expect(page.getByTestId('eval-penalty-breakdown')).toContainText('Raw 86 − 18 hint pts')
+  await expect(page.locator('.eval-score-value')).toHaveText('86')
+  await expect(page.getByTestId('eval-assistance-badge')).toContainText('Coached Run')
+  await expect(page.getByTestId('eval-xp-badge')).toContainText('+100 XP')
 
   expect(errors).toEqual([])
 })

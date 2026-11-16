@@ -35,6 +35,9 @@ from app.schemas.system_design import (
     ArchitectureReviewSchema,
     CanvasDiagramSubmitRequest,
     ChallengeFrontierPromptResponse,
+    CoachCanvasAction,
+    DiagramCoachChatRequest,
+    DiagramCoachChatResponse,
     DiagramHintRequest,
     DiagramHintResponse,
     DiagramRevisionRead,
@@ -51,6 +54,8 @@ from app.schemas.system_design import (
     SystemDesignSessionRead,
 )
 from app.services.diagram_catalog import (
+    CANONICAL_DIAGRAM_BLOCKS,
+    build_coach_canvas_actions,
     compute_diagram_hint_penalty,
     evaluate_canvas_topology,
     node_matches_expected,
@@ -979,10 +984,33 @@ def _derive_readiness_rating(overall_score: float) -> str:
     return "NEEDS_PRACTICE"
 
 
+def _is_session_coached(session: SystemDesignSessionModel | None) -> bool:
+    """Return True when the learner used Reveal Requirements, Hints, Required Bank, or Coach."""
+    if not session:
+        return False
+    guidance = session.diagram_guidance or {}
+    if (
+        guidance.get("is_coached")
+        or guidance.get("requirements_revealed")
+        or guidance.get("revealed_all_bank")
+        or int(guidance.get("hints_used_count") or 0) > 0
+        or bool(guidance.get("coach_messages"))
+    ):
+        return True
+    for turn in (session.requirements_transcript or []) + (
+        session.defence_transcript or []
+    ):
+        if isinstance(turn, dict) and turn.get("assisted"):
+            return True
+    return False
+
+
 def _apply_guidance_penalty(
-    eval_dict: dict[str, Any], diagram_guidance: dict[str, Any] | None
+    eval_dict: dict[str, Any],
+    diagram_guidance: dict[str, Any] | None,
+    session: SystemDesignSessionModel | None = None,
 ) -> dict[str, Any]:
-    """Derive net overall_score and readiness_rating by subtracting diagram hint penalties."""
+    """Attach unpenalized rubric score, Solo/Coached status, and Mastery XP."""
     updated = dict(eval_dict)
     raw_val = (
         updated.get("raw_score")
@@ -990,14 +1018,23 @@ def _apply_guidance_penalty(
         else updated.get("overall_score", 0.0)
     )
     raw_score = round(max(0.0, min(100.0, float(raw_val))), 1)
-    penalty = round(
-        max(0.0, float((diagram_guidance or {}).get("penalty_points") or 0.0)), 1
+    is_coached = (
+        _is_session_coached(session)
+        if session is not None
+        else bool(
+            (diagram_guidance or {}).get("is_coached")
+            or (diagram_guidance or {}).get("requirements_revealed")
+            or (diagram_guidance or {}).get("revealed_all_bank")
+            or int((diagram_guidance or {}).get("hints_used_count") or 0) > 0
+            or bool((diagram_guidance or {}).get("coach_messages"))
+        )
     )
-    net_score = round(max(0.0, raw_score - penalty), 1)
     updated["raw_score"] = raw_score
-    updated["guidance_penalty"] = penalty
-    updated["overall_score"] = net_score
-    updated["readiness_rating"] = _derive_readiness_rating(net_score)
+    updated["guidance_penalty"] = 0.0
+    updated["overall_score"] = raw_score
+    updated["readiness_rating"] = _derive_readiness_rating(raw_score)
+    updated["assistance_mode"] = "COACHED" if is_coached else "SOLO"
+    updated["xp_earned"] = 100 if is_coached else 150
     return updated
 
 
@@ -2356,6 +2393,78 @@ class SystemDesignService:
         return await SystemDesignService.get_session(db, session_id)
 
     @staticmethod
+    async def reveal_requirements_ledger(
+        db: AsyncSession, session_id: int, lock_and_proceed: bool = False
+    ) -> SystemDesignSessionModel:
+        """Populate Stage 1 Requirements Ledger directly from the session brief so learners can inspect or jump to diagramming."""
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+        if session.stage != "REQUIREMENTS":
+            raise ValueError(
+                f"Requirements can only be revealed during REQUIREMENTS stage (current stage: {session.stage})."
+            )
+
+        brief = SystemDesignService._get_session_brief(session)
+        existing_ledger = dict(session.requirements_ledger or {})
+        raw_scales = brief.get("scale_estimates")
+        scale_dict = (
+            {str(k): str(v) for k, v in raw_scales.items()}
+            if isinstance(raw_scales, dict)
+            else {}
+        )
+        raw_hidden = brief.get("hidden_context") or {}
+        if isinstance(raw_hidden, dict) and raw_hidden.get("scale_notes"):
+            scale_dict.setdefault("scale_notes", str(raw_hidden["scale_notes"]))
+
+        brief_patch = {
+            "functional_requirements": [
+                str(x).strip()
+                for x in (brief.get("functional_requirements") or [])
+                if str(x).strip()
+            ],
+            "non_functional_requirements": [
+                str(x).strip()
+                for x in (brief.get("non_functional_requirements") or [])
+                if str(x).strip()
+            ],
+            "scale_estimates": scale_dict,
+            "out_of_scope": [
+                str(x).strip()
+                for x in (brief.get("out_of_scope") or [])
+                if str(x).strip()
+            ],
+            "assumptions": [
+                str(x).strip()
+                for x in (brief.get("constraints") or brief.get("assumptions") or [])
+                if str(x).strip()
+            ],
+            "unresolved_questions": [],
+        }
+        merged_ledger = _build_merged_ledger_dict(
+            existing_ledger, brief_patch, merge_with_existing=True
+        )
+
+        guidance = dict(session.diagram_guidance or {})
+        guidance["requirements_revealed"] = True
+        guidance["is_coached"] = True
+        session.diagram_guidance = guidance
+        flag_modified(session, "diagram_guidance")
+
+        if lock_and_proceed and SystemDesignService._has_substantive_ledger_content(
+            merged_ledger
+        ):
+            merged_ledger["is_locked"] = True
+            session.stage = "DESIGN"
+        else:
+            merged_ledger["is_locked"] = bool(existing_ledger.get("is_locked", False))
+
+        session.requirements_ledger = merged_ledger
+        session.updated_at = datetime.now(UTC)
+        flag_modified(session, "requirements_ledger")
+        await db.commit()
+        return await SystemDesignService.get_session(db, session_id)
+
+    @staticmethod
     async def upload_diagram(
         db: AsyncSession,
         session_id: int,
@@ -2476,7 +2585,7 @@ class SystemDesignService:
         session_id: int,
         payload: DiagramHintRequest,
     ) -> DiagramHintResponse:
-        """Unlock component/path/topology coaching aligned with the challenge brief and locked ledger."""
+        """Unlock component/path/topology coaching aligned with the challenge brief and locked ledger (0-pt deduction)."""
         session = await SystemDesignService._get_session_for_update(db, session_id)
         SystemDesignService._ensure_session_mutable(session)
         SystemDesignService._ensure_requirements_locked(session)
@@ -2485,17 +2594,7 @@ class SystemDesignService:
                 f"Diagram coaching hints are available during the Design stage (current stage: {session.stage})."
             )
 
-        is_practice = session.mode == "PRACTICE"
-        if session.mode == "INTERVIEW" and payload.hint_mode in (
-            "reveal_all",
-            "next_connection",
-            "check_topology",
-        ):
-            raise ValueError(
-                "Full required bank, path checklist, and topology coaching are disabled in strict INTERVIEW mode. "
-                "Switch to ADAPTIVE or PRACTICE mode, or use single-component hints."
-            )
-
+        is_practice = True
         brief = SystemDesignService._get_session_brief(session)
         blueprint = resolve_challenge_blueprint(
             brief, session.requirements_ledger or {}
@@ -2506,14 +2605,6 @@ class SystemDesignService:
         guidance = dict(session.diagram_guidance or {})
         hints_used_count = int(guidance.get("hints_used_count") or 0)
         revealed_all_bank = bool(guidance.get("revealed_all_bank") or False)
-        if (
-            payload.hint_mode == "check_topology"
-            and session.mode == "ADAPTIVE"
-            and not revealed_all_bank
-        ):
-            raise ValueError(
-                "Unlock the Complete Required Bank first (or switch to Practice Mode) to run Check Topology."
-            )
 
         already_revealed: list[dict[str, Any]] = []
         spec_by_key = {
@@ -2597,6 +2688,14 @@ class SystemDesignService:
         if not required_specs and payload.hint_mode in ("next_component", "reveal_all"):
             message = "No fixed component checklist is defined for this challenge — use canonical blocks or + Custom Block freely."
         elif payload.hint_mode == "next_component":
+            topology_feedback = evaluate_canvas_topology(
+                flow_snapshot, blueprint, brief
+            )
+            returned_paths = (
+                topology_feedback.get("path_milestones") or expected_paths
+                if revealed_all_bank
+                else guidance.get("expected_paths", [])
+            )
             if unrevealed_candidates:
                 target_spec = unrevealed_candidates[0]
                 already_revealed.append(dict(target_spec))
@@ -2607,10 +2706,7 @@ class SystemDesignService:
                     revealed_types.add(target_spec["type_id"])
                 hints_used_count += 1
                 newly_revealed.append(RevealedComponentHint(**target_spec))
-                cost_label = "free in Practice" if is_practice else "-3 pts"
-                message = (
-                    f"Unlocked expected block: {target_spec['label']} ({cost_label})."
-                )
+                message = f"Unlocked guided block: {target_spec['label']}."
             elif unplaced_specs:
                 message = (
                     "All expected components are already unlocked in your guided bank."
@@ -2628,43 +2724,38 @@ class SystemDesignService:
                     if target_spec["type_id"] != "custom":
                         revealed_types.add(target_spec["type_id"])
                     newly_revealed.append(RevealedComponentHint(**target_spec))
-            returned_paths = expected_paths
             topology_feedback = evaluate_canvas_topology(
                 flow_snapshot, blueprint, brief
             )
+            returned_paths = topology_feedback.get("path_milestones") or expected_paths
             if newly_revealed:
-                message = f"Unlocked all {len(required_specs)} required components & path checklist."
+                message = f"Unlocked all {len(required_specs)} recommended components & path checklist."
             else:
-                message = f"Complete {len(required_specs)}-block bank & path checklist synced."
+                message = f"Synced {len(required_specs)}-block reference bank & path checklist."
         elif payload.hint_mode == "check_topology":
-            returned_paths = (
-                expected_paths if (revealed_all_bank or is_practice) else []
-            )
             topology_feedback = evaluate_canvas_topology(
                 flow_snapshot, blueprint, brief
             )
+            returned_paths = topology_feedback.get("path_milestones") or expected_paths
             finding_count = len(topology_feedback.get("findings") or [])
             if finding_count == 0:
-                message = "Topology check passed! All required components, paths, and resilience notes look solid."
+                message = "Topology check passed! All core paths and resilience notes look solid."
             else:
-                message = f"Topology check found {finding_count} actionable item(s) to review before Analyze."
+                message = f"Topology check found {finding_count} item(s) to review before Analyze."
         elif payload.hint_mode == "next_connection":
             topology_feedback = evaluate_canvas_topology(
                 flow_snapshot, blueprint, brief
             )
             next_connection_hint = topology_feedback.get("next_connection_hint")
-            returned_paths = expected_paths
+            returned_paths = topology_feedback.get("path_milestones") or expected_paths
             if next_connection_hint:
                 hints_used_count += 1
-                cost_label = "free in Practice" if is_practice else "-3 pts"
                 message = (
-                    f"Next wire ({cost_label}): {next_connection_hint['source_label']} -> "
+                    f"Next suggested wire: {next_connection_hint['source_label']} -> "
                     f"{next_connection_hint['target_label']} ({next_connection_hint['suggested_label']})."
                 )
             else:
-                message = (
-                    "All expected Read, Write, and Async connections are already wired!"
-                )
+                message = "All reference Read, Write, and Async connections are already wired!"
 
         penalty_points = compute_diagram_hint_penalty(
             hints_used_count, revealed_all_bank, mode=session.mode
@@ -2676,7 +2767,14 @@ class SystemDesignService:
             "expected_paths": returned_paths
             if returned_paths
             else guidance.get("expected_paths", []),
-            "is_practice_run": is_practice,
+            "coach_messages": list(guidance.get("coach_messages") or []),
+            "last_topology_feedback": (
+                topology_feedback
+                if topology_feedback is not None
+                else guidance.get("last_topology_feedback")
+            ),
+            "is_coached": True,
+            "is_practice_run": True,
             "penalty_points": penalty_points,
         }
         session.diagram_guidance = updated_guidance
@@ -2691,15 +2789,221 @@ class SystemDesignService:
         return DiagramHintResponse(
             newly_revealed=newly_revealed,
             revealed_components=already_revealed,
-            expected_paths=returned_paths or updated_guidance.get("expected_paths", []),
+            expected_paths=updated_guidance["expected_paths"],
             topology_feedback=topology_feedback,
             next_connection_hint=next_connection_hint,
+            is_coached=True,
             is_practice_run=is_practice,
             hints_used_count=hints_used_count,
             revealed_all_bank=revealed_all_bank,
             penalty_points=penalty_points,
             remaining_expected_count=remaining_count,
             message=message,
+            session=SystemDesignSessionRead.model_validate(refreshed).model_dump(
+                mode="json"
+            ),
+        )
+
+    @staticmethod
+    async def send_diagram_coach_message(
+        db: AsyncSession,
+        session_id: int,
+        payload: DiagramCoachChatRequest,
+    ) -> DiagramCoachChatResponse:
+        """Interactive Studio Coach chat with optional click-to-apply canvas actions."""
+        session = await SystemDesignService._get_session_for_update(db, session_id)
+        SystemDesignService._ensure_session_mutable(session)
+        SystemDesignService._ensure_requirements_locked(session)
+        if session.stage not in ("DESIGN", "REVIEW", "DEFENCE"):
+            raise ValueError(
+                f"Studio Coach chat is available during the Design stage (current stage: {session.stage})."
+            )
+
+        user_message = (payload.message or "").strip()
+        if not user_message:
+            raise ValueError("Coach message cannot be empty.")
+
+        challenge = session.challenge
+        brief = SystemDesignService._get_session_brief(session)
+        blueprint = resolve_challenge_blueprint(
+            brief, session.requirements_ledger or {}
+        )
+        current_nodes = [
+            n for n in (payload.current_nodes or []) if isinstance(n, dict)
+        ]
+        current_edges = [
+            e for e in (payload.current_edges or []) if isinstance(e, dict)
+        ]
+        flow_snapshot = {
+            "nodes": current_nodes,
+            "edges": current_edges,
+            "notes": payload.current_notes or "",
+        }
+        topology_feedback = evaluate_canvas_topology(flow_snapshot, blueprint, brief)
+        action_dicts = build_coach_canvas_actions(
+            blueprint, flow_snapshot, user_message=user_message
+        )
+        suggested_actions = [CoachCanvasAction(**act) for act in action_dicts]
+
+        guidance = dict(session.diagram_guidance or {})
+        coach_history = list(guidance.get("coach_messages") or [])
+        now_iso = datetime.now(UTC).isoformat()
+        coach_history.append(
+            {"role": "user", "content": user_message, "timestamp": now_iso}
+        )
+
+        # Build concise architectural context so the LLM coach gives grounded, flexible guidance
+        catalog_blocks = ", ".join(
+            f"{b['type_id']} ({b['label']})" for b in CANONICAL_DIAGRAM_BLOCKS
+        )
+        compact_canvas = {
+            "nodes": [
+                {
+                    "type_id": n.get("type_id") or (n.get("data") or {}).get("type_id"),
+                    "label": n.get("label") or (n.get("data") or {}).get("label"),
+                    "tech_stack": n.get("tech_stack")
+                    or (n.get("data") or {}).get("tech_stack"),
+                }
+                for n in current_nodes
+            ],
+            "edges": [
+                {
+                    "source": e.get("source"),
+                    "target": e.get("target"),
+                    "protocol": e.get("protocol")
+                    or (e.get("data") or {}).get("protocol"),
+                    "delivery_mode": e.get("delivery_mode")
+                    or (e.get("data") or {}).get("delivery_mode"),
+                    "label": e.get("label") or (e.get("data") or {}).get("text_label"),
+                }
+                for e in current_edges
+            ],
+            "notes": payload.current_notes or "",
+        }
+        sys_prompt = await _format_prompt_from_db(
+            db,
+            "system_design_coach",
+            DEFAULT_PROMPTS["system_design_coach"],
+            challenge_title=challenge.title,
+            requirements_ledger_json=json.dumps(
+                session.requirements_ledger or {}, indent=2
+            ),
+            blueprint_summary_json=json.dumps(
+                {
+                    "required_components": [
+                        {
+                            "type_id": c.get("type_id"),
+                            "label": c.get("label"),
+                            "why_required": c.get("why_required"),
+                        }
+                        for c in (blueprint.get("required_components") or [])
+                    ],
+                    "expected_paths": blueprint.get("expected_paths") or [],
+                },
+                indent=2,
+            ),
+            canvas_flow_json=json.dumps(compact_canvas, indent=2),
+            topology_feedback_json=json.dumps(topology_feedback, indent=2),
+            available_actions_json=json.dumps(action_dicts, indent=2),
+            canonical_blocks=catalog_blocks,
+        )
+        llm_messages = [SystemMessage(content=sys_prompt)]
+        for turn in coach_history[-8:]:
+            role = str(turn.get("role") or "user")
+            content = str(turn.get("content") or "").strip()
+            if not content:
+                continue
+            if role in ("coach", "assistant"):
+                llm_messages.append(AIMessage(content=content))
+            else:
+                llm_messages.append(HumanMessage(content=content))
+
+        reply_text = ""
+        try:
+            tracer = PostgresTracer()
+            chat_model = await get_task_chat_model(
+                db, task_type="SYSTEM_DESIGN_INTERVIEWER"
+            )
+            llm_res = await _invoke_llm_adaptive(
+                chat_model,
+                llm_messages,
+                tracer,
+                db,
+                task_type="SYSTEM_DESIGN_INTERVIEWER",
+            )
+            reply_text = strip_reasoning_tags(
+                _extract_text_content(llm_res.content)
+            ).strip()
+        except Exception as exc:
+            logger.warning(
+                "Studio Coach LLM call failed, using deterministic fallback: %s", exc
+            )
+
+        if not reply_text:
+            missing = topology_feedback.get("missing_components") or []
+            next_hint = topology_feedback.get("next_connection_hint")
+            parts = []
+            if missing:
+                names = ", ".join(
+                    m.get("label", "") for m in missing[:3] if m.get("label")
+                )
+                parts.append(
+                    f"Right now your canvas is missing key building blocks ({names}), though valid equivalent choices are always welcome."
+                )
+            if next_hint:
+                parts.append(
+                    f"Next clean wire: connect {next_hint.get('source_label')} -> {next_hint.get('target_label')} ({next_hint.get('suggested_label')})."
+                )
+            if suggested_actions:
+                parts.append(
+                    f"You can click '{suggested_actions[0].title}' below to apply this increment directly to your canvas."
+                )
+            reply_text = " ".join(parts) or (
+                "Your core topology covers the primary flows! Make sure your Canvas Notes capture TTL/retention, capacity math, and failover strategy."
+            )
+
+        coach_history.append(
+            {
+                "role": "coach",
+                "content": reply_text,
+                "actions": [a.model_dump(mode="json") for a in suggested_actions],
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
+        coach_history = coach_history[-24:]
+
+        hints_used_count = int(guidance.get("hints_used_count") or 0) + 1
+        revealed_all_bank = bool(guidance.get("revealed_all_bank") or False)
+        path_milestones = (
+            topology_feedback.get("path_milestones")
+            or blueprint.get("expected_paths")
+            or []
+        )
+        updated_guidance = {
+            **guidance,
+            "hints_used_count": hints_used_count,
+            "revealed_all_bank": revealed_all_bank,
+            "revealed_components": list(guidance.get("revealed_components") or []),
+            "expected_paths": path_milestones,
+            "coach_messages": coach_history,
+            "last_topology_feedback": topology_feedback,
+            "is_coached": True,
+            "is_practice_run": True,
+            "penalty_points": 0.0,
+        }
+        session.diagram_guidance = updated_guidance
+        session.updated_at = datetime.now(UTC)
+        flag_modified(session, "diagram_guidance")
+        await db.commit()
+
+        refreshed = await SystemDesignService.get_session(db, session_id)
+        return DiagramCoachChatResponse(
+            reply=reply_text,
+            suggested_actions=suggested_actions,
+            coach_messages=coach_history,
+            topology_feedback=topology_feedback,
+            expected_paths=path_milestones,
+            is_coached=True,
             session=SystemDesignSessionRead.model_validate(refreshed).model_dump(
                 mode="json"
             ),
@@ -3391,7 +3695,9 @@ class SystemDesignService:
                 f"Final evaluation requires DEFENCE stage after answering defence prompts (current stage: {session.stage})."
             )
 
-        adjusted_eval = _apply_guidance_penalty(eval_dict, session.diagram_guidance)
+        adjusted_eval = _apply_guidance_penalty(
+            eval_dict, session.diagram_guidance, session=session
+        )
         now = datetime.now(UTC)
         session.final_evaluation = adjusted_eval
         session.overall_score = float(adjusted_eval["overall_score"])
@@ -3588,7 +3894,9 @@ class SystemDesignService:
 
         parsed = _parse_strict_json_object(raw_response)
         eval_dict = _validate_final_evaluation_payload(parsed)
-        adjusted_eval = _apply_guidance_penalty(eval_dict, session.diagram_guidance)
+        adjusted_eval = _apply_guidance_penalty(
+            eval_dict, session.diagram_guidance, session=session
+        )
         now = datetime.now(UTC)
         session.final_evaluation = adjusted_eval
         session.overall_score = float(adjusted_eval["overall_score"])
