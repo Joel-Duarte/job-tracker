@@ -398,7 +398,7 @@ test('supports seeded blind starts, explicit variant picker, sidebar seed displa
   await expect(page.getByTestId('active-session-seed-badge')).toHaveText(`Seed: #${rolledSeed}`)
   await expect(page.getByTestId('active-session-blind-badge')).toBeVisible()
 
-  // QueueView -> System Design task links directly to /chat?mode=system_design&sessionId=... (not /agent)
+  // QueueView -> System Design tasks (completed + failed) link directly to /chat?mode=system_design&sessionId=... & never show Edit Job Description
   await page.evaluate((sid) => {
     const raw = localStorage.getItem('jt_demo_db_v1')
     const db = raw ? JSON.parse(raw) : {}
@@ -419,12 +419,64 @@ test('supports seeded blind starts, explicit variant picker, sidebar seed displa
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       },
+      {
+        id: 9902,
+        task_type: 'SYSTEM_DESIGN_REVIEW',
+        status: 'FAILED',
+        stage: 'ANALYZING',
+        error_message: 'LM Studio connection timed out',
+        title_hint: 'System Design Review • Design a URL Shortener',
+        result_json: { session_id: sid },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: 9903,
+        task_type: 'EMAIL_SYNC',
+        status: 'FAILED',
+        stage: 'FAILED',
+        error_message: 'IMAP credentials rejected',
+        title_hint: 'Inbox Sync',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: 9904,
+        task_type: 'JOB_ASSESSMENT',
+        status: 'FAILED',
+        stage: 'SCRAPING',
+        error_message: 'SCRAPE_FAILED: Cloudflare blocked',
+        title_hint: 'Staff Backend Engineer Lead',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
       ...(db.intake_evaluations || []),
     ]
     localStorage.setItem('jt_demo_db_v1', JSON.stringify(db))
   }, explicitSessionId)
 
   await page.goto('/queue')
+  await page.getByTestId('queue-filter-sd-review').click()
+  const failedSdCard = page.locator('.task-card', { hasText: 'LM Studio connection timed out' })
+  await expect(failedSdCard).toBeVisible()
+  await expect(failedSdCard.getByTestId('queue-fix-jd-btn')).toHaveCount(0)
+  await expect(failedSdCard).not.toContainText('Edit Job Description')
+  await expect(failedSdCard).not.toContainText('Provide Description')
+  await expect(failedSdCard.getByTestId('queue-error-sd-link')).toHaveAttribute(
+    'href',
+    `/chat?mode=system_design&sessionId=${explicitSessionId}`
+  )
+
+  await page.getByRole('button', { name: 'All Types' }).click()
+  const failedEmailCard = page.locator('.task-card', { hasText: 'IMAP credentials rejected' })
+  await expect(failedEmailCard.getByTestId('queue-fix-jd-btn')).toHaveCount(0)
+  await expect(failedEmailCard.getByTestId('queue-error-email-link')).toHaveAttribute(
+    'href',
+    '/settings?tab=email_accounts'
+  )
+  const failedJobCard = page.locator('.task-card', { hasText: 'SCRAPE_FAILED: Cloudflare blocked' })
+  await expect(failedJobCard.getByTestId('queue-fix-jd-btn')).toBeVisible()
+
   await page.getByTestId('queue-filter-sd-eval').click()
   const openSessionLink = page.getByTestId('queue-open-sd-session-btn').first()
   await expect(openSessionLink).toBeVisible()

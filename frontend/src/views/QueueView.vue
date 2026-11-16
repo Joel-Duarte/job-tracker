@@ -333,9 +333,12 @@ async function retryTask(taskId) {
   }
 }
 
+const JD_ELIGIBLE_TASK_TYPES = new Set(['JOB_ASSESSMENT', 'APPLICATION_ASSESSMENT'])
+
 function isManualDescriptionEligible(task) {
   if (!task) return false
-  if (['CV_EXTRACTION', 'EMBEDDING', 'COVER_LETTER'].includes(task.task_type)) return false
+  const normalizedType = task.task_type || 'JOB_ASSESSMENT'
+  if (!JD_ELIGIBLE_TASK_TYPES.has(normalizedType)) return false
   if (!['FAILED', 'CANCELLED', 'ERROR'].includes(task.status)) return false
   const msg = (task.error_message || '').toUpperCase()
   return (
@@ -349,6 +352,95 @@ function isManualDescriptionEligible(task) {
     task.raw_text.trim().length === 0 ||
     Boolean(task.error_message)
   )
+}
+
+function getFailedTaskAction(task) {
+  if (!task || isManualDescriptionEligible(task)) return null
+  const t = task.task_type
+  if (
+    t === 'SYSTEM_DESIGN_REVIEW' ||
+    t === 'SYSTEM_DESIGN_EVALUATION' ||
+    t === 'SYSTEM_DESIGN_CHALLENGE_GEN'
+  ) {
+    const sid = task.result_json?.session_id
+    return {
+      label: sid ? 'Open Session' : 'Open Lab',
+      title: sid ? 'Return to the System Design session' : 'Open the System Design Lab',
+      to: sid ? `/chat?mode=system_design&sessionId=${sid}` : '/chat?mode=system_design',
+      icon: Layers,
+      testId: 'queue-error-sd-link',
+    }
+  }
+  if (t === 'CV_EXTRACTION' || t === 'ROLE_ALIGNMENT_DOSSIER') {
+    return {
+      label: 'View Profile',
+      title: 'Inspect your Candidate Profile & CV extraction settings',
+      to: '/profile',
+      icon: UserCheck,
+      testId: 'queue-error-profile-link',
+    }
+  }
+  if (t === 'COMPANY_RESEARCH') {
+    const cid = task.result_json?.company_id
+    if (cid) {
+      return {
+        label: 'View Company',
+        title: 'Inspect company details',
+        onClick: () => uiStore.openCompanyDrawer(cid),
+        icon: Building2,
+        testId: 'queue-error-company-btn',
+      }
+    }
+    return {
+      label: 'View Companies',
+      title: 'Inspect company directory',
+      to: '/companies',
+      icon: Building2,
+      testId: 'queue-error-company-link',
+    }
+  }
+  if (t === 'EMAIL_SYNC' || t === 'EMAIL_INTAKE') {
+    return {
+      label: 'Email Settings',
+      title: 'Check IMAP/Email sync credentials and settings',
+      to: '/settings?tab=email_accounts',
+      icon: Mail,
+      testId: 'queue-error-email-link',
+    }
+  }
+  if (t === 'APPLICATION_QA') {
+    const appId =
+      task.result_json?.application_id ||
+      (task.raw_text && /^\d+$/.test(String(task.raw_text).trim())
+        ? Number(task.raw_text.trim())
+        : null)
+    if (appId) {
+      return {
+        label: 'Open Q&A Studio',
+        title: 'Open application Q&A drawer',
+        onClick: () => uiStore.openAppQuestionsModal(appId),
+        icon: HelpCircle,
+        testId: 'queue-error-qa-btn',
+      }
+    }
+    return {
+      label: 'View Applications',
+      title: 'Inspect applications board',
+      to: '/applications',
+      icon: Briefcase,
+      testId: 'queue-error-apps-link',
+    }
+  }
+  if (t === 'COVER_LETTER') {
+    return {
+      label: 'View Applications',
+      title: 'Inspect application cover letters',
+      to: '/applications',
+      icon: FileText,
+      testId: 'queue-error-cover-letter-link',
+    }
+  }
+  return null
 }
 
 function openFixJDModal(task) {
@@ -1535,15 +1627,36 @@ onMounted(() => {
               <span>{{ task.error_message }}</span>
             </div>
             <div class="error-actions-right">
-              <!-- Manual Description Action for Scraping/Keyword Failures -->
+              <!-- Manual Description Action ONLY for job intake / assessment failures -->
               <button
                 v-if="isManualDescriptionEligible(task)"
                 class="btn btn-primary btn-xs btn-fix-jd"
+                data-testid="queue-fix-jd-btn"
                 @click="openFixJDModal(task)"
                 :title="task.raw_text && task.raw_text.trim() ? 'Manually edit the job description text' : 'Manually supply the job description text'"
               >
                 <Edit3 :size="12" />
                 <span>{{ task.raw_text && task.raw_text.trim() ? 'Edit Job Description' : 'Provide Description' }}</span>
+              </button>
+              <router-link
+                v-else-if="getFailedTaskAction(task)?.to"
+                :to="getFailedTaskAction(task).to"
+                class="btn btn-primary btn-xs"
+                :data-testid="getFailedTaskAction(task).testId"
+                :title="getFailedTaskAction(task).title"
+              >
+                <component :is="getFailedTaskAction(task).icon" :size="12" />
+                <span>{{ getFailedTaskAction(task).label }} &rarr;</span>
+              </router-link>
+              <button
+                v-else-if="getFailedTaskAction(task)?.onClick"
+                class="btn btn-primary btn-xs"
+                :data-testid="getFailedTaskAction(task).testId"
+                :title="getFailedTaskAction(task).title"
+                @click="getFailedTaskAction(task).onClick()"
+              >
+                <component :is="getFailedTaskAction(task).icon" :size="12" />
+                <span>{{ getFailedTaskAction(task).label }} &rarr;</span>
               </button>
               <button
                 class="btn btn-secondary btn-xs btn-retry-error"

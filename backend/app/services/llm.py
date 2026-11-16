@@ -275,6 +275,8 @@ Email Body:
         res_obj.position = strip_reasoning_tags(res_obj.position)
     if res_obj.company:
         res_obj.company = strip_reasoning_tags(res_obj.company)
+    # Deprecated field: deadline_evidence / meeting_proposal replace raw LLM due_date
+    res_obj.due_date = None
     return res_obj
 
 

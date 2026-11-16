@@ -43,11 +43,43 @@ def _poll_session(sid: int, timeout: float = 180.0) -> tuple[dict[str, Any], flo
     raise TimeoutError(f"Session {sid} background task exceeded {timeout}s")
 
 
-def run_single_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
+def run_single_scenario(
+    scenario: dict[str, Any], base_url: str = BASE
+) -> dict[str, Any]:
     """Run one golden scenario end-to-end against the live Docker API / LM Studio backend."""
-    ch = _http_json(f"/challenges/{scenario['challenge_slug']}")
+    ch_req = urllib.request.Request(
+        f"{base_url}/challenges/{scenario['challenge_slug']}",
+        headers={"Content-Type": "application/json"},
+        method="GET",
+    )
+    with urllib.request.urlopen(ch_req, timeout=180) as resp:
+        ch = json.loads(resp.read().decode("utf-8"))
     assert isinstance(ch, dict)
-    sess = _http_json(
+
+    def _call(
+        path: str, method: str = "GET", body: dict[str, Any] | None = None
+    ) -> Any:
+        req = urllib.request.Request(
+            f"{base_url}{path}",
+            data=json.dumps(body).encode("utf-8") if body is not None else None,
+            headers={"Content-Type": "application/json"},
+            method=method,
+        )
+        with urllib.request.urlopen(req, timeout=180) as r:
+            raw = r.read().decode("utf-8")
+            return json.loads(raw) if raw.strip() else {}
+
+    def _poll(sid: int, timeout: float = 180.0) -> tuple[dict[str, Any], float]:
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            sess = _call(f"/sessions/{sid}")
+            assert isinstance(sess, dict)
+            if sess.get("active_task_status") in (None, "COMPLETED", "FAILED"):
+                return sess, time.time() - t0
+            time.sleep(2.0)
+        raise TimeoutError(f"Session {sid} background task exceeded {timeout}s")
+
+    sess = _call(
         "/sessions",
         "POST",
         {
@@ -61,12 +93,12 @@ def run_single_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
     failures: list[str] = []
 
     try:
-        _http_json(
+        _call(
             f"/sessions/{sid}/requirements/reveal",
             "POST",
             {"lock_and_proceed": True},
         )
-        _http_json(
+        _call(
             f"/sessions/{sid}/diagrams/canvas",
             "POST",
             {
@@ -75,8 +107,8 @@ def run_single_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
                 "notes": scenario["canvas_notes"],
             },
         )
-        _http_json(f"/sessions/{sid}/review", "POST", {"use_web_search": False})
-        s_rev, rev_secs = _poll_session(sid)
+        _call(f"/sessions/{sid}/review", "POST", {"use_web_search": False})
+        s_rev, rev_secs = _poll(sid)
         if s_rev.get("active_task_status") == "FAILED":
             failures.append(f"Review task failed: {s_rev.get('active_task_error')}")
             rev = {}
@@ -97,13 +129,13 @@ def run_single_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
                     f"False complexity penalty: '{bad_term}' in {rev.get('unnecessary_complexity')}"
                 )
 
-        _http_json(
+        _call(
             f"/sessions/{sid}/defence/message",
             "POST",
             {"message": scenario["defence_answer"]},
         )
-        _http_json(f"/sessions/{sid}/evaluate", "POST")
-        s_eval, eval_secs = _poll_session(sid)
+        _call(f"/sessions/{sid}/evaluate", "POST")
+        s_eval, eval_secs = _poll(sid)
         score = float(s_eval.get("overall_score") or 0.0)
         rating = str(s_eval.get("readiness_rating") or "")
         if s_eval.get("active_task_status") == "FAILED" or not s_eval.get(
@@ -133,7 +165,7 @@ def run_single_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
         }
     finally:
         try:
-            _http_json(f"/sessions/{sid}", "DELETE")
+            _call(f"/sessions/{sid}", "DELETE")
         except Exception:
             pass
 
